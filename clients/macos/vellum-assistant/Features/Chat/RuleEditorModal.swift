@@ -139,7 +139,7 @@ struct RuleEditorModal: View {
             if !hasUserInteracted {
                 selectedRiskLevel = existingRule.risk.isEmpty ? "medium" : existingRule.risk
             }
-            if let suggestion {
+            if let suggestion, !hasUserInteracted {
                 // Pre-select Save As New pattern: use LLM suggestion if it differs from existing rule
                 if !suggestion.pattern.isEmpty,
                    suggestion.pattern != existingRule.pattern,
@@ -159,23 +159,23 @@ struct RuleEditorModal: View {
             // Create mode with suggestion
             if !hasUserInteracted {
                 selectedRiskLevel = suggestion.risk.isEmpty ? (riskLevel.isEmpty ? "medium" : riskLevel) : suggestion.risk
-            }
 
-            // Pattern: find the matching scope option index.
-            // In multi-option mode the UI hides index 0 (exact match), so skip
-            // it to avoid an invisible selection that silently persists.
-            if let matchIndex = scopeOptions.firstIndex(where: { $0.pattern == suggestion.pattern }),
-               (matchIndex > 0 || isSingleOption) {
-                selectedPatternIndex = matchIndex
-            } else if isSingleOption {
-                selectedPatternIndex = 0
-            }
+                // Pattern: find the matching scope option index.
+                // In multi-option mode the UI hides index 0 (exact match), so skip
+                // it to avoid an invisible selection that silently persists.
+                if let matchIndex = scopeOptions.firstIndex(where: { $0.pattern == suggestion.pattern }),
+                   (matchIndex > 0 || isSingleOption) {
+                    selectedPatternIndex = matchIndex
+                } else if isSingleOption {
+                    selectedPatternIndex = 0
+                }
 
-            // Directory scope: match suggestion scope to options
-            if let suggestedScope = suggestion.scope, suggestedScope != "everywhere" {
-                let filtered = directoryScopeOptions.filter { $0.scope != "everywhere" }
-                if let matchIndex = filtered.firstIndex(where: { $0.scope == suggestedScope }) {
-                    selectedDirectoryScopeIndex = matchIndex
+                // Directory scope: match suggestion scope to options
+                if let suggestedScope = suggestion.scope, suggestedScope != "everywhere" {
+                    let filtered = directoryScopeOptions.filter { $0.scope != "everywhere" }
+                    if let matchIndex = filtered.firstIndex(where: { $0.scope == suggestedScope }) {
+                        selectedDirectoryScopeIndex = matchIndex
+                    }
                 }
             }
         } else {

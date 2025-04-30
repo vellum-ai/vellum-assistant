@@ -1172,7 +1172,8 @@ struct ToolCallStepDetailRow: View {
         // LLM suggestion fires while the modal is already visible. The modal
         // reacts via .onChange(of: suggestion?.pattern) in applySuggestionOrDefaults.
         suggestionTask = Task { @MainActor in
-            let suggestion = try? await fetchSuggestionForEditor(toolCall, existingRule: existingRule)
+            guard let suggestion = try? await fetchSuggestionForEditor(toolCall, existingRule: existingRule) else { return }
+            guard !Task.isCancelled else { return }
             ruleEditorSuggestion = suggestion
         }
     }
