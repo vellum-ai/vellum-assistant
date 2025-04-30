@@ -189,12 +189,7 @@ struct CallSiteOverridesSheet: View {
 
     // MARK: - Overrides List
 
-    @ViewBuilder
     private var overridesList: some View {
-        if !catalog.isLoaded {
-            ProgressView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 let filtered = filteredEntriesByDomain
@@ -232,7 +227,6 @@ struct CallSiteOverridesSheet: View {
             }
         }
         .frame(maxHeight: .infinity)
-        } // else catalog.isLoaded
     }
 
     // MARK: - Draft Management

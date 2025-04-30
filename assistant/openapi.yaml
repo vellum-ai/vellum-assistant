@@ -2498,6 +2498,16 @@ paths:
               required:
                 - provider
               additionalProperties: false
+  /v1/config/llm/call-sites:
+    get:
+      operationId: config_llm_callsites_get
+      summary: List LLM call sites
+      description: Returns the full catalog of LLM call sites with display names, descriptions, and domain groupings. Used by clients to render the per-call-site override settings UI.
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
   /v1/config/llm/profiles/{name}:
     put:
       operationId: config_llm_profiles_by_name_put

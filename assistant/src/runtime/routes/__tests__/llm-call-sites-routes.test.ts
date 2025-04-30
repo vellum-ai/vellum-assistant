@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { LLMCallSiteEnum } from "../../../config/schemas/llm.js";
 import { ROUTES } from "../llm-call-sites-routes.js";
 
@@ -40,10 +41,7 @@ describe("llm-call-sites-routes", () => {
     };
     const domainIds = new Set(result.domains.map((d) => d.id));
     for (const site of result.callSites) {
-      expect(domainIds.has(site.domain)).toBe(
-        true,
-        `call site "${site.id}" references unknown domain "${site.domain}"`,
-      );
+      expect(domainIds.has(site.domain)).toBe(true);
     }
   });
 

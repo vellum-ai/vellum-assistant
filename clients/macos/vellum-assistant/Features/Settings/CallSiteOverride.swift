@@ -74,6 +74,7 @@ public struct CallSiteOverride: Identifiable, Equatable, Hashable {
 /// API fetch completes. `ensureLoaded(using:)` fetches from the assistant
 /// runtime and replaces the seed data with the authoritative API response,
 /// then sets `isLoaded = true`.
+@MainActor
 public final class CallSiteCatalog: ObservableObject {
     public static let shared = CallSiteCatalog()
 
@@ -88,7 +89,7 @@ public final class CallSiteCatalog: ObservableObject {
     /// Fetch the catalog from the assistant API if not already loaded.
     /// Safe to call multiple times — subsequent calls before the first
     /// fetch completes are no-ops.
-    public func ensureLoaded(using client: SettingsClientProtocol = SettingsClient()) {
+    @MainActor public func ensureLoaded(using client: SettingsClientProtocol = SettingsClient()) {
         guard !isLoaded, fetchTask == nil else { return }
         fetchTask = Task { @MainActor in
             if let response = await client.fetchCallSiteCatalog() {
