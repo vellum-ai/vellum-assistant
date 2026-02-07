@@ -1,0 +1,71 @@
+name: Upload Agent Templates to GCS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'agent-templates/**'
+      - '.github/workflows/upload-templates.yml'
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3.0.0
+        with:
+          token_format: "access_token"
+          create_credentials_file: true
+          workload_identity_provider: "projects/585775334980/locations/global/workloadIdentityPools/github-pool/providers/github-actions-provider"
+          service_account: "github-gcr-service-account@vocify-prod.iam.gserviceaccount.com"
+          access_token_lifetime: "1200s"
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set version timestamp
+        id: version
+        run: echo "timestamp=$(date -u +'%Y%m%d%H%M')" >> $GITHUB_OUTPUT
+
+      - name: Upload vellyclaw template (latest)
+        run: |
+          gsutil -m rsync -r -d \
+            agent-templates/vellyclaw/ \
+            gs://vellum-nonprod-dev-django/velly-prototype/templates/vellyclaw/
+
+      - name: Upload vellyclaw template (versioned)
+        run: |
+          gsutil -m cp -r \
+            agent-templates/vellyclaw/* \
+            gs://vellum-nonprod-dev-django/velly-prototype/templates/${{ steps.version.outputs.timestamp }}/vellyclaw/
+
+      - name: Upload simple template (latest)
+        run: |
+          gsutil -m rsync -r -d \
+            agent-templates/simple/ \
+            gs://vellum-nonprod-dev-django/velly-prototype/templates/simple/
+
+      - name: Upload simple template (versioned)
+        run: |
+          gsutil -m cp -r \
+            agent-templates/simple/* \
+            gs://vellum-nonprod-dev-django/velly-prototype/templates/${{ steps.version.outputs.timestamp }}/simple/
+
+      - name: Verify upload
+        run: |
+          echo "=== Uploaded templates ==="
+          echo "Latest:"
+          gsutil ls gs://vellum-nonprod-dev-django/velly-prototype/templates/vellyclaw/
+          gsutil ls gs://vellum-nonprod-dev-django/velly-prototype/templates/simple/
+          echo ""
+          echo "Versioned (${{ steps.version.outputs.timestamp }}):"
+          gsutil ls gs://vellum-nonprod-dev-django/velly-prototype/templates/${{ steps.version.outputs.timestamp }}/

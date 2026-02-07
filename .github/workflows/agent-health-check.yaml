@@ -1,0 +1,286 @@
+name: Agent Health Check
+
+on:
+  schedule:
+    # Run every 5 minutes
+    - cron: "*/5 * * * *"
+  workflow_dispatch: # Allow manual trigger
+
+env:
+  APP_URL: ${{ vars.APP_URL || 'https://velly-prototype.vercel.app' }}
+
+jobs:
+  check-agents:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all agent health and errors
+        id: health-check
+        run: |
+          echo "## Agent Health Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🕐 Checked at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Get all agents
+          AGENTS_RESPONSE=$(curl -s "${APP_URL}/api/agents" || echo "[]")
+          
+          if [ "$AGENTS_RESPONSE" = "[]" ] || [ -z "$AGENTS_RESPONSE" ]; then
+            echo "No agents found or API unreachable" >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          # Parse agents and check each one
+          AGENT_IDS=$(echo "$AGENTS_RESPONSE" | jq -r '.[].id // empty')
+          
+          if [ -z "$AGENT_IDS" ]; then
+            echo "No agents found" >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          HEALTHY_COUNT=0
+          UNHEALTHY_COUNT=0
+          TOTAL_COUNT=0
+          AGENTS_WITH_ERRORS=""
+
+          echo "| Agent | Status | CPU | Memory | Errors | Details |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|-----|--------|--------|---------|" >> $GITHUB_STEP_SUMMARY
+
+          for AGENT_ID in $AGENT_IDS; do
+            TOTAL_COUNT=$((TOTAL_COUNT + 1))
+            
+            # Get agent details
+            AGENT_DATA=$(echo "$AGENTS_RESPONSE" | jq -r ".[] | select(.id == \"$AGENT_ID\")")
+            AGENT_NAME=$(echo "$AGENT_DATA" | jq -r '.name // "Unknown"')
+            
+            # Check health
+            HEALTH_RESPONSE=$(curl -s "${APP_URL}/api/agents/${AGENT_ID}/health" || echo '{"status":"error"}')
+            STATUS=$(echo "$HEALTH_RESPONSE" | jq -r '.status // "error"')
+            MESSAGE=$(echo "$HEALTH_RESPONSE" | jq -r '.message // .progress // ""')
+            IP=$(echo "$HEALTH_RESPONSE" | jq -r '.ip // ""')
+            
+            # Extract CPU and memory stats
+            CPU_PERCENT=$(echo "$HEALTH_RESPONSE" | jq -r '.stats.cpu.percent // ""')
+            CPU_CORES=$(echo "$HEALTH_RESPONSE" | jq -r '.stats.cpu.cores // ""')
+            MEM_USED=$(echo "$HEALTH_RESPONSE" | jq -r '.stats.memory.used_mb // ""')
+            MEM_TOTAL=$(echo "$HEALTH_RESPONSE" | jq -r '.stats.memory.total_mb // ""')
+            MEM_PERCENT=$(echo "$HEALTH_RESPONSE" | jq -r '.stats.memory.percent // ""')
+            
+            # Check for errors via messages endpoint (which includes errors)
+            MESSAGES_RESPONSE=$(curl -s "${APP_URL}/api/agents/${AGENT_ID}/messages" || echo '{"errors":[]}')
+            ERROR_COUNT=$(echo "$MESSAGES_RESPONSE" | jq -r '.errors | length // 0')
+            LATEST_ERROR=""
+            if [ "$ERROR_COUNT" -gt 0 ]; then
+              LATEST_ERROR=$(echo "$MESSAGES_RESPONSE" | jq -r '.errors[-1].message // ""' | head -c 100)
+              AGENTS_WITH_ERRORS="${AGENTS_WITH_ERRORS}${AGENT_NAME} (${ERROR_COUNT} errors)\n"
+            fi
+            
+            # Determine emoji and count
+            case "$STATUS" in
+              "healthy")
+                if [ "$ERROR_COUNT" -gt 0 ]; then
+                  EMOJI="⚠️"
+                else
+                  EMOJI="✅"
+                fi
+                HEALTHY_COUNT=$((HEALTHY_COUNT + 1))
+                ;;
+              "setting_up"|"starting")
+                EMOJI="🔄"
+                ;;
+              "stopped")
+                EMOJI="⏹️"
+                ;;
+              "unhealthy"|"unreachable"|"provisioning_failed")
+                EMOJI="❌"
+                UNHEALTHY_COUNT=$((UNHEALTHY_COUNT + 1))
+                ;;
+              *)
+                EMOJI="❓"
+                ;;
+            esac
+            
+            # Build details string
+            DETAILS="$STATUS"
+            [ -n "$MESSAGE" ] && DETAILS="$DETAILS - $MESSAGE"
+            [ -n "$IP" ] && DETAILS="$DETAILS (IP: $IP)"
+            
+            # Error column
+            if [ "$ERROR_COUNT" -gt 0 ]; then
+              ERROR_INFO="🔴 $ERROR_COUNT"
+            else
+              ERROR_INFO="✅ 0"
+            fi
+            
+            # CPU column
+            if [ -n "$CPU_PERCENT" ] && [ "$CPU_PERCENT" != "null" ]; then
+              CPU_INFO="${CPU_PERCENT}%"
+            else
+              CPU_INFO="-"
+            fi
+            
+            # Memory column
+            if [ -n "$MEM_USED" ] && [ "$MEM_USED" != "null" ] && [ -n "$MEM_TOTAL" ] && [ "$MEM_TOTAL" != "null" ]; then
+              MEM_INFO="${MEM_USED}/${MEM_TOTAL}MB"
+            else
+              MEM_INFO="-"
+            fi
+            
+            echo "| $EMOJI $AGENT_NAME | $STATUS | $CPU_INFO | $MEM_INFO | $ERROR_INFO | $DETAILS |" >> $GITHUB_STEP_SUMMARY
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Agents:** $TOTAL_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- **Healthy:** $HEALTHY_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- **Unhealthy:** $UNHEALTHY_COUNT" >> $GITHUB_STEP_SUMMARY
+
+          # Set output for potential alerting
+          echo "healthy=$HEALTHY_COUNT" >> $GITHUB_OUTPUT
+          echo "unhealthy=$UNHEALTHY_COUNT" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL_COUNT" >> $GITHUB_OUTPUT
+
+          # Report on errors
+          if [ -n "$AGENTS_WITH_ERRORS" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🔴 Agents with Recent Errors" >> $GITHUB_STEP_SUMMARY
+            echo -e "$AGENTS_WITH_ERRORS" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check the agent's Interaction tab in the UI for error details." >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Fail the job if there are unhealthy agents (optional - can be used for alerting)
+          if [ "$UNHEALTHY_COUNT" -gt 0 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **Warning:** $UNHEALTHY_COUNT agent(s) require attention!" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check prequeue pool status
+        id: prequeue-check
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Prequeue Pool Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Get prequeue status
+          PREQUEUE_RESPONSE=$(curl -s "${APP_URL}/api/prequeue" || echo '{"error":"unreachable"}')
+          
+          if echo "$PREQUEUE_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "❌ Failed to fetch prequeue status" >> $GITHUB_STEP_SUMMARY
+            echo "prequeue_healthy=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          TOTAL_INSTANCES=$(echo "$PREQUEUE_RESPONSE" | jq -r '.totalInstances // 0')
+          TOTAL_READY=$(echo "$PREQUEUE_RESPONSE" | jq -r '.totalReady // 0')
+          
+          echo "| Type | Total | Ready | Starting |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|-------|----------|" >> $GITHUB_STEP_SUMMARY
+
+          # Parse summary by type
+          for TYPE in $(echo "$PREQUEUE_RESPONSE" | jq -r '.summary | keys[]' 2>/dev/null); do
+            TYPE_TOTAL=$(echo "$PREQUEUE_RESPONSE" | jq -r ".summary[\"$TYPE\"].total // 0")
+            TYPE_READY=$(echo "$PREQUEUE_RESPONSE" | jq -r ".summary[\"$TYPE\"].ready // 0")
+            TYPE_STARTING=$(echo "$PREQUEUE_RESPONSE" | jq -r ".summary[\"$TYPE\"].starting // 0")
+            
+            if [ "$TYPE_READY" -gt 0 ]; then
+              EMOJI="✅"
+            elif [ "$TYPE_STARTING" -gt 0 ]; then
+              EMOJI="🔄"
+            else
+              EMOJI="⚠️"
+            fi
+            
+            echo "| $EMOJI $TYPE | $TYPE_TOTAL | $TYPE_READY | $TYPE_STARTING |" >> $GITHUB_STEP_SUMMARY
+          done
+
+          # Check individual instances for failures
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Instance Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          INSTANCE_COUNT=$(echo "$PREQUEUE_RESPONSE" | jq -r '.instances | length')
+          
+          if [ "$INSTANCE_COUNT" -eq 0 ]; then
+            echo "⚠️ No prequeue instances found. Pool may need replenishment." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Instance | Type | Status | Ready | Age |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|------|--------|-------|-----|" >> $GITHUB_STEP_SUMMARY
+            
+            echo "$PREQUEUE_RESPONSE" | jq -c '.instances[]' | while read -r INSTANCE; do
+              INST_NAME=$(echo "$INSTANCE" | jq -r '.instanceName')
+              INST_TYPE=$(echo "$INSTANCE" | jq -r '.agentType')
+              INST_STATUS=$(echo "$INSTANCE" | jq -r '.status')
+              INST_READY=$(echo "$INSTANCE" | jq -r '.ready')
+              INST_CREATED=$(echo "$INSTANCE" | jq -r '.createdAt')
+              
+              # Calculate age
+              if [ -n "$INST_CREATED" ] && [ "$INST_CREATED" != "null" ]; then
+                CREATED_TS=$(date -d "$INST_CREATED" +%s 2>/dev/null || echo "0")
+                NOW_TS=$(date +%s)
+                AGE_MINS=$(( (NOW_TS - CREATED_TS) / 60 ))
+                if [ "$AGE_MINS" -gt 60 ]; then
+                  AGE_STR="$((AGE_MINS / 60))h $((AGE_MINS % 60))m"
+                else
+                  AGE_STR="${AGE_MINS}m"
+                fi
+              else
+                AGE_STR="-"
+              fi
+              
+              if [ "$INST_READY" = "true" ]; then
+                READY_EMOJI="✅"
+              elif [ "$INST_STATUS" = "RUNNING" ] || [ "$INST_STATUS" = "STAGING" ]; then
+                READY_EMOJI="🔄"
+              else
+                READY_EMOJI="❌"
+              fi
+              
+              echo "| $INST_NAME | $INST_TYPE | $INST_STATUS | $READY_EMOJI | $AGE_STR |" >> $GITHUB_STEP_SUMMARY
+            done
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pool Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Prequeued:** $TOTAL_INSTANCES" >> $GITHUB_STEP_SUMMARY
+          echo "- **Ready to Assign:** $TOTAL_READY" >> $GITHUB_STEP_SUMMARY
+          
+          # Warning if no ready instances
+          if [ "$TOTAL_READY" -eq 0 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **Warning:** No ready prequeue instances! Agent creation will be slower." >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "prequeue_total=$TOTAL_INSTANCES" >> $GITHUB_OUTPUT
+          echo "prequeue_ready=$TOTAL_READY" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Issue for Agent Errors
+        if: always()
+        run: |
+          # Get all agents and check for errors
+          AGENTS_RESPONSE=$(curl -s "${APP_URL}/api/agents" || echo "[]")
+          AGENT_IDS=$(echo "$AGENTS_RESPONSE" | jq -r '.[].id // empty')
+          
+          for AGENT_ID in $AGENT_IDS; do
+            AGENT_DATA=$(echo "$AGENTS_RESPONSE" | jq -r ".[] | select(.id == \"$AGENT_ID\")")
+            AGENT_NAME=$(echo "$AGENT_DATA" | jq -r '.name // "Unknown"')
+            CREATED_BY=$(echo "$AGENT_DATA" | jq -r '.created_by // ""')
+            
+            MESSAGES_RESPONSE=$(curl -s "${APP_URL}/api/agents/${AGENT_ID}/messages" || echo '{"errors":[]}')
+            ERROR_COUNT=$(echo "$MESSAGES_RESPONSE" | jq -r '.errors | length // 0')
+            
+            if [ "$ERROR_COUNT" -gt 0 ]; then
+              LATEST_ERROR=$(echo "$MESSAGES_RESPONSE" | jq -r '.errors[-1].message // "Unknown error"')
+              LATEST_TIMESTAMP=$(echo "$MESSAGES_RESPONSE" | jq -r '.errors[-1].timestamp // ""')
+              
+              echo "🔔 Agent '$AGENT_NAME' has $ERROR_COUNT error(s). Latest: $LATEST_ERROR"
+              
+              # Note: To create actual GitHub issues, uncomment and configure:
+              # gh issue create --title "Agent Error: $AGENT_NAME" \
+              #   --body "Agent **$AGENT_NAME** (ID: $AGENT_ID) has $ERROR_COUNT recent error(s).\n\n**Latest error:**\n\`\`\`\n$LATEST_ERROR\n\`\`\`\n\nTimestamp: $LATEST_TIMESTAMP\n\nCreated by: $CREATED_BY" \
+              #   --label "agent-error,automated"
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}

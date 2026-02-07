@@ -1,0 +1,1383 @@
+interface EditorProps {
+  agentId: string;
+  username: string | null;
+}
+
+interface Agent {
+  id: string;
+  name: string;
+  description: string;
+  created_by: string | null;
+  configuration: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+}
+
+interface AgentDetails {
+  agentType: string | null;
+  instanceName: string | null;
+  zone: string | null;
+  ipAddress: string | null;
+  agentEmail: string | null;
+}
+
+type AgentStatus =
+  | "healthy"
+  | "unhealthy"
+  | "stopped"
+  | "unreachable"
+  | "unknown"
+  | "checking"
+  | "starting"
+  | "getting_set_up"
+  | "setting_up"
+  | "provisioning_failed";
+
+const SETUP_GRACE_PERIOD_MS = 10 * 60 * 1000;
+
+type TabId =
+  | "interaction"
+  | "architecture"
+  | "filesystem"
+  | "logs"
+  | "details";
+
+interface FileEntry {
+  name: string;
+  type: "file" | "directory";
+  size?: number;
+  modified?: string;
+  path: string;
+  children?: FileEntry[];
+  isLoading?: boolean;
+}
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: "interaction", label: "Interaction" },
+  { id: "architecture", label: "Architecture" },
+  { id: "filesystem", label: "File System" },
+  { id: "logs", label: "Logs" },
+  { id: "details", label: "Details" },
+];
+
+function Editor({ agentId, username }: EditorProps) {
+  const [agent, setAgent] = useState<Agent | null>(null);
+  const [isPageLoading, setIsPageLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isKilling, setIsKilling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TabId>("interaction");
+  const [name, setName] = useState("");
+
+  const isOwner = !agent?.created_by || agent.created_by === username;
+
+  const hasUnsavedChanges = useMemo(() => {
+    if (!agent) {
+      return false;
+    }
+    return name !== agent.name;
+  }, [agent, name]);
+
+  const fetchAgent = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/agents/${agentId}`);
+      if (!response.ok) {
+        throw new Error("Failed to fetch agent");
+      }
+      const data = await response.json();
+      setAgent(data);
+      setName(data.name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
+    } finally {
+      setIsPageLoading(false);
+    }
+  }, [agentId]);
+
+  useEffect(() => {
+    fetchAgent();
+  }, [fetchAgent]);
+
+  const handleSave = useCallback(async () => {
+    setIsSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/agents/${agentId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!response.ok) {
+        throw new Error("Failed to save agent");
+      }
+      const updatedAgent = await response.json();
+      setAgent(updatedAgent);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save agent");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [agentId, name]);
+
+  const handleKill = useCallback(async () => {
+    if (
+      !window.confirm(
+        "Are you sure you want to permanently delete this agent and its compute instance? This action cannot be undone."
+      )
+    ) {
+      return;
+    }
+    setIsKilling(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/agents/${agentId}/kill`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to kill agent");
+      }
+      window.location.href = "/agents";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to kill agent");
+      setIsKilling(false);
+    }
+  }, [agentId]);
+
+  if (isPageLoading) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (error && !agent) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center">
+        <p className="text-red-600 dark:text-red-400">{error}</p>
+        <a
+          href="/agents"
+          className="mt-4 text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          Back to Agents
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+            <a
+              href="/agents"
+              className="flex items-center gap-2 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+            >
+              &#8592; Back to Agents
+            </a>
+            <div className="hidden h-6 w-px bg-zinc-200 sm:block dark:bg-zinc-700" />
+            <div className="flex-1">
+              <input
+                type="text"
+                value={name}
+                onChange={(e: { target: { value: string } }) =>
+                  setName(e.target.value)
+                }
+                disabled={!isOwner}
+                className="w-full bg-transparent text-base font-semibold text-zinc-900 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:text-lg dark:text-white"
+                placeholder="Agent Name"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {error && (
+              <span className="hidden text-sm text-red-600 sm:inline dark:text-red-400">
+                {error}
+              </span>
+            )}
+            {isOwner && (
+              <>
+                <button
+                  onClick={handleKill}
+                  disabled={isKilling || isSaving}
+                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                >
+                  {isKilling ? "Killing..." : "Kill"}
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving || isKilling || !hasUnsavedChanges}
+                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                >
+                  {isSaving ? "Saving..." : "Save"}
+                </button>
+              </>
+            )}
+          </div>
+          {error && (
+            <span className="text-sm text-red-600 sm:hidden dark:text-red-400">
+              {error}
+            </span>
+          )}
+        </div>
+        <div className="flex px-4 sm:px-6">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`cursor-pointer px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === tab.id
+                  ? "border-b-2 border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
+                  : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <div className="flex flex-1 overflow-hidden">
+        <div className="h-full w-full bg-white dark:bg-zinc-900">
+          {activeTab === "interaction" && (
+            <InteractionView
+              agentId={agentId}
+              agentName={agent?.name ?? "Agent"}
+              agentCreatedAt={agent?.created_at ?? ""}
+            />
+          )}
+          {activeTab === "architecture" && (
+            <ArchitectureView agentName={agent?.name ?? "Agent"} />
+          )}
+          {activeTab === "filesystem" && (
+            <FileSystemView agentId={agentId} />
+          )}
+          {activeTab === "logs" && <LogsView agentId={agentId} />}
+          {activeTab === "details" && <DetailsView agentId={agentId} />}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function InteractionView({
+  agentId,
+  agentName,
+  agentCreatedAt,
+}: {
+  agentId: string;
+  agentName: string;
+  agentCreatedAt: string;
+}) {
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>("checking");
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isToggling, setIsToggling] = useState(false);
+
+  const fetchMessages = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/agents/${agentId}/messages`);
+      if (!response.ok) {
+        return;
+      }
+      const data = await response.json();
+      setMessages(
+        (data.messages || []).map(
+          (msg: {
+            id: string;
+            role: "user" | "assistant";
+            content: string;
+            timestamp: string;
+          }) => ({
+            id: msg.id,
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp,
+          })
+        )
+      );
+    } catch (fetchErr) {
+      console.error("Failed to fetch messages:", fetchErr);
+    }
+  }, [agentId]);
+
+  useEffect(() => {
+    fetchMessages();
+    const interval = setInterval(fetchMessages, 5000);
+    return () => clearInterval(interval);
+  }, [fetchMessages]);
+
+  const checkHealth = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/agents/${agentId}/health`);
+      if (!response.ok) {
+        setAgentStatus("unknown");
+        return;
+      }
+      const data = await response.json();
+      if (
+        data.status === "unknown" &&
+        data.message === "No compute instance configured"
+      ) {
+        setAgentStatus("getting_set_up");
+        setStatusMessage(null);
+      } else if (data.status === "provisioning_failed") {
+        setAgentStatus("provisioning_failed");
+        setStatusMessage(data.message || "Failed to create compute instance");
+      } else if (data.status === "setting_up") {
+        setAgentStatus("setting_up");
+        setStatusMessage(data.progress || null);
+      } else if (data.status === "unreachable" && agentCreatedAt) {
+        const agentAge = Date.now() - new Date(agentCreatedAt).getTime();
+        if (agentAge < SETUP_GRACE_PERIOD_MS) {
+          setAgentStatus("getting_set_up");
+          setStatusMessage(null);
+        } else {
+          setAgentStatus("unreachable");
+          setStatusMessage(data.message || null);
+        }
+      } else {
+        setAgentStatus(data.status as AgentStatus);
+        setStatusMessage(data.message || null);
+      }
+    } catch (healthErr) {
+      console.error("Health check failed:", healthErr);
+      setAgentStatus("unknown");
+    }
+  }, [agentId, agentCreatedAt]);
+
+  useEffect(() => {
+    checkHealth();
+    const interval = setInterval(checkHealth, 10000);
+    return () => clearInterval(interval);
+  }, [checkHealth]);
+
+  const isAlive = agentStatus === "healthy";
+
+  const handleStart = useCallback(async () => {
+    setIsToggling(true);
+    try {
+      const response = await fetch(`/api/agents/${agentId}/start`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        setAgentStatus("checking");
+        setTimeout(checkHealth, 5000);
+      }
+    } catch (startErr) {
+      console.error("Failed to start agent:", startErr);
+    } finally {
+      setIsToggling(false);
+    }
+  }, [agentId, checkHealth]);
+
+  const handleStop = useCallback(async () => {
+    setIsToggling(true);
+    try {
+      const response = await fetch(`/api/agents/${agentId}/stop`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        setAgentStatus("checking");
+        setTimeout(checkHealth, 5000);
+      }
+    } catch (stopErr) {
+      console.error("Failed to stop agent:", stopErr);
+    } finally {
+      setIsToggling(false);
+    }
+  }, [agentId, checkHealth]);
+
+  const handleSubmit = useCallback(
+    async (e: { preventDefault: () => void }) => {
+      e.preventDefault();
+      if (!input.trim() || isLoading || !isAlive) {
+        return;
+      }
+
+      const userMessage: Message = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: input.trim(),
+        timestamp: new Date().toISOString(),
+      };
+
+      setMessages((prev) => [...prev, userMessage]);
+      setInput("");
+      setIsLoading(true);
+
+      try {
+        const response = await fetch(`/api/agents/${agentId}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: userMessage.content }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to send message");
+        }
+
+        // Don't call fetchMessages() here - it causes UI flicker by replacing
+        // the optimistic message before the server has stored it.
+        // The polling interval will sync messages automatically.
+      } catch (sendErr) {
+        console.error("Failed to send message:", sendErr);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [input, isLoading, isAlive, agentId]
+  );
+
+  const getStatusDisplay = () => {
+    switch (agentStatus) {
+      case "healthy":
+        return { text: "Agent is alive", color: "bg-green-500", pulse: true };
+      case "checking":
+        return {
+          text: "Checking status...",
+          color: "bg-yellow-500",
+          pulse: true,
+        };
+      case "getting_set_up":
+        return {
+          text: "Getting set up...",
+          color: "bg-yellow-500",
+          pulse: true,
+        };
+      case "setting_up":
+        return {
+          text: statusMessage ? `Setting up: ${statusMessage}` : "Setting up...",
+          color: "bg-yellow-500",
+          pulse: true,
+        };
+      case "provisioning_failed":
+        return { text: "Setup failed", color: "bg-red-500", pulse: false };
+      case "starting":
+        return {
+          text: "Agent is starting up...",
+          color: "bg-yellow-500",
+          pulse: true,
+        };
+      case "stopped":
+        return {
+          text: "Agent is stopped",
+          color: "bg-zinc-400 dark:bg-zinc-600",
+          pulse: false,
+        };
+      case "unreachable":
+        return {
+          text: "Agent is unreachable",
+          color: "bg-red-500",
+          pulse: false,
+        };
+      case "unhealthy":
+        return {
+          text: "Agent is unhealthy",
+          color: "bg-red-500",
+          pulse: false,
+        };
+      default:
+        return {
+          text: "Status unknown",
+          color: "bg-zinc-400 dark:bg-zinc-600",
+          pulse: false,
+        };
+    }
+  };
+
+  const statusDisplay = getStatusDisplay();
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+        <div className="flex items-center justify-between">
+          <div
+            className="flex items-center gap-3"
+            title={statusMessage ?? undefined}
+          >
+            <div
+              className={`flex h-3 w-3 rounded-full ${statusDisplay.color} ${statusDisplay.pulse ? "animate-pulse" : ""}`}
+            />
+            <span className="text-sm font-medium text-zinc-900 dark:text-white">
+              {statusDisplay.text}
+            </span>
+          </div>
+          <button
+            onClick={() => (isAlive ? handleStop() : handleStart())}
+            disabled={
+              isToggling ||
+              agentStatus === "checking" ||
+              agentStatus === "starting" ||
+              agentStatus === "getting_set_up" ||
+              agentStatus === "setting_up" ||
+              agentStatus === "provisioning_failed" ||
+              agentStatus === "unreachable"
+            }
+            className={`flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
+              isAlive
+                ? "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:hover:bg-amber-900"
+                : "bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-950 dark:text-green-400 dark:hover:bg-green-900"
+            }`}
+          >
+            {isToggling
+              ? isAlive
+                ? "Stopping..."
+                : "Starting..."
+              : isAlive
+                ? "Pause"
+                : "Start"}
+          </button>
+        </div>
+      </div>
+
+      {!isAlive ? (
+        <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+          <h3 className="mt-4 text-lg font-medium text-zinc-900 dark:text-white">
+            {agentStatus === "checking"
+              ? "Checking agent status..."
+              : agentStatus === "starting"
+                ? "Agent is starting up..."
+                : agentStatus === "getting_set_up"
+                  ? "Getting set up..."
+                  : agentStatus === "setting_up"
+                    ? "Setting up..."
+                    : agentStatus === "provisioning_failed"
+                      ? "Setup failed"
+                      : "Agent is not running"}
+          </h3>
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+            {agentStatus === "checking"
+              ? "Please wait while we check the agent status"
+              : agentStatus === "starting"
+                ? "Your agent's compute instance is booting up. This may take a minute."
+                : agentStatus === "getting_set_up"
+                  ? "Your agent's compute instance is being created."
+                  : agentStatus === "setting_up"
+                    ? statusMessage ?? "Your agent is being configured."
+                    : agentStatus === "provisioning_failed"
+                      ? statusMessage ??
+                        "Failed to create the compute instance for this agent."
+                      : "Start the agent to interact with it directly"}
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="flex-1 overflow-y-auto p-4">
+            {messages.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center text-center">
+                <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
+                  Chat directly with {agentName}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                  >
+                    {message.role === "assistant" && (
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-100 dark:bg-green-950">
+                        <span className="text-xs text-green-600 dark:text-green-400">
+                          A
+                        </span>
+                      </div>
+                    )}
+                    <div
+                      className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                        message.role === "user"
+                          ? "bg-indigo-600 text-white"
+                          : "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white"
+                      }`}
+                    >
+                      <p className="whitespace-pre-wrap text-sm">
+                        {message.content}
+                      </p>
+                    </div>
+                    {message.role === "user" && (
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700">
+                        <span className="text-xs text-zinc-600 dark:text-zinc-300">
+                          U
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {isLoading && (
+                  <div className="flex gap-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-100 dark:bg-green-950">
+                      <span className="text-xs text-green-600 dark:text-green-400">
+                        A
+                      </span>
+                    </div>
+                    <div className="rounded-lg bg-zinc-100 px-4 py-2 dark:bg-zinc-800">
+                      <div className="flex gap-1">
+                        <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400" />
+                        <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:0.1s]" />
+                        <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:0.2s]" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <form
+            onSubmit={handleSubmit}
+            className="border-t border-zinc-200 p-4 dark:border-zinc-800"
+          >
+            <div className="flex gap-2">
+              <textarea
+                value={input}
+                onChange={(e: { target: { value: string } }) =>
+                  setInput(e.target.value)
+                }
+                onKeyDown={(e: {
+                  key: string;
+                  shiftKey: boolean;
+                  preventDefault: () => void;
+                }) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit(e);
+                  }
+                }}
+                placeholder={`Message ${agentName}...`}
+                rows={1}
+                className="flex-1 resize-none rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+              />
+              <button
+                type="submit"
+                disabled={!input.trim() || isLoading}
+                className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg bg-green-600 text-white transition-colors hover:bg-green-700 disabled:opacity-50"
+              >
+                Send
+              </button>
+            </div>
+          </form>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ArchitectureView({ agentName }: { agentName: string }) {
+  return (
+    <div className="flex h-full flex-col overflow-auto p-8">
+      <div className="mx-auto w-full max-w-2xl">
+        <div className="rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50 p-8 dark:border-zinc-700 dark:bg-zinc-900">
+          <div className="flex flex-col items-center">
+            <div className="mb-4 flex items-center gap-4">
+              <div className="flex flex-col items-center">
+                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2 shadow-sm dark:border-amber-800 dark:bg-zinc-800">
+                  <span className="text-xs text-zinc-600 dark:text-zinc-300">
+                    Scheduled
+                  </span>
+                </div>
+                <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
+              </div>
+              <div className="flex flex-col items-center">
+                <div className="flex items-center gap-2 rounded-lg border border-purple-200 bg-white px-3 py-2 shadow-sm dark:border-purple-800 dark:bg-zinc-800">
+                  <span className="text-xs text-zinc-600 dark:text-zinc-300">
+                    Slack
+                  </span>
+                </div>
+                <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
+              </div>
+              <div className="flex flex-col items-center">
+                <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 shadow-sm dark:border-blue-800 dark:bg-zinc-800">
+                  <span className="text-xs text-zinc-600 dark:text-zinc-300">
+                    Agent
+                  </span>
+                </div>
+                <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
+              </div>
+            </div>
+
+            <div className="mb-2 h-px w-48 bg-zinc-300 dark:bg-zinc-700" />
+            <div className="mb-2 h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
+
+            <div className="flex items-center gap-3 rounded-lg border-2 border-indigo-300 bg-white px-5 py-4 shadow-md dark:border-indigo-700 dark:bg-zinc-800">
+              <div>
+                <span className="font-semibold text-zinc-900 dark:text-white">
+                  {agentName}
+                </span>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Main Agent
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-2 h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
+            <div className="mt-2 h-px w-64 bg-zinc-300 dark:bg-zinc-700" />
+
+            <div className="mt-4 flex items-start gap-4">
+              {["Search", "Code", "Chat", "API"].map((skill) => (
+                <div key={skill} className="flex flex-col items-center">
+                  <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
+                  <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 shadow-sm dark:border-emerald-800 dark:bg-zinc-800">
+                    <span className="text-xs text-zinc-600 dark:text-zinc-300">
+                      {skill}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FileSystemView({ agentId }: { agentId: string }) {
+  const [files, setFiles] = useState<FileEntry[]>([]);
+  const [currentPath, setCurrentPath] = useState("/opt/velly-agent");
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [fileContent, setFileContent] = useState<string | null>(null);
+  const [isLoadingContent, setIsLoadingContent] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
+
+  const fetchFilesForPath = useCallback(
+    async (dirPath: string) => {
+      const response = await fetch(
+        `/api/agents/${agentId}/ls?path=${encodeURIComponent(dirPath)}`
+      );
+      if (!response.ok) {
+        throw new Error("Failed to fetch files");
+      }
+      const data = await response.json();
+      return (data.files || []).map(
+        (f: {
+          name: string;
+          type: "file" | "directory";
+          size?: number;
+          modified?: string;
+        }) => ({
+          ...f,
+          path: `${dirPath}/${f.name}`,
+        })
+      );
+    },
+    [agentId]
+  );
+
+  const fetchFileContent = useCallback(
+    async (filePath: string) => {
+      setIsLoadingContent(true);
+      setContentError(null);
+      setSelectedFile(filePath);
+      try {
+        const response = await fetch(
+          `/api/agents/${agentId}/cat?path=${encodeURIComponent(filePath)}`
+        );
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || "Failed to fetch file content");
+        }
+        const data = await response.json();
+        setFileContent(data.content || "");
+      } catch (err) {
+        setContentError(err instanceof Error ? err.message : "Failed to load file");
+        setFileContent(null);
+      } finally {
+        setIsLoadingContent(false);
+      }
+    },
+    [agentId]
+  );
+
+  const fetchFiles = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const fetchedFiles = await fetchFilesForPath(currentPath);
+      setFiles(fetchedFiles);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load files");
+      setFiles([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentPath, fetchFilesForPath]);
+
+  useEffect(() => {
+    fetchFiles();
+  }, [fetchFiles]);
+
+  const updateFileChildren = useCallback(
+    (
+      entries: FileEntry[],
+      targetPath: string,
+      children: FileEntry[]
+    ): FileEntry[] => {
+      return entries.map((file) => {
+        if (file.path === targetPath) {
+          return { ...file, children, isLoading: false };
+        }
+        if (file.children) {
+          return {
+            ...file,
+            children: updateFileChildren(file.children, targetPath, children),
+          };
+        }
+        return file;
+      });
+    },
+    []
+  );
+
+  const setFileLoading = useCallback(
+    (
+      entries: FileEntry[],
+      targetPath: string,
+      loading: boolean
+    ): FileEntry[] => {
+      return entries.map((file) => {
+        if (file.path === targetPath) {
+          return { ...file, isLoading: loading };
+        }
+        if (file.children) {
+          return {
+            ...file,
+            children: setFileLoading(file.children, targetPath, loading),
+          };
+        }
+        return file;
+      });
+    },
+    []
+  );
+
+  const toggleDirectory = useCallback(
+    async (entry: FileEntry) => {
+      const isExpanded = expandedDirs.has(entry.path);
+      if (isExpanded) {
+        setExpandedDirs((prev) => {
+          const next = new Set(prev);
+          next.delete(entry.path);
+          return next;
+        });
+      } else {
+        setExpandedDirs((prev) => {
+          const next = new Set(prev);
+          next.add(entry.path);
+          return next;
+        });
+        if (!entry.children) {
+          setFiles((prev) => setFileLoading(prev, entry.path, true));
+          try {
+            const children = await fetchFilesForPath(entry.path);
+            setFiles((prev) =>
+              updateFileChildren(prev, entry.path, children)
+            );
+          } catch (dirErr) {
+            console.error("Failed to fetch directory contents:", dirErr);
+            setFiles((prev) => setFileLoading(prev, entry.path, false));
+          }
+        }
+      }
+    },
+    [expandedDirs, fetchFilesForPath, setFileLoading, updateFileChildren]
+  );
+
+  const getFileColor = (entry: FileEntry) => {
+    if (entry.type === "directory") {
+      return "text-amber-500 font-medium";
+    }
+    const ext = entry.name.split(".").pop()?.toLowerCase();
+    switch (ext) {
+      case "py":
+        return "text-blue-500";
+      case "toml":
+      case "json":
+      case "yaml":
+      case "yml":
+        return "text-purple-500";
+      case "md":
+        return "text-zinc-500";
+      case "env":
+        return "text-green-500";
+      default:
+        return "text-zinc-600 dark:text-zinc-400";
+    }
+  };
+
+  const renderFileList = (entries: FileEntry[], depth: number): unknown => {
+    const sortedEntries = [...entries].sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type === "directory" ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    return sortedEntries.map((entry) => (
+      <div key={entry.path}>
+        <button
+          onClick={() => {
+            if (entry.type === "directory") {
+              toggleDirectory(entry);
+            } else {
+              fetchFileContent(entry.path);
+            }
+          }}
+          className={`flex w-full cursor-pointer items-center gap-2 py-2 text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
+            selectedFile === entry.path ? "bg-indigo-50 dark:bg-indigo-950" : ""
+          }`}
+          style={{ paddingLeft: `${16 + depth * 16}px` }}
+        >
+          {entry.type === "directory" && (
+            <>
+              {entry.isLoading ? (
+                <div className="h-3 w-3 animate-spin rounded-full border border-zinc-400 border-t-transparent" />
+              ) : (
+                <span
+                  className={`inline-block w-3 text-xs text-zinc-400 transition-transform ${
+                    expandedDirs.has(entry.path) ? "rotate-90" : ""
+                  }`}
+                >
+                  &#9656;
+                </span>
+              )}
+            </>
+          )}
+          {entry.type === "file" && <div className="w-3" />}
+          <span className={`text-sm ${getFileColor(entry)}`}>
+            {entry.name}
+          </span>
+        </button>
+        {entry.type === "directory" &&
+          expandedDirs.has(entry.path) &&
+          entry.children && (
+            <div>{renderFileList(entry.children, depth + 1)}</div>
+          )}
+      </div>
+    ));
+  };
+
+  const getLanguageFromPath = (filePath: string) => {
+    const ext = filePath.split(".").pop()?.toLowerCase();
+    switch (ext) {
+      case "py": return "python";
+      case "js": case "mjs": return "javascript";
+      case "ts": case "tsx": return "typescript";
+      case "json": return "json";
+      case "yaml": case "yml": return "yaml";
+      case "md": return "markdown";
+      case "sh": case "bash": return "bash";
+      default: return "plaintext";
+    }
+  };
+
+  return (
+    <div className="flex h-full">
+      {/* Left panel - File tree */}
+      <div className="flex w-1/3 min-w-[250px] flex-col border-r border-zinc-200 dark:border-zinc-800">
+        <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+          <div className="flex items-center gap-2 overflow-hidden">
+            <span className="truncate font-mono text-sm text-zinc-600 dark:text-zinc-400">
+              {currentPath}
+            </span>
+          </div>
+          <button
+            onClick={fetchFiles}
+            disabled={isLoading}
+            className="cursor-pointer rounded p-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 disabled:opacity-50 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+          >
+            Refresh
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-auto">
+          {isLoading && files.length === 0 ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+            </div>
+          ) : error ? (
+            <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+              <h3 className="mt-4 text-sm font-medium text-zinc-900 dark:text-white">
+                Failed to load files
+              </h3>
+              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                {error}
+              </p>
+              <button
+                onClick={fetchFiles}
+                className="mt-4 cursor-pointer rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-700"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <div className="font-mono text-sm">
+              {currentPath !== "/" && (
+                <button
+                  onClick={() => {
+                    const parentPath = currentPath
+                      .split("/")
+                      .slice(0, -1)
+                      .join("/");
+                    setCurrentPath(parentPath || "/");
+                  }}
+                  className="flex w-full cursor-pointer items-center gap-2 px-4 py-2 text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <span className="text-amber-500">..</span>
+                </button>
+              )}
+              {renderFileList(files, 0)}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-zinc-200 px-4 py-2 dark:border-zinc-800">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            {files.length} items
+          </p>
+        </div>
+      </div>
+
+      {/* Right panel - File content viewer */}
+      <div className="flex flex-1 flex-col">
+        {selectedFile ? (
+          <>
+            <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+              <span className="truncate font-mono text-sm text-zinc-900 dark:text-white">
+                {selectedFile.split("/").pop()}
+              </span>
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                {getLanguageFromPath(selectedFile)}
+              </span>
+            </div>
+            <div className="flex-1 overflow-auto bg-zinc-950 p-4">
+              {isLoadingContent ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+                </div>
+              ) : contentError ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <p className="text-sm text-red-400">{contentError}</p>
+                </div>
+              ) : (
+                <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-green-400">
+                  {fileContent}
+                </pre>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              Select a file to view its contents
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LogsView({ agentId }: { agentId: string }) {
+  const [logDates, setLogDates] = useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [logContent, setLogContent] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingContent, setIsLoadingContent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const logContentRef = useRef<HTMLDivElement>(null);
+
+  const fetchLogDates = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/agents/${agentId}/logs`);
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to fetch logs");
+      }
+      const data = await response.json();
+      const logFiles: string[] = data.files || [];
+      setLogDates(logFiles);
+      if (logFiles.length > 0 && !selectedDate) {
+        setSelectedDate(logFiles[0]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch logs");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [agentId, selectedDate]);
+
+  const fetchLogContent = useCallback(
+    async (date: string) => {
+      setIsLoadingContent(true);
+      try {
+        const response = await fetch(
+          `/api/agents/${agentId}/logs?date=${encodeURIComponent(date)}`
+        );
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || "Failed to fetch log content");
+        }
+        const data = await response.json();
+        setLogContent(data.content || "");
+      } catch (err) {
+        setLogContent(
+          err instanceof Error ? err.message : "Failed to load log content"
+        );
+      } finally {
+        setIsLoadingContent(false);
+      }
+    },
+    [agentId]
+  );
+
+  useEffect(() => {
+    fetchLogDates();
+  }, [fetchLogDates]);
+
+  useEffect(() => {
+    if (selectedDate) {
+      fetchLogContent(selectedDate);
+    }
+  }, [selectedDate, fetchLogContent]);
+
+  useEffect(() => {
+    if (!isLoadingContent && logContent && logContentRef.current) {
+      logContentRef.current.scrollTop = logContentRef.current.scrollHeight;
+    }
+  }, [isLoadingContent, logContent]);
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+        <span className="text-sm font-medium text-zinc-900 dark:text-white">
+          Agent Logs
+        </span>
+        <button
+          onClick={fetchLogDates}
+          disabled={isLoading}
+          className="cursor-pointer rounded p-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 disabled:opacity-50 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+        >
+          Refresh
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+        </div>
+      ) : error ? (
+        <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+          <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
+            {error}
+          </p>
+        </div>
+      ) : logDates.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+          <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
+            No logs available yet
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex gap-1 overflow-x-auto border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
+            {logDates.map((date) => (
+              <button
+                key={date}
+                onClick={() => setSelectedDate(date)}
+                className={`cursor-pointer whitespace-nowrap rounded px-3 py-1 text-xs font-medium transition-colors ${
+                  selectedDate === date
+                    ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400"
+                    : "text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                }`}
+              >
+                {date}
+              </button>
+            ))}
+          </div>
+
+          <div ref={logContentRef} className="flex-1 overflow-auto bg-zinc-950 p-4">
+            {isLoadingContent ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+              </div>
+            ) : (
+              <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-green-400">
+                {logContent}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailsView({ agentId }: { agentId: string }) {
+  const [details, setDetails] = useState<AgentDetails | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchDetails = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/agents/${agentId}`);
+      if (!response.ok) {
+        return;
+      }
+      const agentData = await response.json();
+      const agentType = (agentData.configuration?.agent_type as string) ?? null;
+      const computeConfig = agentData.configuration?.compute as
+        | { instanceName?: string; zone?: string }
+        | undefined;
+      const agentmailConfig = agentData.configuration?.agentmail as
+        | { inbox_id?: string }
+        | undefined;
+
+      let ipAddress: string | null = null;
+      if (computeConfig?.instanceName) {
+        try {
+          const healthResponse = await fetch(
+            `/api/agents/${agentId}/health`
+          );
+          if (healthResponse.ok) {
+            const healthData = await healthResponse.json();
+            if (healthData.ip) {
+              ipAddress = healthData.ip;
+            }
+          }
+        } catch {
+          ipAddress = null;
+        }
+      }
+
+      setDetails({
+        agentType,
+        instanceName: computeConfig?.instanceName ?? null,
+        zone: computeConfig?.zone ?? null,
+        ipAddress,
+        agentEmail: agentmailConfig?.inbox_id ?? null,
+      });
+    } catch (detailsErr) {
+      console.error("Failed to fetch agent details:", detailsErr);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [agentId]);
+
+  useEffect(() => {
+    fetchDetails();
+  }, [fetchDetails]);
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (!details) {
+    return (
+      <div className="flex h-full items-center justify-center p-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
+        Failed to load agent details
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-y-auto p-6">
+      <h2 className="mb-6 text-lg font-semibold text-zinc-900 dark:text-white">
+        Agent Details
+      </h2>
+      <div className="space-y-6">
+        <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="mb-3 text-sm font-medium text-zinc-900 dark:text-white">
+            Agent Type
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-zinc-500 dark:text-zinc-400">
+                Type
+              </span>
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                details.agentType === "openclaw"
+                  ? "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-400"
+                  : "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400"
+              }`}>
+                {details.agentType === "openclaw" ? "OpenClaw" : details.agentType === "simple" ? "Simple" : details.agentType ?? "Unknown"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="mb-3 text-sm font-medium text-zinc-900 dark:text-white">
+            GCP Instance
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-zinc-500 dark:text-zinc-400">
+                Instance Name
+              </span>
+              <span className="font-mono text-zinc-900 dark:text-white">
+                {details.instanceName ?? "Not configured"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-zinc-500 dark:text-zinc-400">Zone</span>
+              <span className="font-mono text-zinc-900 dark:text-white">
+                {details.zone ?? "Not configured"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="mb-3 text-sm font-medium text-zinc-900 dark:text-white">
+            Network
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-zinc-500 dark:text-zinc-400">
+                IP Address
+              </span>
+              <span className="font-mono text-zinc-900 dark:text-white">
+                {details.ipAddress ?? "Not configured"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="mb-3 text-sm font-medium text-zinc-900 dark:text-white">
+            Agent Email
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-zinc-500 dark:text-zinc-400">
+                Email Address
+              </span>
+              <span className="font-mono text-zinc-900 dark:text-white">
+                {details.agentEmail ?? "Not configured"}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
