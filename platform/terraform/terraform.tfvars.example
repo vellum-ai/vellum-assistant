@@ -1,0 +1,18 @@
+# Copy to terraform.tfvars and fill in values
+
+project_id = "your-gcp-project-id"
+region     = "us-central1"
+
+# Set to true to create a new GKE cluster
+# Set to false to use an existing cluster
+create_cluster = false
+cluster_name   = "existing-cluster-name"
+
+# Application
+domain       = "assistant.vellum.ai"
+app_image    = "gcr.io/your-project/vellum-assistant:latest"
+app_replicas = 2
+
+# Secrets (use environment variables or secret management)
+# TF_VAR_database_url="postgresql://..."
+# TF_VAR_anthropic_api_key="sk-ant-..."

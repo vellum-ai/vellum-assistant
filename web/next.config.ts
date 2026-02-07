@@ -1,9 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  outputFileTracingIncludes: {
-    "/api/agents": ["./agent-templates/**/*"],
-  },
+  output: "standalone",
 };
 
 export default nextConfig;
