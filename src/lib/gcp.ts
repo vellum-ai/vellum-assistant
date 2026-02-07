@@ -119,9 +119,7 @@ export function generateAgentFiles(
 ): Record<string, string> {
   const databaseUrl = process.env.DATABASE_URL || "";
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY || "";
-  const apiUrl = process.env.APP_URL || process.env.VERCEL_URL 
-    ? `https://${process.env.VERCEL_URL}` 
-    : "https://velly-prototype.vercel.app";
+  const apiUrl = process.env.APP_URL || "http://localhost:3000";
   
   const context: TemplateContext = { 
     agentId, 
@@ -198,9 +196,7 @@ export async function uploadAgentConfigToGCS(
 
   const databaseUrl = process.env.DATABASE_URL || "";
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY || "";
-  const apiUrl = process.env.APP_URL || process.env.VERCEL_URL 
-    ? `https://${process.env.VERCEL_URL}` 
-    : "https://velly-prototype.vercel.app";
+  const apiUrl = process.env.APP_URL || "http://localhost:3000";
   
   const context: TemplateContext = { 
     agentId, 

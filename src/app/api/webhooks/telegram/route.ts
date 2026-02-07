@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { waitUntil } from "@vercel/functions";
 
 // Telegram Bot API types
 interface TelegramUser {
@@ -36,7 +35,7 @@ interface TelegramUpdate {
 }
 
 const VELLY_TELEGRAM_TOKEN = process.env.VELLY_TELEGRAM_TOKEN;
-const APP_URL = process.env.APP_URL || "https://velly-prototype.vercel.app";
+const APP_URL = process.env.APP_URL || "http://localhost:3000";
 
 async function sendTelegramMessage(chatId: number, text: string): Promise<boolean> {
   if (!VELLY_TELEGRAM_TOKEN) {
@@ -140,16 +139,11 @@ export async function POST(request: NextRequest) {
 
     console.log("[Telegram Webhook] 📥 Received update:", JSON.stringify(update, null, 2));
 
-    // Use waitUntil to ensure the function stays alive until processing completes
-    // This is critical for Vercel serverless - without it, the function terminates
-    // after returning 200, killing our background work before sendMessage runs!
-    waitUntil(
-      handleTelegramUpdate(update).catch((error) => {
-        console.error("[Telegram Webhook] ❌ Unhandled error in update handler:", error);
-      })
-    );
+    // Process the update and respond
+    await handleTelegramUpdate(update).catch((error) => {
+      console.error("[Telegram Webhook] ❌ Unhandled error in update handler:", error);
+    });
 
-    // Return 200 OK to Telegram quickly (prevents retries)
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("[Telegram Webhook] ❌ Error parsing request:", error);

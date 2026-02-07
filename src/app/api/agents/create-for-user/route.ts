@@ -12,9 +12,7 @@ import {
 } from "@/lib/gcp";
 
 const MAX_AGENTS_PER_USER = 3;
-const APP_URL = process.env.APP_URL || process.env.VERCEL_URL 
-  ? `https://${process.env.VERCEL_URL}` 
-  : "https://velly-prototype.vercel.app";
+const APP_URL = process.env.APP_URL || "http://localhost:3000";
 
 /**
  * POST /api/agents/create-for-user

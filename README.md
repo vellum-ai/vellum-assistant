@@ -44,7 +44,6 @@ npm run db:migrate
 - **Database**: Neon (PostgreSQL)
 - **AI**: Anthropic Claude
 - **Infrastructure**: Google Cloud (Compute Engine, Cloud Storage)
-- **Deployment**: Vercel
 
 ## Project Structure
 
