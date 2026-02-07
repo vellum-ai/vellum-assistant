@@ -575,7 +575,7 @@ export default function SettingsPage() {
                   Database
                 </h2>
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                  Configure your Neon database connection
+                  Configure your database connection
                 </p>
               </div>
             </div>

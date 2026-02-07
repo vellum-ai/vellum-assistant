@@ -1,136 +1,132 @@
-import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { eq } from "drizzle-orm";
+import postgres from "postgres";
 
+import * as schema from "./schema";
+
+// Database connection
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+  throw new Error("DATABASE_URL environment variable is not set");
+}
+
+// Raw SQL client for legacy queries
+const sql = postgres(connectionString);
+
+// Drizzle client for typed queries
+export const db = drizzle(sql, { schema });
+
+// Legacy compatibility - returns raw SQL client for template tag queries
+// Usage: const sql = getDb(); await sql`SELECT * FROM agents`;
 export function getDb() {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL environment variable is not set");
-  }
-  return neon(databaseUrl);
+  return sql;
 }
 
-export async function initializeDatabase() {
-  const sql = getDb();
+// Re-export schema types
+export type Agent = typeof schema.agents.$inferSelect;
+export type NewAgent = typeof schema.agents.$inferInsert;
+export type ChatMessage = typeof schema.chatMessages.$inferSelect;
+export type NewChatMessage = typeof schema.chatMessages.$inferInsert;
+export type User = typeof schema.users.$inferSelect;
+export type NewUser = typeof schema.users.$inferInsert;
+export type ApiKey = typeof schema.apiKeys.$inferSelect;
+export type NewApiKey = typeof schema.apiKeys.$inferInsert;
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS agents (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      name VARCHAR(255) NOT NULL,
-      description TEXT,
-      configuration JSONB DEFAULT '{}',
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )
-  `;
+// Legacy compatibility - getDb returns the drizzle instance
+export function getDb() {
+  return db;
 }
 
-export interface Agent {
-  id: string;
-  name: string;
-  description: string | null;
-  configuration: Record<string, unknown>;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
+// Agent queries
+export async function getAgents() {
+  return db.select().from(schema.agents);
 }
 
-export interface CreateAgentInput {
-  name: string;
-  description?: string;
-  configuration?: Record<string, unknown>;
-  agent_type?: string;
+export async function getAgentById(id: string) {
+  const result = await db.select().from(schema.agents).where(eq(schema.agents.id, id));
+  return result[0] || null;
 }
 
-export interface UpdateAgentInput {
-  name?: string;
-  description?: string;
-  configuration?: Record<string, unknown>;
+export async function createAgent(data: NewAgent) {
+  const result = await db.insert(schema.agents).values(data).returning();
+  return result[0];
 }
 
-export type MessageRole = "user" | "assistant";
-export type MessageStatus = "pending" | "sent" | "delivered" | "read";
-
-export interface ChatMessage {
-  id: string;
-  agent_id: string;
-  role: MessageRole;
-  content: string;
-  status: MessageStatus;
-  gcs_message_id: string | null;
-  created_at: string;
-  updated_at: string;
+export async function updateAgent(id: string, data: Partial<NewAgent>) {
+  const result = await db
+    .update(schema.agents)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(schema.agents.id, id))
+    .returning();
+  return result[0];
 }
 
-export interface CreateChatMessageInput {
-  agent_id: string;
-  role: MessageRole;
-  content: string;
-  status?: MessageStatus;
-  gcs_message_id?: string;
+export async function deleteAgent(id: string) {
+  await db.delete(schema.agents).where(eq(schema.agents.id, id));
 }
 
-export async function initializeMessagesTable() {
-  const sql = getDb();
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS chat_messages (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-      role VARCHAR(20) NOT NULL,
-      content TEXT NOT NULL,
-      status VARCHAR(20) DEFAULT 'sent',
-      gcs_message_id VARCHAR(255),
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )
-  `;
-
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_chat_messages_agent_id ON chat_messages(agent_id)
-  `;
+// Chat message queries
+export async function getChatMessages(agentId: string) {
+  return db
+    .select()
+    .from(schema.chatMessages)
+    .where(eq(schema.chatMessages.agentId, agentId))
+    .orderBy(schema.chatMessages.createdAt);
 }
 
-export async function getChatMessages(agentId: string): Promise<ChatMessage[]> {
-  const sql = getDb();
-  const messages = await sql`
-    SELECT * FROM chat_messages 
-    WHERE agent_id = ${agentId} 
-    ORDER BY created_at ASC
-  `;
-  return messages as ChatMessage[];
+export async function createChatMessage(data: NewChatMessage) {
+  const result = await db.insert(schema.chatMessages).values(data).returning();
+  return result[0];
 }
 
-export async function createChatMessage(input: CreateChatMessageInput): Promise<ChatMessage> {
-  const sql = getDb();
-  const result = await sql`
-    INSERT INTO chat_messages (agent_id, role, content, status, gcs_message_id)
-    VALUES (
-      ${input.agent_id}, 
-      ${input.role}, 
-      ${input.content}, 
-      ${input.status || "sent"}, 
-      ${input.gcs_message_id || null}
-    )
-    RETURNING *
-  `;
-  return result[0] as ChatMessage;
+export async function updateChatMessageStatus(id: string, status: string) {
+  await db
+    .update(schema.chatMessages)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(schema.chatMessages.id, id));
 }
 
-export async function updateChatMessageStatus(
-  messageId: string,
-  status: MessageStatus
-): Promise<void> {
-  const sql = getDb();
-  await sql`
-    UPDATE chat_messages 
-    SET status = ${status}, updated_at = NOW() 
-    WHERE id = ${messageId}
-  `;
+export async function getMessageByGcsId(gcsMessageId: string) {
+  const result = await db
+    .select()
+    .from(schema.chatMessages)
+    .where(eq(schema.chatMessages.gcsMessageId, gcsMessageId));
+  return result[0] || null;
 }
 
-export async function getMessageByGcsId(gcsMessageId: string): Promise<ChatMessage | null> {
-  const sql = getDb();
-  const result = await sql`
-    SELECT * FROM chat_messages WHERE gcs_message_id = ${gcsMessageId}
-  `;
-  return result.length > 0 ? (result[0] as ChatMessage) : null;
+// User queries
+export async function getUserByUsername(username: string) {
+  const result = await db.select().from(schema.users).where(eq(schema.users.username, username));
+  return result[0] || null;
+}
+
+export async function createUser(data: NewUser) {
+  const result = await db.insert(schema.users).values(data).returning();
+  return result[0];
+}
+
+export async function updateUser(username: string, data: Partial<NewUser>) {
+  const result = await db
+    .update(schema.users)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(schema.users.username, username))
+    .returning();
+  return result[0];
+}
+
+// API Key queries
+export async function getApiKeysByUserId(userId: string) {
+  return db.select().from(schema.apiKeys).where(eq(schema.apiKeys.userId, userId));
+}
+
+export async function createApiKey(data: NewApiKey) {
+  const result = await db.insert(schema.apiKeys).values(data).returning();
+  return result[0];
+}
+
+export async function deleteApiKey(id: string, userId: string) {
+  await db
+    .delete(schema.apiKeys)
+    .where(eq(schema.apiKeys.id, id));
 }
