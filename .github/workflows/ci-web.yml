@@ -1,0 +1,76 @@
+name: Deploy Web
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'web/**'
+      - '.github/workflows/ci-web.yml'
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker
+
+      - name: Build Docker image
+        run: |
+          docker build -t gcr.io/${{ vars.GCP_PROJECT_ID }}/vellum-assistant:${{ github.sha }} .
+          docker tag gcr.io/${{ vars.GCP_PROJECT_ID }}/vellum-assistant:${{ github.sha }} gcr.io/${{ vars.GCP_PROJECT_ID }}/vellum-assistant:latest
+
+      - name: Push Docker image
+        run: |
+          docker push gcr.io/${{ vars.GCP_PROJECT_ID }}/vellum-assistant:${{ github.sha }}
+          docker push gcr.io/${{ vars.GCP_PROJECT_ID }}/vellum-assistant:latest
+
+      - name: Get GKE credentials
+        run: |
+          gcloud container clusters get-credentials ${{ vars.GKE_CLUSTER_NAME }} \
+            --region ${{ vars.GCP_REGION }} \
+            --project ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl set image deployment/vellum-assistant \
+            web=gcr.io/${{ vars.GCP_PROJECT_ID }}/vellum-assistant:${{ github.sha }} \
+            -n vellum-assistant
+          kubectl rollout status deployment/vellum-assistant -n vellum-assistant
