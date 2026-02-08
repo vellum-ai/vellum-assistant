@@ -155,7 +155,7 @@ export class Session {
               onEvent({ type: 'tool_output_chunk', chunk: event.chunk });
               break;
             case 'tool_result':
-              onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff });
+              onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status });
               break;
             case 'error':
               onEvent({ type: 'error', message: event.error.message });

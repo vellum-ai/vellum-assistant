@@ -20,6 +20,8 @@ export interface ToolExecutionResult {
   content: string;
   isError: boolean;
   diff?: DiffInfo;
+  /** Optional status message for display (e.g. timeout, truncation). */
+  status?: string;
 }
 
 export interface Tool {
