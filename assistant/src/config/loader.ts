@@ -39,6 +39,14 @@ export function loadConfig(): AssistantConfig {
     }
   }
 
+  if (
+    fileConfig.apiKeys !== undefined &&
+    (typeof fileConfig.apiKeys !== 'object' || fileConfig.apiKeys === null || Array.isArray(fileConfig.apiKeys))
+  ) {
+    log.error('Invalid apiKeys in config file: must be an object with string values. Ignoring.');
+    delete fileConfig.apiKeys;
+  }
+
   const config: AssistantConfig = {
     ...DEFAULT_CONFIG,
     ...fileConfig,
