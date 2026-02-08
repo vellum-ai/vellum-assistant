@@ -182,15 +182,16 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     const filePath = (input.path as string) ?? (input.file_path as string) ?? '';
     const options: AllowlistOption[] = [];
 
+    // Patterns must match the "tool:path" format used by check()
     // Exact file
-    options.push({ label: filePath, pattern: filePath });
+    options.push({ label: filePath, pattern: `${toolName}:${filePath}` });
 
     // Directory wildcard
     const dir = dirname(filePath);
-    options.push({ label: `${dir}/*`, pattern: `${dir}/*` });
+    options.push({ label: `${dir}/*`, pattern: `${toolName}:${dir}/*` });
 
     // Tool wildcard
-    options.push({ label: `${toolName}:*`, pattern: '*' });
+    options.push({ label: `${toolName}:*`, pattern: `${toolName}:*` });
 
     return options;
   }

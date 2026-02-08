@@ -300,25 +300,29 @@ describe('Permission Checker', () => {
       expect(options[1].pattern).toBe('git *');
     });
 
-    test('file_write: generates file, directory, and tool wildcard', () => {
+    test('file_write: generates prefixed file, directory, and tool wildcard', () => {
       const options = generateAllowlistOptions('file_write', { path: '/home/user/project/file.ts' });
       expect(options).toHaveLength(3);
-      expect(options[0].pattern).toBe('/home/user/project/file.ts');
-      expect(options[1].pattern).toBe('/home/user/project/*');
-      expect(options[2].pattern).toBe('*');
+      // Patterns are prefixed with tool name to match check()'s "tool:path" format
+      expect(options[0].pattern).toBe('file_write:/home/user/project/file.ts');
+      expect(options[1].pattern).toBe('file_write:/home/user/project/*');
+      expect(options[2].pattern).toBe('file_write:*');
+      // Labels stay user-friendly
+      expect(options[0].label).toBe('/home/user/project/file.ts');
+      expect(options[1].label).toBe('/home/user/project/*');
     });
 
-    test('file_read: generates file, directory, and tool wildcard', () => {
+    test('file_read: generates prefixed file, directory, and tool wildcard', () => {
       const options = generateAllowlistOptions('file_read', { path: '/tmp/data.json' });
       expect(options).toHaveLength(3);
-      expect(options[0].pattern).toBe('/tmp/data.json');
-      expect(options[1].pattern).toBe('/tmp/*');
-      expect(options[2].pattern).toBe('*');
+      expect(options[0].pattern).toBe('file_read:/tmp/data.json');
+      expect(options[1].pattern).toBe('file_read:/tmp/*');
+      expect(options[2].pattern).toBe('file_read:*');
     });
 
     test('file_write with file_path key', () => {
       const options = generateAllowlistOptions('file_write', { file_path: '/tmp/out.txt' });
-      expect(options[0].pattern).toBe('/tmp/out.txt');
+      expect(options[0].pattern).toBe('file_write:/tmp/out.txt');
     });
 
     test('unknown tool returns wildcard', () => {
