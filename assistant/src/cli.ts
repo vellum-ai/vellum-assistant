@@ -22,6 +22,7 @@ export async function startCli(): Promise<void> {
   let lastResponse = '';
   let lastUsage: { inputTokens: number; outputTokens: number; totalInputTokens: number; totalOutputTokens: number; estimatedCost: number; model: string } | null = null;
   let pendingSessionPick = false;
+  let toolStreaming = false;
   const spinner = new Spinner();
 
   function formatToolProgress(toolName: string, input: Record<string, unknown>): string {
@@ -276,12 +277,27 @@ export async function startCli(): Promise<void> {
           break;
 
         case 'tool_use_start':
+          toolStreaming = false;
           spinner.start(formatToolProgress(msg.toolName, msg.input));
           break;
 
+        case 'tool_output_chunk':
+          if (!toolStreaming) {
+            spinner.stop();
+            toolStreaming = true;
+          }
+          process.stdout.write(msg.chunk);
+          break;
+
         case 'tool_result':
-          spinner.stop();
-          process.stdout.write(`\n[Tool: ${msg.result.slice(0, 200)}]\n`);
+          if (!toolStreaming) spinner.stop();
+          if (toolStreaming) {
+            // We already streamed the output; just add a newline separator
+            process.stdout.write('\n');
+          } else {
+            process.stdout.write(`\n[Tool: ${msg.result.slice(0, 200)}]\n`);
+          }
+          toolStreaming = false;
           if (msg.diff) {
             const diffOutput = msg.diff.isNewFile
               ? formatNewFileDiff(msg.diff.newContent, msg.diff.filePath)

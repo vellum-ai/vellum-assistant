@@ -43,11 +43,12 @@ export class Session {
     this.executor = new ToolExecutor(this.prompter);
 
     const toolDefs = getAllToolDefinitions();
-    const toolExecutor = async (name: string, input: Record<string, unknown>) => {
+    const toolExecutor = async (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => {
       return this.executor.execute(name, input, {
         workingDir: this.workingDir,
         sessionId: this.conversationId,
         conversationId: this.conversationId,
+        onOutput,
       });
     };
 
@@ -149,6 +150,9 @@ export class Session {
               break;
             case 'tool_use':
               onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input });
+              break;
+            case 'tool_output_chunk':
+              onEvent({ type: 'tool_output_chunk', chunk: event.chunk });
               break;
             case 'tool_result':
               onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff });
