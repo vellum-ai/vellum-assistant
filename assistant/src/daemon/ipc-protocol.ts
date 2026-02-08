@@ -98,6 +98,7 @@ export interface ToolResult {
   result: string;
   isError?: boolean;
   diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
+  status?: string;
 }
 
 export interface ConfirmationRequest {
