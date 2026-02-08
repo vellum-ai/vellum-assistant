@@ -1,6 +1,5 @@
 import * as net from 'node:net';
 import { unlinkSync, existsSync, chmodSync, watch, type FSWatcher } from 'node:fs';
-import { join } from 'node:path';
 import { getSocketPath, getDataDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
@@ -25,7 +24,7 @@ export class DaemonServer {
   private socketToSession = new Map<net.Socket, string>();
   private socketPath: string;
   private watchers: FSWatcher[] = [];
-  private debounceTimers: ReturnType<typeof setTimeout>[] = [];
+  private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private suppressConfigReload = false;
 
   constructor() {
@@ -115,21 +114,18 @@ export class DaemonServer {
       },
     };
 
-    const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
     try {
       const watcher = watch(dataDir, (_eventType, filename) => {
         if (!filename || !handlers[filename]) return;
         // Debounce: editors often write files in multiple steps
-        const existing = debounceTimers.get(filename);
+        const existing = this.debounceTimers.get(filename);
         if (existing) clearTimeout(existing);
         const timer = setTimeout(() => {
-          debounceTimers.delete(filename);
+          this.debounceTimers.delete(filename);
           log.info({ file: filename }, 'File changed, reloading');
           handlers[filename]();
         }, 200);
-        debounceTimers.set(filename, timer);
-        this.debounceTimers.push(timer);
+        this.debounceTimers.set(filename, timer);
       });
       this.watchers.push(watcher);
       log.info({ dir: dataDir }, 'Watching data directory for config/trust changes');
@@ -139,10 +135,10 @@ export class DaemonServer {
   }
 
   private stopFileWatchers(): void {
-    for (const timer of this.debounceTimers) {
+    for (const timer of this.debounceTimers.values()) {
       clearTimeout(timer);
     }
-    this.debounceTimers = [];
+    this.debounceTimers.clear();
     for (const watcher of this.watchers) {
       watcher.close();
     }
@@ -372,8 +368,14 @@ export class DaemonServer {
       // the full reload sequence; a redundant watcher-triggered reload
       // would incorrectly evict sessions created after this method returns.
       this.suppressConfigReload = true;
-      saveRawConfig(raw);
-      setTimeout(() => { this.suppressConfigReload = false; }, 300);
+      try {
+        saveRawConfig(raw);
+      } catch (err) {
+        this.suppressConfigReload = false;
+        throw err;
+      }
+      const resetTimer = setTimeout(() => { this.suppressConfigReload = false; }, 300);
+      this.debounceTimers.set('__suppress_reset__', resetTimer);
 
       // Re-initialize provider with the new model so LLM calls use it
       const config = getConfig();
