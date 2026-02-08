@@ -57,6 +57,11 @@ export class AgentLoop {
           this.tools.length > 0 ? this.tools : undefined,
           this.systemPrompt,
           { max_tokens: this.config.maxTokens },
+          (event) => {
+            if (event.type === 'text_delta') {
+              onEvent({ type: 'text_delta', text: event.text });
+            }
+          },
         );
 
         const assistantMessage: Message = {
@@ -64,13 +69,6 @@ export class AgentLoop {
           content: response.content,
         };
         history.push(assistantMessage);
-
-        // Emit text content
-        for (const block of response.content) {
-          if (block.type === 'text') {
-            onEvent({ type: 'text_delta', text: block.text });
-          }
-        }
 
         onEvent({ type: 'message_complete', message: assistantMessage });
 
