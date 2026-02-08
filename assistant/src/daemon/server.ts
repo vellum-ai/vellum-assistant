@@ -39,7 +39,7 @@ export class DaemonServer {
 
       const oldUmask = process.umask(0o177);
 
-      this.server.on('error', (err) => {
+      this.server.once('error', (err) => {
         process.umask(oldUmask);
         log.error({ err }, 'Server error');
         reject(err);
@@ -47,6 +47,11 @@ export class DaemonServer {
 
       this.server.listen(this.socketPath, () => {
         process.umask(oldUmask);
+        // Replace the one-shot startup handler with a permanent one
+        this.server!.removeAllListeners('error');
+        this.server!.on('error', (err) => {
+          log.error({ err }, 'Server error');
+        });
         chmodSync(this.socketPath, 0o600);
         log.info({ socketPath: this.socketPath }, 'Daemon server listening');
         resolve();
