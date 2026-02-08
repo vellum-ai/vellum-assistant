@@ -93,14 +93,11 @@ r.defineCommand("reload", {
   },
 });
 
-const originalEval = r.eval.bind(r);
-r.eval = (cmd, context, filename, callback) => {
-  if (cmd.trim() === "exit") {
+Object.defineProperty(r.context, "exit", {
+  get() {
     r.close();
-    return;
-  }
-  originalEval(cmd, context, filename, callback);
-};
+  },
+});
 
 r.on("exit", async () => {
   await client.end();
