@@ -12,17 +12,26 @@ import { formatDiff, formatNewFileDiff } from './util/diff.js';
 import { Spinner } from './util/spinner.js';
 import { copyToClipboard, extractLastCodeBlock } from './util/clipboard.js';
 import { timeAgo } from './util/time.js';
+import { ensureDaemonRunning } from './daemon/lifecycle.js';
+
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_TIMEOUT_MS = 10_000;
+const RECONNECT_DELAY_MS = 1_000;
+const MAX_RECONNECT_ATTEMPTS = 5;
 
 export async function startCli(): Promise<void> {
   const socketPath = getSocketPath();
-  const socket = net.createConnection(socketPath);
-  const parser = createMessageParser();
+  let socket: net.Socket;
+  let parser = createMessageParser();
   let sessionId = '';
   let generating = false;
   let lastResponse = '';
   let lastUsage: { inputTokens: number; outputTokens: number; totalInputTokens: number; totalOutputTokens: number; estimatedCost: number; model: string } | null = null;
   let pendingSessionPick = false;
   let toolStreaming = false;
+  let reconnecting = false;
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
   const spinner = new Spinner();
 
   function formatToolProgress(toolName: string, input: Record<string, unknown>): string {
@@ -51,7 +60,9 @@ export async function startCli(): Promise<void> {
   }
 
   function send(msg: ClientMessage): void {
-    socket.write(serialize(msg));
+    if (!socket.destroyed) {
+      socket.write(serialize(msg));
+    }
   }
 
   function formatCommandPreview(req: ConfirmationRequest): string {
@@ -227,171 +238,265 @@ export async function startCli(): Promise<void> {
     });
   }
 
-  socket.on('data', (data) => {
-    const messages = parser.feed(data.toString()) as ServerMessage[];
-    for (const msg of messages) {
-      switch (msg.type) {
-        case 'session_info':
-          pendingSessionPick = false;
-          sessionId = msg.sessionId;
+  function handleMessage(msg: ServerMessage): void {
+    switch (msg.type) {
+      case 'session_info':
+        pendingSessionPick = false;
+        sessionId = msg.sessionId;
+        process.stdout.write(
+          `\n  Session: ${msg.title}\n  Type your message. Ctrl+D to detach.\n\n`,
+        );
+        prompt();
+        break;
+
+      case 'assistant_text_delta':
+        spinner.stop();
+        lastResponse += msg.text;
+        process.stdout.write(msg.text);
+        break;
+
+      case 'usage_update':
+        lastUsage = msg;
+        break;
+
+      case 'message_complete': {
+        spinner.stop();
+        generating = false;
+        if (lastUsage) {
+          const cost = lastUsage.estimatedCost > 0
+            ? ` ~$${lastUsage.estimatedCost.toFixed(4)}`
+            : '';
           process.stdout.write(
-            `\n  Session: ${msg.title}\n  Type your message. Ctrl+D to detach.\n\n`,
+            `\n\n\x1B[2m[${lastUsage.inputTokens.toLocaleString()} in / ${lastUsage.outputTokens.toLocaleString()} out${cost}]\x1B[0m\n\n`,
           );
-          prompt();
-          break;
-
-        case 'assistant_text_delta':
-          spinner.stop();
-          lastResponse += msg.text;
-          process.stdout.write(msg.text);
-          break;
-
-        case 'usage_update':
-          lastUsage = msg;
-          break;
-
-        case 'message_complete': {
-          spinner.stop();
-          generating = false;
-          if (lastUsage) {
-            const cost = lastUsage.estimatedCost > 0
-              ? ` ~$${lastUsage.estimatedCost.toFixed(4)}`
-              : '';
-            process.stdout.write(
-              `\n\n\x1B[2m[${lastUsage.inputTokens.toLocaleString()} in / ${lastUsage.outputTokens.toLocaleString()} out${cost}]\x1B[0m\n\n`,
-            );
-            lastUsage = null;
-          } else {
-            process.stdout.write('\n\n');
-          }
-          prompt();
-          break;
-        }
-
-        case 'generation_cancelled':
-          spinner.stop();
-          generating = false;
           lastUsage = null;
-          process.stdout.write('\n[Cancelled]\n\n');
-          prompt();
-          break;
-
-        case 'tool_use_start':
-          toolStreaming = false;
-          spinner.start(formatToolProgress(msg.toolName, msg.input));
-          break;
-
-        case 'tool_output_chunk':
-          if (!toolStreaming) {
-            spinner.stop();
-            toolStreaming = true;
-          }
-          process.stdout.write(msg.chunk);
-          break;
-
-        case 'tool_result':
-          if (!toolStreaming) spinner.stop();
-          if (toolStreaming) {
-            // We already streamed the raw output; show explicit status metadata
-            // (timeout, truncation, exit code) if the tool provided it.
-            if (msg.status) {
-              process.stdout.write(`\n${msg.status}`);
-            }
-            process.stdout.write('\n');
-          } else {
-            process.stdout.write(`\n[Tool: ${msg.result.slice(0, 200)}]\n`);
-          }
-          toolStreaming = false;
-          if (msg.diff) {
-            const diffOutput = msg.diff.isNewFile
-              ? formatNewFileDiff(msg.diff.newContent, msg.diff.filePath)
-              : formatDiff(msg.diff.oldContent, msg.diff.newContent, msg.diff.filePath);
-            if (diffOutput) {
-              process.stdout.write(diffOutput);
-            }
-          }
-          // Agent will call the LLM again after tool results
-          spinner.start('Thinking...');
-          break;
-
-        case 'confirmation_request':
-          spinner.stop();
-          renderConfirmationPrompt(msg);
-          break;
-
-        case 'error':
-          spinner.stop();
-          generating = false;
-          pendingSessionPick = false;
-          process.stdout.write(`\n[Error: ${msg.message}]\n`);
-          prompt();
-          break;
-
-        case 'session_list_response':
-          if (pendingSessionPick) {
-            renderSessionPicker(msg.sessions);
-          } else {
-            for (const session of msg.sessions) {
-              process.stdout.write(`  ${session.id}  ${session.title}\n`);
-            }
-            prompt();
-          }
-          break;
-
-        case 'model_info':
-          process.stdout.write(`\n  Model: ${msg.model} (${msg.provider})\n\n`);
-          prompt();
-          break;
-
-        case 'history_response':
-          process.stdout.write('\n');
-          if (msg.messages.length === 0) {
-            process.stdout.write('  No messages in this session.\n');
-          } else {
-            for (const m of msg.messages) {
-              const label = m.role === 'user' ? 'you' : 'assistant';
-              const preview = m.text.length > 120 ? m.text.slice(0, 117) + '...' : m.text;
-              process.stdout.write(`  ${label}> ${preview.replace(/\n/g, ' ')}\n`);
-            }
-          }
-          process.stdout.write('\n');
-          prompt();
-          break;
-
-        case 'undo_complete':
-          if (msg.removedCount === 0) {
-            process.stdout.write('\n  Nothing to undo.\n\n');
-          } else {
-            lastResponse = '';
-            process.stdout.write(`\n  Removed last exchange (${msg.removedCount} messages).\n\n`);
-          }
-          prompt();
-          break;
-
-        case 'usage_response': {
-          process.stdout.write('\n');
-          process.stdout.write(`  Model:          ${msg.model}\n`);
-          process.stdout.write(`  Input tokens:   ${msg.totalInputTokens.toLocaleString()}\n`);
-          process.stdout.write(`  Output tokens:  ${msg.totalOutputTokens.toLocaleString()}\n`);
-          const costStr = msg.estimatedCost > 0
-            ? `$${msg.estimatedCost.toFixed(4)}`
-            : 'N/A (unknown model pricing)';
-          process.stdout.write(`  Estimated cost: ${costStr}\n`);
-          process.stdout.write('\n');
-          prompt();
-          break;
+        } else {
+          process.stdout.write('\n\n');
         }
+        prompt();
+        break;
+      }
 
-        case 'pong':
-          break;
+      case 'generation_cancelled':
+        spinner.stop();
+        generating = false;
+        lastUsage = null;
+        process.stdout.write('\n[Cancelled]\n\n');
+        prompt();
+        break;
+
+      case 'tool_use_start':
+        toolStreaming = false;
+        spinner.start(formatToolProgress(msg.toolName, msg.input));
+        break;
+
+      case 'tool_output_chunk':
+        if (!toolStreaming) {
+          spinner.stop();
+          toolStreaming = true;
+        }
+        process.stdout.write(msg.chunk);
+        break;
+
+      case 'tool_result':
+        if (!toolStreaming) spinner.stop();
+        if (toolStreaming) {
+          if (msg.status) {
+            process.stdout.write(`\n${msg.status}`);
+          }
+          process.stdout.write('\n');
+        } else {
+          process.stdout.write(`\n[Tool: ${msg.result.slice(0, 200)}]\n`);
+        }
+        toolStreaming = false;
+        if (msg.diff) {
+          const diffOutput = msg.diff.isNewFile
+            ? formatNewFileDiff(msg.diff.newContent, msg.diff.filePath)
+            : formatDiff(msg.diff.oldContent, msg.diff.newContent, msg.diff.filePath);
+          if (diffOutput) {
+            process.stdout.write(diffOutput);
+          }
+        }
+        spinner.start('Thinking...');
+        break;
+
+      case 'confirmation_request':
+        spinner.stop();
+        renderConfirmationPrompt(msg);
+        break;
+
+      case 'error':
+        spinner.stop();
+        generating = false;
+        pendingSessionPick = false;
+        process.stdout.write(`\n[Error: ${msg.message}]\n`);
+        prompt();
+        break;
+
+      case 'session_list_response':
+        if (pendingSessionPick) {
+          renderSessionPicker(msg.sessions);
+        } else {
+          for (const session of msg.sessions) {
+            process.stdout.write(`  ${session.id}  ${session.title}\n`);
+          }
+          prompt();
+        }
+        break;
+
+      case 'model_info':
+        process.stdout.write(`\n  Model: ${msg.model} (${msg.provider})\n\n`);
+        prompt();
+        break;
+
+      case 'history_response':
+        process.stdout.write('\n');
+        if (msg.messages.length === 0) {
+          process.stdout.write('  No messages in this session.\n');
+        } else {
+          for (const m of msg.messages) {
+            const label = m.role === 'user' ? 'you' : 'assistant';
+            const preview = m.text.length > 120 ? m.text.slice(0, 117) + '...' : m.text;
+            process.stdout.write(`  ${label}> ${preview.replace(/\n/g, ' ')}\n`);
+          }
+        }
+        process.stdout.write('\n');
+        prompt();
+        break;
+
+      case 'undo_complete':
+        if (msg.removedCount === 0) {
+          process.stdout.write('\n  Nothing to undo.\n\n');
+        } else {
+          lastResponse = '';
+          process.stdout.write(`\n  Removed last exchange (${msg.removedCount} messages).\n\n`);
+        }
+        prompt();
+        break;
+
+      case 'usage_response': {
+        process.stdout.write('\n');
+        process.stdout.write(`  Model:          ${msg.model}\n`);
+        process.stdout.write(`  Input tokens:   ${msg.totalInputTokens.toLocaleString()}\n`);
+        process.stdout.write(`  Output tokens:  ${msg.totalOutputTokens.toLocaleString()}\n`);
+        const costStr = msg.estimatedCost > 0
+          ? `$${msg.estimatedCost.toFixed(4)}`
+          : 'N/A (unknown model pricing)';
+        process.stdout.write(`  Estimated cost: ${costStr}\n`);
+        process.stdout.write('\n');
+        prompt();
+        break;
+      }
+
+      case 'pong':
+        // Heartbeat response — clear the timeout
+        if (heartbeatTimeout) {
+          clearTimeout(heartbeatTimeout);
+          heartbeatTimeout = null;
+        }
+        break;
+    }
+  }
+
+  function stopHeartbeat(): void {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+    if (heartbeatTimeout) {
+      clearTimeout(heartbeatTimeout);
+      heartbeatTimeout = null;
+    }
+  }
+
+  function startHeartbeat(): void {
+    stopHeartbeat();
+    heartbeatTimer = setInterval(() => {
+      if (socket.destroyed) return;
+      send({ type: 'ping' });
+      heartbeatTimeout = setTimeout(() => {
+        // No pong received — daemon is unresponsive, trigger reconnect
+        socket.destroy();
+      }, HEARTBEAT_TIMEOUT_MS);
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  async function reconnect(): Promise<void> {
+    if (reconnecting) return;
+    reconnecting = true;
+    stopHeartbeat();
+    spinner.stop();
+
+    // Reset generation state — any in-flight request is lost
+    generating = false;
+    toolStreaming = false;
+    pendingSessionPick = false;
+    lastUsage = null;
+
+    for (let attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS; attempt++) {
+      process.stdout.write(`\n  Reconnecting to daemon (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})...\n`);
+      await new Promise((r) => setTimeout(r, RECONNECT_DELAY_MS));
+
+      try {
+        await ensureDaemonRunning();
+        await connect();
+        reconnecting = false;
+        return;
+      } catch {
+        // Will retry
       }
     }
-  });
+
+    process.stderr.write('\n  Failed to reconnect after multiple attempts.\n');
+    reconnecting = false;
+    process.exit(1);
+  }
+
+  function connect(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      parser = createMessageParser();
+      const newSocket = net.createConnection(socketPath);
+      let connected = false;
+
+      newSocket.on('connect', () => {
+        connected = true;
+        socket = newSocket;
+        startHeartbeat();
+        resolve();
+      });
+
+      newSocket.on('data', (data) => {
+        const messages = parser.feed(data.toString()) as ServerMessage[];
+        for (const msg of messages) {
+          handleMessage(msg);
+        }
+      });
+
+      newSocket.on('close', () => {
+        stopHeartbeat();
+        if (!connected) return; // handled by 'error'
+        // Only auto-reconnect if we're not intentionally exiting
+        if (!reconnecting) {
+          reconnect();
+        }
+      });
+
+      newSocket.on('error', (err) => {
+        stopHeartbeat();
+        if (!connected) {
+          reject(err);
+          return;
+        }
+        // Connected socket error — will trigger 'close' → reconnect
+      });
+    });
+  }
 
   rl.on('line', (line) => {
     const content = line.trim();
     if (!content) return;
     if (pendingSessionPick) return;
+    if (reconnecting) return;
 
     if (content === '/copy') {
       if (!lastResponse) {
@@ -492,6 +597,7 @@ export async function startCli(): Promise<void> {
   });
 
   rl.on('close', () => {
+    stopHeartbeat();
     process.stdout.write('\nDetaching from vellum...\n');
     process.exit(0);
   });
@@ -506,13 +612,6 @@ export async function startCli(): Promise<void> {
     }
   });
 
-  socket.on('close', () => {
-    process.stdout.write('\nDisconnected from daemon.\n');
-    process.exit(1);
-  });
-
-  socket.on('error', (err) => {
-    process.stderr.write(`Connection error: ${err.message}\n`);
-    process.exit(1);
-  });
+  // Initial connection
+  await connect();
 }
