@@ -1,4 +1,5 @@
 import pino from 'pino';
+import pinoPretty from 'pino-pretty';
 import { getLogPath, ensureDataDir } from './platform.js';
 
 let rootLogger: pino.Logger | null = null;
@@ -6,10 +7,18 @@ let rootLogger: pino.Logger | null = null;
 function getRootLogger(): pino.Logger {
   if (!rootLogger) {
     ensureDataDir();
-    rootLogger = pino(
-      { level: 'info' },
-      pino.destination({ dest: getLogPath(), sync: false, mkdir: true }),
-    );
+    const fileStream = pino.destination({ dest: getLogPath(), sync: false, mkdir: true });
+
+    if (process.env.VELLUM_DEBUG === '1') {
+      const prettyStream = pinoPretty({ destination: 2 });
+      const multi = pino.multistream([
+        { stream: fileStream },
+        { stream: prettyStream },
+      ]);
+      rootLogger = pino({ level: 'debug' }, multi);
+    } else {
+      rootLogger = pino({ level: 'info' }, fileStream);
+    }
   }
   return rootLogger;
 }
