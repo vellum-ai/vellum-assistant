@@ -51,6 +51,11 @@ output "editor_templates_bucket" {
   value       = google_storage_bucket.editor_templates.name
 }
 
+output "vellum_assistant_bucket" {
+  description = "GCS bucket for vellum-assistant app data"
+  value       = google_storage_bucket.vellum_assistant.name
+}
+
 output "database_connection_info" {
   description = "Database connection information"
   value       = <<-EOT
