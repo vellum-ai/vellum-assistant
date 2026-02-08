@@ -17,12 +17,6 @@ variable "environment" {
 }
 
 # Cluster settings
-variable "create_cluster" {
-  description = "Whether to create a new GKE cluster or use existing"
-  type        = bool
-  default     = false
-}
-
 variable "cluster_name" {
   description = "GKE cluster name"
   type        = string

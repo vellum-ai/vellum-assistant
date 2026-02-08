@@ -1,12 +1,8 @@
 # Copy to terraform.tfvars and fill in values
 
-project_id = "your-gcp-project-id"
-region     = "us-central1"
-
-# Set to true to create a new GKE cluster
-# Set to false to use an existing cluster
-create_cluster = false
-cluster_name   = "existing-cluster-name"
+project_id   = "your-gcp-project-id"
+region       = "us-central1"
+cluster_name = "vellum-ai-prod"
 
 # Application
 domain       = "assistant.vellum.ai"
