@@ -117,6 +117,9 @@ export class AgentLoop {
           });
         }
 
+        // If cancelled mid-execution, discard incomplete results
+        if (signal?.aborted) break;
+
         // Track tool-use turns and inject progress reminder every N turns
         toolUseTurns++;
         if (toolUseTurns % PROGRESS_CHECK_INTERVAL === 0) {
@@ -129,6 +132,8 @@ export class AgentLoop {
         // Add tool results as a user message and continue the loop
         history.push({ role: 'user', content: resultBlocks });
       } catch (error) {
+        // Abort errors are expected when user cancels — don't emit as errors
+        if (signal?.aborted) break;
         const err = error instanceof Error ? error : new Error(String(error));
         log.error({ err }, 'Agent loop error');
         onEvent({ type: 'error', error: err });
