@@ -13,6 +13,7 @@ export function createConversation(title?: string) {
     updatedAt: now,
     totalInputTokens: 0,
     totalOutputTokens: 0,
+    totalEstimatedCost: 0,
   };
   db.insert(conversations).values(conversation).run();
   return conversation;
@@ -89,10 +90,11 @@ export function updateConversationUsage(
   id: string,
   totalInputTokens: number,
   totalOutputTokens: number,
+  totalEstimatedCost: number,
 ): void {
   const db = getDb();
   db.update(conversations)
-    .set({ totalInputTokens, totalOutputTokens, updatedAt: Date.now() })
+    .set({ totalInputTokens, totalOutputTokens, totalEstimatedCost, updatedAt: Date.now() })
     .where(eq(conversations.id, id))
     .run();
 }

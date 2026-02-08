@@ -27,6 +27,7 @@ export class Session {
   private workingDir: string;
   private totalInputTokens = 0;
   private totalOutputTokens = 0;
+  private totalEstimatedCost = 0;
 
   constructor(
     conversationId: string,
@@ -70,6 +71,7 @@ export class Session {
     if (conv) {
       this.totalInputTokens = conv.totalInputTokens;
       this.totalOutputTokens = conv.totalOutputTokens;
+      this.totalEstimatedCost = conv.totalEstimatedCost;
     }
 
     log.info({ conversationId: this.conversationId, count: this.messages.length }, 'Loaded messages from DB');
@@ -178,10 +180,13 @@ export class Session {
       if (exchangeInputTokens > 0 || exchangeOutputTokens > 0) {
         this.totalInputTokens += exchangeInputTokens;
         this.totalOutputTokens += exchangeOutputTokens;
+        const exchangeCost = estimateCost(exchangeInputTokens, exchangeOutputTokens, model);
+        this.totalEstimatedCost += exchangeCost;
         conversationStore.updateConversationUsage(
           this.conversationId,
           this.totalInputTokens,
           this.totalOutputTokens,
+          this.totalEstimatedCost,
         );
         onEvent({
           type: 'usage_update',
@@ -189,7 +194,7 @@ export class Session {
           outputTokens: exchangeOutputTokens,
           totalInputTokens: this.totalInputTokens,
           totalOutputTokens: this.totalOutputTokens,
-          estimatedCost: estimateCost(this.totalInputTokens, this.totalOutputTokens, model),
+          estimatedCost: exchangeCost,
           model,
         });
       }
