@@ -22,8 +22,8 @@ resource "kubernetes_config_map" "app_config" {
   }
 
   data = {
-    NODE_ENV            = "production"
-    BETTER_AUTH_URL     = "https://${var.domain}"
+    NODE_ENV        = "production"
+    BETTER_AUTH_URL = "https://${var.domain}"
   }
 }
 
