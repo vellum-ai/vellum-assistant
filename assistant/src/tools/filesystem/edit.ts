@@ -4,6 +4,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
+import { findAllMatches, adjustIndentation } from './fuzzy-match.js';
 
 class FileEditTool implements Tool {
   name = 'file_edit';
@@ -66,31 +67,44 @@ class FileEditTool implements Tool {
     try {
       const content = readFileSync(filePath, 'utf-8');
 
-      const firstIndex = content.indexOf(oldString);
-      if (firstIndex === -1) {
-        return { content: `Error: old_string not found in ${filePath}`, isError: true };
-      }
-
-      let updated: string;
+      // replace_all: exact-match-only to avoid ambiguous bulk replacements
       if (replaceAll) {
-        updated = content.split(oldString).join(newString);
+        const firstIndex = content.indexOf(oldString);
+        if (firstIndex === -1) {
+          return { content: `Error: old_string not found in ${filePath}`, isError: true };
+        }
+        const updated = content.split(oldString).join(newString);
         const count = content.split(oldString).length - 1;
         writeFileSync(filePath, updated);
         return { content: `Successfully replaced ${count} occurrence${count > 1 ? 's' : ''} in ${filePath}`, isError: false };
       }
 
-      const secondIndex = content.indexOf(oldString, firstIndex + 1);
-      if (secondIndex !== -1) {
+      // Single-match path: cascading exact → whitespace → fuzzy
+      const matches = findAllMatches(content, oldString);
+      if (matches.length === 0) {
+        return { content: `Error: old_string not found in ${filePath}`, isError: true };
+      }
+      if (matches.length > 1) {
         return {
           content: `Error: old_string appears multiple times in ${filePath}. Provide more surrounding context to make it unique, or set replace_all to true.`,
           isError: true,
         };
       }
 
-      updated = content.slice(0, firstIndex) + newString + content.slice(firstIndex + oldString.length);
+      const match = matches[0];
+      const adjustedNewString = match.method !== 'exact'
+        ? adjustIndentation(oldString, match.matched, newString)
+        : newString;
+
+      const updated = content.slice(0, match.start) + adjustedNewString + content.slice(match.end);
       writeFileSync(filePath, updated);
 
-      return { content: `Successfully edited ${filePath}`, isError: false };
+      const methodNote = match.method === 'exact'
+        ? ''
+        : match.method === 'whitespace'
+          ? ' (matched with whitespace normalization)'
+          : ` (fuzzy matched, similarity ${(match.similarity * 100).toFixed(0)}%)`;
+      return { content: `Successfully edited ${filePath}${methodNote}`, isError: false };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { content: `Error editing file: ${msg}`, isError: true };
