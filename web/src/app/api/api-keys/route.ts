@@ -60,8 +60,7 @@ export async function GET(request: Request) {
 
     const sql = getDb();
 
-    // Get user ID from username
-    const userResult = await sql`SELECT id FROM users WHERE username = ${username}`;
+    const userResult = await sql`SELECT id FROM "user" WHERE username = ${username}`;
     if (userResult.length === 0) {
       return NextResponse.json({ keys: [] });
     }
@@ -104,13 +103,12 @@ export async function POST(request: Request) {
     const sql = getDb();
 
     // Get or create user
-    let userResult = await sql`SELECT id FROM users WHERE username = ${username}`;
+    const userResult = await sql`SELECT id FROM "user" WHERE username = ${username}`;
     if (userResult.length === 0) {
-      userResult = await sql`
-        INSERT INTO users (username)
-        VALUES (${username})
-        RETURNING id
-      `;
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      );
     }
     const userId = userResult[0].id;
 
@@ -169,8 +167,7 @@ export async function DELETE(request: Request) {
 
     const sql = getDb();
 
-    // Verify user owns this key
-    const userResult = await sql`SELECT id FROM users WHERE username = ${username}`;
+    const userResult = await sql`SELECT id FROM "user" WHERE username = ${username}`;
     if (userResult.length === 0) {
       return NextResponse.json(
         { error: "User not found" },

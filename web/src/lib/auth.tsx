@@ -5,113 +5,78 @@ import {
   ReactNode,
   useCallback,
   useContext,
-  useSyncExternalStore,
+  useEffect,
+  useState,
 } from "react";
+import { authClient } from "@/lib/auth-client";
 
 interface AuthContextType {
   isLoggedIn: boolean;
   isLoading: boolean;
   username: string | null;
-  login: (username: string, password: string) => boolean;
-  signup: (username: string, password: string) => boolean;
+  login: (username: string, password: string) => Promise<boolean>;
+  signup: (username: string, email: string, password: string) => Promise<boolean>;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const STORAGE_KEY = "vellum_auth";
-
 interface AuthProviderProps {
   children: ReactNode;
 }
 
-interface StoredAuth {
-  isLoggedIn: boolean;
-  username: string;
-}
-
-const authListeners = new Set<() => void>();
-
-function subscribeToAuth(listener: () => void): () => void {
-  authListeners.add(listener);
-  return () => {
-    authListeners.delete(listener);
-  };
-}
-
-function notifyAuthListeners() {
-  authListeners.forEach((listener) => listener());
-}
-
-let cachedStorageValue: string | null | undefined = undefined;
-let cachedSnapshot: StoredAuth | null = null;
-
-function getAuthSnapshot(): StoredAuth | null {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored !== cachedStorageValue) {
-    cachedStorageValue = stored;
-    if (!stored) {
-      cachedSnapshot = null;
-    } else {
-      try {
-        const parsed = JSON.parse(stored);
-        cachedSnapshot =
-          parsed.isLoggedIn && parsed.username
-            ? (parsed as StoredAuth)
-            : null;
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
-        cachedSnapshot = null;
-      }
-    }
-  }
-  return cachedSnapshot;
-}
-
-function getAuthServerSnapshot(): StoredAuth | null {
-  return null;
-}
-
 export function AuthProvider({ children }: AuthProviderProps) {
-  const storedAuth = useSyncExternalStore(
-    subscribeToAuth,
-    getAuthSnapshot,
-    getAuthServerSnapshot,
-  );
-  const isLoggedIn = storedAuth?.isLoggedIn ?? false;
-  const username = storedAuth?.username ?? null;
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [username, setUsername] = useState<string | null>(null);
 
-  const login = useCallback((user: string, password: string): boolean => {
-    if (user && password) {
-      const auth = { isLoggedIn: true, username: user };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
-      cachedStorageValue = undefined;
-      notifyAuthListeners();
-      return true;
-    }
-    return false;
+  useEffect(() => {
+    authClient.getSession().then(({ data }) => {
+      if (data?.user) {
+        setIsLoggedIn(true);
+        setUsername(data.user.name);
+      }
+      setIsLoading(false);
+    });
   }, []);
 
-  const signup = useCallback((user: string, password: string): boolean => {
-    if (user && password) {
-      const auth = { isLoggedIn: true, username: user };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
-      cachedStorageValue = undefined;
-      notifyAuthListeners();
-      return true;
+  const login = useCallback(async (user: string, password: string): Promise<boolean> => {
+    const { error } = await authClient.signIn.username({
+      username: user,
+      password,
+    });
+    if (error) {
+      return false;
     }
-    return false;
+    setIsLoggedIn(true);
+    setUsername(user);
+    return true;
   }, []);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
-    cachedStorageValue = undefined;
-    notifyAuthListeners();
+  const signup = useCallback(async (user: string, email: string, password: string): Promise<boolean> => {
+    const { error } = await authClient.signUp.email({
+      name: user,
+      username: user,
+      email,
+      password,
+    });
+    if (error) {
+      return false;
+    }
+    setIsLoggedIn(true);
+    setUsername(user);
+    return true;
+  }, []);
+
+  const logout = useCallback(async () => {
+    await authClient.signOut();
+    setIsLoggedIn(false);
+    setUsername(null);
   }, []);
 
   return (
     <AuthContext.Provider
-      value={{ isLoggedIn, isLoading: false, username, login, signup, logout }}
+      value={{ isLoggedIn, isLoading, username, login, signup, logout }}
     >
       {children}
     </AuthContext.Provider>

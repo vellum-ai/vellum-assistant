@@ -29,19 +29,16 @@ export async function GET(request: Request) {
 
     const sql = getDb();
     const result = await sql`
-      SELECT id, username, email, display_name, profile_picture_url, created_at, updated_at
-      FROM users
+      SELECT id, username, email, display_username as display_name, image as profile_picture_url, created_at, updated_at
+      FROM "user"
       WHERE username = ${username}
     `;
 
     if (result.length === 0) {
-      // Auto-create user if doesn't exist (for prototype simplicity)
-      const newUser = await sql`
-        INSERT INTO users (username)
-        VALUES (${username})
-        RETURNING id, username, email, display_name, profile_picture_url, created_at, updated_at
-      `;
-      return NextResponse.json(newUser[0] as User);
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      );
     }
 
     return NextResponse.json(result[0] as User);
@@ -71,28 +68,24 @@ export async function PUT(request: Request) {
 
     const sql = getDb();
 
-    // Check if user exists, create if not
-    const existing = await sql`SELECT id FROM users WHERE username = ${username}`;
-    
+    const existing = await sql`SELECT id FROM "user" WHERE username = ${username}`;
+
     if (existing.length === 0) {
-      const newUser = await sql`
-        INSERT INTO users (username, display_name, email, profile_picture_url)
-        VALUES (${username}, ${display_name || null}, ${email || null}, ${profile_picture_url || null})
-        RETURNING id, username, email, display_name, profile_picture_url, created_at, updated_at
-      `;
-      return NextResponse.json(newUser[0] as User);
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      );
     }
 
-    // Update existing user
     const result = await sql`
-      UPDATE users
+      UPDATE "user"
       SET 
-        display_name = COALESCE(${display_name}, display_name),
+        display_username = COALESCE(${display_name}, display_username),
         email = COALESCE(${email}, email),
-        profile_picture_url = COALESCE(${profile_picture_url}, profile_picture_url),
+        image = COALESCE(${profile_picture_url}, image),
         updated_at = NOW()
       WHERE username = ${username}
-      RETURNING id, username, email, display_name, profile_picture_url, created_at, updated_at
+      RETURNING id, username, email, display_username as display_name, image as profile_picture_url, created_at, updated_at
     `;
 
     return NextResponse.json(result[0] as User);
