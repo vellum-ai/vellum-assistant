@@ -1,5 +1,17 @@
-import { MarketingPage } from "@/components/MarketingPage";
+import { BlogBody } from "@/components/BlogPage/BlogBody";
+import { VellumHead } from "@/components/VellumHomepage/VellumHead";
+import { VellumScripts } from "@/components/VellumHomepage/VellumScripts";
+
+export const metadata = {
+  title: "Blog - Vellum",
+};
 
 export default function BlogPage() {
-  return <MarketingPage htmlFile="blog.html" title="Blog - Vellum" />;
+  return (
+    <>
+      <VellumHead />
+      <BlogBody />
+      <VellumScripts />
+    </>
+  );
 }
