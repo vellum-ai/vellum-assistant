@@ -20,7 +20,7 @@ This project uses [Drizzle ORM](https://orm.drizzle.team/) for database manageme
 # Push schema changes to database
 bun run db:push
 
-# Preview schema changes (dry run)
+# Preview schema changes (diff against main branch)
 bun run db:push:preview
 ```
 

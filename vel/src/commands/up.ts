@@ -51,7 +51,7 @@ export async function up(): Promise<void> {
 
     // Step 3: Run database migrations
     console.log('🔄 Running database migrations...');
-    const push = spawn('bunx', ['drizzle-kit', 'push', '--force'], {
+    const migrate = spawn('bunx', ['drizzle-kit', 'migrate'], {
       cwd: webDir,
       stdio: 'inherit',
       env: {
@@ -61,14 +61,14 @@ export async function up(): Promise<void> {
     });
 
     await new Promise<void>((resolve, reject) => {
-      push.on('close', (code) => {
+      migrate.on('close', (code) => {
         if (code === 0) {
           resolve();
         } else {
-          reject(new Error(`drizzle-kit push failed with code ${code}`));
+          reject(new Error(`drizzle-kit migrate failed with code ${code}`));
         }
       });
-      push.on('error', reject);
+      migrate.on('error', reject);
     });
 
     console.log('✅ Database migrations complete\n');

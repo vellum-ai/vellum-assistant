@@ -18,6 +18,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Fetch main branch
+        run: git fetch origin main --depth=1
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
@@ -30,5 +33,5 @@ jobs:
       - name: Type check
         run: bunx tsc --noEmit
 
-      - name: Schema push preview
-        run: bunx drizzle-kit push --dry-run
+      - name: Preview schema changes
+        run: bun run db:push:preview
