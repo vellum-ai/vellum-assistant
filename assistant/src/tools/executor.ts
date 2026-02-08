@@ -82,20 +82,21 @@ export class ToolExecutor {
         }
 
         if (response.decision === 'always_deny') {
-          if (response.selectedPattern && response.selectedScope) {
-            addRule(name, response.selectedPattern, response.selectedScope, 'deny');
+          const ruleSaved = !!(response.selectedPattern && response.selectedScope);
+          if (ruleSaved) {
+            addRule(name, response.selectedPattern!, response.selectedScope!, 'deny');
           }
           const durationMs = Date.now() - startTime;
           recordToolInvocation({
             conversationId: context.conversationId,
             toolName: name,
             input: JSON.stringify(input),
-            result: 'denied (permanent)',
+            result: ruleSaved ? 'denied (permanent)' : 'denied',
             decision: 'denied',
             riskLevel,
             durationMs,
           });
-          return { content: 'Permission denied by user (rule saved)', isError: true };
+          return { content: ruleSaved ? 'Permission denied by user (rule saved)' : 'Permission denied by user', isError: true };
         }
 
         if (response.decision === 'always_allow' && response.selectedPattern && response.selectedScope) {
