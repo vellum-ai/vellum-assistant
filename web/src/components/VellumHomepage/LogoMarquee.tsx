@@ -47,7 +47,7 @@ export function LogoMarquee() {
                     <div data-fs-marquee-element="list" role="list" className="fs-logo-marquee_list w-dyn-items">
                       {logos.map((logo, index) => (
                         <div key={index} data-fs-marquee-element="item" role="listitem" className="logo_item pill w-dyn-item">
-                          <Image loading="lazy" src={logo.src} alt={logo.alt} className="marquee_logo smaller" width={0} height={0} unoptimized />
+                          <Image loading="lazy" src={logo.src} alt={logo.alt} className="marquee_logo smaller" width={150} height={40} unoptimized style={{ width: "auto", height: "auto" }} />
                           {logo.hasCaseStudy ? (
                             <a href={logo.caseStudy} className="case_study-link-logo pill hide-tablet w-inline-block">
                               <div>Case Study</div>
