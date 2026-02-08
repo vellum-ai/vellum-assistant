@@ -141,7 +141,7 @@ export async function updateUser(username: string, data: Partial<NewUser>) {
 
 // API Key queries
 export async function getApiKeysByUserId(userId: string) {
-  return db.select().from(schema.apiKeysTable).where(eq(schema.apiKeys.userId, userId));
+  return db.select().from(schema.apiKeysTable).where(eq(schema.apiKeysTable.userId, userId));
 }
 
 export async function createApiKey(data: NewApiKey) {
@@ -152,5 +152,5 @@ export async function createApiKey(data: NewApiKey) {
 export async function deleteApiKey(id: string, userId: string) {
   await db
     .delete(schema.apiKeysTable)
-    .where(and(eq(schema.apiKeysTable.id, id), eq(schema.apiKeys.userId, userId)));
+    .where(and(eq(schema.apiKeysTable.id, id), eq(schema.apiKeysTable.userId, userId)));
 }
