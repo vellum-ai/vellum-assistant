@@ -5,10 +5,10 @@ locals {
   db_user      = "vellum"
   db_name      = "vellum_assistant"
   db_cpu_count = 2
-  
+
   # Generate random password for the database
   db_password = random_password.db_password.result
-  
+
   # Construct the DATABASE_URL in PostgreSQL format with URL-encoded password
   database_url = "postgresql://${local.db_user}:${urlencode(local.db_password)}@${google_alloydb_instance.primary.ip_address}:5432/${local.db_name}?sslmode=require"
 }
@@ -53,7 +53,7 @@ resource "google_alloydb_instance" "primary" {
 # Store DATABASE_URL in Secret Manager
 resource "google_secret_manager_secret" "database_url" {
   secret_id = "database-url"
-  
+
   replication {
     auto {}
   }
