@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "bun run src/index.ts",
     "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "test": "bun test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
