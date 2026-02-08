@@ -43,9 +43,11 @@ if [ -L "$SYMLINK_PATH" ]; then
         echo "✅ vel symlink updated"
     fi
 elif [ -e "$SYMLINK_PATH" ]; then
-    echo "⚠️  Warning: $SYMLINK_PATH exists but is not a symlink"
-    echo "   Please remove it manually and re-run setup"
-    exit 1
+    echo "🔄 Replacing existing $SYMLINK_PATH..."
+    rm "$SYMLINK_PATH"
+    ln -s "$VEL_EXECUTABLE" "$SYMLINK_PATH"
+    chmod +x "$SYMLINK_PATH"
+    echo "✅ vel symlink created"
 else
     echo "🔗 Creating vel symlink..."
     ln -s "$VEL_EXECUTABLE" "$SYMLINK_PATH"
