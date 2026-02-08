@@ -51,6 +51,7 @@ export function loadConfig(): AssistantConfig {
     ...DEFAULT_CONFIG,
     ...fileConfig,
     apiKeys: { ...DEFAULT_CONFIG.apiKeys, ...fileConfig.apiKeys },
+    timeouts: { ...DEFAULT_CONFIG.timeouts, ...(fileConfig as Record<string, unknown>).timeouts as Partial<AssistantConfig['timeouts']> },
   };
 
   validateConfig(config);
