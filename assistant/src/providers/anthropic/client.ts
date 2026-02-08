@@ -22,9 +22,9 @@ export class AnthropicProvider implements Provider {
   private client: Anthropic;
   private model: string;
 
-  constructor(apiKey: string, model?: string) {
+  constructor(apiKey: string, model: string) {
     this.client = new Anthropic({ apiKey });
-    this.model = model ?? "claude-sonnet-4-20250514";
+    this.model = model;
   }
 
   async sendMessage(
