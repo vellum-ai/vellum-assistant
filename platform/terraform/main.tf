@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 2.25"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 
   # TODO: Configure remote state backend
@@ -20,8 +24,9 @@ terraform {
 }
 
 provider "google" {
-  project = var.project_id
-  region  = var.region
+  project                     = var.project_id
+  region                      = var.region
+  impersonate_service_account = "github-actions@vellum-ai-prod.iam.gserviceaccount.com"
 }
 
 # GKE Cluster

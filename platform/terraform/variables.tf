@@ -1,6 +1,7 @@
 variable "project_id" {
   description = "GCP Project ID"
   type        = string
+  default     = "vellum-ai-prod"
 }
 
 variable "region" {
@@ -25,7 +26,7 @@ variable "create_cluster" {
 variable "cluster_name" {
   description = "GKE cluster name"
   type        = string
-  default     = "vellum-assistant"
+  default     = "vellum-ai-prod"
 }
 
 variable "network" {
@@ -75,12 +76,6 @@ variable "app_replicas" {
   description = "Number of app replicas"
   type        = number
   default     = 2
-}
-
-variable "database_url" {
-  description = "PostgreSQL connection string"
-  type        = string
-  sensitive   = true
 }
 
 variable "anthropic_api_key" {
