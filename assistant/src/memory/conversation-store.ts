@@ -122,21 +122,3 @@ export function deleteLastExchange(conversationId: string): number {
   return toDelete.length;
 }
 
-/**
- * Delete all messages in a conversation (for compaction — caller replaces with summary).
- * Returns the number of messages deleted.
- */
-export function deleteAllMessages(conversationId: string): number {
-  const db = getDb();
-  const allMessages = db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .all();
-
-  for (const m of allMessages) {
-    db.delete(messages).where(eq(messages.id, m.id)).run();
-  }
-
-  return allMessages.length;
-}

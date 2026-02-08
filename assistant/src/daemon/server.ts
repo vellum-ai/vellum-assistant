@@ -207,9 +207,6 @@ export class DaemonServer {
       case 'undo':
         this.handleUndo(msg.sessionId, socket);
         break;
-      case 'compact':
-        this.handleCompact(msg.sessionId, socket);
-        break;
       case 'ping':
         this.send(socket, { type: 'pong' });
         break;
@@ -350,24 +347,4 @@ export class DaemonServer {
     this.send(socket, { type: 'undo_complete', removedCount });
   }
 
-  private async handleCompact(sessionId: string, socket: net.Socket): Promise<void> {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      this.send(socket, { type: 'error', message: 'No active session' });
-      return;
-    }
-    try {
-      const result = await session.compact((event) => {
-        this.send(socket, event);
-      });
-      this.send(socket, {
-        type: 'compact_complete',
-        originalCount: result.originalCount,
-        compactedCount: result.compactedCount,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.send(socket, { type: 'error', message: `Compact failed: ${message}` });
-    }
-  }
 }

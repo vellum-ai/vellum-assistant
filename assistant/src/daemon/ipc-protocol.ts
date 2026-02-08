@@ -55,11 +55,6 @@ export interface UndoRequest {
   sessionId: string;
 }
 
-export interface CompactRequest {
-  type: 'compact';
-  sessionId: string;
-}
-
 export type ClientMessage =
   | UserMessage
   | ConfirmationResponse
@@ -71,8 +66,7 @@ export type ClientMessage =
   | ModelGetRequest
   | ModelSetRequest
   | HistoryRequest
-  | UndoRequest
-  | CompactRequest;
+  | UndoRequest;
 
 // === Server → Client messages ===
 
@@ -149,12 +143,6 @@ export interface UndoComplete {
   removedCount: number;
 }
 
-export interface CompactComplete {
-  type: 'compact_complete';
-  originalCount: number;
-  compactedCount: number;
-}
-
 export type ServerMessage =
   | AssistantTextDelta
   | ToolUseStart
@@ -168,8 +156,7 @@ export type ServerMessage =
   | GenerationCancelled
   | ModelInfo
   | HistoryResponse
-  | UndoComplete
-  | CompactComplete;
+  | UndoComplete;
 
 // === Serialization ===
 

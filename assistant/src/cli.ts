@@ -320,14 +320,6 @@ export async function startCli(): Promise<void> {
           prompt();
           break;
 
-        case 'compact_complete':
-          spinner.stop();
-          generating = false;
-          lastResponse = '';
-          process.stdout.write(`\n\n  Compacted: ${msg.originalCount} messages -> ${msg.compactedCount}\n\n`);
-          prompt();
-          break;
-
         case 'pong':
           break;
       }
@@ -409,14 +401,6 @@ export async function startCli(): Promise<void> {
       return;
     }
 
-    if (content === '/compact') {
-      process.stdout.write('Compacting conversation...\n');
-      generating = true;
-      send({ type: 'compact', sessionId });
-      spinner.start('Summarizing...');
-      return;
-    }
-
     if (content === '/help') {
       process.stdout.write('\n  Available commands:\n');
       process.stdout.write('  /new              Start a new session\n');
@@ -425,7 +409,6 @@ export async function startCli(): Promise<void> {
       process.stdout.write('  /model [name]     Show or change the model\n');
       process.stdout.write('  /history          Show conversation history\n');
       process.stdout.write('  /undo             Remove last message exchange\n');
-      process.stdout.write('  /compact          Summarize conversation to save context\n');
       process.stdout.write('  /copy             Copy last response to clipboard\n');
       process.stdout.write('  /copy-code        Copy last code block to clipboard\n');
       process.stdout.write('  /help             Show this help\n');
