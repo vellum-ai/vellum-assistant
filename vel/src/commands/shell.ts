@@ -6,7 +6,7 @@ export async function shell(): Promise<void> {
   const webDir = join(repoRoot, 'web');
   const shellScript = join(webDir, 'scripts', 'shell.mts');
 
-  const child = spawn('npx', ['tsx', shellScript], {
+  const child = spawn('bun', ['run', shellScript], {
     cwd: webDir,
     stdio: 'inherit',
     env: {
