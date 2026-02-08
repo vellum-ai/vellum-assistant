@@ -195,7 +195,7 @@ export class DaemonServer {
     let session = this.sessions.get(conversationId);
     const sendToClient = (msg: ServerMessage) => this.send(socket, msg);
 
-    if (!session || session.isStale()) {
+    if (!session || (session.isStale() && !session.isProcessing())) {
       const config = getConfig();
       const provider = getProvider(config.provider);
       const workingDir = process.cwd();
