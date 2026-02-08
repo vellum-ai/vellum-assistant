@@ -1,19 +1,34 @@
 # vel - Vellum Assistant Development Toolkit
 
-A CLI toolkit for common development operations in the vellum-assistant monorepo.
+A TypeScript CLI toolkit for common development operations in the vellum-assistant monorepo.
 
 ## Installation
 
-From the project root, you can run `vel` directly:
+First, install dependencies:
 
 ```bash
-./vel/vel <command>
+cd vel
+npm install
 ```
 
-Or add it to your PATH for easier access:
+Build the TypeScript sources:
 
 ```bash
-export PATH="$PATH:$(pwd)/vel"
+npm run build
+```
+
+## Usage
+
+From the `vel` directory:
+
+```bash
+npm run vel <command>
+```
+
+Or from the project root after building:
+
+```bash
+node ./vel/dist/index.js <command>
 ```
 
 ## Commands
@@ -22,35 +37,51 @@ export PATH="$PATH:$(pwd)/vel"
 Start the development environment (all services).
 
 ```bash
-vel up
+npm run vel up
 ```
 
 ### `vel down`
 Stop the development environment.
 
 ```bash
-vel down
+npm run vel down
 ```
 
 ### `vel setup`
 Set up the development environment (initial configuration).
 
 ```bash
-vel setup
+npm run vel setup
 ```
 
 ### `vel ps`
 List running services and their status.
 
 ```bash
-vel ps
+npm run vel ps
 ```
 
 ### `vel help`
 Show help information.
 
 ```bash
-vel help
+npm run vel help
+```
+
+## Development
+
+### Watch Mode
+
+```bash
+npm run dev
+```
+
+This will watch for changes and rebuild automatically.
+
+### Build
+
+```bash
+npm run build
 ```
 
 ## Development Status

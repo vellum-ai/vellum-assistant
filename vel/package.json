@@ -1,0 +1,26 @@
+{
+  "name": "@vellum-assistant/vel",
+  "version": "0.1.0",
+  "description": "Development toolkit CLI for vellum-assistant monorepo",
+  "type": "module",
+  "bin": {
+    "vel": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "vel": "node ./dist/index.js"
+  },
+  "keywords": [
+    "cli",
+    "development",
+    "toolkit",
+    "monorepo"
+  ],
+  "author": "Vellum AI",
+  "license": "PROPRIETARY",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.2"
+  }
+}

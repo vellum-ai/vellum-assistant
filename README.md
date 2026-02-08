@@ -19,10 +19,11 @@ AI-powered assistant platform by Vellum.
 The `vel` CLI provides common development operations:
 
 ```bash
-./vel/vel up      # Start development environment
-./vel/vel down    # Stop development environment
-./vel/vel setup   # Run initial setup
-./vel/vel ps      # List running services
+cd vel && npm install && npm run build
+npm run vel up      # Start development environment
+npm run vel down    # Stop development environment
+npm run vel setup   # Run initial setup
+npm run vel ps      # List running services
 ```
 
 See [vel/README.md](./vel/README.md) for more details.
