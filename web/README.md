@@ -18,16 +18,10 @@ This project uses [Drizzle ORM](https://orm.drizzle.team/) for database manageme
 
 ```bash
 # Push schema changes to database
-npm run db:push
+bun run db:push
 
-# Generate migrations
-npm run db:generate
-
-# Run migrations
-npm run db:migrate
-
-# Open Drizzle Studio (database GUI)
-npm run db:studio
+# Preview schema changes (dry run)
+bun run db:push:preview
 ```
 
 ## Tech Stack
@@ -48,6 +42,5 @@ web/
 │   └── lib/           # Utilities, database, GCP helpers
 │       ├── db.ts      # Database connection and queries
 │       └── schema.ts  # Drizzle schema definitions
-├── drizzle/           # Generated migrations
 └── public/            # Static assets
 ```

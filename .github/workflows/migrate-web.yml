@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'web/src/lib/schema.ts'
+      - '.github/workflows/migrate-web.yml'
 
 jobs:
   migrate:
@@ -41,7 +42,7 @@ jobs:
         id: secrets
         run: echo "DATABASE_URL=$(gcloud secrets versions access latest --secret=database-url --project=vellum-ai-prod)" >> "$GITHUB_OUTPUT"
 
-      - name: Run migrations
-        run: bun run db:migrate
+      - name: Push schema to database
+        run: bunx drizzle-kit push --force
         env:
           DATABASE_URL: ${{ steps.secrets.outputs.DATABASE_URL }}

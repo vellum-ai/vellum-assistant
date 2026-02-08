@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "db:migrate": "tsx scripts/migrate.mts",
+    "db:push": "bunx drizzle-kit push --force",
+    "db:push:preview": "bunx drizzle-kit push --dry-run",
     "lint": "eslint",
     "pull": "node scripts/pull.mjs",
     "start": "next start"
