@@ -77,5 +77,8 @@ fi
 
 cd "$PROJECT_ROOT"
 
+# Ensure vel is available even if ~/.local/bin isn't in PATH yet
+export PATH="$SYMLINK_DIR:$PATH"
+
 # Run vel setup for remaining steps
 vel setup
