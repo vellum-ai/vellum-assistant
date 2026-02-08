@@ -1,6 +1,7 @@
 variable "project_id" {
   description = "GCP Project ID"
   type        = string
+  default     = "vellum-ai-prod"
 }
 
 variable "region" {
@@ -25,7 +26,7 @@ variable "create_cluster" {
 variable "cluster_name" {
   description = "GKE cluster name"
   type        = string
-  default     = "vellum-assistant"
+  default     = "vellum-ai-prod"
 }
 
 variable "network" {
@@ -73,25 +74,6 @@ variable "app_image" {
 
 variable "app_replicas" {
   description = "Number of app replicas"
-  type        = number
-  default     = 2
-}
-
-# Database settings
-variable "db_user" {
-  description = "AlloyDB database user"
-  type        = string
-  default     = "vellum"
-}
-
-variable "db_name" {
-  description = "AlloyDB database name"
-  type        = string
-  default     = "vellum_assistant"
-}
-
-variable "db_cpu_count" {
-  description = "Number of CPUs for AlloyDB instance"
   type        = number
   default     = 2
 }
