@@ -4,31 +4,51 @@ A TypeScript CLI toolkit for common development operations in the vellum-assista
 
 ## Installation
 
-First, install dependencies:
+The easiest way to install `vel` is to run the setup script from the project root:
+
+```bash
+./setup.sh
+```
+
+This will:
+1. Install dependencies in the `vel` directory
+2. Build the TypeScript sources
+3. Create a symlink at `~/.local/bin/vel` for easy access
+
+If `~/.local/bin` is not in your PATH, add it to your shell profile:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### Manual Installation
+
+If you prefer to install manually:
 
 ```bash
 cd vel
 npm install
+npm run build
 ```
 
-Build the TypeScript sources:
+Then you can run commands directly:
 
 ```bash
-npm run build
+node ./dist/index.js <command>
+```
+
+Or create your own symlink:
+
+```bash
+ln -s "$(pwd)/dist/index.js" ~/.local/bin/vel
 ```
 
 ## Usage
 
-From the `vel` directory:
+After installation via `setup.sh`, simply run:
 
 ```bash
-npm run vel <command>
-```
-
-Or from the project root after building:
-
-```bash
-node ./vel/dist/index.js <command>
+vel <command>
 ```
 
 ## Commands

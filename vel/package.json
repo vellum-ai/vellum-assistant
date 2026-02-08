@@ -7,7 +7,7 @@
     "vel": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x ./dist/index.js",
     "dev": "tsc --watch",
     "vel": "node ./dist/index.js"
   },
