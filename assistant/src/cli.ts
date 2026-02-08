@@ -274,6 +274,7 @@ export async function startCli(): Promise<void> {
         case 'error':
           spinner.stop();
           generating = false;
+          pendingSessionPick = false;
           process.stdout.write(`\n[Error: ${msg.message}]\n`);
           prompt();
           break;
