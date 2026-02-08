@@ -14,7 +14,7 @@ export function copyToClipboard(text: string): void {
 }
 
 export function extractLastCodeBlock(text: string): string | null {
-  const re = /```[^\n]*\n([\s\S]*?)```/g;
+  const re = /```[^\n]*\n([\s\S]*?)\n```/g;
   let last: RegExpExecArray | null = null;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
