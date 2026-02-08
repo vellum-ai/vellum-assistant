@@ -1,0 +1,47 @@
+name: Run Web Migrations
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'web/src/lib/schema.ts'
+
+jobs:
+  migrate:
+    name: Run DB Migrations
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/620844561845/locations/global/workloadIdentityPools/github-actions/providers/github-provider
+          service_account: github-actions@vellum-ai-prod.iam.gserviceaccount.com
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Fetch DATABASE_URL from Secret Manager
+        id: secrets
+        run: echo "DATABASE_URL=$(gcloud secrets versions access latest --secret=database-url --project=vellum-ai-prod)" >> "$GITHUB_OUTPUT"
+
+      - name: Run migrations
+        run: bun run db:migrate
+        env:
+          DATABASE_URL: ${{ steps.secrets.outputs.DATABASE_URL }}
