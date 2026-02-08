@@ -34,7 +34,7 @@ Terraform configuration for deploying Vellum Assistant to GKE.
 1. GCP project with billing enabled
 2. `gcloud` CLI authenticated
 3. Terraform >= 1.0
-4. Existing GKE cluster (or set `create_cluster = true`)
+4. GCP APIs enabled (container, compute, iam, secretmanager)
 
 ## Quick Start
 
@@ -88,25 +88,9 @@ docker push gcr.io/PROJECT_ID/vellum-assistant:latest
 - `outputs.tf` - Useful outputs
 - `terraform.tfvars.example` - Example configuration
 
-## Using Existing Cluster
+## GKE Cluster
 
-If you have an existing GKE cluster:
-
-```hcl
-create_cluster = false
-cluster_name   = "your-existing-cluster"
-```
-
-The Terraform will deploy the app to the existing cluster.
-
-## Creating New Cluster
-
-```hcl
-create_cluster = true
-cluster_name   = "vellum-assistant"
-```
-
-This creates a private GKE cluster with:
+Terraform fully manages the GKE cluster. It creates a private cluster with:
 - Workload Identity enabled
 - Autoscaling node pool (1-3 nodes)
 - Network policy enabled

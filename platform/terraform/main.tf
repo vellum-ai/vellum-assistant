@@ -30,8 +30,6 @@ provider "google" {
 
 # GKE Cluster
 resource "google_container_cluster" "main" {
-  count = var.create_cluster ? 1 : 0
-
   name     = var.cluster_name
   location = var.region
 
@@ -73,11 +71,9 @@ resource "google_container_cluster" "main" {
 
 # Node Pool
 resource "google_container_node_pool" "primary" {
-  count = var.create_cluster ? 1 : 0
-
   name       = "primary-pool"
   location   = var.region
-  cluster    = google_container_cluster.main[0].name
+  cluster    = google_container_cluster.main.name
   node_count = var.node_count
 
   node_config {
@@ -111,20 +107,12 @@ resource "google_container_node_pool" "primary" {
   }
 }
 
-# Get cluster credentials for kubernetes provider
-data "google_container_cluster" "main" {
-  name     = var.create_cluster ? google_container_cluster.main[0].name : var.cluster_name
-  location = var.region
-
-  depends_on = [google_container_cluster.main]
-}
-
 data "google_client_config" "default" {}
 
 provider "kubernetes" {
-  host                   = "https://${data.google_container_cluster.main.endpoint}"
+  host                   = "https://${google_container_cluster.main.endpoint}"
   token                  = data.google_client_config.default.access_token
-  cluster_ca_certificate = base64decode(data.google_container_cluster.main.master_auth[0].cluster_ca_certificate)
+  cluster_ca_certificate = base64decode(google_container_cluster.main.master_auth[0].cluster_ca_certificate)
 }
 
 # Static IP for Ingress

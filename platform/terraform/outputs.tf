@@ -1,11 +1,11 @@
 output "cluster_name" {
   description = "GKE cluster name"
-  value       = var.create_cluster ? google_container_cluster.main[0].name : var.cluster_name
+  value       = google_container_cluster.main.name
 }
 
 output "cluster_endpoint" {
   description = "GKE cluster endpoint"
-  value       = data.google_container_cluster.main.endpoint
+  value       = google_container_cluster.main.endpoint
   sensitive   = true
 }
 
