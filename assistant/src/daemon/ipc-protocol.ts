@@ -88,7 +88,7 @@ export interface SessionInfo {
 
 export interface SessionListResponse {
   type: 'session_list_response';
-  sessions: Array<{ id: string; title: string }>;
+  sessions: Array<{ id: string; title: string; updatedAt: number }>;
 }
 
 export interface ErrorMessage {

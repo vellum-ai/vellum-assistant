@@ -11,6 +11,7 @@ import {
 import { formatDiff, formatNewFileDiff } from './util/diff.js';
 import { Spinner } from './util/spinner.js';
 import { copyToClipboard, extractLastCodeBlock } from './util/clipboard.js';
+import { timeAgo } from './util/time.js';
 
 export async function startCli(): Promise<void> {
   const socketPath = getSocketPath();
@@ -19,6 +20,8 @@ export async function startCli(): Promise<void> {
   let sessionId = '';
   let generating = false;
   let lastResponse = '';
+  let pendingSessionPick = false;
+  let pendingSessionList: Array<{ id: string; title: string; updatedAt: number }> = [];
   const spinner = new Spinner();
 
   function formatToolProgress(toolName: string, input: Record<string, unknown>): string {
@@ -175,6 +178,42 @@ export async function startCli(): Promise<void> {
     });
   }
 
+  function renderSessionPicker(sessions: Array<{ id: string; title: string; updatedAt: number }>): void {
+    process.stdout.write('\n  Recent sessions:\n');
+    for (let i = 0; i < sessions.length; i++) {
+      const s = sessions[i];
+      const ago = timeAgo(s.updatedAt);
+      const title = s.title.length > 50 ? s.title.slice(0, 47) + '...' : s.title;
+      const padding = ' '.repeat(Math.max(1, 55 - title.length));
+      process.stdout.write(`  [${i + 1}] ${title}${padding}${ago}\n`);
+    }
+    process.stdout.write('  [n] New session\n\n');
+    process.stdout.write('  Pick a session> ');
+
+    rl.once('line', (answer) => {
+      const trimmed = answer.trim().toLowerCase();
+      if (trimmed === 'n') {
+        send({ type: 'session_create' });
+        return;
+      }
+      const idx = parseInt(trimmed, 10) - 1;
+      if (idx >= 0 && idx < sessions.length) {
+        if (sessions[idx].id === sessionId) {
+          // Already on this session
+          process.stdout.write(
+            `\n  Session: ${sessions[idx].title}\n  Type your message. Ctrl+D to detach.\n\n`,
+          );
+          prompt();
+        } else {
+          send({ type: 'session_switch', sessionId: sessions[idx].id });
+        }
+      } else {
+        process.stdout.write('  Invalid selection.\n');
+        renderSessionPicker(sessions);
+      }
+    });
+  }
+
   socket.on('data', (data) => {
     const messages = parser.feed(data.toString()) as ServerMessage[];
     for (const msg of messages) {
@@ -239,10 +278,16 @@ export async function startCli(): Promise<void> {
           break;
 
         case 'session_list_response':
-          for (const session of msg.sessions) {
-            process.stdout.write(`  ${session.id}  ${session.title}\n`);
+          if (pendingSessionPick) {
+            pendingSessionPick = false;
+            pendingSessionList = msg.sessions;
+            renderSessionPicker(msg.sessions);
+          } else {
+            for (const session of msg.sessions) {
+              process.stdout.write(`  ${session.id}  ${session.title}\n`);
+            }
+            prompt();
           }
-          prompt();
           break;
 
         case 'pong':
@@ -267,6 +312,12 @@ export async function startCli(): Promise<void> {
         }
       }
       prompt();
+      return;
+    }
+
+    if (content === '/sessions') {
+      pendingSessionPick = true;
+      send({ type: 'session_list' });
       return;
     }
 

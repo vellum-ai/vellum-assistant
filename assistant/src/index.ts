@@ -18,6 +18,7 @@ import {
   type ClientMessage,
   type ServerMessage,
 } from './daemon/ipc-protocol.js';
+import { timeAgo } from './util/time.js';
 import {
   loadRawConfig,
   saveRawConfig,
@@ -150,7 +151,7 @@ sessions
         console.log('No sessions');
       } else {
         for (const s of response.sessions) {
-          console.log(`  ${s.id}  ${s.title}`);
+          console.log(`  ${s.id}  ${s.title}  ${timeAgo(s.updatedAt)}`);
         }
       }
     } else if (response.type === 'error') {

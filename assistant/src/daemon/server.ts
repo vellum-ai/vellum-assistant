@@ -226,6 +226,7 @@ export class DaemonServer {
       sessions: conversations.map((c) => ({
         id: c.id,
         title: c.title ?? 'Untitled',
+        updatedAt: c.updatedAt,
       })),
     });
   }
