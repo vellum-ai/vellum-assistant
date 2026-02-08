@@ -67,7 +67,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
                 const existingMsg = await getMessageByGcsId(outboxMsg.id);
                 if (!existingMsg) {
                   await createChatMessage({
-                    agentId: agentId,
+                    assistantId: agentId,
                     role: "assistant",
                     content: outboxMsg.content,
                     status: "delivered",
@@ -186,7 +186,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const agentData = await agentResponse.json();
 
     const dbMessage = await createChatMessage({
-      agentId: agentId,
+      assistantId: agentId,
       role: "user",
       content,
       status: "sent",

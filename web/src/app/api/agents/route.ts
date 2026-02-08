@@ -104,7 +104,7 @@ export async function POST(request: Request) {
           body.name = await generateAgentName();
         }
 
-        const agentType: AgentType = (body.agent_type as AgentType) || "simple";
+        const agentType: AgentType = (body.assistant_type as AgentType) || "simple";
         
         // Generate API key for agent to authenticate with platform APIs
         const apiKey = generateApiKey();
