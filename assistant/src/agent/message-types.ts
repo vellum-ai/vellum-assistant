@@ -1,4 +1,4 @@
-import type { Message, ContentBlock, TextContent } from '../providers/types.js';
+import type { Message, TextContent } from '../providers/types.js';
 
 export type { Message, ContentBlock, TextContent } from '../providers/types.js';
 

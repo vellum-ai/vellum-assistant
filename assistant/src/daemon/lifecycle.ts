@@ -1,11 +1,10 @@
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import {
   getSocketPath,
   getPidPath,
   ensureDataDir,
-  getDbPath,
 } from '../util/platform.js';
 import { initializeDb } from '../memory/db.js';
 import { initializeProviders } from '../providers/registry.js';
