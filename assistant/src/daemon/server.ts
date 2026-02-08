@@ -24,6 +24,8 @@ export class DaemonServer {
   private socketToSession = new Map<net.Socket, string>();
   private socketPath: string;
   private watchers: FSWatcher[] = [];
+  private debounceTimers: ReturnType<typeof setTimeout>[] = [];
+  private suppressConfigReload = false;
 
   constructor() {
     this.socketPath = getSocketPath();
@@ -83,53 +85,63 @@ export class DaemonServer {
 
   private startFileWatchers(): void {
     const dataDir = getDataDir();
-    const configPath = join(dataDir, 'config.json');
-    const trustPath = join(dataDir, 'trust.json');
 
-    const watchFile = (filePath: string, label: string, onChange: () => void) => {
-      if (!existsSync(filePath)) return;
-      try {
-        let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-        const watcher = watch(filePath, () => {
-          // Debounce: editors often write files in multiple steps
-          if (debounceTimer) clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(() => {
-            log.info({ file: label }, 'File changed, reloading');
-            onChange();
-          }, 200);
-        });
-        this.watchers.push(watcher);
-        log.info({ file: label }, 'Watching for changes');
-      } catch (err) {
-        log.warn({ err, file: label }, 'Failed to watch file');
-      }
+    // Watch the data directory instead of individual files so we detect:
+    // - Files that don't exist yet at startup (new config/trust creation)
+    // - Atomic rename writes (trust-store uses renameSync)
+    const handlers: Record<string, () => void> = {
+      'config.json': () => {
+        if (this.suppressConfigReload) return;
+        invalidateConfigCache();
+        try {
+          const config = getConfig();
+          initializeProviders(config);
+        } catch (err) {
+          log.error({ err }, 'Failed to reload config');
+          return;
+        }
+        // Evict idle sessions; mark busy ones as stale
+        for (const [id, session] of this.sessions) {
+          if (!session.isProcessing()) {
+            this.sessions.delete(id);
+          } else {
+            session.markStale();
+          }
+        }
+      },
+      'trust.json': () => {
+        clearTrustCache();
+      },
     };
 
-    watchFile(configPath, 'config.json', () => {
-      invalidateConfigCache();
-      try {
-        const config = getConfig();
-        initializeProviders(config);
-      } catch (err) {
-        log.error({ err }, 'Failed to reload config');
-        return;
-      }
-      // Evict idle sessions; mark busy ones as stale
-      for (const [id, session] of this.sessions) {
-        if (!session.isProcessing()) {
-          this.sessions.delete(id);
-        } else {
-          session.markStale();
-        }
-      }
-    });
+    const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-    watchFile(trustPath, 'trust.json', () => {
-      clearTrustCache();
-    });
+    try {
+      const watcher = watch(dataDir, (_eventType, filename) => {
+        if (!filename || !handlers[filename]) return;
+        // Debounce: editors often write files in multiple steps
+        const existing = debounceTimers.get(filename);
+        if (existing) clearTimeout(existing);
+        const timer = setTimeout(() => {
+          debounceTimers.delete(filename);
+          log.info({ file: filename }, 'File changed, reloading');
+          handlers[filename]();
+        }, 200);
+        debounceTimers.set(filename, timer);
+        this.debounceTimers.push(timer);
+      });
+      this.watchers.push(watcher);
+      log.info({ dir: dataDir }, 'Watching data directory for config/trust changes');
+    } catch (err) {
+      log.warn({ err }, 'Failed to watch data directory');
+    }
   }
 
   private stopFileWatchers(): void {
+    for (const timer of this.debounceTimers) {
+      clearTimeout(timer);
+    }
+    this.debounceTimers = [];
     for (const watcher of this.watchers) {
       watcher.close();
     }
@@ -351,7 +363,13 @@ export class DaemonServer {
       // Use raw config to avoid persisting env-var API keys to disk
       const raw = loadRawConfig();
       raw.model = model;
+
+      // Suppress the file watcher callback — handleModelSet already does
+      // the full reload sequence; a redundant watcher-triggered reload
+      // would incorrectly evict sessions created after this method returns.
+      this.suppressConfigReload = true;
       saveRawConfig(raw);
+      setTimeout(() => { this.suppressConfigReload = false; }, 300);
 
       // Re-initialize provider with the new model so LLM calls use it
       const config = getConfig();
