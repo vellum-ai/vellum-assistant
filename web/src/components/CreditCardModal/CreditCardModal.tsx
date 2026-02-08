@@ -146,7 +146,7 @@ export function CreditCardModal({ username, onSuccess, onClose }: CreditCardModa
   }, []);
 
   const handleBackdropClick = useCallback(
-    (e: React.MouseEvent) => {
+    (e: MouseEvent<HTMLDivElement>) => {
       if (e.target === backdropRef.current) {
         onClose();
       }
