@@ -3,15 +3,15 @@ services:
     image: postgres:16-alpine
     container_name: vellum-assistant-postgres
     environment:
-      POSTGRES_DB: vellum_assistant
+      POSTGRES_DB: vellum
       POSTGRES_USER: vellum
-      POSTGRES_PASSWORD: vellum_dev_password
+      POSTGRES_PASSWORD: password
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vellum -d vellum_assistant"]
+      test: ["CMD-SHELL", "pg_isready -U vellum -d vellum"]
       interval: 5s
       timeout: 5s
       retries: 5
