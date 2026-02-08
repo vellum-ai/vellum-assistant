@@ -53,8 +53,8 @@ export type Assistant = typeof schema.assistantsTable.$inferSelect;
 export type NewAssistant = typeof schema.assistantsTable.$inferInsert;
 export type ChatMessage = typeof schema.chatMessagesTable.$inferSelect;
 export type NewChatMessage = typeof schema.chatMessagesTable.$inferInsert;
-export type User = typeof schema.usersTable.$inferSelect;
-export type NewUser = typeof schema.usersTable.$inferInsert;
+export type User = typeof schema.user.$inferSelect;
+export type NewUser = typeof schema.user.$inferInsert;
 export type ApiKey = typeof schema.apiKeysTable.$inferSelect;
 export type NewApiKey = typeof schema.apiKeysTable.$inferInsert;
 
@@ -146,20 +146,20 @@ export async function getMessageByGcsId(gcsMessageId: string) {
 
 // User queries
 export async function getUserByUsername(username: string) {
-  const result = await db.select().from(schema.usersTable).where(eq(schema.usersTable.username, username));
+  const result = await db.select().from(schema.user).where(eq(schema.user.username, username));
   return result[0] || null;
 }
 
 export async function createUser(data: NewUser) {
-  const result = await db.insert(schema.usersTable).values(data).returning();
+  const result = await db.insert(schema.user).values(data).returning();
   return result[0];
 }
 
 export async function updateUser(username: string, data: Partial<NewUser>) {
   const result = await db
-    .update(schema.usersTable)
+    .update(schema.user)
     .set({ ...data, updatedAt: new Date() })
-    .where(eq(schema.usersTable.username, username))
+    .where(eq(schema.user.username, username))
     .returning();
   return result[0];
 }

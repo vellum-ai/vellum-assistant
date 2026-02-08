@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -9,13 +9,15 @@ import { VellumHead } from "@/components/VellumHomepage";
 
 export default function SignupPage() {
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { signup } = useAuth();
   const router = useRouter();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -29,11 +31,18 @@ export default function SignupPage() {
       return;
     }
 
-    const success = signup(username, password);
-    if (success) {
-      router.push("/assistant");
-    } else {
-      setError("Failed to create account");
+    setIsSubmitting(true);
+    try {
+      const success = await signup(username, email, password);
+      if (success) {
+        router.push("/assistant");
+      } else {
+        setError(
+          "Failed to create account. Username or email may already be taken."
+        );
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -150,6 +159,27 @@ export default function SignupPage() {
                     }}
                   />
                   <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Email"
+                    className="font-inter"
+                    style={{
+                      width: "100%",
+                      padding: "0.75rem 1rem",
+                      borderRadius: "0.5rem",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      backgroundColor: "rgba(255, 255, 255, 0.05)",
+                      color: "#fff",
+                      fontSize: "0.875rem",
+                      outline: "none",
+                    }}
+                  />
+                  <input
                     id="password"
                     name="password"
                     type="password"
@@ -195,6 +225,7 @@ export default function SignupPage() {
 
                 <button
                   type="submit"
+                  disabled={isSubmitting}
                   className="d-button nav-button-5 cta-get-started new"
                   style={{
                     width: "100%",
@@ -202,13 +233,14 @@ export default function SignupPage() {
                     alignItems: "center",
                     justifyContent: "center",
                     gap: "0.5rem",
-                    cursor: "pointer",
+                    cursor: isSubmitting ? "wait" : "pointer",
                     border: "none",
                     marginTop: "0.5rem",
+                    opacity: isSubmitting ? 0.5 : 1,
                   }}
                 >
                   <div className="btn-text nav-button-6 new">
-                    Create account
+                    {isSubmitting ? "Creating account..." : "Create account"}
                   </div>
                   <div
                     className="btn_arrow nav-button-7"

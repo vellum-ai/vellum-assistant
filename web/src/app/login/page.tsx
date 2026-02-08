@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -11,17 +11,25 @@ export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { login } = useAuth();
   const router = useRouter();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
-    const success = login(username, password);
-    if (success) {
-      router.push("/assistant");
-    } else {
-      setError("Invalid username or password");
+    setIsSubmitting(true);
+    try {
+      const success = await login(username, password);
+      if (success) {
+        router.push("/assistant");
+      } else {
+        setError(
+          "Invalid username or password. If you don't have an account, please sign up first."
+        );
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -162,6 +170,7 @@ export default function LoginPage() {
 
                 <button
                   type="submit"
+                  disabled={isSubmitting}
                   className="d-button nav-button-5 cta-get-started new"
                   style={{
                     width: "100%",
@@ -169,12 +178,15 @@ export default function LoginPage() {
                     alignItems: "center",
                     justifyContent: "center",
                     gap: "0.5rem",
-                    cursor: "pointer",
+                    cursor: isSubmitting ? "wait" : "pointer",
                     border: "none",
                     marginTop: "0.5rem",
+                    opacity: isSubmitting ? 0.5 : 1,
                   }}
                 >
-                  <div className="btn-text nav-button-6 new">Sign in</div>
+                  <div className="btn-text nav-button-6 new">
+                    {isSubmitting ? "Signing in..." : "Sign in"}
+                  </div>
                   <div
                     className="btn_arrow nav-button-7"
                     style={{ width: "20px", height: "20px" }}

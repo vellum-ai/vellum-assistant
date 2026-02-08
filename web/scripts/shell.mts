@@ -11,14 +11,14 @@ const connectionString =
 const client = postgres(connectionString);
 const db = drizzle(client, { schema });
 
-const { assistantsTable, chatMessagesTable, usersTable, apiKeysTable } = schema;
+const { assistantsTable, chatMessagesTable, user, apiKeysTable } = schema;
 
 const context: Record<string, unknown> = {
   db,
   schema,
   assistantsTable,
   chatMessagesTable,
-  usersTable,
+  user,
   apiKeysTable,
   and,
   eq,
@@ -39,12 +39,12 @@ console.log("─".repeat(40));
 console.log("Globals:");
 console.log("  db                 Drizzle database client");
 console.log("  schema             All schema tables");
-console.log("  assistantsTable, chatMessagesTable, usersTable, apiKeysTable");
+console.log("  assistantsTable, chatMessagesTable, user, apiKeysTable");
 console.log("  eq, and, or, not, gt, gte, lt, lte,");
 console.log("  like, ilike, inArray, sql");
 console.log("");
 console.log("Example:");
-console.log("  await db.select().from(usersTable)");
+console.log("  await db.select().from(user)");
 console.log("");
 
 const rl = createInterface({

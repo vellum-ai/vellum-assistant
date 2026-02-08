@@ -16,15 +16,15 @@ async function getOrCreateStripeCustomer(
   username: string
 ): Promise<string> {
   const userResult = await sql`
-    SELECT * FROM users WHERE username = ${username} LIMIT 1
+    SELECT * FROM "user" WHERE username = ${username} LIMIT 1
   `;
 
   if (userResult.length === 0) {
     throw new Error("User not found");
   }
 
-  const user = userResult[0];
-  const existingCustomerId = user.stripe_customer_id as string | null;
+  const foundUser = userResult[0];
+  const existingCustomerId = foundUser.stripe_customer_id as string | null;
 
   if (existingCustomerId) {
     return existingCustomerId;
@@ -33,12 +33,12 @@ async function getOrCreateStripeCustomer(
   const stripe = getStripeClient();
   const customer = await stripe.customers.create({
     metadata: { username },
-    email: (user.email as string | null) ?? undefined,
-    name: (user.display_name as string | null) ?? undefined,
+    email: (foundUser.email as string | null) ?? undefined,
+    name: (foundUser.name as string | null) ?? undefined,
   });
 
   await sql`
-    UPDATE users
+    UPDATE "user"
     SET stripe_customer_id = ${customer.id}, updated_at = NOW()
     WHERE username = ${username}
   `;
