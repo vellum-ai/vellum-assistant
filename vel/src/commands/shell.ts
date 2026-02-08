@@ -1,11 +1,8 @@
 import { spawn } from 'child_process';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { join } from 'path';
 
 export async function shell(): Promise<void> {
-  const repoRoot = join(__dirname, '..', '..', '..');
+  const repoRoot = join(import.meta.dir, '..', '..', '..');
   const webDir = join(repoRoot, 'web');
   const shellScript = join(webDir, 'scripts', 'shell.mts');
 

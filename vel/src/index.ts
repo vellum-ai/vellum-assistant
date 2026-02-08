@@ -1,11 +1,11 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
-import { down } from './commands/down.js';
-import { help } from './commands/help.js';
-import { ps } from './commands/ps.js';
-import { setup } from './commands/setup.js';
-import { shell } from './commands/shell.js';
-import { up } from './commands/up.js';
+import { down } from './commands/down';
+import { help } from './commands/help';
+import { ps } from './commands/ps';
+import { setup } from './commands/setup';
+import { shell } from './commands/shell';
+import { up } from './commands/up';
 
 const commands = {
   down,

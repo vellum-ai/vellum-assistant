@@ -1,13 +1,10 @@
 import { spawn } from 'child_process';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { join } from 'path';
 
 export async function down(): Promise<void> {
   console.log('🛑 vel down - Stopping development environment\n');
 
-  const repoRoot = join(__dirname, '..', '..', '..');
+  const repoRoot = join(import.meta.dir, '..', '..', '..');
 
   try {
     console.log('📦 Stopping Docker Compose services...');
