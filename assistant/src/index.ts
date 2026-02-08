@@ -16,6 +16,12 @@ import {
   type ClientMessage,
   type ServerMessage,
 } from './daemon/ipc-protocol.js';
+import {
+  loadRawConfig,
+  saveRawConfig,
+  getNestedValue,
+  setNestedValue,
+} from './config/loader.js';
 
 function sendOneMessage(
   msg: ClientMessage,
@@ -150,6 +156,51 @@ sessions
       console.log(`Created session: ${response.title} (${response.sessionId})`);
     } else if (response.type === 'error') {
       console.error(`Error: ${response.message}`);
+    }
+  });
+
+// --- Config commands ---
+const config = program.command('config').description('Manage configuration');
+
+config
+  .command('set <key> <value>')
+  .description('Set a config value (supports dotted paths like apiKeys.anthropic)')
+  .action((key: string, value: string) => {
+    const raw = loadRawConfig();
+    // Try to parse as JSON for booleans/numbers, fall back to string
+    let parsed: unknown = value;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      // keep as string
+    }
+    setNestedValue(raw, key, parsed);
+    saveRawConfig(raw);
+    console.log(`Set ${key} = ${JSON.stringify(parsed)}`);
+  });
+
+config
+  .command('get <key>')
+  .description('Get a config value (supports dotted paths)')
+  .action((key: string) => {
+    const raw = loadRawConfig();
+    const value = getNestedValue(raw, key);
+    if (value === undefined) {
+      console.log(`(not set)`);
+    } else {
+      console.log(typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value));
+    }
+  });
+
+config
+  .command('list')
+  .description('List all config values')
+  .action(() => {
+    const raw = loadRawConfig();
+    if (Object.keys(raw).length === 0) {
+      console.log('No configuration set');
+    } else {
+      console.log(JSON.stringify(raw, null, 2));
     }
   });
 
