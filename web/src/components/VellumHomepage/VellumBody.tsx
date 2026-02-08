@@ -13,10 +13,10 @@
  * - Auth link replacement working (/login, /signup)
  * - Documentation established
  *
- * Phase 2 (TODO):
- * - Extract Hero section
- * - Extract Logo Marquee
- * - Extract "Automate" section
+ * Phase 2 ✅ COMPLETE:
+ * - Hero section extracted as React component
+ * - Logo Marquee extracted as React component
+ * - "Automate" section extracted as React component
  *
  * Phase 3 (TODO):
  * - Extract AgentTabs component
@@ -36,10 +36,16 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavBar } from "./NavBar";
+import { HeroSection } from "./HeroSection";
+import { LogoMarquee } from "./LogoMarquee";
+import { AutomateSection } from "./AutomateSection";
 
 export function VellumBody() {
   const [bodyHTML, setBodyHTML] = useState<string>("");
   const [navbarContainer, setNavbarContainer] = useState<HTMLElement | null>(null);
+  const [heroContainer, setHeroContainer] = useState<HTMLElement | null>(null);
+  const [logoContainer, setLogoContainer] = useState<HTMLElement | null>(null);
+  const [automateContainer, setAutomateContainer] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     // Fetch the homepage HTML and extract the body content
@@ -74,14 +80,35 @@ export function VellumBody() {
   }, []);
 
   useEffect(() => {
-    // Find and replace the navbar wrapper after HTML is rendered
+    // Find and replace sections after HTML is rendered
     if (bodyHTML) {
       setTimeout(() => {
+        // Replace NavBar
         const navbar = document.querySelector('#w-node-_45f8248c-ee2e-e6a9-2792-1d703651d480-3651d355');
         if (navbar) {
-          // Clear the original content
           navbar.innerHTML = '';
           setNavbarContainer(navbar as HTMLElement);
+        }
+
+        // Replace Hero Section (section_home)
+        const heroSection = document.querySelector('.section_home.home');
+        if (heroSection) {
+          heroSection.innerHTML = '';
+          setHeroContainer(heroSection as HTMLElement);
+        }
+
+        // Replace Logo Marquee (section-logo)
+        const logoSection = document.querySelector('.section-logo.new');
+        if (logoSection) {
+          logoSection.innerHTML = '';
+          setLogoContainer(logoSection as HTMLElement);
+        }
+
+        // Replace Automate Section (section_automate)
+        const automateSection = document.querySelector('.section_automate');
+        if (automateSection) {
+          automateSection.innerHTML = '';
+          setAutomateContainer(automateSection as HTMLElement);
         }
       }, 0);
     }
@@ -99,6 +126,9 @@ export function VellumBody() {
     <>
       <div dangerouslySetInnerHTML={{ __html: bodyHTML }} />
       {navbarContainer && createPortal(<NavBar />, navbarContainer)}
+      {heroContainer && createPortal(<HeroSection />, heroContainer)}
+      {logoContainer && createPortal(<LogoMarquee />, logoContainer)}
+      {automateContainer && createPortal(<AutomateSection />, automateContainer)}
     </>
   );
 }

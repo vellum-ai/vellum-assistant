@@ -19,17 +19,27 @@ This directory contains the Vellum homepage components. The current implementati
 - [x] Auth link replacement working
 - [x] Documentation created (this file)
 
-### Phase 2: Hero & Top Sections (TODO)
+### Phase 2: Hero & Top Sections ✅ (COMPLETE)
 Convert the following sections to React components:
-- Hero section (main headline, CTA)
-- Logo marquee (client logos)
-- "Automate" section
+- [x] Hero section (main headline, CTA)
+- [x] Logo marquee (client logos)
+- [x] "Automate" section
 
-**Approach**:
-- Extract HTML for each section
-- Convert to JSX (handle class→className, style attributes, etc.)
-- Preserve all Webflow classes and IDs for styling
-- Test that all animations/interactions still work
+**Completed**:
+- Extracted Hero section with JUST LAUNCHED tag, headline, and prompt input box
+- Extracted Logo Marquee with company logos and case study links
+- Extracted Automate section with tab interface (simplified for now)
+- All components use React portals to replace HTML sections
+- Preserved all Webflow classes and data-w-id attributes for animations
+- Auth link replacement working for /login and /signup routes
+
+**Files Created**:
+- `HeroSection.tsx` - Main hero with headline and prompt box
+- `LogoMarquee.tsx` - Scrolling company logos section
+- `AutomateSection.tsx` - "Hey Vellum, automate my" section
+- Updated `VellumBody.tsx` to use portals for all Phase 2 components
+
+**Note**: Full interactive functionality for tabs and animations will be enhanced in Phase 3
 
 ### Phase 3: Interactive Components (TODO)
 Convert complex interactive sections:
