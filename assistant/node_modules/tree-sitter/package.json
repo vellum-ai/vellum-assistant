@@ -1,0 +1,76 @@
+{
+  "name": "tree-sitter",
+  "version": "0.25.0",
+  "description": "Node.js bindings to the Tree-sitter parsing library",
+  "repository": "http://github.com/tree-sitter/node-tree-sitter",
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Max Brunsfeld",
+    "email": "maxbrunsfeld@gmail.com"
+  },
+  "maintainers": [
+    {
+      "name": "Amaan Qureshi",
+      "email": "amaanq12@gmail.com"
+    }
+  ],
+  "contributors": [
+    {
+      "name": "Segev Finer",
+      "email": "segev208@gmail.com"
+    },
+    {
+      "name": "Boris Verkhovskiy",
+      "email": "boris.verk@gmail.com"
+    }
+  ],
+  "main": "index.js",
+  "types": "tree-sitter.d.ts",
+  "keywords": [
+    "incremental",
+    "parsing",
+    "tree-sitter"
+  ],
+  "files": [
+    "binding.gyp",
+    "tree-sitter.d.ts",
+    "prebuilds/*",
+    "src/*",
+    "vendor/tree-sitter/lib/include/*",
+    "vendor/tree-sitter/lib/src/*"
+  ],
+  "dependencies": {
+    "node-addon-api": "^8.3.0",
+    "node-gyp-build": "^4.8.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/tmp": "^0.2.6",
+    "glob": "^11.0.0",
+    "node-gyp": "^11.0.0",
+    "prebuildify": "^6.0.1",
+    "tmp": "^0.2.3",
+    "tree-sitter-c": "^0.23.4",
+    "tree-sitter-embedded-template": "^0.23.2",
+    "tree-sitter-html": "^0.23.2",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-javascript": "^0.23.1",
+    "tree-sitter-json": "^0.24.8",
+    "tree-sitter-python": "^0.23.6",
+    "tree-sitter-ruby": "^0.23.1",
+    "tree-sitter-rust": "^0.23.2",
+    "typedoc": "^0.27.6",
+    "typedoc-plugin-rename-defaults": "^0.7.2",
+    "typescript": "^5.7.2"
+  },
+  "scripts": {
+    "docs": "typedoc --out docs/api tree-sitter.d.ts --readme README.md",
+    "install": "node-gyp-build",
+    "build": "prebuildify --napi --strip",
+    "rebuild": "node-gyp rebuild",
+    "test": "node -e \"require('child_process').spawnSync('node', ['--test', ...require('glob').sync('test/**/*.js')], {stdio:'inherit'})\""
+  }
+}

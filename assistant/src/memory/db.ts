@@ -36,4 +36,18 @@ export function initializeDb(): void {
       created_at INTEGER NOT NULL
     )
   `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS tool_invocations (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      input TEXT NOT NULL,
+      result TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      risk_level TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
 }

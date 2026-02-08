@@ -19,6 +19,7 @@ const log = getLogger('server');
 export class DaemonServer {
   private server: net.Server | null = null;
   private sessions = new Map<string, Session>();
+  private socketToSession = new Map<net.Socket, string>();
   private socketPath: string;
 
   constructor() {
@@ -81,6 +82,7 @@ export class DaemonServer {
     });
 
     socket.on('close', () => {
+      this.socketToSession.delete(socket);
       log.info('Client disconnected');
     });
 
@@ -102,7 +104,8 @@ export class DaemonServer {
       conversation = conversationStore.createConversation('New Conversation');
     }
 
-    const session = await this.getOrCreateSession(conversation.id);
+    await this.getOrCreateSession(conversation.id, socket);
+    this.socketToSession.set(socket, conversation.id);
     this.send(socket, {
       type: 'session_info',
       sessionId: conversation.id,
@@ -110,16 +113,20 @@ export class DaemonServer {
     });
   }
 
-  private async getOrCreateSession(conversationId: string): Promise<Session> {
+  private async getOrCreateSession(conversationId: string, socket: net.Socket): Promise<Session> {
     let session = this.sessions.get(conversationId);
     if (!session) {
       const config = getConfig();
       const provider = getProvider(config.provider);
+      const workingDir = process.cwd();
+
       session = new Session(
         conversationId,
         provider,
         config.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
         config.maxTokens,
+        (msg: ServerMessage) => this.send(socket, msg),
+        workingDir,
       );
       await session.loadFromDb();
       this.sessions.set(conversationId, session);
@@ -132,6 +139,21 @@ export class DaemonServer {
       case 'user_message':
         this.handleUserMessage(msg.sessionId, msg.content, socket);
         break;
+      case 'confirmation_response': {
+        const sessionId = this.socketToSession.get(socket);
+        if (sessionId) {
+          const session = this.sessions.get(sessionId);
+          if (session) {
+            session.handleConfirmationResponse(
+              msg.requestId,
+              msg.decision as 'allow' | 'always_allow' | 'deny',
+              msg.selectedPattern,
+              msg.selectedScope,
+            );
+          }
+        }
+        break;
+      }
       case 'session_list':
         this.handleSessionList(socket);
         break;
@@ -153,7 +175,8 @@ export class DaemonServer {
     socket: net.Socket,
   ): Promise<void> {
     try {
-      const session = await this.getOrCreateSession(sessionId);
+      this.socketToSession.set(socket, sessionId);
+      const session = await this.getOrCreateSession(sessionId, socket);
       await session.processMessage(content, (event) => {
         this.send(socket, event);
       });
@@ -182,7 +205,7 @@ export class DaemonServer {
     const conversation = conversationStore.createConversation(
       title ?? 'New Conversation',
     );
-    await this.getOrCreateSession(conversation.id);
+    await this.getOrCreateSession(conversation.id, socket);
     this.send(socket, {
       type: 'session_info',
       sessionId: conversation.id,
@@ -199,7 +222,8 @@ export class DaemonServer {
       this.send(socket, { type: 'error', message: `Session ${sessionId} not found` });
       return;
     }
-    await this.getOrCreateSession(sessionId);
+    this.socketToSession.set(socket, sessionId);
+    await this.getOrCreateSession(sessionId, socket);
     this.send(socket, {
       type: 'session_info',
       sessionId: conversation.id,

@@ -6,6 +6,7 @@ import {
   createMessageParser,
   type ClientMessage,
   type ServerMessage,
+  type ConfirmationRequest,
 } from './daemon/ipc-protocol.js';
 
 export async function startCli(): Promise<void> {
@@ -26,6 +27,121 @@ export async function startCli(): Promise<void> {
 
   function send(msg: ClientMessage): void {
     socket.write(serialize(msg));
+  }
+
+  function formatCommandPreview(req: ConfirmationRequest): string {
+    if (req.toolName === 'shell') {
+      return String(req.input.command ?? '');
+    }
+    if (req.toolName === 'file_read') {
+      return `read ${req.input.path ?? ''}`;
+    }
+    if (req.toolName === 'file_write') {
+      return `write ${req.input.path ?? ''}`;
+    }
+    return `${req.toolName}: ${JSON.stringify(req.input).slice(0, 80)}`;
+  }
+
+  function renderConfirmationPrompt(req: ConfirmationRequest): void {
+    const preview = formatCommandPreview(req);
+    process.stdout.write('\n');
+    process.stdout.write(`\u250C ${req.toolName}: ${preview}\n`);
+    process.stdout.write(`\u2502 Risk: ${req.riskLevel}\n`);
+    process.stdout.write(`\u2502\n`);
+    process.stdout.write(`\u2502 [a] Allow once\n`);
+    process.stdout.write(`\u2502 [d] Deny once\n`);
+    if (req.allowlistOptions.length > 0) {
+      process.stdout.write(`\u2502 [A] Allowlist...\n`);
+    }
+    process.stdout.write(`\u2514 > `);
+
+    rl.once('line', (answer) => {
+      const choice = answer.trim().toLowerCase();
+
+      if (choice === 'a') {
+        send({
+          type: 'confirmation_response',
+          requestId: req.requestId,
+          decision: 'allow',
+        });
+        return;
+      }
+
+      if (choice === 'd') {
+        send({
+          type: 'confirmation_response',
+          requestId: req.requestId,
+          decision: 'deny',
+        });
+        return;
+      }
+
+      // 'A' or 'allowlist' → enter pattern selection
+      if (answer.trim() === 'A' || choice === 'allowlist') {
+        renderPatternSelection(req);
+        return;
+      }
+
+      // Default to deny for unrecognized input
+      send({
+        type: 'confirmation_response',
+        requestId: req.requestId,
+        decision: 'deny',
+      });
+    });
+  }
+
+  function renderPatternSelection(req: ConfirmationRequest): void {
+    process.stdout.write('\n');
+    process.stdout.write(`\u250C Allowlist: choose command pattern\n`);
+    for (let i = 0; i < req.allowlistOptions.length; i++) {
+      process.stdout.write(`\u2502 [${i + 1}] ${req.allowlistOptions[i].label}\n`);
+    }
+    process.stdout.write(`\u2514 > `);
+
+    rl.once('line', (answer) => {
+      const idx = parseInt(answer.trim(), 10) - 1;
+      if (idx >= 0 && idx < req.allowlistOptions.length) {
+        const selectedPattern = req.allowlistOptions[idx].pattern;
+        renderScopeSelection(req, selectedPattern);
+      } else {
+        // Invalid selection → deny
+        send({
+          type: 'confirmation_response',
+          requestId: req.requestId,
+          decision: 'deny',
+        });
+      }
+    });
+  }
+
+  function renderScopeSelection(req: ConfirmationRequest, selectedPattern: string): void {
+    process.stdout.write('\n');
+    process.stdout.write(`\u250C Allowlist: choose scope\n`);
+    for (let i = 0; i < req.scopeOptions.length; i++) {
+      process.stdout.write(`\u2502 [${i + 1}] ${req.scopeOptions[i].label}\n`);
+    }
+    process.stdout.write(`\u2514 > `);
+
+    rl.once('line', (answer) => {
+      const idx = parseInt(answer.trim(), 10) - 1;
+      if (idx >= 0 && idx < req.scopeOptions.length) {
+        send({
+          type: 'confirmation_response',
+          requestId: req.requestId,
+          decision: 'always_allow',
+          selectedPattern,
+          selectedScope: req.scopeOptions[idx].scope,
+        });
+      } else {
+        // Invalid selection → deny
+        send({
+          type: 'confirmation_response',
+          requestId: req.requestId,
+          decision: 'deny',
+        });
+      }
+    });
   }
 
   socket.on('data', (data) => {
@@ -59,27 +175,9 @@ export async function startCli(): Promise<void> {
           );
           break;
 
-        case 'confirmation_request': {
-          const reqId = msg.requestId;
-          rl.question(
-            `[Permission] ${msg.toolName}: allow/always/deny/never? `,
-            (answer) => {
-              const map: Record<string, 'allow' | 'always_allow' | 'deny' | 'always_deny'> = {
-                allow: 'allow',
-                always: 'always_allow',
-                deny: 'deny',
-                never: 'always_deny',
-              };
-              const decision = map[answer.trim().toLowerCase()] ?? 'deny';
-              send({
-                type: 'confirmation_response',
-                requestId: reqId,
-                decision,
-              });
-            },
-          );
+        case 'confirmation_request':
+          renderConfirmationPrompt(msg);
           break;
-        }
 
         case 'error':
           process.stdout.write(`\n[Error: ${msg.message}]\n`);

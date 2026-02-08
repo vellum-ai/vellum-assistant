@@ -14,8 +14,11 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "commander": "^13.1.0",
     "drizzle-orm": "^0.38.4",
+    "minimatch": "^10.1.2",
     "pino": "^9.6.0",
-    "uuid": "^11.1.0"
+    "tree-sitter-bash": "^0.25.1",
+    "uuid": "^11.1.0",
+    "web-tree-sitter": "^0.26.5"
   },
   "devDependencies": {
     "@types/bun": "^1.2.4",

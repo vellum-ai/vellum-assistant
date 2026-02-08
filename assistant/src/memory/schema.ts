@@ -16,3 +16,15 @@ export const messages = sqliteTable('messages', {
   content: text('content').notNull(),
   createdAt: integer('created_at').notNull(),
 });
+
+export const toolInvocations = sqliteTable('tool_invocations', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull(),
+  toolName: text('tool_name').notNull(),
+  input: text('input').notNull(),
+  result: text('result').notNull(),
+  decision: text('decision').notNull(),
+  riskLevel: text('risk_level').notNull(),
+  durationMs: integer('duration_ms').notNull(),
+  createdAt: integer('created_at').notNull(),
+});

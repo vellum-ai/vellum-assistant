@@ -9,6 +9,7 @@ import {
 } from '../util/platform.js';
 import { initializeDb } from '../memory/db.js';
 import { initializeProviders } from '../providers/registry.js';
+import { initializeTools } from '../tools/registry.js';
 import { loadConfig } from '../config/loader.js';
 import { DaemonServer } from './server.js';
 import { getLogger } from '../util/logger.js';
@@ -167,6 +168,7 @@ export async function runDaemon(): Promise<void> {
 
   const config = loadConfig();
   initializeProviders(config);
+  await initializeTools();
 
   const server = new DaemonServer();
   await server.start();

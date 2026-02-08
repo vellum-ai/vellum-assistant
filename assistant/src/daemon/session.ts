@@ -2,8 +2,12 @@ import type { Message } from '../providers/types.js';
 import type { ServerMessage } from './ipc-protocol.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
-import { getTextContent, createUserMessage } from '../agent/message-types.js';
+import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { PermissionPrompter } from '../permissions/prompter.js';
+import { ToolExecutor } from '../tools/executor.js';
+import { getAllToolDefinitions } from '../tools/registry.js';
+import type { UserDecision } from '../permissions/types.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('session');
@@ -13,15 +17,39 @@ export class Session {
   private messages: Message[] = [];
   private agentLoop: AgentLoop;
   private processing = false;
+  private prompter: PermissionPrompter;
+  private executor: ToolExecutor;
+  private workingDir: string;
 
   constructor(
     conversationId: string,
     provider: Provider,
     systemPrompt: string,
     maxTokens: number,
+    sendToClient: (msg: ServerMessage) => void,
+    workingDir: string,
   ) {
     this.conversationId = conversationId;
-    this.agentLoop = new AgentLoop(provider, systemPrompt, { maxTokens });
+    this.workingDir = workingDir;
+    this.prompter = new PermissionPrompter(sendToClient);
+    this.executor = new ToolExecutor(this.prompter);
+
+    const toolDefs = getAllToolDefinitions();
+    const toolExecutor = async (name: string, input: Record<string, unknown>) => {
+      return this.executor.execute(name, input, {
+        workingDir: this.workingDir,
+        sessionId: this.conversationId,
+        conversationId: this.conversationId,
+      });
+    };
+
+    this.agentLoop = new AgentLoop(
+      provider,
+      systemPrompt,
+      { maxTokens },
+      toolDefs.length > 0 ? toolDefs : undefined,
+      toolDefs.length > 0 ? toolExecutor : undefined,
+    );
   }
 
   async loadFromDb(): Promise<void> {
@@ -31,6 +59,15 @@ export class Session {
       content: JSON.parse(m.content),
     }));
     log.info({ conversationId: this.conversationId, count: this.messages.length }, 'Loaded messages from DB');
+  }
+
+  handleConfirmationResponse(
+    requestId: string,
+    decision: UserDecision,
+    selectedPattern?: string,
+    selectedScope?: string,
+  ): void {
+    this.prompter.resolveConfirmation(requestId, decision, selectedPattern, selectedScope);
   }
 
   async processMessage(

@@ -9,7 +9,9 @@ export interface UserMessage {
 export interface ConfirmationResponse {
   type: 'confirmation_response';
   requestId: string;
-  decision: 'allow' | 'always_allow' | 'deny' | 'always_deny';
+  decision: 'allow' | 'always_allow' | 'deny';
+  selectedPattern?: string;
+  selectedScope?: string;
 }
 
 export interface SessionListRequest {
@@ -64,6 +66,8 @@ export interface ConfirmationRequest {
   toolName: string;
   input: Record<string, unknown>;
   riskLevel: string;
+  allowlistOptions: Array<{ label: string; pattern: string }>;
+  scopeOptions: Array<{ label: string; scope: string }>;
 }
 
 export interface MessageComplete {
