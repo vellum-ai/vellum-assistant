@@ -22,7 +22,8 @@ resource "kubernetes_config_map" "app_config" {
   }
 
   data = {
-    NODE_ENV = "production"
+    NODE_ENV            = "production"
+    BETTER_AUTH_URL     = "https://${var.domain}"
   }
 }
 
@@ -34,8 +35,9 @@ resource "kubernetes_secret" "app_secrets" {
   }
 
   data = {
-    DATABASE_URL      = local.database_url
-    ANTHROPIC_API_KEY = var.anthropic_api_key
+    DATABASE_URL       = local.database_url
+    ANTHROPIC_API_KEY  = var.anthropic_api_key
+    BETTER_AUTH_SECRET = random_password.better_auth_secret.result
   }
 
   type = "Opaque"

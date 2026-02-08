@@ -79,3 +79,28 @@ resource "google_secret_manager_secret_iam_member" "gke_workload_secret_accessor
   member     = "serviceAccount:${var.project_id}.svc.id.goog[vellum-assistant/default]"
   depends_on = [google_container_cluster.main]
 }
+
+# Better Auth secret
+resource "random_password" "better_auth_secret" {
+  length  = 44
+  special = false
+}
+
+resource "google_secret_manager_secret" "better_auth_secret" {
+  secret_id = "better-auth-secret"
+
+  depends_on = [google_project_service.secretmanager]
+
+  replication {
+    auto {}
+  }
+
+  labels = {
+    environment = var.environment
+  }
+}
+
+resource "google_secret_manager_secret_version" "better_auth_secret" {
+  secret      = google_secret_manager_secret.better_auth_secret.id
+  secret_data = random_password.better_auth_secret.result
+}
