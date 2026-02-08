@@ -21,8 +21,8 @@ resource "random_password" "db_password" {
 
 # AlloyDB Cluster
 resource "google_alloydb_cluster" "main" {
-  cluster_id   = "${var.cluster_name}-db"
-  location     = var.region
+  cluster_id = "${var.cluster_name}-db"
+  location   = var.region
   network_config {
     network = "projects/${var.project_id}/global/networks/${var.network}"
   }
