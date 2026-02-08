@@ -116,6 +116,12 @@ provider "kubernetes" {
   cluster_ca_certificate = base64decode(google_container_cluster.main.master_auth[0].cluster_ca_certificate)
 }
 
+resource "google_project_iam_member" "github_actions_artifact_registry_admin" {
+  project = var.project_id
+  role    = "roles/artifactregistry.admin"
+  member  = "serviceAccount:github-actions@${var.project_id}.iam.gserviceaccount.com"
+}
+
 # Artifact Registry for Docker images (gcr.io compatibility)
 resource "google_artifact_registry_repository" "gcr" {
   location      = "us"
@@ -123,7 +129,7 @@ resource "google_artifact_registry_repository" "gcr" {
   format        = "DOCKER"
   mode          = "STANDARD_REPOSITORY"
 
-  depends_on = [google_project_service.artifactregistry]
+  depends_on = [google_project_service.artifactregistry, google_project_iam_member.github_actions_artifact_registry_admin]
 }
 
 # Static IP for Ingress
