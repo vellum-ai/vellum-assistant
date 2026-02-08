@@ -21,6 +21,10 @@ export class PermissionPrompter {
     this.sendToClient = sendToClient;
   }
 
+  updateSender(sendToClient: (msg: ServerMessage) => void): void {
+    this.sendToClient = sendToClient;
+  }
+
   async prompt(
     toolName: string,
     input: Record<string, unknown>,

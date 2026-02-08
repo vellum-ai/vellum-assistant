@@ -61,6 +61,18 @@ export class Session {
     log.info({ conversationId: this.conversationId, count: this.messages.length }, 'Loaded messages from DB');
   }
 
+  updateClient(sendToClient: (msg: ServerMessage) => void): void {
+    this.prompter.updateSender(sendToClient);
+  }
+
+  abort(): void {
+    if (this.processing) {
+      log.info({ conversationId: this.conversationId }, 'Aborting in-flight processing');
+      this.prompter.dispose();
+      this.processing = false;
+    }
+  }
+
   handleConfirmationResponse(
     requestId: string,
     decision: UserDecision,

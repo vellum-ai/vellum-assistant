@@ -82,6 +82,13 @@ export class DaemonServer {
     });
 
     socket.on('close', () => {
+      const sessionId = this.socketToSession.get(socket);
+      if (sessionId) {
+        const session = this.sessions.get(sessionId);
+        if (session) {
+          session.abort();
+        }
+      }
       this.socketToSession.delete(socket);
       log.info('Client disconnected');
     });
@@ -115,6 +122,8 @@ export class DaemonServer {
 
   private async getOrCreateSession(conversationId: string, socket: net.Socket): Promise<Session> {
     let session = this.sessions.get(conversationId);
+    const sendToClient = (msg: ServerMessage) => this.send(socket, msg);
+
     if (!session) {
       const config = getConfig();
       const provider = getProvider(config.provider);
@@ -125,11 +134,14 @@ export class DaemonServer {
         provider,
         config.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
         config.maxTokens,
-        (msg: ServerMessage) => this.send(socket, msg),
+        sendToClient,
         workingDir,
       );
       await session.loadFromDb();
       this.sessions.set(conversationId, session);
+    } else {
+      // Rebind to the new socket so IPC goes to the current client
+      session.updateClient(sendToClient);
     }
     return session;
   }
