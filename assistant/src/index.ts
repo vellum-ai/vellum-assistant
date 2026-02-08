@@ -8,8 +8,10 @@ import {
   stopDaemon,
   getDaemonStatus,
 } from './daemon/lifecycle.js';
+import { existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { startCli } from './cli.js';
-import { getSocketPath } from './util/platform.js';
+import { getSocketPath, getDataDir, getDbPath } from './util/platform.js';
 import {
   serialize,
   createMessageParser,
@@ -338,6 +340,80 @@ program
         r.riskLevel.padEnd(riskW) +
         dur,
       );
+    }
+  });
+
+// --- Doctor command ---
+program
+  .command('doctor')
+  .description('Run diagnostic checks')
+  .action(async () => {
+    const pass = (label: string) => console.log(`  \u2713 ${label}`);
+    const fail = (label: string, detail?: string) =>
+      console.log(`  \u2717 ${label}${detail ? ` — ${detail}` : ''}`);
+
+    console.log('Vellum Doctor\n');
+
+    // 1. Bun installed
+    try {
+      execSync('bun --version', { stdio: 'pipe' });
+      pass('Bun is installed');
+    } catch {
+      fail('Bun is installed', 'bun not found in PATH');
+    }
+
+    // 2. API key configured
+    const raw = loadRawConfig();
+    const envKey = process.env.ANTHROPIC_API_KEY;
+    const configKey = (raw.apiKeys as Record<string, string> | undefined)?.anthropic;
+    if (envKey || configKey) {
+      pass('API key configured');
+    } else {
+      fail('API key configured', 'set ANTHROPIC_API_KEY or run: vellum config set apiKeys.anthropic <key>');
+    }
+
+    // 3. Daemon reachable
+    try {
+      const sock = getSocketPath();
+      if (!existsSync(sock)) {
+        fail('Daemon reachable', 'socket not found (is the daemon running?)');
+      } else {
+        await new Promise<void>((resolve, reject) => {
+          const s = net.createConnection(sock);
+          s.on('connect', () => { s.end(); resolve(); });
+          s.on('error', reject);
+          setTimeout(() => { s.destroy(); reject(new Error('timeout')); }, 2000);
+        });
+        pass('Daemon reachable');
+      }
+    } catch {
+      fail('Daemon reachable', 'could not connect to daemon socket');
+    }
+
+    // 4. DB exists and readable
+    const dbPath = getDbPath();
+    if (existsSync(dbPath)) {
+      try {
+        const { Database } = await import('bun:sqlite');
+        const db = new Database(dbPath, { readonly: true });
+        db.query('SELECT 1').get();
+        db.close();
+        pass('Database exists and readable');
+      } catch {
+        fail('Database exists and readable', 'file exists but cannot be read');
+      }
+    } else {
+      fail('Database exists and readable', `not found at ${dbPath}`);
+    }
+
+    // 5. ~/.vellum/ directory structure
+    const dataDir = getDataDir();
+    const requiredDirs = [dataDir, `${dataDir}/data`, `${dataDir}/logs`];
+    const missing = requiredDirs.filter((d) => !existsSync(d));
+    if (missing.length === 0) {
+      pass('Directory structure exists');
+    } else {
+      fail('Directory structure exists', `missing: ${missing.join(', ')}`);
     }
   });
 
