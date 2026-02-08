@@ -23,6 +23,8 @@ resource "random_password" "db_password" {
 resource "google_alloydb_cluster" "main" {
   cluster_id = "${var.cluster_name}-db"
   location   = var.region
+
+  depends_on = [google_project_service.alloydb, google_project_service.servicenetworking]
   network_config {
     network = "projects/${var.project_id}/global/networks/${var.network}"
   }
@@ -53,6 +55,8 @@ resource "google_alloydb_instance" "primary" {
 # Store DATABASE_URL in Secret Manager
 resource "google_secret_manager_secret" "database_url" {
   secret_id = "database-url"
+
+  depends_on = [google_project_service.secretmanager]
 
   replication {
     auto {}

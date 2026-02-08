@@ -24,6 +24,7 @@ node_modules
 .DS_Store
 *.pem
 .claude/
+temp.sh
 
 # debug
 npm-debug.log*

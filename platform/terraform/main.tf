@@ -16,11 +16,10 @@ terraform {
     }
   }
 
-  # TODO: Configure remote state backend
-  # backend "gcs" {
-  #   bucket = "vellum-terraform-state"
-  #   prefix = "vellum-assistant"
-  # }
+  backend "gcs" {
+    bucket = "vellum-ai-prod-terraform-state"
+    prefix = "production"
+  }
 }
 
 provider "google" {
@@ -32,6 +31,8 @@ provider "google" {
 resource "google_container_cluster" "main" {
   name     = var.cluster_name
   location = var.region
+
+  depends_on = [google_project_service.container, google_project_service.compute]
 
   # We can't create a cluster with no node pool, but we want to use
   # separately managed node pools. So we create the smallest possible
@@ -118,11 +119,15 @@ provider "kubernetes" {
 # Static IP for Ingress
 resource "google_compute_global_address" "ingress_ip" {
   name = "vellum-assistant-ip"
+
+  depends_on = [google_project_service.compute]
 }
 
 # Managed SSL Certificate
 resource "google_compute_managed_ssl_certificate" "default" {
   name = "vellum-assistant-cert"
+
+  depends_on = [google_project_service.compute]
 
   managed {
     domains = [var.domain]
