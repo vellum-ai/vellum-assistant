@@ -11,9 +11,6 @@ const log = getLogger('config');
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama'] as const;
 
 let cached: AssistantConfig | null = null;
-// Guard against concurrent loadConfig() calls: once one caller starts loading,
-// subsequent callers wait on the same result instead of loading independently.
-let loading = false;
 
 function getConfigPath(): string {
   return join(getDataDir(), 'config.json');
@@ -21,13 +18,6 @@ function getConfigPath(): string {
 
 export function loadConfig(): AssistantConfig {
   if (cached) return cached;
-
-  // loadConfig is synchronous (readFileSync) so this guard mainly protects
-  // against re-entrant calls (e.g. validateConfig logging triggers a reload).
-  if (loading) {
-    return { ...DEFAULT_CONFIG };
-  }
-  loading = true;
 
   try {
     ensureDataDir();
@@ -65,6 +55,12 @@ export function loadConfig(): AssistantConfig {
       timeouts: { ...DEFAULT_CONFIG.timeouts, ...(fileConfig as Record<string, unknown>).timeouts as Partial<AssistantConfig['timeouts']> },
     };
 
+    // Set cached before validation so re-entrant calls (e.g. validateConfig
+    // logging triggers loadConfig) return the in-flight config instead of
+    // bare defaults. Validation mutates the same object, so callers see
+    // corrected values.
+    cached = config;
+
     validateConfig(config);
 
     // Environment variables override config file (after validation so apiKeys is a valid object)
@@ -78,10 +74,11 @@ export function loadConfig(): AssistantConfig {
       config.apiKeys.gemini = process.env.GEMINI_API_KEY;
     }
 
-    cached = config;
     return config;
-  } finally {
-    loading = false;
+  } catch (err) {
+    // Loading failed — clear cached so the next call retries
+    cached = null;
+    throw err;
   }
 }
 
