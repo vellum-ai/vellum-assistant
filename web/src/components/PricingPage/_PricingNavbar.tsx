@@ -2,15 +2,15 @@ import Link from "next/link";
 
 export function PricingNavbar() {
   return (
-    <div data-collapse="medium" data-animation="default" data-duration="400" fsScrolldisableElement="smart-nav" data-easing="ease" data-easing2="ease" role="banner" className="navbar_component new-light w-nav">
+    <div data-collapse="medium" data-animation="default" data-duration="400" data-fs-scrolldisable-element="smart-nav" data-easing="ease" data-easing2="ease" role="banner" className="navbar_component new-light w-nav">
       <div className="navbar2_container">
         <Link href="/" id="w-node-a96c413e-e7e7-0140-ac47-2f6f46975e16-46975e14" className="navbar2_logo-link w-nav-brand">
           <img loading="lazy" src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6853f41167390a6658f3fd68_Vellum%20Wordmark%20Logo.svg" alt="" className="navbar2_logo is-light" />
         </Link>
         <nav role="navigation" id="w-node-a96c413e-e7e7-0140-ac47-2f6f46975e18-46975e14" className="navbar2_menu is-page-height-tablet w-nav-menu">
-          <ul fsScrolldisableElement="preserve" role="list" className="nav_list u-hflex-between-center list-new new w-list-unstyled">
+          <ul data-fs-scrolldisable-element="preserve" role="list" className="nav_list u-hflex-between-center list-new new w-list-unstyled">
             <li className="nav_list_item new hide-tablet">
-              <div data-delay="200" data-hover="true" arialLabel="Hover on Products dropdown" className="nav_list_dropdown nav_new-link w-dropdown">
+              <div data-delay="200" data-hover="true" aria-label="Hover on Products dropdown" className="nav_list_dropdown nav_new-link w-dropdown">
                 <div className="dropdown_toggle u-hflex-center-center new-link w-dropdown-toggle">
                   <div>
 Products
@@ -86,7 +86,7 @@ Observability
               </div>
             </li>
             <li className="nav_list_item new hide-tablet">
-              <div data-delay="200" data-hover="true" arialLabel="Hover on Products dropdown" className="nav_list_dropdown nav_new-link w-dropdown">
+              <div data-delay="200" data-hover="true" aria-label="Hover on Products dropdown" className="nav_list_dropdown nav_new-link w-dropdown">
                 <div className="dropdown_toggle u-hflex-center-center new-link w-dropdown-toggle">
                   <div>
 Solutions
@@ -152,7 +152,7 @@ Government
               </div>
             </li>
             <li className="nav_list_item new hide">
-              <div data-delay="200" data-hover="true" arialLabel="Hover on Products dropdown" className="nav_list_dropdown nav_new-link w-dropdown">
+              <div data-delay="200" data-hover="true" aria-label="Hover on Products dropdown" className="nav_list_dropdown nav_new-link w-dropdown">
                 <div className="dropdown_toggle u-hflex-center-center new-link is-light w-dropdown-toggle">
                   <div className="nav_list_link is-light">
 Resources
@@ -249,7 +249,7 @@ Use Cases
                           <div role="list" className="blog_coll_list is-nav w-dyn-items">
                             <div role="listitem" className="blog_coll_item u-vflex-stretch-top w-dyn-item">
                               <div className="blog_coll_wrap drak-mode">
-                                <img alt src="https://cdn.prod.website-files.com/plugins/Basic/assets/placeholder.60f9b1840c.svg" className="blog_coll_image" />
+                                <img alt="" src="https://cdn.prod.website-files.com/plugins/Basic/assets/placeholder.60f9b1840c.svg" className="blog_coll_image" />
                               </div>
                               <a aria-label="Go to blog post" href="/blog/coursemojo-case-study" className="u-cover-absolute is-nav w-inline-block"></a>
                               <div className="blog_tag-wrap">

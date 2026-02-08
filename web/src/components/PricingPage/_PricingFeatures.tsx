@@ -23,7 +23,7 @@ Business
           </div>
         </div>
         <div className="u-hflex-center-center gap-icon">
-          <img src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/66f5606820b014a0ad4ef503_Enterprise.svg" loading="lazy" alt className="pricing_icon is--small" />
+          <img src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/66f5606820b014a0ad4ef503_Enterprise.svg" loading="lazy" alt="" className="pricing_icon is--small" />
           <div className="u-text-medium fw-medium mob-hidden">
 Enterprise
           </div>
@@ -62,7 +62,7 @@ Custom
             <div className="u-text-medium fw-medium op70">
 Agent builder interactions (credits)
             </div>
-            <div className="tool_tip" fbTooltipPosition="top" fbTooltipAnimation="shift-away" fbTooltipMessage="Number of agent builder messages per month. Daily limit: 30 interactions" fbTooltipTheme="light" fbTooltipArrow="rounded" fbTooltipShowDelay="100" fbTooltip="true" fbTooltipTrigger="hover">
+            <div className="tool_tip" data-fb-tooltip-position="top" data-fb-tooltip-animation="shift-away" data-fb-tooltip-message="Number of agent builder messages per month. Daily limit: 30 interactions" data-fb-tooltip-theme="light" data-fb-tooltip-arrow="rounded" data-fb-tooltip-show-delay="100" data-fb-tooltip="true" data-fb-tooltip-trigger="hover">
               <div className="image-cover w-embed">
                 <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" fill="currentcolor" viewBox="0 0 256 256">
                   <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"></path>
@@ -89,7 +89,7 @@ Agent builder interactions (credits)
             <div className="u-text-medium fw-medium is--small">
 Unlimited credits
             </div>
-            <div className="tool_tip" fbTooltipPosition="top" fbTooltipAnimation="shift-away" fbTooltipMessage="up to 1,000 executions per user month." fbTooltipTheme="light" fbTooltipArrow="rounded" fbTooltipShowDelay="100" fbTooltip="true" fbTooltipTrigger="hover">
+            <div className="tool_tip" data-fb-tooltip-position="top" data-fb-tooltip-animation="shift-away" data-fb-tooltip-message="up to 1,000 executions per user month." data-fb-tooltip-theme="light" data-fb-tooltip-arrow="rounded" data-fb-tooltip-show-delay="100" data-fb-tooltip="true" data-fb-tooltip-trigger="hover">
               <div className="image-cover w-embed">
                 <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" fill="currentcolor" viewBox="0 0 256 256">
                   <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"></path>
@@ -103,7 +103,7 @@ Unlimited credits
             <div className="u-text-medium fw-medium op70">
 Hosted agent apps
             </div>
-            <div className="tool_tip" fbTooltipPosition="top" fbTooltipAnimation="shift-away" fbTooltipMessage="Number of agents you can publish as AI apps" fbTooltipTheme="light" fbTooltipArrow="rounded" fbTooltipShowDelay="100" fbTooltip="true" fbTooltipTrigger="hover">
+            <div className="tool_tip" data-fb-tooltip-position="top" data-fb-tooltip-animation="shift-away" data-fb-tooltip-message="Number of agents you can publish as AI apps" data-fb-tooltip-theme="light" data-fb-tooltip-arrow="rounded" data-fb-tooltip-show-delay="100" data-fb-tooltip="true" data-fb-tooltip-trigger="hover">
               <div className="image-cover w-embed">
                 <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" fill="currentcolor" viewBox="0 0 256 256">
                   <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"></path>
@@ -137,7 +137,7 @@ Hosted agent apps
             <div className="u-text-medium fw-medium op70">
 Knowledge base
             </div>
-            <div className="tool_tip" fbTooltipPosition="top" fbTooltipAnimation="shift-away" fbTooltipMessage="A Vellum-managed vector database for context retrieval (RAG)." fbTooltipTheme="light" fbTooltipArrow="rounded" fbTooltipShowDelay="100" fbTooltip="true" fbTooltipTrigger="hover">
+            <div className="tool_tip" data-fb-tooltip-position="top" data-fb-tooltip-animation="shift-away" data-fb-tooltip-message="A Vellum-managed vector database for context retrieval (RAG)." data-fb-tooltip-theme="light" data-fb-tooltip-arrow="rounded" data-fb-tooltip-show-delay="100" data-fb-tooltip="true" data-fb-tooltip-trigger="hover">
               <div className="image-cover w-embed">
                 <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" fill="currentcolor" viewBox="0 0 256 256">
                   <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"></path>
@@ -171,7 +171,7 @@ Custom
             <div className="u-text-medium fw-medium op70">
 Parallel agent runs
             </div>
-            <div className="tool_tip" fbTooltipPosition="top" fbTooltipAnimation="shift-away" fbTooltipMessage="Number of people who can use an AI app at the same time." fbTooltipTheme="light" fbTooltipArrow="rounded" fbTooltipShowDelay="100" fbTooltip="true" fbTooltipTrigger="hover">
+            <div className="tool_tip" data-fb-tooltip-position="top" data-fb-tooltip-animation="shift-away" data-fb-tooltip-message="Number of people who can use an AI app at the same time." data-fb-tooltip-theme="light" data-fb-tooltip-arrow="rounded" data-fb-tooltip-show-delay="100" data-fb-tooltip="true" data-fb-tooltip-trigger="hover">
               <div className="image-cover w-embed">
                 <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" fill="currentcolor" viewBox="0 0 256 256">
                   <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"></path>
@@ -205,7 +205,7 @@ Custom
             <div className="u-text-medium fw-medium op70">
 Execution history logs
             </div>
-            <div className="tool_tip" fbTooltipPosition="top" fbTooltipAnimation="shift-away" fbTooltipMessage="Total amount of agent executions and trigger data you can store." fbTooltipTheme="light" fbTooltipArrow="rounded" fbTooltipShowDelay="100" fbTooltip="true" fbTooltipTrigger="hover">
+            <div className="tool_tip" data-fb-tooltip-position="top" data-fb-tooltip-animation="shift-away" data-fb-tooltip-message="Total amount of agent executions and trigger data you can store." data-fb-tooltip-theme="light" data-fb-tooltip-arrow="rounded" data-fb-tooltip-show-delay="100" data-fb-tooltip="true" data-fb-tooltip-trigger="hover">
               <div className="image-cover w-embed">
                 <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" fill="currentcolor" viewBox="0 0 256 256">
                   <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"></path>
@@ -239,7 +239,7 @@ Custom
             <div className="u-text-medium fw-medium op70">
 Max agent runtime
             </div>
-            <div className="tool_tip" fbTooltipPosition="top" fbTooltipAnimation="shift-away" fbTooltipMessage="How long your agents can run." fbTooltipTheme="light" fbTooltipArrow="rounded" fbTooltipShowDelay="100" fbTooltip="true" fbTooltipTrigger="hover">
+            <div className="tool_tip" data-fb-tooltip-position="top" data-fb-tooltip-animation="shift-away" data-fb-tooltip-message="How long your agents can run." data-fb-tooltip-theme="light" data-fb-tooltip-arrow="rounded" data-fb-tooltip-show-delay="100" data-fb-tooltip="true" data-fb-tooltip-trigger="hover">
               <div className="image-cover w-embed">
                 <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" fill="currentcolor" viewBox="0 0 256 256">
                   <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"></path>
@@ -273,7 +273,7 @@ Custom
             <div className="u-text-medium fw-medium op70">
 Data retention period
             </div>
-            <div className="tool_tip" fbTooltipPosition="top" fbTooltipAnimation="shift-away" fbTooltipMessage="Length of time your data remains accessible in the platform." fbTooltipTheme="light" fbTooltipArrow="rounded" fbTooltipShowDelay="100" fbTooltip="true" fbTooltipTrigger="hover">
+            <div className="tool_tip" data-fb-tooltip-position="top" data-fb-tooltip-animation="shift-away" data-fb-tooltip-message="Length of time your data remains accessible in the platform." data-fb-tooltip-theme="light" data-fb-tooltip-arrow="rounded" data-fb-tooltip-show-delay="100" data-fb-tooltip="true" data-fb-tooltip-trigger="hover">
               <div className="image-cover w-embed">
                 <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" fill="currentcolor" viewBox="0 0 256 256">
                   <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"></path>
@@ -307,7 +307,7 @@ Custom
             <div className="u-text-medium fw-medium op70">
 Debugging console
             </div>
-            <div className="tool_tip" fbTooltipPosition="top" fbTooltipAnimation="shift-away" fbTooltipMessage="Inspect what’s happening inside your agent as it runs." fbTooltipTheme="light" fbTooltipArrow="rounded" fbTooltipShowDelay="100" fbTooltip="true" fbTooltipTrigger="hover">
+            <div className="tool_tip" data-fb-tooltip-position="top" data-fb-tooltip-animation="shift-away" data-fb-tooltip-message="Inspect what’s happening inside your agent as it runs." data-fb-tooltip-theme="light" data-fb-tooltip-arrow="rounded" data-fb-tooltip-show-delay="100" data-fb-tooltip="true" data-fb-tooltip-trigger="hover">
               <div className="image-cover w-embed">
                 <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" fill="currentcolor" viewBox="0 0 256 256">
                   <path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"></path>
