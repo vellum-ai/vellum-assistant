@@ -36,7 +36,27 @@ export async function up(): Promise<void> {
     await waitForPostgres(repoRoot);
     console.log('✅ PostgreSQL is ready\n');
 
-    // Step 3: Run database migrations
+    // Step 3: Generate migration files from schema
+    console.log('🔄 Generating migration files...');
+    const generate = spawn('npx', ['drizzle-kit', 'generate'], {
+      cwd: webDir,
+      stdio: 'inherit',
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      generate.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`drizzle-kit generate failed with code ${code}`));
+        }
+      });
+      generate.on('error', reject);
+    });
+
+    console.log('✅ Migration files generated\n');
+
+    // Step 4: Run database migrations
     console.log('🔄 Running database migrations...');
     const migrate = spawn('npx', ['drizzle-kit', 'migrate'], {
       cwd: webDir,
@@ -60,7 +80,7 @@ export async function up(): Promise<void> {
 
     console.log('✅ Database migrations complete\n');
 
-    // Step 4: Start the web dev server
+    // Step 5: Start the web dev server
     console.log('🌐 Starting web dev server...');
     console.log('   Web server will run on http://localhost:3000');
     console.log('   Press Ctrl+C to stop\n');
