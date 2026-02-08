@@ -5,7 +5,6 @@ const log = getLogger('agent-loop');
 
 export interface AgentLoopConfig {
   maxTokens: number;
-  maxTurns: number;
 }
 
 export type AgentEvent =
@@ -17,8 +16,10 @@ export type AgentEvent =
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxTokens: 4096,
-  maxTurns: 10,
 };
+
+const PROGRESS_CHECK_INTERVAL = 5;
+const PROGRESS_CHECK_REMINDER = 'You have been using tools for several turns. Check whether you are making meaningful progress toward the user\'s goal. If you are stuck in a loop or not making progress, summarize what you have tried and ask the user for guidance instead of continuing.';
 
 export class AgentLoop {
   private provider: Provider;
@@ -46,10 +47,9 @@ export class AgentLoop {
     onEvent: (event: AgentEvent) => void,
   ): Promise<Message[]> {
     const history = [...messages];
-    let turns = 0;
+    let toolUseTurns = 0;
 
-    while (turns < this.config.maxTurns) {
-      turns++;
+    while (true) {
 
       try {
         const response = await this.provider.sendMessage(
@@ -109,6 +109,15 @@ export class AgentLoop {
             tool_use_id: toolUse.id,
             content: result.content,
             is_error: result.isError,
+          });
+        }
+
+        // Track tool-use turns and inject progress reminder every N turns
+        toolUseTurns++;
+        if (toolUseTurns % PROGRESS_CHECK_INTERVAL === 0) {
+          resultBlocks.push({
+            type: 'text',
+            text: `[System: ${PROGRESS_CHECK_REMINDER}]`,
           });
         }
 
