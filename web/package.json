@@ -8,10 +8,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.mts",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio",
     "lint": "eslint",
     "pull": "node scripts/pull.mjs",
     "start": "next start"

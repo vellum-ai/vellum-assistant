@@ -29,3 +29,6 @@ jobs:
 
       - name: Type check
         run: bunx tsc --noEmit
+
+      - name: Migration preview
+        run: bun run db:migrate -- --preview
