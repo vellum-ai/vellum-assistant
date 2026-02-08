@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+#
+# vel - Vellum Assistant Development Toolkit
+#
+# A CLI for common development operations in the vellum-assistant monorepo.
+
+set -e
+
+# Get the directory where this script lives
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Commands
+cmd_up() {
+    echo "🚀 vel up - Starting development environment"
+    echo "   (Not yet implemented)"
+}
+
+cmd_down() {
+    echo "🛑 vel down - Stopping development environment"
+    echo "   (Not yet implemented)"
+}
+
+cmd_setup() {
+    echo "🔧 vel setup - Setting up development environment"
+    echo "   (Not yet implemented)"
+}
+
+cmd_ps() {
+    echo "📊 vel ps - Listing running services"
+    echo "   (Not yet implemented)"
+}
+
+cmd_help() {
+    cat <<EOF
+vel - Vellum Assistant Development Toolkit
+
+USAGE:
+    vel <command>
+
+COMMANDS:
+    up        Start the development environment
+    down      Stop the development environment
+    setup     Set up the development environment
+    ps        List running services
+    help      Show this help message
+
+EXAMPLES:
+    vel up      # Start all services
+    vel down    # Stop all services
+    vel setup   # Run initial setup
+    vel ps      # Check running services
+
+For more information, visit: https://github.com/vellum-ai/vellum-assistant
+EOF
+}
+
+# Main
+main() {
+    local command="${1:-}"
+
+    case "$command" in
+        up)
+            cmd_up
+            ;;
+        down)
+            cmd_down
+            ;;
+        setup)
+            cmd_setup
+            ;;
+        ps)
+            cmd_ps
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        "")
+            cmd_help
+            ;;
+        *)
+            echo "Error: Unknown command '$command'"
+            echo ""
+            cmd_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
