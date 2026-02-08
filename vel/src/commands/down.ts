@@ -1,10 +1,12 @@
 import { spawn } from 'child_process';
-import { join } from 'path';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export async function down(): Promise<void> {
   console.log('🛑 vel down - Stopping development environment\n');
 
-  // Get the repository root (two levels up from vel/src/commands/)
   const repoRoot = join(__dirname, '..', '..', '..');
 
   try {
