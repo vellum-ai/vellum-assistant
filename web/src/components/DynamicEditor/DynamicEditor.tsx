@@ -14,6 +14,7 @@ import {
   useState,
 } from "react";
 
+import { DeleteAssistantModal } from "@/components/DeleteAssistantModal";
 import { UserMenu } from "@/components/UserMenu";
 
 interface DynamicEditorProps {
@@ -35,14 +36,13 @@ export function DynamicEditor({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const fetchedRef = useRef(false);
 
-  const handleDelete = useCallback(async () => {
-    if (!confirm("Are you sure you want to delete this assistant? This action cannot be undone.")) {
-      return;
-    }
-
+  const handleDeleteConfirm = useCallback(async () => {
     setIsDeleting(true);
+    setDeleteError(null);
     try {
       const response = await fetch(`/api/assistants/${agentId}`, {
         method: "DELETE",
@@ -52,10 +52,17 @@ export function DynamicEditor({
       }
       router.push("/assistant");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete assistant");
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete assistant");
       setIsDeleting(false);
     }
   }, [agentId, router]);
+
+  const handleDeleteClose = useCallback(() => {
+    if (!isDeleting) {
+      setShowDeleteModal(false);
+      setDeleteError(null);
+    }
+  }, [isDeleting]);
 
   useEffect(() => {
     if (fetchedRef.current) {
@@ -164,15 +171,22 @@ export function DynamicEditor({
               Retry
             </button>
             <button
-              onClick={handleDelete}
-              disabled={isDeleting}
-              className="flex cursor-pointer items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+              onClick={() => setShowDeleteModal(true)}
+              className="flex cursor-pointer items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
             >
               <Trash2 className="h-4 w-4" />
-              {isDeleting ? "Deleting..." : "Delete Assistant"}
+              Delete Assistant
             </button>
           </div>
         </div>
+        {showDeleteModal && (
+          <DeleteAssistantModal
+            isDeleting={isDeleting}
+            error={deleteError}
+            onConfirm={handleDeleteConfirm}
+            onClose={handleDeleteClose}
+          />
+        )}
       </div>
     );
   }
@@ -188,9 +202,19 @@ export function DynamicEditor({
   }
 
   return (
-    <DynamicComponent
-      agentId={agentId}
-      username={username}
-    />
+    <>
+      <DynamicComponent
+        agentId={agentId}
+        username={username}
+      />
+      {showDeleteModal && (
+        <DeleteAssistantModal
+          isDeleting={isDeleting}
+          error={deleteError}
+          onConfirm={handleDeleteConfirm}
+          onClose={handleDeleteClose}
+        />
+      )}
+    </>
   );
 }
