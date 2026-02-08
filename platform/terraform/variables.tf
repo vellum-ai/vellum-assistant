@@ -63,7 +63,7 @@ variable "domain" {
 variable "app_image" {
   description = "Docker image for the Next.js app"
   type        = string
-  default     = "gcr.io/PROJECT_ID/vellum-assistant:latest"
+  default     = null
 }
 
 variable "app_replicas" {

@@ -1,3 +1,7 @@
+locals {
+  app_image = coalesce(var.app_image, "gcr.io/${var.project_id}/vellum-assistant:latest")
+}
+
 # Kubernetes Namespace
 resource "kubernetes_namespace" "vellum_assistant" {
   metadata {
@@ -67,7 +71,7 @@ resource "kubernetes_deployment" "app" {
       spec {
         container {
           name  = "web"
-          image = var.app_image
+          image = local.app_image
 
           port {
             container_port = 3000

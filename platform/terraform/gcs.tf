@@ -18,13 +18,15 @@ resource "google_storage_bucket" "editor_templates" {
 }
 
 resource "google_storage_bucket_iam_member" "editor_templates_gke_reader" {
-  bucket = google_storage_bucket.editor_templates.name
-  role   = "roles/storage.objectViewer"
-  member = "serviceAccount:${var.project_id}.svc.id.goog[vellum-assistant/default]"
+  bucket     = google_storage_bucket.editor_templates.name
+  role       = "roles/storage.objectViewer"
+  member     = "serviceAccount:${var.project_id}.svc.id.goog[vellum-assistant/default]"
+  depends_on = [google_container_cluster.main]
 }
 
 resource "google_storage_bucket_iam_member" "editor_templates_gke_writer" {
-  bucket = google_storage_bucket.editor_templates.name
-  role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${var.project_id}.svc.id.goog[vellum-assistant/default]"
+  bucket     = google_storage_bucket.editor_templates.name
+  role       = "roles/storage.objectAdmin"
+  member     = "serviceAccount:${var.project_id}.svc.id.goog[vellum-assistant/default]"
+  depends_on = [google_container_cluster.main]
 }

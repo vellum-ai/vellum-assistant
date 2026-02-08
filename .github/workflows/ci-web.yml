@@ -35,11 +35,6 @@ jobs:
       - name: Type check
         run: bunx tsc --noEmit
 
-      - name: Build
-        run: bun run build
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -48,6 +43,15 @@ jobs:
 
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Fetch DATABASE_URL from Secret Manager
+        id: secrets
+        run: echo "DATABASE_URL=$(gcloud secrets versions access latest --secret=database-url --project=vellum-ai-prod)" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: bun run build
+        env:
+          DATABASE_URL: ${{ steps.secrets.outputs.DATABASE_URL }}
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker

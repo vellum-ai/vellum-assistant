@@ -74,7 +74,8 @@ resource "google_secret_manager_secret_version" "database_url" {
 
 # Grant the GKE workload identity service account access to read the secret
 resource "google_secret_manager_secret_iam_member" "gke_workload_secret_accessor" {
-  secret_id = google_secret_manager_secret.database_url.id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${var.project_id}.svc.id.goog[vellum-assistant/default]"
+  secret_id  = google_secret_manager_secret.database_url.id
+  role       = "roles/secretmanager.secretAccessor"
+  member     = "serviceAccount:${var.project_id}.svc.id.goog[vellum-assistant/default]"
+  depends_on = [google_container_cluster.main]
 }
