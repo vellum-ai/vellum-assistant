@@ -10,7 +10,7 @@ const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || "vellum-ai-prod-vellum-as
 const GCS_PREFIX_BASE = "vellum-assistant";
 const GCP_ZONE = process.env.GCP_ZONE || "us-central1-a";
 const GCP_MACHINE_TYPE = process.env.GCP_MACHINE_TYPE || "e2-medium";
-const GCP_SERVICE_ACCOUNT = process.env.GCP_SERVICE_ACCOUNT || "web@vellum-ai-prod.iam.gserviceaccount.com";
+const GCP_SERVICE_ACCOUNT = process.env.GCP_SERVICE_ACCOUNT || "nextjs-web@vellum-ai-prod.iam.gserviceaccount.com";
 
 // Prequeue configuration
 const PREQUEUE_POOL_SIZE = 1; // Minimum number of prequeued instances to maintain

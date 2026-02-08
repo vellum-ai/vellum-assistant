@@ -65,7 +65,7 @@ resource "google_storage_bucket_iam_member" "vellum_assistant_gke_writer" {
 }
 
 resource "google_service_account" "web" {
-  account_id   = "web"
+  account_id   = "nextjs-web"
   display_name = "Web Service Account"
   project      = var.project_id
 }
