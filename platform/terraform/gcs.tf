@@ -3,6 +3,8 @@ resource "google_storage_bucket" "editor_templates" {
   location = var.region
   project  = var.project_id
 
+  depends_on = [google_project_service.storage]
+
   uniform_bucket_level_access = true
 
   versioning {
