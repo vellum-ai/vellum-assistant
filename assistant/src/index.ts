@@ -27,6 +27,7 @@ import {
   removeRule,
   clearAllRules,
 } from './permissions/trust-store.js';
+import { getRecentInvocations } from './memory/tool-usage-store.js';
 
 function sendOneMessage(
   msg: ClientMessage,
@@ -283,6 +284,60 @@ trust
       console.log(`Cleared ${rules.length} trust rules`);
     } else {
       console.log('Cancelled');
+    }
+  });
+
+// --- Audit command ---
+program
+  .command('audit')
+  .description('Show recent tool invocations')
+  .option('-l, --limit <n>', 'Number of entries to show', '20')
+  .action((opts: { limit: string }) => {
+    const limit = parseInt(opts.limit, 10) || 20;
+    const rows = getRecentInvocations(limit);
+    if (rows.length === 0) {
+      console.log('No tool invocations recorded');
+      return;
+    }
+    const tsW = 20;
+    const toolW = 14;
+    const inputW = 30;
+    const decW = 8;
+    const riskW = 8;
+    const durW = 8;
+    console.log(
+      'Timestamp'.padEnd(tsW) +
+      'Tool'.padEnd(toolW) +
+      'Input'.padEnd(inputW) +
+      'Decision'.padEnd(decW) +
+      'Risk'.padEnd(riskW) +
+      'Duration',
+    );
+    console.log('-'.repeat(tsW + toolW + inputW + decW + riskW + durW));
+    for (const r of rows) {
+      const ts = new Date(r.createdAt).toISOString().slice(0, 19).replace('T', ' ');
+      // Summarize input: take first meaningful chunk
+      let inputSummary = '';
+      try {
+        const parsed = JSON.parse(r.input);
+        if (parsed.command) inputSummary = parsed.command;
+        else if (parsed.path) inputSummary = parsed.path;
+        else inputSummary = r.input;
+      } catch {
+        inputSummary = r.input;
+      }
+      if (inputSummary.length > inputW - 2) {
+        inputSummary = inputSummary.slice(0, inputW - 4) + '..';
+      }
+      const dur = r.durationMs < 1000 ? `${r.durationMs}ms` : `${(r.durationMs / 1000).toFixed(1)}s`;
+      console.log(
+        ts.padEnd(tsW) +
+        r.toolName.padEnd(toolW) +
+        inputSummary.padEnd(inputW) +
+        r.decision.padEnd(decW) +
+        r.riskLevel.padEnd(riskW) +
+        dur,
+      );
     }
   });
 
