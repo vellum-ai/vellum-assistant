@@ -3,7 +3,7 @@
 import Script from "next/script";
 import { useEffect, useSyncExternalStore } from "react";
 
-const PRODUCTION_HOSTNAMES = ["www.vellum.ai", "vellum.ai"];
+const PRODUCTION_HOSTNAMES = ["www.vellum.ai", "vellum.ai", "assistant.vellum.ai", "www.assistant.vellum.ai"];
 
 function getIsProduction() {
   return PRODUCTION_HOSTNAMES.includes(window.location.hostname);
