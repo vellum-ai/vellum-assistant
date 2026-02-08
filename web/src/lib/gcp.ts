@@ -14,7 +14,7 @@ const GCP_SA_KEY = process.env.GCP_SA_KEY;
 
 // Prequeue configuration
 const PREQUEUE_POOL_SIZE = 1; // Minimum number of prequeued instances to maintain
-const PREQUEUE_INSTANCE_PREFIX = "velly-prequeue";
+const PREQUEUE_INSTANCE_PREFIX = "vellum-prequeue";
 
 // Templates are uploaded to GCS by GitHub Actions on merge to main
 const GCS_TEMPLATES_PREFIX = `${GCS_PREFIX_BASE}/templates`;
@@ -43,8 +43,8 @@ function getFirewallsClient(): FirewallsClient {
   return new FirewallsClient(config);
 }
 
-const VELLY_AGENT_FIREWALL_NAME = "velly-agent-allow-http-8080";
-const VELLY_AGENT_NETWORK_TAG = "velly-agent-server";
+const VELLY_AGENT_FIREWALL_NAME = "vellum-agent-allow-http-8080";
+const VELLY_AGENT_NETWORK_TAG = "vellum-agent-server";
 
 async function ensureFirewallRuleExists(): Promise<void> {
   const firewallsClient = getFirewallsClient();
@@ -74,7 +74,7 @@ async function ensureFirewallRuleExists(): Promise<void> {
             },
           ],
           sourceRanges: ["0.0.0.0/0"],
-          description: "Allow HTTP traffic on port 8080 for Velly agent servers",
+          description: "Allow HTTP traffic on port 8080 for Vellum agent servers",
         },
       });
       console.log(`Firewall rule ${VELLY_AGENT_FIREWALL_NAME} created`);
@@ -84,7 +84,7 @@ async function ensureFirewallRuleExists(): Promise<void> {
   }
 }
 
-export type AgentType = "simple" | "vellyclaw";
+export type AgentType = "simple" | "vellumclaw";
 
 interface TemplateContext {
   agentId: string;
@@ -240,14 +240,14 @@ class H(http.server.BaseHTTPRequestHandler):
             progress = ""
             error = None
             try:
-                with open("/opt/velly-agent/setup-progress") as f:
+                with open("/opt/vellum-agent/setup-progress") as f:
                     progress = f.read().strip()
             except Exception:
                 pass
             # Check for error state
-            if os.path.exists("/opt/velly-agent/setup-error"):
+            if os.path.exists("/opt/vellum-agent/setup-error"):
                 try:
-                    with open("/opt/velly-agent/setup-error") as f:
+                    with open("/opt/vellum-agent/setup-error") as f:
                         error = f.read().strip()
                 except Exception:
                     pass
@@ -269,16 +269,16 @@ HEALTH_PID=$!
 
 // Phase 1: Prequeue startup script - installs dependencies and waits
 function getPrequeueStartupScript(agentType: AgentType): string {
-  if (agentType === "vellyclaw") {
+  if (agentType === "vellumclaw") {
     return `#!/bin/bash
 
-PROGRESS_FILE="/opt/velly-agent/setup-progress"
-READY_FILE="/opt/velly-agent/prequeue-ready"
-ACTIVATE_FILE="/opt/velly-agent/activate"
-mkdir -p /opt/velly-agent
+PROGRESS_FILE="/opt/vellum-agent/setup-progress"
+READY_FILE="/opt/vellum-agent/prequeue-ready"
+ACTIVATE_FILE="/opt/vellum-agent/activate"
+mkdir -p /opt/vellum-agent
 
 # Redirect stdout to startup log, stderr to both error log and startup log
-exec > /var/log/velly-agent-startup.log 2> >(tee -a /opt/velly-agent/error.log >&1)
+exec > /var/log/vellum-agent-startup.log 2> >(tee -a /opt/vellum-agent/error.log >&1)
 
 echo "Preparing environment..." > "$PROGRESS_FILE"
 ${SETUP_HEALTH_SERVER_SCRIPT}
@@ -294,19 +294,19 @@ export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
 # Create working directory
-mkdir -p /opt/velly-agent
-cd /opt/velly-agent
+mkdir -p /opt/vellum-agent
+cd /opt/vellum-agent
 
 # Create top-level data directories
 mkdir -p data/inbox data/outbox
 
 # PHASE 1: Download templates from GCS and install dependencies
 echo "Downloading template files..." > "$PROGRESS_FILE"
-gsutil -m cp -r "gs://${GCS_BUCKET_NAME}/${GCS_TEMPLATES_PREFIX}/vellyclaw/*" .
+gsutil -m cp -r "gs://${GCS_BUCKET_NAME}/${GCS_TEMPLATES_PREFIX}/vellumclaw/*" .
 
 echo "Installing packages with bun..." > "$PROGRESS_FILE"
 if ! bun install; then
-  echo "bun install failed" > /opt/velly-agent/setup-error
+  echo "bun install failed" > /opt/vellum-agent/setup-error
   echo "[STARTUP ERROR] bun install failed" >&2
   exit 1
 fi
@@ -314,19 +314,19 @@ fi
 echo "Creating systemd service..." > "$PROGRESS_FILE"
 
 # Create systemd service for the agent (don't start yet)
-cat > /etc/systemd/system/velly-agent.service << 'SYSTEMD_EOF'
+cat > /etc/systemd/system/vellum-agent.service << 'SYSTEMD_EOF'
 [Unit]
-Description=Velly VellyClaw Agent
+Description=Vellum VellumClaw Agent
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/velly-agent
+WorkingDirectory=/opt/vellum-agent
 ExecStart=/root/.bun/bin/bun run start
 Restart=on-failure
 RestartSec=10
-StandardOutput=append:/var/log/velly-agent.log
-StandardError=append:/var/log/velly-agent.log
+StandardOutput=append:/var/log/vellum-agent.log
+StandardError=append:/var/log/vellum-agent.log
 Environment=NODE_ENV=production
 Environment=BUN_INSTALL=/root/.bun
 Environment=PATH=/root/.bun/bin:/usr/local/bin:/usr/bin:/bin
@@ -336,7 +336,7 @@ WantedBy=multi-user.target
 SYSTEMD_EOF
 
 systemctl daemon-reload
-systemctl enable velly-agent
+systemctl enable vellum-agent
 
 # Mark as ready and wait for activation
 echo "prequeue-ready" > "$PROGRESS_FILE"
@@ -365,7 +365,7 @@ gsutil cp "gs://$GCS_BUCKET/$GCS_PREFIX/.env" .
 # Start the service
 echo "Starting agent..." > "$PROGRESS_FILE"
 kill $HEALTH_PID 2>/dev/null || true
-systemctl start velly-agent
+systemctl start vellum-agent
 
 # Clean up prequeue files
 rm -f "$READY_FILE" "$ACTIVATE_FILE"
@@ -374,13 +374,13 @@ rm -f "$READY_FILE" "$ACTIVATE_FILE"
 sleep 2
 
 # Verify service started
-if systemctl is-active --quiet velly-agent; then
+if systemctl is-active --quiet vellum-agent; then
   echo "Agent service started successfully"
   rm -f "$PROGRESS_FILE"
 else
-  echo "Agent service failed to start" > /opt/velly-agent/setup-error
+  echo "Agent service failed to start" > /opt/vellum-agent/setup-error
   echo "[STARTUP ERROR] Agent service failed to start" >&2
-  systemctl status velly-agent >&2
+  systemctl status vellum-agent >&2
   exit 1
 fi
 `;
@@ -389,13 +389,13 @@ fi
   // Simple agent type prequeue script
   return `#!/bin/bash
 
-PROGRESS_FILE="/opt/velly-agent/setup-progress"
-READY_FILE="/opt/velly-agent/prequeue-ready"
-ACTIVATE_FILE="/opt/velly-agent/activate"
-mkdir -p /opt/velly-agent
+PROGRESS_FILE="/opt/vellum-agent/setup-progress"
+READY_FILE="/opt/vellum-agent/prequeue-ready"
+ACTIVATE_FILE="/opt/vellum-agent/activate"
+mkdir -p /opt/vellum-agent
 
 # Redirect stdout to startup log, stderr to both error log and startup log
-exec > /var/log/velly-agent-startup.log 2> >(tee -a /opt/velly-agent/error.log >&1)
+exec > /var/log/vellum-agent-startup.log 2> >(tee -a /opt/vellum-agent/error.log >&1)
 
 echo "Preparing environment..." > "$PROGRESS_FILE"
 ${SETUP_HEALTH_SERVER_SCRIPT}
@@ -405,8 +405,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="/root/.local/bin:$PATH"
 
 # Create working directory
-mkdir -p /opt/velly-agent
-cd /opt/velly-agent
+mkdir -p /opt/vellum-agent
+cd /opt/vellum-agent
 
 # PHASE 1: Download templates from GCS and install dependencies
 echo "Downloading template files..." > "$PROGRESS_FILE"
@@ -414,26 +414,26 @@ gsutil -m cp -r "gs://${GCS_BUCKET_NAME}/${GCS_TEMPLATES_PREFIX}/simple/*" .
 
 echo "Installing Python dependencies..." > "$PROGRESS_FILE"
 if ! uv sync; then
-  echo "uv sync failed" > /opt/velly-agent/setup-error
+  echo "uv sync failed" > /opt/vellum-agent/setup-error
   echo "[STARTUP ERROR] uv sync failed" >&2
   exit 1
 fi
 
 echo "Creating systemd service..." > "$PROGRESS_FILE"
 
-cat > /etc/systemd/system/velly-agent.service << 'SYSTEMD_EOF'
+cat > /etc/systemd/system/vellum-agent.service << 'SYSTEMD_EOF'
 [Unit]
-Description=Velly Simple Agent
+Description=Vellum Simple Agent
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/velly-agent
+WorkingDirectory=/opt/vellum-agent
 ExecStart=/root/.local/bin/uv run python main.py
 Restart=on-failure
 RestartSec=10
-StandardOutput=append:/var/log/velly-agent.log
-StandardError=append:/var/log/velly-agent.log
+StandardOutput=append:/var/log/vellum-agent.log
+StandardError=append:/var/log/vellum-agent.log
 Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
@@ -441,7 +441,7 @@ WantedBy=multi-user.target
 SYSTEMD_EOF
 
 systemctl daemon-reload
-systemctl enable velly-agent
+systemctl enable vellum-agent
 
 # Mark as ready and wait for activation
 echo "prequeue-ready" > "$PROGRESS_FILE"
@@ -469,19 +469,19 @@ gsutil cp "gs://$GCS_BUCKET/$GCS_PREFIX/.env" .
 # Start the service
 echo "Starting agent..." > "$PROGRESS_FILE"
 kill $HEALTH_PID 2>/dev/null || true
-systemctl start velly-agent
+systemctl start vellum-agent
 
 rm -f "$READY_FILE" "$ACTIVATE_FILE"
 
 sleep 2
 
-if systemctl is-active --quiet velly-agent; then
+if systemctl is-active --quiet vellum-agent; then
   echo "Agent service started successfully"
   rm -f "$PROGRESS_FILE"
 else
-  echo "Agent service failed to start" > /opt/velly-agent/setup-error
+  echo "Agent service failed to start" > /opt/vellum-agent/setup-error
   echo "[STARTUP ERROR] Agent service failed to start" >&2
-  systemctl status velly-agent >&2
+  systemctl status vellum-agent >&2
   exit 1
 fi
 `;
@@ -493,14 +493,14 @@ function getStartupScript(
   gcsBucket: string,
   gcsPrefix: string
 ): string {
-  if (agentType === "vellyclaw") {
+  if (agentType === "vellumclaw") {
     return `#!/bin/bash
 
-PROGRESS_FILE="/opt/velly-agent/setup-progress"
-mkdir -p /opt/velly-agent
+PROGRESS_FILE="/opt/vellum-agent/setup-progress"
+mkdir -p /opt/vellum-agent
 
 # Redirect stdout to startup log, stderr to both error log and startup log
-exec > /var/log/velly-agent-startup.log 2> >(tee -a /opt/velly-agent/error.log >&1)
+exec > /var/log/vellum-agent-startup.log 2> >(tee -a /opt/vellum-agent/error.log >&1)
 
 echo "Preparing environment..." > "$PROGRESS_FILE"
 ${SETUP_HEALTH_SERVER_SCRIPT}
@@ -516,8 +516,8 @@ export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
 # Create working directory
-mkdir -p /opt/velly-agent
-cd /opt/velly-agent
+mkdir -p /opt/vellum-agent
+cd /opt/vellum-agent
 
 echo "Downloading agent files..." > "$PROGRESS_FILE"
 gsutil -m cp -r gs://${gcsBucket}/${gcsPrefix}/* .
@@ -527,7 +527,7 @@ mkdir -p data/inbox data/outbox
 
 echo "Installing packages with bun..." > "$PROGRESS_FILE"
 if ! bun install; then
-  echo "bun install failed" > /opt/velly-agent/setup-error
+  echo "bun install failed" > /opt/vellum-agent/setup-error
   echo "[STARTUP ERROR] bun install failed" >&2
   exit 1
 fi
@@ -535,19 +535,19 @@ fi
 echo "Creating systemd service..." > "$PROGRESS_FILE"
 
 # Create systemd service for the agent (runs in background, doesn't block SSH)
-cat > /etc/systemd/system/velly-agent.service << 'SYSTEMD_EOF'
+cat > /etc/systemd/system/vellum-agent.service << 'SYSTEMD_EOF'
 [Unit]
-Description=Velly VellyClaw Agent
+Description=Vellum VellumClaw Agent
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/velly-agent
+WorkingDirectory=/opt/vellum-agent
 ExecStart=/root/.bun/bin/bun run start
 Restart=on-failure
 RestartSec=10
-StandardOutput=append:/var/log/velly-agent.log
-StandardError=append:/var/log/velly-agent.log
+StandardOutput=append:/var/log/vellum-agent.log
+StandardError=append:/var/log/vellum-agent.log
 Environment=NODE_ENV=production
 Environment=BUN_INSTALL=/root/.bun
 Environment=PATH=/root/.bun/bin:/usr/local/bin:/usr/bin:/bin
@@ -558,8 +558,8 @@ SYSTEMD_EOF
 
 # Reload systemd, enable and start the service
 systemctl daemon-reload
-systemctl enable velly-agent
-systemctl start velly-agent
+systemctl enable vellum-agent
+systemctl start vellum-agent
 
 echo "Starting agent..." > "$PROGRESS_FILE"
 kill $HEALTH_PID 2>/dev/null || true
@@ -568,13 +568,13 @@ kill $HEALTH_PID 2>/dev/null || true
 sleep 2
 
 # Verify service started
-if systemctl is-active --quiet velly-agent; then
+if systemctl is-active --quiet vellum-agent; then
   echo "Agent service started successfully"
   rm -f "$PROGRESS_FILE"
 else
-  echo "Agent service failed to start" > /opt/velly-agent/setup-error
+  echo "Agent service failed to start" > /opt/vellum-agent/setup-error
   echo "[STARTUP ERROR] Agent service failed to start" >&2
-  systemctl status velly-agent >&2
+  systemctl status vellum-agent >&2
   exit 1
 fi
 `;
@@ -582,11 +582,11 @@ fi
 
   return `#!/bin/bash
 
-PROGRESS_FILE="/opt/velly-agent/setup-progress"
-mkdir -p /opt/velly-agent
+PROGRESS_FILE="/opt/vellum-agent/setup-progress"
+mkdir -p /opt/vellum-agent
 
 # Redirect stdout to startup log, stderr to both error log and startup log
-exec > /var/log/velly-agent-startup.log 2> >(tee -a /opt/velly-agent/error.log >&1)
+exec > /var/log/vellum-agent-startup.log 2> >(tee -a /opt/vellum-agent/error.log >&1)
 
 echo "Preparing environment..." > "$PROGRESS_FILE"
 ${SETUP_HEALTH_SERVER_SCRIPT}
@@ -596,15 +596,15 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="/root/.local/bin:$PATH"
 
 # Create working directory
-mkdir -p /opt/velly-agent
-cd /opt/velly-agent
+mkdir -p /opt/vellum-agent
+cd /opt/vellum-agent
 
 echo "Downloading agent files..." > "$PROGRESS_FILE"
 gsutil -m cp -r gs://${gcsBucket}/${gcsPrefix}/* .
 
 echo "Installing Python dependencies..." > "$PROGRESS_FILE"
 if ! uv sync; then
-  echo "uv sync failed" > /opt/velly-agent/setup-error
+  echo "uv sync failed" > /opt/vellum-agent/setup-error
   echo "[STARTUP ERROR] uv sync failed" >&2
   exit 1
 fi
@@ -612,19 +612,19 @@ fi
 echo "Creating systemd service..." > "$PROGRESS_FILE"
 
 # Create systemd service for the agent (runs in background, doesn't block SSH)
-cat > /etc/systemd/system/velly-agent.service << 'SYSTEMD_EOF'
+cat > /etc/systemd/system/vellum-agent.service << 'SYSTEMD_EOF'
 [Unit]
-Description=Velly Simple Agent
+Description=Vellum Simple Agent
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/velly-agent
+WorkingDirectory=/opt/vellum-agent
 ExecStart=/root/.local/bin/uv run python main.py
 Restart=on-failure
 RestartSec=10
-StandardOutput=append:/var/log/velly-agent.log
-StandardError=append:/var/log/velly-agent.log
+StandardOutput=append:/var/log/vellum-agent.log
+StandardError=append:/var/log/vellum-agent.log
 Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
@@ -633,8 +633,8 @@ SYSTEMD_EOF
 
 # Reload systemd, enable and start the service
 systemctl daemon-reload
-systemctl enable velly-agent
-systemctl start velly-agent
+systemctl enable vellum-agent
+systemctl start vellum-agent
 
 echo "Starting agent..." > "$PROGRESS_FILE"
 kill $HEALTH_PID 2>/dev/null || true
@@ -643,13 +643,13 @@ kill $HEALTH_PID 2>/dev/null || true
 sleep 2
 
 # Verify service started
-if systemctl is-active --quiet velly-agent; then
+if systemctl is-active --quiet vellum-agent; then
   echo "Agent service started successfully"
   rm -f "$PROGRESS_FILE"
 else
-  echo "Agent service failed to start" > /opt/velly-agent/setup-error
+  echo "Agent service failed to start" > /opt/vellum-agent/setup-error
   echo "[STARTUP ERROR] Agent service failed to start" >&2
-  systemctl status velly-agent >&2
+  systemctl status vellum-agent >&2
   exit 1
 fi
 `;
@@ -672,7 +672,7 @@ export interface PrequeuedInstance {
  * Create a prequeued instance that's ready to be assigned to an agent
  */
 export async function createPrequeuedInstance(
-  agentType: AgentType = "vellyclaw"
+  agentType: AgentType = "vellumclaw"
 ): Promise<{ instanceName: string; zone: string }> {
   const computeClient = getComputeClient();
   const instanceId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -732,7 +732,7 @@ export async function createPrequeuedInstance(
         ],
       },
       labels: {
-        "velly-prequeue": "true",
+        "vellum-prequeue": "true",
         "agent-type": agentType,
       },
       tags: {
@@ -761,13 +761,13 @@ export async function listPrequeuedInstances(): Promise<PrequeuedInstance[]> {
     const [instanceList] = await computeClient.list({
       project: GCP_PROJECT_ID,
       zone: GCP_ZONE,
-      filter: 'labels.velly-prequeue="true"',
+      filter: 'labels.vellum-prequeue="true"',
     });
 
     for (const instance of instanceList || []) {
       if (!instance.name) continue;
 
-      const agentTypeLabel = instance.labels?.["agent-type"] || "vellyclaw";
+      const agentTypeLabel = instance.labels?.["agent-type"] || "vellumclaw";
       const creationTimestamp = instance.creationTimestamp || new Date().toISOString();
 
       // Check if instance is ready by looking at its health endpoint
@@ -809,7 +809,7 @@ export async function listPrequeuedInstances(): Promise<PrequeuedInstance[]> {
  * Get an available (ready) prequeued instance
  */
 export async function getAvailablePrequeuedInstance(
-  agentType: AgentType = "vellyclaw"
+  agentType: AgentType = "vellumclaw"
 ): Promise<PrequeuedInstance | null> {
   const instances = await listPrequeuedInstances();
 
@@ -876,8 +876,8 @@ export GCS_PREFIX="${gcsPrefix}"
       instancesSetLabelsRequestResource: {
         labels: {
           ...instance.labels,
-          "velly-prequeue": "false",
-          "velly-agent": "true",
+          "vellum-prequeue": "false",
+          "vellum-agent": "true",
           "agent-id": agentId.slice(0, 63).toLowerCase().replace(/[^a-z0-9-]/g, "-"),
         },
         labelFingerprint: instance.labelFingerprint,
@@ -916,7 +916,7 @@ export GCS_PREFIX="${gcsPrefix}"
  * Ensure the prequeue pool has minimum instances
  */
 export async function ensurePrequeuePool(
-  agentType: AgentType = "vellyclaw",
+  agentType: AgentType = "vellumclaw",
   minSize: number = PREQUEUE_POOL_SIZE
 ): Promise<{ created: number; available: number }> {
   const instances = await listPrequeuedInstances();
@@ -1013,7 +1013,7 @@ export async function createAgentComputeInstance(
   console.log(`[Agent] Creating fresh instance for agent ${agentId}`);
 
   const computeClient = getComputeClient();
-  const instanceName = `velly-agent-${agentId.slice(0, 8)}`;
+  const instanceName = `vellum-agent-${agentId.slice(0, 8)}`;
   const startupScript = getStartupScript(agentType, gcsBucket, gcsPrefix);
 
   const [operation] = await computeClient.insert({
@@ -1066,7 +1066,7 @@ export async function createAgentComputeInstance(
         ],
       },
       labels: {
-        "velly-agent": "true",
+        "vellum-agent": "true",
         "agent-id": agentId.slice(0, 63).toLowerCase().replace(/[^a-z0-9-]/g, "-"),
       },
       tags: {

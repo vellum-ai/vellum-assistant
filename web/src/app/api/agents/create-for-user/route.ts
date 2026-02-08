@@ -24,7 +24,7 @@ const APP_URL = process.env.APP_URL || "http://localhost:3000";
  *   user_id: string,       // The user to create the agent for
  *   agent_name: string,    // Name for the new agent
  *   description?: string,  // Optional description
- *   agent_type?: string,   // "vellyclaw" or "simple", defaults to "vellyclaw"
+ *   agent_type?: string,   // "vellumclaw" or "simple", defaults to "vellumclaw"
  * }
  * 
  * Returns: {
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     console.log(`[Create For User] Request from agent ${callingAgent.id} (${callingAgent.name})`);
 
     const body = await request.json();
-    const { user_id, agent_name, description, agent_type = "vellyclaw" } = body;
+    const { user_id, agent_name, description, agent_type = "vellumclaw" } = body;
 
     if (!user_id) {
       return NextResponse.json(
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate agent type
-    const validTypes: AgentType[] = ["simple", "vellyclaw"];
+    const validTypes: AgentType[] = ["simple", "vellumclaw"];
     if (!validTypes.includes(agent_type as AgentType)) {
       return NextResponse.json(
         { error: `Invalid agent_type. Must be one of: ${validTypes.join(", ")}` },
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate API key for the new agent
-    const newAgentApiKey = `velly_${crypto.randomBytes(24).toString("base64url")}`;
+    const newAgentApiKey = `vellum_${crypto.randomBytes(24).toString("base64url")}`;
 
     // Create the agent in the database
     const newAgentResult = await sql`

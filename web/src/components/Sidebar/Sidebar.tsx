@@ -59,7 +59,7 @@ export function Sidebar() {
               <span className="text-sm font-bold text-white">V</span>
             </div>
             <span className="text-lg font-semibold text-zinc-900 dark:text-white">
-              Velly
+              Vellum
             </span>
           </Link>
         </div>

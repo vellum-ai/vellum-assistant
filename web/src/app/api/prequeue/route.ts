@@ -48,14 +48,14 @@ export async function GET() {
  * POST /api/prequeue - Manage prequeue pool
  *
  * Actions:
- * - { action: "create", agentType?: "vellyclaw" | "simple" } - Create a single prequeued instance
+ * - { action: "create", agentType?: "vellumclaw" | "simple" } - Create a single prequeued instance
  * - { action: "ensure", agentType?: string, minSize?: number } - Ensure pool has minimum instances
  * - { action: "cleanup", maxAgeHours?: number } - Clean up stale instances
  */
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { action, agentType = "vellyclaw", minSize = 1, maxAgeHours = 24 } = body;
+    const { action, agentType = "vellumclaw", minSize = 1, maxAgeHours = 24 } = body;
 
     switch (action) {
       case "create": {

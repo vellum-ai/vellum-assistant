@@ -75,11 +75,11 @@ async function sendTelegramMessage(chatId: number, text: string): Promise<boolea
   }
 }
 
-async function getVellyResponse(userMessage: string, username: string): Promise<string> {
-  console.log(`[Telegram] 🤖 Getting Velly response for "${userMessage.substring(0, 50)}..." from ${username}`);
+async function getVellumResponse(userMessage: string, username: string): Promise<string> {
+  console.log(`[Telegram] 🤖 Getting Vellum response for "${userMessage.substring(0, 50)}..." from ${username}`);
 
   try {
-    const response = await fetch(`${APP_URL}/api/velly/chat`, {
+    const response = await fetch(`${APP_URL}/api/vellum/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -90,7 +90,7 @@ async function getVellyResponse(userMessage: string, username: string): Promise<
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Telegram] ❌ Velly chat API error. Status: ${response.status}`, {
+      console.error(`[Telegram] ❌ Vellum chat API error. Status: ${response.status}`, {
         statusText: response.statusText,
         body: errorText.substring(0, 500),
       });
@@ -98,10 +98,10 @@ async function getVellyResponse(userMessage: string, username: string): Promise<
     }
 
     const data = await response.json();
-    console.log(`[Telegram] ✅ Velly response received (${data.content?.length || 0} chars)`);
+    console.log(`[Telegram] ✅ Vellum response received (${data.content?.length || 0} chars)`);
     return data.content || "I couldn't generate a response.";
   } catch (error) {
-    console.error("[Telegram] ❌ Exception getting Velly response:", error);
+    console.error("[Telegram] ❌ Exception getting Vellum response:", error);
     return "Sorry, I encountered an error. Please try again later.";
   }
 }
@@ -120,8 +120,8 @@ async function handleTelegramUpdate(update: TelegramUpdate): Promise<void> {
 
   console.log(`[Telegram] 📩 Processing message from ${username} (chat: ${chatId}): "${text.substring(0, 100)}"`);
 
-  // Get response from Velly
-  const response = await getVellyResponse(text, username);
+  // Get response from Vellum
+  const response = await getVellumResponse(text, username);
 
   // Send response back to Telegram
   const sent = await sendTelegramMessage(chatId, response);
@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     status: "ok",
-    message: "VellyClawBot Telegram webhook endpoint",
+    message: "VellumClawBot Telegram webhook endpoint",
     configured: !!VELLY_TELEGRAM_TOKEN,
     appUrl: APP_URL,
   });

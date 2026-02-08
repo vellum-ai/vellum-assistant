@@ -19,7 +19,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const STORAGE_KEY = "velly_auth";
+const STORAGE_KEY = "vellum_auth";
 
 interface AuthProviderProps {
   children: ReactNode;

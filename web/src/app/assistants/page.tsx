@@ -182,12 +182,12 @@ export default function AssistantsPage() {
               {isCreating === "simple" ? "Creating..." : "Simple"}
             </button>
             <button
-              onClick={() => handleCreateAssistant("vellyclaw")}
+              onClick={() => handleCreateAssistant("vellumclaw")}
               disabled={isCreating !== null}
               className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50 sm:w-auto"
             >
               <Cog className="h-4 w-4" />
-              {isCreating === "vellyclaw" ? "Creating..." : "VellyClaw"}
+              {isCreating === "vellumclaw" ? "Creating..." : "VellumClaw"}
             </button>
           </div>
         </div>
@@ -221,12 +221,12 @@ export default function AssistantsPage() {
                 {isCreating === "simple" ? "Creating..." : "Simple"}
               </button>
               <button
-                onClick={() => handleCreateAssistant("vellyclaw")}
+                onClick={() => handleCreateAssistant("vellumclaw")}
                 disabled={isCreating !== null}
                 className="flex cursor-pointer items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
               >
                 <Cog className="h-4 w-4" />
-                {isCreating === "vellyclaw" ? "Creating..." : "VellyClaw"}
+                {isCreating === "vellumclaw" ? "Creating..." : "VellumClaw"}
               </button>
             </div>
           </div>

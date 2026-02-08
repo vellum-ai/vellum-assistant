@@ -25,7 +25,7 @@ interface FileSystemTabProps {
 
 export function FileSystemTab({ agentId }: FileSystemTabProps) {
   const [files, setFiles] = useState<FileEntry[]>([]);
-  const [currentPath, setCurrentPath] = useState("/opt/velly-agent");
+  const [currentPath, setCurrentPath] = useState("/opt/vellum-agent");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());

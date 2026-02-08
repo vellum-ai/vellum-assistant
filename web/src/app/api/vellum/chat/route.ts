@@ -15,7 +15,7 @@ interface ChatRequest {
   username?: string;
 }
 
-const SYSTEM_PROMPT = `You are Velly, a friendly and helpful AI agent builder assistant. You help users configure, improve, and understand their AI agents.
+const SYSTEM_PROMPT = `You are Vellum, a friendly and helpful AI agent builder assistant. You help users configure, improve, and understand their AI agents.
 
 Your personality:
 - Friendly and approachable
@@ -87,7 +87,7 @@ function parseTextToolCalls(text: string): {
         toolCalls.push(parsed);
       }
     } catch {
-      console.warn("[Velly Chat] Failed to parse text-based tool call:", match[1]);
+      console.warn("[Vellum Chat] Failed to parse text-based tool call:", match[1]);
     }
   }
 
@@ -100,15 +100,15 @@ async function handleToolCall(
   toolInput: Record<string, string>,
   agentId: string
 ): Promise<string> {
-  console.log(`[Velly Chat] 🔧 Executing tool: ${toolName}`, { agentId, toolInput });
+  console.log(`[Vellum Chat] 🔧 Executing tool: ${toolName}`, { agentId, toolInput });
 
   if (toolName === "get_editor_page") {
     const source = await getEditorPage(agentId);
     if (!source) {
-      console.log(`[Velly Chat] 📄 No editor page found for agent ${agentId}`);
+      console.log(`[Vellum Chat] 📄 No editor page found for agent ${agentId}`);
       return "No editor page found for this agent. The default template will be used.";
     }
-    console.log(`[Velly Chat] 📄 Fetched editor page for agent ${agentId} (${source.length} chars)`);
+    console.log(`[Vellum Chat] 📄 Fetched editor page for agent ${agentId} (${source.length} chars)`);
     return source;
   }
 
@@ -120,10 +120,10 @@ async function handleToolCall(
 
     const success = await updateEditorPage(agentId, source);
     if (!success) {
-      console.error(`[Velly Chat] ❌ Failed to update editor page for agent ${agentId}`);
+      console.error(`[Vellum Chat] ❌ Failed to update editor page for agent ${agentId}`);
       return "Error: Failed to update the editor page in storage.";
     }
-    console.log(`[Velly Chat] ✅ Updated editor page for agent ${agentId} (${source.length} chars)`);
+    console.log(`[Vellum Chat] ✅ Updated editor page for agent ${agentId} (${source.length} chars)`);
     return "Editor page updated successfully. The user will see the changes when they refresh.";
   }
 
@@ -132,14 +132,14 @@ async function handleToolCall(
 
 export async function POST(request: Request) {
   const requestId = Math.random().toString(36).substring(7);
-  console.log(`[Velly Chat] 🚀 [${requestId}] === REQUEST START ===`);
+  console.log(`[Vellum Chat] 🚀 [${requestId}] === REQUEST START ===`);
   
   try {
-    console.log(`[Velly Chat] 📥 [${requestId}] Parsing request body...`);
+    console.log(`[Vellum Chat] 📥 [${requestId}] Parsing request body...`);
     const body: ChatRequest = await request.json();
     const { messages, agentId, currentPage, username: chatUsername } = body;
 
-    console.log(`[Velly Chat] 📋 [${requestId}] Request parsed:`, {
+    console.log(`[Vellum Chat] 📋 [${requestId}] Request parsed:`, {
       messageCount: messages?.length,
       agentId: agentId || "(none)",
       currentPage: currentPage || "(none)",
@@ -148,7 +148,7 @@ export async function POST(request: Request) {
     });
 
     if (!messages || messages.length === 0) {
-      console.error(`[Velly Chat] ❌ [${requestId}] No messages provided`);
+      console.error(`[Vellum Chat] ❌ [${requestId}] No messages provided`);
       return NextResponse.json(
         { error: "Messages are required" },
         { status: 400 }
@@ -157,13 +157,13 @@ export async function POST(request: Request) {
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      console.error(`[Velly Chat] ❌ [${requestId}] ANTHROPIC_API_KEY is not configured`);
+      console.error(`[Vellum Chat] ❌ [${requestId}] ANTHROPIC_API_KEY is not configured`);
       return NextResponse.json(
         { error: "AI service is not configured" },
         { status: 500 }
       );
     }
-    console.log(`[Velly Chat] 🔑 [${requestId}] API key present (${apiKey.substring(0, 10)}...)`);
+    console.log(`[Vellum Chat] 🔑 [${requestId}] API key present (${apiKey.substring(0, 10)}...)`);
 
     const anthropic = new Anthropic({ apiKey });
 
@@ -189,7 +189,7 @@ export async function POST(request: Request) {
     const systemPrompt = SYSTEM_PROMPT + contextSuffix;
     const tools = agentId ? TOOLS : [];
 
-    console.log(`[Velly Chat] 🤖 [${requestId}] Calling Anthropic API...`, {
+    console.log(`[Vellum Chat] 🤖 [${requestId}] Calling Anthropic API...`, {
       model: "claude-opus-4-6",
       messageCount: anthropicMessages.length,
       hasTools: tools.length > 0,
@@ -208,7 +208,7 @@ export async function POST(request: Request) {
       .finalMessage();
 
     const apiCallDuration = Date.now() - apiCallStart;
-    console.log(`[Velly Chat] ✅ [${requestId}] Anthropic API responded in ${apiCallDuration}ms`, {
+    console.log(`[Vellum Chat] ✅ [${requestId}] Anthropic API responded in ${apiCallDuration}ms`, {
       stopReason: response.stop_reason,
       contentBlocks: response.content.length,
       inputTokens: response.usage?.input_tokens,
@@ -220,18 +220,18 @@ export async function POST(request: Request) {
 
     while (response.stop_reason === "tool_use" && toolRound < MAX_TOOL_ROUNDS) {
       toolRound++;
-      console.log(`[Velly Chat] 🔄 [${requestId}] Tool round ${toolRound}/${MAX_TOOL_ROUNDS}`);
+      console.log(`[Vellum Chat] 🔄 [${requestId}] Tool round ${toolRound}/${MAX_TOOL_ROUNDS}`);
 
       const toolUseBlocks = response.content.filter(
         (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
       );
 
-      console.log(`[Velly Chat] 🔧 [${requestId}] Found ${toolUseBlocks.length} tool calls:`, 
+      console.log(`[Vellum Chat] 🔧 [${requestId}] Found ${toolUseBlocks.length} tool calls:`, 
         toolUseBlocks.map(t => t.name));
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const toolUse of toolUseBlocks) {
-        console.log(`[Velly Chat] 🔧 [${requestId}] Executing tool: ${toolUse.name}`);
+        console.log(`[Vellum Chat] 🔧 [${requestId}] Executing tool: ${toolUse.name}`);
         const result = agentId
           ? await handleToolCall(
               toolUse.name,
@@ -256,7 +256,7 @@ export async function POST(request: Request) {
         content: toolResults,
       });
 
-      console.log(`[Velly Chat] 🤖 [${requestId}] Calling Anthropic API again (after tools)...`);
+      console.log(`[Vellum Chat] 🤖 [${requestId}] Calling Anthropic API again (after tools)...`);
       const toolApiCallStart = Date.now();
       response = await anthropic.messages
         .stream({
@@ -269,7 +269,7 @@ export async function POST(request: Request) {
         .finalMessage();
 
       const toolApiCallDuration = Date.now() - toolApiCallStart;
-      console.log(`[Velly Chat] ✅ [${requestId}] Tool follow-up responded in ${toolApiCallDuration}ms`, {
+      console.log(`[Vellum Chat] ✅ [${requestId}] Tool follow-up responded in ${toolApiCallDuration}ms`, {
         stopReason: response.stop_reason,
       });
     }
@@ -279,7 +279,7 @@ export async function POST(request: Request) {
     );
 
     if (!textBlock) {
-      console.error(`[Velly Chat] ❌ [${requestId}] No text block in response`, {
+      console.error(`[Vellum Chat] ❌ [${requestId}] No text block in response`, {
         contentTypes: response.content.map(b => b.type),
       });
       return NextResponse.json(
@@ -288,14 +288,14 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log(`[Velly Chat] 📝 [${requestId}] Got text response (${textBlock.text.length} chars)`);
+    console.log(`[Vellum Chat] 📝 [${requestId}] Got text response (${textBlock.text.length} chars)`);
 
     let finalText = textBlock.text;
 
     if (agentId) {
       const { toolCalls, cleanedText } = parseTextToolCalls(finalText);
       if (toolCalls.length > 0) {
-        console.log(`[Velly Chat] 🔧 [${requestId}] Found ${toolCalls.length} text-based tool call(s), executing...`);
+        console.log(`[Vellum Chat] 🔧 [${requestId}] Found ${toolCalls.length} text-based tool call(s), executing...`);
 
         const toolResultMessages: string[] = [];
         for (const toolCall of toolCalls) {
@@ -318,7 +318,7 @@ export async function POST(request: Request) {
           content: `[Tool results]\n${toolResultMessages.join("\n")}\n\nPlease provide a brief summary of what you did. Do NOT include any <tool_call> tags in your response.`,
         });
 
-        console.log(`[Velly Chat] 🤖 [${requestId}] Calling Anthropic API for text-tool follow-up...`);
+        console.log(`[Vellum Chat] 🤖 [${requestId}] Calling Anthropic API for text-tool follow-up...`);
         const followUp = await anthropic.messages
           .stream({
             model: "claude-opus-4-6",
@@ -333,19 +333,19 @@ export async function POST(request: Request) {
         );
 
         finalText = followUpText ? followUpText.text.trim() : cleanedText;
-        console.log(`[Velly Chat] 📝 [${requestId}] Follow-up text (${finalText.length} chars)`);
+        console.log(`[Vellum Chat] 📝 [${requestId}] Follow-up text (${finalText.length} chars)`);
       }
     }
 
     const responsePayload = { content: finalText.trim() };
-    console.log(`[Velly Chat] 🎉 [${requestId}] === REQUEST SUCCESS ===`, {
+    console.log(`[Vellum Chat] 🎉 [${requestId}] === REQUEST SUCCESS ===`, {
       responseLength: responsePayload.content.length,
       preview: responsePayload.content.substring(0, 100),
     });
 
     return NextResponse.json(responsePayload);
   } catch (error) {
-    console.error(`[Velly Chat] ❌ [${requestId}] === REQUEST FAILED ===`, {
+    console.error(`[Vellum Chat] ❌ [${requestId}] === REQUEST FAILED ===`, {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });

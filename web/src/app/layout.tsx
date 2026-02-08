@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Velly - Your Agent Builder",
+  title: "Vellum - Your Agent Builder",
   description: "Build, configure, and deploy intelligent AI agents with ease",
 };
 

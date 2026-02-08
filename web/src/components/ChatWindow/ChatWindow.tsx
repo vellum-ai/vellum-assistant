@@ -15,7 +15,7 @@ interface ChatWindowProps {
 }
 
 const INITIAL_VELLY_MESSAGE: Message = {
-  id: "velly-welcome",
+  id: "vellum-welcome",
   role: "assistant",
   content:
     "Hey! I just made your new agent. Go interact with it in the right panel!",
@@ -74,10 +74,10 @@ export function ChatWindow({ agentName }: ChatWindowProps) {
     <div className="flex h-full flex-col">
       <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
         <h2 className="font-medium text-zinc-900 dark:text-white">
-          Chat with Velly
+          Chat with Vellum
         </h2>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Talk to Velly, the platform&apos;s agent builder
+          Talk to Vellum, the platform&apos;s agent builder
         </p>
       </div>
 
@@ -86,7 +86,7 @@ export function ChatWindow({ agentName }: ChatWindowProps) {
           <div className="flex h-full flex-col items-center justify-center text-center">
             <Bot className="h-12 w-12 text-zinc-300 dark:text-zinc-700" />
             <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-              Start a conversation with Velly
+              Start a conversation with Vellum
             </p>
           </div>
         ) : (

@@ -35,7 +35,7 @@ function generateRandomName(): string {
  * Generate a secure API key for agent authentication
  */
 function generateApiKey(): string {
-  return `velly_${randomBytes(32).toString("hex")}`;
+  return `vellum_${randomBytes(32).toString("hex")}`;
 }
 
 async function generateAgentName(): Promise<string> {

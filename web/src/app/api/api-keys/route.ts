@@ -32,8 +32,8 @@ export interface ApiKey {
 // Generate a secure API key
 function generateApiKey(): { key: string; prefix: string; hash: string } {
   const randomBytes = crypto.randomBytes(32);
-  const key = `velly_${randomBytes.toString("base64url")}`;
-  const prefix = key.substring(0, 12); // "velly_xxxx"
+  const key = `vellum_${randomBytes.toString("base64url")}`;
+  const prefix = key.substring(0, 12); // "vellum_xxxx"
   const hash = crypto.createHash("sha256").update(key).digest("hex");
   return { key, prefix, hash };
 }

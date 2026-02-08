@@ -37,7 +37,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: agentId } = await params;
     const searchParams = request.nextUrl.searchParams;
-    const path = searchParams.get("path") || "/opt/velly-agent";
+    const path = searchParams.get("path") || "/opt/vellum-agent";
 
     const sql = getDb();
     const result = await sql`SELECT * FROM agents WHERE id = ${agentId}`;

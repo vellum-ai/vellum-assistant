@@ -225,7 +225,7 @@ export default function SettingsPage() {
             Settings
           </h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Configure your Velly workspace
+            Configure your Vellum workspace
           </p>
         </div>
 
