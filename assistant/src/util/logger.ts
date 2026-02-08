@@ -12,8 +12,8 @@ function getRootLogger(): pino.Logger {
     if (process.env.VELLUM_DEBUG === '1') {
       const prettyStream = pinoPretty({ destination: 2 });
       const multi = pino.multistream([
-        { stream: fileStream },
-        { stream: prettyStream },
+        { stream: fileStream, level: 'info' as const },
+        { stream: prettyStream, level: 'debug' as const },
       ]);
       rootLogger = pino({ level: 'debug' }, multi);
     } else {
