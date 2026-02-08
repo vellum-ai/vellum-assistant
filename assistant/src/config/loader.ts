@@ -1,8 +1,11 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { getDataDir, ensureDataDir } from '../util/platform.js';
 import { ConfigError } from '../util/errors.js';
+import { getLogger } from '../util/logger.js';
 import { DEFAULT_CONFIG } from './defaults.js';
+
+const log = getLogger('config');
 import type { AssistantConfig } from './types.js';
 
 let cached: AssistantConfig | null = null;
@@ -19,6 +22,14 @@ export function loadConfig(): AssistantConfig {
 
   let fileConfig: Partial<AssistantConfig> = {};
   if (existsSync(configPath)) {
+    const mode = statSync(configPath).mode;
+    if (mode & 0o077) {
+      log.warn(
+        `Config file ${configPath} is readable by other users (mode ${(mode & 0o777).toString(8)}). ` +
+        `Run: chmod 600 ${configPath}`,
+      );
+    }
+
     try {
       fileConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
     } catch (err) {
