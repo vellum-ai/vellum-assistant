@@ -33,18 +33,18 @@ export function LogoMarquee() {
                   <div className="trusted_header hide">Trusted by </div>
                 </div>
                 <div 
-                  fs-marquee-type="cms" 
-                  fs-marquee-element="marquee" 
-                  fs-marquee-instance="fs--logo-marquee" 
+                  data-fs-marquee-type="cms" 
+                  data-fs-marquee-element="marquee" 
+                  data-fs-marquee-instance="fs--logo-marquee" 
                   className="fs-logo-marquee_instance"
                 >
                   <div className="div-block-238">
                     <div className="trusted_header align-center">Trusted by companies of all sizes</div>
                   </div>
-                  <div fade="" fs-marquee-element="wrapper" className="fs-logo-marquee_list-wrapper alt w-dyn-list">
-                    <div fs-marquee-element="list" role="list" className="fs-logo-marquee_list w-dyn-items">
+                  <div data-fade="" data-fs-marquee-element="wrapper" className="fs-logo-marquee_list-wrapper alt w-dyn-list">
+                    <div data-fs-marquee-element="list" role="list" className="fs-logo-marquee_list w-dyn-items">
                       {logos.map((logo, index) => (
-                        <div key={index} fs-marquee-element="item" role="listitem" className="logo_item pill w-dyn-item">
+                        <div key={index} data-fs-marquee-element="item" role="listitem" className="logo_item pill w-dyn-item">
                           <img loading="lazy" src={logo.src} alt={logo.alt} className="marquee_logo smaller"/>
                           {logo.hasCaseStudy ? (
                             <a href={logo.caseStudy} className="case_study-link-logo pill hide-tablet w-inline-block">
