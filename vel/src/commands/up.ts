@@ -2,6 +2,15 @@ import { spawn } from 'child_process';
 import { join } from 'path';
 
 import { ensureBunInPath } from '../lib/bun-path';
+import { execOutput } from '../lib/step-runner';
+
+const GS_PROJECT_ID = 'vellum-nonprod';
+
+const SECRET_NAMES = [
+  'ANTHROPIC_API_KEY',
+  'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
+  'STRIPE_SECRET_KEY',
+] as const;
 
 export async function up(): Promise<void> {
   ensureBunInPath();
@@ -11,6 +20,10 @@ export async function up(): Promise<void> {
   const webDir = join(repoRoot, 'web');
 
   try {
+    // Step 0: Pull secrets from GCP Secret Manager
+    console.log('🔑 Pulling secrets from GCP Secret Manager...');
+    const secrets = await fetchSecrets();
+    console.log('✅ Secrets loaded\n');
     // Step 1: Start Docker Compose for postgres
     console.log('📦 Starting PostgreSQL container...');
     const composeUp = spawn('docker', ['compose', 'up', '-d'], {
@@ -71,8 +84,10 @@ export async function up(): Promise<void> {
       shell: true,
       env: {
         ...process.env,
+        ...secrets,
         DATABASE_URL: process.env.DATABASE_URL || 'postgresql://vellum:password@localhost:5432/vellum',
         APP_URL: process.env.APP_URL || 'http://localhost:3000',
+        GS_PROJECT_ID: GS_PROJECT_ID,
         MINIO_ENDPOINT: process.env.MINIO_ENDPOINT || 'http://localhost:9000',
         MINIO_ACCESS_KEY: process.env.MINIO_ACCESS_KEY || 'minioadmin',
         MINIO_SECRET_KEY: process.env.MINIO_SECRET_KEY || 'minioadmin',
@@ -103,6 +118,20 @@ export async function up(): Promise<void> {
     console.error('❌ Error:', error instanceof Error ? error.message : error);
     process.exit(1);
   }
+}
+
+async function fetchSecrets(): Promise<Record<string, string>> {
+  const entries = await Promise.all(
+    SECRET_NAMES.map(async (name) => {
+      const value = await execOutput('gcloud', [
+        'secrets', 'versions', 'access', 'latest',
+        `--secret=${name}`,
+        `--project=${GS_PROJECT_ID}`,
+      ]);
+      return [name, value] as const;
+    })
+  );
+  return Object.fromEntries(entries);
 }
 
 async function waitForPostgres(repoRoot: string, maxRetries = 30): Promise<void> {
