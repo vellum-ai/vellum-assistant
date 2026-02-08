@@ -3,7 +3,7 @@
 locals {
   # Hardcoded database configuration
   db_user      = "vellum"
-  db_name      = "vellum_assistant"
+  db_name      = "vellum"
   db_cpu_count = 2
 
   # Generate random password for the database

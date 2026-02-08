@@ -50,8 +50,8 @@ output "database_connection_info" {
   description = "Database connection information"
   value       = <<-EOT
     AlloyDB cluster: ${google_alloydb_cluster.main.name}
-    Database: ${var.db_name}
-    User: ${var.db_user}
+    Database: ${local.db_name}
+    User: ${local.db_user}
     Secret: ${google_secret_manager_secret.database_url.name}
     
     To retrieve the DATABASE_URL from Secret Manager:
