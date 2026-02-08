@@ -35,6 +35,7 @@ import {
   getMessages,
   listConversations,
 } from './memory/conversation-store.js';
+import { initializeDb } from './memory/db.js';
 import { formatMarkdown, formatJson } from './export/formatter.js';
 
 function sendOneMessage(
@@ -179,6 +180,7 @@ sessions
   .option('-f, --format <format>', 'Output format: md or json', 'md')
   .option('-o, --output <file>', 'Write to file instead of stdout')
   .action(async (sessionId?: string, opts?: { format: string; output?: string }) => {
+    initializeDb();
     const format = opts?.format ?? 'md';
     if (format !== 'md' && format !== 'json') {
       console.error('Error: format must be "md" or "json"');
@@ -199,7 +201,7 @@ sessions
     // Support prefix matching for session IDs
     let conversation = getConversation(id);
     if (!conversation) {
-      const all = listConversations();
+      const all = listConversations(Number.MAX_SAFE_INTEGER);
       const match = all.find((c) => c.id.startsWith(id!));
       if (match) {
         conversation = match;
