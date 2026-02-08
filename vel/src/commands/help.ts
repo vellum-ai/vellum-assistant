@@ -8,6 +8,7 @@ COMMANDS:
     up        Start the development environment
     down      Stop the development environment
     setup     Set up the development environment
+    shell     Open an interactive shell with database access
     ps        List running services
     help      Show this help message
 
@@ -15,6 +16,7 @@ EXAMPLES:
     vel up      # Start all services
     vel down    # Stop all services
     vel setup   # Run initial setup
+    vel shell   # Open interactive database shell
     vel ps      # Check running services
 
 For more information, visit: https://github.com/vellum-ai/vellum-assistant`);

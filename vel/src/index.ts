@@ -1,17 +1,19 @@
 #!/usr/bin/env node
 
-import { up } from './commands/up.js';
 import { down } from './commands/down.js';
-import { setup } from './commands/setup.js';
-import { ps } from './commands/ps.js';
 import { help } from './commands/help.js';
+import { ps } from './commands/ps.js';
+import { setup } from './commands/setup.js';
+import { shell } from './commands/shell.js';
+import { up } from './commands/up.js';
 
 const commands = {
-  up,
   down,
-  setup,
-  ps,
   help,
+  ps,
+  setup,
+  shell,
+  up,
 } as const;
 
 type CommandName = keyof typeof commands;
