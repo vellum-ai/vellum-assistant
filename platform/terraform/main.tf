@@ -24,9 +24,8 @@ terraform {
 }
 
 provider "google" {
-  project                     = var.project_id
-  region                      = var.region
-  impersonate_service_account = "github-actions@vellum-ai-prod.iam.gserviceaccount.com"
+  project = var.project_id
+  region  = var.region
 }
 
 # GKE Cluster
