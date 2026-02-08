@@ -33,6 +33,20 @@ export type NewUser = typeof schema.users.$inferInsert;
 export type ApiKey = typeof schema.apiKeys.$inferSelect;
 export type NewApiKey = typeof schema.apiKeys.$inferInsert;
 
+// API input types
+export type CreateAgentInput = {
+  name?: string;
+  description?: string;
+  configuration?: Record<string, unknown>;
+  agent_type?: string;
+};
+
+export type UpdateAgentInput = {
+  name?: string;
+  description?: string;
+  configuration?: Record<string, unknown>;
+};
+
 // Agent queries
 export async function getAgents() {
   return db.select().from(schema.agents);

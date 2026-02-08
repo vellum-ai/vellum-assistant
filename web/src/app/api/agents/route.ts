@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 
-import { Agent, getDb } from "@/lib/db";
+import { Agent, CreateAgentInput, getDb } from "@/lib/db";
 import {
   AgentType,
   createAgentComputeInstance,
