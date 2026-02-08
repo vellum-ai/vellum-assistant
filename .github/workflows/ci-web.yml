@@ -43,6 +43,8 @@ jobs:
 
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: gke-gcloud-auth-plugin
 
       - name: Fetch DATABASE_URL from Secret Manager
         id: secrets
