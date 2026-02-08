@@ -47,10 +47,36 @@ mkdir -p "$SYMLINK_DIR"
 
 # Write wrapper script that runs vel from source via bun
 echo "🔗 Installing vel wrapper script..."
-cat > "$SYMLINK_PATH" << EOF
+cat > "$SYMLINK_PATH" << 'WRAPPER'
 #!/bin/bash
-exec bun run "$VEL_DIR/src/index.ts" "\$@"
-EOF
+
+resolve_bun() {
+  if command -v bun &> /dev/null; then
+    command -v bun
+    return
+  fi
+
+  local bun_path="$HOME/.bun/bin/bun"
+  if [ -x "$bun_path" ]; then
+    echo "$bun_path"
+    return
+  fi
+
+  return 1
+}
+
+BUN_BIN=$(resolve_bun) || {
+  echo "error: bun is not installed" >&2
+  echo "" >&2
+  echo "  Install it with:  curl -fsSL https://bun.sh/install | bash" >&2
+  echo "" >&2
+  echo "  Then re-run:  vel $*" >&2
+  exit 1
+}
+
+WRAPPER
+# Append the exec line with the resolved VEL_DIR path baked in
+echo "exec \"\$BUN_BIN\" run \"$VEL_DIR/src/index.ts\" \"\$@\"" >> "$SYMLINK_PATH"
 chmod +x "$SYMLINK_PATH"
 echo "✅ vel installed"
 
