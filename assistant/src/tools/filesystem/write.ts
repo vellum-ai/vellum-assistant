@@ -54,15 +54,16 @@ class FileWriteTool implements Tool {
 
       // Capture old content for diff (if file exists)
       let oldContent: string | null = null;
-      if (existsSync(filePath)) {
-        try { oldContent = readFileSync(filePath, 'utf-8'); } catch { /* new file */ }
+      const isNewFile = !existsSync(filePath);
+      if (!isNewFile) {
+        try { oldContent = readFileSync(filePath, 'utf-8'); } catch { /* unreadable */ }
       }
 
       writeFileSync(filePath, fileContent);
       return {
         content: `Successfully wrote to ${filePath}`,
         isError: false,
-        diff: { filePath, oldContent: oldContent ?? '', newContent: fileContent },
+        diff: { filePath, oldContent: oldContent ?? '', newContent: fileContent, isNewFile },
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

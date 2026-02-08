@@ -11,6 +11,7 @@ export interface DiffInfo {
   filePath: string;
   oldContent: string;
   newContent: string;
+  isNewFile: boolean;
 }
 
 export interface ToolExecutionResult {

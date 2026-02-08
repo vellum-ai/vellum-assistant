@@ -11,7 +11,7 @@ export type AgentEvent =
   | { type: 'text_delta'; text: string }
   | { type: 'message_complete'; message: Message }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string } }
+  | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean } }
   | { type: 'error'; error: Error };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
@@ -26,14 +26,14 @@ export class AgentLoop {
   private systemPrompt: string;
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
-  private toolExecutor: ((name: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string } }>) | null;
+  private toolExecutor: ((name: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean } }>) | null;
 
   constructor(
     provider: Provider,
     systemPrompt: string,
     config?: Partial<AgentLoopConfig>,
     tools?: ToolDefinition[],
-    toolExecutor?: (name: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string } }>,
+    toolExecutor?: (name: string, input: Record<string, unknown>) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean } }>,
   ) {
     this.provider = provider;
     this.systemPrompt = systemPrompt;

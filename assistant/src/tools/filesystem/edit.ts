@@ -79,7 +79,7 @@ class FileEditTool implements Tool {
         return {
           content: `Successfully replaced ${count} occurrence${count > 1 ? 's' : ''} in ${filePath}`,
           isError: false,
-          diff: { filePath, oldContent: content, newContent: updated },
+          diff: { filePath, oldContent: content, newContent: updated, isNewFile: false },
         };
       }
 
@@ -111,7 +111,7 @@ class FileEditTool implements Tool {
       return {
         content: `Successfully edited ${filePath}${methodNote}`,
         isError: false,
-        diff: { filePath, oldContent: content, newContent: updated },
+        diff: { filePath, oldContent: content, newContent: updated, isNewFile: false },
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

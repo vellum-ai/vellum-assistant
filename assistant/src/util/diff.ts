@@ -56,6 +56,7 @@ interface Hunk {
 }
 
 const CONTEXT_LINES = 3;
+const MAX_DIFF_LINES = 1000;
 
 /**
  * Group diff entries into hunks with surrounding context lines.
@@ -122,6 +123,16 @@ export function formatDiff(oldContent: string, newContent: string, filePath: str
 
   const oldLines = oldContent.split('\n');
   const newLines = newContent.split('\n');
+
+  // Guard against quadratic blowup on large files
+  if (oldLines.length > MAX_DIFF_LINES || newLines.length > MAX_DIFF_LINES) {
+    const removed = oldLines.length;
+    const added = newLines.length;
+    let output = `${DIM}--- a/${filePath}${RESET}\n`;
+    output += `${DIM}+++ b/${filePath}${RESET}\n`;
+    output += `${DIM}[Diff too large to display: ${removed} lines → ${added} lines]${RESET}\n`;
+    return output;
+  }
 
   const entries = computeLineDiff(oldLines, newLines);
   const hunks = buildHunks(entries);
