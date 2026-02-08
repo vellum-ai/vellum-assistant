@@ -121,7 +121,7 @@ export async function getMessageByGcsId(gcsMessageId: string) {
 
 // User queries
 export async function getUserByUsername(username: string) {
-  const result = await db.select().from(schema.usersTable).where(eq(schema.users.username, username));
+  const result = await db.select().from(schema.usersTable).where(eq(schema.usersTable.username, username));
   return result[0] || null;
 }
 
