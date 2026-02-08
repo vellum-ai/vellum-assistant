@@ -264,6 +264,7 @@ export async function startCli(): Promise<void> {
 
   // Ctrl+C: cancel generation if in progress, otherwise detach
   process.on('SIGINT', () => {
+    spinner.stop();
     if (generating) {
       send({ type: 'cancel' });
     } else {
