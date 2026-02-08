@@ -103,6 +103,7 @@ export interface ConfirmationRequest {
   riskLevel: string;
   allowlistOptions: Array<{ label: string; pattern: string }>;
   scopeOptions: Array<{ label: string; scope: string }>;
+  diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
 }
 
 export interface MessageComplete {
