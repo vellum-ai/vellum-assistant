@@ -176,8 +176,20 @@ export async function runDaemon(): Promise<void> {
   log.info({ pid: process.pid }, 'Daemon started');
 
   // Graceful shutdown
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return; // Prevent re-entrant shutdown
+    shuttingDown = true;
     log.info('Shutting down daemon...');
+
+    // Force exit if graceful shutdown takes too long
+    const forceTimer = setTimeout(() => {
+      log.warn('Graceful shutdown timed out, forcing exit');
+      cleanupPidFile();
+      process.exit(1);
+    }, 10_000);
+    forceTimer.unref();
+
     await server.stop();
     cleanupPidFile();
     process.exit(0);

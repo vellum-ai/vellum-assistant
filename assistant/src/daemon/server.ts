@@ -21,6 +21,7 @@ export class DaemonServer {
   private server: net.Server | null = null;
   private sessions = new Map<string, Session>();
   private socketToSession = new Map<net.Socket, string>();
+  private connectedSockets = new Set<net.Socket>();
   private socketPath: string;
   private watchers: FSWatcher[] = [];
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -67,6 +68,20 @@ export class DaemonServer {
 
   async stop(): Promise<void> {
     this.stopFileWatchers();
+
+    // Abort all active sessions so in-flight agent loops wind down
+    for (const session of this.sessions.values()) {
+      session.abort();
+    }
+    this.sessions.clear();
+
+    // Destroy all connected client sockets
+    for (const socket of this.connectedSockets) {
+      socket.destroy();
+    }
+    this.connectedSockets.clear();
+    this.socketToSession.clear();
+
     return new Promise((resolve) => {
       if (this.server) {
         this.server.close(() => {
@@ -146,6 +161,7 @@ export class DaemonServer {
 
   private handleConnection(socket: net.Socket): void {
     log.info('Client connected');
+    this.connectedSockets.add(socket);
     const parser = createMessageParser();
 
     // Send initial session info
@@ -161,6 +177,7 @@ export class DaemonServer {
     });
 
     socket.on('close', () => {
+      this.connectedSockets.delete(socket);
       const sessionId = this.socketToSession.get(socket);
       if (sessionId) {
         const session = this.sessions.get(sessionId);
