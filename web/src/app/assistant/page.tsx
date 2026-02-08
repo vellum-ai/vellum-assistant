@@ -5,10 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import { CreditCardModal } from "@/components/CreditCardModal";
 import { DynamicEditor } from "@/components/DynamicEditor";
+import { HatchingModal } from "@/components/HatchingModal";
 import { Layout } from "@/components/Layout";
 import { useAuth } from "@/lib/auth";
 import { Assistant } from "@/lib/db";
+
+type HatchState = "idle" | "checking_card" | "collecting_card" | "hatching";
 
 export default function AssistantPage() {
   const router = useRouter();
@@ -16,7 +20,8 @@ export default function AssistantPage() {
   const [assistants, setAssistants] = useState<Assistant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isHatching, setIsHatching] = useState(false);
+  const [hatchState, setHatchState] = useState<HatchState>("idle");
+  const [hatchError, setHatchError] = useState<string | null>(null);
 
   const fetchAssistants = useCallback(async () => {
     if (isAuthLoading) {
@@ -46,14 +51,18 @@ export default function AssistantPage() {
     fetchAssistants();
   }, [fetchAssistants]);
 
-  const handleHatchAssistant = async () => {
-    setIsHatching(true);
-    setError(null);
+  const startHatching = useCallback(async () => {
+    if (!username) {
+      return;
+    }
+
+    setHatchState("hatching");
+    setHatchError(null);
+
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (username) {
-        headers["x-username"] = username;
-      }
+      headers["x-username"] = username;
+
       const response = await fetch("/api/assistants", {
         method: "POST",
         headers,
@@ -90,8 +99,8 @@ export default function AssistantPage() {
             if (dataLine?.startsWith("data: ")) {
               const data = JSON.parse(dataLine.slice(6));
               if (eventType === "complete") {
-                // Refresh the page to show the new assistant
                 await fetchAssistants();
+                setHatchState("idle");
                 return;
               } else if (eventType === "error") {
                 throw new Error(data.message);
@@ -100,12 +109,57 @@ export default function AssistantPage() {
           }
         }
       }
+
+      await fetchAssistants();
+      setHatchState("idle");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to hatch assistant");
-    } finally {
-      setIsHatching(false);
+      setHatchError(err instanceof Error ? err.message : "Failed to hatch assistant");
     }
-  };
+  }, [username, fetchAssistants]);
+
+  const handleHatchAssistant = useCallback(async () => {
+    if (!username) {
+      return;
+    }
+
+    setError(null);
+    setHatchState("checking_card");
+
+    try {
+      const response = await fetch(
+        `/api/billing?username=${encodeURIComponent(username)}`
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to check payment method");
+      }
+
+      const data = await response.json();
+
+      if (data.has_payment_method) {
+        startHatching();
+      } else {
+        setHatchState("collecting_card");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to check payment method");
+      setHatchState("idle");
+    }
+  }, [username, startHatching]);
+
+  const handleCardSuccess = useCallback(() => {
+    setHatchState("idle");
+    startHatching();
+  }, [startHatching]);
+
+  const handleCardClose = useCallback(() => {
+    setHatchState("idle");
+  }, []);
+
+  const handleDismissHatchError = useCallback(() => {
+    setHatchError(null);
+    setHatchState("idle");
+  }, []);
 
   // Loading state
   if (isAuthLoading || isLoading) {
@@ -139,13 +193,25 @@ export default function AssistantPage() {
           )}
           <button
             onClick={handleHatchAssistant}
-            disabled={isHatching}
-            className="mt-6 flex items-center gap-2 rounded-lg bg-indigo-600 px-8 py-3 text-base font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+            disabled={hatchState !== "idle"}
+            className="mt-6 flex cursor-pointer items-center gap-2 rounded-lg bg-indigo-600 px-8 py-3 text-base font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
           >
             <Bot className="h-5 w-5" />
-            {isHatching ? "Hatching..." : "Hatch Assistant"}
+            {hatchState === "checking_card" ? "Checking..." : "Hatch Assistant"}
           </button>
         </div>
+
+        {hatchState === "collecting_card" && username && (
+          <CreditCardModal
+            username={username}
+            onSuccess={handleCardSuccess}
+            onClose={handleCardClose}
+          />
+        )}
+
+        {hatchState === "hatching" && (
+          <HatchingModal error={hatchError} onDismissError={handleDismissHatchError} />
+        )}
       </Layout>
     );
   }

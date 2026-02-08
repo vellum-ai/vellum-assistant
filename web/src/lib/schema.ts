@@ -39,6 +39,7 @@ export const users = pgTable(
     passwordHash: varchar("password_hash", { length: 255 }),
     displayName: varchar("display_name", { length: 255 }),
     profilePictureUrl: text("profile_picture_url"),
+    stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
