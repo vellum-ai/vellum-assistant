@@ -1,6 +1,7 @@
 /**
  * Terminal spinner with elapsed time display.
  * Renders to stderr so it doesn't interfere with stdout content.
+ * Silently no-ops when stderr is not a TTY (e.g. redirected to file).
  */
 
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -15,6 +16,7 @@ export class Spinner {
   private active = false;
 
   start(message: string): void {
+    if (!process.stderr.isTTY) return;
     this.stop();
     this.message = message;
     this.startTime = Date.now();
