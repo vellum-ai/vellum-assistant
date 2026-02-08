@@ -1,7 +1,7 @@
 import { pgTable, uuid, varchar, text, jsonb, timestamp, index } from "drizzle-orm/pg-core";
 
-// Agents table
-export const agents = pgTable("agents", {
+// Assistants table (formerly agents)
+export const assistants = pgTable("assistants", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
@@ -16,9 +16,9 @@ export const chatMessages = pgTable(
   "chat_messages",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    agentId: uuid("agent_id")
+    assistantId: uuid("assistant_id")
       .notNull()
-      .references(() => agents.id, { onDelete: "cascade" }),
+      .references(() => assistants.id, { onDelete: "cascade" }),
     role: varchar("role", { length: 20 }).notNull(),
     content: text("content").notNull(),
     status: varchar("status", { length: 20 }).default("sent"),
@@ -26,7 +26,7 @@ export const chatMessages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => [index("idx_chat_messages_agent_id").on(table.agentId)]
+  (table) => [index("idx_chat_messages_assistant_id").on(table.assistantId)]
 );
 
 // Users table

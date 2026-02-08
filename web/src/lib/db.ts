@@ -24,8 +24,8 @@ export function getDb() {
 }
 
 // Re-export schema types
-export type Agent = typeof schema.agents.$inferSelect;
-export type NewAgent = typeof schema.agents.$inferInsert;
+export type Assistant = typeof schema.assistants.$inferSelect;
+export type NewAssistant = typeof schema.assistants.$inferInsert;
 export type ChatMessage = typeof schema.chatMessages.$inferSelect;
 export type NewChatMessage = typeof schema.chatMessages.$inferInsert;
 export type User = typeof schema.users.$inferSelect;
@@ -33,54 +33,69 @@ export type NewUser = typeof schema.users.$inferInsert;
 export type ApiKey = typeof schema.apiKeys.$inferSelect;
 export type NewApiKey = typeof schema.apiKeys.$inferInsert;
 
+// Legacy type aliases for backwards compatibility
+export type Agent = Assistant;
+export type NewAgent = NewAssistant;
+
 // API input types
-export type CreateAgentInput = {
+export type CreateAssistantInput = {
   name?: string;
   description?: string;
   configuration?: Record<string, unknown>;
-  agent_type?: string;
+  assistant_type?: string;
 };
 
-export type UpdateAgentInput = {
+export type UpdateAssistantInput = {
   name?: string;
   description?: string;
   configuration?: Record<string, unknown>;
 };
 
-// Agent queries
-export async function getAgents() {
-  return db.select().from(schema.agents);
+// Legacy type aliases
+export type CreateAgentInput = CreateAssistantInput;
+export type UpdateAgentInput = UpdateAssistantInput;
+
+// Assistant queries
+export async function getAssistants() {
+  return db.select().from(schema.assistants);
 }
 
-export async function getAgentById(id: string) {
-  const result = await db.select().from(schema.agents).where(eq(schema.agents.id, id));
+export async function getAssistantById(id: string) {
+  const result = await db.select().from(schema.assistants).where(eq(schema.assistants.id, id));
   return result[0] || null;
 }
 
-export async function createAgent(data: NewAgent) {
-  const result = await db.insert(schema.agents).values(data).returning();
+export async function createAssistant(data: NewAssistant) {
+  const result = await db.insert(schema.assistants).values(data).returning();
   return result[0];
 }
 
-export async function updateAgent(id: string, data: Partial<NewAgent>) {
+export async function updateAssistant(id: string, data: Partial<NewAssistant>) {
   const result = await db
-    .update(schema.agents)
+    .update(schema.assistants)
     .set({ ...data, updatedAt: new Date() })
-    .where(eq(schema.agents.id, id))
+    .where(eq(schema.assistants.id, id))
     .returning();
   return result[0];
 }
 
-export async function deleteAgent(id: string) {
-  await db.delete(schema.agents).where(eq(schema.agents.id, id));
+export async function deleteAssistant(id: string) {
+  await db.delete(schema.assistants).where(eq(schema.assistants.id, id));
 }
 
+// Legacy function aliases for backwards compatibility
+export const getAgents = getAssistants;
+export const getAgentById = getAssistantById;
+export const createAgent = createAssistant;
+export const updateAgent = updateAssistant;
+export const deleteAgent = deleteAssistant;
+
 // Chat message queries
-export async function getChatMessages(agentId: string) {
+export async function getChatMessages(assistantId: string) {
   return db
     .select()
     .from(schema.chatMessages)
-    .where(eq(schema.chatMessages.agentId, agentId))
+    .where(eq(schema.chatMessages.assistantId, assistantId))
     .orderBy(schema.chatMessages.createdAt);
 }
 
