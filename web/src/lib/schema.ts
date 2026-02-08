@@ -1,15 +1,22 @@
 import { pgTable, uuid, varchar, text, jsonb, timestamp, index } from "drizzle-orm/pg-core";
 
 // Agents table
-export const agents = pgTable("agents", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: varchar("name", { length: 255 }).notNull(),
-  description: text("description"),
-  configuration: jsonb("configuration").default({}),
-  createdBy: varchar("created_by", { length: 255 }),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+export const agents = pgTable(
+  "agents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: varchar("name", { length: 255 }).notNull(),
+    description: text("description"),
+    configuration: jsonb("configuration").default({}),
+    createdBy: varchar("created_by", { length: 255 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("idx_agents_created_by").on(table.createdBy),
+    index("idx_agents_created_at").on(table.createdAt),
+  ]
+);
 
 // Chat messages table
 export const chatMessages = pgTable(
@@ -26,7 +33,11 @@ export const chatMessages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => [index("idx_chat_messages_agent_id").on(table.agentId)]
+  (table) => [
+    index("idx_chat_messages_agent_id").on(table.agentId),
+    index("idx_chat_messages_gcs_message_id").on(table.gcsMessageId),
+    index("idx_chat_messages_agent_created").on(table.agentId, table.createdAt),
+  ]
 );
 
 // Users table
