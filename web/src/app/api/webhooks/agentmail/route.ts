@@ -112,7 +112,7 @@ export async function POST(request: Request) {
       `Forwarded email ${payload.message.message_id} to agent ${agent.id}`
     );
     return NextResponse.json({ status: "ok" });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error processing AgentMail webhook:", error);
     return NextResponse.json(
       { error: "Failed to process webhook" },

@@ -46,7 +46,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       success: true,
       message: `Instance ${computeConfig.instanceName} is starting`,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error starting agent:", error);
     return NextResponse.json(
       { error: "Failed to start agent" },

@@ -78,7 +78,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             }
           }
         }
-      } catch (error) {
+      } catch (error: unknown) {
         console.error("Failed to sync messages from agent outbox:", error);
       }
     }
@@ -110,13 +110,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             recentErrors = errorsData.errors || [];
           }
         }
-      } catch (error) {
+      } catch (error: unknown) {
         console.error("Failed to fetch errors from agent:", error);
       }
     }
 
     return NextResponse.json({ messages: formattedMessages, errors: recentErrors });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error fetching messages:", error);
     return NextResponse.json(
       { error: "Failed to fetch messages" },
@@ -198,7 +198,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       messageId: dbMessage.id,
       message: "Message sent to agent inbox",
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error sending message:", error);
     return NextResponse.json(
       { error: "Failed to send message" },

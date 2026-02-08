@@ -122,7 +122,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         ip: externalIp,
         stats,
       });
-    } catch (fetchError) {
+    } catch (fetchError: unknown) {
       console.log("Health check failed:", fetchError);
       const errorDetail = fetchError instanceof Error ? fetchError.message : "Unknown error";
       return NextResponse.json({
@@ -131,7 +131,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         ip: externalIp,
       });
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error checking agent health:", error);
     return NextResponse.json(
       { error: "Failed to check agent health" },

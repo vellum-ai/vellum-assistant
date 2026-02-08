@@ -75,7 +75,7 @@ export function DetailsTab({ agentId }: DetailsTabProps) {
         agentEmail: agentmailConfig?.inbox_id ?? null,
         stats,
       });
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Failed to fetch agent details:", error);
     } finally {
       setIsLoading(false);

@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
       link: agentLink,
       message: `Agent "${newAgent.name}" created successfully. The user now has ${currentAgentCount + 1}/${MAX_AGENTS_PER_USER} agents.`,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("[Create For User] Error:", error);
     const message = error instanceof Error ? error.message : "Failed to create agent";
     return NextResponse.json(
@@ -274,7 +274,7 @@ export async function GET(request: NextRequest) {
       can_create_more: currentCount < MAX_AGENTS_PER_USER,
       remaining_slots: MAX_AGENTS_PER_USER - currentCount,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("[Create For User] Error:", error);
     return NextResponse.json(
       { error: "Failed to check agent count" },

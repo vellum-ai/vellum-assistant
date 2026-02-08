@@ -62,7 +62,7 @@ async function generateAgentName(): Promise<string> {
     if (content.type === "text") {
       return content.text.trim().replace(/^["']|["']$/g, "");
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Failed to generate agent name:", error);
     throw error;
   }
@@ -75,7 +75,7 @@ export async function GET() {
     const sql = getDb();
     const agents = await sql`SELECT * FROM agents ORDER BY created_at DESC`;
     return NextResponse.json(agents as unknown as Agent[]);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error fetching agents:", error);
     return NextResponse.json(
       { error: "Failed to fetch agents" },
@@ -197,7 +197,7 @@ export async function POST(request: Request) {
         const updatedResult = await sql`SELECT * FROM agents WHERE id = ${agent.id}`;
         controller.enqueue(sseEvent("complete", { agent: updatedResult[0] }));
         controller.close();
-      } catch (error) {
+      } catch (error: unknown) {
         console.error("Error creating agent:", error);
         const errorMessage = error instanceof Error ? error.message : "Failed to create agent";
         controller.enqueue(sseEvent("error", { message: errorMessage }));

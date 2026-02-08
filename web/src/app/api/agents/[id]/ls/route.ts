@@ -72,7 +72,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const files = await fetchFilesFromAgentServer(externalIp, path);
     return NextResponse.json({ files, path });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error listing files:", error);
     return NextResponse.json(
       { error: "Failed to list files" },
