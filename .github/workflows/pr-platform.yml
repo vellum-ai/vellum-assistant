@@ -39,6 +39,56 @@ jobs:
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Debug - Authenticated identity
+        run: gcloud auth list
+
+      - name: Debug - Check WIF token claims
+        run: |
+          echo "=== Current access token info ==="
+          gcloud auth print-access-token | cut -c1-20
+          echo "..."
+          echo ""
+          echo "=== Token introspection ==="
+          TOKEN=$(gcloud auth print-access-token)
+          curl -s "https://oauth2.googleapis.com/tokeninfo?access_token=$TOKEN" | python3 -m json.tool || true
+
+      - name: Debug - Service account IAM policy
+        run: |
+          echo "=== IAM policy on github-actions SA ==="
+          gcloud iam service-accounts get-iam-policy \
+            github-actions@vellum-ai-prod.iam.gserviceaccount.com \
+            --project=vellum-ai-prod \
+            --format=yaml || echo "FAILED: Cannot read IAM policy on the service account"
+
+      - name: Debug - Project-level IAM roles for authenticated identity
+        run: |
+          echo "=== Project IAM bindings mentioning github-actions SA ==="
+          gcloud projects get-iam-policy vellum-ai-prod \
+            --flatten="bindings[].members" \
+            --filter="bindings.members:github-actions@vellum-ai-prod.iam.gserviceaccount.com" \
+            --format="table(bindings.role, bindings.members)" || echo "FAILED: Cannot read project IAM policy"
+
+      - name: Debug - Test impersonation directly
+        run: |
+          echo "=== Attempting to generate access token via impersonation ==="
+          gcloud auth print-access-token \
+            --impersonate-service-account=github-actions@vellum-ai-prod.iam.gserviceaccount.com 2>&1 || true
+
+      - name: Debug - Check container.clusters.get permission
+        run: |
+          echo "=== Testing direct GKE API access ==="
+          gcloud container clusters describe vellum-ai-prod \
+            --region=us-central1 \
+            --project=vellum-ai-prod 2>&1 | head -20 || true
+
+      - name: Debug - Check if SA has container admin role
+        run: |
+          echo "=== All IAM roles for the SA on the project ==="
+          gcloud projects get-iam-policy vellum-ai-prod \
+            --flatten="bindings[].members" \
+            --filter="bindings.members:serviceAccount:github-actions@vellum-ai-prod.iam.gserviceaccount.com" \
+            --format="table(bindings.role)" || echo "FAILED"
+
       - name: Terraform Init
         run: terraform init
 
