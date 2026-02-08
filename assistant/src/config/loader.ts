@@ -97,6 +97,16 @@ function validateConfig(config: AssistantConfig): void {
       }
     }
   }
+
+  for (const field of ['shellDefaultTimeoutSec', 'shellMaxTimeoutSec', 'permissionTimeoutSec'] as const) {
+    const val = config.timeouts[field];
+    if (typeof val !== 'number' || !Number.isFinite(val) || val <= 0) {
+      log.error(
+        `Invalid timeouts.${field} "${val}". Must be a positive number. Falling back to ${DEFAULT_CONFIG.timeouts[field]}.`,
+      );
+      config.timeouts[field] = DEFAULT_CONFIG.timeouts[field];
+    }
+  }
 }
 
 export function saveConfig(config: AssistantConfig): void {
