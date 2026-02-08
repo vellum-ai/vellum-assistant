@@ -5,6 +5,8 @@ export interface ToolContext {
   workingDir: string;
   sessionId: string;
   conversationId: string;
+  /** Optional callback for streaming incremental output to the client. */
+  onOutput?: (chunk: string) => void;
 }
 
 export interface DiffInfo {

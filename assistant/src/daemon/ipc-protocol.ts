@@ -87,6 +87,11 @@ export interface ToolUseStart {
   input: Record<string, unknown>;
 }
 
+export interface ToolOutputChunk {
+  type: 'tool_output_chunk';
+  chunk: string;
+}
+
 export interface ToolResult {
   type: 'tool_result';
   toolName: string;
@@ -171,6 +176,7 @@ export interface UsageResponse {
 export type ServerMessage =
   | AssistantTextDelta
   | ToolUseStart
+  | ToolOutputChunk
   | ToolResult
   | ConfirmationRequest
   | MessageComplete

@@ -66,11 +66,15 @@ class ShellTool implements Tool {
       }, TIMEOUT_MS);
 
       child.stdout.on('data', (data: Buffer) => {
-        stdout += data.toString();
+        const chunk = data.toString();
+        stdout += chunk;
+        context.onOutput?.(chunk);
       });
 
       child.stderr.on('data', (data: Buffer) => {
-        stderr += data.toString();
+        const chunk = data.toString();
+        stderr += chunk;
+        context.onOutput?.(chunk);
       });
 
       child.on('close', (code) => {
