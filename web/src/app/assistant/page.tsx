@@ -24,7 +24,7 @@ export default function AssistantPage() {
     }
     
     if (!isLoggedIn) {
-      router.push("/");
+      router.push("/login");
       return;
     }
 
