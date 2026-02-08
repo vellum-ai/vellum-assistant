@@ -41,7 +41,7 @@ export async function up(): Promise<void> {
     console.log('   Web server will run on http://localhost:3000');
     console.log('   Press Ctrl+C to stop\n');
 
-    const webDev = spawn('npm', ['run', 'dev'], {
+    const webDev = spawn('bun', ['run', 'dev'], {
       cwd: webDir,
       stdio: 'inherit',
       shell: true,
