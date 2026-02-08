@@ -42,7 +42,9 @@ export class DaemonServer {
         reject(err);
       });
 
+      const oldUmask = process.umask(0o177);
       this.server.listen(this.socketPath, () => {
+        process.umask(oldUmask);
         chmodSync(this.socketPath, 0o600);
         log.info({ socketPath: this.socketPath }, 'Daemon server listening');
         resolve();

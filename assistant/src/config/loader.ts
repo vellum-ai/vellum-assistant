@@ -45,7 +45,9 @@ export function loadConfig(): AssistantConfig {
     apiKeys: { ...DEFAULT_CONFIG.apiKeys, ...fileConfig.apiKeys },
   };
 
-  // Environment variables override config file
+  validateConfig(config);
+
+  // Environment variables override config file (after validation so apiKeys is a valid object)
   if (process.env.ANTHROPIC_API_KEY) {
     config.apiKeys.anthropic = process.env.ANTHROPIC_API_KEY;
   }
@@ -55,8 +57,6 @@ export function loadConfig(): AssistantConfig {
   if (process.env.GEMINI_API_KEY) {
     config.apiKeys.gemini = process.env.GEMINI_API_KEY;
   }
-
-  validateConfig(config);
 
   cached = config;
   return config;
