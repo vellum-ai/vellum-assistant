@@ -178,10 +178,10 @@ export function OnboardingWizard() {
             <h2 className="text-3xl font-bold mb-4">Agent Created Successfully!</h2>
             <p className="text-zinc-600 mb-6">Your agent is ready to help you</p>
             <button 
-              onClick={() => {/* Redirect to agents page */}}
+              onClick={() => {/* Redirect to assistants page */}}
               className="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700"
             >
-              Go to My Agents
+              Go to My Assistants
             </button>
           </div>
         );

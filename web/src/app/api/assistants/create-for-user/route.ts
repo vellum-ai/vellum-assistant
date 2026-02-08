@@ -11,11 +11,11 @@ import {
   getAvailablePrequeuedInstance,
 } from "@/lib/gcp";
 
-const MAX_AGENTS_PER_USER = 3;
+const MAX_ASSISTANTS_PER_USER = 3;
 const APP_URL = process.env.APP_URL || "http://localhost:3000";
 
 /**
- * POST /api/agents/create-for-user
+ * POST /api/assistants/create-for-user
  * 
  * Allows an agent to create a new agent for a user.
  * Requires API key authentication via X-API-Key header.
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
 
     // Verify the API key belongs to a valid agent
     const callingAgentResult = await sql`
-      SELECT * FROM agents 
+      SELECT * FROM assistants 
       WHERE configuration->>'apiKey' = ${apiKey}
       LIMIT 1
     `;
@@ -88,18 +88,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check how many agents this user already has
-    const userAgentsResult = await sql`
-      SELECT COUNT(*) as count FROM agents WHERE created_by = ${user_id}
+    // Check how many assistants this user already has
+    const userAssistantsResult = await sql`
+      SELECT COUNT(*) as count FROM assistants WHERE created_by = ${user_id}
     `;
-    const currentAgentCount = parseInt(userAgentsResult[0].count as string, 10);
+    const currentAssistantCount = parseInt(userAssistantsResult[0].count as string, 10);
 
-    if (currentAgentCount >= MAX_AGENTS_PER_USER) {
+    if (currentAssistantCount >= MAX_ASSISTANTS_PER_USER) {
       return NextResponse.json(
         { 
-          error: `User has reached the maximum limit of ${MAX_AGENTS_PER_USER} agents`,
-          current_count: currentAgentCount,
-          max_allowed: MAX_AGENTS_PER_USER,
+          error: `User has reached the maximum limit of ${MAX_ASSISTANTS_PER_USER} assistants`,
+          current_count: currentAssistantCount,
+          max_allowed: MAX_ASSISTANTS_PER_USER,
         },
         { status: 403 }
       );
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
 
     // Create the agent in the database
     const newAgentResult = await sql`
-      INSERT INTO agents (name, description, configuration, created_by)
+      INSERT INTO assistants (name, description, configuration, created_by)
       VALUES (
         ${agent_name.trim()},
         ${description || null},
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
 
       // Update agent with compute config
       await sql`
-        UPDATE agents
+        UPDATE assistants
         SET configuration = ${JSON.stringify({
           ...(newAgent.configuration as Record<string, unknown> || {}),
           compute: {
@@ -185,7 +185,7 @@ export async function POST(request: NextRequest) {
       
       // Update agent with error status
       await sql`
-        UPDATE agents
+        UPDATE assistants
         SET configuration = ${JSON.stringify({
           ...(newAgent.configuration as Record<string, unknown> || {}),
           provisioningError: provisionError instanceof Error ? provisionError.message : "Provisioning failed",
@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
       `;
     }
 
-    const agentLink = `${APP_URL}/agents/${newAgent.id}`;
+    const agentLink = `${APP_URL}/assistants/${newAgent.id}`;
 
     return NextResponse.json({
       success: true,
@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
         created_at: newAgent.createdAt,
       },
       link: agentLink,
-      message: `Agent "${newAgent.name}" created successfully. The user now has ${currentAgentCount + 1}/${MAX_AGENTS_PER_USER} agents.`,
+      message: `Assistant "${newAgent.name}" created successfully. The user now has ${currentAssistantCount + 1}/${MAX_ASSISTANTS_PER_USER} assistants.`,
     });
   } catch (error: unknown) {
     console.error("[Create For User] Error:", error);
@@ -219,9 +219,9 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET /api/agents/create-for-user?user_id=xxx
+ * GET /api/assistants/create-for-user?user_id=xxx
  * 
- * Check how many agents a user has and if they can create more.
+ * Check how many assistants a user has and if they can create more.
  * Requires API key authentication.
  */
 export async function GET(request: NextRequest) {
@@ -239,7 +239,7 @@ export async function GET(request: NextRequest) {
 
     // Verify the API key belongs to a valid agent
     const callingAgentResult = await sql`
-      SELECT * FROM agents 
+      SELECT * FROM assistants 
       WHERE configuration->>'apiKey' = ${apiKey}
       LIMIT 1
     `;
@@ -261,18 +261,18 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Count user's agents
-    const userAgentsResult = await sql`
-      SELECT COUNT(*) as count FROM agents WHERE created_by = ${userId}
+    // Count user's assistants
+    const userAssistantsResult = await sql`
+      SELECT COUNT(*) as count FROM assistants WHERE created_by = ${userId}
     `;
-    const currentCount = parseInt(userAgentsResult[0].count as string, 10);
+    const currentCount = parseInt(userAssistantsResult[0].count as string, 10);
 
     return NextResponse.json({
       user_id: userId,
-      current_agent_count: currentCount,
-      max_allowed: MAX_AGENTS_PER_USER,
-      can_create_more: currentCount < MAX_AGENTS_PER_USER,
-      remaining_slots: MAX_AGENTS_PER_USER - currentCount,
+      current_assistant_count: currentCount,
+      max_allowed: MAX_ASSISTANTS_PER_USER,
+      can_create_more: currentCount < MAX_ASSISTANTS_PER_USER,
+      remaining_slots: MAX_ASSISTANTS_PER_USER - currentCount,
     });
   } catch (error: unknown) {
     console.error("[Create For User] Error:", error);

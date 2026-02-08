@@ -29,7 +29,7 @@ export default function AssistantPage() {
     }
 
     try {
-      const response = await fetch("/api/agents");
+      const response = await fetch("/api/assistants");
       if (!response.ok) {
         throw new Error("Failed to fetch assistants");
       }
@@ -54,7 +54,7 @@ export default function AssistantPage() {
       if (username) {
         headers["x-username"] = username;
       }
-      const response = await fetch("/api/agents", {
+      const response = await fetch("/api/assistants", {
         method: "POST",
         headers,
         body: JSON.stringify({ agent_type: "simple" }),

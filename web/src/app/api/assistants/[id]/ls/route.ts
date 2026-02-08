@@ -7,13 +7,40 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
+interface FileEntry {
+  name: string;
+  type: "file" | "directory";
+}
+
+async function fetchFilesFromAgentServer(
+  externalIp: string,
+  path: string
+): Promise<FileEntry[]> {
+  const response = await fetch(
+    `http://${externalIp}:8080/ls?path=${encodeURIComponent(path)}`,
+    {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(5000),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Agent returned ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.files as FileEntry[];
+}
+
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: agentId } = await params;
-    const date = request.nextUrl.searchParams.get("date");
+    const searchParams = request.nextUrl.searchParams;
+    const path = searchParams.get("path") || "/opt/vellum-agent";
 
     const sql = getDb();
-    const result = await sql`SELECT * FROM agents WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
 
     if (result.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
@@ -43,28 +70,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const url = date
-      ? `http://${externalIp}:8080/logs?date=${encodeURIComponent(date)}`
-      : `http://${externalIp}:8080/logs`;
-
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(5000),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      return NextResponse.json(
-        { error: errorData.error || "Failed to fetch logs" },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-    return NextResponse.json(data);
+    const files = await fetchFilesFromAgentServer(externalIp, path);
+    return NextResponse.json({ files, path });
   } catch (error: unknown) {
-    console.error("Error fetching logs:", error);
+    console.error("Error listing files:", error);
     return NextResponse.json(
-      { error: "Failed to fetch logs" },
+      { error: "Failed to list files" },
       { status: 500 }
     );
   }

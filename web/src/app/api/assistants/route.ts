@@ -73,12 +73,12 @@ async function generateAgentName(): Promise<string> {
 export async function GET() {
   try {
     const sql = getDb();
-    const agents = await sql`SELECT * FROM agents ORDER BY created_at DESC`;
-    return NextResponse.json(agents as unknown as Agent[]);
+    const assistants = await sql`SELECT * FROM assistants ORDER BY created_at DESC`;
+    return NextResponse.json(assistants as unknown as Agent[]);
   } catch (error: unknown) {
-    console.error("Error fetching agents:", error);
+    console.error("Error fetching assistants:", error);
     return NextResponse.json(
-      { error: "Failed to fetch agents" },
+      { error: "Failed to fetch assistants" },
       { status: 500 }
     );
   }
@@ -117,7 +117,7 @@ export async function POST(request: Request) {
 
         controller.enqueue(sseEvent("progress", { step: "database", message: "Creating agent record..." }));
         const result = await sql`
-          INSERT INTO agents (name, description, configuration, created_by)
+          INSERT INTO assistants (name, description, configuration, created_by)
           VALUES (${body.name}, ${body.description || null}, ${JSON.stringify(initialConfig)}, ${createdBy})
           RETURNING *
         `;
@@ -170,7 +170,7 @@ export async function POST(request: Request) {
           }
 
           await sql`
-            UPDATE agents
+            UPDATE assistants
             SET configuration = ${JSON.stringify({
               ...(agent.configuration as Record<string, unknown> || {}),
               gcs: { bucket, prefix },
@@ -182,7 +182,7 @@ export async function POST(request: Request) {
           console.error("GCP operations failed (continuing anyway):", gcpError);
           const errorMessage = gcpError instanceof Error ? gcpError.message : "Unknown GCP error";
           await sql`
-            UPDATE agents
+            UPDATE assistants
             SET configuration = ${JSON.stringify({
               ...(agent.configuration as Record<string, unknown> || {}),
               provisioningError: errorMessage,
@@ -191,10 +191,10 @@ export async function POST(request: Request) {
           `;
         }
 
-        // Note: Email setup is now delayed - agent can call POST /api/agents/{id}/setup-email
+        // Note: Email setup is now delayed - agent can call POST /api/assistants/{id}/setup-email
         // when it's ready to set up its own email inbox
 
-        const updatedResult = await sql`SELECT * FROM agents WHERE id = ${agent.id}`;
+        const updatedResult = await sql`SELECT * FROM assistants WHERE id = ${agent.id}`;
         controller.enqueue(sseEvent("complete", { agent: updatedResult[0] }));
         controller.close();
       } catch (error: unknown) {

@@ -36,7 +36,7 @@ export function FocusView() {
           headers['x-username'] = username;
         }
 
-        const response = await fetch('/api/agents', {
+        const response = await fetch('/api/assistants', {
           method: 'POST',
           headers,
           body: JSON.stringify({ agent_type: 'simple' }),
@@ -118,9 +118,9 @@ export function FocusView() {
 
         // Navigate to the new agent
         if (agentId) {
-          router.push(`/agents/${agentId}`);
+          router.push(`/assistants/${agentId}`);
         } else {
-          router.push('/agents');
+          router.push('/assistants');
         }
 
       } catch (err) {
@@ -162,7 +162,7 @@ export function FocusView() {
             <p className="font-medium">Something went wrong</p>
             <p className="text-sm text-white/80 mt-1">{error}</p>
             <button 
-              onClick={() => router.push('/agents')}
+              onClick={() => router.push('/assistants')}
               className="mt-4 px-4 py-2 bg-white/20 rounded-lg text-sm hover:bg-white/30 transition-colors"
             >
               Go to Dashboard

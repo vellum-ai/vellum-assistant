@@ -59,7 +59,7 @@ export const apiKeys = pgTable(
     name: varchar("name", { length: 255 }).notNull(),
     keyPrefix: varchar("key_prefix", { length: 8 }).notNull(),
     keyHash: varchar("key_hash", { length: 255 }).notNull(),
-    scopes: jsonb("scopes").default({ actions: ["read"], entities: ["agents"], agent_ids: ["*"] }),
+    scopes: jsonb("scopes").default({ actions: ["read"], entities: ["assistants"], assistant_ids: ["*"] }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

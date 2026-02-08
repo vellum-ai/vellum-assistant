@@ -18,7 +18,7 @@ const sql = postgres(connectionString);
 export const db = drizzle(sql, { schema });
 
 // Legacy compatibility - returns raw SQL client for template tag queries
-// Usage: const sql = getDb(); await sql`SELECT * FROM agents`;
+// Usage: const sql = getDb(); await sql`SELECT * FROM assistants`;
 export function getDb() {
   return sql;
 }

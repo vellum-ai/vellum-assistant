@@ -45,7 +45,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
 
   const fetchMessages = useCallback(async () => {
     try {
-      const response = await fetch(`/api/agents/${agentId}/messages`);
+      const response = await fetch(`/api/assistants/${agentId}/messages`);
       if (!response.ok) {
         return;
       }
@@ -78,7 +78,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
 
   const checkHealth = useCallback(async () => {
     try {
-      const response = await fetch(`/api/agents/${agentId}/health`);
+      const response = await fetch(`/api/assistants/${agentId}/health`);
       if (!response.ok) {
         setAgentStatus("unknown");
         return;
@@ -127,7 +127,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
   const handleStart = useCallback(async () => {
     setIsToggling(true);
     try {
-      const response = await fetch(`/api/agents/${agentId}/start`, {
+      const response = await fetch(`/api/assistants/${agentId}/start`, {
         method: "POST",
       });
       if (response.ok) {
@@ -144,7 +144,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
   const handleStop = useCallback(async () => {
     setIsToggling(true);
     try {
-      const response = await fetch(`/api/agents/${agentId}/stop`, {
+      const response = await fetch(`/api/assistants/${agentId}/stop`, {
         method: "POST",
       });
       if (response.ok) {
@@ -185,7 +185,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
       setIsLoading(true);
 
       try {
-        const response = await fetch(`/api/agents/${agentId}/messages`, {
+        const response = await fetch(`/api/assistants/${agentId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ content: userMessage.content }),

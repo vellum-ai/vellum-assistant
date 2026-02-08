@@ -87,7 +87,7 @@ function Editor({ agentId, username }: EditorProps) {
 
   const fetchAgent = useCallback(async () => {
     try {
-      const response = await fetch(`/api/agents/${agentId}`);
+      const response = await fetch(`/api/assistants/${agentId}`);
       if (!response.ok) {
         throw new Error("Failed to fetch agent");
       }
@@ -109,7 +109,7 @@ function Editor({ agentId, username }: EditorProps) {
     setIsSaving(true);
     setError(null);
     try {
-      const response = await fetch(`/api/agents/${agentId}`, {
+      const response = await fetch(`/api/assistants/${agentId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
@@ -137,13 +137,13 @@ function Editor({ agentId, username }: EditorProps) {
     setIsKilling(true);
     setError(null);
     try {
-      const response = await fetch(`/api/agents/${agentId}/kill`, {
+      const response = await fetch(`/api/assistants/${agentId}/kill`, {
         method: "POST",
       });
       if (!response.ok) {
         throw new Error("Failed to kill agent");
       }
-      window.location.href = "/agents";
+      window.location.href = "/assistants";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to kill agent");
       setIsKilling(false);
@@ -163,7 +163,7 @@ function Editor({ agentId, username }: EditorProps) {
       <div className="flex flex-1 flex-col items-center justify-center">
         <p className="text-red-600 dark:text-red-400">{error}</p>
         <a
-          href="/agents"
+          href="/assistants"
           className="mt-4 text-indigo-600 hover:underline dark:text-indigo-400"
         >
           Back to Agents
@@ -178,7 +178,7 @@ function Editor({ agentId, username }: EditorProps) {
         <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
             <a
-              href="/agents"
+              href="/assistants"
               className="flex items-center gap-2 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
             >
               &#8592; Back to Agents
@@ -286,7 +286,7 @@ function InteractionView({
 
   const fetchMessages = useCallback(async () => {
     try {
-      const response = await fetch(`/api/agents/${agentId}/messages`);
+      const response = await fetch(`/api/assistants/${agentId}/messages`);
       if (!response.ok) {
         return;
       }
@@ -319,7 +319,7 @@ function InteractionView({
 
   const checkHealth = useCallback(async () => {
     try {
-      const response = await fetch(`/api/agents/${agentId}/health`);
+      const response = await fetch(`/api/assistants/${agentId}/health`);
       if (!response.ok) {
         setAgentStatus("unknown");
         return;
@@ -367,7 +367,7 @@ function InteractionView({
   const handleStart = useCallback(async () => {
     setIsToggling(true);
     try {
-      const response = await fetch(`/api/agents/${agentId}/start`, {
+      const response = await fetch(`/api/assistants/${agentId}/start`, {
         method: "POST",
       });
       if (response.ok) {
@@ -384,7 +384,7 @@ function InteractionView({
   const handleStop = useCallback(async () => {
     setIsToggling(true);
     try {
-      const response = await fetch(`/api/agents/${agentId}/stop`, {
+      const response = await fetch(`/api/assistants/${agentId}/stop`, {
         method: "POST",
       });
       if (response.ok) {
@@ -417,7 +417,7 @@ function InteractionView({
       setIsLoading(true);
 
       try {
-        const response = await fetch(`/api/agents/${agentId}/messages`, {
+        const response = await fetch(`/api/assistants/${agentId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ content: userMessage.content }),
@@ -756,7 +756,7 @@ function FileSystemView({ agentId }: { agentId: string }) {
   const fetchFilesForPath = useCallback(
     async (dirPath: string) => {
       const response = await fetch(
-        `/api/agents/${agentId}/ls?path=${encodeURIComponent(dirPath)}`
+        `/api/assistants/${agentId}/ls?path=${encodeURIComponent(dirPath)}`
       );
       if (!response.ok) {
         throw new Error("Failed to fetch files");
@@ -784,7 +784,7 @@ function FileSystemView({ agentId }: { agentId: string }) {
       setSelectedFile(filePath);
       try {
         const response = await fetch(
-          `/api/agents/${agentId}/cat?path=${encodeURIComponent(filePath)}`
+          `/api/assistants/${agentId}/cat?path=${encodeURIComponent(filePath)}`
         );
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
@@ -1104,7 +1104,7 @@ function LogsView({ agentId }: { agentId: string }) {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/agents/${agentId}/logs`);
+      const response = await fetch(`/api/assistants/${agentId}/logs`);
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || "Failed to fetch logs");
@@ -1127,7 +1127,7 @@ function LogsView({ agentId }: { agentId: string }) {
       setIsLoadingContent(true);
       try {
         const response = await fetch(
-          `/api/agents/${agentId}/logs?date=${encodeURIComponent(date)}`
+          `/api/assistants/${agentId}/logs?date=${encodeURIComponent(date)}`
         );
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
@@ -1234,7 +1234,7 @@ function DetailsView({ agentId }: { agentId: string }) {
 
   const fetchDetails = useCallback(async () => {
     try {
-      const response = await fetch(`/api/agents/${agentId}`);
+      const response = await fetch(`/api/assistants/${agentId}`);
       if (!response.ok) {
         return;
       }
@@ -1251,7 +1251,7 @@ function DetailsView({ agentId }: { agentId: string }) {
       if (computeConfig?.instanceName) {
         try {
           const healthResponse = await fetch(
-            `/api/agents/${agentId}/health`
+            `/api/assistants/${agentId}/health`
           );
           if (healthResponse.ok) {
             const healthData = await healthResponse.json();

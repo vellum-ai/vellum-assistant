@@ -11,7 +11,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const sql = getDb();
     const { id } = await params;
 
-    const result = await sql`SELECT * FROM agents WHERE id = ${id}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${id}`;
 
     if (result.length === 0) {
       return NextResponse.json(
@@ -37,7 +37,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const body: UpdateAgentInput = await request.json();
 
     const result = await sql`
-      UPDATE agents
+      UPDATE assistants
       SET 
         name = COALESCE(${body.name || null}, name),
         description = COALESCE(${body.description || null}, description),
@@ -69,7 +69,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     const sql = getDb();
     const { id } = await params;
 
-    const result = await sql`DELETE FROM agents WHERE id = ${id} RETURNING id`;
+    const result = await sql`DELETE FROM assistants WHERE id = ${id} RETURNING id`;
 
     if (result.length === 0) {
       return NextResponse.json(

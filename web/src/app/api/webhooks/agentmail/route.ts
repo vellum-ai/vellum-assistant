@@ -49,12 +49,12 @@ export async function POST(request: Request) {
 
     const inboxId = payload.message.inbox_id;
     const sql = getDb();
-    const agents = await sql`
-      SELECT * FROM agents
+    const assistants = await sql`
+      SELECT * FROM assistants
       WHERE configuration->'agentmail'->>'inbox_id' = ${inboxId}
     `;
 
-    if (agents.length === 0) {
+    if (assistants.length === 0) {
       console.error(`No agent found for inbox_id: ${inboxId}`);
       return NextResponse.json(
         { error: "No agent found for this inbox" },
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const agent = agents[0] as Agent;
+    const agent = assistants[0] as Agent;
     const computeConfig = (agent.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;

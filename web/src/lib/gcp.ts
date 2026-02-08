@@ -151,7 +151,7 @@ export async function uploadAgentToGCS(
   const bucket = storage.bucket(GCS_BUCKET_NAME);
 
   const files = generateAgentFiles(agentId, agentName, agentType, options);
-  const prefix = `${GCS_PREFIX_BASE}/agents/${agentId}`;
+  const prefix = `${GCS_PREFIX_BASE}/assistants/${agentId}`;
 
   for (const [filename, content] of Object.entries(files)) {
     const file = bucket.file(`${prefix}/${filename}`);
@@ -207,7 +207,7 @@ export async function uploadAgentConfigToGCS(
   // Only process the .env template
   const templateDir = path.join(process.cwd(), "agent-templates", agentType);
   const envTemplatePath = path.join(templateDir, "env.template");
-  const prefix = `${GCS_PREFIX_BASE}/agents/${agentId}`;
+  const prefix = `${GCS_PREFIX_BASE}/assistants/${agentId}`;
   
   if (fs.existsSync(envTemplatePath)) {
     const content = fs.readFileSync(envTemplatePath, "utf-8");

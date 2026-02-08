@@ -9,13 +9,13 @@ export const AVAILABLE_ACTIONS = ["read", "write", "delete", "execute"] as const
 export type ApiKeyAction = (typeof AVAILABLE_ACTIONS)[number];
 
 // Available entities for API key scopes
-export const AVAILABLE_ENTITIES = ["agents", "messages", "files", "settings"] as const;
+export const AVAILABLE_ENTITIES = ["assistants", "messages", "files", "settings"] as const;
 export type ApiKeyEntity = (typeof AVAILABLE_ENTITIES)[number];
 
 export interface ApiKeyScopes {
   actions: ApiKeyAction[];
   entities: ApiKeyEntity[];
-  agent_ids: string[]; // ["*"] for all, or specific agent IDs
+  assistant_ids: string[]; // ["*"] for all, or specific agent IDs
 }
 
 export interface ApiKey {
@@ -117,8 +117,8 @@ export async function POST(request: Request) {
     // Validate and set default scopes
     const finalScopes: ApiKeyScopes = {
       actions: scopes?.actions?.filter((a: string) => AVAILABLE_ACTIONS.includes(a as ApiKeyAction)) || ["read"],
-      entities: scopes?.entities?.filter((e: string) => AVAILABLE_ENTITIES.includes(e as ApiKeyEntity)) || ["agents"],
-      agent_ids: scopes?.agent_ids || ["*"],
+      entities: scopes?.entities?.filter((e: string) => AVAILABLE_ENTITIES.includes(e as ApiKeyEntity)) || ["assistants"],
+      assistant_ids: scopes?.assistant_ids || ["*"],
     };
 
     // Generate the key

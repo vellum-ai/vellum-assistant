@@ -18,7 +18,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const { id } = await params;
     const sql = getDb();
 
-    const result = await sql`SELECT * FROM agents WHERE id = ${id}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${id}`;
     if (result.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
@@ -53,7 +53,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const { id } = await params;
     const sql = getDb();
 
-    const result = await sql`SELECT * FROM agents WHERE id = ${id}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${id}`;
     if (result.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }

@@ -12,7 +12,7 @@ import { useAuth } from "@/lib/auth";
 interface ApiKeyScopes {
   actions: string[];
   entities: string[];
-  agent_ids: string[];
+  assistant_ids: string[];
 }
 
 interface ApiKey {
@@ -35,7 +35,7 @@ interface UserProfile {
 
 // Available scopes for API keys
 const AVAILABLE_ACTIONS = ["read", "write", "delete", "execute"] as const;
-const AVAILABLE_ENTITIES = ["agents", "messages", "files", "settings"] as const;
+const AVAILABLE_ENTITIES = ["assistants", "messages", "files", "settings"] as const;
 
 export default function SettingsPage() {
   const { isLoggedIn, isLoading, username } = useAuth();
@@ -54,7 +54,7 @@ export default function SettingsPage() {
   const [showCreateKey, setShowCreateKey] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
   const [newKeyActions, setNewKeyActions] = useState<string[]>(["read"]);
-  const [newKeyEntities, setNewKeyEntities] = useState<string[]>(["agents"]);
+  const [newKeyEntities, setNewKeyEntities] = useState<string[]>(["assistants"]);
   const [newKeyExpiryDays, setNewKeyExpiryDays] = useState<number | null>(null);
   const [creatingKey, setCreatingKey] = useState(false);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
@@ -147,7 +147,7 @@ export default function SettingsPage() {
           scopes: {
             actions: newKeyActions,
             entities: newKeyEntities,
-            agent_ids: ["*"],
+            assistant_ids: ["*"],
           },
           expires_in_days: newKeyExpiryDays,
         }),
@@ -158,7 +158,7 @@ export default function SettingsPage() {
         setShowCreateKey(false);
         setNewKeyName("");
         setNewKeyActions(["read"]);
-        setNewKeyEntities(["agents"]);
+        setNewKeyEntities(["assistants"]);
         setNewKeyExpiryDays(null);
         fetchApiKeys();
       }

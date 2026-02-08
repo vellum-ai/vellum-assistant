@@ -33,7 +33,7 @@ export function FileSystemTab({ agentId }: FileSystemTabProps) {
   const fetchFilesForPath = useCallback(
     async (path: string): Promise<FileEntry[]> => {
       const response = await fetch(
-        `/api/agents/${agentId}/ls?path=${encodeURIComponent(path)}`
+        `/api/assistants/${agentId}/ls?path=${encodeURIComponent(path)}`
       );
       if (!response.ok) {
         throw new Error("Failed to fetch files");

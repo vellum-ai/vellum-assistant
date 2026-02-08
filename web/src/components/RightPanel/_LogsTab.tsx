@@ -19,7 +19,7 @@ export function LogsTab({ agentId }: LogsTabProps) {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/agents/${agentId}/logs`);
+      const response = await fetch(`/api/assistants/${agentId}/logs`);
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || "Failed to fetch logs");
@@ -42,7 +42,7 @@ export function LogsTab({ agentId }: LogsTabProps) {
       setIsLoadingContent(true);
       try {
         const response = await fetch(
-          `/api/agents/${agentId}/logs?date=${encodeURIComponent(date)}`
+          `/api/assistants/${agentId}/logs?date=${encodeURIComponent(date)}`
         );
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));

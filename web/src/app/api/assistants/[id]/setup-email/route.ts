@@ -4,7 +4,7 @@ import { createAgentMailInbox, registerAgentMailWebhook } from "@/lib/agentmail"
 import { Agent, getDb } from "@/lib/db";
 
 /**
- * POST /api/agents/[id]/setup-email
+ * POST /api/assistants/[id]/setup-email
  * 
  * Allows an agent to set up its own email inbox.
  * Requires API key authentication via X-API-Key header.
@@ -27,7 +27,7 @@ export async function POST(
     const sql = getDb();
 
     // Fetch agent and verify API key
-    const result = await sql`SELECT * FROM agents WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
     if (result.length === 0) {
       return NextResponse.json(
         { error: "Agent not found" },
@@ -67,7 +67,7 @@ export async function POST(
 
     // Update agent configuration
     await sql`
-      UPDATE agents
+      UPDATE assistants
       SET configuration = ${JSON.stringify({
         ...(agent.configuration as Record<string, unknown> || {}),
         agentmail: agentmailConfig,
@@ -93,7 +93,7 @@ export async function POST(
 }
 
 /**
- * GET /api/agents/[id]/setup-email
+ * GET /api/assistants/[id]/setup-email
  * 
  * Check email setup status for an agent.
  * Requires API key authentication.
@@ -115,7 +115,7 @@ export async function GET(
   try {
     const sql = getDb();
 
-    const result = await sql`SELECT * FROM agents WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
     if (result.length === 0) {
       return NextResponse.json(
         { error: "Agent not found" },

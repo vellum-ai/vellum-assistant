@@ -38,7 +38,7 @@ export function DynamicEditor({
 
     async function fetchEditor() {
       try {
-        const response = await fetch(`/api/agents/${agentId}/editor`);
+        const response = await fetch(`/api/assistants/${agentId}/editor`);
         if (!response.ok) {
           throw new Error("Failed to fetch editor page");
         }

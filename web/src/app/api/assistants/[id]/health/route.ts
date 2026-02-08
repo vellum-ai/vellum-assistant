@@ -12,7 +12,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const { id: agentId } = await params;
 
     const sql = getDb();
-    const result = await sql`SELECT * FROM agents WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
 
     if (result.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });

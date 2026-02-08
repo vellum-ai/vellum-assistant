@@ -36,7 +36,7 @@ export function DetailsTab({ agentId }: DetailsTabProps) {
 
   const fetchDetails = useCallback(async () => {
     try {
-      const response = await fetch(`/api/agents/${agentId}`);
+      const response = await fetch(`/api/assistants/${agentId}`);
       if (!response.ok) {
         return;
       }
@@ -52,7 +52,7 @@ export function DetailsTab({ agentId }: DetailsTabProps) {
       let stats: SystemStats | null = null;
       if (computeConfig?.instanceName) {
         try {
-          const healthResponse = await fetch(`/api/agents/${agentId}/health`);
+          const healthResponse = await fetch(`/api/assistants/${agentId}/health`);
           if (healthResponse.ok) {
             const healthData = await healthResponse.json();
             if (healthData.ip) {

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Agent, getDb } from "@/lib/db";
 
 /**
- * POST /api/agents/[id]/set-avatar
+ * POST /api/assistants/[id]/set-avatar
  * 
  * Allows an agent to set its global avatar.
  * Requires API key authentication via X-API-Key header.
@@ -28,7 +28,7 @@ export async function POST(
     const sql = getDb();
 
     // Fetch agent and verify API key
-    const result = await sql`SELECT * FROM agents WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
     if (result.length === 0) {
       return NextResponse.json(
         { error: "Agent not found" },
@@ -108,7 +108,7 @@ export async function POST(
     };
 
     await sql`
-      UPDATE agents
+      UPDATE assistants
       SET configuration = ${JSON.stringify(newConfig)},
       updated_at = NOW()
       WHERE id = ${agentId}
@@ -133,7 +133,7 @@ export async function POST(
 }
 
 /**
- * GET /api/agents/[id]/set-avatar
+ * GET /api/assistants/[id]/set-avatar
  * 
  * Get the current avatar for an agent.
  * Requires API key authentication.
@@ -155,7 +155,7 @@ export async function GET(
   try {
     const sql = getDb();
 
-    const result = await sql`SELECT * FROM agents WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
     if (result.length === 0) {
       return NextResponse.json(
         { error: "Agent not found" },
@@ -189,7 +189,7 @@ export async function GET(
 }
 
 /**
- * DELETE /api/agents/[id]/set-avatar
+ * DELETE /api/assistants/[id]/set-avatar
  * 
  * Remove the avatar for an agent.
  * Requires API key authentication.
@@ -211,7 +211,7 @@ export async function DELETE(
   try {
     const sql = getDb();
 
-    const result = await sql`SELECT * FROM agents WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
     if (result.length === 0) {
       return NextResponse.json(
         { error: "Agent not found" },
@@ -235,7 +235,7 @@ export async function DELETE(
     const { avatar_url: _, ...newConfig } = currentConfig;
 
     await sql`
-      UPDATE agents
+      UPDATE assistants
       SET configuration = ${JSON.stringify(newConfig)},
       updated_at = NOW()
       WHERE id = ${agentId}
