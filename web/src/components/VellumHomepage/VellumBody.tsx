@@ -3,15 +3,34 @@
 /**
  * VellumBody Component
  *
- * This component renders the body content from vellum.ai homepage.
- * Uses React NavBar component for authentication links instead of HTML.
+ * This component renders the body content from vellum.ai homepage (3589 lines of Webflow HTML).
+ * Currently loads HTML from /public/vellum-homepage.html and injects React NavBar via portal.
  *
- * TODO: Future improvements (can be done incrementally):
- * - Extract hero section into Hero component
- * - Extract product sections into ProductShowcase component
- * - Extract footer into Footer component
- * - Convert inline styles to Tailwind/CSS modules
- * - Replace SVGs with proper React components
+ * CONVERSION STRATEGY: 4-Phase Incremental Approach (see README.md)
+ * 
+ * Phase 1 ✅ COMPLETE:
+ * - NavBar extracted as React component
+ * - Auth link replacement working (/login, /signup)
+ * - Documentation established
+ *
+ * Phase 2 (TODO):
+ * - Extract Hero section
+ * - Extract Logo Marquee
+ * - Extract "Automate" section
+ *
+ * Phase 3 (TODO):
+ * - Extract AgentTabs component
+ * - Extract PromptBox with animations
+ * - Extract video/demo sections
+ *
+ * Phase 4 (TODO):
+ * - Extract Footer
+ * - Remove HTML file
+ * - Optimize bundle size
+ *
+ * Why incremental? The Webflow HTML is complex with many interactions.
+ * Converting everything at once risks breaking functionality. Each phase
+ * can be tested independently before moving to the next.
  */
 
 import { useEffect, useState } from "react";
