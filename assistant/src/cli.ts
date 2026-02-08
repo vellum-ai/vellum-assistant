@@ -200,6 +200,7 @@ export async function startCli(): Promise<void> {
       if (idx >= 0 && idx < sessions.length) {
         if (sessions[idx].id === sessionId) {
           // Already on this session
+          pendingSessionPick = false;
           process.stdout.write(
             `\n  Session: ${sessions[idx].title}\n  Type your message. Ctrl+D to detach.\n\n`,
           );
@@ -219,6 +220,7 @@ export async function startCli(): Promise<void> {
     for (const msg of messages) {
       switch (msg.type) {
         case 'session_info':
+          pendingSessionPick = false;
           sessionId = msg.sessionId;
           process.stdout.write(
             `\n  Session: ${msg.title}\n  Type your message. Ctrl+D to detach.\n\n`,
@@ -299,6 +301,7 @@ export async function startCli(): Promise<void> {
   rl.on('line', (line) => {
     const content = line.trim();
     if (!content) return;
+    if (pendingSessionPick) return;
 
     if (content === '/copy') {
       if (!lastResponse) {
