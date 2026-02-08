@@ -116,6 +116,16 @@ provider "kubernetes" {
   cluster_ca_certificate = base64decode(google_container_cluster.main.master_auth[0].cluster_ca_certificate)
 }
 
+# Artifact Registry for Docker images (gcr.io compatibility)
+resource "google_artifact_registry_repository" "gcr" {
+  location      = "us"
+  repository_id = "gcr.io"
+  format        = "DOCKER"
+  mode          = "STANDARD_REPOSITORY"
+
+  depends_on = [google_project_service.artifactregistry]
+}
+
 # Static IP for Ingress
 resource "google_compute_global_address" "ingress_ip" {
   name = "vellum-assistant-ip"
