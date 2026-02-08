@@ -53,6 +53,9 @@ export interface ProviderResponse {
   stopReason: string;
 }
 
+export type ProviderEvent =
+  | { type: 'text_delta'; text: string };
+
 export interface Provider {
   name: string;
   sendMessage(
@@ -60,5 +63,6 @@ export interface Provider {
     tools?: ToolDefinition[],
     systemPrompt?: string,
     config?: object,
+    onEvent?: (event: ProviderEvent) => void,
   ): Promise<ProviderResponse>;
 }
