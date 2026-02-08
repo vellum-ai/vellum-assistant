@@ -18,7 +18,7 @@ terraform {
 
   backend "gcs" {
     bucket = "vellum-ai-prod-terraform-state"
-    prefix = "vellum-assistant"
+    prefix = "production"
   }
 }
 
