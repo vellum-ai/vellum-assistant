@@ -64,32 +64,32 @@ resource "google_storage_bucket_iam_member" "vellum_assistant_gke_writer" {
   depends_on = [google_container_cluster.main]
 }
 
-# Use existing web service account instead of creating a new one
-data "google_service_account" "web" {
-  account_id = "web"
-  project    = var.project_id
+resource "google_service_account" "web" {
+  account_id   = "web"
+  display_name = "Web Service Account"
+  project      = var.project_id
 }
 
 resource "google_project_iam_member" "web_sa_compute_admin" {
   project = var.project_id
   role    = "roles/compute.admin"
-  member  = "serviceAccount:${data.google_service_account.web.email}"
+  member  = "serviceAccount:${google_service_account.web.email}"
 }
 
 resource "google_project_iam_member" "web_sa_service_account_user" {
   project = var.project_id
   role    = "roles/iam.serviceAccountUser"
-  member  = "serviceAccount:${data.google_service_account.web.email}"
+  member  = "serviceAccount:${google_service_account.web.email}"
 }
 
 resource "google_storage_bucket_iam_member" "web_sa_assistant_bucket" {
   bucket = google_storage_bucket.vellum_assistant.name
   role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${data.google_service_account.web.email}"
+  member = "serviceAccount:${google_service_account.web.email}"
 }
 
 resource "google_storage_bucket_iam_member" "web_sa_editor_templates_bucket" {
   bucket = google_storage_bucket.editor_templates.name
   role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${data.google_service_account.web.email}"
+  member = "serviceAccount:${google_service_account.web.email}"
 }
