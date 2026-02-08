@@ -28,7 +28,28 @@ export function VellumBody() {
         // Extract content between <body and </body>
         const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
         if (bodyMatch && bodyMatch[1]) {
-          setBodyHTML(bodyMatch[1]);
+          let bodyContent = bodyMatch[1];
+          
+          // Replace external auth links with internal routes
+          // Replace login links
+          bodyContent = bodyContent.replace(
+            /href="https:\/\/app\.vellum\.ai"(?![^<]*signup)/g,
+            'href="/login"'
+          );
+          
+          // Replace signup links
+          bodyContent = bodyContent.replace(
+            /href="https:\/\/app\.vellum\.ai\/signup"/g,
+            'href="/signup"'
+          );
+          
+          // Also replace any onboarding/agent-builder/signup URLs
+          bodyContent = bodyContent.replace(
+            /https:\/\/app\.vellum\.ai\/onboarding\/agent-builder\/signup/g,
+            '/signup'
+          );
+          
+          setBodyHTML(bodyContent);
         }
       })
       .catch((err) => {
