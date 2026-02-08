@@ -4,23 +4,48 @@ import postgres from "postgres";
 
 import * as schema from "./schema";
 
-// Database connection
-const connectionString = process.env.DATABASE_URL;
+// Database connection - lazily initialized to avoid build-time errors
+let _sql: ReturnType<typeof postgres> | null = null;
+let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
-if (!connectionString) {
-  throw new Error("DATABASE_URL environment variable is not set");
+function getConnectionString(): string {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL environment variable is not set");
+  }
+  return connectionString;
 }
 
-// Raw SQL client for legacy queries
-const sql = postgres(connectionString);
+function getSql(): ReturnType<typeof postgres> {
+  if (!_sql) {
+    _sql = postgres(getConnectionString());
+  }
+  return _sql;
+}
+
+function getOrCreateDb(): ReturnType<typeof drizzle<typeof schema>> {
+  if (!_db) {
+    _db = drizzle(getSql(), { schema });
+  }
+  return _db;
+}
 
 // Drizzle client for typed queries
-export const db = drizzle(sql, { schema });
+export const db = new Proxy({} as ReturnType<typeof drizzle<typeof schema>>, {
+  get(_target, prop, receiver) {
+    const realDb = getOrCreateDb();
+    const value = Reflect.get(realDb, prop, receiver);
+    if (typeof value === "function") {
+      return value.bind(realDb);
+    }
+    return value;
+  },
+});
 
 // Legacy compatibility - returns raw SQL client for template tag queries
 // Usage: const sql = getDb(); await sql`SELECT * FROM assistants`;
 export function getDb() {
-  return sql;
+  return getSql();
 }
 
 // Re-export schema types
