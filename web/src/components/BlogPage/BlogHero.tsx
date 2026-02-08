@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 const FILTER_CATEGORIES = [
   {
     label: "All",
@@ -125,12 +127,13 @@ function BlogPostCard({ post }: { post: BlogPost }) {
   return (
     <div role="listitem" className="blog_coll_item u-vflex-stretch-top w-dyn-item">
       <div className="blog_coll_wrap">
-        <img
+        <Image
           src={post.image}
           alt=""
-          sizes={post.srcSet ? "100vw" : undefined}
-          srcSet={post.srcSet}
           className="blog_coll_image"
+          width={0}
+          height={0}
+          unoptimized
         />
       </div>
       <div className="blog_coll_body u-vflex-stretch-top">
@@ -140,13 +143,16 @@ function BlogPostCard({ post }: { post: BlogPost }) {
             style={categoryStyle}
           >
             {post.categoryIcon ? (
-              <img src={post.categoryIcon} loading="lazy" alt="" className="blog_coll_icon" />
+              <Image src={post.categoryIcon} loading="lazy" alt="" className="blog_coll_icon" width={0} height={0} unoptimized />
             ) : (
-              <img
+              <Image
                 src="https://cdn.prod.website-files.com/plugins/Basic/assets/placeholder.60f9b1840c.svg"
                 loading="lazy"
                 alt=""
                 className="blog_coll_icon w-dyn-bind-empty"
+                width={0}
+                height={0}
+                unoptimized
               />
             )}
             <div>{post.category}</div>
@@ -193,7 +199,7 @@ export function BlogHero() {
                     {FILTER_CATEGORIES.map((cat) => (
                       <div key={cat.label} role="listitem" className="w-dyn-item">
                         <label className="filters_button u-hflex-center-center w-radio">
-                          <img src={cat.icon} alt="" className="tabs_button_icon is--blog" />
+                          <Image src={cat.icon} alt="" className="tabs_button_icon is--blog" width={0} height={0} unoptimized />
                           <input
                             type="radio"
                             data-name="Radio"
@@ -245,7 +251,7 @@ export function BlogHero() {
             <a href="?a027ee7e_page=2" aria-label="Next Page" className="w-pagination-next pagination_button_next u-hflex-center-center">
               {PAGINATION_ARROW}
             </a>
-            <div aria-label="Page 1 of 36" role="heading" className="w-page-count display-none">
+            <div aria-label="Page 1 of 36" role="heading" aria-level={2} className="w-page-count display-none">
               1 / 36
             </div>
           </div>

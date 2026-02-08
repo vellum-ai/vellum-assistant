@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 export function PricingEnterprise() {
   return (
     <div className="is-enteprise hide">
@@ -8,8 +10,8 @@ Available enterprise features
           </div>
         </div>
         <div className="u-hflex-between-center is-pricing">
-          <img src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/66e9863ee999927f01bd594b_AICPA%7CSOC.avif" loading="lazy" width="60.5" alt="" className="aicpa_log" />
-          <img src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/66e9863efaf7621b2b394a4e_HIPAA.avif" loading="lazy" width="76" alt="" className="hipaa_logo" />
+          <Image src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/66e9863ee999927f01bd594b_AICPA%7CSOC.avif" loading="lazy" width={61} height={0} alt="" className="aicpa_log" unoptimized />
+          <Image src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/66e9863efaf7621b2b394a4e_HIPAA.avif" loading="lazy" width={76} height={0} alt="" className="hipaa_logo" unoptimized />
         </div>
       </div>
       <div>

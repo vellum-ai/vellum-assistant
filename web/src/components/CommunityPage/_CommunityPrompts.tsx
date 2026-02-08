@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 const LINK_ICON = (
@@ -157,13 +158,14 @@ function PromptCard({ item }: { item: CommunityPromptItem }) {
             <div role="list" className="template-integration_list w-dyn-items">
               {item.icons.map((icon) => (
                 <div key={icon.src} role="listitem" className="template-integration_item is-smaller w-dyn-item">
-                  <img
+                  <Image
                     src={icon.src}
                     loading="lazy"
                     alt=""
-                    sizes={icon.srcSet ? "100vw" : undefined}
-                    srcSet={icon.srcSet}
                     className="template-integration_icon is-smaller"
+                    width={0}
+                    height={0}
+                    unoptimized
                   />
                 </div>
               ))}

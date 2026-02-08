@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 
 const DROPDOWN_CHEVRON = (
@@ -217,7 +218,7 @@ export function FullNavBar() {
     <div data-collapse="medium" data-animation="default" data-duration="400" fs-scrolldisable-element="smart-nav" data-easing="ease" data-easing2="ease" role="banner" className="navbar_component new w-nav">
       <div className="navbar2_container">
         <Link href="/" id="w-node-_45f8248c-ee2e-e6a9-2792-1d703651d357-3651d355" className="navbar2_logo-link w-nav-brand">
-          <img loading="lazy" src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6853f41167390a6658f3fd68_Vellum%20Wordmark%20Logo.svg" alt="" className="navbar2_logo" />
+          <Image loading="lazy" src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6853f41167390a6658f3fd68_Vellum%20Wordmark%20Logo.svg" alt="" className="navbar2_logo" width={0} height={0} unoptimized />
         </Link>
         <nav role="navigation" id="w-node-_45f8248c-ee2e-e6a9-2792-1d703651d359-3651d355" className="navbar2_menu is-page-height-tablet w-nav-menu">
           <ul fs-scrolldisable-element="preserve" role="list" className="nav_list u-hflex-between-center list-new new w-list-unstyled">
@@ -251,12 +252,13 @@ export function FullNavBar() {
                           <div role="list" className="blog_coll_list is-nav w-dyn-items">
                             <div role="listitem" className="blog_coll_item u-vflex-stretch-top w-dyn-item">
                               <div className="blog_coll_wrap drak-mode">
-                                <img
+                                <Image
                                   alt=""
                                   src="https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68ba2c3faaba853b23ac913f_case-studies.png"
-                                  sizes="100vw"
-                                  srcSet="https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68ba2c3faaba853b23ac913f_case-studies-p-500.png 500w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68ba2c3faaba853b23ac913f_case-studies-p-800.png 800w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68ba2c3faaba853b23ac913f_case-studies.png 1080w"
                                   className="blog_coll_image"
+                                  width={0}
+                                  height={0}
+                                  unoptimized
                                 />
                               </div>
                               <a aria-label="Go to blog post" href="/blog/coursemojo-case-study" className="u-cover-absolute is-nav w-inline-block"></a>

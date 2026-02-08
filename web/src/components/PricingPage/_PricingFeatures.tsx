@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 export function PricingFeatures() {
   return (
     <div className="u-vflex-stretch-top hide-mobile">
@@ -23,7 +25,7 @@ Business
           </div>
         </div>
         <div className="u-hflex-center-center gap-icon">
-          <img src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/66f5606820b014a0ad4ef503_Enterprise.svg" loading="lazy" alt="" className="pricing_icon is--small" />
+          <Image src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/66f5606820b014a0ad4ef503_Enterprise.svg" loading="lazy" alt="" className="pricing_icon is--small" width={0} height={0} unoptimized />
           <div className="u-text-medium fw-medium mob-hidden">
 Enterprise
           </div>

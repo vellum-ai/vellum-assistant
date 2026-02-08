@@ -27,7 +27,7 @@ export function VellumHead() {
         src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js"
         strategy="afterInteractive"
         onReady={() => {
-          (window as any).WebFont.load({
+          (window as unknown as { WebFont: { load: (config: { google: { families: string[] } }) => void } }).WebFont.load({
             google: {
               families: [
                 "Montserrat:100,100italic,200,200italic,300,300italic,400,400italic,500,500italic,600,600italic,700,700italic,800,800italic,900,900italic",

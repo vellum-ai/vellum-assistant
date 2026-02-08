@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 const ARROW_ICON = (
   <svg xmlns="http://www.w3.org/2000/svg" width="1rem" height="1rem" fill="currentcolor" viewBox="0 0 256 256">
     <path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"></path>
@@ -155,13 +157,16 @@ function TabIcon({ tab }: { tab: TabData }) {
       <div className="agent_icon-main sides">
         {CUSTOM_UI_ICONS.map((icon) => (
           <div key={icon.cls} className={`icon_sides ${icon.cls}`}>
-            <img
+            <Image
               sizes={icon.sizes || "100vw"}
               srcSet={icon.srcSet}
               alt=""
               src={icon.src}
               loading="lazy"
               className="image-cover"
+              width={0}
+              height={0}
+              unoptimized
             />
           </div>
         ))}
@@ -204,13 +209,16 @@ function DesktopTabPane({ tab, isActive }: { tab: TabData; isActive: boolean }) 
       className={`tab_agent-img-pane ${tab.iconClass} w-tab-pane${isActive ? " w--tab-active" : ""}`}
     >
       <div className={`tab_image-main-wrap${tab.imageClass}`}>
-        <img
+        <Image
           sizes={tab.iconClass === "_1" ? "(max-width: 1076px) 100vw, 1076px, 100vw" : "100vw"}
           srcSet={tab.imageSrcSet}
           alt=""
           src={tab.imageSrc}
           loading="lazy"
           className="image-cover fit"
+          width={0}
+          height={0}
+          unoptimized
         />
       </div>
     </div>
@@ -238,13 +246,16 @@ function MobileAccordionItem({ tab, index, isActive }: { tab: TabData; index: nu
       </div>
       <div className="tab_agent-img-pane add-ons_js-accordion-body">
         <div className={`tab_image-main-wrap${MOBILE_IMAGES[index].cls}`}>
-          <img
+          <Image
             sizes="100vw"
             srcSet={MOBILE_IMAGES[index].srcSet}
             alt=""
             src={MOBILE_IMAGES[index].src}
             loading="lazy"
             className="image-cover mobile"
+            width={0}
+            height={0}
+            unoptimized
           />
         </div>
       </div>

@@ -1,13 +1,15 @@
 /**
  * LogoMarquee Component
- * 
+ *
  * Extracted from vellum-homepage.html (Phase 2)
  * - Client logos scrolling section
  * - "Trusted by companies of all sizes" header
  * - Logo marquee with company logos
- * 
+ *
  * All Webflow classes and fs-marquee attributes preserved for animations.
  */
+
+import Image from "next/image";
 
 export function LogoMarquee() {
   // Sample logos - in production this would be dynamic
@@ -45,7 +47,7 @@ export function LogoMarquee() {
                     <div data-fs-marquee-element="list" role="list" className="fs-logo-marquee_list w-dyn-items">
                       {logos.map((logo, index) => (
                         <div key={index} data-fs-marquee-element="item" role="listitem" className="logo_item pill w-dyn-item">
-                          <img loading="lazy" src={logo.src} alt={logo.alt} className="marquee_logo smaller"/>
+                          <Image loading="lazy" src={logo.src} alt={logo.alt} className="marquee_logo smaller" width={0} height={0} unoptimized />
                           {logo.hasCaseStudy ? (
                             <a href={logo.caseStudy} className="case_study-link-logo pill hide-tablet w-inline-block">
                               <div>Case Study</div>

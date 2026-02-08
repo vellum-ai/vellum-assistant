@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 const ARROW_ICON = (
   <svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" className="button_icon">
     <path d="M18.8438 12.375L13.3438 17.875C13.1562 18.0625 12.8125 18.0625 12.625 17.875C12.4375 17.6875 12.4375 17.3438 12.625 17.1562L17.2812 12.5H5.5C5.21875 12.5 5 12.2812 5 12C5 11.75 5.21875 11.5 5.5 11.5H17.2812L12.625 6.875C12.4375 6.6875 12.4375 6.34375 12.625 6.15625C12.8125 5.96875 13.1562 5.96875 13.3438 6.15625L18.8438 11.6562C19.0312 11.8438 19.0312 12.1875 18.8438 12.375Z" fill="currentColor" />
@@ -25,22 +27,28 @@ export function BlogNewsletter() {
         <div className="w-dyn-list">
           <div role="list" className="w-dyn-items">
             <div role="listitem" className="logs_container u-hflex-left-center w-dyn-item">
-              <img
+              <Image
                 src="https://cdn.prod.website-files.com/plugins/Basic/assets/placeholder.60f9b1840c.svg"
                 loading="lazy"
                 alt=""
                 className="logs_image w-dyn-bind-empty"
+                width={0}
+                height={0}
+                unoptimized
               />
               <div className="logs_container_copy u-vflex-stretch-top">
                 <div
                   style={{ backgroundColor: "#ecfdf5", color: "#12b76a" }}
                   className="blog_coll_tag u-hflex-left-center is--green"
                 >
-                  <img
+                  <Image
                     src="https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/66f51fbc4ccaf48d43a691b6_Icon.svg"
                     loading="lazy"
                     alt=""
                     className="blog_coll_icon"
+                    width={0}
+                    height={0}
+                    unoptimized
                   />
                   <div>PRODUCT UPDATES</div>
                 </div>

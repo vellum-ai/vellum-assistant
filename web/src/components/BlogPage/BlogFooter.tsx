@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 const SOCIAL_LINKS = [
@@ -126,11 +127,14 @@ export function BlogFooter() {
             <div className="footer_min-head">
               <div className="footer_vel-head">
                 <Link href="/" className="navbar2_logo-link w-nav-brand">
-                  <img
+                  <Image
                     loading="lazy"
                     src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6853f41167390a6658f3fd68_Vellum%20Wordmark%20Logo.svg"
                     alt=""
                     className="navbar2_logo"
+                    width={0}
+                    height={0}
+                    unoptimized
                   />
                 </Link>
                 <div className="text-lg text-color-foreground font-inter">

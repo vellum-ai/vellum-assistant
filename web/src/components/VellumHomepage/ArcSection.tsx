@@ -1,11 +1,16 @@
+import Image from "next/image";
+
 export function ArcSection() {
   return (
     <div className="section_arc">
-      <img
+      <Image
         src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6948fed1d76b126d9f7a35bb_border%20arc.svg"
         loading="lazy"
         alt=""
         className="image-cover z-index-2 large-bg"
+        width={0}
+        height={0}
+        unoptimized
       />
       <div className="image-cover ab-main w-embed">
         <style dangerouslySetInnerHTML={{__html: `

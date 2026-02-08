@@ -1,15 +1,17 @@
 /**
  * AutomateSection Component
- * 
+ *
  * Extracted from vellum-homepage.html (Phase 2)
  * - "Hey Vellum, automate my" section with dropdown
  * - Tab interface for different automation examples
  * - SEO writing process, Sales meeting prep, Customer activity reports
- * 
+ *
  * All Webflow classes and data-w-id attributes preserved for animations.
  * Note: This is a simplified version for Phase 2. Full interactive tabs
  * and animations will be properly implemented in Phase 3.
  */
+
+import Image from "next/image";
 
 export function AutomateSection() {
   return (
@@ -93,7 +95,7 @@ export function AutomateSection() {
                             <div className="answer_content">
                               <div style={{opacity: 0}} className="author_profile-bubble">
                                 <div className="profile_bubble">
-                                  <img loading="lazy" src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/695d3a4a6aad5db1c35ab4a3_vellum-logo-icon.svg" alt="" className="icon_vellum"/>
+                                  <Image loading="lazy" src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/695d3a4a6aad5db1c35ab4a3_vellum-logo-icon.svg" alt="" className="icon_vellum" width={24} height={24} unoptimized />
                                 </div>
                                 <div>Vellum</div>
                               </div>

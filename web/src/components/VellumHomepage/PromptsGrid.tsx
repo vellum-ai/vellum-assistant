@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 const LINK_ICON = (
   <svg width="100%" height="100%" viewBox="0 0 19 19" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path d="M10.292 3.70833C10.292 3.28776 10.6383 2.91667 11.0837 2.91667H15.042C15.4626 2.91667 15.8337 3.28776 15.8337 3.70833V7.66667C15.8337 8.11198 15.4626 8.45833 15.042 8.45833C14.5967 8.45833 14.2503 8.11198 14.2503 7.66667V5.63802L9.25293 10.6107C8.95605 10.9323 8.43652 10.9323 8.13965 10.6107C7.81803 10.3138 7.81803 9.79427 8.13965 9.4974L13.1123 4.5H11.0837C10.6383 4.5 10.292 4.15365 10.292 3.70833Z" fill="url(#paint0_linear_5046_61039)" />
@@ -137,11 +139,14 @@ function PromptCard({ item }: { item: PromptItem }) {
             <div role="list" className="template-integration_list w-dyn-items">
               {item.icons.map((iconSrc) => (
                 <div key={iconSrc} role="listitem" className="template-integration_item is-smaller w-dyn-item">
-                  <img
+                  <Image
                     src={iconSrc}
                     loading="lazy"
                     alt=""
                     className="template-integration_icon is-smaller"
+                    width={0}
+                    height={0}
+                    unoptimized
                   />
                 </div>
               ))}

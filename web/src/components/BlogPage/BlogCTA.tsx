@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 const QUOTES_ICON = (
   <svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 21 24" fill="none" className="quotes_svg">
     <path d="M0 10.125C0 7.03125 2.48438 4.5 5.625 4.5H6C6.79688 4.5 7.5 5.20312 7.5 6C7.5 6.84375 6.79688 7.5 6 7.5H5.625C4.17188 7.5 3 8.71875 3 10.125V10.5H6C7.64062 10.5 9 11.8594 9 13.5V16.5C9 18.1875 7.64062 19.5 6 19.5H3C1.3125 19.5 0 18.1875 0 16.5V15V13.5V10.125ZM12 10.125C12 7.03125 14.4844 4.5 17.625 4.5H18C18.7969 4.5 19.5 5.20312 19.5 6C19.5 6.84375 18.7969 7.5 18 7.5H17.625C16.1719 7.5 15 8.71875 15 10.125V10.5H18C19.6406 10.5 21 11.8594 21 13.5V16.5C21 18.1875 19.6406 19.5 18 19.5H15C13.3125 19.5 12 18.1875 12 16.5V15V13.5V10.125Z" fill="currentColor" />
@@ -136,7 +138,7 @@ function TestimonialCard({ quote, name, role, logo }: typeof TESTIMONIALS[number
             <div className="author_role">{role}</div>
           </div>
         </div>
-        <img loading="lazy" src={logo} alt="" className="testimonial_card_logo" />
+        <Image loading="lazy" src={logo} alt="" className="testimonial_card_logo" width={0} height={0} unoptimized />
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 export function PricingNavbar() {
@@ -5,7 +6,7 @@ export function PricingNavbar() {
     <div data-collapse="medium" data-animation="default" data-duration="400" data-fs-scrolldisable-element="smart-nav" data-easing="ease" data-easing2="ease" role="banner" className="navbar_component new-light w-nav">
       <div className="navbar2_container">
         <Link href="/" id="w-node-a96c413e-e7e7-0140-ac47-2f6f46975e16-46975e14" className="navbar2_logo-link w-nav-brand">
-          <img loading="lazy" src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6853f41167390a6658f3fd68_Vellum%20Wordmark%20Logo.svg" alt="" className="navbar2_logo is-light" />
+          <Image loading="lazy" src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6853f41167390a6658f3fd68_Vellum%20Wordmark%20Logo.svg" alt="" className="navbar2_logo is-light" width={0} height={0} unoptimized />
         </Link>
         <nav role="navigation" id="w-node-a96c413e-e7e7-0140-ac47-2f6f46975e18-46975e14" className="navbar2_menu is-page-height-tablet w-nav-menu">
           <ul data-fs-scrolldisable-element="preserve" role="list" className="nav_list u-hflex-between-center list-new new w-list-unstyled">
@@ -249,7 +250,7 @@ Use Cases
                           <div role="list" className="blog_coll_list is-nav w-dyn-items">
                             <div role="listitem" className="blog_coll_item u-vflex-stretch-top w-dyn-item">
                               <div className="blog_coll_wrap drak-mode">
-                                <img alt="" src="https://cdn.prod.website-files.com/plugins/Basic/assets/placeholder.60f9b1840c.svg" className="blog_coll_image" />
+                                <Image alt="" src="https://cdn.prod.website-files.com/plugins/Basic/assets/placeholder.60f9b1840c.svg" className="blog_coll_image" width={0} height={0} unoptimized />
                               </div>
                               <a aria-label="Go to blog post" href="/blog/coursemojo-case-study" className="u-cover-absolute is-nav w-inline-block"></a>
                               <div className="blog_tag-wrap">
