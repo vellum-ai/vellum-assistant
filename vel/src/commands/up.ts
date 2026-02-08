@@ -8,7 +8,6 @@ const GS_PROJECT_ID = 'vellum-nonprod';
 
 const SECRET_NAMES = [
   'ANTHROPIC_API_KEY',
-  'BETTER_AUTH_SECRET',
   'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
   'STRIPE_SECRET_KEY',
 ] as const;
@@ -88,6 +87,7 @@ export async function up(): Promise<void> {
         ...secrets,
         DATABASE_URL: process.env.DATABASE_URL || 'postgresql://vellum:password@localhost:5432/vellum',
         APP_URL: process.env.APP_URL || 'http://localhost:3000',
+        BETTER_AUTH_SECRET: 'secret',
         BETTER_AUTH_URL: process.env.BETTER_AUTH_URL || 'http://localhost:3000',
         GS_PROJECT_ID: GS_PROJECT_ID,
         MINIO_ENDPOINT: process.env.MINIO_ENDPOINT || 'http://localhost:9000',
