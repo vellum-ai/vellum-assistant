@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 
 export const conversations = sqliteTable('conversations', {
   id: text('id').primaryKey(),
@@ -7,6 +7,7 @@ export const conversations = sqliteTable('conversations', {
   updatedAt: integer('updated_at').notNull(),
   totalInputTokens: integer('total_input_tokens').notNull().default(0),
   totalOutputTokens: integer('total_output_tokens').notNull().default(0),
+  totalEstimatedCost: real('total_estimated_cost').notNull().default(0),
 });
 
 export const messages = sqliteTable('messages', {

@@ -270,6 +270,7 @@ export async function startCli(): Promise<void> {
         case 'generation_cancelled':
           spinner.stop();
           generating = false;
+          lastUsage = null;
           process.stdout.write('\n[Cancelled]\n\n');
           prompt();
           break;
