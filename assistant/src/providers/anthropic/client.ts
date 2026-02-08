@@ -7,16 +7,7 @@ import type {
   ToolDefinition,
   ContentBlock,
 } from "../types.js";
-
-export class ProviderError extends Error {
-  constructor(
-    message: string,
-    public readonly cause?: unknown,
-  ) {
-    super(message);
-    this.name = "ProviderError";
-  }
-}
+import { ProviderError } from "../../util/errors.js";
 
 export class AnthropicProvider implements Provider {
   public readonly name = "anthropic";
@@ -81,12 +72,13 @@ export class AnthropicProvider implements Provider {
       if (error instanceof Anthropic.APIError) {
         throw new ProviderError(
           `Anthropic API error (${error.status}): ${error.message}`,
-          error,
+          'anthropic',
+          error.status,
         );
       }
       throw new ProviderError(
         `Anthropic request failed: ${error instanceof Error ? error.message : String(error)}`,
-        error,
+        'anthropic',
       );
     }
   }

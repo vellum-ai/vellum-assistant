@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { getLogger } from '../../util/logger.js';
+import { IntegrityError } from '../../util/errors.js';
 import { Parser, Language, type Node as TSNode } from 'web-tree-sitter';
 
 const log = getLogger('shell-parser');
@@ -60,12 +61,12 @@ function verifyWasmChecksum(filePath: string, label: string): void {
   const hash = createHash('sha256').update(data).digest('hex');
   const expected = EXPECTED_CHECKSUMS[label];
   if (!expected) {
-    throw new Error(
+    throw new IntegrityError(
       `No expected checksum registered for ${label}`,
     );
   }
   if (hash !== expected) {
-    throw new Error(
+    throw new IntegrityError(
       `WASM integrity check failed for ${label}: expected ${expected}, got ${hash}`,
     );
   }

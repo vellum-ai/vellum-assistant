@@ -1,4 +1,5 @@
 import type { Provider, ProviderResponse, SendMessageOptions, Message, ToolDefinition } from './types.js';
+import { ProviderError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('retry');
@@ -7,13 +8,9 @@ const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
 
 function isRetryableError(error: unknown): boolean {
-  if (error && typeof error === 'object') {
-    // Check cause for API status codes (e.g. Anthropic.APIError)
-    const cause = (error as { cause?: unknown }).cause;
-    if (cause && typeof cause === 'object' && 'status' in cause) {
-      const status = (cause as { status: number }).status;
-      if (status === 429 || status >= 500) return true;
-    }
+  // Check ProviderError.statusCode for retryable HTTP status codes
+  if (error instanceof ProviderError && error.statusCode !== undefined) {
+    if (error.statusCode === 429 || error.statusCode >= 500) return true;
   }
 
   // Check for network errors
@@ -21,13 +18,6 @@ function isRetryableError(error: unknown): boolean {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'ETIMEDOUT' || code === 'EPIPE') {
       return true;
-    }
-    const cause = (error as { cause?: unknown }).cause;
-    if (cause instanceof Error) {
-      const causeCode = (cause as NodeJS.ErrnoException).code;
-      if (causeCode === 'ECONNRESET' || causeCode === 'ECONNREFUSED' || causeCode === 'ETIMEDOUT' || causeCode === 'EPIPE') {
-        return true;
-      }
     }
   }
 

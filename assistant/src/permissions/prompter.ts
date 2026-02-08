@@ -3,6 +3,7 @@ import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { UserDecision, AllowlistOption, ScopeOption } from './types.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
+import { AssistantError, ErrorCode } from '../util/errors.js';
 
 const log = getLogger('permission-prompter');
 
@@ -76,7 +77,7 @@ export class PermissionPrompter {
   dispose(): void {
     for (const [, pending] of this.pending) {
       clearTimeout(pending.timer);
-      pending.reject(new Error('Prompter disposed'));
+      pending.reject(new AssistantError('Prompter disposed', ErrorCode.INTERNAL_ERROR));
     }
     this.pending.clear();
   }
