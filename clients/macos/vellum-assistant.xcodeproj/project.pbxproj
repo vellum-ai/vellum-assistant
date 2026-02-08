@@ -1,0 +1,594 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0654885DAD8FFD16D639D50F /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09137E88F2AB02DF31D32BD0 /* MenuBarController.swift */; };
+		0BAED176454C59993573CA0A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24486EB2442797096CD3CC38 /* SettingsView.swift */; };
+		1602CEC331C383C46984277A /* AnthropicProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FB2E3A6215CE30550FE5E61 /* AnthropicProvider.swift */; };
+		1DEE9818AE627F372EADF74A /* ActionVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12CA14B79D8E0E84EB07D6E4 /* ActionVerifier.swift */; };
+		24539EB93D0273F1439687A8 /* VellumAssistantApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7288C576664B021EF155B9C /* VellumAssistantApp.swift */; };
+		D2E3F4A5B6C70890ABCDE013 /* VoiceInputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F4A5B6C7D80901ABCDE014 /* VoiceInputManager.swift */; };
+		29E492439AEE36E5F9B7ED8F /* ToolDefinitionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0D9802001C0CCEFD3078EB8 /* ToolDefinitionsTests.swift */; };
+		3CBEF918BC31B5CDA67AB307 /* ToolDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F3A04455B6DC1C1F89CB685 /* ToolDefinitions.swift */; };
+		43B58A748C33955C52226B4B /* AccessibilityTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FE5799AF5C42990EF37C42 /* AccessibilityTree.swift */; };
+		A1B2C3D4E5F60789ABCDE012 /* ChromeAccessibilityHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F7089ABCDE01 /* ChromeAccessibilityHelper.swift */; };
+		4D469EED4BFBA43F6B759AAC /* SessionLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE229BFCE748FF4A968E86B1 /* SessionLogger.swift */; };
+		5099794339FDE050C79700BB /* LogViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C691BD0FDCE6190A60F45F5C /* LogViewer.swift */; };
+		535ADB8BECF9E185F1BD3E19 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF062AE5C6B78D85CEDC7C3B /* Session.swift */; };
+		658A24BC47071CE83C3645B1 /* AccessibilityTreeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD33DCEFE581D93580243939 /* AccessibilityTreeTests.swift */; };
+		6A077380F3286DD96EFD3522 /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A751A31DD82FE6622EA4CD /* PermissionManager.swift */; };
+		6AD6CEEFD8DA3B5E15FB28C6 /* ActionTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93BDB5AED0253CF3298634F3 /* ActionTypes.swift */; };
+		6CB40FE359E8E66B2112DD8F /* ActionVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7699446B63C8A3B7CAC33CC /* ActionVerifierTests.swift */; };
+		7F1E97ABA962B7ECB1511DAE /* ActionInferenceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83CC29E51897B98BDD9F7796 /* ActionInferenceProvider.swift */; };
+		8A677CC74636049BC83014BC /* ScreenCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8713F420A1D6E04F9FD6CC4C /* ScreenCapture.swift */; };
+		A2215F8493C316D8E139D1E6 /* ActionExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE4EE4DD3EA49608F227A7C3 /* ActionExecutor.swift */; };
+		A22ACF7097DF1475D184958A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A85D8A6EFE72B2A9326B16AD /* Assets.xcassets */; };
+		A2B8C0BC3677B95F736E9DF4 /* ConfirmationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0760D7F261720758A5FAC3E /* ConfirmationView.swift */; };
+		B8E68D3E4BAE108BA4DFAD15 /* SessionOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD264E70E6D22EE5E53B20F /* SessionOverlayView.swift */; };
+		C12CF51CE1378D77F77732CB /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC4932108265C798B9FDE108 /* AppDelegate.swift */; };
+		DC3B028DC386EFE1436E30FF /* HotKey in Frameworks */ = {isa = PBXBuildFile; productRef = F6CB2EC7443D3897D22E6D3E /* HotKey */; };
+		E96230E4CB5C96C982458657 /* APIKeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822B891B496900302404DF02 /* APIKeyManager.swift */; };
+		EE8D6587E18994C45CB48652 /* SessionOverlayWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9F692FD82187BA84D6FB66B /* SessionOverlayWindow.swift */; };
+		F29831F8092D9BBB259BAF7C /* TaskInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08ABA40D80D70550AA640AF8 /* TaskInputView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5CD66BFF4368D9E62A34AD60 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BE50E89180C185313A06D25E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9FF83BE615D71B14DBCD81CC;
+			remoteInfo = "vellum-assistant";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		08ABA40D80D70550AA640AF8 /* TaskInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskInputView.swift; sourceTree = "<group>"; };
+		09137E88F2AB02DF31D32BD0 /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
+		12CA14B79D8E0E84EB07D6E4 /* ActionVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionVerifier.swift; sourceTree = "<group>"; };
+		1CB8813503311E10F158679D /* vellum-assistant.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "vellum-assistant.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		24486EB2442797096CD3CC38 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		244CA8647EA7EA0E89AF1577 /* Info-generated.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Info-generated.plist"; sourceTree = "<group>"; };
+		2FB2E3A6215CE30550FE5E61 /* AnthropicProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicProvider.swift; sourceTree = "<group>"; };
+		3F3A04455B6DC1C1F89CB685 /* ToolDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolDefinitions.swift; sourceTree = "<group>"; };
+		4BD264E70E6D22EE5E53B20F /* SessionOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionOverlayView.swift; sourceTree = "<group>"; };
+		56FE5799AF5C42990EF37C42 /* AccessibilityTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTree.swift; sourceTree = "<group>"; };
+		F1A2B3C4D5E6F7089ABCDE01 /* ChromeAccessibilityHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromeAccessibilityHelper.swift; sourceTree = "<group>"; };
+		6679C7528847C8E31C861F34 /* vellum-assistantTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "vellum-assistantTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		822B891B496900302404DF02 /* APIKeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyManager.swift; sourceTree = "<group>"; };
+		83CC29E51897B98BDD9F7796 /* ActionInferenceProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionInferenceProvider.swift; sourceTree = "<group>"; };
+		8713F420A1D6E04F9FD6CC4C /* ScreenCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCapture.swift; sourceTree = "<group>"; };
+		93BDB5AED0253CF3298634F3 /* ActionTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionTypes.swift; sourceTree = "<group>"; };
+		A7288C576664B021EF155B9C /* VellumAssistantApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VellumAssistantApp.swift; sourceTree = "<group>"; };
+		E3F4A5B6C7D80901ABCDE014 /* VoiceInputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceInputManager.swift; sourceTree = "<group>"; };
+		A7699446B63C8A3B7CAC33CC /* ActionVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionVerifierTests.swift; sourceTree = "<group>"; };
+		A85D8A6EFE72B2A9326B16AD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BC4932108265C798B9FDE108 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		BD33DCEFE581D93580243939 /* AccessibilityTreeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTreeTests.swift; sourceTree = "<group>"; };
+		BE4EE4DD3EA49608F227A7C3 /* ActionExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionExecutor.swift; sourceTree = "<group>"; };
+		C0760D7F261720758A5FAC3E /* ConfirmationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmationView.swift; sourceTree = "<group>"; };
+		C691BD0FDCE6190A60F45F5C /* LogViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogViewer.swift; sourceTree = "<group>"; };
+		DF062AE5C6B78D85CEDC7C3B /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
+		E0D9802001C0CCEFD3078EB8 /* ToolDefinitionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolDefinitionsTests.swift; sourceTree = "<group>"; };
+		E4A751A31DD82FE6622EA4CD /* PermissionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionManager.swift; sourceTree = "<group>"; };
+		E9F692FD82187BA84D6FB66B /* SessionOverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionOverlayWindow.swift; sourceTree = "<group>"; };
+		FE229BFCE748FF4A968E86B1 /* SessionLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionLogger.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B774C51CBD21B070C8CDE30C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DC3B028DC386EFE1436E30FF /* HotKey in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		240BE551C8B6D79A8D0A192D /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				C0760D7F261720758A5FAC3E /* ConfirmationView.swift */,
+				09137E88F2AB02DF31D32BD0 /* MenuBarController.swift */,
+				4BD264E70E6D22EE5E53B20F /* SessionOverlayView.swift */,
+				E9F692FD82187BA84D6FB66B /* SessionOverlayWindow.swift */,
+				24486EB2442797096CD3CC38 /* SettingsView.swift */,
+				08ABA40D80D70550AA640AF8 /* TaskInputView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		25DD8E1203E655B696FA8DB4 /* vellum-assistant */ = {
+			isa = PBXGroup;
+			children = (
+				552A2C545E2BF56B3E87BD60 /* App */,
+				77446C593F1B020A68C4E343 /* ComputerUse */,
+				803423BF8679AFBCCA292F91 /* Inference */,
+				380E7F936BBAF30C41F1796A /* Logging */,
+				4AF1F140E0C5F77CB8669CAC /* Resources */,
+				240BE551C8B6D79A8D0A192D /* UI */,
+			);
+			path = "vellum-assistant";
+			sourceTree = "<group>";
+		};
+		380E7F936BBAF30C41F1796A /* Logging */ = {
+			isa = PBXGroup;
+			children = (
+				C691BD0FDCE6190A60F45F5C /* LogViewer.swift */,
+				FE229BFCE748FF4A968E86B1 /* SessionLogger.swift */,
+			);
+			path = Logging;
+			sourceTree = "<group>";
+		};
+		4AF1F140E0C5F77CB8669CAC /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A85D8A6EFE72B2A9326B16AD /* Assets.xcassets */,
+				244CA8647EA7EA0E89AF1577 /* Info-generated.plist */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		552A2C545E2BF56B3E87BD60 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				822B891B496900302404DF02 /* APIKeyManager.swift */,
+				BC4932108265C798B9FDE108 /* AppDelegate.swift */,
+				E4A751A31DD82FE6622EA4CD /* PermissionManager.swift */,
+				A7288C576664B021EF155B9C /* VellumAssistantApp.swift */,
+				E3F4A5B6C7D80901ABCDE014 /* VoiceInputManager.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		6795C8638FF2B8939D24D72C = {
+			isa = PBXGroup;
+			children = (
+				25DD8E1203E655B696FA8DB4 /* vellum-assistant */,
+				833A49EB3959BFC35C57D434 /* vellum-assistantTests */,
+				C05A937512C71620246E7F6C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		77446C593F1B020A68C4E343 /* ComputerUse */ = {
+			isa = PBXGroup;
+			children = (
+				56FE5799AF5C42990EF37C42 /* AccessibilityTree.swift */,
+				BE4EE4DD3EA49608F227A7C3 /* ActionExecutor.swift */,
+				93BDB5AED0253CF3298634F3 /* ActionTypes.swift */,
+				12CA14B79D8E0E84EB07D6E4 /* ActionVerifier.swift */,
+				F1A2B3C4D5E6F7089ABCDE01 /* ChromeAccessibilityHelper.swift */,
+				8713F420A1D6E04F9FD6CC4C /* ScreenCapture.swift */,
+				DF062AE5C6B78D85CEDC7C3B /* Session.swift */,
+			);
+			path = ComputerUse;
+			sourceTree = "<group>";
+		};
+		803423BF8679AFBCCA292F91 /* Inference */ = {
+			isa = PBXGroup;
+			children = (
+				83CC29E51897B98BDD9F7796 /* ActionInferenceProvider.swift */,
+				2FB2E3A6215CE30550FE5E61 /* AnthropicProvider.swift */,
+				3F3A04455B6DC1C1F89CB685 /* ToolDefinitions.swift */,
+			);
+			path = Inference;
+			sourceTree = "<group>";
+		};
+		833A49EB3959BFC35C57D434 /* vellum-assistantTests */ = {
+			isa = PBXGroup;
+			children = (
+				BD33DCEFE581D93580243939 /* AccessibilityTreeTests.swift */,
+				A7699446B63C8A3B7CAC33CC /* ActionVerifierTests.swift */,
+				E0D9802001C0CCEFD3078EB8 /* ToolDefinitionsTests.swift */,
+			);
+			path = "vellum-assistantTests";
+			sourceTree = "<group>";
+		};
+		C05A937512C71620246E7F6C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1CB8813503311E10F158679D /* vellum-assistant.app */,
+				6679C7528847C8E31C861F34 /* vellum-assistantTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		9FF83BE615D71B14DBCD81CC /* vellum-assistant */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B2620C1F6E37478C146F9125 /* Build configuration list for PBXNativeTarget "vellum-assistant" */;
+			buildPhases = (
+				B3367575373617913ADB095D /* Sources */,
+				024317FC269C3FF9C48AEA03 /* Resources */,
+				B774C51CBD21B070C8CDE30C /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "vellum-assistant";
+			packageProductDependencies = (
+				F6CB2EC7443D3897D22E6D3E /* HotKey */,
+			);
+			productName = "vellum-assistant";
+			productReference = 1CB8813503311E10F158679D /* vellum-assistant.app */;
+			productType = "com.apple.product-type.application";
+		};
+		AD220DEA8208F3392A1B4621 /* vellum-assistantTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5B1CC03C37918614F827636E /* Build configuration list for PBXNativeTarget "vellum-assistantTests" */;
+			buildPhases = (
+				13F7CD1EF943A02E087E41B2 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5DFBA98A8FE5F9C49CE86FEF /* PBXTargetDependency */,
+			);
+			name = "vellum-assistantTests";
+			packageProductDependencies = (
+			);
+			productName = "vellum-assistantTests";
+			productReference = 6679C7528847C8E31C861F34 /* vellum-assistantTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		BE50E89180C185313A06D25E /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					9FF83BE615D71B14DBCD81CC = {
+						DevelopmentTeam = 7A7LUB87GP;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 1A5A5233548E6B28FCC62872 /* Build configuration list for PBXProject "vellum-assistant" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 6795C8638FF2B8939D24D72C;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				94BCE7829D5C3A2915BA999F /* XCRemoteSwiftPackageReference "HotKey" */,
+			);
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				9FF83BE615D71B14DBCD81CC /* vellum-assistant */,
+				AD220DEA8208F3392A1B4621 /* vellum-assistantTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		024317FC269C3FF9C48AEA03 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A22ACF7097DF1475D184958A /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		13F7CD1EF943A02E087E41B2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				658A24BC47071CE83C3645B1 /* AccessibilityTreeTests.swift in Sources */,
+				6CB40FE359E8E66B2112DD8F /* ActionVerifierTests.swift in Sources */,
+				29E492439AEE36E5F9B7ED8F /* ToolDefinitionsTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B3367575373617913ADB095D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E96230E4CB5C96C982458657 /* APIKeyManager.swift in Sources */,
+				43B58A748C33955C52226B4B /* AccessibilityTree.swift in Sources */,
+				A2215F8493C316D8E139D1E6 /* ActionExecutor.swift in Sources */,
+				A1B2C3D4E5F60789ABCDE012 /* ChromeAccessibilityHelper.swift in Sources */,
+				7F1E97ABA962B7ECB1511DAE /* ActionInferenceProvider.swift in Sources */,
+				6AD6CEEFD8DA3B5E15FB28C6 /* ActionTypes.swift in Sources */,
+				1DEE9818AE627F372EADF74A /* ActionVerifier.swift in Sources */,
+				1602CEC331C383C46984277A /* AnthropicProvider.swift in Sources */,
+				C12CF51CE1378D77F77732CB /* AppDelegate.swift in Sources */,
+				A2B8C0BC3677B95F736E9DF4 /* ConfirmationView.swift in Sources */,
+				5099794339FDE050C79700BB /* LogViewer.swift in Sources */,
+				0654885DAD8FFD16D639D50F /* MenuBarController.swift in Sources */,
+				6A077380F3286DD96EFD3522 /* PermissionManager.swift in Sources */,
+				8A677CC74636049BC83014BC /* ScreenCapture.swift in Sources */,
+				535ADB8BECF9E185F1BD3E19 /* Session.swift in Sources */,
+				4D469EED4BFBA43F6B759AAC /* SessionLogger.swift in Sources */,
+				B8E68D3E4BAE108BA4DFAD15 /* SessionOverlayView.swift in Sources */,
+				EE8D6587E18994C45CB48652 /* SessionOverlayWindow.swift in Sources */,
+				0BAED176454C59993573CA0A /* SettingsView.swift in Sources */,
+				F29831F8092D9BBB259BAF7C /* TaskInputView.swift in Sources */,
+				3CBEF918BC31B5CDA67AB307 /* ToolDefinitions.swift in Sources */,
+				D2E3F4A5B6C70890ABCDE013 /* VoiceInputManager.swift in Sources */,
+				24539EB93D0273F1439687A8 /* VellumAssistantApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5DFBA98A8FE5F9C49CE86FEF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9FF83BE615D71B14DBCD81CC /* vellum-assistant */;
+			targetProxy = 5CD66BFF4368D9E62A34AD60 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		57FAB8E9E3B2A69D14D3C380 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		9F32996A87F9DD9688540BC0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.vellum.vellum-assistant-tests";
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/vellum-assistant.app/Contents/MacOS/vellum-assistant";
+			};
+			name = Release;
+		};
+		A2D7A9E6E16AF469775E918D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7A7LUB87GP;
+				INFOPLIST_FILE = "vellum-assistant/Resources/Info-generated.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.vellum.vellum-assistant";
+				PRODUCT_NAME = "vellum-assistant";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		ADC23910F1D0C7FE8C417E86 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.vellum.vellum-assistant-tests";
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/vellum-assistant.app/Contents/MacOS/vellum-assistant";
+			};
+			name = Debug;
+		};
+		C1CC177E70FFF5BAE135B483 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7A7LUB87GP;
+				INFOPLIST_FILE = "vellum-assistant/Resources/Info-generated.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.vellum.vellum-assistant";
+				PRODUCT_NAME = "vellum-assistant";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		D353CEA2889A84482962B755 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1A5A5233548E6B28FCC62872 /* Build configuration list for PBXProject "vellum-assistant" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				57FAB8E9E3B2A69D14D3C380 /* Debug */,
+				D353CEA2889A84482962B755 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		5B1CC03C37918614F827636E /* Build configuration list for PBXNativeTarget "vellum-assistantTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ADC23910F1D0C7FE8C417E86 /* Debug */,
+				9F32996A87F9DD9688540BC0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B2620C1F6E37478C146F9125 /* Build configuration list for PBXNativeTarget "vellum-assistant" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A2D7A9E6E16AF469775E918D /* Debug */,
+				C1CC177E70FFF5BAE135B483 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		94BCE7829D5C3A2915BA999F /* XCRemoteSwiftPackageReference "HotKey" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/soffes/HotKey";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.2.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F6CB2EC7443D3897D22E6D3E /* HotKey */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 94BCE7829D5C3A2915BA999F /* XCRemoteSwiftPackageReference "HotKey" */;
+			productName = HotKey;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = BE50E89180C185313A06D25E /* Project object */;
+}

@@ -1,0 +1,51 @@
+name: vellum-assistant
+options:
+  bundleIdPrefix: com.vellum
+  deploymentTarget:
+    macOS: "14.0"
+
+packages:
+  HotKey:
+    url: https://github.com/soffes/HotKey
+    from: "0.2.1"
+
+targets:
+  vellum-assistant:
+    type: application
+    platform: macOS
+    sources:
+      - path: vellum-assistant
+        excludes:
+          - Resources/Info.plist
+    info:
+      path: vellum-assistant/Resources/Info-generated.plist
+      properties:
+        LSUIElement: true
+        NSScreenRecordingUsageDescription: "vellum-assistant needs Screen Recording access to see what's on your screen during computer use tasks."
+        NSMicrophoneUsageDescription: "vellum-assistant needs microphone access to transcribe voice commands."
+        NSSpeechRecognitionUsageDescription: "vellum-assistant uses speech recognition to convert voice commands into tasks."
+        LSApplicationCategoryType: public.app-category.productivity
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vellum.vellum-assistant
+        PRODUCT_NAME: vellum-assistant
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: 7A7LUB87GP
+    dependencies:
+      - package: HotKey
+
+  vellum-assistantTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: vellum-assistantTests
+    dependencies:
+      - target: vellum-assistant
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vellum.vellum-assistant-tests
