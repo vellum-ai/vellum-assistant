@@ -9,11 +9,11 @@ export interface TrustRule {
   tool: string;
   pattern: string;
   scope: string;
-  decision: 'allow';
+  decision: 'allow' | 'deny';
   createdAt: number;
 }
 
-export type UserDecision = 'allow' | 'always_allow' | 'deny';
+export type UserDecision = 'allow' | 'always_allow' | 'deny' | 'always_deny';
 
 export interface PermissionCheckResult {
   decision: 'allow' | 'deny' | 'prompt';

@@ -1,5 +1,5 @@
 import { RiskLevel, type PermissionCheckResult, type AllowlistOption, type ScopeOption } from './types.js';
-import { findMatchingRule } from './trust-store.js';
+import { findMatchingRule, findDenyRule } from './trust-store.js';
 import { parse } from '../tools/terminal/parser.js';
 import { dirname } from 'node:path';
 import { homedir } from 'node:os';
@@ -125,7 +125,18 @@ export async function check(
 ): Promise<PermissionCheckResult> {
   const risk = await classifyRisk(toolName, input);
 
-  // High risk → always prompt, trust rules ignored
+  // Build command string for rule matching
+  const commandStr = toolName === 'shell'
+    ? (input.command as string) ?? ''
+    : `${toolName}:${(input.path as string) ?? (input.file_path as string) ?? ''}`;
+
+  // Deny rules take precedence at ALL risk levels
+  const denyRule = findDenyRule(toolName, commandStr, workingDir);
+  if (denyRule) {
+    return { decision: 'deny', reason: `Blocked by deny rule: ${denyRule.pattern}`, matchedRule: denyRule };
+  }
+
+  // High risk → always prompt, allow rules ignored
   if (risk === RiskLevel.High) {
     return { decision: 'prompt', reason: `High risk: always requires approval` };
   }
@@ -135,11 +146,7 @@ export async function check(
     return { decision: 'allow', reason: 'Low risk: auto-allowed' };
   }
 
-  // Medium risk → check trust rules
-  const commandStr = toolName === 'shell'
-    ? (input.command as string) ?? ''
-    : `${toolName}:${(input.path as string) ?? (input.file_path as string) ?? ''}`;
-
+  // Medium risk → check allow rules
   const matchedRule = findMatchingRule(toolName, commandStr, workingDir);
   if (matchedRule) {
     return { decision: 'allow', reason: `Matched trust rule: ${matchedRule.pattern}`, matchedRule };

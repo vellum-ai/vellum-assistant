@@ -37,7 +37,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { addRule, removeRule, findMatchingRule, getAllRules, clearCache } from '../permissions/trust-store.js';
+import { addRule, removeRule, findMatchingRule, findDenyRule, getAllRules, clearCache } from '../permissions/trust-store.js';
 
 describe('Trust Store', () => {
   beforeEach(() => {
@@ -260,6 +260,68 @@ describe('Trust Store', () => {
       expect(data).toHaveProperty('version', 1);
       expect(data).toHaveProperty('rules');
       expect(Array.isArray(data.rules)).toBe(true);
+    });
+  });
+
+  // ── deny rules ─────────────────────────────────────────────────
+
+  describe('deny rules', () => {
+    test('addRule with deny decision creates a deny rule', () => {
+      const rule = addRule('shell', 'rm -rf *', '/tmp', 'deny');
+      expect(rule.decision).toBe('deny');
+      expect(rule.tool).toBe('shell');
+      expect(rule.pattern).toBe('rm -rf *');
+    });
+
+    test('deny rule persists to disk', () => {
+      addRule('shell', 'rm *', '/tmp', 'deny');
+      clearCache();
+      const rules = getAllRules();
+      expect(rules).toHaveLength(1);
+      expect(rules[0].decision).toBe('deny');
+    });
+
+    test('findDenyRule finds deny rules', () => {
+      addRule('shell', 'rm *', '/tmp', 'deny');
+      const match = findDenyRule('shell', 'rm file.txt', '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.decision).toBe('deny');
+    });
+
+    test('findDenyRule ignores allow rules', () => {
+      addRule('shell', 'rm *', '/tmp', 'allow');
+      const match = findDenyRule('shell', 'rm file.txt', '/tmp');
+      expect(match).toBeNull();
+    });
+
+    test('findMatchingRule ignores deny rules', () => {
+      addRule('shell', 'rm *', '/tmp', 'deny');
+      const match = findMatchingRule('shell', 'rm file.txt', '/tmp');
+      expect(match).toBeNull();
+    });
+
+    test('deny and allow rules coexist', () => {
+      addRule('shell', 'git *', '/tmp', 'allow');
+      addRule('shell', 'git push --force *', '/tmp', 'deny');
+      expect(findMatchingRule('shell', 'git status', '/tmp')).not.toBeNull();
+      expect(findDenyRule('shell', 'git push --force origin', '/tmp')).not.toBeNull();
+    });
+
+    test('deny rule with scope matching', () => {
+      addRule('shell', 'rm *', '/home/user/project', 'deny');
+      expect(findDenyRule('shell', 'rm file.txt', '/home/user/project/sub')).not.toBeNull();
+      expect(findDenyRule('shell', 'rm file.txt', '/home/other')).toBeNull();
+    });
+
+    test('deny rule with everywhere scope', () => {
+      addRule('shell', 'rm -rf *', 'everywhere', 'deny');
+      expect(findDenyRule('shell', 'rm -rf /', '/any/path')).not.toBeNull();
+    });
+
+    test('removeRule works for deny rules', () => {
+      const rule = addRule('shell', 'rm *', '/tmp', 'deny');
+      expect(removeRule(rule.id)).toBe(true);
+      expect(findDenyRule('shell', 'rm file.txt', '/tmp')).toBeNull();
     });
   });
 });

@@ -59,14 +59,14 @@ function getRules(): TrustRule[] {
   return cachedRules;
 }
 
-export function addRule(tool: string, pattern: string, scope: string): TrustRule {
+export function addRule(tool: string, pattern: string, scope: string, decision: 'allow' | 'deny' = 'allow'): TrustRule {
   const rules = getRules();
   const rule: TrustRule = {
     id: uuid(),
     tool,
     pattern,
     scope,
-    decision: 'allow',
+    decision,
     createdAt: Date.now(),
   };
   rules.push(rule);
@@ -87,16 +87,25 @@ export function removeRule(id: string): boolean {
   return true;
 }
 
-export function findMatchingRule(tool: string, command: string, scope: string): TrustRule | null {
+function findRuleByDecision(tool: string, command: string, scope: string, decision: 'allow' | 'deny'): TrustRule | null {
   const rules = getRules();
   for (const rule of rules) {
     if (rule.tool !== tool) continue;
+    if (rule.decision !== decision) continue;
     if (!minimatch(command, rule.pattern)) continue;
     // Scope check: rule scope must be a prefix of the working dir, or 'everywhere'
     if (rule.scope !== 'everywhere' && !scope.startsWith(rule.scope.replace(/\*$/, ''))) continue;
     return rule;
   }
   return null;
+}
+
+export function findMatchingRule(tool: string, command: string, scope: string): TrustRule | null {
+  return findRuleByDecision(tool, command, scope, 'allow');
+}
+
+export function findDenyRule(tool: string, command: string, scope: string): TrustRule | null {
+  return findRuleByDecision(tool, command, scope, 'deny');
 }
 
 export function getAllRules(): TrustRule[] {
