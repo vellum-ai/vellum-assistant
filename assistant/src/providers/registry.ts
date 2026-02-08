@@ -1,5 +1,6 @@
 import type { Provider } from "./types.js";
 import { AnthropicProvider } from "./anthropic/client.js";
+import { RetryProvider } from "./retry.js";
 
 const providers = new Map<string, Provider>();
 
@@ -29,9 +30,8 @@ export interface ProvidersConfig {
 
 export function initializeProviders(config: ProvidersConfig): void {
   if (config.apiKeys.anthropic) {
-    const provider = new AnthropicProvider(
-      config.apiKeys.anthropic,
-      config.model,
+    const provider = new RetryProvider(
+      new AnthropicProvider(config.apiKeys.anthropic, config.model),
     );
     registerProvider("anthropic", provider);
   }
