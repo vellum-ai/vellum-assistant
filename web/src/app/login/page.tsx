@@ -17,7 +17,7 @@ export default function LoginPage() {
     setError('');
     const success = login(username, password);
     if (success) {
-      router.push('/');
+      router.push('/assistant');
     } else {
       setError('Invalid username or password');
     }

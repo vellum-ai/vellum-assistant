@@ -29,7 +29,7 @@ export default function SignupPage() {
 
     const success = signup(username, password);
     if (success) {
-      router.push('/');
+      router.push('/assistant');
     } else {
       setError('Failed to create account');
     }
