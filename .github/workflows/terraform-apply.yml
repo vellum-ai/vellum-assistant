@@ -43,7 +43,7 @@ jobs:
         run: |
           gcloud container clusters get-credentials ${{ vars.GKE_CLUSTER_NAME }} \
             --region ${{ vars.GCP_REGION }} \
-            --project ${{ vars.GCP_PROJECT_ID }}
+            --project vellum-ai-prod
 
       - name: Terraform Init
         run: terraform init
@@ -55,7 +55,6 @@ jobs:
         id: plan
         run: terraform plan -no-color -out=tfplan
         env:
-          TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
           TF_VAR_region: ${{ vars.GCP_REGION }}
           TF_VAR_cluster_name: ${{ vars.GKE_CLUSTER_NAME }}
           TF_VAR_database_url: ${{ secrets.DATABASE_URL }}
@@ -64,7 +63,6 @@ jobs:
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
         env:
-          TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
           TF_VAR_region: ${{ vars.GCP_REGION }}
           TF_VAR_cluster_name: ${{ vars.GKE_CLUSTER_NAME }}
           TF_VAR_database_url: ${{ secrets.DATABASE_URL }}

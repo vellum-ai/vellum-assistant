@@ -125,7 +125,7 @@ export async function createApiKey(data: NewApiKey) {
   return result[0];
 }
 
-export async function deleteApiKey(id: string, userId: string) {
+export async function deleteApiKey(id: string, _userId: string) {
   await db
     .delete(schema.apiKeys)
     .where(eq(schema.apiKeys.id, id));

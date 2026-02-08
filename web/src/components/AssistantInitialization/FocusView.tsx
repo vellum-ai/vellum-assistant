@@ -66,7 +66,7 @@ export function FocusView() {
 
           for (const line of lines) {
             if (line.startsWith('event: ')) {
-              const eventType = line.slice(7);
+              // Event type not needed for now
               continue;
             }
             if (line.startsWith('data: ')) {
@@ -105,7 +105,7 @@ export function FocusView() {
                 if (data.message && data.message.includes('error')) {
                   console.error('Agent creation error:', data.message);
                 }
-              } catch (e) {
+              } catch {
                 // Ignore JSON parse errors for incomplete data
               }
             }

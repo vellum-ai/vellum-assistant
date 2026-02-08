@@ -35,7 +35,7 @@ export function WelcomeScreen() {
           </h1>
           
           <p className="text-zinc-600 dark:text-zinc-400 mb-6">
-            An AI companion that's uniquely yours — intelligent, helpful, and always learning.
+            An AI companion that&apos;s uniquely yours — intelligent, helpful, and always learning.
           </p>
           
           <form onSubmit={handleSubmit} className="space-y-4">

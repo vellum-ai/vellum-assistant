@@ -58,23 +58,23 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t gcr.io/${{ vars.GCP_PROJECT_ID }}/vellum-assistant:${{ github.sha }} .
-          docker tag gcr.io/${{ vars.GCP_PROJECT_ID }}/vellum-assistant:${{ github.sha }} gcr.io/${{ vars.GCP_PROJECT_ID }}/vellum-assistant:latest
+          docker build -t gcr.io/vellum-ai-prod/vellum-assistant:${{ github.sha }} .
+          docker tag gcr.io/vellum-ai-prod/vellum-assistant:${{ github.sha }} gcr.io/vellum-ai-prod/vellum-assistant:latest
 
       - name: Push Docker image
         run: |
-          docker push gcr.io/${{ vars.GCP_PROJECT_ID }}/vellum-assistant:${{ github.sha }}
-          docker push gcr.io/${{ vars.GCP_PROJECT_ID }}/vellum-assistant:latest
+          docker push gcr.io/vellum-ai-prod/vellum-assistant:${{ github.sha }}
+          docker push gcr.io/vellum-ai-prod/vellum-assistant:latest
 
       - name: Get GKE credentials
         run: |
           gcloud container clusters get-credentials ${{ vars.GKE_CLUSTER_NAME }} \
             --region ${{ vars.GCP_REGION }} \
-            --project ${{ vars.GCP_PROJECT_ID }}
+            --project vellum-ai-prod
 
       - name: Deploy to Kubernetes
         run: |
           kubectl set image deployment/vellum-assistant \
-            web=gcr.io/${{ vars.GCP_PROJECT_ID }}/vellum-assistant:${{ github.sha }} \
+            web=gcr.io/vellum-ai-prod/vellum-assistant:${{ github.sha }} \
             -n vellum-assistant
           kubectl rollout status deployment/vellum-assistant -n vellum-assistant

@@ -231,6 +231,7 @@ export async function DELETE(
 
     // Remove avatar from configuration
     const currentConfig = agent.configuration as Record<string, unknown>;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { avatar_url: _, ...newConfig } = currentConfig;
 
     await sql`

@@ -52,7 +52,7 @@ function getStoredAuth(): StoredAuth | null {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [storedAuth, setStoredAuth] = useState<StoredAuth | null>(() => getStoredAuth());
-  const [isLoading, setIsLoading] = useState(false);
+  const isLoading = false; // Auth state is loaded synchronously on mount
   const isLoggedIn = storedAuth?.isLoggedIn ?? false;
   const username = storedAuth?.username ?? null;
 

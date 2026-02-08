@@ -1,6 +1,7 @@
 "use client";
 
 import { Copy, Database, Eye, EyeOff, Key, Loader2, Lock, Plus, Trash2, User } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
@@ -298,9 +299,11 @@ export default function SettingsPage() {
                   <div className="mt-1 flex items-center gap-4">
                     <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800">
                       {profile?.profile_picture_url ? (
-                        <img
+                        <Image
                           src={profile.profile_picture_url}
                           alt="Profile"
+                          width={64}
+                          height={64}
                           className="h-16 w-16 rounded-full object-cover"
                         />
                       ) : (

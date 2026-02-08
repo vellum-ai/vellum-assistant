@@ -31,6 +31,8 @@ interface OnboardingState {
 
 export function OnboardingWizard() {
   const [currentStep, setCurrentStep] = useState<OnboardingStep>('welcome');
+  // State for tracking user selections (to be used for personalization)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [onboardingState, setOnboardingState] = useState<OnboardingState>({
     useCase: null,
     experienceLevel: null,
@@ -58,7 +60,7 @@ export function OnboardingWizard() {
         return (
           <div className="text-center">
             <h2 className="text-3xl font-bold mb-4">Welcome to Velly</h2>
-            <p className="text-zinc-600 mb-6">Let's create your first AI agent together</p>
+            <p className="text-zinc-600 mb-6">Let&apos;s create your first AI agent together</p>
             <button 
               onClick={() => setCurrentStep('use_case')}
               className="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700"
