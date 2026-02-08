@@ -7,6 +7,7 @@ Next.js web application for Vellum Assistant.
 - Node.js 20+
 - npm or bun
 - PostgreSQL database
+- Google Cloud CLI (for local development with GCS)
 
 ## Environment Variables
 
@@ -19,7 +20,12 @@ cp ../.env.example .env.local
 Required variables:
 - `DATABASE_URL` - PostgreSQL connection string
 - `ANTHROPIC_API_KEY` - For AI capabilities
-- `GCP_SA_KEY` - Google Cloud service account (for compute/storage)
+- `GCS_BUCKET_NAME` - Google Cloud Storage bucket name
+
+For local development, authenticate with GCP using:
+```bash
+gcloud auth application-default login
+```
 
 ## Development
 
