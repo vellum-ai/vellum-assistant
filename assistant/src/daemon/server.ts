@@ -73,32 +73,38 @@ export class DaemonServer {
   async stop(): Promise<void> {
     this.stopFileWatchers();
 
-    // Abort all active sessions so in-flight agent loops wind down
-    for (const session of this.sessions.values()) {
-      session.abort();
-    }
-    this.sessions.clear();
-
-    // Destroy all connected client sockets
-    for (const socket of this.connectedSockets) {
-      socket.destroy();
-    }
-    this.connectedSockets.clear();
-    this.socketToSession.clear();
-
-    return new Promise((resolve) => {
+    // 1. Stop accepting new connections first. server.close() prevents new
+    //    connections from arriving, so the cleanup below won't race with
+    //    handleConnection() adding sockets that never get destroyed.
+    //    Its callback fires once all existing connections have ended.
+    const serverClosed = new Promise<void>((resolve) => {
       if (this.server) {
         this.server.close(() => {
           if (existsSync(this.socketPath)) {
             unlinkSync(this.socketPath);
           }
-          log.info('Daemon server stopped');
           resolve();
         });
       } else {
         resolve();
       }
     });
+
+    // 2. Now abort sessions and destroy sockets. This lets server.close()
+    //    finish promptly since all connections will be ended.
+    for (const session of this.sessions.values()) {
+      session.abort();
+    }
+    this.sessions.clear();
+
+    for (const socket of this.connectedSockets) {
+      socket.destroy();
+    }
+    this.connectedSockets.clear();
+    this.socketToSession.clear();
+
+    await serverClosed;
+    log.info('Daemon server stopped');
   }
 
   private startFileWatchers(): void {
