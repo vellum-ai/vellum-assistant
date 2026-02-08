@@ -14,14 +14,14 @@ export function UTMTracker() {
     function S(k: string, o: Record<string, string>) {
       try {
         localStorage.setItem(k, JSON.stringify(o));
-      } catch (e) {
+      } catch {
         // Silently fail if localStorage is unavailable
       }
     }
     function L(k: string): Record<string, string> {
       try {
         return JSON.parse(localStorage.getItem(k) || "{}");
-      } catch (e) {
+      } catch {
         return {};
       }
     }
@@ -68,7 +68,7 @@ export function UTMTracker() {
       let host = "";
       try {
         host = new URL(ref).host.toLowerCase();
-      } catch (e) {
+      } catch {
         // Invalid URL
       }
       const ua = (navigator.userAgent || "").toLowerCase();
@@ -173,7 +173,7 @@ export function UTMTracker() {
     let refHost = "";
     try {
       refHost = new URL(document.referrer).hostname.replace(/^www\./, "");
-    } catch (e) {
+    } catch {
       // Invalid referrer
     }
     const cameFromOutside = !!refHost && refHost !== curHost;
