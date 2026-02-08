@@ -5,7 +5,7 @@ import {
   ReactNode,
   useCallback,
   useContext,
-  useState,
+  useSyncExternalStore,
 } from "react";
 
 interface AuthContextType {
@@ -30,29 +30,54 @@ interface StoredAuth {
   username: string;
 }
 
-function getStoredAuth(): StoredAuth | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
+const authListeners = new Set<() => void>();
+
+function subscribeToAuth(listener: () => void): () => void {
+  authListeners.add(listener);
+  return () => {
+    authListeners.delete(listener);
+  };
+}
+
+function notifyAuthListeners() {
+  authListeners.forEach((listener) => listener());
+}
+
+let cachedStorageValue: string | null | undefined = undefined;
+let cachedSnapshot: StoredAuth | null = null;
+
+function getAuthSnapshot(): StoredAuth | null {
   const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(stored);
-    if (parsed.isLoggedIn && parsed.username) {
-      return parsed as StoredAuth;
+  if (stored !== cachedStorageValue) {
+    cachedStorageValue = stored;
+    if (!stored) {
+      cachedSnapshot = null;
+    } else {
+      try {
+        const parsed = JSON.parse(stored);
+        cachedSnapshot =
+          parsed.isLoggedIn && parsed.username
+            ? (parsed as StoredAuth)
+            : null;
+      } catch {
+        localStorage.removeItem(STORAGE_KEY);
+        cachedSnapshot = null;
+      }
     }
-    return null;
-  } catch {
-    localStorage.removeItem(STORAGE_KEY);
-    return null;
   }
+  return cachedSnapshot;
+}
+
+function getAuthServerSnapshot(): StoredAuth | null {
+  return null;
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  const [storedAuth, setStoredAuth] = useState<StoredAuth | null>(() => getStoredAuth());
-  const isLoading = false; // Auth state is loaded synchronously on mount
+  const storedAuth = useSyncExternalStore(
+    subscribeToAuth,
+    getAuthSnapshot,
+    getAuthServerSnapshot,
+  );
   const isLoggedIn = storedAuth?.isLoggedIn ?? false;
   const username = storedAuth?.username ?? null;
 
@@ -60,7 +85,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (user && password) {
       const auth = { isLoggedIn: true, username: user };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
-      setStoredAuth(auth);
+      cachedStorageValue = undefined;
+      notifyAuthListeners();
       return true;
     }
     return false;
@@ -70,7 +96,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (user && password) {
       const auth = { isLoggedIn: true, username: user };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
-      setStoredAuth(auth);
+      cachedStorageValue = undefined;
+      notifyAuthListeners();
       return true;
     }
     return false;
@@ -78,11 +105,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logout = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
-    setStoredAuth(null);
+    cachedStorageValue = undefined;
+    notifyAuthListeners();
   }, []);
 
   return (
-    <AuthContext.Provider value={{ isLoggedIn, isLoading, username, login, signup, logout }}>
+    <AuthContext.Provider
+      value={{ isLoggedIn, isLoading: false, username, login, signup, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );
