@@ -158,8 +158,7 @@ function TabIcon({ tab }: { tab: TabData }) {
         {CUSTOM_UI_ICONS.map((icon) => (
           <div key={icon.cls} className={`icon_sides ${icon.cls}`}>
             <Image
-              sizes={icon.sizes || "100vw"}
-              srcSet={icon.srcSet}
+
               alt=""
               src={icon.src}
               loading="lazy"
@@ -210,8 +209,6 @@ function DesktopTabPane({ tab, isActive }: { tab: TabData; isActive: boolean }) 
     >
       <div className={`tab_image-main-wrap${tab.imageClass}`}>
         <Image
-          sizes={tab.iconClass === "_1" ? "(max-width: 1076px) 100vw, 1076px, 100vw" : "100vw"}
-          srcSet={tab.imageSrcSet}
           alt=""
           src={tab.imageSrc}
           loading="lazy"
@@ -247,8 +244,6 @@ function MobileAccordionItem({ tab, index, isActive }: { tab: TabData; index: nu
       <div className="tab_agent-img-pane add-ons_js-accordion-body">
         <div className={`tab_image-main-wrap${MOBILE_IMAGES[index].cls}`}>
           <Image
-            sizes="100vw"
-            srcSet={MOBILE_IMAGES[index].srcSet}
             alt=""
             src={MOBILE_IMAGES[index].src}
             loading="lazy"
