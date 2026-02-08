@@ -11,17 +11,19 @@ const connectionString =
 const client = postgres(connectionString);
 const db = drizzle(client, { schema });
 
+const { assistantsTable, chatMessagesTable, usersTable, apiKeysTable } = schema;
+
 console.log("\nVellum Shell");
 console.log("─".repeat(40));
 console.log("Globals:");
-console.log("  db            Drizzle database client");
-console.log("  schema        All schema tables");
-console.log("  users, assistants, chatMessages, apiKeys");
+console.log("  db                 Drizzle database client");
+console.log("  schema             All schema tables");
+console.log("  assistantsTable, chatMessagesTable, usersTable, apiKeysTable");
 console.log("  eq, and, or, not, gt, gte, lt, lte,");
 console.log("  like, ilike, inArray, sql");
 console.log("");
 console.log("Example:");
-console.log("  await db.select().from(users)");
+console.log("  await db.select().from(usersTable)");
 console.log("");
 
 const r = repl.start({
@@ -31,7 +33,10 @@ const r = repl.start({
 Object.assign(r.context, {
   db,
   schema,
-  ...schema,
+  assistantsTable,
+  chatMessagesTable,
+  usersTable,
+  apiKeysTable,
   and,
   eq,
   gt,
@@ -44,6 +49,12 @@ Object.assign(r.context, {
   not,
   or,
   sql,
+});
+
+Object.defineProperty(r.context, "exit", {
+  get() {
+    r.close();
+  },
 });
 
 r.on("exit", async () => {

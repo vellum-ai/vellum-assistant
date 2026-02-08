@@ -1,7 +1,7 @@
 import { pgTable, uuid, varchar, text, jsonb, timestamp, index } from "drizzle-orm/pg-core";
 
 // Assistants table (formerly agents)
-export const assistants = pgTable("assistants", {
+export const assistantsTable = pgTable("assistants", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
@@ -12,13 +12,13 @@ export const assistants = pgTable("assistants", {
 });
 
 // Chat messages table
-export const chatMessages = pgTable(
+export const chatMessagesTable = pgTable(
   "chat_messages",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     assistantId: uuid("assistant_id")
       .notNull()
-      .references(() => assistants.id, { onDelete: "cascade" }),
+      .references(() => assistantsTable.id, { onDelete: "cascade" }),
     role: varchar("role", { length: 20 }).notNull(),
     content: text("content").notNull(),
     status: varchar("status", { length: 20 }).default("sent"),
@@ -30,7 +30,7 @@ export const chatMessages = pgTable(
 );
 
 // Users table
-export const users = pgTable(
+export const usersTable = pgTable(
   "users",
   {
     id: uuid("id").primaryKey().defaultRandom(),
@@ -49,13 +49,13 @@ export const users = pgTable(
 );
 
 // API Keys table
-export const apiKeys = pgTable(
+export const apiKeysTable = pgTable(
   "api_keys",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+      .references(() => usersTable.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 255 }).notNull(),
     keyPrefix: varchar("key_prefix", { length: 8 }).notNull(),
     keyHash: varchar("key_hash", { length: 255 }).notNull(),
