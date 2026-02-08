@@ -81,8 +81,10 @@ export class ToolExecutor {
           return { content: 'Permission denied by user', isError: true };
         }
 
-        if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
-          addRule(name, response.selectedPattern, response.selectedScope, 'deny');
+        if (response.decision === 'always_deny') {
+          if (response.selectedPattern && response.selectedScope) {
+            addRule(name, response.selectedPattern, response.selectedScope, 'deny');
+          }
           const durationMs = Date.now() - startTime;
           recordToolInvocation({
             conversationId: context.conversationId,

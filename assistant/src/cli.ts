@@ -59,7 +59,20 @@ export async function startCli(): Promise<void> {
     process.stdout.write(`\u2514 > `);
 
     rl.once('line', (answer) => {
-      const choice = answer.trim().toLowerCase();
+      const trimmed = answer.trim();
+      const choice = trimmed.toLowerCase();
+
+      // Uppercase 'A' → allowlist pattern selection (check before lowercase 'a')
+      if (trimmed === 'A' || choice === 'allowlist') {
+        renderPatternSelection(req, 'always_allow');
+        return;
+      }
+
+      // Uppercase 'D' → denylist pattern selection (check before lowercase 'd')
+      if (trimmed === 'D' || choice === 'denylist') {
+        renderPatternSelection(req, 'always_deny');
+        return;
+      }
 
       if (choice === 'a') {
         send({
@@ -76,18 +89,6 @@ export async function startCli(): Promise<void> {
           requestId: req.requestId,
           decision: 'deny',
         });
-        return;
-      }
-
-      // 'A' or 'allowlist' → enter pattern selection
-      if (answer.trim() === 'A' || choice === 'allowlist') {
-        renderPatternSelection(req, 'always_allow');
-        return;
-      }
-
-      // 'D' or 'denylist' → enter deny pattern selection
-      if (answer.trim() === 'D' || choice === 'denylist') {
-        renderPatternSelection(req, 'always_deny');
         return;
       }
 
