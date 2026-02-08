@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid';
+import { desc } from 'drizzle-orm';
 import { getDb } from './db.js';
 import { toolInvocations } from './schema.js';
 
@@ -25,4 +26,14 @@ export function recordToolInvocation(record: ToolInvocationRecord): void {
     durationMs: record.durationMs,
     createdAt: Date.now(),
   }).run();
+}
+
+export function getRecentInvocations(limit: number) {
+  const db = getDb();
+  return db
+    .select()
+    .from(toolInvocations)
+    .orderBy(desc(toolInvocations.createdAt))
+    .limit(limit)
+    .all();
 }
