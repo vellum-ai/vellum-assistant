@@ -30,7 +30,7 @@ resource "kubernetes_secret" "app_secrets" {
   }
 
   data = {
-    DATABASE_URL      = var.database_url
+    DATABASE_URL      = local.database_url
     ANTHROPIC_API_KEY = var.anthropic_api_key
   }
 

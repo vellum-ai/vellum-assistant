@@ -28,3 +28,33 @@ output "namespace" {
   description = "Kubernetes namespace"
   value       = kubernetes_namespace.vellum_assistant.metadata[0].name
 }
+
+# Database outputs
+output "alloydb_cluster_id" {
+  description = "AlloyDB cluster ID"
+  value       = google_alloydb_cluster.main.cluster_id
+}
+
+output "alloydb_instance_ip" {
+  description = "AlloyDB instance IP address"
+  value       = google_alloydb_instance.primary.ip_address
+  sensitive   = true
+}
+
+output "database_secret_id" {
+  description = "Secret Manager secret ID for DATABASE_URL"
+  value       = google_secret_manager_secret.database_url.secret_id
+}
+
+output "database_connection_info" {
+  description = "Database connection information"
+  value       = <<-EOT
+    AlloyDB cluster: ${google_alloydb_cluster.main.name}
+    Database: ${var.db_name}
+    User: ${var.db_user}
+    Secret: ${google_secret_manager_secret.database_url.name}
+    
+    To retrieve the DATABASE_URL from Secret Manager:
+    gcloud secrets versions access latest --secret="${google_secret_manager_secret.database_url.secret_id}" --project="${var.project_id}"
+  EOT
+}

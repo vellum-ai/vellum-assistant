@@ -77,10 +77,23 @@ variable "app_replicas" {
   default     = 2
 }
 
-variable "database_url" {
-  description = "PostgreSQL connection string"
+# Database settings
+variable "db_user" {
+  description = "AlloyDB database user"
   type        = string
-  sensitive   = true
+  default     = "vellum"
+}
+
+variable "db_name" {
+  description = "AlloyDB database name"
+  type        = string
+  default     = "vellum_assistant"
+}
+
+variable "db_cpu_count" {
+  description = "Number of CPUs for AlloyDB instance"
+  type        = number
+  default     = 2
 }
 
 variable "anthropic_api_key" {
