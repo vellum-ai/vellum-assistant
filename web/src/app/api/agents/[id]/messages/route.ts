@@ -39,7 +39,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     const agent = result[0] as Agent;
-    const computeConfig = (agent.configuration as Record<string, any>)?.compute as
+    const computeConfig = (agent.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
 
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const agent = result[0] as Agent;
-    const computeConfig = (agent.configuration as Record<string, any>)?.compute as
+    const computeConfig = (agent.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
 

@@ -172,7 +172,7 @@ export async function POST(request: Request) {
           await sql`
             UPDATE agents
             SET configuration = ${JSON.stringify({
-              ...(agent.configuration as Record<string, any> || {}),
+              ...(agent.configuration as Record<string, unknown> || {}),
               gcs: { bucket, prefix },
               compute: { instanceName, zone, machineType, fromPrequeue },
             })}
@@ -184,7 +184,7 @@ export async function POST(request: Request) {
           await sql`
             UPDATE agents
             SET configuration = ${JSON.stringify({
-              ...(agent.configuration as Record<string, any> || {}),
+              ...(agent.configuration as Record<string, unknown> || {}),
               provisioningError: errorMessage,
             })}
             WHERE id = ${agent.id}

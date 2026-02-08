@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
       await sql`
         UPDATE agents
         SET configuration = ${JSON.stringify({
-          ...(newAgent.configuration as Record<string, any> || {}),
+          ...(newAgent.configuration as Record<string, unknown> || {}),
           compute: {
             instanceName: instanceResult.instanceName,
             zone: instanceResult.zone,
@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
       await sql`
         UPDATE agents
         SET configuration = ${JSON.stringify({
-          ...(newAgent.configuration as Record<string, any> || {}),
+          ...(newAgent.configuration as Record<string, unknown> || {}),
           provisioningError: provisionError instanceof Error ? provisionError.message : "Provisioning failed",
         })},
         updated_at = NOW()
