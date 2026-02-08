@@ -1,3 +1,5 @@
+"use client";
+
 import Script from "next/script";
 
 export function VellumHead() {
@@ -24,21 +26,19 @@ export function VellumHead() {
       <Script
         src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js"
         strategy="afterInteractive"
-      />
-      <Script id="webfont-config" strategy="afterInteractive">
-        {`
-          WebFont.load({
+        onReady={() => {
+          (window as any).WebFont.load({
             google: {
               families: [
                 "Montserrat:100,100italic,200,200italic,300,300italic,400,400italic,500,500italic,600,600italic,700,700italic,800,800italic,900,900italic",
                 "Lato:100,100italic,300,300italic,400,400italic,700,700italic,900,900italic",
                 "Inter:300,400,500,600,700",
-                "Playfair Display:300,400,500,600,700"
-              ]
-            }
+                "Playfair Display:300,400,500,600,700",
+              ],
+            },
           });
-        `}
-      </Script>
+        }}
+      />
 
       {/* Webflow Modernizr */}
       <Script id="webflow-modernizr" strategy="afterInteractive">
