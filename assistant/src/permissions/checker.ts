@@ -54,6 +54,7 @@ function isHighRiskRm(args: string[]): boolean {
 export async function classifyRisk(toolName: string, input: Record<string, unknown>): Promise<RiskLevel> {
   if (toolName === 'file_read') return RiskLevel.Low;
   if (toolName === 'file_write') return RiskLevel.Medium;
+  if (toolName === 'file_edit') return RiskLevel.Medium;
 
   if (toolName === 'shell') {
     const command = (input.command as string) ?? '';
@@ -178,7 +179,7 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     });
   }
 
-  if (toolName === 'file_write' || toolName === 'file_read') {
+  if (toolName === 'file_write' || toolName === 'file_read' || toolName === 'file_edit') {
     const filePath = (input.path as string) ?? (input.file_path as string) ?? '';
     const options: AllowlistOption[] = [];
 

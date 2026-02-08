@@ -31,5 +31,6 @@ export async function initializeTools(): Promise<void> {
   await import('./terminal/shell.js');
   await import('./filesystem/read.js');
   await import('./filesystem/write.js');
+  await import('./filesystem/edit.js');
   log.info({ count: tools.size }, 'Tools initialized');
 }
