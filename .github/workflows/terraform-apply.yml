@@ -39,12 +39,6 @@ jobs:
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Get GKE credentials
-        run: |
-          gcloud container clusters get-credentials vellum-ai-prod \
-            --region us-central1 \
-            --project vellum-ai-prod
-
       - name: Terraform Init
         run: terraform init
 
