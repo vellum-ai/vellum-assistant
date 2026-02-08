@@ -1,10 +1,12 @@
 import * as net from 'node:net';
-import { unlinkSync, existsSync, chmodSync } from 'node:fs';
-import { getSocketPath } from '../util/platform.js';
+import { unlinkSync, existsSync, chmodSync, watch, type FSWatcher } from 'node:fs';
+import { join } from 'node:path';
+import { getSocketPath, getDataDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
-import { getConfig, loadRawConfig, saveRawConfig } from '../config/loader.js';
+import { getConfig, loadRawConfig, saveRawConfig, invalidateConfigCache } from '../config/loader.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
+import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { Session } from './session.js';
 import {
@@ -21,6 +23,7 @@ export class DaemonServer {
   private sessions = new Map<string, Session>();
   private socketToSession = new Map<net.Socket, string>();
   private socketPath: string;
+  private watchers: FSWatcher[] = [];
 
   constructor() {
     this.socketPath = getSocketPath();
@@ -31,6 +34,8 @@ export class DaemonServer {
     if (existsSync(this.socketPath)) {
       unlinkSync(this.socketPath);
     }
+
+    this.startFileWatchers();
 
     return new Promise((resolve, reject) => {
       this.server = net.createServer((socket) => {
@@ -60,6 +65,7 @@ export class DaemonServer {
   }
 
   async stop(): Promise<void> {
+    this.stopFileWatchers();
     return new Promise((resolve) => {
       if (this.server) {
         this.server.close(() => {
@@ -73,6 +79,61 @@ export class DaemonServer {
         resolve();
       }
     });
+  }
+
+  private startFileWatchers(): void {
+    const dataDir = getDataDir();
+    const configPath = join(dataDir, 'config.json');
+    const trustPath = join(dataDir, 'trust.json');
+
+    const watchFile = (filePath: string, label: string, onChange: () => void) => {
+      if (!existsSync(filePath)) return;
+      try {
+        let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+        const watcher = watch(filePath, () => {
+          // Debounce: editors often write files in multiple steps
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            log.info({ file: label }, 'File changed, reloading');
+            onChange();
+          }, 200);
+        });
+        this.watchers.push(watcher);
+        log.info({ file: label }, 'Watching for changes');
+      } catch (err) {
+        log.warn({ err, file: label }, 'Failed to watch file');
+      }
+    };
+
+    watchFile(configPath, 'config.json', () => {
+      invalidateConfigCache();
+      try {
+        const config = getConfig();
+        initializeProviders(config);
+      } catch (err) {
+        log.error({ err }, 'Failed to reload config');
+        return;
+      }
+      // Evict idle sessions; mark busy ones as stale
+      for (const [id, session] of this.sessions) {
+        if (!session.isProcessing()) {
+          this.sessions.delete(id);
+        } else {
+          session.markStale();
+        }
+      }
+    });
+
+    watchFile(trustPath, 'trust.json', () => {
+      clearTrustCache();
+    });
+  }
+
+  private stopFileWatchers(): void {
+    for (const watcher of this.watchers) {
+      watcher.close();
+    }
+    this.watchers = [];
   }
 
   private handleConnection(socket: net.Socket): void {

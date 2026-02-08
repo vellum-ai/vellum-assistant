@@ -109,6 +109,10 @@ export function getConfig(): AssistantConfig {
   return loadConfig();
 }
 
+export function invalidateConfigCache(): void {
+  cached = null;
+}
+
 /**
  * Load the raw config from disk (without env var overrides).
  * Used by CLI config commands to read/write the file directly.
