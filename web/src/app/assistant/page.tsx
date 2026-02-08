@@ -130,7 +130,7 @@ export default function AssistantPage() {
             Welcome to Vellum Assistant
           </h2>
           <p className="mt-2 text-center text-zinc-500 dark:text-zinc-400">
-            You don't have an assistant yet. Let's hatch one for you!
+            You don&apos;t have an assistant yet. Let&apos;s hatch one for you!
           </p>
           {error && (
             <div className="mt-4 rounded-lg bg-red-50 p-4 text-sm text-red-600 dark:bg-red-950 dark:text-red-400">
