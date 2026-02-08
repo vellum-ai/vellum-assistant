@@ -373,6 +373,8 @@ export class DaemonServer {
         this.suppressConfigReload = false;
         throw err;
       }
+      const existingSuppressTimer = this.debounceTimers.get('__suppress_reset__');
+      if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
       const resetTimer = setTimeout(() => { this.suppressConfigReload = false; }, 300);
       this.debounceTimers.set('__suppress_reset__', resetTimer);
 
