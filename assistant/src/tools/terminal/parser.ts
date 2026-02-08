@@ -59,7 +59,12 @@ function verifyWasmChecksum(filePath: string, label: string): void {
   const data = readFileSync(filePath);
   const hash = createHash('sha256').update(data).digest('hex');
   const expected = EXPECTED_CHECKSUMS[label];
-  if (expected && hash !== expected) {
+  if (!expected) {
+    throw new Error(
+      `No expected checksum registered for ${label}`,
+    );
+  }
+  if (hash !== expected) {
     throw new Error(
       `WASM integrity check failed for ${label}: expected ${expected}, got ${hash}`,
     );
