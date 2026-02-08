@@ -2,8 +2,8 @@ import * as net from 'node:net';
 import { unlinkSync, existsSync, chmodSync } from 'node:fs';
 import { getSocketPath } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
-import { getProvider } from '../providers/registry.js';
-import { getConfig, saveConfig } from '../config/loader.js';
+import { getProvider, initializeProviders } from '../providers/registry.js';
+import { getConfig, loadRawConfig, saveRawConfig } from '../config/loader.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { Session } from './session.js';
@@ -290,12 +290,22 @@ export class DaemonServer {
 
   private handleModelSet(model: string, socket: net.Socket): void {
     try {
-      const config = getConfig();
-      config.model = model;
-      saveConfig(config);
+      // Use raw config to avoid persisting env-var API keys to disk
+      const raw = loadRawConfig();
+      raw.model = model;
+      saveRawConfig(raw);
 
-      // Invalidate cached sessions so new messages use the new model
-      this.sessions.clear();
+      // Re-initialize provider with the new model so LLM calls use it
+      const config = getConfig();
+      initializeProviders(config);
+
+      // Evict idle sessions so they're re-created with the new provider.
+      // Sessions that are actively processing keep running with the old model.
+      for (const [id, session] of this.sessions) {
+        if (!session.isProcessing()) {
+          this.sessions.delete(id);
+        }
+      }
 
       this.send(socket, {
         type: 'model_info',

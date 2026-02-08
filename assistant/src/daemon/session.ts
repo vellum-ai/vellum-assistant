@@ -68,6 +68,10 @@ export class Session {
     this.prompter.updateSender(sendToClient);
   }
 
+  isProcessing(): boolean {
+    return this.processing;
+  }
+
   abort(): void {
     if (this.processing) {
       log.info({ conversationId: this.conversationId }, 'Aborting in-flight processing');
