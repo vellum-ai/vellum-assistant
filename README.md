@@ -16,15 +16,19 @@ AI-powered assistant platform by Vellum.
 
 ## Development Toolkit
 
-The `vel` CLI provides common development operations:
+The `vel` CLI provides common development operations. After running `./setup.sh`, you can use `vel` directly:
 
 ```bash
-cd vel && npm install && npm run build
-npm run vel up      # Start development environment
-npm run vel down    # Stop development environment
-npm run vel setup   # Run initial setup
-npm run vel ps      # List running services
+./setup.sh          # Sets up vel CLI and creates symlink
+
+vel up              # Start development environment
+vel down            # Stop development environment
+vel setup           # Run initial setup
+vel ps              # List running services
+vel help            # Show help
 ```
+
+The setup script creates a symlink at `~/.local/bin/vel` for easy access from anywhere.
 
 See [vel/README.md](./vel/README.md) for more details.
 
