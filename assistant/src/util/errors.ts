@@ -1,7 +1,36 @@
+export enum ErrorCode {
+  // Provider errors
+  PROVIDER_ERROR = 'PROVIDER_ERROR',
+
+  // Tool errors
+  TOOL_ERROR = 'TOOL_ERROR',
+
+  // Permission errors
+  PERMISSION_DENIED = 'PERMISSION_DENIED',
+
+  // Config errors
+  CONFIG_ERROR = 'CONFIG_ERROR',
+
+  // Daemon errors
+  DAEMON_ERROR = 'DAEMON_ERROR',
+
+  // IPC/socket errors
+  IPC_ERROR = 'IPC_ERROR',
+
+  // Platform-specific errors (clipboard, unsupported OS features)
+  PLATFORM_ERROR = 'PLATFORM_ERROR',
+
+  // WASM integrity check failures
+  INTEGRITY_ERROR = 'INTEGRITY_ERROR',
+
+  // Internal/unexpected errors
+  INTERNAL_ERROR = 'INTERNAL_ERROR',
+}
+
 export class AssistantError extends Error {
   constructor(
     message: string,
-    public readonly code: string,
+    public readonly code: ErrorCode,
   ) {
     super(message);
     this.name = 'AssistantError';
@@ -14,7 +43,7 @@ export class ProviderError extends AssistantError {
     public readonly provider: string,
     public readonly statusCode?: number,
   ) {
-    super(message, 'PROVIDER_ERROR');
+    super(message, ErrorCode.PROVIDER_ERROR);
     this.name = 'ProviderError';
   }
 }
@@ -24,7 +53,7 @@ export class ToolError extends AssistantError {
     message: string,
     public readonly toolName: string,
   ) {
-    super(message, 'TOOL_ERROR');
+    super(message, ErrorCode.TOOL_ERROR);
     this.name = 'ToolError';
   }
 }
@@ -34,21 +63,42 @@ export class PermissionDeniedError extends AssistantError {
     message: string,
     public readonly toolName: string,
   ) {
-    super(message, 'PERMISSION_DENIED');
+    super(message, ErrorCode.PERMISSION_DENIED);
     this.name = 'PermissionDeniedError';
   }
 }
 
 export class ConfigError extends AssistantError {
   constructor(message: string) {
-    super(message, 'CONFIG_ERROR');
+    super(message, ErrorCode.CONFIG_ERROR);
     this.name = 'ConfigError';
   }
 }
 
 export class DaemonError extends AssistantError {
   constructor(message: string) {
-    super(message, 'DAEMON_ERROR');
+    super(message, ErrorCode.DAEMON_ERROR);
     this.name = 'DaemonError';
+  }
+}
+
+export class IpcError extends AssistantError {
+  constructor(message: string) {
+    super(message, ErrorCode.IPC_ERROR);
+    this.name = 'IpcError';
+  }
+}
+
+export class PlatformError extends AssistantError {
+  constructor(message: string) {
+    super(message, ErrorCode.PLATFORM_ERROR);
+    this.name = 'PlatformError';
+  }
+}
+
+export class IntegrityError extends AssistantError {
+  constructor(message: string) {
+    super(message, ErrorCode.INTEGRITY_ERROR);
+    this.name = 'IntegrityError';
   }
 }

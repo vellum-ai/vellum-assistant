@@ -1,6 +1,7 @@
 import type { Provider } from "./types.js";
 import { AnthropicProvider } from "./anthropic/client.js";
 import { RetryProvider } from "./retry.js";
+import { ConfigError } from "../util/errors.js";
 
 const providers = new Map<string, Provider>();
 
@@ -11,7 +12,7 @@ export function registerProvider(name: string, provider: Provider): void {
 export function getProvider(name: string): Provider {
   const provider = providers.get(name);
   if (!provider) {
-    throw new Error(
+    throw new ConfigError(
       `Provider "${name}" not found. Available: ${listProviders().join(", ")}`,
     );
   }

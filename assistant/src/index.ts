@@ -18,6 +18,7 @@ import {
   type ClientMessage,
   type ServerMessage,
 } from './daemon/ipc-protocol.js';
+import { IpcError } from './util/errors.js';
 import { timeAgo } from './util/time.js';
 import {
   loadRawConfig,
@@ -71,7 +72,7 @@ function sendOneMessage(
 
     socket.on('close', () => {
       if (!resolved) {
-        reject(new Error('Socket closed before receiving a response'));
+        reject(new IpcError('Socket closed before receiving a response'));
       }
     });
   });
@@ -448,7 +449,7 @@ program
       } else {
         await new Promise<void>((resolve, reject) => {
           const s = net.createConnection(sock);
-          const timer = setTimeout(() => { s.destroy(); reject(new Error('timeout')); }, 2000);
+          const timer = setTimeout(() => { s.destroy(); reject(new IpcError('timeout')); }, 2000);
           s.on('connect', () => { clearTimeout(timer); s.end(); resolve(); });
           s.on('error', (err) => { clearTimeout(timer); reject(err); });
         });

@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import { isMacOS, isLinux } from './platform.js';
+import { PlatformError } from './errors.js';
 
 export function copyToClipboard(text: string): void {
   let cmd: string;
@@ -8,7 +9,7 @@ export function copyToClipboard(text: string): void {
   } else if (isLinux()) {
     cmd = 'xclip -selection clipboard';
   } else {
-    throw new Error('Clipboard not supported on this platform');
+    throw new PlatformError('Clipboard not supported on this platform');
   }
   execSync(cmd, { input: text, stdio: ['pipe', 'ignore', 'ignore'] });
 }
