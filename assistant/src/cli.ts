@@ -60,7 +60,7 @@ export async function startCli(): Promise<void> {
   }
 
   function send(msg: ClientMessage): void {
-    if (!socket.destroyed) {
+    if (socket && !socket.destroyed) {
       socket.write(serialize(msg));
     }
   }
@@ -414,6 +414,9 @@ export async function startCli(): Promise<void> {
     heartbeatTimer = setInterval(() => {
       if (socket.destroyed) return;
       send({ type: 'ping' });
+      if (heartbeatTimeout) {
+        clearTimeout(heartbeatTimeout);
+      }
       heartbeatTimeout = setTimeout(() => {
         // No pong received — daemon is unresponsive, trigger reconnect
         socket.destroy();
@@ -432,6 +435,11 @@ export async function startCli(): Promise<void> {
     toolStreaming = false;
     pendingSessionPick = false;
     lastUsage = null;
+
+    // Remove stale rl.once('line') handlers from confirmation/selection prompts
+    // and re-register the main line handler
+    rl.removeAllListeners('line');
+    rl.on('line', handleLine);
 
     for (let attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS; attempt++) {
       process.stdout.write(`\n  Reconnecting to daemon (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})...\n`);
@@ -492,7 +500,7 @@ export async function startCli(): Promise<void> {
     });
   }
 
-  rl.on('line', (line) => {
+  function handleLine(line: string): void {
     const content = line.trim();
     if (!content) return;
     if (pendingSessionPick) return;
@@ -594,7 +602,9 @@ export async function startCli(): Promise<void> {
     generating = true;
     send({ type: 'user_message', sessionId, content });
     spinner.start('Thinking...');
-  });
+  }
+
+  rl.on('line', handleLine);
 
   rl.on('close', () => {
     stopHeartbeat();
