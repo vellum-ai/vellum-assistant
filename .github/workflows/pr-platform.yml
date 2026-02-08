@@ -33,8 +33,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          workload_identity_provider: projects/620844561845/locations/global/workloadIdentityPools/github-actions/providers/github-provider
+          service_account: github-actions@vellum-ai-prod.iam.gserviceaccount.com
 
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
