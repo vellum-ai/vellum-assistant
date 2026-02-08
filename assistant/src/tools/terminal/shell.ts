@@ -3,12 +3,12 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
+import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('shell-tool');
 
 const MAX_OUTPUT_LENGTH = 50_000;
-const TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
 class ShellTool implements Tool {
   name = 'shell';
@@ -26,6 +26,10 @@ class ShellTool implements Tool {
           command: {
             type: 'string',
             description: 'The shell command to execute',
+          },
+          timeout_seconds: {
+            type: 'number',
+            description: 'Optional timeout in seconds. Defaults to the configured default (120s). Cannot exceed the configured maximum.',
           },
         },
         required: ['command'],
@@ -45,7 +49,13 @@ class ShellTool implements Tool {
       return { content: 'Error: command contains null bytes', isError: true };
     }
 
-    log.info({ command, cwd: context.workingDir }, 'Executing shell command');
+    const config = getConfig();
+    const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = config.timeouts;
+    const requestedSec = typeof input.timeout_seconds === 'number' ? input.timeout_seconds : shellDefaultTimeoutSec;
+    const timeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
+    const timeoutMs = timeoutSec * 1000;
+
+    log.info({ command, cwd: context.workingDir, timeoutSec }, 'Executing shell command');
 
     return new Promise<ToolExecutionResult>((resolve) => {
       let stdout = '';
@@ -63,7 +73,7 @@ class ShellTool implements Tool {
       const timer = setTimeout(() => {
         timedOut = true;
         child.kill('SIGKILL');
-      }, TIMEOUT_MS);
+      }, timeoutMs);
 
       child.stdout.on('data', (data: Buffer) => {
         const chunk = data.toString();
@@ -86,7 +96,7 @@ class ShellTool implements Tool {
         }
 
         if (timedOut) {
-          output += '\n[Command timed out after 2 minutes]';
+          output += `\n[Command timed out after ${timeoutSec}s]`;
         }
 
         // Truncate if too long
