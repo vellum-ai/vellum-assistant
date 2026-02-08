@@ -134,7 +134,7 @@ export class DaemonServer {
     let session = this.sessions.get(conversationId);
     const sendToClient = (msg: ServerMessage) => this.send(socket, msg);
 
-    if (!session) {
+    if (!session || session.isStale()) {
       const config = getConfig();
       const provider = getProvider(config.provider);
       const workingDir = process.cwd();
@@ -296,11 +296,13 @@ export class DaemonServer {
       const config = getConfig();
       initializeProviders(config);
 
-      // Evict idle sessions so they're re-created with the new provider.
-      // Sessions that are actively processing keep running with the old model.
+      // Evict idle sessions immediately; mark busy ones as stale so they
+      // get recreated with the new provider once they finish processing.
       for (const [id, session] of this.sessions) {
         if (!session.isProcessing()) {
           this.sessions.delete(id);
+        } else {
+          session.markStale();
         }
       }
 

@@ -19,6 +19,7 @@ export class Session {
   private messages: Message[] = [];
   private agentLoop: AgentLoop;
   private processing = false;
+  private stale = false;
   private abortController: AbortController | null = null;
   private prompter: PermissionPrompter;
   private executor: ToolExecutor;
@@ -70,6 +71,14 @@ export class Session {
 
   isProcessing(): boolean {
     return this.processing;
+  }
+
+  markStale(): void {
+    this.stale = true;
+  }
+
+  isStale(): boolean {
+    return this.stale;
   }
 
   abort(): void {
