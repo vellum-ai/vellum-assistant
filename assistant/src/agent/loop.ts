@@ -117,8 +117,28 @@ export class AgentLoop {
           });
         }
 
-        // If cancelled mid-execution, discard incomplete results
-        if (signal?.aborted) break;
+        // If cancelled mid-execution, synthesize cancelled results for
+        // any tool_use blocks that weren't executed, so the API contract
+        // (every tool_use must have a matching tool_result) is maintained.
+        if (signal?.aborted) {
+          const completedIds = new Set(
+            resultBlocks
+              .filter((b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result')
+              .map((b) => b.tool_use_id),
+          );
+          for (const toolUse of toolUseBlocks) {
+            if (!completedIds.has(toolUse.id)) {
+              resultBlocks.push({
+                type: 'tool_result',
+                tool_use_id: toolUse.id,
+                content: 'Cancelled by user',
+                is_error: true,
+              });
+            }
+          }
+          history.push({ role: 'user', content: resultBlocks });
+          break;
+        }
 
         // Track tool-use turns and inject progress reminder every N turns
         toolUseTurns++;
