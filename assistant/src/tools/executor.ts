@@ -9,6 +9,7 @@ import { PermissionPrompter } from '../permissions/prompter.js';
 import { recordToolInvocation } from '../memory/tool-usage-store.js';
 import { ToolError, PermissionDeniedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
+import { findAllMatches, adjustIndentation } from './filesystem/fuzzy-match.js';
 
 const log = getLogger('tool-executor');
 
@@ -162,7 +163,7 @@ function computePreviewDiff(
     if (toolName === 'file_write') {
       const rawPath = input.path as string;
       const content = input.content as string;
-      if (!rawPath || !content) return undefined;
+      if (!rawPath || typeof content !== 'string') return undefined;
       const filePath = resolve(workingDir, rawPath);
       const isNewFile = !existsSync(filePath);
       const oldContent = isNewFile ? '' : readFileSync(filePath, 'utf-8');
@@ -183,9 +184,13 @@ function computePreviewDiff(
         if (!content.includes(oldString)) return undefined;
         updated = content.split(oldString).join(newString);
       } else {
-        const idx = content.indexOf(oldString);
-        if (idx === -1) return undefined;
-        updated = content.slice(0, idx) + newString + content.slice(idx + oldString.length);
+        const matches = findAllMatches(content, oldString);
+        if (matches.length !== 1) return undefined;
+        const match = matches[0];
+        const adjustedNewString = match.method !== 'exact'
+          ? adjustIndentation(oldString, match.matched, newString)
+          : newString;
+        updated = content.slice(0, match.start) + adjustedNewString + content.slice(match.end);
       }
       return { filePath, oldContent: content, newContent: updated, isNewFile: false };
     }
