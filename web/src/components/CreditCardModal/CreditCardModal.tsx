@@ -8,7 +8,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { loadStripe, Stripe as StripeJs } from "@stripe/stripe-js";
 import { CreditCard, Loader2, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 
 interface CreditCardModalProps {
   username: string;
