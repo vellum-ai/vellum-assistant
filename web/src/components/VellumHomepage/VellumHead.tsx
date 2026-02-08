@@ -23,9 +23,9 @@ export function VellumHead() {
       {/* WebFont Loader */}
       <Script
         src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js"
-        strategy="beforeInteractive"
+        strategy="afterInteractive"
       />
-      <Script id="webfont-config" strategy="beforeInteractive">
+      <Script id="webfont-config" strategy="afterInteractive">
         {`
           WebFont.load({
             google: {
@@ -41,7 +41,7 @@ export function VellumHead() {
       </Script>
 
       {/* Webflow Modernizr */}
-      <Script id="webflow-modernizr" strategy="beforeInteractive">
+      <Script id="webflow-modernizr" strategy="afterInteractive">
         {`
           !function(o,c){
             var n=c.documentElement,t=" w-mod-";
