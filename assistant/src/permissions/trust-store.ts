@@ -103,6 +103,12 @@ export function getAllRules(): TrustRule[] {
   return [...getRules()];
 }
 
+export function clearAllRules(): void {
+  cachedRules = [];
+  saveToDisk([]);
+  log.info('Cleared all trust rules');
+}
+
 export function clearCache(): void {
   cachedRules = null;
 }

@@ -22,6 +22,11 @@ import {
   getNestedValue,
   setNestedValue,
 } from './config/loader.js';
+import {
+  getAllRules,
+  removeRule,
+  clearAllRules,
+} from './permissions/trust-store.js';
 
 function sendOneMessage(
   msg: ClientMessage,
@@ -201,6 +206,83 @@ config
       console.log('No configuration set');
     } else {
       console.log(JSON.stringify(raw, null, 2));
+    }
+  });
+
+// --- Trust commands ---
+const trust = program.command('trust').description('Manage trust rules');
+
+trust
+  .command('list')
+  .description('List all trust rules')
+  .action(() => {
+    const rules = getAllRules();
+    if (rules.length === 0) {
+      console.log('No trust rules');
+      return;
+    }
+    // Table header
+    const idW = 8;
+    const toolW = 12;
+    const patternW = 30;
+    const scopeW = 20;
+    console.log(
+      'ID'.padEnd(idW) +
+      'Tool'.padEnd(toolW) +
+      'Pattern'.padEnd(patternW) +
+      'Scope'.padEnd(scopeW) +
+      'Created',
+    );
+    console.log('-'.repeat(idW + toolW + patternW + scopeW + 20));
+    for (const r of rules) {
+      const id = r.id.slice(0, 8);
+      const created = new Date(r.createdAt).toISOString().slice(0, 10);
+      console.log(
+        id.padEnd(idW) +
+        r.tool.padEnd(toolW) +
+        r.pattern.slice(0, patternW - 2).padEnd(patternW) +
+        r.scope.slice(0, scopeW - 2).padEnd(scopeW) +
+        created,
+      );
+    }
+  });
+
+trust
+  .command('remove <id>')
+  .description('Remove a trust rule by ID (or prefix)')
+  .action((id: string) => {
+    // Support prefix matching
+    const rules = getAllRules();
+    const match = rules.find((r) => r.id.startsWith(id));
+    if (!match) {
+      console.error(`No rule found matching "${id}"`);
+      process.exit(1);
+    }
+    removeRule(match.id);
+    console.log(`Removed rule ${match.id.slice(0, 8)} (${match.tool}: ${match.pattern})`);
+  });
+
+trust
+  .command('clear')
+  .description('Remove all trust rules')
+  .action(async () => {
+    const rules = getAllRules();
+    if (rules.length === 0) {
+      console.log('No trust rules to clear');
+      return;
+    }
+    // Confirmation prompt
+    const readline = await import('node:readline');
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await new Promise<string>((resolve) => {
+      rl.question(`Remove all ${rules.length} trust rules? (y/N) `, resolve);
+    });
+    rl.close();
+    if (answer.toLowerCase() === 'y') {
+      clearAllRules();
+      console.log(`Cleared ${rules.length} trust rules`);
+    } else {
+      console.log('Cancelled');
     }
   });
 
