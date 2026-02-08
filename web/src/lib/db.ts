@@ -24,14 +24,14 @@ export function getDb() {
 }
 
 // Re-export schema types
-export type Assistant = typeof schema.assistants.$inferSelect;
-export type NewAssistant = typeof schema.assistants.$inferInsert;
-export type ChatMessage = typeof schema.chatMessages.$inferSelect;
-export type NewChatMessage = typeof schema.chatMessages.$inferInsert;
-export type User = typeof schema.users.$inferSelect;
-export type NewUser = typeof schema.users.$inferInsert;
-export type ApiKey = typeof schema.apiKeys.$inferSelect;
-export type NewApiKey = typeof schema.apiKeys.$inferInsert;
+export type Assistant = typeof schema.assistantsTable.$inferSelect;
+export type NewAssistant = typeof schema.assistantsTable.$inferInsert;
+export type ChatMessage = typeof schema.chatMessagesTable.$inferSelect;
+export type NewChatMessage = typeof schema.chatMessagesTable.$inferInsert;
+export type User = typeof schema.usersTable.$inferSelect;
+export type NewUser = typeof schema.usersTable.$inferInsert;
+export type ApiKey = typeof schema.apiKeysTable.$inferSelect;
+export type NewApiKey = typeof schema.apiKeysTable.$inferInsert;
 
 // Legacy type aliases for backwards compatibility
 export type Agent = Assistant;
@@ -57,30 +57,30 @@ export type UpdateAgentInput = UpdateAssistantInput;
 
 // Assistant queries
 export async function getAssistants() {
-  return db.select().from(schema.assistants);
+  return db.select().from(schema.assistantsTable);
 }
 
 export async function getAssistantById(id: string) {
-  const result = await db.select().from(schema.assistants).where(eq(schema.assistants.id, id));
+  const result = await db.select().from(schema.assistantsTable).where(eq(schema.assistantsTable.id, id));
   return result[0] || null;
 }
 
 export async function createAssistant(data: NewAssistant) {
-  const result = await db.insert(schema.assistants).values(data).returning();
+  const result = await db.insert(schema.assistantsTable).values(data).returning();
   return result[0];
 }
 
 export async function updateAssistant(id: string, data: Partial<NewAssistant>) {
   const result = await db
-    .update(schema.assistants)
+    .update(schema.assistantsTable)
     .set({ ...data, updatedAt: new Date() })
-    .where(eq(schema.assistants.id, id))
+    .where(eq(schema.assistantsTable.id, id))
     .returning();
   return result[0];
 }
 
 export async function deleteAssistant(id: string) {
-  await db.delete(schema.assistants).where(eq(schema.assistants.id, id));
+  await db.delete(schema.assistantsTable).where(eq(schema.assistantsTable.id, id));
 }
 
 // Legacy function aliases for backwards compatibility
@@ -94,63 +94,63 @@ export const deleteAgent = deleteAssistant;
 export async function getChatMessages(assistantId: string) {
   return db
     .select()
-    .from(schema.chatMessages)
-    .where(eq(schema.chatMessages.assistantId, assistantId))
-    .orderBy(schema.chatMessages.createdAt);
+    .from(schema.chatMessagesTable)
+    .where(eq(schema.chatMessagesTable.assistantId, assistantId))
+    .orderBy(schema.chatMessagesTable.createdAt);
 }
 
 export async function createChatMessage(data: NewChatMessage) {
-  const result = await db.insert(schema.chatMessages).values(data).returning();
+  const result = await db.insert(schema.chatMessagesTable).values(data).returning();
   return result[0];
 }
 
 export async function updateChatMessageStatus(id: string, status: string) {
   await db
-    .update(schema.chatMessages)
+    .update(schema.chatMessagesTable)
     .set({ status, updatedAt: new Date() })
-    .where(eq(schema.chatMessages.id, id));
+    .where(eq(schema.chatMessagesTable.id, id));
 }
 
 export async function getMessageByGcsId(gcsMessageId: string) {
   const result = await db
     .select()
-    .from(schema.chatMessages)
-    .where(eq(schema.chatMessages.gcsMessageId, gcsMessageId));
+    .from(schema.chatMessagesTable)
+    .where(eq(schema.chatMessagesTable.gcsMessageId, gcsMessageId));
   return result[0] || null;
 }
 
 // User queries
 export async function getUserByUsername(username: string) {
-  const result = await db.select().from(schema.users).where(eq(schema.users.username, username));
+  const result = await db.select().from(schema.usersTable).where(eq(schema.users.username, username));
   return result[0] || null;
 }
 
 export async function createUser(data: NewUser) {
-  const result = await db.insert(schema.users).values(data).returning();
+  const result = await db.insert(schema.usersTable).values(data).returning();
   return result[0];
 }
 
 export async function updateUser(username: string, data: Partial<NewUser>) {
   const result = await db
-    .update(schema.users)
+    .update(schema.usersTable)
     .set({ ...data, updatedAt: new Date() })
-    .where(eq(schema.users.username, username))
+    .where(eq(schema.usersTable.username, username))
     .returning();
   return result[0];
 }
 
 // API Key queries
 export async function getApiKeysByUserId(userId: string) {
-  return db.select().from(schema.apiKeys).where(eq(schema.apiKeys.userId, userId));
+  return db.select().from(schema.apiKeysTable).where(eq(schema.apiKeys.userId, userId));
 }
 
 export async function createApiKey(data: NewApiKey) {
-  const result = await db.insert(schema.apiKeys).values(data).returning();
+  const result = await db.insert(schema.apiKeysTable).values(data).returning();
   return result[0];
 }
 
 export async function deleteApiKey(id: string, userId: string) {
   await db
-    .delete(schema.apiKeys)
-    .where(and(eq(schema.apiKeys.id, id), eq(schema.apiKeys.userId, userId)));
+    .delete(schema.apiKeysTable)
+    .where(and(eq(schema.apiKeysTable.id, id), eq(schema.apiKeys.userId, userId)));
 }

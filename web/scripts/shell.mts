@@ -11,7 +11,7 @@ const connectionString =
 const client = postgres(connectionString);
 const db = drizzle(client, { schema });
 
-const { assistants: assistantsTable, chatMessages: chatMessagesTable, users: usersTable, apiKeys: apiKeysTable } = schema;
+const { assistantsTable, chatMessagesTable, usersTable, apiKeysTable } = schema;
 
 console.log("\nVellum Shell");
 console.log("─".repeat(40));
