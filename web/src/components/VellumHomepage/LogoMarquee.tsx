@@ -44,30 +44,10 @@ export function LogoMarquee() {
                     <div className="trusted_header align-center">Trusted by companies of all sizes</div>
                   </div>
                   <div data-fade="" data-fs-marquee-element="wrapper" className="fs-logo-marquee_list-wrapper alt w-dyn-list">
-                    <div data-fs-marquee-element="list" role="list" className="fs-logo-marquee_list w-dyn-items">
+                    <div data-fs-marquee-element="list" role="list" className="fs-logo-marquee_list w-dyn-items" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "3rem", flexWrap: "nowrap", padding: "1.5rem 0" }}>
                       {logos.map((logo, index) => (
-                        <div key={index} data-fs-marquee-element="item" role="listitem" className="logo_item pill w-dyn-item">
-                          <Image loading="lazy" src={logo.src} alt={logo.alt} className="marquee_logo smaller" width={0} height={0} unoptimized />
-                          {logo.hasCaseStudy ? (
-                            <a href={logo.caseStudy} className="case_study-link-logo pill hide-tablet w-inline-block">
-                              <div>Case Study</div>
-                              <div className="icon_arrow w-embed">
-                                <svg width="16" height="8" viewBox="0 0 16 8" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                  <path d="M10.125 1.5C10.3281 1.5 10.5 1.67188 10.5 1.875V5.625C10.5 5.84375 10.3281 6 10.125 6C9.90625 6 9.75 5.84375 9.75 5.625V2.78125L6.14062 6.39062C5.98438 6.54688 5.75 6.54688 5.60938 6.39062C5.45312 6.25 5.45312 6.01562 5.60938 5.875L9.21875 2.26562L6.375 2.25C6.15625 2.25 6 2.09375 6 1.875C6 1.67188 6.15625 1.5 6.375 1.5H10.125Z" fill="currentcolor"/>
-                                </svg>
-                              </div>
-                            </a>
-                          ) : (
-                            <a href="#" className="case_study-link-logo pill hide-tablet w-inline-block w-condition-invisible">
-                              <div>Case Study</div>
-                              <div className="icon_arrow w-embed">
-                                <svg width="16" height="8" viewBox="0 0 16 8" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                  <path d="M10.125 1.5C10.3281 1.5 10.5 1.67188 10.5 1.875V5.625C10.5 5.84375 10.3281 6 10.125 6C9.90625 6 9.75 5.84375 9.75 5.625V2.78125L6.14062 6.39062C5.98438 6.54688 5.75 6.54688 5.60938 6.39062C5.45312 6.25 5.45312 6.01562 5.60938 5.875L9.21875 2.26562L6.375 2.25C6.15625 2.25 6 2.09375 6 1.875C6 1.67188 6.15625 1.5 6.375 1.5H10.125Z" fill="currentcolor"/>
-                                </svg>
-                              </div>
-                            </a>
-                          )}
-                          <div className={logo.hasCaseStudy ? "cs_bg" : "cs_bg w-condition-invisible"}></div>
+                        <div key={index} data-fs-marquee-element="item" role="listitem" className="logo_item pill w-dyn-item" style={{ position: "relative", flexShrink: 0 }}>
+                          <Image loading="lazy" src={logo.src} alt={logo.alt} className="marquee_logo smaller" width={150} height={40} unoptimized style={{ height: "28px", width: "auto", objectFit: "contain", opacity: 0.8 }} />
                         </div>
                       ))}
                     </div>
