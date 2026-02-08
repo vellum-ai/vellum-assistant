@@ -121,16 +121,22 @@ export async function up(): Promise<void> {
 }
 
 async function fetchSecrets(): Promise<Record<string, string>> {
-  const entries = await Promise.all(
+  const results = await Promise.all(
     SECRET_NAMES.map(async (name) => {
-      const value = await execOutput('gcloud', [
-        'secrets', 'versions', 'access', 'latest',
-        `--secret=${name}`,
-        `--project=${GS_PROJECT_ID}`,
-      ]);
-      return [name, value] as const;
+      try {
+        const value = await execOutput('gcloud', [
+          'secrets', 'versions', 'access', 'latest',
+          `--secret=${name}`,
+          `--project=${GS_PROJECT_ID}`,
+        ]);
+        return [name, value] as const;
+      } catch {
+        console.warn(`⚠️  Failed to fetch secret ${name}, skipping`);
+        return null;
+      }
     })
   );
+  const entries = results.filter((entry): entry is [string, string] => entry !== null);
   return Object.fromEntries(entries);
 }
 
