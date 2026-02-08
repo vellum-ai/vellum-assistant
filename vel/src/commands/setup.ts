@@ -53,6 +53,18 @@ export async function setup(): Promise<void> {
         await exec('bun', ['install'], { cwd: webDir });
       },
     },
+    {
+      name: 'Running database migrations',
+      run: async () => {
+        await exec('npx', ['drizzle-kit', 'migrate'], {
+          cwd: webDir,
+          env: {
+            ...process.env,
+            DATABASE_URL: process.env.DATABASE_URL || 'postgresql://vellum:password@localhost:5432/vellum',
+          },
+        });
+      },
+    },
   ]);
 
   console.log('\n✅ Setup complete!\n');
