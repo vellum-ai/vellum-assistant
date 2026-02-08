@@ -43,6 +43,12 @@ export async function up(): Promise<void> {
       cwd: webDir,
       stdio: 'inherit',
       shell: true,
+      env: {
+        ...process.env,
+        MINIO_ENDPOINT: process.env.MINIO_ENDPOINT || 'http://localhost:9000',
+        MINIO_ACCESS_KEY: process.env.MINIO_ACCESS_KEY || 'minioadmin',
+        MINIO_SECRET_KEY: process.env.MINIO_SECRET_KEY || 'minioadmin',
+      },
     });
 
     // Handle graceful shutdown
