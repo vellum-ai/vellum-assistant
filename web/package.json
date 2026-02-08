@@ -13,8 +13,10 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "lint": "eslint",
+    "type-check": "tsc --noEmit",
     "pull": "node scripts/pull.mjs",
-    "start": "next start"
+    "start": "next start",
+    "test": "echo \"Error: no tests specified\" && exit 0"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.72.1",
