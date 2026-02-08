@@ -8,27 +8,9 @@ Next.js web application for Vellum Assistant.
 - npm or bun
 - PostgreSQL database
 
-## Environment Variables
-
-The following env vars are set automatically by `vel up` with local defaults:
-- `DATABASE_URL` - PostgreSQL connection string
-- `APP_URL` - App URL for callbacks/webhooks
-- `MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` - Local object storage
-
-Optional (set in your shell environment if needed):
-- `ANTHROPIC_API_KEY` - For AI capabilities
-- `GCP_SA_KEY` - Google Cloud service account (for compute/storage)
-- `GCP_PROJECT_ID` - Google Cloud project ID
-- `GCS_BUCKET_NAME` - Google Cloud Storage bucket name
-
 ## Development
 
-```bash
-npm install
-vel up
-```
-
-Open [http://localhost:3000](http://localhost:3000).
+See the [root README](../README.md) for local development setup instructions.
 
 ## Database
 
