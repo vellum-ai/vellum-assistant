@@ -7,6 +7,7 @@ import { getProvider, initializeProviders } from '../providers/registry.js';
 import { getConfig, loadRawConfig, saveRawConfig, invalidateConfigCache } from '../config/loader.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
 import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
+import { estimateCost } from '../util/pricing.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { Session } from './session.js';
 import {
@@ -280,6 +281,9 @@ export class DaemonServer {
       case 'undo':
         this.handleUndo(msg.sessionId, socket);
         break;
+      case 'usage_request':
+        this.handleUsageRequest(msg.sessionId, socket);
+        break;
       case 'ping':
         this.send(socket, { type: 'pong' });
         break;
@@ -426,6 +430,26 @@ export class DaemonServer {
     }
     const removedCount = session.undo();
     this.send(socket, { type: 'undo_complete', removedCount });
+  }
+
+  private handleUsageRequest(sessionId: string, socket: net.Socket): void {
+    const conversation = conversationStore.getConversation(sessionId);
+    if (!conversation) {
+      this.send(socket, { type: 'error', message: 'No active session' });
+      return;
+    }
+    const config = getConfig();
+    this.send(socket, {
+      type: 'usage_response',
+      totalInputTokens: conversation.totalInputTokens,
+      totalOutputTokens: conversation.totalOutputTokens,
+      estimatedCost: estimateCost(
+        conversation.totalInputTokens,
+        conversation.totalOutputTokens,
+        config.model,
+      ),
+      model: config.model,
+    });
   }
 
 }

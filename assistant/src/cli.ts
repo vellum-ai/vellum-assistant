@@ -20,6 +20,7 @@ export async function startCli(): Promise<void> {
   let sessionId = '';
   let generating = false;
   let lastResponse = '';
+  let lastUsage: { inputTokens: number; outputTokens: number; totalInputTokens: number; totalOutputTokens: number; estimatedCost: number; model: string } | null = null;
   let pendingSessionPick = false;
   const spinner = new Spinner();
 
@@ -233,12 +234,27 @@ export async function startCli(): Promise<void> {
           process.stdout.write(msg.text);
           break;
 
-        case 'message_complete':
+        case 'usage_update':
+          lastUsage = msg;
+          break;
+
+        case 'message_complete': {
           spinner.stop();
           generating = false;
-          process.stdout.write('\n\n');
+          if (lastUsage) {
+            const cost = lastUsage.estimatedCost > 0
+              ? ` ~$${lastUsage.estimatedCost.toFixed(4)}`
+              : '';
+            process.stdout.write(
+              `\n\n\x1B[2m[${lastUsage.inputTokens.toLocaleString()} in / ${lastUsage.outputTokens.toLocaleString()} out${cost}]\x1B[0m\n\n`,
+            );
+            lastUsage = null;
+          } else {
+            process.stdout.write('\n\n');
+          }
           prompt();
           break;
+        }
 
         case 'generation_cancelled':
           spinner.stop();
@@ -319,6 +335,20 @@ export async function startCli(): Promise<void> {
           }
           prompt();
           break;
+
+        case 'usage_response': {
+          process.stdout.write('\n');
+          process.stdout.write(`  Model:          ${msg.model}\n`);
+          process.stdout.write(`  Input tokens:   ${msg.totalInputTokens.toLocaleString()}\n`);
+          process.stdout.write(`  Output tokens:  ${msg.totalOutputTokens.toLocaleString()}\n`);
+          const costStr = msg.estimatedCost > 0
+            ? `$${msg.estimatedCost.toFixed(4)}`
+            : 'N/A (unknown model pricing)';
+          process.stdout.write(`  Estimated cost: ${costStr}\n`);
+          process.stdout.write('\n');
+          prompt();
+          break;
+        }
 
         case 'pong':
           break;
@@ -401,6 +431,11 @@ export async function startCli(): Promise<void> {
       return;
     }
 
+    if (content === '/usage') {
+      send({ type: 'usage_request', sessionId });
+      return;
+    }
+
     if (content === '/help') {
       process.stdout.write('\n  Available commands:\n');
       process.stdout.write('  /new              Start a new session\n');
@@ -409,6 +444,7 @@ export async function startCli(): Promise<void> {
       process.stdout.write('  /model [name]     Show or change the model\n');
       process.stdout.write('  /history          Show conversation history\n');
       process.stdout.write('  /undo             Remove last message exchange\n');
+      process.stdout.write('  /usage            Show token usage and cost\n');
       process.stdout.write('  /copy             Copy last response to clipboard\n');
       process.stdout.write('  /copy-code        Copy last code block to clipboard\n');
       process.stdout.write('  /help             Show this help\n');

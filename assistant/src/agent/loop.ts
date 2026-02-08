@@ -12,7 +12,8 @@ export type AgentEvent =
   | { type: 'message_complete'; message: Message }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean } }
-  | { type: 'error'; error: Error };
+  | { type: 'error'; error: Error }
+  | { type: 'usage'; inputTokens: number; outputTokens: number; model: string };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxTokens: 4096,
@@ -68,6 +69,13 @@ export class AgentLoop {
             signal,
           },
         );
+
+        onEvent({
+          type: 'usage',
+          inputTokens: response.usage.inputTokens,
+          outputTokens: response.usage.outputTokens,
+          model: response.model,
+        });
 
         const assistantMessage: Message = {
           role: 'assistant',

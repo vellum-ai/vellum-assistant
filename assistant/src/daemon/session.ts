@@ -10,6 +10,7 @@ import { ToolExecutor } from '../tools/executor.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
+import { estimateCost } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('session');
@@ -24,6 +25,8 @@ export class Session {
   private prompter: PermissionPrompter;
   private executor: ToolExecutor;
   private workingDir: string;
+  private totalInputTokens = 0;
+  private totalOutputTokens = 0;
 
   constructor(
     conversationId: string,
@@ -62,6 +65,13 @@ export class Session {
       role: m.role as 'user' | 'assistant',
       content: JSON.parse(m.content),
     }));
+
+    const conv = conversationStore.getConversation(this.conversationId);
+    if (conv) {
+      this.totalInputTokens = conv.totalInputTokens;
+      this.totalOutputTokens = conv.totalOutputTokens;
+    }
+
     log.info({ conversationId: this.conversationId, count: this.messages.length }, 'Loaded messages from DB');
   }
 
@@ -124,6 +134,9 @@ export class Session {
 
       // Run agent loop
       let firstAssistantText = '';
+      let exchangeInputTokens = 0;
+      let exchangeOutputTokens = 0;
+      let model = '';
       const updatedHistory = await this.agentLoop.run(
         this.messages,
         (event) => {
@@ -149,12 +162,37 @@ export class Session {
                 JSON.stringify(event.message.content),
               );
               break;
+            case 'usage':
+              exchangeInputTokens += event.inputTokens;
+              exchangeOutputTokens += event.outputTokens;
+              model = event.model;
+              break;
           }
         },
         this.abortController.signal,
       );
 
       this.messages = updatedHistory;
+
+      // Update cumulative token usage
+      if (exchangeInputTokens > 0 || exchangeOutputTokens > 0) {
+        this.totalInputTokens += exchangeInputTokens;
+        this.totalOutputTokens += exchangeOutputTokens;
+        conversationStore.updateConversationUsage(
+          this.conversationId,
+          this.totalInputTokens,
+          this.totalOutputTokens,
+        );
+        onEvent({
+          type: 'usage_update',
+          inputTokens: exchangeInputTokens,
+          outputTokens: exchangeOutputTokens,
+          totalInputTokens: this.totalInputTokens,
+          totalOutputTokens: this.totalOutputTokens,
+          estimatedCost: estimateCost(this.totalInputTokens, this.totalOutputTokens, model),
+          model,
+        });
+      }
 
       if (this.abortController?.signal.aborted) {
         onEvent({ type: 'generation_cancelled' });

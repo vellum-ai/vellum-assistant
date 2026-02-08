@@ -55,6 +55,11 @@ export interface UndoRequest {
   sessionId: string;
 }
 
+export interface UsageRequest {
+  type: 'usage_request';
+  sessionId: string;
+}
+
 export type ClientMessage =
   | UserMessage
   | ConfirmationResponse
@@ -66,7 +71,8 @@ export type ClientMessage =
   | ModelGetRequest
   | ModelSetRequest
   | HistoryRequest
-  | UndoRequest;
+  | UndoRequest
+  | UsageRequest;
 
 // === Server → Client messages ===
 
@@ -143,6 +149,24 @@ export interface UndoComplete {
   removedCount: number;
 }
 
+export interface UsageUpdate {
+  type: 'usage_update';
+  inputTokens: number;
+  outputTokens: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  estimatedCost: number;
+  model: string;
+}
+
+export interface UsageResponse {
+  type: 'usage_response';
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  estimatedCost: number;
+  model: string;
+}
+
 export type ServerMessage =
   | AssistantTextDelta
   | ToolUseStart
@@ -156,7 +180,9 @@ export type ServerMessage =
   | GenerationCancelled
   | ModelInfo
   | HistoryResponse
-  | UndoComplete;
+  | UndoComplete
+  | UsageUpdate
+  | UsageResponse;
 
 // === Serialization ===
 

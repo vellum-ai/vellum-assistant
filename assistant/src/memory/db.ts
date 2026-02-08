@@ -50,4 +50,8 @@ export function initializeDb(): void {
       created_at INTEGER NOT NULL
     )
   `);
+
+  // Migrations — ALTER TABLE ADD COLUMN throws if column already exists
+  try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN total_input_tokens INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN total_output_tokens INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
 }

@@ -5,6 +5,8 @@ export const conversations = sqliteTable('conversations', {
   title: text('title'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
+  totalInputTokens: integer('total_input_tokens').notNull().default(0),
+  totalOutputTokens: integer('total_output_tokens').notNull().default(0),
 });
 
 export const messages = sqliteTable('messages', {
