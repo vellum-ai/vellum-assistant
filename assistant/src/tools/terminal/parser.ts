@@ -1,4 +1,6 @@
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { getLogger } from '../../util/logger.js';
 import { Parser, Language, type Node as TSNode } from 'web-tree-sitter';
 
@@ -45,17 +47,33 @@ const SENSITIVE_PATH_PREFIXES = [
   '/etc/', '/usr/lib/', '/usr/bin/',
 ];
 
+// Expected SHA-256 checksums for WASM binaries.
+// Update these when intentionally upgrading web-tree-sitter or tree-sitter-bash.
+// Generate with: shasum -a 256 node_modules/web-tree-sitter/web-tree-sitter.wasm node_modules/tree-sitter-bash/tree-sitter-bash.wasm
+const EXPECTED_CHECKSUMS: Record<string, string> = {
+  'web-tree-sitter.wasm': '3d4c304cb7d59cfac4a2aa23c3408416cbfa2287fe17a9c975da46eb2ead8646',
+  'tree-sitter-bash.wasm': '8292919c88a0f7d3fb31d0cd0253ca5a9531bc1ede82b0537f2c63dd8abe6a7a',
+};
+
+function verifyWasmChecksum(filePath: string, label: string): void {
+  const data = readFileSync(filePath);
+  const hash = createHash('sha256').update(data).digest('hex');
+  const expected = EXPECTED_CHECKSUMS[label];
+  if (expected && hash !== expected) {
+    throw new Error(
+      `WASM integrity check failed for ${label}: expected ${expected}, got ${hash}`,
+    );
+  }
+}
+
 let parserInstance: Parser | null = null;
 let initPromise: Promise<void> | null = null;
 
-function findBashWasmPath(): string {
-  // Resolve from node_modules relative to project root
-  // import.meta.dirname points to src/tools/terminal/, so go up 3 levels
-  const fromSource = join(
+function findWasmPath(pkg: string, file: string): string {
+  return join(
     import.meta.dirname ?? __dirname,
-    '..', '..', '..', 'node_modules', 'tree-sitter-bash', 'tree-sitter-bash.wasm',
+    '..', '..', '..', 'node_modules', pkg, file,
   );
-  return fromSource;
 }
 
 async function ensureParser(): Promise<Parser> {
@@ -63,15 +81,20 @@ async function ensureParser(): Promise<Parser> {
 
   if (!initPromise) {
     initPromise = (async () => {
-      // Let web-tree-sitter find its own WASM via import.meta.url
+      const treeSitterWasm = findWasmPath('web-tree-sitter', 'web-tree-sitter.wasm');
+      const bashWasmPath = findWasmPath('tree-sitter-bash', 'tree-sitter-bash.wasm');
+
+      // Verify WASM integrity before loading
+      verifyWasmChecksum(treeSitterWasm, 'web-tree-sitter.wasm');
+      verifyWasmChecksum(bashWasmPath, 'tree-sitter-bash.wasm');
+
       await Parser.init();
 
-      const bashWasmPath = findBashWasmPath();
       const Bash = await Language.load(bashWasmPath);
       const parser = new Parser();
       parser.setLanguage(Bash);
       parserInstance = parser;
-      log.info('Shell parser initialized (web-tree-sitter + bash)');
+      log.info('Shell parser initialized (web-tree-sitter + bash, checksums verified)');
     })();
   }
 
