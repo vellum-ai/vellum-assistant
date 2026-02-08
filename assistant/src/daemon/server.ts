@@ -185,6 +185,16 @@ export class DaemonServer {
       case 'session_switch':
         this.handleSessionSwitch(msg.sessionId, socket);
         break;
+      case 'cancel': {
+        const cancelSessionId = this.socketToSession.get(socket);
+        if (cancelSessionId) {
+          const session = this.sessions.get(cancelSessionId);
+          if (session) {
+            session.abort();
+          }
+        }
+        break;
+      }
       case 'ping':
         this.send(socket, { type: 'pong' });
         break;

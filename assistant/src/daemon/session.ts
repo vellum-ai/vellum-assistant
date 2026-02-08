@@ -19,6 +19,7 @@ export class Session {
   private messages: Message[] = [];
   private agentLoop: AgentLoop;
   private processing = false;
+  private abortController: AbortController | null = null;
   private prompter: PermissionPrompter;
   private executor: ToolExecutor;
   private workingDir: string;
@@ -70,8 +71,8 @@ export class Session {
   abort(): void {
     if (this.processing) {
       log.info({ conversationId: this.conversationId }, 'Aborting in-flight processing');
+      this.abortController?.abort();
       this.prompter.dispose();
-      this.processing = false;
     }
   }
 
@@ -94,6 +95,7 @@ export class Session {
     }
 
     this.processing = true;
+    this.abortController = new AbortController();
 
     try {
       const isFirstMessage = this.messages.length === 0;
@@ -136,10 +138,16 @@ export class Session {
               break;
           }
         },
+        this.abortController.signal,
       );
 
       this.messages = updatedHistory;
-      onEvent({ type: 'message_complete' });
+
+      if (this.abortController?.signal.aborted) {
+        onEvent({ type: 'generation_cancelled' });
+      } else {
+        onEvent({ type: 'message_complete' });
+      }
 
       // Auto-generate conversation title after first exchange
       if (isFirstMessage) {
@@ -148,10 +156,17 @@ export class Session {
         });
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error({ err }, 'Session processing error');
-      onEvent({ type: 'error', message });
+      // AbortError is expected when user cancels — don't treat as an error
+      if (this.abortController?.signal.aborted) {
+        log.info({ conversationId: this.conversationId }, 'Generation cancelled by user');
+        onEvent({ type: 'generation_cancelled' });
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err }, 'Session processing error');
+        onEvent({ type: 'error', message });
+      }
     } finally {
+      this.abortController = null;
       this.processing = false;
     }
   }

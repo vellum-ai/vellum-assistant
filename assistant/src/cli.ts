@@ -14,6 +14,7 @@ export async function startCli(): Promise<void> {
   const socket = net.createConnection(socketPath);
   const parser = createMessageParser();
   let sessionId = '';
+  let generating = false;
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -161,7 +162,14 @@ export async function startCli(): Promise<void> {
           break;
 
         case 'message_complete':
+          generating = false;
           process.stdout.write('\n\n');
+          prompt();
+          break;
+
+        case 'generation_cancelled':
+          generating = false;
+          process.stdout.write('\n[Cancelled]\n\n');
           prompt();
           break;
 
@@ -180,6 +188,7 @@ export async function startCli(): Promise<void> {
           break;
 
         case 'error':
+          generating = false;
           process.stdout.write(`\n[Error: ${msg.message}]\n`);
           prompt();
           break;
@@ -200,6 +209,7 @@ export async function startCli(): Promise<void> {
   rl.on('line', (line) => {
     const content = line.trim();
     if (content) {
+      generating = true;
       send({ type: 'user_message', sessionId, content });
     }
   });
@@ -209,9 +219,13 @@ export async function startCli(): Promise<void> {
     process.exit(0);
   });
 
-  // Ctrl+C also detaches (don't kill daemon)
+  // Ctrl+C: cancel generation if in progress, otherwise detach
   process.on('SIGINT', () => {
-    rl.close();
+    if (generating) {
+      send({ type: 'cancel' });
+    } else {
+      rl.close();
+    }
   });
 
   socket.on('close', () => {
