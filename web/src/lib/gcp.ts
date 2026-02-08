@@ -5,12 +5,12 @@ import path from "path";
 
 import { getStorage } from "@/lib/storage";
 
-const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || "vellum-nonprod";
+const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || "vellum-ai-prod";
 const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || "vellum-ai-prod-vellum-assistant";
 const GCS_PREFIX_BASE = "vellum-assistant";
 const GCP_ZONE = process.env.GCP_ZONE || "us-central1-a";
 const GCP_MACHINE_TYPE = process.env.GCP_MACHINE_TYPE || "e2-medium";
-const GCP_SERVICE_ACCOUNT = process.env.GCP_SERVICE_ACCOUNT || "dev-sa@vellum-nonprod.iam.gserviceaccount.com";
+const GCP_SERVICE_ACCOUNT = process.env.GCP_SERVICE_ACCOUNT || "dev-sa@vellum-ai-prod.iam.gserviceaccount.com";
 const GCP_SA_KEY = process.env.GCP_SA_KEY;
 
 // Prequeue configuration

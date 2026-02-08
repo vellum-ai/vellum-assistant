@@ -1,6 +1,6 @@
 import { Storage } from "@google-cloud/storage";
 
-const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || "vellum-nonprod";
+const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || "vellum-ai-prod";
 const GCP_SA_KEY = process.env.GCP_SA_KEY;
 const NODE_ENV = process.env.NODE_ENV || "development";
 
