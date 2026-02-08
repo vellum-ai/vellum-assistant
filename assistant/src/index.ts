@@ -380,9 +380,9 @@ program
       } else {
         await new Promise<void>((resolve, reject) => {
           const s = net.createConnection(sock);
-          s.on('connect', () => { s.end(); resolve(); });
-          s.on('error', reject);
-          setTimeout(() => { s.destroy(); reject(new Error('timeout')); }, 2000);
+          const timer = setTimeout(() => { s.destroy(); reject(new Error('timeout')); }, 2000);
+          s.on('connect', () => { clearTimeout(timer); s.end(); resolve(); });
+          s.on('error', (err) => { clearTimeout(timer); reject(err); });
         });
         pass('Daemon reachable');
       }

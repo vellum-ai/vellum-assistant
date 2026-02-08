@@ -26,7 +26,11 @@ export function loadConfig(): AssistantConfig {
     }
   }
 
-  const config: AssistantConfig = { ...DEFAULT_CONFIG, ...fileConfig };
+  const config: AssistantConfig = {
+    ...DEFAULT_CONFIG,
+    ...fileConfig,
+    apiKeys: { ...DEFAULT_CONFIG.apiKeys, ...fileConfig.apiKeys },
+  };
 
   // Environment variables override config file
   if (process.env.ANTHROPIC_API_KEY) {
