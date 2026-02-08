@@ -1,63 +1,77 @@
 "use client";
 
-/**
- * VellumBody Component
- *
- * This component renders the body content from vellum.ai homepage (3589 lines of Webflow HTML).
- * Currently loads HTML from /public/vellum-homepage.html and injects React NavBar via portal.
- *
- * CONVERSION STRATEGY: 4-Phase Incremental Approach (see README.md)
- * 
- * Phase 1 ✅ COMPLETE:
- * - NavBar extracted as React component
- * - Auth link replacement working (/login, /signup)
- * - Documentation established
- *
- * Phase 2 ✅ COMPLETE:
- * - Hero section extracted as React component
- * - Logo Marquee extracted as React component
- * - "Automate" section extracted as React component
- *
- * Phase 3 (TODO):
- * - Extract AgentTabs component
- * - Extract PromptBox with animations
- * - Extract video/demo sections
- *
- * Phase 4 (TODO):
- * - Extract Footer
- * - Remove HTML file
- * - Optimize bundle size
- *
- * Why incremental? The Webflow HTML is complex with many interactions.
- * Converting everything at once risks breaking functionality. Each phase
- * can be tested independently before moving to the next.
- */
-
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { NavBar } from "./NavBar";
+import { AgentsSection } from "./AgentsSection";
+import { ArcSection } from "./ArcSection";
+import { AutomateSection } from "./AutomateSection";
+import { BuildAction } from "./BuildAction";
 import { HeroSection } from "./HeroSection";
 import { LogoMarquee } from "./LogoMarquee";
-import { AutomateSection } from "./AutomateSection";
+import { NavBar } from "./NavBar";
+import { PromptSection } from "./PromptSection";
+import { PromptsGrid } from "./PromptsGrid";
+import { TriggerCards } from "./TriggerCards";
+import { VideoIntro } from "./VideoIntro";
+import { WorkflowCTA } from "./WorkflowCTA";
+
+interface PortalContainers {
+  navbar: HTMLElement | null;
+  hero: HTMLElement | null;
+  logo: HTMLElement | null;
+  automate: HTMLElement | null;
+  trigger: HTMLElement | null;
+  videoIntro: HTMLElement | null;
+  buildAction: HTMLElement | null;
+  agents: HTMLElement | null;
+  prompt: HTMLElement | null;
+  arc: HTMLElement | null;
+  prompts: HTMLElement | null;
+  workflowCta: HTMLElement | null;
+}
+
+const INITIAL_CONTAINERS: PortalContainers = {
+  navbar: null,
+  hero: null,
+  logo: null,
+  automate: null,
+  trigger: null,
+  videoIntro: null,
+  buildAction: null,
+  agents: null,
+  prompt: null,
+  arc: null,
+  prompts: null,
+  workflowCta: null,
+};
+
+const SECTION_SELECTORS: Array<{ key: keyof PortalContainers; selector: string }> = [
+  { key: "navbar", selector: "#w-node-_45f8248c-ee2e-e6a9-2792-1d703651d480-3651d355" },
+  { key: "hero", selector: ".section_home.home" },
+  { key: "logo", selector: ".section-logo.new" },
+  { key: "automate", selector: ".section_automate" },
+  { key: "trigger", selector: ".scetion_trigger" },
+  { key: "videoIntro", selector: ".section_video-intro" },
+  { key: "buildAction", selector: ".section_build-action" },
+  { key: "agents", selector: ".section_agents" },
+  { key: "prompt", selector: ".section_prompt" },
+  { key: "arc", selector: ".section_arc" },
+  { key: "prompts", selector: ".section_prompts" },
+  { key: "workflowCta", selector: ".section_workflow-cta" },
+];
 
 export function VellumBody() {
   const [bodyHTML, setBodyHTML] = useState<string>("");
-  const [navbarContainer, setNavbarContainer] = useState<HTMLElement | null>(null);
-  const [heroContainer, setHeroContainer] = useState<HTMLElement | null>(null);
-  const [logoContainer, setLogoContainer] = useState<HTMLElement | null>(null);
-  const [automateContainer, setAutomateContainer] = useState<HTMLElement | null>(null);
+  const [containers, setContainers] = useState<PortalContainers>(INITIAL_CONTAINERS);
 
   useEffect(() => {
-    // Fetch the homepage HTML and extract the body content
     fetch("/vellum-homepage.html")
       .then((res) => res.text())
       .then((html) => {
-        // Extract content between <body and </body>
         const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
         if (bodyMatch && bodyMatch[1]) {
           let bodyContent = bodyMatch[1];
-          
-          // Replace any remaining external auth links with internal routes
+
           bodyContent = bodyContent.replace(
             /href="https:\/\/app\.vellum\.ai\/signup"/g,
             'href="/signup"'
@@ -68,9 +82,9 @@ export function VellumBody() {
           );
           bodyContent = bodyContent.replace(
             /https:\/\/app\.vellum\.ai\/onboarding\/agent-builder\/signup/g,
-            '/signup'
+            "/signup"
           );
-          
+
           setBodyHTML(bodyContent);
         }
       })
@@ -80,38 +94,23 @@ export function VellumBody() {
   }, []);
 
   useEffect(() => {
-    // Find and replace sections after HTML is rendered
-    if (bodyHTML) {
-      setTimeout(() => {
-        // Replace NavBar
-        const navbar = document.querySelector('#w-node-_45f8248c-ee2e-e6a9-2792-1d703651d480-3651d355');
-        if (navbar) {
-          navbar.innerHTML = '';
-          setNavbarContainer(navbar as HTMLElement);
-        }
-
-        // Replace Hero Section (section_home)
-        const heroSection = document.querySelector('.section_home.home');
-        if (heroSection) {
-          heroSection.innerHTML = '';
-          setHeroContainer(heroSection as HTMLElement);
-        }
-
-        // Replace Logo Marquee (section-logo)
-        const logoSection = document.querySelector('.section-logo.new');
-        if (logoSection) {
-          logoSection.innerHTML = '';
-          setLogoContainer(logoSection as HTMLElement);
-        }
-
-        // Replace Automate Section (section_automate)
-        const automateSection = document.querySelector('.section_automate');
-        if (automateSection) {
-          automateSection.innerHTML = '';
-          setAutomateContainer(automateSection as HTMLElement);
-        }
-      }, 0);
+    if (!bodyHTML) {
+      return;
     }
+
+    setTimeout(() => {
+      const next: PortalContainers = { ...INITIAL_CONTAINERS };
+
+      for (const { key, selector } of SECTION_SELECTORS) {
+        const el = document.querySelector(selector);
+        if (el) {
+          el.innerHTML = "";
+          next[key] = el as HTMLElement;
+        }
+      }
+
+      setContainers(next);
+    }, 0);
   }, [bodyHTML]);
 
   if (!bodyHTML) {
@@ -125,10 +124,18 @@ export function VellumBody() {
   return (
     <>
       <div dangerouslySetInnerHTML={{ __html: bodyHTML }} />
-      {navbarContainer && createPortal(<NavBar />, navbarContainer)}
-      {heroContainer && createPortal(<HeroSection />, heroContainer)}
-      {logoContainer && createPortal(<LogoMarquee />, logoContainer)}
-      {automateContainer && createPortal(<AutomateSection />, automateContainer)}
+      {containers.navbar && createPortal(<NavBar />, containers.navbar)}
+      {containers.hero && createPortal(<HeroSection />, containers.hero)}
+      {containers.logo && createPortal(<LogoMarquee />, containers.logo)}
+      {containers.automate && createPortal(<AutomateSection />, containers.automate)}
+      {containers.trigger && createPortal(<TriggerCards />, containers.trigger)}
+      {containers.videoIntro && createPortal(<VideoIntro />, containers.videoIntro)}
+      {containers.buildAction && createPortal(<BuildAction />, containers.buildAction)}
+      {containers.agents && createPortal(<AgentsSection />, containers.agents)}
+      {containers.prompt && createPortal(<PromptSection />, containers.prompt)}
+      {containers.arc && createPortal(<ArcSection />, containers.arc)}
+      {containers.prompts && createPortal(<PromptsGrid />, containers.prompts)}
+      {containers.workflowCta && createPortal(<WorkflowCTA />, containers.workflowCta)}
     </>
   );
 }
