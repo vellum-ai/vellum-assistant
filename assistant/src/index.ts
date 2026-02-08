@@ -30,6 +30,12 @@ import {
   clearAllRules,
 } from './permissions/trust-store.js';
 import { getRecentInvocations } from './memory/tool-usage-store.js';
+import {
+  getConversation,
+  getMessages,
+  listConversations,
+} from './memory/conversation-store.js';
+import { formatMarkdown, formatJson } from './export/formatter.js';
 
 function sendOneMessage(
   msg: ClientMessage,
@@ -164,6 +170,65 @@ sessions
       console.log(`Created session: ${response.title} (${response.sessionId})`);
     } else if (response.type === 'error') {
       console.error(`Error: ${response.message}`);
+    }
+  });
+
+sessions
+  .command('export [sessionId]')
+  .description('Export a conversation as markdown or JSON')
+  .option('-f, --format <format>', 'Output format: md or json', 'md')
+  .option('-o, --output <file>', 'Write to file instead of stdout')
+  .action(async (sessionId?: string, opts?: { format: string; output?: string }) => {
+    const format = opts?.format ?? 'md';
+    if (format !== 'md' && format !== 'json') {
+      console.error('Error: format must be "md" or "json"');
+      process.exit(1);
+    }
+
+    // If no session ID given, pick the most recent one
+    let id = sessionId;
+    if (!id) {
+      const all = listConversations(1);
+      if (all.length === 0) {
+        console.error('No sessions found');
+        process.exit(1);
+      }
+      id = all[0].id;
+    }
+
+    // Support prefix matching for session IDs
+    let conversation = getConversation(id);
+    if (!conversation) {
+      const all = listConversations();
+      const match = all.find((c) => c.id.startsWith(id!));
+      if (match) {
+        conversation = match;
+      } else {
+        console.error(`Session not found: ${id}`);
+        process.exit(1);
+      }
+    }
+
+    const msgs = getMessages(conversation.id);
+    const exportData = {
+      ...conversation,
+      messages: msgs.map((m) => ({
+        role: m.role,
+        content: JSON.parse(m.content),
+        createdAt: m.createdAt,
+      })),
+    };
+
+    const output = format === 'json'
+      ? formatJson(exportData)
+      : formatMarkdown(exportData);
+
+    if (opts?.output) {
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(opts.output, output);
+      console.error(`Exported to ${opts.output}`);
+    } else {
+      process.stdout.write(output);
     }
   });
 
