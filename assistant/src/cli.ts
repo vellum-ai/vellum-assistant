@@ -28,6 +28,7 @@ export async function startCli(): Promise<void> {
   let lastResponse = '';
   let lastUsage: { inputTokens: number; outputTokens: number; totalInputTokens: number; totalOutputTokens: number; estimatedCost: number; model: string } | null = null;
   let pendingSessionPick = false;
+  let pendingConfirmation = false;
   let toolStreaming = false;
   let reconnecting = false;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -59,10 +60,12 @@ export async function startCli(): Promise<void> {
     rl.prompt();
   }
 
-  function send(msg: ClientMessage): void {
+  function send(msg: ClientMessage): boolean {
     if (socket && !socket.destroyed) {
       socket.write(serialize(msg));
+      return true;
     }
+    return false;
   }
 
   function formatCommandPreview(req: ConfirmationRequest): string {
@@ -103,22 +106,26 @@ export async function startCli(): Promise<void> {
     }
     process.stdout.write(`\u2514 > `);
 
+    pendingConfirmation = true;
     rl.once('line', (answer) => {
       const trimmed = answer.trim();
       const choice = trimmed.toLowerCase();
 
       // Uppercase 'A' → allowlist pattern selection (check before lowercase 'a')
       if (trimmed === 'A' || choice === 'allowlist') {
+        // pendingConfirmation stays true through sub-prompts
         renderPatternSelection(req, 'always_allow');
         return;
       }
 
       // Uppercase 'D' → denylist pattern selection (check before lowercase 'd')
       if (trimmed === 'D' || choice === 'denylist') {
+        // pendingConfirmation stays true through sub-prompts
         renderPatternSelection(req, 'always_deny');
         return;
       }
 
+      pendingConfirmation = false;
       if (choice === 'a') {
         send({
           type: 'confirmation_response',
@@ -159,9 +166,11 @@ export async function startCli(): Promise<void> {
       const idx = parseInt(answer.trim(), 10) - 1;
       if (idx >= 0 && idx < req.allowlistOptions.length) {
         const selectedPattern = req.allowlistOptions[idx].pattern;
+        // pendingConfirmation stays true through scope selection
         renderScopeSelection(req, selectedPattern, decision);
       } else {
         // Invalid selection → deny
+        pendingConfirmation = false;
         send({
           type: 'confirmation_response',
           requestId: req.requestId,
@@ -181,6 +190,7 @@ export async function startCli(): Promise<void> {
     process.stdout.write(`\u2514 > `);
 
     rl.once('line', (answer) => {
+      pendingConfirmation = false;
       const idx = parseInt(answer.trim(), 10) - 1;
       if (idx >= 0 && idx < req.scopeOptions.length) {
         send({
@@ -329,6 +339,7 @@ export async function startCli(): Promise<void> {
         spinner.stop();
         generating = false;
         pendingSessionPick = false;
+        pendingConfirmation = false;
         process.stdout.write(`\n[Error: ${msg.message}]\n`);
         prompt();
         break;
@@ -434,6 +445,7 @@ export async function startCli(): Promise<void> {
     generating = false;
     toolStreaming = false;
     pendingSessionPick = false;
+    pendingConfirmation = false;
     lastUsage = null;
 
     // Remove stale rl.once('line') handlers from confirmation/selection prompts
@@ -504,6 +516,7 @@ export async function startCli(): Promise<void> {
     const content = line.trim();
     if (!content) return;
     if (pendingSessionPick) return;
+    if (pendingConfirmation) return;
     if (reconnecting) return;
 
     if (content === '/copy') {
@@ -599,8 +612,12 @@ export async function startCli(): Promise<void> {
     }
 
     lastResponse = '';
+    if (!send({ type: 'user_message', sessionId, content })) {
+      process.stdout.write('[Not connected — message not sent]\n');
+      prompt();
+      return;
+    }
     generating = true;
-    send({ type: 'user_message', sessionId, content });
     spinner.start('Thinking...');
   }
 
