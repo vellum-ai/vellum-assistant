@@ -22,6 +22,10 @@ export class DaemonServer {
   private sessions = new Map<string, Session>();
   private socketToSession = new Map<net.Socket, string>();
   private connectedSockets = new Set<net.Socket>();
+  // Guards against duplicate session creation when multiple clients connect
+  // with the same conversation ID concurrently. The first caller creates the
+  // session; subsequent callers await the same promise.
+  private sessionCreating = new Map<string, Promise<Session>>();
   private socketPath: string;
   private watchers: FSWatcher[] = [];
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -221,20 +225,41 @@ export class DaemonServer {
     const sendToClient = (msg: ServerMessage) => this.send(socket, msg);
 
     if (!session || (session.isStale() && !session.isProcessing())) {
-      const config = getConfig();
-      const provider = getProvider(config.provider);
-      const workingDir = process.cwd();
+      // Check if another caller is already creating this session.
+      // Without this guard, two concurrent getOrCreateSession calls for the
+      // same conversationId would both pass the null/stale check, both create
+      // a Session + loadFromDb(), and the second set() would orphan the first.
+      const pending = this.sessionCreating.get(conversationId);
+      if (pending) {
+        session = await pending;
+        session.updateClient(sendToClient);
+        return session;
+      }
 
-      session = new Session(
-        conversationId,
-        provider,
-        config.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
-        config.maxTokens,
-        sendToClient,
-        workingDir,
-      );
-      await session.loadFromDb();
-      this.sessions.set(conversationId, session);
+      const createPromise = (async () => {
+        const config = getConfig();
+        const provider = getProvider(config.provider);
+        const workingDir = process.cwd();
+
+        const newSession = new Session(
+          conversationId,
+          provider,
+          config.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+          config.maxTokens,
+          sendToClient,
+          workingDir,
+        );
+        await newSession.loadFromDb();
+        this.sessions.set(conversationId, newSession);
+        return newSession;
+      })();
+
+      this.sessionCreating.set(conversationId, createPromise);
+      try {
+        session = await createPromise;
+      } finally {
+        this.sessionCreating.delete(conversationId);
+      }
     } else {
       // Rebind to the new socket so IPC goes to the current client
       session.updateClient(sendToClient);

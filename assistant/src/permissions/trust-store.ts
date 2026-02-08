@@ -60,7 +60,10 @@ function getRules(): TrustRule[] {
 }
 
 export function addRule(tool: string, pattern: string, scope: string, decision: 'allow' | 'deny' = 'allow'): TrustRule {
-  const rules = getRules();
+  // Re-read from disk to avoid lost updates if another call modified rules
+  // between our last read and now (e.g. two rapid trust rule additions).
+  cachedRules = null;
+  const rules = [...getRules()];
   const rule: TrustRule = {
     id: uuid(),
     tool,
@@ -77,7 +80,9 @@ export function addRule(tool: string, pattern: string, scope: string, decision: 
 }
 
 export function removeRule(id: string): boolean {
-  const rules = getRules();
+  // Re-read from disk to avoid lost updates from concurrent modifications.
+  cachedRules = null;
+  const rules = [...getRules()];
   const index = rules.findIndex((r) => r.id === id);
   if (index === -1) return false;
   rules.splice(index, 1);

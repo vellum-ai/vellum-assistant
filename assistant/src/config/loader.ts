@@ -11,6 +11,9 @@ const log = getLogger('config');
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama'] as const;
 
 let cached: AssistantConfig | null = null;
+// Guard against concurrent loadConfig() calls: once one caller starts loading,
+// subsequent callers wait on the same result instead of loading independently.
+let loading = false;
 
 function getConfigPath(): string {
   return join(getDataDir(), 'config.json');
@@ -19,56 +22,67 @@ function getConfigPath(): string {
 export function loadConfig(): AssistantConfig {
   if (cached) return cached;
 
-  ensureDataDir();
-  const configPath = getConfigPath();
+  // loadConfig is synchronous (readFileSync) so this guard mainly protects
+  // against re-entrant calls (e.g. validateConfig logging triggers a reload).
+  if (loading) {
+    return { ...DEFAULT_CONFIG };
+  }
+  loading = true;
 
-  let fileConfig: Partial<AssistantConfig> = {};
-  if (existsSync(configPath)) {
-    const mode = statSync(configPath).mode;
-    if (mode & 0o077) {
-      log.warn(
-        `Config file ${configPath} is readable by other users (mode ${(mode & 0o777).toString(8)}). ` +
-        `Run: chmod 600 ${configPath}`,
-      );
+  try {
+    ensureDataDir();
+    const configPath = getConfigPath();
+
+    let fileConfig: Partial<AssistantConfig> = {};
+    if (existsSync(configPath)) {
+      const mode = statSync(configPath).mode;
+      if (mode & 0o077) {
+        log.warn(
+          `Config file ${configPath} is readable by other users (mode ${(mode & 0o777).toString(8)}). ` +
+          `Run: chmod 600 ${configPath}`,
+        );
+      }
+
+      try {
+        fileConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+      } catch (err) {
+        throw new ConfigError(`Failed to parse config at ${configPath}: ${err}`);
+      }
     }
 
-    try {
-      fileConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
-    } catch (err) {
-      throw new ConfigError(`Failed to parse config at ${configPath}: ${err}`);
+    if (
+      fileConfig.apiKeys !== undefined &&
+      (typeof fileConfig.apiKeys !== 'object' || fileConfig.apiKeys === null || Array.isArray(fileConfig.apiKeys))
+    ) {
+      log.error('Invalid apiKeys in config file: must be an object with string values. Ignoring.');
+      delete fileConfig.apiKeys;
     }
-  }
 
-  if (
-    fileConfig.apiKeys !== undefined &&
-    (typeof fileConfig.apiKeys !== 'object' || fileConfig.apiKeys === null || Array.isArray(fileConfig.apiKeys))
-  ) {
-    log.error('Invalid apiKeys in config file: must be an object with string values. Ignoring.');
-    delete fileConfig.apiKeys;
-  }
+    const config: AssistantConfig = {
+      ...DEFAULT_CONFIG,
+      ...fileConfig,
+      apiKeys: { ...DEFAULT_CONFIG.apiKeys, ...fileConfig.apiKeys },
+      timeouts: { ...DEFAULT_CONFIG.timeouts, ...(fileConfig as Record<string, unknown>).timeouts as Partial<AssistantConfig['timeouts']> },
+    };
 
-  const config: AssistantConfig = {
-    ...DEFAULT_CONFIG,
-    ...fileConfig,
-    apiKeys: { ...DEFAULT_CONFIG.apiKeys, ...fileConfig.apiKeys },
-    timeouts: { ...DEFAULT_CONFIG.timeouts, ...(fileConfig as Record<string, unknown>).timeouts as Partial<AssistantConfig['timeouts']> },
-  };
+    validateConfig(config);
 
-  validateConfig(config);
+    // Environment variables override config file (after validation so apiKeys is a valid object)
+    if (process.env.ANTHROPIC_API_KEY) {
+      config.apiKeys.anthropic = process.env.ANTHROPIC_API_KEY;
+    }
+    if (process.env.OPENAI_API_KEY) {
+      config.apiKeys.openai = process.env.OPENAI_API_KEY;
+    }
+    if (process.env.GEMINI_API_KEY) {
+      config.apiKeys.gemini = process.env.GEMINI_API_KEY;
+    }
 
-  // Environment variables override config file (after validation so apiKeys is a valid object)
-  if (process.env.ANTHROPIC_API_KEY) {
-    config.apiKeys.anthropic = process.env.ANTHROPIC_API_KEY;
+    cached = config;
+    return config;
+  } finally {
+    loading = false;
   }
-  if (process.env.OPENAI_API_KEY) {
-    config.apiKeys.openai = process.env.OPENAI_API_KEY;
-  }
-  if (process.env.GEMINI_API_KEY) {
-    config.apiKeys.gemini = process.env.GEMINI_API_KEY;
-  }
-
-  cached = config;
-  return config;
 }
 
 function validateConfig(config: AssistantConfig): void {

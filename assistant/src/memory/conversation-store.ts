@@ -60,11 +60,14 @@ export function addMessage(conversationId: string, role: string, content: string
     content,
     createdAt: now,
   };
-  db.insert(messages).values(message).run();
-  db.update(conversations)
-    .set({ updatedAt: now })
-    .where(eq(conversations.id, conversationId))
-    .run();
+  // Wrap insert + updatedAt bump in a transaction so they're atomic.
+  db.transaction((tx) => {
+    tx.insert(messages).values(message).run();
+    tx.update(conversations)
+      .set({ updatedAt: now })
+      .where(eq(conversations.id, conversationId))
+      .run();
+  });
   return message;
 }
 
@@ -124,16 +127,17 @@ export function deleteLastExchange(conversationId: string): number {
   }
   if (lastUserIdx === -1) return 0;
 
-  // Delete from lastUserIdx onward
+  // Delete from lastUserIdx onward, atomically with the updatedAt bump
   const toDelete = allMessages.slice(lastUserIdx);
-  for (const m of toDelete) {
-    db.delete(messages).where(eq(messages.id, m.id)).run();
-  }
-
-  db.update(conversations)
-    .set({ updatedAt: Date.now() })
-    .where(eq(conversations.id, conversationId))
-    .run();
+  db.transaction((tx) => {
+    for (const m of toDelete) {
+      tx.delete(messages).where(eq(messages.id, m.id)).run();
+    }
+    tx.update(conversations)
+      .set({ updatedAt: Date.now() })
+      .where(eq(conversations.id, conversationId))
+      .run();
+  });
 
   return toDelete.length;
 }
