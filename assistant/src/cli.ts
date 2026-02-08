@@ -21,7 +21,6 @@ export async function startCli(): Promise<void> {
   let generating = false;
   let lastResponse = '';
   let pendingSessionPick = false;
-  let pendingSessionList: Array<{ id: string; title: string; updatedAt: number }> = [];
   const spinner = new Spinner();
 
   function formatToolProgress(toolName: string, input: Record<string, unknown>): string {
@@ -281,8 +280,6 @@ export async function startCli(): Promise<void> {
 
         case 'session_list_response':
           if (pendingSessionPick) {
-            pendingSessionPick = false;
-            pendingSessionList = msg.sessions;
             renderSessionPicker(msg.sessions);
           } else {
             for (const session of msg.sessions) {
