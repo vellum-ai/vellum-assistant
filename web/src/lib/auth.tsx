@@ -52,15 +52,10 @@ function getStoredAuth(): StoredAuth | null {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  const [storedAuth, setStoredAuth] = useState<StoredAuth | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [storedAuth, setStoredAuth] = useState<StoredAuth | null>(() => getStoredAuth());
+  const [isLoading, setIsLoading] = useState(false);
   const isLoggedIn = storedAuth?.isLoggedIn ?? false;
   const username = storedAuth?.username ?? null;
-
-  useEffect(() => {
-    setStoredAuth(getStoredAuth());
-    setIsLoading(false);
-  }, []);
 
   const login = useCallback((user: string, password: string): boolean => {
     if (user && password) {
