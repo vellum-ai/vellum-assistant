@@ -297,12 +297,28 @@ function detectOpaqueConstructs(node: TSNode, segments: CommandSegment[]): boole
     // Variable expansion used as command name
     if (n.type === 'command') {
       const firstChild = n.namedChild(0);
-      if (firstChild && (
-        firstChild.type === 'simple_expansion' ||
-        firstChild.type === 'expansion' ||
-        firstChild.type === 'command_substitution'
-      )) {
-        return true;
+      if (firstChild) {
+        // Direct expansion as command (e.g. in some grammars)
+        if (
+          firstChild.type === 'simple_expansion' ||
+          firstChild.type === 'expansion' ||
+          firstChild.type === 'command_substitution'
+        ) {
+          return true;
+        }
+        // tree-sitter-bash wraps the command name in a command_name node,
+        // so check inside it for variable/command substitution
+        if (firstChild.type === 'command_name') {
+          const inner = firstChild.namedChild(0);
+          if (inner && (
+            inner.type === 'simple_expansion' ||
+            inner.type === 'expansion' ||
+            inner.type === 'command_substitution' ||
+            inner.type === 'concatenation'
+          )) {
+            return true;
+          }
+        }
       }
     }
 

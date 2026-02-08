@@ -39,6 +39,12 @@ class ShellTool implements Tool {
       return { content: 'Error: command is required and must be a string', isError: true };
     }
 
+    // Reject commands containing null bytes — they cause truncation at the
+    // OS level while the parser sees the full string, enabling bypass.
+    if (command.includes('\0')) {
+      return { content: 'Error: command contains null bytes', isError: true };
+    }
+
     log.info({ command, cwd: context.workingDir }, 'Executing shell command');
 
     return new Promise<ToolExecutionResult>((resolve) => {
@@ -46,7 +52,9 @@ class ShellTool implements Tool {
       let stderr = '';
       let timedOut = false;
 
-      const child = spawn('bash', ['-c', command], {
+      // The '--' separator prevents bash from interpreting the command
+      // string as additional flags if it starts with '-'.
+      const child = spawn('bash', ['-c', '--', command], {
         cwd: context.workingDir,
         env: { ...process.env },
         stdio: ['ignore', 'pipe', 'pipe'],

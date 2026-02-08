@@ -397,25 +397,19 @@ describe('Shell Parser', () => {
       expect(result.hasOpaqueConstructs).toBe(true);
     });
 
-    test('variable expansion as command name ($CMD) — not detected due to command_name wrapping', async () => {
-      // tree-sitter-bash wraps $CMD in a command_name node, so the parser's
-      // check for simple_expansion as first child of command doesn't trigger
+    test('variable expansion as command name ($CMD) is opaque', async () => {
       const result = await parse('$CMD arg1 arg2');
-      expect(result.hasOpaqueConstructs).toBe(false);
-      // The program IS captured as $CMD though
-      expect(result.segments[0].program).toBe('$CMD');
+      expect(result.hasOpaqueConstructs).toBe(true);
     });
 
-    test('${var} expansion as command name — not detected due to command_name wrapping', async () => {
+    test('${var} expansion as command name is opaque', async () => {
       const result = await parse('${CMD} arg1');
-      expect(result.hasOpaqueConstructs).toBe(false);
-      expect(result.segments[0].program).toBe('${CMD}');
+      expect(result.hasOpaqueConstructs).toBe(true);
     });
 
-    test('command substitution as command name — not detected due to command_name wrapping', async () => {
+    test('command substitution as command name is opaque', async () => {
       const result = await parse('$(get_cmd) arg1');
-      expect(result.hasOpaqueConstructs).toBe(false);
-      expect(result.segments[0].program).toBe('$(get_cmd)');
+      expect(result.hasOpaqueConstructs).toBe(true);
     });
 
     test('safe command is NOT opaque', async () => {
