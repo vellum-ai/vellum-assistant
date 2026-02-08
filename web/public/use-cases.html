@@ -1,0 +1,1119 @@
+<!DOCTYPE html><!-- Last Published: Fri Feb 06 2026 19:21:32 GMT+0000 (Coordinated Universal Time) --><html data-wf-domain="www.vellum.ai" data-wf-page="654b78fd3b9a8ab5dd0bc46d" data-wf-site="63f416b32254e8eca5d8af54" lang="en"><head><meta charset="utf-8"/><title>Not Found - Vellum -</title><meta content="Not Found - Vellum -" property="og:title"/><meta content="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/63f6b1825f4c7af02ba0c68a_open-graph-image.png" property="og:image"/><meta content="Not Found - Vellum -" property="twitter:title"/><meta content="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/63f6b1825f4c7af02ba0c68a_open-graph-image.png" property="twitter:image"/><meta content="width=device-width, initial-scale=1" name="viewport"/><link href="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/css/vellum-v2.webflow.shared.8974b486a.min.css" rel="stylesheet" type="text/css" integrity="sha384-iXS0hqh2XhV4cggyxfyByEBXc6zfb+ifhTIGKjaf4dzNqrxjku3vwiVZ925Mf7Ef" crossorigin="anonymous"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link href="https://fonts.gstatic.com" rel="preconnect" crossorigin="anonymous"/><script src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js" type="text/javascript"></script><script type="text/javascript">WebFont.load({  google: {    families: ["Montserrat:100,100italic,200,200italic,300,300italic,400,400italic,500,500italic,600,600italic,700,700italic,800,800italic,900,900italic","Lato:100,100italic,300,300italic,400,400italic,700,700italic,900,900italic","Inter:300,400,500,600,700","Playfair Display:300,400,500,600,700"]  }});</script><script type="text/javascript">!function(o,c){var n=c.documentElement,t=" w-mod-";n.className+=t+"js",("ontouchstart"in o||o.DocumentTouch&&c instanceof DocumentTouch)&&(n.className+=t+"touch")}(window,document);</script><link href="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/670405978c3b31a77bed0c6f_Favicon.png" rel="shortcut icon" type="image/x-icon"/><link href="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6430460e0359f61ed2789f03_vellum-icon-256-x-256.png" rel="apple-touch-icon"/><link href="https://www.vellum.ai/404" rel="canonical"/><script async="" src="https://www.googletagmanager.com/gtag/js?id=G-PDKD1Q02E2"></script><script type="text/javascript">window.dataLayer = window.dataLayer || [];function gtag(){dataLayer.push(arguments);}gtag('set', 'developer_id.dZGVlNj', true);gtag('js', new Date());gtag('config', 'G-PDKD1Q02E2');</script>
+
+<!-- UTM listener (HEAD) -->
+<script>
+(function () {
+  const KEY='first_touch_utms';
+
+  // helpers
+  function U(){return new URL(location.href)}
+  function S(k,o){try{localStorage.setItem(k,JSON.stringify(o))}catch(e){}}
+  function L(k){try{return JSON.parse(localStorage.getItem(k)||'{}')}catch(e){return {}}}
+  function pick(sp){
+    const keys=['utm_source','utm_medium','utm_campaign','utm_content','utm_term',
+                'gclid','gbraid','wbraid','msclkid','fbclid','ttclid'];
+    const out={}; keys.forEach(k=>{ if(sp.get(k)) out[k]=sp.get(k) });
+    return out;
+  }
+
+  // normalize AI sources -> geo
+  function normalizeAI(src){
+    const v=(src||'').toLowerCase();
+    if(!v) return null;
+    if (v.includes('chatgpt') || v.includes('openai'))   return {source:'chatgpt',    medium:'geo'};
+    if (v.includes('perplexity'))                        return {source:'perplexity', medium:'geo'};
+    if (v.includes('claude') || v.includes('anthropic')) return {source:'claude',     medium:'geo'};
+    return null;
+  }
+
+  // infer when URL has no UTMs
+  function infer(sp){
+    const ref=document.referrer||''; let host=''; try{host=new URL(ref).host.toLowerCase()}catch(e){}
+    const ua=(navigator.userAgent||'').toLowerCase();
+
+    // paid click ids in URL -> paid
+    const paidIds=['gclid','gbraid','wbraid','msclkid','fbclid','ttclid'];
+    if (paidIds.some(k=>sp.has(k))) {
+      if (host.includes('google.'))   return {utm_source:'google',   utm_medium:'cpc'};
+      if (host.includes('bing.com'))  return {utm_source:'bing',     utm_medium:'cpc'};
+      if (host.includes('facebook.com')||host.includes('instagram.com')) return {utm_source:'facebook', utm_medium:'paid_social'};
+      if (host.includes('linkedin.com')) return {utm_source:'linkedin', utm_medium:'paid_social'};
+      if (host.includes('x.com')||host.includes('twitter.com')||host.includes('t.co')) return {utm_source:'x', utm_medium:'paid_social'};
+      if (host.includes('reddit.com')) return {utm_source:'reddit', utm_medium:'paid_social'};
+      if (host.includes('tiktok.com')) return {utm_source:'tiktok', utm_medium:'paid_social'};
+      return {utm_source:host||'unknown', utm_medium:'cpc'};
+    }
+
+    // search
+    if (host.includes('google.'))      return {utm_source:'google', utm_medium:'organic'};
+    if (host.includes('bing.com'))     return {utm_source:'bing',   utm_medium:'organic'};
+    if (host.includes('duckduckgo.'))  return {utm_source:'duckduckgo', utm_medium:'organic'};
+    if (host.includes('yahoo.'))       return {utm_source:'yahoo',  utm_medium:'organic'};
+
+    // AI -> geo
+    if (host.includes('chat.openai.com')||host.includes('chatgpt.com')||host.includes('r.openai.com')||host.includes('link.openai.com'))
+      return {utm_source:'chatgpt', utm_medium:'geo'};
+    if (host.includes('claude.ai')||host.includes('anthropic.com'))
+      return {utm_source:'claude', utm_medium:'geo'};
+    if (host.includes('perplexity.ai'))
+      return {utm_source:'perplexity', utm_medium:'geo'};
+
+    // socials
+    if (host.includes('x.com')||host.includes('twitter.com')||host.includes('t.co')) return {utm_source:'x', utm_medium:'social'};
+    if (host.includes('facebook.com')||host.includes('instagram.com')) return {utm_source:'facebook', utm_medium:'social'};
+    if (host.includes('linkedin.com')) return {utm_source:'linkedin', utm_medium:'social'};
+    if (host.includes('reddit.com'))   return {utm_source:'reddit',   utm_medium:'social'};
+    if (host.includes('tiktok.com'))   return {utm_source:'tiktok',   utm_medium:'social'};
+
+    // communities
+    if (host.includes('news.ycombinator.com')) return {utm_source:'hackernews', utm_medium:'referral'};
+    if (host.includes('github.com'))           return {utm_source:'github',     utm_medium:'referral'};
+
+    // UA fallback for AI / direct
+    if (!ref) {
+      if (ua.includes('chatgpt'))                   return {utm_source:'chatgpt',    utm_medium:'geo'};
+      if (ua.includes('anthropic')||ua.includes('claude')) return {utm_source:'claude',     utm_medium:'geo'};
+      if (ua.includes('perplexity'))               return {utm_source:'perplexity', utm_medium:'geo'};
+      return {utm_source:'direct', utm_medium:'none'};
+    }
+    return {utm_source:host||'unknown', utm_medium:'referral'};
+  }
+
+  // main
+  const url=U(); const s=url.searchParams;
+  let ft=L(KEY) || {};
+  let urlUTM=pick(s);
+
+  // normalize AI in URL (add utm_medium=geo if missing)
+  (function(){
+    if(!s.has('utm_source')) return;
+    const norm=normalizeAI(s.get('utm_source'));
+    if(!norm) return;
+    let changed=false;
+    if (s.get('utm_source')!==norm.source){ s.set('utm_source',norm.source); changed=true; }
+    if (!s.has('utm_medium')){ s.set('utm_medium',norm.medium); changed=true; }
+    if (changed){ history.replaceState({},'',url.toString()); urlUTM=pick(s); }
+  })();
+
+  // entry detection
+  const hasUTMs = Object.keys(urlUTM).length > 0;
+  const curHost = location.hostname.replace(/^www\./,'');
+  let refHost = '';
+  try { refHost = new URL(document.referrer).hostname.replace(/^www\./,''); } catch(e) {}
+  const cameFromOutside = !!refHost && refHost !== curHost;
+  const isFirstHitThisTab = !sessionStorage.getItem('utm_session_started');
+  sessionStorage.setItem('utm_session_started','1');
+  const isNewEntryNoUTM = !hasUTMs && (cameFromOutside || isFirstHitThisTab);
+
+  // decide active first-touch (order matters)
+  if (hasUTMs) {
+    // explicit campaign in URL -> refresh first-touch
+    ft = urlUTM;
+    const n = normalizeAI(ft.utm_source);
+    if (n){ ft.utm_source = n.source; if (!ft.utm_medium) ft.utm_medium = 'geo'; }
+    S(KEY, ft);
+  } else if (isNewEntryNoUTM) {
+    // new entry with no UTMs -> infer fresh and reset
+    const inf = infer(s);
+    if (inf.utm_source){
+      ft = Object.assign({}, inf);
+      S(KEY, ft);
+      // reflect minimal in URL (add-only)
+      if (!s.has('utm_source')) s.set('utm_source', ft.utm_source);
+      if (!s.has('utm_medium')) s.set('utm_medium', ft.utm_medium);
+      history.replaceState({}, '', url.toString());
+    }
+  } // else internal nav -> keep ft
+
+  // backfill ALL first-touch UTMs into URL (add-only)
+  (function(){
+    if (!ft || !Object.keys(ft).length) return;
+    const keys=['utm_source','utm_medium','utm_campaign','utm_content','utm_term'];
+    let changed=false;
+    keys.forEach(k=>{ if(ft[k] && !s.has(k)) { s.set(k, ft[k]); changed=true; } });
+    if (changed) history.replaceState({},'',url.toString());
+  })();
+})();
+</script>
+<!-- /UTM listener (HEAD) -->
+
+
+
+
+
+
+<script>
+  (function() {
+    if (typeof window === 'undefined') return;
+    if (typeof window.signals !== 'undefined') return;
+    var script = document.createElement('script');
+    script.src = 'https://cdn.cr-relay.com/v1/site/64388303-58a5-4a26-a0cf-f6b295bc4c3b/signals.js';
+    script.async = true;
+    window.signals = Object.assign(
+      [],
+      ['page', 'identify', 'form'].reduce(function (acc, method){
+        acc[method] = function () {
+          signals.push([method, arguments]);
+          return signals;
+        };
+       return acc;
+      }, {})
+    );
+    document.head.appendChild(script);
+  })();
+</script>
+
+<script id="athena-telemetry-secure">
+  (function() {
+    window.athenaTelemetryQueue = window.athenaTelemetryQueue || [];
+    
+    var script = document.createElement('script');
+    script.async = true;
+    script.src = 'https://app.athenahq.ai/api/tracking/91660509-34da-45d1-ab12-daae57572117';
+    
+    var firstScript = document.getElementsByTagName('script')[0];
+    if (firstScript && firstScript.parentNode) {
+      firstScript.parentNode.insertBefore(script, firstScript);
+    } else {
+      document.head.appendChild(script);
+    }
+  })();
+</script>
+
+<meta name="_foundr" content="5dc1994f4c9296209f3627a5ef7e2208">
+
+<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-KFKFCZV6');</script>
+
+<!-- End Google Tag Manager -->
+<script>
+    window.__positional_config = {
+        customerId: "9309975e-cd4d-4392-b468-93e78f92cba3",
+      };
+</script>
+
+
+<script>
+    window.vectorPixelId = "fe47ea79-40fa-4540-8ab7-959151033470";
+</script>
+
+<script async src="https://cdn.vector.co/pixel.js"></script>
+
+<script>function initApollo(){var n=Math.random().toString(36).substring(7),o=document.createElement("script");
+o.src="https://assets.apollo.io/micro/website-tracker/tracker.iife.js?nocache="+n,o.async=!0,o.defer=!0,
+o.onload=function(){window.trackingFunctions.onLoad({appId:"66313bf21285dd03008c2a74"})},
+document.head.appendChild(o)}initApollo();</script>
+<script defer src="https://cdn.jsdelivr.net/npm/@finsweet/attributes-scrolldisable@1/scrolldisable.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@finsweet/attributes-selectcustom@1/selectcustom.js"></script>
+
+
+<!-- [Attributes by Finsweet] Mirror click events -->
+<script defer src="https://cdn.jsdelivr.net/npm/@finsweet/attributes-mirrorclick@1/mirrorclick.js"></script>
+
+<script src="https://analytics.ahrefs.com/analytics.js" data-key="C+XP+IM+HchsfL5pOXnjtQ" async></script>
+
+
+<!-- Swiper CSS -->
+<link
+  rel="stylesheet"
+  href="https://cdn.jsdelivr.net/npm/swiper@10/swiper-bundle.min.css"
+/>
+
+
+
+<!-- Include Splide library -->
+<link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/@splidejs/splide@3.2.2/dist/css/splide-core.min.css">
+<style>
+  .splide,
+  .splide__track {
+    overflow: visible;
+  }
+</style>
+
+
+<!-- Finsweet Attributes -->
+<script async type="module"
+src="https://cdn.jsdelivr.net/npm/@finsweet/attributes@2/attributes.js"
+fs-inject
+></script>
+
+<!-- [Attributes by Finsweet] Powerful Rich Text -->
+<script defer src="https://cdn.jsdelivr.net/npm/@finsweet/attributes-richtext@1/richtext.js"></script>
+
+
+
+
+<!-- [Attributes by Finsweet] CMS Nest -->
+<script async src="https://cdn.jsdelivr.net/npm/@finsweet/attributes-cmsnest@1/cmsnest.js"></script><script src="https://cdn.jsdelivr.net/npm/@flowbase-co/boosters-tab-rotation-webflow@1.2.2/dist/tab-rotation.js" type="text/javascript" integrity="sha384-NfwimfVJo0ivYDT5XCEV0qOVEOg5WAi1gRKNLKf9B1yMkwajX9dVU7Hjb+V0UFNr" crossorigin="anonymous"></script><script src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54%2F6544eda5f000985a163a8687%2F6930a6d6157863a1f196065f%2Ffinsweetcomponentsconfig-1.0.3.js" type="module" async="" siteId="63f416b32254e8eca5d8af54" finsweet="components"></script><script type="text/javascript">window.__WEBFLOW_CURRENCY_SETTINGS = {"currencyCode":"USD","symbol":"$","decimal":".","fractionDigits":2,"group":",","template":"{{wf {\"path\":\"symbol\",\"type\":\"PlainText\"} }} {{wf {\"path\":\"amount\",\"type\":\"CommercePrice\"} }} {{wf {\"path\":\"currencyCode\",\"type\":\"PlainText\"} }}","hideDecimalForWholeNumbers":false};</script></head><body class="body-16"><div class="page_code_wrap"><div class="page_code_base w-embed"><style>
+/* default styles */
+body {
+	font-smoothing: antialiased;
+	-webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
+}
+h1, h2, h3, h4, h5, h6, p, label, blockquote {
+	margin-top: 0;
+	margin-bottom: 0;
+}
+button {
+	background-color: unset;
+	padding: unset;
+	text-align: inherit;
+	cursor: pointer;
+}
+img::selection {
+	background: transparent;
+}
+:is(h1, h2, h3, h4, h5, h6, p) a {
+	text-decoration: underline;
+}
+.u-rich-text > *:first-child {
+	margin-top: 0;
+}
+.u-rich-text > *:last-child {
+	margin-bottom: 0;
+}
+video {
+	width: 100%;
+	object-fit: cover;
+}
+video.wf-empty {
+	padding: 0;
+}
+svg {
+	display: block;
+}
+section, footer {
+	position: relative;
+}
+
+select {
+  appearance: none;
+  -moz-appearance: none; /* Firefox */
+  -webkit-appearance: none; /* Chrome/Safari */
+}
+
+
+/* line clamp */
+.u-line-clamp-1, .u-line-clamp-2, .u-line-clamp-3, .u-line-clamp-4 {
+	display: -webkit-box;
+	overflow: hidden;
+	-webkit-line-clamp: 1;
+	-webkit-box-orient: vertical;
+}
+
+.u-line-clamp-2 { -webkit-line-clamp: 2; }
+.u-line-clamp-3 { -webkit-line-clamp: 3; }
+.u-line-clamp-4 { -webkit-line-clamp: 4; }
+
+/* hide section if it has no cms items */
+[data-cms-check="true"]:not(:has(.w-dyn-item)) {
+	display: none;
+}
+</style></div><div class="page_code_responsive w-embed"><style>
+  /*html { font-size: 1.01rem; }
+  @media screen and (max-width:1680px) { html { font-size: calc(0.2400000000000001rem + 0.7333333333333332vw); } }
+  @media screen and (max-width:1440px) { html { font-size: calc(0.04982310093652448rem + 0.9446409989594172vw); } }
+  @media screen and (max-width:479px) { html { font-size: calc(0rem + 4vw); } }
+  @media screen and (max-width:400px) { html { font-size: calc(-0.002506265664160401rem + 4.010025062656641vw); } }*/
+    html { font-size: calc(0.29999999999999893rem + 0.6666666666666676vw); }
+  @media screen and (max-width:1680px) { html { font-size: calc(0.30000000000000027rem + 0.6666666666666664vw); } }
+  @media screen and (max-width:1440px) { html { font-size: calc(0.04982310093652448rem + 0.9446409989594172vw); } }
+  @media screen and (max-width:479px) { html { font-size: calc(0rem + 4vw); } }
+  @media screen and (max-width:400px) { html { font-size: calc(-0.002506265664160401rem + 4.010025062656641vw); } }
+</style></div><div class="page_code_custom w-embed"><style>
+.button_main {
+	background: radial-gradient(94.05% 310.72% at 51.1% -50%, rgb(162, 157, 255) 0%, rgb(104, 96, 255) 40.881964564323425%, rgb(62, 58, 153) 94.49999928474426%);
+}
+
+.button_main.is--decorative {
+	background: linear-gradient(77deg, #dfebff 0%, #84b1ff 100%), rgba(255, 255, 255, 0.2);
+}
+
+.button_dark {
+	background: radial-gradient(
+  ellipse at 70% 70%, 
+  #171717 0%, 
+  #606060 100%
+	);
+  box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1); 
+
+}
+
+.button_alternative {
+	background: linear-gradient(227deg, #eef 0%, #fff 100%);
+}
+
+.backface_background {
+	background: linear-gradient(90deg, rgba(223, 219, 243, 0.5) 0%, rgba(216, 200, 217, 0.5) 100%);
+}
+
+.backface_background_dark {
+	background: linear-gradient(90deg, rgba(239, 238, 255, 0.10) 0%, rgba(239, 238, 255, 0.10) 100%);
+}
+.backface_background_white {
+	background: linear-gradient(90deg, rgba(239, 238, 255, 0.1) 0%, rgba(255, 255, 255, 0.1) 100%);
+}
+.grid-enterprise.mobile-left-right {
+	background: linear-gradient(90deg, rgba(239, 238, 255, 0.10) 0%, rgba(239, 238, 255, 0.10) 100%);
+
+}
+
+.header_tag {
+	background: linear-gradient(227deg, #e9d7ee 0%, #eef 100%);
+}
+
+.span_gradient {
+	background: radial-gradient(100.82% 209.38% at 50.00%  -71.87%, rgb(138, 142, 255) 0%, rgb(65, 49, 204) 100%);
+	background-clip: text;
+	-webkit-background-clip: text;
+	-webkit-text-fill-color: transparent;
+}
+
+.gradient-right-left {
+	background: linear-gradient(227deg, #eef 0%, #fff 100%);
+}
+
+.gradient-right-left-black {
+	background: linear-gradient(227deg, #202020 0%, #000000 100%);
+}
+
+.gradient-left-right {
+	background: linear-gradient(226deg, #fff 0%, #eef 100%);
+}
+.gradient-left-right-dark {
+	background: linear-gradient(226deg, #100C4A 20%, #211A8A 100%);
+}
+.gradient-right-left-dark {
+	background: linear-gradient(226deg, #100C4A 20%, #211A8A 100%);
+}
+.gradient-center {
+	background: radial-gradient(63.45% 94.67% at 50% 85.26%, rgb(223, 219, 243) 0%, rgb(216, 200, 217) 27.893471717834473%, rgb(238, 238, 255) 51.59377455711365%, rgb(255, 255, 255) 100%);
+}
+
+@keyframes energyFlow {
+  0% {
+    stop-color: #D1D1FF;
+    stop-opacity: 0.1;
+  }
+  10% {
+    stop-color: #AB69FF;
+    stop-opacity: 0.2;
+  }
+  20% {
+    stop-color: #AB69FF;
+    stop-opacity: 0.3;
+  }
+  30% {
+    stop-color: #AB69FF;
+    stop-opacity: 0.4;
+  }
+  40% {
+    stop-color: #AB69FF;
+    stop-opacity: 0.5;
+  }
+  50% {
+    stop-color: #769FFF;
+    stop-opacity: 0.6;
+  }
+  60% {
+    stop-color: #769FFF;
+    stop-opacity: 0.7;
+  }
+  70% {
+    stop-color: #2B28DB;
+    stop-opacity: 0.8;
+  }
+  80% {
+    stop-color: #2B28DB;
+    stop-opacity: 1;
+  }
+  100% {
+    stop-color: #D1D1FF;
+    stop-opacity: 0.3;
+  }
+}
+
+.stop1, .stop2, .stop3, .stop4, .stop5 {
+  animation: energyFlow 2.5s infinite linear;
+}
+
+.stop2 {
+  animation-delay: 0.5s;
+}
+
+.stop3 {
+  animation-delay: 1s;
+}
+
+.stop4 {
+  animation-delay: 1.5s;
+}
+
+.stop5 {
+  animation-delay: 2s;
+}
+
+@keyframes scroll {
+    from {
+        transform: translateX(0);
+    }
+
+    to {
+        transform: translateX(calc(-100% - 4rem));
+    }
+}
+
+.scroll {
+    animation: scroll 60s linear infinite;
+}
+
+.reverse {
+    animation-direction: reverse;
+}
+
+.timelines_graphic_wrap.is--blue {
+	background: linear-gradient(77deg, #84b1ff 0%, #dfebff 100%);
+}
+
+.tabs_navigation {
+	background: linear-gradient(143deg, rgba(255, 255, 255, 0.5) 0%, rgba(239, 238, 255, 0.5) 100%), rgba(255, 255, 255, 0.5);
+}
+
+@media screen and (max-width:479px) { 
+	.tabs_navigation {
+  	background: transparent;
+  }
+}
+
+.tabs_button.is--active {
+	box-shadow: 0 1px 18px 0 rgba(75, 85, 99, 0.05), 0 0 5px 0 rgba(75, 85, 99, 0.05);
+	background: linear-gradient(311deg, #eef 0%, #fff 100%);
+}
+
+.filters_button.is--active {
+	box-shadow: 0 1px 18px 0 rgba(75, 85, 99, 0.05), 0 0 5px 0 rgba(75, 85, 99, 0.05);
+	background: linear-gradient(311deg, #eef 0%, #fff 100%);
+}
+
+@media screen and (max-width:479px) { 
+	.filters_button.is--active {
+  	background: transparent;
+    box-shadow: 0 1px 18px 0 rgba(75, 85, 99, 0), 0 0 5px 0 rgba(75, 85, 99, 0);
+  }
+}
+
+.pillars_sl_image {
+	box-shadow: 0 1px 50px 0 rgba(75, 85, 99, 0.1), 0 0 150px 0 rgba(75, 85, 99, 0.05);
+}
+
+.grad_mob_center {
+	background: radial-gradient(81.7% 99.01% at 50% 100.06%, rgb(223, 219, 243) 0%, rgb(216, 200, 217) 27.893471717834473%, rgb(238, 238, 255) 51.59377455711365%, rgb(255, 255, 255) 100%);
+}
+
+.grad_mob_leftcenter {
+	background: radial-gradient(63.45% 94.67% at 50% 85.26%, rgb(223, 219, 243) 0%, rgb(216, 200, 217) 27.893471717834473%, rgb(238, 238, 255) 51.59377455711365%, rgb(255, 255, 255) 100%);
+}
+
+.section_inner_shadow {
+	backdrop-filter: blur(30.100000381469727px);
+	box-shadow: inset 0 20px 40px 0 rgba(223, 219, 243, 0.5);
+	background: linear-gradient(152deg, rgba(238, 238, 255, 0.5) 0%, rgba(255, 255, 255, 0.5) 100%);
+}
+
+@media screen and (max-width:479px) { 
+	.features_grid_item {
+  	background: linear-gradient(90deg, rgba(255, 255, 255, 0) 25%, #fff 100%);
+  }
+}
+
+.vellum_circle {
+	box-shadow: 0 1px 16px 0 rgba(75, 85, 99, 0.05), 0 0 4px 0 rgba(75, 85, 99, 0.05);
+}
+
+.pulse {
+  display: inline-block;
+  animation: pulse 2.4s ease infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+  }
+  70% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.customer_card {
+	box-shadow: 0 1px 16px 0 rgba(75, 85, 99, 0.05), 0 0 4px 0 rgba(75, 85, 99, 0.05);
+	background: linear-gradient(90deg, #fff 0%, #eef 100%);
+}
+.customer_card_dark {
+    box-shadow: 0 1px 16px 0 rgba(75, 85, 99, 0.05), 0 0 4px 0 rgba(75, 85, 99, 0.05);
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.2) 100%);
+}
+
+
+.customer_card:hover {
+	box-shadow: 0 20px 50px 0 rgba(0, 0, 0, 0.05), 0 20px 150px 0 rgba(0, 0, 0, 0.15);
+}
+.customer_card_dark:hover {
+	box-shadow: 0 20px 50px 0 rgba(0, 0, 0, 0.05), 0 20px 150px 0 rgba(0, 0, 0, 0.15);
+}
+
+.gradient_rise {
+	background: linear-gradient(26deg, rgba(223, 219, 243, 0.5) 0%, rgba(216, 200, 217, 0.5) 100%);
+}
+
+.gradient-cta {
+	background: radial-gradient(56.97% 56.97% at 29.13% 50.04%, rgb(223, 219, 243) 0%, rgb(216, 200, 217) 27.893471717834473%, rgb(238, 238, 255) 51.59377455711365%, rgb(255, 255, 255) 100%);
+}
+
+@media screen and (max-width:479px) { 
+	.gradient-cta {
+  	background: linear-gradient(226deg, #fff 0%, #eef 100%);
+  }
+}
+
+@media screen and (max-width:479px) { 
+	.mobile-radial-grad {
+  	background: radial-gradient(241.9% 142.71% at 8% -42.41%, rgb(223, 219, 243) 0%, rgb(216, 200, 217) 27.893471717834473%, rgb(238, 238, 255) 51.59377455711365%, rgb(255, 255, 255) 100%);
+  }
+}
+
+@media screen and (max-width:479px) { 
+	.mobile-left-right {
+  	background: linear-gradient(41deg, #eef 0%, #fff 100%);
+  }
+}
+
+.form_icon {
+	box-shadow: 0 1px 16px 0 rgba(75, 85, 99, 0.05), 0 0 4px 0 rgba(75, 85, 99, 0.05);
+}
+
+.cta_text_field {
+	box-shadow: inset 0 1px 1px 0px rgba(0, 0, 0, 0.05);
+	background: #fff;
+}
+
+.gradient-purple {
+	background: linear-gradient(183deg, #2c1845 0%, #190b2d 100%);
+}
+
+.gradient-dial {
+	background: linear-gradient(147deg, #fff 0%, #eef 100%);
+}
+
+.hero_prod_image {
+	box-shadow: 0 1px 50px 0 rgba(75, 85, 99, 0.1), 0 0 150px 0 rgba(75, 85, 99, 0.05);
+}
+
+.gradient-radial {
+	background: radial-gradient(89.47% 105.03% at 32.53% -0.04%, rgb(255, 255, 255) 0%, rgb(238, 238, 255) 100%);
+}
+
+.grid_hiw_card {
+	background: radial-gradient(191.03% 199.61% at 47.88% -0.09%, rgb(255, 255, 255) 0%, rgb(238, 238, 255) 100%);
+}
+
+.purple-gradient {
+	background: linear-gradient(180deg, #3e275d 0%, #211037 100%);
+}
+
+.pillars_copy_link.w--current .status_current {
+	display: block;
+}
+
+.pillars_copy_link.w--current .pillars_copy_arrow {
+	display: none;
+}
+
+@keyframes rotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.rotating {
+  animation: rotate 5s linear infinite;
+}
+
+.rotating-5s {
+  animation-duration: 8s;
+}
+
+.rotating-7s {
+  animation-duration: 10s;
+}
+
+.rotating-10s {
+  animation-duration: 15s;
+}
+
+.search-field {
+	box-shadow: 0 1px 18px 0 rgba(75, 85, 99, 0.05), 0 0 5px 0 rgba(75, 85, 99, 0.05);
+}
+
+@media screen and (max-width:479px) { 
+	.search-field {
+  	box-shadow: 0 1px 18px 0 rgba(75, 85, 99, 0), 0 0 5px 0 rgba(75, 85, 99, 0);
+  }
+}
+
+.blog_section {
+	background: radial-gradient(98.7% 36.86% at 50% 10.9%, rgb(255, 255, 255) 0%, rgb(238, 238, 255) 48.40622544288635%, rgb(223, 219, 243) 72.00000286102295%, rgb(255, 255, 255) 100%);
+}
+
+.blog_coll_item {
+	box-shadow: 0 1px 16px 0 rgba(75, 85, 99, 0.05), 0 0 4px 0 rgba(75, 85, 99, 0.05);
+}
+
+.page_grad {
+	background: radial-gradient(98.7% 36.86% at 50% 10.9%, rgb(255, 255, 255) 0%, rgb(238, 238, 255) 48.40622544288635%, rgb(223, 219, 243) 72.00000286102295%, rgb(255, 255, 255) 100%);
+}
+
+@media screen and (max-width:479px) { 
+	.page_grad {
+  	background: linear-gradient(270deg, #eef 0%, #fff 100%);
+  }
+}
+
+.grad_logs {
+	background: #fff;
+  background: radial-gradient(124.27% 69.04% at 85.66% 46.37%, rgb(223, 219, 243) 0%, rgb(243, 232, 244) 27.893471717834473%, rgb(238, 238, 255) 51.59377455711365%, rgb(255, 255, 255) 100%);
+}
+
+@media screen and (max-width:479px) { 
+	.grad_logs {
+  	background: linear-gradient(147deg, #eef 0%, #fff 100%);
+  }
+}
+
+.demo_section_hero {
+	background: radial-gradient(47.9% 56.5% at 29.51% 61.04%, rgb(223, 219, 243) 0%, rgb(216, 200, 217) 27.893471717834473%, rgb(238, 238, 255) 51.59377455711365%, rgb(255, 255, 255) 100%);
+}
+
+.contact_us_section_hero {
+	background: radial-gradient(47.9% 56.5% at 50% 60%, rgb(223, 219, 243) 0%, rgb(216, 200, 217) 27.893471717834473%, rgb(238, 238, 255) 51.59377455711365%, rgb(255, 255, 255) 100%);
+}
+
+@media screen and (max-width:479px) { 
+	.demo_section_hero {
+  	background: #fff;
+  }
+}
+
+.pricing_icon {
+	box-shadow: 0 1px 16px 0 rgba(75, 85, 99, 0.05), 0 0 4px 0 rgba(75, 85, 99, 0.05);
+}
+
+.pricing_card_grad {
+	background: linear-gradient(227deg, #fff 0%, #eef 100%);
+}
+
+.pricng_card:hover .pricing_card_grad {
+	opacity: 1;
+}
+
+.section_pricing_grad {
+	background: #fff;
+  background: radial-gradient(41.98% 41.98% at 47.08% 13.4%, rgb(223, 219, 243) 0%, rgb(243, 232, 244) 27.893471717834473%, rgb(238, 238, 255) 51.59377455711365%, rgb(255, 255, 255) 100%);
+}
+
+.section_faq {
+	background: #fff; 
+  background: radial-gradient(149.84% 186.74% at -79.79% 159.02%, rgb(223, 219, 243) 0%, rgb(243, 232, 244) 27.893471717834473%, rgb(238, 238, 255) 51.59377455711365%, rgb(255, 255, 255) 100%);
+}
+
+.toc_list_link.is--current {
+	background: linear-gradient(90deg, rgba(104, 96, 255, 0.25) 0%, rgba(255, 255, 255, 0.25) 100%);
+  color: #6860FF;
+}
+
+.toc_list_link.is--current .toc_list_divider {
+	border-color: #6860FF;
+}
+
+.toc_list_toggle.state--opened {
+	border-color: #6860FF;
+  background: linear-gradient(90deg, rgba(104, 96, 255, 0.25) 0%, rgba(255, 255, 255, 0.25) 100%);
+}
+
+.toc_list_toggle.state--opened .toc_list_icon {
+	transform: rotateZ(90deg);
+}
+
+pre {
+	border: 1px solid #dcd4e9;
+	border-radius: 0.75rem;
+	width: 100%;
+  box-shadow: 0 1px 1px 0 rgba(0, 0, 0, 0.08);
+	background: #fff;
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+@media screen and (max-width:479px) { 
+	pre {
+  	  font-size: 0.88rem;
+  }
+}
+
+.toc_list_list {
+  transition: height 0.6s ease;
+}
+
+.toc_list_toggle.state--opened + .toc_list_list {
+  height: auto;
+}
+
+.posts_related {
+	box-shadow: 0 1px 16px 0 rgba(75, 85, 99, 0.05), 0 0 4px 0 rgba(75, 85, 99, 0.05);
+}
+
+.blog_coll_item:hover .blog_coll_image {
+	transform: scale(1.05)
+}
+
+.partners_image_wrap:hover .partners_image_tooltip {
+	opacity: 1;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media screen and (min-width:1728px) { 
+	.u-container.is--hero {
+  	  padding-bottom: 10rem;
+  }
+  
+
+}
+</style></div></div><header class="pos-fixed u-vflex-center-between no-padding-between"><div class="notif-bar hide"><div class="text-block-70">Read our latest<span class="text-span-34">State of AI development report</span>– explore trends, usage, and emerging patterns!<a href="/state-of-ai-2025" target="_blank" class="lighter-bold">Read the results →</a></div></div><div class="notif-bar hide"><div class="text-block-70">Read our latest<a href="/state-of-ai-2025" class="link-50"><span class="text-span-34">State of AI development report</span></a></div></div><div class="u-container is--header u-hflex-between-center"><div class="nav_wrap u-hflex-between-center is-conference relative"><a aria-label="Go to home page" href="/" class="nav_logo_link w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 86 27" fill="none" class="logo_icon"><path d="M3.90391 11.5422L7.64453 19.6617L11.3703 11.5422H15.1258L7.61484 26.9945L0.163281 11.5422H3.90391ZM30.0289 19.5578H19.668C19.757 20.7453 20.143 21.6904 20.8258 22.393C21.5086 23.0857 22.3844 23.432 23.4531 23.432C24.2844 23.432 24.9721 23.2341 25.5164 22.8383C26.0508 22.4424 26.6594 21.7102 27.3422 20.6414L30.1625 22.2148C29.7271 22.957 29.2669 23.5953 28.782 24.1297C28.2971 24.6542 27.7776 25.0896 27.2234 25.4359C26.6693 25.7724 26.0706 26.0198 25.4273 26.1781C24.7841 26.3365 24.0865 26.4156 23.3344 26.4156C21.1771 26.4156 19.4453 25.7229 18.1391 24.3375C16.8328 22.9422 16.1797 21.0917 16.1797 18.7859C16.1797 16.5 16.813 14.6495 18.0797 13.2344C19.3562 11.8391 21.0484 11.1414 23.1562 11.1414C25.2839 11.1414 26.9661 11.8193 28.2031 13.175C29.4302 14.5208 30.0437 16.3862 30.0437 18.7711L30.0289 19.5578ZM26.6 16.8266C26.1349 15.0453 25.0117 14.1547 23.2305 14.1547C22.8247 14.1547 22.4437 14.219 22.0875 14.3477C21.7312 14.4664 21.4047 14.6445 21.1078 14.882C20.8208 15.1096 20.5734 15.3867 20.3656 15.7133C20.1578 16.0398 19.9995 16.4109 19.8906 16.8266H26.6ZM37.0352 0.928907V26H33.6953V0.928907H37.0352ZM44.6055 0.928907V26H41.2656V0.928907H44.6055ZM52.1758 11.5422V19.8398C52.1758 22.2346 53.1208 23.432 55.0109 23.432C56.901 23.432 57.8461 22.2346 57.8461 19.8398V11.5422H61.1859V19.9141C61.1859 21.0719 61.0424 22.0714 60.7555 22.9125C60.4784 23.6646 59.9984 24.3424 59.3156 24.9461C58.1875 25.9258 56.7526 26.4156 55.0109 26.4156C53.2792 26.4156 51.8492 25.9258 50.7211 24.9461C50.0284 24.3424 49.5385 23.6646 49.2516 22.9125C48.9745 22.2396 48.8359 21.2401 48.8359 19.9141V11.5422H52.1758ZM65.4016 11.5422H68.7414V12.8781C69.3846 12.2052 69.9339 11.75 70.3891 11.5125C70.874 11.2651 71.4825 11.1414 72.2148 11.1414C73.8477 11.1414 75.1391 11.8539 76.0891 13.2789C77.138 11.8539 78.5581 11.1414 80.3492 11.1414C83.6049 11.1414 85.2328 13.1156 85.2328 17.0641V26H81.8781V17.9695C81.8781 16.5841 81.7099 15.6044 81.3734 15.0305C81.0271 14.4466 80.4581 14.1547 79.6664 14.1547C78.7461 14.1547 78.0732 14.501 77.6477 15.1938C77.232 15.8865 77.0242 16.9997 77.0242 18.5336V26H73.6695V18.0141C73.6695 15.4411 72.9273 14.1547 71.443 14.1547C70.5029 14.1547 69.8151 14.506 69.3797 15.2086C68.9542 15.9112 68.7414 17.0195 68.7414 18.5336V26H65.4016V11.5422Z" fill="currentColor"></path></svg></a><ul fs-scrolldisable-element="preserve" role="list" class="nav_list u-hflex-between-center list-new w-list-unstyled"><li class="nav_list_item"><div data-delay="200" data-hover="true" arial-label="Hover on Products dropdown" class="nav_list_dropdown w-dropdown"><div class="dropdown_toggle u-hflex-center-center w-dropdown-toggle"><div>Products</div><svg width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_icon"><path opacity="0.4" d="M12.6875 16.7188C12.3125 17.125 11.6562 17.125 11.2812 16.7188L5.28125 10.7188C4.875 10.3438 4.875 9.6875 5.28125 9.3125C5.65625 8.90625 6.3125 8.90625 6.6875 9.3125L12 14.5938L17.2812 9.3125C17.6562 8.90625 18.3125 8.90625 18.6875 9.3125C19.0938 9.6875 19.0938 10.3438 18.6875 10.7188L12.6875 16.7188Z" fill="currentColor"></path></svg></div><nav class="dropdown_list w-dropdown-list"><div class="dropdown_list_inner is-light-menu"><a aria-label="Go to Prompting page" href="/products/orchestration" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 25" fill="none" class="dropdown_link_icon"><path d="M3 6.85938C3 6.04688 3.65625 5.35938 4.5 5.35938H7.5C8.3125 5.35938 9 6.04688 9 6.85938V9.85938C9 10.7031 8.3125 11.3594 7.5 11.3594H4.5C3.65625 11.3594 3 10.7031 3 9.85938V6.85938ZM10 14.8594C10 14.0469 10.6562 13.3594 11.5 13.3594H14.5C15.3125 13.3594 16 14.0469 16 14.8594V17.8594C16 18.7031 15.3125 19.3594 14.5 19.3594H11.5C10.6562 19.3594 10 18.7031 10 17.8594V14.8594ZM16.5 5.35938H19.5C20.3125 5.35938 21 6.04688 21 6.85938V9.85938C21 10.7031 20.3125 11.3594 19.5 11.3594H16.5C15.6562 11.3594 15 10.7031 15 9.85938V6.85938C15 6.04688 15.6562 5.35938 16.5 5.35938Z" fill="currentColor"></path><path opacity="0.4" d="M7.5 11.3594C8.25 11.3594 8.90625 10.7969 8.96875 10.0156L11.5 13.3594C10.7188 13.3594 10.0625 13.9531 10 14.7031L7.5 11.3594ZM9 7.35938H15V9.35938H9V7.35938Z" fill="currentColor"></path></svg><div class="dropdown_link_text">Orchestration</div></a><a aria-label="Go to Monitoring page" href="/products/workflows-sdk" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" fill="none" viewBox="0 0 24 25" class="dropdown_link_icon"><g clip-path="url(#a)"><path fill="#000" d="M16.315 9.08a.76.76 0 0 0 0 1.15l2.511 2.27-2.514 2.27a.76.76 0 0 0 0 1.15.971.971 0 0 0 1.274 0l3.15-2.844a.759.759 0 0 0 0-1.15l-3.15-2.844a.971.971 0 0 0-1.274 0l.003-.002Zm-8.626 0a.971.971 0 0 0-1.274 0l-3.15 2.844a.759.759 0 0 0 0 1.15l3.15 2.844a.971.971 0 0 0 1.274 0 .759.759 0 0 0 0-1.15L5.174 12.5l2.515-2.27a.759.759 0 0 0 0-1.15Z"></path><path fill="#000" d="M14.048 6.03c-.478-.124-.976.127-1.114.56l-3.6 11.374c-.138.432.14.881.619 1.006.478.124.976-.127 1.114-.559l3.6-11.375c.137-.432-.141-.881-.62-1.005Z" opacity=".4"></path></g></svg><div class="dropdown_link_text">SDK</div></a><a aria-label="Go to Prompting page" href="/products/prompt-engineering" class="dropdown_link u-hflex-left-center hide w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_link_icon"><path d="M14 13V13.5C14 14.0625 13.5312 14.5 13 14.5C12.4375 14.5 12 14.0625 12 13.5V12.5C12 11.6875 12.6562 11 13.5 11H20.5C21.3125 11 22 11.6875 22 12.5V13.5C22 14.0625 21.5312 14.5 21 14.5C20.4375 14.5 20 14.0625 20 13.5V13H18V17H18.5C19.0312 17 19.5 17.4688 19.5 18C19.5 18.5625 19.0312 19 18.5 19H15.5C14.9375 19 14.5 18.5625 14.5 18C14.5 17.4688 14.9375 17 15.5 17H16V13H14Z" fill="currentColor"></path><path opacity="0.4" d="M2 6.5C2 5.6875 2.65625 5 3.5 5H8H12.5C13.3125 5 14 5.6875 14 6.5V8C14 8.5625 13.5312 9 13 9C12.4375 9 12 8.5625 12 8V7H9V17H10C10.5312 17 11 17.4688 11 18C11 18.5625 10.5312 19 10 19H6C5.4375 19 5 18.5625 5 18C5 17.4688 5.4375 17 6 17H7V7H4V8C4 8.5625 3.53125 9 3 9C2.4375 9 2 8.5625 2 8V6.5Z" fill="currentColor"></path></svg><div class="dropdown_link_text">Prompting</div></a><a aria-label="Go to Evaluation page" href="/products/evaluation" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_link_icon"><path d="M5.9375 10.125L3.6875 14H8.21875L5.9375 10.125ZM2 14.5625C1.9375 14.2188 2.03125 13.8438 2.21875 13.5625L5.1875 8.4375C5.34375 8.1875 5.625 8 5.9375 8C6.25 8 6.53125 8.1875 6.6875 8.4375L9.6875 13.5312C9.84375 13.8438 9.96875 14.2188 9.875 14.5625C9.5625 15.9375 7.90625 17 5.9375 17C4 17 2.34375 15.9375 2 14.5625ZM18 10.125L15.7188 14H20.25L18 10.125ZM14.0625 14.5625C13.9688 14.2188 14.0938 13.8438 14.25 13.5625L17.2188 8.4375C17.375 8.1875 17.6875 8 18 8C18.2812 8 18.5938 8.1875 18.75 8.4375L21.7188 13.5312C21.9062 13.8438 22 14.2188 21.9375 14.5625C21.5938 15.9375 19.9375 17 18 17C16.0312 17 14.375 15.9375 14.0625 14.5625Z" fill="currentColor"></path><path opacity="0.4" d="M5 6C5 5.46875 5.4375 5 6 5H10C10.4375 4.40625 11.1562 4 12 4C12.8125 4 13.5312 4.40625 14 5H18C18.5312 5 19 5.46875 19 6C19 6.5625 18.5312 7 18 7H14.4375C14.2812 7.8125 13.7188 8.46875 13 8.8125V18H18C18.5312 18 19 18.4688 19 19C19 19.5625 18.5312 20 18 20H12H6C5.4375 20 5 19.5625 5 19C5 18.4688 5.4375 18 6 18H11V8.8125C10.25 8.5 9.6875 7.8125 9.53125 7H6C5.4375 7 5 6.5625 5 6Z" fill="currentColor"></path></svg><div class="dropdown_link_text">Evaluations</div></a><a aria-label="Go to Retrieval page" href="/products/retrieval" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_link_icon"><path d="M18 9H14C13.4375 9 13 8.5625 13 8V4L18 9ZM14.5 13.5C14.5 14.0625 14.3438 14.5938 14.0625 15.0312L15.2812 16.25C15.5625 16.5312 15.5625 17 15.2812 17.3125C14.9688 17.5938 14.5 17.5938 14.2188 17.3125L13 16.0938C12.5625 16.375 12.0312 16.5 11.5 16.5C9.84375 16.5 8.5 15.1562 8.5 13.5C8.5 11.8438 9.84375 10.5 11.5 10.5C13.1562 10.5 14.5 11.8438 14.5 13.5ZM11.5 15C12.0312 15 12.5 14.7188 12.7812 14.25C13.0625 13.8125 13.0625 13.2188 12.7812 12.75C12.5 12.3125 12.0312 12 11.5 12C10.9375 12 10.4688 12.3125 10.1875 12.75C9.90625 13.2188 9.90625 13.8125 10.1875 14.25C10.4688 14.7188 10.9375 15 11.5 15Z" fill="currentColor"></path><path opacity="0.4" d="M6 6C6 4.90625 6.875 4 8 4H13V8C13 8.5625 13.4375 9 14 9H18V18C18 19.125 17.0938 20 16 20H8C6.875 20 6 19.125 6 18V6ZM8.5 13.5C8.5 15.1562 9.84375 16.5 11.5 16.5C12.0312 16.5 12.5625 16.375 13 16.0938L14.2188 17.3125C14.3438 17.4375 14.5312 17.5312 14.75 17.5312C14.9375 17.5312 15.125 17.4375 15.2812 17.3125C15.5625 17 15.5625 16.5312 15.2812 16.25L14.0625 15.0312C14.3438 14.5938 14.5 14.0625 14.5 13.5C14.5 11.8438 13.1562 10.5 11.5 10.5C9.84375 10.5 8.5 11.8438 8.5 13.5ZM13 13.5C13 14.0625 12.6875 14.5312 12.25 14.8125C11.7812 15.0938 11.1875 15.0938 10.75 14.8125C10.2812 14.5312 10 14.0625 10 13.5C10 12.9688 10.2812 12.5 10.75 12.2188C11.1875 11.9375 11.7812 11.9375 12.25 12.2188C12.6875 12.5 13 12.9688 13 13.5Z" fill="currentColor"></path></svg><div class="dropdown_link_text">Retrieval</div></a><a aria-label="Go to Deployment page" href="/products/deployments" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_link_icon"><path d="M8.09375 8.8125L10.5625 11.3125C10.9688 11.6875 10.9688 12.3438 10.5625 12.7188L8.09375 15.2188C7.6875 15.5938 7.0625 15.5938 6.65625 15.2188L4.34375 12.9062C3.875 12.4062 3.875 11.625 4.34375 11.125L6.65625 8.8125C7.0625 8.4375 7.6875 8.4375 8.09375 8.8125ZM15.9062 15.2188L13.4062 12.7188C13 12.3125 13 11.6875 13.4062 11.3125L15.9062 8.8125C16.2812 8.40625 16.9062 8.40625 17.3125 8.8125L19.625 11.125C20.125 11.625 20.125 12.4062 19.625 12.9062L17.3125 15.2188C16.9062 15.5938 16.2812 15.5938 15.9062 15.2188Z" fill="currentColor"></path><path opacity="0.4" d="M8.78125 6.6875L11.0938 4.375C11.3438 4.125 11.6562 4 12 4C12.3125 4 12.625 4.125 12.875 4.375L15.1875 6.6875C15.5625 7.09375 15.5625 7.71875 15.1875 8.09375L12.6875 10.5938C12.3125 11 11.6562 11 11.2812 10.5938L8.78125 8.125C8.40625 7.71875 8.40625 7.09375 8.78125 6.6875ZM8.78125 15.9062L11.2812 13.4375C11.6875 13.0312 12.3125 13.0312 12.6875 13.4375L15.1875 15.9375C15.375 16.125 15.4688 16.375 15.4688 16.625C15.4688 16.875 15.375 17.1562 15.1875 17.3438L12.875 19.6562C12.625 19.9062 12.3125 20.0312 12 20.0312C11.6562 20.0312 11.3438 19.9062 11.0938 19.6562L8.78125 17.3438C8.40625 16.9375 8.40625 16.3125 8.78125 15.9062Z" fill="currentColor"></path></svg><div class="dropdown_link_text">Deployment</div></a><a aria-label="Go to Monitoring page" href="/products/monitoring" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_link_icon"><path d="M5 5H19C20.0938 5 21 5.90625 21 7V17C21 18.125 20.0938 19 19 19H5C3.875 19 3 18.125 3 17V7C3 5.90625 3.875 5 5 5ZM19 7H5V17H19V7Z" fill="currentColor"></path><path opacity="0.4" d="M5 7H19V17H5V13H8.6875L9.53125 14.75C9.625 14.9062 9.8125 15 10 15C10.1875 15 10.3438 14.9062 10.4375 14.75L12 11.625L12.5312 12.75C12.625 12.9062 12.7812 13 13 13H15.5C15.75 13 16 12.7812 16 12.5C16 12.25 15.75 12 15.5 12H13.2812L12.4375 10.2812C12.3438 10.125 12.1875 10 12 10C11.8125 10 11.625 10.125 11.5312 10.2812L10 13.4062L9.4375 12.2812C9.34375 12.125 9.1875 12 9 12H5V7Z" fill="currentColor"></path></svg><div class="dropdown_link_text">Observability</div></a></div></nav></div></li><li class="nav_list_item"><div data-delay="200" data-hover="true" arial-label="Hover on Products dropdown" class="nav_list_dropdown w-dropdown"><div class="dropdown_toggle u-hflex-center-center w-dropdown-toggle"><div>Resources</div><svg width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_icon"><path opacity="0.4" d="M12.6875 16.7188C12.3125 17.125 11.6562 17.125 11.2812 16.7188L5.28125 10.7188C4.875 10.3438 4.875 9.6875 5.28125 9.3125C5.65625 8.90625 6.3125 8.90625 6.6875 9.3125L12 14.5938L17.2812 9.3125C17.6562 8.90625 18.3125 8.90625 18.6875 9.3125C19.0938 9.6875 19.0938 10.3438 18.6875 10.7188L12.6875 16.7188Z" fill="currentColor"></path></svg></div><nav class="dropdown_list is--resources w-dropdown-list"><div class="dropdown_list_inner _2col is-light-menu"><div class="dropdown-column-wrap"><div class="dropdown_link_text text-color-purple">Customer Resources</div><a aria-label="Go to Guides page" href="/blog?category=Guides" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_link_icon"><path d="M4 9C3.4375 9 3 8.5625 3 8V7C3 5.90625 3.875 5 5 5C6.09375 5 7 5.90625 7 7V9H4ZM12 16H11.9688C11.9688 15.4688 12.4375 15 12.9688 15H13.7188H13.7812C13.9062 15 14.0312 15.0625 14.125 15.1562L14.8125 15.8438C14.9062 15.9375 15.0625 15.9375 15.1562 15.8438L15.8438 15.1562C15.9375 15.0625 16.0625 15 16.1875 15H16.25H20C20.5312 15 21 15.4688 21 16C21 17.6562 19.6562 19 18 19H9.5C10.875 19 12 17.9062 12 16.5V16Z" fill="currentColor"></path><path opacity="0.4" d="M5 5H16C17.0938 5 18 5.90625 18 7V7.75V7.8125C18 7.9375 17.9375 8.0625 17.8438 8.15625L17.1562 8.84375C17.0625 8.9375 17.0625 9.09375 17.1562 9.1875L17.8438 9.875C17.9375 9.96875 18 10.0938 18 10.2188V10.2812V10.7812V10.8125C18 10.9375 17.9375 11.0625 17.8438 11.1562L17.1562 11.8438C17.0625 11.9375 17.0625 12.0938 17.1562 12.1875L17.8438 12.875C17.9375 12.9688 18 13.0938 18 13.2188V13.2812V15.0312H16.25H16.1875C16.0625 15.0312 15.9375 15.0625 15.8438 15.1562L15.1562 15.8438C15.0625 15.9375 14.9062 15.9375 14.8125 15.8438L14.125 15.1562C14.0312 15.0625 13.9062 15.0312 13.7812 15.0312H13.7188H12.9688C12.4375 15.0312 11.9688 15.4688 11.9688 16.0312V16.5312C11.9688 17.9062 10.875 19.0312 9.46875 19.0312C8.09375 19.0312 6.96875 17.9062 6.96875 16.5312V12.2812V12.2188C6.96875 12.0938 7.03125 11.9688 7.125 11.875L7.8125 11.1875C7.90625 11.0938 7.90625 10.9375 7.8125 10.8438L7.125 10.1562C7.03125 10.0625 6.96875 9.9375 6.96875 9.8125V9.78125V9.03125V7.03125C6.96875 5.90625 6.09375 5.03125 4.96875 5.03125L5 5Z" fill="currentColor"></path></svg><div class="dropdown_link_text">Guides</div></a><a aria-label="Go to Model Comparison page" href="/blog?category=Model+Comparisons" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_link_icon"><path d="M6 9.125L3.71875 13H8.25L6 9.125ZM9.9375 13.5625C9.59375 14.9375 7.9375 16 6 16C4.03125 16 2.375 14.9375 2.0625 13.5625C1.96875 13.2188 2.09375 12.8438 2.25 12.5312L5.21875 7.4375C5.375 7.1875 5.6875 7 6 7C6.28125 7 6.59375 7.1875 6.75 7.4375L9.71875 12.5312C9.90625 12.8438 10 13.2188 9.9375 13.5625ZM17.9375 13.125L15.6875 17H20.2188L17.9375 13.125ZM21.875 17.5625C21.5625 18.9375 19.9062 20 17.9375 20C15.9688 20 14.3438 18.9375 14 17.5625C13.9375 17.2188 14.0312 16.8438 14.2188 16.5312L17.1875 11.4375C17.3438 11.1875 17.625 11 17.9375 11C18.25 11 18.5312 11.1875 18.6875 11.4375L21.6875 16.5312C21.8438 16.8438 21.9688 17.2188 21.875 17.5625Z" fill="currentColor"></path><path opacity="0.4" d="M5 19C5 18.4688 5.4375 18 6 18H11L10.9688 8.8125C10.3438 8.53125 9.8125 7.96875 9.59375 7.28125L5.65625 5.96875C5.15625 5.78125 4.875 5.21875 5.03125 4.6875C5.21875 4.1875 5.78125 3.875 6.3125 4.0625L9.84375 5.25C10.2812 4.5 11.0625 4 12 4C13.375 4 14.5 5.125 14.5 6.5C14.5 6.59375 14.4688 6.6875 14.4688 6.78125L18.3125 8.0625C18.8125 8.25 19.125 8.8125 18.9375 9.34375C18.75 9.84375 18.1875 10.125 17.6562 9.96875L13.4375 8.5625C13.2812 8.65625 13.1562 8.75 13 8.8125V19C13 19.5625 12.5312 20 12 20H6C5.4375 20 5 19.5625 5 19Z" fill="currentColor"></path></svg><div class="dropdown_link_text">Model Comparison</div></a><a aria-label="Go to Product Updates page" href="/blog?category=Product+Updates" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_link_icon"><path d="M10.4062 6.3125L12.0312 9.875L15.5938 11.5C15.7812 11.5938 15.9062 11.7812 15.9062 11.9688C15.9062 12.1562 15.7812 12.3438 15.5938 12.4062L12.0312 14.0625L10.4062 17.625C10.3125 17.8125 10.125 17.9375 9.9375 17.9375C9.75 17.9375 9.5625 17.8125 9.5 17.625L7.84375 14.0625L4.28125 12.4375C4.09375 12.3438 4 12.1562 4 11.9688C4 11.7812 4.09375 11.5938 4.28125 11.5L7.84375 9.875L9.5 6.3125C9.5625 6.125 9.75 6 9.9375 6C10.125 6 10.3125 6.125 10.4062 6.3125Z" fill="currentColor"></path><path opacity="0.4" d="M14 7C14 6.875 14.0938 6.71875 14.2188 6.6875L16 6L16.6562 4.25C16.6875 4.09375 16.8438 4 17 4C17.125 4 17.2812 4.09375 17.3125 4.25L18 6L19.75 6.6875C19.9062 6.71875 20 6.875 20 7C20 7.15625 19.9062 7.3125 19.75 7.34375L18 8L17.3125 9.78125C17.2812 9.90625 17.125 10 17 10C16.8438 10 16.6875 9.90625 16.6562 9.78125L16 8L14.2188 7.34375C14.0938 7.3125 14 7.15625 14 7ZM14 17C14 16.875 14.0938 16.7188 14.2188 16.6875L16 16L16.6562 14.25C16.6875 14.0938 16.8438 14 17 14C17.125 14 17.2812 14.0938 17.3125 14.25L18 16L19.75 16.6875C19.9062 16.7188 20 16.875 20 17C20 17.1562 19.9062 17.3125 19.75 17.3438L18 18L17.3125 19.7812C17.2812 19.9062 17.125 20 17 20C16.8438 20 16.6875 19.9062 16.6562 19.7812L16 18L14.2188 17.3438C14.0938 17.3125 14 17.1562 14 17Z" fill="currentColor"></path></svg><div class="dropdown_link_text">Product Updates</div></a><a aria-label="Go to Free Tools page" href="https://tools.vellum.ai/" target="_blank" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_link_icon"><path d="M5.46875 4.21875C5.71875 3.96875 6.15625 3.9375 6.4375 4.15625L9.6875 6.65625C9.875 6.8125 10 7.03125 10 7.25V8.9375L13.4062 12.3438C14.3125 11.9062 15.4375 12.0312 16.1875 12.8125L19.6875 16.3125C20.0938 16.6875 20.0938 17.3438 19.6875 17.7188L17.6875 19.7188C17.3125 20.125 16.6562 20.125 16.2812 19.7188L12.7812 16.2188C12.0312 15.4688 11.875 14.3125 12.3438 13.4062L8.9375 10H7.25C7 10 6.78125 9.90625 6.65625 9.71875L4.15625 6.46875C3.90625 6.1875 3.9375 5.75 4.21875 5.46875L5.46875 4.21875Z" fill="currentColor"></path><path opacity="0.4" d="M4 17.9062C4 17.3438 4.21875 16.7812 4.59375 16.4062L9.25 11.75L11.1875 13.6875C11 14.3438 11.0312 15.0625 11.2812 15.7188L7.59375 19.4062C7.21875 19.7812 6.65625 20 6.09375 20C4.9375 20 4 19.0625 4 17.9062ZM7.25 17.5C7.25 17.0938 6.90625 16.75 6.5 16.75C6.0625 16.75 5.75 17.0938 5.75 17.5C5.75 17.9375 6.0625 18.25 6.5 18.25C6.90625 18.25 7.25 17.9375 7.25 17.5ZM11 8.5C11 6.03125 13 4 15.5 4C15.8125 4 16.125 4.0625 16.4375 4.125C16.7812 4.1875 16.875 4.625 16.625 4.875L14.625 6.875C14.5312 6.96875 14.5 7.09375 14.5 7.21875V9C14.5 9.28125 14.7188 9.5 15 9.5L16.7812 9.53125C16.9062 9.53125 17.0312 9.46875 17.125 9.375L19.125 7.375C19.375 7.125 19.8125 7.21875 19.875 7.5625C19.9375 7.875 20 8.1875 20 8.5C20 10.3125 18.9375 11.875 17.4062 12.5938L16.9062 12.0938C16.0312 11.2188 14.7812 10.9062 13.6562 11.2188L11 8.53125C11 8.53125 11 8.53125 11 8.5Z" fill="currentColor"></path></svg><div class="dropdown_link_text">Free Tools</div></a><a aria-label="Go to Leaderboards page" href="/llm-leaderboard" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_link_icon"><path d="M11 16.375C11 15.875 10.7188 15.4062 10.3438 15.0625C9 13.875 7.28125 11.2188 7.03125 5.5C6.96875 4.6875 7.65625 4 8.5 4H15.5C16.3125 4 17 4.6875 16.9688 5.5C16.6875 11.2188 14.9688 13.875 13.625 15.0625C13.25 15.4062 13 15.875 13 16.375V16.5C13 17.3438 13.6562 18 14.5 18H15C15.5312 18 16 18.4688 16 19C16 19.5625 15.5312 20 15 20H9C8.4375 20 8 19.5625 8 19C8 18.4688 8.4375 18 9 18H9.5C10.3125 18 11 17.3438 11 16.5V16.375Z" fill="currentColor"></path><path opacity="0.4" d="M3 6.75C3 6.34375 3.3125 6 3.75 6H7.03125C7.0625 6.53125 7.125 7.03125 7.1875 7.5H4.5C4.75 10.5625 6.40625 12.2188 8.09375 13.125C8.4375 13.3125 8.78125 13.4688 9.09375 13.5938C9.3125 13.9375 9.53125 14.1875 9.71875 14.4375C9.84375 14.5625 9.9375 14.6875 10.0312 14.7812C10.0938 14.8438 10.125 14.875 10.1875 14.9375C10.25 14.9688 10.2812 15 10.3438 15.0625C10.5312 15.2188 10.6875 15.4375 10.8125 15.6562C10.6562 15.625 10.5 15.5938 10.3125 15.5625C9.53125 15.375 8.46875 15.0312 7.375 14.4688C5.1875 13.25 3 10.9688 3 6.75ZM13.1562 15.6562H13.1875C13.2812 15.4375 13.4375 15.2188 13.625 15.0625C14.0312 14.7188 14.4375 14.25 14.8438 13.625C15.1875 13.4688 15.5312 13.3125 15.875 13.125C17.5625 12.2188 19.2188 10.5625 19.4688 7.5H16.7812C16.8438 7.03125 16.9062 6.53125 16.9375 6H20.25C20.6562 6 21 6.34375 21 6.75C21 10.9688 18.7812 13.25 16.5938 14.4375C15.5312 15.0312 14.4375 15.375 13.6562 15.5312C13.4688 15.5938 13.3125 15.625 13.1562 15.6562Z" fill="currentColor"></path></svg><div class="dropdown_link_text">Leaderboards</div></a><a aria-label="Go to LLM Parameters Guide page" href="/llm-parameters-guide" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_link_icon"><path d="M4.78125 16.6875L12 18.125L19.1875 16.6875C19.6562 16.5938 20 16.1562 20 15.6875V4.90625L20.7812 4.75C21.4062 4.625 22 5.09375 22 5.71875V17.1875C22 17.6562 21.6562 18.0938 21.1875 18.1875L12 20L2.78125 18.1875C2.3125 18.0938 2 17.6562 2 17.1875V5.71875C2 5.09375 2.5625 4.625 3.1875 4.75L4 4.90625V15.6875C4 16.1875 4.3125 16.5938 4.78125 16.6875Z" fill="currentColor"></path><path opacity="0.4" d="M4 5.0625C4 4.46875 4.53125 4 5.125 4.09375L11.5 5V18L4.78125 16.6875C4.3125 16.5938 4 16.1562 4 15.6875V5.0625ZM12.5 5L18.8438 4.09375C19.4375 4 20 4.46875 20 5.0625V15.6875C20 16.1562 19.6562 16.5938 19.1875 16.6875L12.5 18V5Z" fill="currentColor"></path></svg><div class="dropdown_link_text">LLM Parameters Guide</div></a></div><div class="dropdown-column-wrap"><div class="dropdown_link_text text-color-purple">Customer Spotlights</div><a aria-label="Go to Case Studies page" href="/blog?category=Customer+Stories" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_link_icon"><path d="M8 4H11V9.96875C11 10.4062 11.4688 10.625 11.8125 10.375L13.5 9L15.1875 10.375C15.5 10.625 16 10.4062 16 9.96875V4H17H18C18.5312 4 19 4.46875 19 5V15C19 15.5625 18.5312 16 18 16H16H13H8C7.4375 16 7 16.4688 7 17C7 17.5625 7.4375 18 8 18H13H16H18C18.5312 18 19 18.4688 19 19C19 19.5625 18.5312 20 18 20H17H8C6.34375 20 5 18.6562 5 17V7C5 5.34375 6.34375 4 8 4Z" fill="currentColor"></path><path opacity="0.4" d="M7 17C7 16.4688 7.4375 16 8 16H13H16H18V18H16H13H8C7.4375 18 7 17.5625 7 17Z" fill="currentColor"></path></svg><div class="dropdown_link_text">Case Studies</div></a><a aria-label="Go to LLM Basics page" href="/use-case-directory" class="dropdown_link u-hflex-left-center w-inline-block"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="dropdown_link_icon"><path d="M4 11C4 9.9375 4.5625 8.96875 5.5 8.40625C6.40625 7.875 7.5625 7.875 8.5 8.40625C9.40625 8.96875 10 9.9375 10 11C10 12.0938 9.40625 13.0625 8.5 13.625C7.5625 14.1562 6.40625 14.1562 5.5 13.625C4.5625 13.0625 4 12.0938 4 11ZM2 19.1875C2 16.875 3.84375 15 6.15625 15H7.8125C10.125 15 12 16.875 12 19.1875C12 19.625 11.625 20 11.1562 20H2.8125C2.34375 20 2 19.6562 2 19.1875ZM15 13H17C17.5312 13 18 13.4688 18 14V15H14V14C14 13.4688 14.4375 13 15 13Z" fill="currentColor"></path><path opacity="0.4" d="M7 6C7 4.90625 7.875 4 9 4H20C21.0938 4 22 4.90625 22 6V15C22 16.125 21.0938 17 20 17H12.5C12.1562 16.2188 11.5625 15.5312 10.875 15H14H18H20V6H9V7.5625C8.40625 7.21875 7.71875 7 7 7V6Z" fill="currentColor"></path></svg><div class="dropdown_link_text">Use Cases</div></a></div></div></nav></div></li><li class="nav_list_item"><a aria-label="Go to Docs" href="https://docs.vellum.ai/help-center/welcome/welcome" target="_blank" class="nav_list_link">Docs</a></li><li class="nav_list_item"><a aria-label="Go to Docs" href="/enterprise" class="nav_list_link">Enterprise</a></li><li class="nav_list_item"><a aria-label="Go to Pricing" href="/pricing" class="nav_list_link">Pricing</a></li></ul><button data-w-id="25cc24a0-bc21-f687-b01a-8de0503d29a0" type="button" aria-label="Open nav menu" fs-scrolldisable-element="toggle" class="nav_button"><div data-is-ix2-target="1" class="nav_lottie" data-w-id="25cc24a0-bc21-f687-b01a-8de0503d29a1" data-animation-type="lottie" data-src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/66e9613167c4f1a2cb3292c3_nav_menu.json" data-loop="0" data-direction="1" data-autoplay="0" data-renderer="svg" data-default-duration="2.0208333333333335" data-duration="0" data-ix2-initial-state="0"></div></button><div class="backface_background alt"></div><a href="https://app.vellum.ai" target="_blank" class="d-button js-utm-signup w-inline-block"><div class="btn-text">Get Started</div><div class="btn_arrow w-embed"><svg width="100%" height="100%" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M15.9062 10.2422L11.0938 14.8359C10.8203 15.082 10.4102 15.082 10.1641 14.8086C9.91797 14.5352 9.91797 14.125 10.1914 13.8789L13.8281 10.4062H4.53125C4.14844 10.4062 3.875 10.1328 3.875 9.75C3.875 9.39453 4.14844 9.09375 4.53125 9.09375H13.8281L10.1914 5.64844C9.91797 5.40234 9.91797 4.96484 10.1641 4.71875C10.4102 4.44531 10.8477 4.44531 11.0938 4.69141L15.9062 9.28516C16.043 9.42188 16.125 9.58594 16.125 9.75C16.125 9.94141 16.043 10.1055 15.9062 10.2422Z" fill="currentcolor"/>
+</svg></div><div class="d-button_bg-overlay"></div></a></div></div></header><div class="page_wrap"><div class="page_main"><section class="gradient-right-left expand"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 828 960" fill="none" class="u-cover-absolute prod-hero expand"><g clip-path="url(#clip0_2068_8877)"><path d="M3135 661.903C2999.23 661.903 2743.04 651.728 2381.83 449.928C1993.82 233.176 1797.73 190.736 1559.48 191.682M3135 600.825C2999.23 600.825 2743.04 590.65 2381.83 388.849C1993.82 172.098 1797.73 129.658 1559.48 130.604M3135 542.495C2999.23 542.495 2743.04 532.321 2381.83 330.52C1993.82 113.769 1797.73 71.3287 1559.48 72.274M3135 482.121C2999.23 482.121 2743.04 471.947 2381.83 270.146C1993.82 53.3947 1797.73 10.9549 1559.48 11.9002M3135 421.72C2999.23 421.72 2743.04 411.546 2381.83 209.745C1993.82 -7.00651 1797.73 -49.4463 1559.48 -48.501M3135 361.318C2999.23 361.318 2743.04 351.143 2381.83 149.343C1993.82 -67.4086 1797.73 -109.849 1559.48 -108.903M3135 298.828C2999.23 298.828 2743.04 288.654 2381.83 86.8532C1993.82 -129.898 1797.73 -172.338 1559.48 -171.393M1.90776e-05 661.341C135.767 661.341 391.959 651.167 753.171 449.366C1141.18 232.615 1337.27 190.175 1575.52 191.12M1575.52 1132C1439.75 1132 1183.56 1121.83 822.35 920.025C434.338 703.273 238.256 660.834 1.90876e-05 661.779M1.76788e-05 600.238C135.767 600.238 391.959 590.063 753.171 388.263C1141.18 171.511 1337.27 129.072 1575.52 130.017M1575.52 1070.93C1439.75 1070.93 1183.56 1060.75 822.35 858.954C434.338 642.203 238.256 599.763 1.76895e-05 600.708M1.6344e-05 541.932C135.767 541.932 391.959 531.757 753.171 329.956C1141.18 113.205 1337.27 70.7652 1575.52 71.7105M1575.52 1012.6C1439.75 1012.6 1183.56 1002.42 822.35 800.621C434.338 583.87 238.256 541.43 1.63541e-05 542.375M1.49612e-05 481.528C135.767 481.528 391.959 471.354 753.171 269.553C1141.18 52.8017 1337.27 10.3619 1575.52 11.3072M1575.52 952.217C1439.75 952.217 1183.56 942.042 822.35 740.241C434.338 523.49 238.256 481.05 1.49719e-05 481.995M1.35784e-05 421.128C135.767 421.128 391.959 410.954 753.171 209.153C1141.18 -7.59839 1337.27 -50.0382 1575.52 -49.0929M1575.52 891.822C1439.75 891.822 1183.56 881.647 822.35 679.846C434.338 463.095 238.256 420.655 1.35892e-05 421.6M1.21957e-05 360.729C135.767 360.729 391.959 350.555 753.171 148.754C1141.18 -67.9974 1337.27 -110.437 1575.52 -109.492M1575.52 831.422C1439.75 831.422 1183.56 821.247 822.35 619.446C434.338 402.695 238.256 360.255 1.22065e-05 361.2M1.07651e-05 298.237C135.767 298.237 391.959 288.062 753.171 86.2613C1141.18 -130.49 1337.27 -172.93 1575.52 -171.985M1575.52 768.93C1439.75 768.93 1183.56 758.755 822.35 556.955C434.338 340.203 238.256 297.763 1.07759e-05 298.709" stroke="url(#paint0_linear_2068_8877)" stroke-width="1.5" stroke-miterlimit="10"></path></g><defs><linearGradient id="paint0_linear_2068_8877" x1="0%" y1="0" x2="60%" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0.175" stop-color="#8877FF" class="stop1"></stop><stop offset="0.946936" stop-color="#F1F1FF"></stop></linearGradient><clipPath id="clip0_2068_8877"><rect width="828" height="960" fill="currentColor"></rect></clipPath></defs></svg><div class="u-container is--hero-prod"><div class="hero_container_small u-vflex-center-top gap-prod"><div class="u-vflex-center-top gap-xsmall"><div class="u-vflex-center-top gap-xsmall"><div data-wf--header-tag-new--variant="base" class="header_tag"><div>404</div></div><h1 class="u-text-h1 align-center">Ooops! Page not found</h1></div><p class="u-text-regular text-center">It seems we can’t find the page you’re looking for. Try heading back to the homepage or use the menu to navigate.</p></div><div class="u-hflex-center-center gap-medium"><a id="video-anchor" href="/" class="button_alternative w-inline-block"><div>Go back home</div><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" class="button_icon"><path d="M18.8438 12.375L13.3438 17.875C13.1562 18.0625 12.8125 18.0625 12.625 17.875C12.4375 17.6875 12.4375 17.3438 12.625 17.1562L17.2812 12.5H5.5C5.21875 12.5 5 12.2812 5 12C5 11.75 5.21875 11.5 5.5 11.5H17.2812L12.625 6.875C12.4375 6.6875 12.4375 6.34375 12.625 6.15625C12.8125 5.96875 13.1562 5.96875 13.3438 6.15625L18.8438 11.6562C19.0312 11.8438 19.0312 12.1875 18.8438 12.375Z" fill="currentColor"></path></svg></a></div></div><div class="hero_prod_wrap u-hflex-center-center"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 1246 453" fill="none" class="prod_hero_frame hide"><g clip-path="url(#clip0_2068_8876)"><line x1="1246" y1="39.5" x2="-4.37115e-08" y2="39.4999" stroke="url(#paint0_linear_2068_8876)"></line><line x1="1246" y1="51.5" x2="-4.37115e-08" y2="51.4999" stroke="url(#paint1_linear_2068_8876)"></line><line x1="31.5" y1="2.18557e-08" x2="31.5" y2="742" stroke="url(#paint2_linear_2068_8876)"></line><line x1="43.5" y1="2.18557e-08" x2="43.5" y2="742" stroke="url(#paint3_linear_2068_8876)"></line><line x1="1203.5" y1="2.18557e-08" x2="1203.5" y2="742" stroke="url(#paint4_linear_2068_8876)"></line><line x1="1215.5" y1="2.18557e-08" x2="1215.5" y2="742" stroke="url(#paint5_linear_2068_8876)"></line></g><defs><linearGradient id="paint0_linear_2068_8876" x1="1246" y1="38.9291" x2="1245.98" y2="33.2816" gradientUnits="userSpaceOnUse"><stop stop-color="#DFDBF3"></stop><stop offset="1" stop-color="#D8C8D9"></stop></linearGradient><linearGradient id="paint1_linear_2068_8876" x1="1246" y1="50.9291" x2="1245.98" y2="45.2816" gradientUnits="userSpaceOnUse"><stop stop-color="#DFDBF3"></stop><stop offset="1" stop-color="#D8C8D9"></stop></linearGradient><linearGradient id="paint2_linear_2068_8876" x1="30.9291" y1="2.53132e-06" x2="25.2817" y2="0.0299998" gradientUnits="userSpaceOnUse"><stop stop-color="#DFDBF3"></stop><stop offset="1" stop-color="#D8C8D9"></stop></linearGradient><linearGradient id="paint3_linear_2068_8876" x1="42.9291" y1="2.53132e-06" x2="37.2817" y2="0.0299998" gradientUnits="userSpaceOnUse"><stop stop-color="#DFDBF3"></stop><stop offset="1" stop-color="#D8C8D9"></stop></linearGradient><linearGradient id="paint4_linear_2068_8876" x1="1202.93" y1="2.53132e-06" x2="1197.28" y2="0.0299998" gradientUnits="userSpaceOnUse"><stop stop-color="#DFDBF3"></stop><stop offset="1" stop-color="#D8C8D9"></stop></linearGradient><linearGradient id="paint5_linear_2068_8876" x1="1214.93" y1="2.53132e-06" x2="1209.28" y2="0.0299998" gradientUnits="userSpaceOnUse"><stop stop-color="#DFDBF3"></stop><stop offset="1" stop-color="#D8C8D9"></stop></linearGradient><clipPath id="clip0_2068_8876"><rect width="1246" height="453" fill="currentColor"></rect></clipPath></defs></svg></div></div></section></div></div><script src="https://d3e54v103j8qbb.cloudfront.net/js/jquery-3.5.1.min.dc5e7f18c8.js?site=63f416b32254e8eca5d8af54" type="text/javascript" integrity="sha256-9/aliU8dGd2tb6OSsuzixeV4y/faTqgFtohetphbbj0=" crossorigin="anonymous"></script><script src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/js/webflow.390c3c97.27d20ff04392fab7.js" type="text/javascript" integrity="sha384-GwrU32FXcUGMYwwfgb2PQfy3Zn0r/y3ntH8+djN3bMqdV2LdyyzGhITFI8BxOXTT" crossorigin="anonymous"></script><!-- CTA GA4 tracking code -->
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    // Select all buttons with classes starting with "cta-"
+    const ctaButtons = document.querySelectorAll("[class*='cta-']");
+
+    ctaButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        // Find the CTA class
+        const ctaClass =
+          Array.from(btn.classList).find(c => c.startsWith("cta-")) || "unknown-cta";
+
+        // Get button text
+        const buttonText = btn.innerText.trim() || "unknown-text";
+
+        // Get current page path
+        const pagePath = window.location.pathname;
+
+        // Send event to GA4
+        gtag("event", "cta_click", {
+          event_category: "CTA",
+          event_label: ctaClass,
+          button_text: buttonText,
+          page_path: pagePath,
+          value: 1
+        });
+      });
+    });
+  });
+</script>
+
+
+
+<!-- UTM signup script -->
+
+<script>
+/* FAST LISTENERS: carry first-touch UTMs + clean last_conversion_url on click/submit */
+(function () {
+  function L(k){try{return JSON.parse(localStorage.getItem(k)||'{}')}catch(e){return {}}}
+  function cleanUrl(){
+    const u=new URL(window.location.href);
+    ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','gclid','gbraid','wbraid','msclkid','fbclid','ttclid'].forEach(k=>u.searchParams.delete(k));
+    return u.toString();
+  }
+  function addParams(href, extras){
+    try{
+      const u=new URL(href, window.location.origin);
+      Object.keys(extras).forEach(k=>{ if(!u.searchParams.has(k)) u.searchParams.set(k, extras[k]); });
+      return u.toString();
+    }catch(e){ return href; }
+  }
+  function extras(){
+    const ft=L('first_touch_utms')||{};
+    return Object.assign({}, ft, { last_conversion_url: cleanUrl() });
+  }
+
+  // Event delegation for clicks on links/buttons with class "js-utm-signup"
+  document.addEventListener('click', function(e){
+    const el = e.target.closest('a.js-utm-signup, button.js-utm-signup');
+    if(!el) return;
+    const href = (el.getAttribute('href')||'').trim();
+    if(!href || href==='#' || href.startsWith('javascript:')) return;
+    el.setAttribute('href', addParams(href, extras()));
+  }, true); // capture = earlier, less jank
+
+  // Event delegation for forms with class "js-utm-signup"
+  document.addEventListener('submit', function(e){
+    const form = e.target.closest('form.js-utm-signup');
+    if(!form) return;
+    const names = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','last_conversion_url'];
+    const ex = extras();
+    names.forEach(name=>{
+      let input = form.querySelector('input[name="'+name+'"]');
+      if(!input){ input=document.createElement('input'); input.type='hidden'; input.name=name; form.appendChild(input); }
+      if(!input.value) input.value = ex[name] || '';
+    });
+  }, true);
+})();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+<script>
+gsap.registerPlugin(ScrollTrigger);
+
+const mediaQuery = window.matchMedia('(min-width: 480px)');
+
+function initScrollAnimation() {
+  const header = document.querySelector('.u-container.is--header');
+  const backfaceBackground = document.querySelector('.backface_background');
+  const headerBtn = document.querySelector('.button_main.is--header');
+
+  if (header && backfaceBackground && headerBtn) {
+    ScrollTrigger.create({
+      trigger: document.body,
+      start: 'top top',
+      end: 'bottom top',
+      onUpdate: (self) => {
+        const scrollPos = self.scroll();
+
+        if (scrollPos > 0) {
+          gsap.to(header, {
+            paddingLeft: '2.5rem',
+            paddingRight: '2.5rem',
+            maxWidth: '100%',
+            duration: 0.8,
+            ease: 'power2.out',
+          });
+          
+          gsap.to(headerBtn, {
+            paddingLeft: '0.7rem',
+            paddingRight: '0.7rem',
+            paddingTop: '0.7rem',
+            paddingBottom: '0.7rem',
+            duration: 0.8,
+            ease: 'power2.out',
+          });
+
+          gsap.to(backfaceBackground, {
+            borderRadius: '0rem',
+            width: '100%',
+            height: '100%',
+            position: 'absolute',
+            top: '0rem',
+            left: '0rem',
+            bottom: '0rem',
+            right: '0rem',
+            duration: 0.8,
+            ease: 'power2.out',
+          });
+        } else {
+          gsap.to(headerBtn, {
+            paddingLeft: '1rem',
+            paddingRight: '1rem',
+            paddingTop: '1rem',
+            paddingBottom: '1rem',
+            duration: 0.8,
+            ease: 'power2.out',
+          });
+
+          gsap.to(header, {
+            paddingLeft: '7.5rem',
+            paddingRight: '7.5rem',
+            maxWidth: '90rem',
+            duration: 0.8,
+            ease: 'power2.out',
+          });
+
+          gsap.to(backfaceBackground, {
+            borderRadius: '3.5rem',
+            width: '66%',
+            height: '4rem',
+            position: 'absolute',
+            top: '0.5rem',
+            left: '7.5rem',
+            bottom: 'auto',
+            right: 'auto',
+            duration: 0.8,
+            ease: 'power2.out',
+          });
+        }
+      },
+    });
+  }
+}
+
+window.addEventListener('DOMContentLoaded', function() {
+  if (mediaQuery.matches) {
+    initScrollAnimation();
+  }
+
+  mediaQuery.addEventListener('change', (e) => {
+    if (e.matches) {
+      initScrollAnimation();
+    }
+  });
+});
+</script>
+<!-- UTM signup script -->
+
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-KFKFCZV6"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+
+<!-- Start of HubSpot Embed Code -->
+<script type="text/javascript" id="hs-script-loader" async defer src="//js.hs-scripts.com/24436592.js"></script>
+<!-- End of HubSpot Embed Code -->
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const buttons = document.querySelectorAll('.btn_primary');
+
+  buttons.forEach(function(button) {
+    if (button.href) {
+      const url = new URL(button.href);
+      const utmSource = button.getAttribute('utm_source');
+
+      if (utmSource && !url.searchParams.get('utm_source')) {
+        url.searchParams.set('utm_source', utmSource);
+        button.href = url.toString();
+      }
+
+      button.addEventListener('click', function(event) {
+        const gclid = new URLSearchParams(window.location.search).get('gclid');
+        if (gclid) {
+          url.searchParams.set('utm_medium', 'google_ads');
+          button.href = url.toString();
+        }
+      });
+    }
+  });
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    var referringPath = new URL(document.referrer).pathname.replace(/\/+/g, '-').replace(/^-/, '') || 'homepage';
+    
+    if (window.location.href.includes("request-demo")) {
+        var utmParameters = new URLSearchParams(window.location.search);
+        utmParameters.set('utm_content', referringPath);
+    
+        var newUrl = `${window.location.origin}${window.location.pathname}?${utmParameters.toString()}${window.location.hash}`;
+    
+        window.history.replaceState({}, document.title, newUrl);
+    }
+});
+</script>
+
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons"
+      rel="stylesheet">
+      
+      
+      
+      
+      
+ <!-- LOGO MARQUEE -->
+ 
+<script src="https://cdn.jsdelivr.net/npm/@splidejs/splide/dist/js/splide.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@splidejs/splide-extension-auto-scroll/dist/js/splide-extension-auto-scroll.min.js"></script>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const splides = document.querySelectorAll('.splide.marquee');
+
+    splides.forEach((splideElement) => {
+      const isLTR = splideElement.hasAttribute('ltr');
+      const direction = isLTR ? 'ltr' : 'rtl';
+
+      const splideInstance = new Splide(splideElement, {
+        type: 'loop',
+        autoScroll: {
+          speed: 1,                 // Smooth speed
+          pauseOnHover: true,
+          pauseOnFocus: false,
+          rewind: false,            // Prevent jump
+        },
+        autoWidth: true,
+        perPage: 0,
+        direction: direction,
+        arrows: false,
+        pagination: false,
+        drag: true,
+        clones: 15,                // Prevent reset glitch
+        easing: 'linear',         // Linear for marquee style
+      });
+
+      splideInstance.mount(window.splide.Extensions);
+    });
+  });
+</script>
+
+
+
+<!--NAVBAR NEW BG-->
+
+<script>
+  const navbar = document.querySelector('.navbar_bg');
+
+  // Apply the transition styles via JS
+  navbar.style.transition = 'opacity 0.4s ease, backdrop-filter 0.4s ease';
+
+  window.addEventListener('scroll', () => {
+    const scrollPercent = (window.scrollY / (document.body.scrollHeight - window.innerHeight)) * 100;
+
+    if (scrollPercent > 2) {
+      navbar.style.opacity = '1';
+      navbar.style.backdropFilter = 'blur(100px)';
+    } else {
+      navbar.style.opacity = '0';
+      navbar.style.backdropFilter = 'blur(0px)';
+    }
+  });
+</script>
+
+<!--Mobile Close-->
+
+<script>
+document.getElementById('mobileclose').addEventListener('click', function() {
+  // Select the Webflow Menu Button
+  const menuButton = document.querySelector('.w-nav-button');
+  
+  // Check if the menu is currently open by looking for the 'w--open' class
+  if (menuButton.classList.contains('w--open')) {
+    menuButton.click();
+  }
+});
+</script>
+<script src="https://hubspotonwebflow.com/assets/js/form-124.js" type="text/javascript" integrity="sha384-bjyNIOqAKScdeQ3THsDZLGagNN56B4X2Auu9YZIGu+tA/PlggMk4jbWruG/P6zYj" crossorigin="anonymous"></script></body></html>
