@@ -10,6 +10,7 @@ import {
 } from './daemon/ipc-protocol.js';
 import { formatDiff, formatNewFileDiff } from './util/diff.js';
 import { Spinner } from './util/spinner.js';
+import { copyToClipboard, extractLastCodeBlock } from './util/clipboard.js';
 
 export async function startCli(): Promise<void> {
   const socketPath = getSocketPath();
@@ -17,6 +18,7 @@ export async function startCli(): Promise<void> {
   const parser = createMessageParser();
   let sessionId = '';
   let generating = false;
+  let lastResponse = '';
   const spinner = new Spinner();
 
   function formatToolProgress(toolName: string, input: Record<string, unknown>): string {
@@ -187,6 +189,7 @@ export async function startCli(): Promise<void> {
 
         case 'assistant_text_delta':
           spinner.stop();
+          lastResponse += msg.text;
           process.stdout.write(msg.text);
           break;
 
@@ -250,11 +253,43 @@ export async function startCli(): Promise<void> {
 
   rl.on('line', (line) => {
     const content = line.trim();
-    if (content) {
-      generating = true;
-      send({ type: 'user_message', sessionId, content });
-      spinner.start('Thinking...');
+    if (!content) return;
+
+    if (content === '/copy') {
+      if (!lastResponse) {
+        process.stdout.write('No response to copy.\n');
+      } else {
+        try {
+          copyToClipboard(lastResponse);
+          process.stdout.write('Copied to clipboard.\n');
+        } catch (err) {
+          process.stdout.write(`Clipboard error: ${(err as Error).message}\n`);
+        }
+      }
+      prompt();
+      return;
     }
+
+    if (content === '/copy-code') {
+      const code = extractLastCodeBlock(lastResponse);
+      if (!code) {
+        process.stdout.write('No code block found.\n');
+      } else {
+        try {
+          copyToClipboard(code);
+          process.stdout.write('Copied code block to clipboard.\n');
+        } catch (err) {
+          process.stdout.write(`Clipboard error: ${(err as Error).message}\n`);
+        }
+      }
+      prompt();
+      return;
+    }
+
+    lastResponse = '';
+    generating = true;
+    send({ type: 'user_message', sessionId, content });
+    spinner.start('Thinking...');
   });
 
   rl.on('close', () => {
