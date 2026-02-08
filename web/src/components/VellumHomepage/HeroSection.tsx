@@ -118,9 +118,9 @@ export function HeroSection() {
                               <div role="list" className="template_tags-wrapper w-dyn-items">
                                 {['Product', 'Sales', 'Marketing', 'Finance', 'Customer support'].map(tag => (
                                   <div key={tag} role="listitem" className="item_radio inter w-dyn-item">
-                                    <label className="template_text-tag w-radio">
+                                    <label className="template_text-tag w-radio" htmlFor="radio">
                                       <input type="radio" name="radio" id="radio" data-name="Radio" fs-list-activeclass="is-active" className="w-form-formradioinput hide w-radio-input" value="Radio"/>
-                                      <span className="label-text w-form-label" htmlFor="radio">{tag}</span>
+                                      <span className="label-text w-form-label">{tag}</span>
                                     </label>
                                   </div>
                                 ))}
