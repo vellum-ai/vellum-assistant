@@ -1,3 +1,4 @@
+import Anthropic from '@anthropic-ai/sdk';
 import type { Message } from '../providers/types.js';
 import type { ServerMessage } from './ipc-protocol.js';
 import { AgentLoop } from '../agent/loop.js';
@@ -8,6 +9,7 @@ import { PermissionPrompter } from '../permissions/prompter.js';
 import { ToolExecutor } from '../tools/executor.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
 import type { UserDecision } from '../permissions/types.js';
+import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('session');
@@ -94,6 +96,8 @@ export class Session {
     this.processing = true;
 
     try {
+      const isFirstMessage = this.messages.length === 0;
+
       // Add user message
       const userMessage = createUserMessage(content);
       this.messages.push(userMessage);
@@ -104,12 +108,14 @@ export class Session {
       );
 
       // Run agent loop
+      let firstAssistantText = '';
       const updatedHistory = await this.agentLoop.run(
         this.messages,
         (event) => {
           switch (event.type) {
             case 'text_delta':
               onEvent({ type: 'assistant_text_delta', text: event.text });
+              if (isFirstMessage) firstAssistantText += event.text;
               break;
             case 'tool_use':
               onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input });
@@ -134,12 +140,42 @@ export class Session {
 
       this.messages = updatedHistory;
       onEvent({ type: 'message_complete' });
+
+      // Auto-generate conversation title after first exchange
+      if (isFirstMessage) {
+        this.generateTitle(content, firstAssistantText).catch((err) => {
+          log.warn({ err }, 'Failed to generate conversation title');
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err }, 'Session processing error');
       onEvent({ type: 'error', message });
     } finally {
       this.processing = false;
+    }
+  }
+
+  private async generateTitle(userMessage: string, assistantResponse: string): Promise<void> {
+    const config = getConfig();
+    const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return;
+
+    const client = new Anthropic({ apiKey });
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 30,
+      messages: [{
+        role: 'user',
+        content: `Generate a short title (3-6 words, no quotes) for this conversation:\n\nUser: ${userMessage.slice(0, 200)}\nAssistant: ${assistantResponse.slice(0, 200)}`,
+      }],
+    });
+
+    const textBlock = response.content.find((b) => b.type === 'text');
+    if (textBlock && textBlock.type === 'text') {
+      const title = textBlock.text.trim().replace(/^["']|["']$/g, '');
+      conversationStore.updateConversationTitle(this.conversationId, title);
+      log.info({ conversationId: this.conversationId, title }, 'Auto-generated conversation title');
     }
   }
 }
