@@ -45,6 +45,8 @@ export async function up(): Promise<void> {
       shell: true,
       env: {
         ...process.env,
+        DATABASE_URL: process.env.DATABASE_URL || 'postgresql://vellum:password@localhost:5432/vellum',
+        APP_URL: process.env.APP_URL || 'http://localhost:3000',
         MINIO_ENDPOINT: process.env.MINIO_ENDPOINT || 'http://localhost:9000',
         MINIO_ACCESS_KEY: process.env.MINIO_ACCESS_KEY || 'minioadmin',
         MINIO_SECRET_KEY: process.env.MINIO_SECRET_KEY || 'minioadmin',

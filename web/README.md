@@ -10,22 +10,22 @@ Next.js web application for Vellum Assistant.
 
 ## Environment Variables
 
-Copy `.env.example` to `.env.local` and fill in the required values:
-
-```bash
-cp ../.env.example .env.local
-```
-
-Required variables:
+The following env vars are set automatically by `vel up` with local defaults:
 - `DATABASE_URL` - PostgreSQL connection string
+- `APP_URL` - App URL for callbacks/webhooks
+- `MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` - Local object storage
+
+Optional (set in your shell environment if needed):
 - `ANTHROPIC_API_KEY` - For AI capabilities
 - `GCP_SA_KEY` - Google Cloud service account (for compute/storage)
+- `GCP_PROJECT_ID` - Google Cloud project ID
+- `GCS_BUCKET_NAME` - Google Cloud Storage bucket name
 
 ## Development
 
 ```bash
 npm install
-npm run dev
+vel up
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
