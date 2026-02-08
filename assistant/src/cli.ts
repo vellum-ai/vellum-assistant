@@ -292,8 +292,11 @@ export async function startCli(): Promise<void> {
         case 'tool_result':
           if (!toolStreaming) spinner.stop();
           if (toolStreaming) {
-            // We already streamed the output; just add a newline separator
-            process.stdout.write('\n');
+            // We already streamed the raw output; show any trailing status
+            // markers (timeout, truncation, exit code) that the tool appended
+            // after the streamed data.
+            const statusMatch = msg.result.match(/(\n\[(?:Command timed out|Output truncated|Command exited)[^\]]*\])+$/);
+            process.stdout.write((statusMatch ? statusMatch[0] : '') + '\n');
           } else {
             process.stdout.write(`\n[Tool: ${msg.result.slice(0, 200)}]\n`);
           }
