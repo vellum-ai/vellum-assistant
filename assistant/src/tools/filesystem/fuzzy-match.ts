@@ -125,6 +125,8 @@ function tryFuzzyMatch(contentLines: IndexedLine[], targetNorm: string[], thresh
 const FUZZY_THRESHOLD = 0.8;
 
 export function findMatch(content: string, target: string): MatchResult | null {
+  if (target.length === 0) return null;
+
   // 1. Exact match
   const exact = tryExactMatch(content, target);
   if (exact) return exact;
@@ -147,6 +149,8 @@ export function findMatch(content: string, target: string): MatchResult | null {
 }
 
 export function findAllMatches(content: string, target: string): MatchResult[] {
+  if (target.length === 0) return [];
+
   // 1. Exact matches
   const exactMatches = findAllExactMatches(content, target);
   if (exactMatches.length > 0) return exactMatches;

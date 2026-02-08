@@ -57,6 +57,10 @@ class FileEditTool implements Tool {
       return { content: 'Error: new_string is required and must be a string', isError: true };
     }
 
+    if (oldString.length === 0) {
+      return { content: 'Error: old_string must not be empty', isError: true };
+    }
+
     if (oldString === newString) {
       return { content: 'Error: old_string and new_string must be different', isError: true };
     }

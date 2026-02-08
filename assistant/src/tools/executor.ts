@@ -174,7 +174,7 @@ function computePreviewDiff(
       const rawPath = input.path as string;
       const oldString = input.old_string as string;
       const newString = input.new_string as string;
-      if (!rawPath || typeof oldString !== 'string' || typeof newString !== 'string') return undefined;
+      if (!rawPath || typeof oldString !== 'string' || typeof newString !== 'string' || oldString.length === 0) return undefined;
       const filePath = resolve(workingDir, rawPath);
       if (!existsSync(filePath)) return undefined;
       const content = readFileSync(filePath, 'utf-8');
