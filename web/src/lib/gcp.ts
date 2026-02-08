@@ -3,15 +3,14 @@ import fs from "fs";
 import Handlebars from "handlebars";
 import path from "path";
 
+import { GCP_PROJECT_ID } from "@/lib/gcp-config";
 import { getStorage } from "@/lib/storage";
 
-const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || "vellum-ai-prod";
 const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || "vellum-ai-prod-vellum-assistant";
 const GCS_PREFIX_BASE = "vellum-assistant";
 const GCP_ZONE = process.env.GCP_ZONE || "us-central1-a";
 const GCP_MACHINE_TYPE = process.env.GCP_MACHINE_TYPE || "e2-medium";
 const GCP_SERVICE_ACCOUNT = process.env.GCP_SERVICE_ACCOUNT || "dev-sa@vellum-ai-prod.iam.gserviceaccount.com";
-const GCP_SA_KEY = process.env.GCP_SA_KEY;
 
 // Prequeue configuration
 const PREQUEUE_POOL_SIZE = 1; // Minimum number of prequeued instances to maintain
@@ -20,14 +19,8 @@ const PREQUEUE_INSTANCE_PREFIX = "vellum-prequeue";
 // Templates are uploaded to GCS by GitHub Actions on merge to main
 const GCS_TEMPLATES_PREFIX = `${GCS_PREFIX_BASE}/templates`;
 
-function getGcpCredentials(): { projectId: string; credentials?: object } {
-  const config: { projectId: string; credentials?: object } = {
-    projectId: GCP_PROJECT_ID,
-  };
-  if (GCP_SA_KEY) {
-    config.credentials = JSON.parse(GCP_SA_KEY);
-  }
-  return config;
+function getGcpCredentials(): { projectId: string } {
+  return { projectId: GCP_PROJECT_ID };
 }
 
 function getComputeClient(): InstancesClient {

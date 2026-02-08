@@ -1,7 +1,7 @@
 import { Storage } from "@google-cloud/storage";
 
-const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || "vellum-ai-prod";
-const GCP_SA_KEY = process.env.GCP_SA_KEY;
+import { GCP_PROJECT_ID } from "@/lib/gcp-config";
+
 const NODE_ENV = process.env.NODE_ENV || "development";
 
 const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT || "http://localhost:9000";
@@ -10,16 +10,6 @@ const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY || "minioadmin";
 
 function isLocalDev(): boolean {
   return NODE_ENV !== "production";
-}
-
-function getGcpCredentials(): { projectId: string; credentials?: object } {
-  const config: { projectId: string; credentials?: object } = {
-    projectId: GCP_PROJECT_ID,
-  };
-  if (GCP_SA_KEY) {
-    config.credentials = JSON.parse(GCP_SA_KEY);
-  }
-  return config;
 }
 
 export function getStorage(): Storage {
@@ -34,5 +24,5 @@ export function getStorage(): Storage {
     });
   }
 
-  return new Storage(getGcpCredentials());
+  return new Storage({ projectId: GCP_PROJECT_ID });
 }
