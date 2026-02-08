@@ -23,7 +23,10 @@ function generateToTmpDir(): string[] {
 
     const before = new Set(readdirSync(tmpOut).filter((f) => f.endsWith(".sql")));
 
-    execSync(`npx drizzle-kit generate --out ${tmpOut}`, { stdio: "pipe" });
+    execSync(
+      `npx drizzle-kit generate --dialect postgresql --schema ./src/lib/schema.ts --out ${tmpOut}`,
+      { stdio: "pipe" }
+    );
 
     const after = readdirSync(tmpOut).filter((f) => f.endsWith(".sql"));
     const newFiles = after.filter((f) => !before.has(f)).sort();
