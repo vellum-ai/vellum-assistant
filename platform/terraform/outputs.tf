@@ -46,6 +46,11 @@ output "database_secret_id" {
   value       = google_secret_manager_secret.database_url.secret_id
 }
 
+output "editor_templates_bucket" {
+  description = "GCS bucket for editor templates"
+  value       = google_storage_bucket.editor_templates.name
+}
+
 output "database_connection_info" {
   description = "Database connection information"
   value       = <<-EOT

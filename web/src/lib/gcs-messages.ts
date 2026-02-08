@@ -1,21 +1,4 @@
-import { Storage } from "@google-cloud/storage";
-
-const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || "vellum-nonprod";
-const GCP_SA_KEY = process.env.GCP_SA_KEY;
-
-function getGcpCredentials(): { projectId: string; credentials?: object } {
-  const config: { projectId: string; credentials?: object } = {
-    projectId: GCP_PROJECT_ID,
-  };
-  if (GCP_SA_KEY) {
-    config.credentials = JSON.parse(GCP_SA_KEY);
-  }
-  return config;
-}
-
-function getStorage(): Storage {
-  return new Storage(getGcpCredentials());
-}
+import { getStorage } from "@/lib/storage";
 
 export interface Message {
   id: string;

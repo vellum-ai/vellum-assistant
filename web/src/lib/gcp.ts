@@ -1,8 +1,9 @@
 import { FirewallsClient, InstancesClient } from "@google-cloud/compute";
-import { Storage } from "@google-cloud/storage";
 import fs from "fs";
 import Handlebars from "handlebars";
 import path from "path";
+
+import { getStorage } from "@/lib/storage";
 
 const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || "vellum-nonprod";
 const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || "vellum-nonprod-dev-django";
@@ -27,10 +28,6 @@ function getGcpCredentials(): { projectId: string; credentials?: object } {
     config.credentials = JSON.parse(GCP_SA_KEY);
   }
   return config;
-}
-
-function getStorage(): Storage {
-  return new Storage(getGcpCredentials());
 }
 
 function getComputeClient(): InstancesClient {

@@ -10,7 +10,6 @@ AI-powered assistant platform by Vellum.
 ├── assistant/         # Bun-based assistant service
 ├── platform/          # Terraform infrastructure
 ├── vel/               # Development toolkit CLI
-├── editor-templates/  # Agent editor templates
 └── .github/           # GitHub Actions workflows
 ```
 
