@@ -1,5 +1,5 @@
 import * as net from 'node:net';
-import { unlinkSync, existsSync } from 'node:fs';
+import { unlinkSync, existsSync, chmodSync } from 'node:fs';
 import { getSocketPath } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getProvider } from '../providers/registry.js';
@@ -43,6 +43,7 @@ export class DaemonServer {
       });
 
       this.server.listen(this.socketPath, () => {
+        chmodSync(this.socketPath, 0o600);
         log.info({ socketPath: this.socketPath }, 'Daemon server listening');
         resolve();
       });
