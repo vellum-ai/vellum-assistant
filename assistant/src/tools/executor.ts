@@ -1,3 +1,5 @@
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { getTool } from './registry.js';
 import type { ToolContext, ToolExecutionResult } from './types.js';
 import { RiskLevel } from '../permissions/types.js';
@@ -57,12 +59,16 @@ export class ToolExecutor {
         const allowlistOptions = generateAllowlistOptions(name, input);
         const scopeOptions = generateScopeOptions(context.workingDir);
 
+        // Compute preview diff for file tools so the user sees what will change
+        const previewDiff = computePreviewDiff(name, input, context.workingDir);
+
         const response = await this.prompter.prompt(
           name,
           input,
           riskLevel,
           allowlistOptions,
           scopeOptions,
+          previewDiff,
         );
 
         decision = response.decision;
@@ -141,4 +147,50 @@ export class ToolExecutor {
       return { content: `Tool error: ${msg}`, isError: true };
     }
   }
+}
+
+/**
+ * Compute a preview diff for file tools so the confirmation prompt can show
+ * what will change. Returns undefined for non-file tools or on any error.
+ */
+function computePreviewDiff(
+  toolName: string,
+  input: Record<string, unknown>,
+  workingDir: string,
+): { filePath: string; oldContent: string; newContent: string; isNewFile: boolean } | undefined {
+  try {
+    if (toolName === 'file_write') {
+      const rawPath = input.path as string;
+      const content = input.content as string;
+      if (!rawPath || !content) return undefined;
+      const filePath = resolve(workingDir, rawPath);
+      const isNewFile = !existsSync(filePath);
+      const oldContent = isNewFile ? '' : readFileSync(filePath, 'utf-8');
+      return { filePath, oldContent, newContent: content, isNewFile };
+    }
+
+    if (toolName === 'file_edit') {
+      const rawPath = input.path as string;
+      const oldString = input.old_string as string;
+      const newString = input.new_string as string;
+      if (!rawPath || typeof oldString !== 'string' || typeof newString !== 'string') return undefined;
+      const filePath = resolve(workingDir, rawPath);
+      if (!existsSync(filePath)) return undefined;
+      const content = readFileSync(filePath, 'utf-8');
+      const replaceAll = input.replace_all === true;
+      let updated: string;
+      if (replaceAll) {
+        if (!content.includes(oldString)) return undefined;
+        updated = content.split(oldString).join(newString);
+      } else {
+        const idx = content.indexOf(oldString);
+        if (idx === -1) return undefined;
+        updated = content.slice(0, idx) + newString + content.slice(idx + oldString.length);
+      }
+      return { filePath, oldContent: content, newContent: updated, isNewFile: false };
+    }
+  } catch {
+    // Preview is best-effort — don't block the prompt on errors
+  }
+  return undefined;
 }

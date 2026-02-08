@@ -71,6 +71,17 @@ export async function startCli(): Promise<void> {
     process.stdout.write('\n');
     process.stdout.write(`\u250C ${req.toolName}: ${preview}\n`);
     process.stdout.write(`\u2502 Risk: ${req.riskLevel}\n`);
+    if (req.diff) {
+      const diffOutput = req.diff.isNewFile
+        ? formatNewFileDiff(req.diff.newContent, req.diff.filePath)
+        : formatDiff(req.diff.oldContent, req.diff.newContent, req.diff.filePath);
+      if (diffOutput) {
+        process.stdout.write(`\u2502\n`);
+        for (const line of diffOutput.split('\n')) {
+          if (line) process.stdout.write(`\u2502 ${line}\n`);
+        }
+      }
+    }
     process.stdout.write(`\u2502\n`);
     process.stdout.write(`\u2502 [a] Allow once\n`);
     process.stdout.write(`\u2502 [d] Deny once\n`);
