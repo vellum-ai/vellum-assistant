@@ -268,10 +268,51 @@ describe('Permission Checker', () => {
       expect(result.matchedRule).toBeDefined();
     });
 
-    test('high risk ignores trust rules', async () => {
+    test('high risk ignores allow rules', async () => {
       addRule('shell', 'sudo *', 'everywhere');
       const result = await check('shell', { command: 'sudo rm -rf /' }, '/tmp');
       expect(result.decision).toBe('prompt');
+    });
+
+    // Deny rule tests
+    test('deny rule blocks medium-risk command', async () => {
+      addRule('shell', 'rm *', '/tmp', 'deny');
+      const result = await check('shell', { command: 'rm file.txt' }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.decision).toBe('deny');
+    });
+
+    test('deny rule overrides allow rule', async () => {
+      addRule('shell', 'rm *', '/tmp', 'allow');
+      addRule('shell', 'rm *', '/tmp', 'deny');
+      const result = await check('shell', { command: 'rm file.txt' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    test('deny rule blocks low-risk command', async () => {
+      addRule('shell', 'ls', '/tmp', 'deny');
+      const result = await check('shell', { command: 'ls' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    test('deny rule blocks high-risk command without prompting', async () => {
+      addRule('shell', 'sudo *', 'everywhere', 'deny');
+      const result = await check('shell', { command: 'sudo rm -rf /' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    test('deny rule for file tools', async () => {
+      addRule('file_write', 'file_write:/etc/*', 'everywhere', 'deny');
+      const result = await check('file_write', { path: '/etc/passwd' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    test('non-matching deny rule does not block', async () => {
+      addRule('shell', 'rm *', '/tmp', 'deny');
+      const result = await check('shell', { command: 'ls' }, '/tmp');
+      expect(result.decision).toBe('allow');
     });
   });
 

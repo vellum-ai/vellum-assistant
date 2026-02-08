@@ -37,6 +37,21 @@ export class ToolExecutor {
       riskLevel = risk;
       const result = await check(name, input, context.workingDir);
 
+      if (result.decision === 'deny') {
+        decision = 'denied';
+        const durationMs = Date.now() - startTime;
+        recordToolInvocation({
+          conversationId: context.conversationId,
+          toolName: name,
+          input: JSON.stringify(input),
+          result: `denied: ${result.reason}`,
+          decision: 'denied',
+          riskLevel,
+          durationMs,
+        });
+        return { content: result.reason, isError: true };
+      }
+
       if (result.decision === 'prompt') {
         // Need user approval
         const allowlistOptions = generateAllowlistOptions(name, input);
@@ -64,6 +79,21 @@ export class ToolExecutor {
             durationMs,
           });
           return { content: 'Permission denied by user', isError: true };
+        }
+
+        if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
+          addRule(name, response.selectedPattern, response.selectedScope, 'deny');
+          const durationMs = Date.now() - startTime;
+          recordToolInvocation({
+            conversationId: context.conversationId,
+            toolName: name,
+            input: JSON.stringify(input),
+            result: 'denied (permanent)',
+            decision: 'denied',
+            riskLevel,
+            durationMs,
+          });
+          return { content: 'Permission denied by user (rule saved)', isError: true };
         }
 
         if (response.decision === 'always_allow' && response.selectedPattern && response.selectedScope) {

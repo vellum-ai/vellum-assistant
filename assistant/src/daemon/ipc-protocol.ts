@@ -9,7 +9,7 @@ export interface UserMessage {
 export interface ConfirmationResponse {
   type: 'confirmation_response';
   requestId: string;
-  decision: 'allow' | 'always_allow' | 'deny';
+  decision: 'allow' | 'always_allow' | 'deny' | 'always_deny';
   selectedPattern?: string;
   selectedScope?: string;
 }

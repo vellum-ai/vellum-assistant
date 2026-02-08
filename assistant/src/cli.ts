@@ -53,6 +53,7 @@ export async function startCli(): Promise<void> {
     process.stdout.write(`\u2502 [d] Deny once\n`);
     if (req.allowlistOptions.length > 0) {
       process.stdout.write(`\u2502 [A] Allowlist...\n`);
+      process.stdout.write(`\u2502 [D] Denylist...\n`);
     }
     process.stdout.write(`\u2514 > `);
 
@@ -79,7 +80,13 @@ export async function startCli(): Promise<void> {
 
       // 'A' or 'allowlist' → enter pattern selection
       if (answer.trim() === 'A' || choice === 'allowlist') {
-        renderPatternSelection(req);
+        renderPatternSelection(req, 'always_allow');
+        return;
+      }
+
+      // 'D' or 'denylist' → enter deny pattern selection
+      if (answer.trim() === 'D' || choice === 'denylist') {
+        renderPatternSelection(req, 'always_deny');
         return;
       }
 
@@ -92,9 +99,10 @@ export async function startCli(): Promise<void> {
     });
   }
 
-  function renderPatternSelection(req: ConfirmationRequest): void {
+  function renderPatternSelection(req: ConfirmationRequest, decision: 'always_allow' | 'always_deny'): void {
+    const label = decision === 'always_allow' ? 'Allowlist' : 'Denylist';
     process.stdout.write('\n');
-    process.stdout.write(`\u250C Allowlist: choose command pattern\n`);
+    process.stdout.write(`\u250C ${label}: choose command pattern\n`);
     for (let i = 0; i < req.allowlistOptions.length; i++) {
       process.stdout.write(`\u2502 [${i + 1}] ${req.allowlistOptions[i].label}\n`);
     }
@@ -104,7 +112,7 @@ export async function startCli(): Promise<void> {
       const idx = parseInt(answer.trim(), 10) - 1;
       if (idx >= 0 && idx < req.allowlistOptions.length) {
         const selectedPattern = req.allowlistOptions[idx].pattern;
-        renderScopeSelection(req, selectedPattern);
+        renderScopeSelection(req, selectedPattern, decision);
       } else {
         // Invalid selection → deny
         send({
@@ -116,9 +124,10 @@ export async function startCli(): Promise<void> {
     });
   }
 
-  function renderScopeSelection(req: ConfirmationRequest, selectedPattern: string): void {
+  function renderScopeSelection(req: ConfirmationRequest, selectedPattern: string, decision: 'always_allow' | 'always_deny'): void {
+    const label = decision === 'always_allow' ? 'Allowlist' : 'Denylist';
     process.stdout.write('\n');
-    process.stdout.write(`\u250C Allowlist: choose scope\n`);
+    process.stdout.write(`\u250C ${label}: choose scope\n`);
     for (let i = 0; i < req.scopeOptions.length; i++) {
       process.stdout.write(`\u2502 [${i + 1}] ${req.scopeOptions[i].label}\n`);
     }
@@ -130,7 +139,7 @@ export async function startCli(): Promise<void> {
         send({
           type: 'confirmation_response',
           requestId: req.requestId,
-          decision: 'always_allow',
+          decision,
           selectedPattern,
           selectedScope: req.scopeOptions[idx].scope,
         });
