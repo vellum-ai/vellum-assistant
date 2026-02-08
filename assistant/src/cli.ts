@@ -9,6 +9,7 @@ import {
   type ConfirmationRequest,
 } from './daemon/ipc-protocol.js';
 import { formatDiff, formatNewFileDiff } from './util/diff.js';
+import { Spinner } from './util/spinner.js';
 
 export async function startCli(): Promise<void> {
   const socketPath = getSocketPath();
@@ -16,6 +17,22 @@ export async function startCli(): Promise<void> {
   const parser = createMessageParser();
   let sessionId = '';
   let generating = false;
+  const spinner = new Spinner();
+
+  function formatToolProgress(toolName: string, input: Record<string, unknown>): string {
+    switch (toolName) {
+      case 'shell':
+        return `Running \`${String(input.command ?? '').slice(0, 60)}\`...`;
+      case 'file_read':
+        return `Reading ${input.path ?? ''}...`;
+      case 'file_write':
+        return `Writing ${input.path ?? ''}...`;
+      case 'file_edit':
+        return `Editing ${input.path ?? ''}...`;
+      default:
+        return `Running ${toolName}...`;
+    }
+  }
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -169,29 +186,31 @@ export async function startCli(): Promise<void> {
           break;
 
         case 'assistant_text_delta':
+          spinner.stop();
           process.stdout.write(msg.text);
           break;
 
         case 'message_complete':
+          spinner.stop();
           generating = false;
           process.stdout.write('\n\n');
           prompt();
           break;
 
         case 'generation_cancelled':
+          spinner.stop();
           generating = false;
           process.stdout.write('\n[Cancelled]\n\n');
           prompt();
           break;
 
         case 'tool_use_start':
-          process.stdout.write(`\n[Tool: ${msg.toolName}]\n`);
+          spinner.start(formatToolProgress(msg.toolName, msg.input));
           break;
 
         case 'tool_result':
-          process.stdout.write(
-            `[Result: ${msg.result.slice(0, 200)}]\n`,
-          );
+          spinner.stop();
+          process.stdout.write(`\n[Tool: ${msg.result.slice(0, 200)}]\n`);
           if (msg.diff) {
             const diffOutput = msg.diff.isNewFile
               ? formatNewFileDiff(msg.diff.newContent, msg.diff.filePath)
@@ -200,13 +219,17 @@ export async function startCli(): Promise<void> {
               process.stdout.write(diffOutput);
             }
           }
+          // Agent will call the LLM again after tool results
+          spinner.start('Thinking...');
           break;
 
         case 'confirmation_request':
+          spinner.stop();
           renderConfirmationPrompt(msg);
           break;
 
         case 'error':
+          spinner.stop();
           generating = false;
           process.stdout.write(`\n[Error: ${msg.message}]\n`);
           prompt();
@@ -230,6 +253,7 @@ export async function startCli(): Promise<void> {
     if (content) {
       generating = true;
       send({ type: 'user_message', sessionId, content });
+      spinner.start('Thinking...');
     }
   });
 
