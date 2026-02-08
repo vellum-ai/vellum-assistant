@@ -19,11 +19,11 @@ export async function GET(request: Request, { params }: RouteParams) {
     }
 
     const agent = result[0] as Agent;
-    const computeConfig = agent.configuration?.compute as
+    const computeConfig = (agent.configuration as Record<string, any>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
 
-    const provisioningError = agent.configuration?.provisioningError as string | undefined;
+    const provisioningError = (agent.configuration as Record<string, any>)?.provisioningError as string | undefined;
     if (provisioningError) {
       return NextResponse.json({
         status: "provisioning_failed",

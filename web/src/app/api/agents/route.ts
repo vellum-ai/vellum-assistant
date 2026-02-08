@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 
-import { Agent, CreateAgentInput, getDb } from "@/lib/db";
+import { Agent, getDb } from "@/lib/db";
 import {
   AgentType,
   createAgentComputeInstance,
@@ -74,7 +74,7 @@ export async function GET() {
   try {
     const sql = getDb();
     const agents = await sql`SELECT * FROM agents ORDER BY created_at DESC`;
-    return NextResponse.json(agents as Agent[]);
+    return NextResponse.json(agents as unknown as Agent[]);
   } catch (error) {
     console.error("Error fetching agents:", error);
     return NextResponse.json(
@@ -172,7 +172,7 @@ export async function POST(request: Request) {
           await sql`
             UPDATE agents
             SET configuration = ${JSON.stringify({
-              ...agent.configuration,
+              ...(agent.configuration as Record<string, any> || {}),
               gcs: { bucket, prefix },
               compute: { instanceName, zone, machineType, fromPrequeue },
             })}
@@ -184,7 +184,7 @@ export async function POST(request: Request) {
           await sql`
             UPDATE agents
             SET configuration = ${JSON.stringify({
-              ...agent.configuration,
+              ...(agent.configuration as Record<string, any> || {}),
               provisioningError: errorMessage,
             })}
             WHERE id = ${agent.id}

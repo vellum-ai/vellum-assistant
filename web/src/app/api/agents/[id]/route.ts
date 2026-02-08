@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { Agent, getDb, UpdateAgentInput } from "@/lib/db";
+import { Agent, getDb } from "@/lib/db";
 
 interface RouteParams {
   params: Promise<{ id: string }>;

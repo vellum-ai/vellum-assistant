@@ -41,10 +41,10 @@ export function DetailsTab({ agentId }: DetailsTabProps) {
         return;
       }
       const agent: Agent = await response.json();
-      const computeConfig = agent.configuration?.compute as
+      const computeConfig = (agent.configuration as Record<string, any>)?.compute as
         | { instanceName?: string; zone?: string; machineType?: string }
         | undefined;
-      const agentmailConfig = agent.configuration?.agentmail as
+      const agentmailConfig = (agent.configuration as Record<string, any>)?.agentmail as
         | { inbox_id?: string }
         | undefined;
 

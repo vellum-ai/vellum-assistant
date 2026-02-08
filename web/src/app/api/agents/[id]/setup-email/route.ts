@@ -69,7 +69,7 @@ export async function POST(
     await sql`
       UPDATE agents
       SET configuration = ${JSON.stringify({
-        ...agent.configuration,
+        ...(agent.configuration as Record<string, any> || {}),
         agentmail: agentmailConfig,
       })},
       updated_at = NOW()

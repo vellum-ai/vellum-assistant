@@ -76,7 +76,7 @@ export async function GET(request: Request) {
       ORDER BY created_at DESC
     `;
 
-    return NextResponse.json({ keys: keys as ApiKey[] });
+    return NextResponse.json({ keys: keys as unknown as ApiKey[] });
   } catch (error) {
     console.error("Error listing API keys:", error);
     return NextResponse.json(

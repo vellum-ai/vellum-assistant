@@ -42,7 +42,7 @@ jobs:
       - name: Get GKE credentials
         run: |
           gcloud container clusters get-credentials ${{ vars.GKE_CLUSTER_NAME }} \
-            --region ${{ vars.GCP_REGION }} \
+            --region us-central1 \
             --project vellum-ai-prod
 
       - name: Terraform Init
@@ -57,7 +57,7 @@ jobs:
       - name: Terraform Plan
         run: terraform plan -no-color
         env:
-          TF_VAR_region: ${{ vars.GCP_REGION }}
+          TF_VAR_region: us-central1
           TF_VAR_cluster_name: ${{ vars.GKE_CLUSTER_NAME }}
           TF_VAR_database_url: ${{ secrets.DATABASE_URL }}
           TF_VAR_anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}

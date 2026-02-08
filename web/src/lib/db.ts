@@ -33,11 +33,6 @@ export type NewUser = typeof schema.users.$inferInsert;
 export type ApiKey = typeof schema.apiKeys.$inferSelect;
 export type NewApiKey = typeof schema.apiKeys.$inferInsert;
 
-// Legacy compatibility - getDb returns the drizzle instance
-export function getDb() {
-  return db;
-}
-
 // Agent queries
 export async function getAgents() {
   return db.select().from(schema.agents);

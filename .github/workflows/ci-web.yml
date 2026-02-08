@@ -69,7 +69,7 @@ jobs:
       - name: Get GKE credentials
         run: |
           gcloud container clusters get-credentials ${{ vars.GKE_CLUSTER_NAME }} \
-            --region ${{ vars.GCP_REGION }} \
+            --region us-central1 \
             --project vellum-ai-prod
 
       - name: Deploy to Kubernetes

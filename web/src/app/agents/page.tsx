@@ -244,14 +244,14 @@ export default function AgentsPage() {
                 <h3 className="mt-4 font-medium text-zinc-900 dark:text-white">
                   {agent.name}
                 </h3>
-                {agent.created_by && (
+                {agent.createdBy && (
                   <div className="mt-2 flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                     <User className="h-3 w-3" />
-                    <span>{agent.created_by}</span>
+                    <span>{agent.createdBy}</span>
                   </div>
                 )}
                 <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
-                  Created {new Date(agent.created_at).toLocaleDateString()}
+                  Created {agent.createdAt ? new Date(agent.createdAt).toLocaleDateString() : 'Unknown'}
                 </p>
               </div>
             ))}

@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     }
 
     const agent = agents[0] as Agent;
-    const computeConfig = agent.configuration?.compute as
+    const computeConfig = (agent.configuration as Record<string, any>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
 
