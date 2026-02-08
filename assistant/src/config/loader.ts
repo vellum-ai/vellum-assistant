@@ -4,9 +4,11 @@ import { getDataDir, ensureDataDir } from '../util/platform.js';
 import { ConfigError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { DEFAULT_CONFIG } from './defaults.js';
+import type { AssistantConfig } from './types.js';
 
 const log = getLogger('config');
-import type { AssistantConfig } from './types.js';
+
+const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama'] as const;
 
 let cached: AssistantConfig | null = null;
 
@@ -54,8 +56,38 @@ export function loadConfig(): AssistantConfig {
     config.apiKeys.gemini = process.env.GEMINI_API_KEY;
   }
 
+  validateConfig(config);
+
   cached = config;
   return config;
+}
+
+function validateConfig(config: AssistantConfig): void {
+  if (!VALID_PROVIDERS.includes(config.provider as (typeof VALID_PROVIDERS)[number])) {
+    log.error(
+      `Invalid provider "${config.provider}". Valid providers: ${VALID_PROVIDERS.join(', ')}. Falling back to "${DEFAULT_CONFIG.provider}".`,
+    );
+    config.provider = DEFAULT_CONFIG.provider;
+  }
+
+  if (!Number.isInteger(config.maxTokens) || config.maxTokens <= 0) {
+    log.error(
+      `Invalid maxTokens "${config.maxTokens}". Must be a positive integer. Falling back to ${DEFAULT_CONFIG.maxTokens}.`,
+    );
+    config.maxTokens = DEFAULT_CONFIG.maxTokens;
+  }
+
+  if (typeof config.apiKeys !== 'object' || config.apiKeys === null || Array.isArray(config.apiKeys)) {
+    log.error('Invalid apiKeys: must be an object with string values. Falling back to empty object.');
+    config.apiKeys = {};
+  } else {
+    for (const [key, value] of Object.entries(config.apiKeys)) {
+      if (typeof value !== 'string') {
+        log.error(`Invalid apiKeys.${key}: value must be a string. Removing entry.`);
+        delete config.apiKeys[key];
+      }
+    }
+  }
 }
 
 export function saveConfig(config: AssistantConfig): void {
