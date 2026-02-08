@@ -53,3 +53,50 @@ export function saveConfig(config: AssistantConfig): void {
 export function getConfig(): AssistantConfig {
   return loadConfig();
 }
+
+/**
+ * Load the raw config from disk (without env var overrides).
+ * Used by CLI config commands to read/write the file directly.
+ */
+export function loadRawConfig(): Record<string, unknown> {
+  ensureDataDir();
+  const configPath = getConfigPath();
+  if (!existsSync(configPath)) return {};
+  try {
+    return JSON.parse(readFileSync(configPath, 'utf-8'));
+  } catch (err) {
+    throw new ConfigError(`Failed to parse config at ${configPath}: ${err}`);
+  }
+}
+
+export function saveRawConfig(config: Record<string, unknown>): void {
+  ensureDataDir();
+  const configPath = getConfigPath();
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  cached = null; // invalidate cache
+}
+
+export function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  const keys = path.split('.');
+  let current: unknown = obj;
+  for (const key of keys) {
+    if (current === null || current === undefined || typeof current !== 'object') {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+export function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
+  const keys = path.split('.');
+  let current = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
+    if (current[key] === undefined || current[key] === null || typeof current[key] !== 'object') {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  }
+  current[keys[keys.length - 1]] = value;
+}
