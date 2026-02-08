@@ -289,6 +289,44 @@ export async function startCli(): Promise<void> {
           }
           break;
 
+        case 'model_info':
+          process.stdout.write(`\n  Model: ${msg.model} (${msg.provider})\n\n`);
+          prompt();
+          break;
+
+        case 'history_response':
+          process.stdout.write('\n');
+          if (msg.messages.length === 0) {
+            process.stdout.write('  No messages in this session.\n');
+          } else {
+            for (const m of msg.messages) {
+              const label = m.role === 'user' ? 'you' : 'assistant';
+              const preview = m.text.length > 120 ? m.text.slice(0, 117) + '...' : m.text;
+              process.stdout.write(`  ${label}> ${preview.replace(/\n/g, ' ')}\n`);
+            }
+          }
+          process.stdout.write('\n');
+          prompt();
+          break;
+
+        case 'undo_complete':
+          if (msg.removedCount === 0) {
+            process.stdout.write('\n  Nothing to undo.\n\n');
+          } else {
+            lastResponse = '';
+            process.stdout.write(`\n  Removed last exchange (${msg.removedCount} messages).\n\n`);
+          }
+          prompt();
+          break;
+
+        case 'compact_complete':
+          spinner.stop();
+          generating = false;
+          lastResponse = '';
+          process.stdout.write(`\n\n  Compacted: ${msg.originalCount} messages -> ${msg.compactedCount}\n\n`);
+          prompt();
+          break;
+
         case 'pong':
           break;
       }
@@ -333,6 +371,64 @@ export async function startCli(): Promise<void> {
           process.stdout.write(`Clipboard error: ${(err as Error).message}\n`);
         }
       }
+      prompt();
+      return;
+    }
+
+    if (content === '/new') {
+      send({ type: 'session_create' });
+      return;
+    }
+
+    if (content === '/clear') {
+      lastResponse = '';
+      process.stdout.write('\x1B[2J\x1B[H');
+      process.stdout.write('  Screen cleared.\n\n');
+      prompt();
+      return;
+    }
+
+    if (content === '/model' || content.startsWith('/model ')) {
+      const modelArg = content.slice('/model'.length).trim();
+      if (modelArg) {
+        send({ type: 'model_set', model: modelArg });
+      } else {
+        send({ type: 'model_get' });
+      }
+      return;
+    }
+
+    if (content === '/history') {
+      send({ type: 'history_request', sessionId });
+      return;
+    }
+
+    if (content === '/undo') {
+      send({ type: 'undo', sessionId });
+      return;
+    }
+
+    if (content === '/compact') {
+      process.stdout.write('Compacting conversation...\n');
+      generating = true;
+      send({ type: 'compact', sessionId });
+      spinner.start('Summarizing...');
+      return;
+    }
+
+    if (content === '/help') {
+      process.stdout.write('\n  Available commands:\n');
+      process.stdout.write('  /new              Start a new session\n');
+      process.stdout.write('  /sessions         Switch between sessions\n');
+      process.stdout.write('  /clear            Clear the screen\n');
+      process.stdout.write('  /model [name]     Show or change the model\n');
+      process.stdout.write('  /history          Show conversation history\n');
+      process.stdout.write('  /undo             Remove last message exchange\n');
+      process.stdout.write('  /compact          Summarize conversation to save context\n');
+      process.stdout.write('  /copy             Copy last response to clipboard\n');
+      process.stdout.write('  /copy-code        Copy last code block to clipboard\n');
+      process.stdout.write('  /help             Show this help\n');
+      process.stdout.write('\n');
       prompt();
       return;
     }

@@ -3,7 +3,7 @@ import { unlinkSync, existsSync, chmodSync } from 'node:fs';
 import { getSocketPath } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getProvider } from '../providers/registry.js';
-import { getConfig } from '../config/loader.js';
+import { getConfig, saveConfig } from '../config/loader.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { Session } from './session.js';
@@ -195,6 +195,21 @@ export class DaemonServer {
         }
         break;
       }
+      case 'model_get':
+        this.handleModelGet(socket);
+        break;
+      case 'model_set':
+        this.handleModelSet(msg.model, socket);
+        break;
+      case 'history_request':
+        this.handleHistoryRequest(msg.sessionId, socket);
+        break;
+      case 'undo':
+        this.handleUndo(msg.sessionId, socket);
+        break;
+      case 'compact':
+        this.handleCompact(msg.sessionId, socket);
+        break;
       case 'ping':
         this.send(socket, { type: 'pong' });
         break;
@@ -262,5 +277,87 @@ export class DaemonServer {
       sessionId: conversation.id,
       title: conversation.title ?? 'Untitled',
     });
+  }
+
+  private handleModelGet(socket: net.Socket): void {
+    const config = getConfig();
+    this.send(socket, {
+      type: 'model_info',
+      model: config.model,
+      provider: config.provider,
+    });
+  }
+
+  private handleModelSet(model: string, socket: net.Socket): void {
+    try {
+      const config = getConfig();
+      config.model = model;
+      saveConfig(config);
+
+      // Invalidate cached sessions so new messages use the new model
+      this.sessions.clear();
+
+      this.send(socket, {
+        type: 'model_info',
+        model: config.model,
+        provider: config.provider,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.send(socket, { type: 'error', message: `Failed to set model: ${message}` });
+    }
+  }
+
+  private handleHistoryRequest(sessionId: string, socket: net.Socket): void {
+    const dbMessages = conversationStore.getMessages(sessionId);
+    const historyMessages = dbMessages.map((m) => {
+      let text = '';
+      try {
+        const content = JSON.parse(m.content);
+        if (Array.isArray(content)) {
+          text = content
+            .filter((b: { type: string }) => b.type === 'text')
+            .map((b: { text: string }) => b.text)
+            .join('');
+        } else {
+          text = String(content);
+        }
+      } catch {
+        text = m.content;
+      }
+      return { role: m.role, text, timestamp: m.createdAt };
+    });
+    this.send(socket, { type: 'history_response', messages: historyMessages });
+  }
+
+  private handleUndo(sessionId: string, socket: net.Socket): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      this.send(socket, { type: 'error', message: 'No active session' });
+      return;
+    }
+    const removedCount = session.undo();
+    this.send(socket, { type: 'undo_complete', removedCount });
+  }
+
+  private async handleCompact(sessionId: string, socket: net.Socket): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      this.send(socket, { type: 'error', message: 'No active session' });
+      return;
+    }
+    try {
+      const result = await session.compact((event) => {
+        this.send(socket, event);
+      });
+      this.send(socket, {
+        type: 'compact_complete',
+        originalCount: result.originalCount,
+        compactedCount: result.compactedCount,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.send(socket, { type: 'error', message: `Compact failed: ${message}` });
+    }
   }
 }

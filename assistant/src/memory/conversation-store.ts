@@ -82,3 +82,61 @@ export function updateConversationTitle(id: string, title: string): void {
     .where(eq(conversations.id, id))
     .run();
 }
+
+/**
+ * Delete the last user message and any subsequent assistant messages.
+ * Returns the number of messages deleted.
+ */
+export function deleteLastExchange(conversationId: string): number {
+  const db = getDb();
+  const allMessages = db
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(asc(messages.createdAt))
+    .all();
+
+  if (allMessages.length === 0) return 0;
+
+  // Find the last user message
+  let lastUserIdx = -1;
+  for (let i = allMessages.length - 1; i >= 0; i--) {
+    if (allMessages[i].role === 'user') {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  if (lastUserIdx === -1) return 0;
+
+  // Delete from lastUserIdx onward
+  const toDelete = allMessages.slice(lastUserIdx);
+  for (const m of toDelete) {
+    db.delete(messages).where(eq(messages.id, m.id)).run();
+  }
+
+  db.update(conversations)
+    .set({ updatedAt: Date.now() })
+    .where(eq(conversations.id, conversationId))
+    .run();
+
+  return toDelete.length;
+}
+
+/**
+ * Delete all messages in a conversation (for compaction — caller replaces with summary).
+ * Returns the number of messages deleted.
+ */
+export function deleteAllMessages(conversationId: string): number {
+  const db = getDb();
+  const allMessages = db
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .all();
+
+  for (const m of allMessages) {
+    db.delete(messages).where(eq(messages.id, m.id)).run();
+  }
+
+  return allMessages.length;
+}

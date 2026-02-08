@@ -36,6 +36,30 @@ export interface CancelRequest {
   type: 'cancel';
 }
 
+export interface ModelGetRequest {
+  type: 'model_get';
+}
+
+export interface ModelSetRequest {
+  type: 'model_set';
+  model: string;
+}
+
+export interface HistoryRequest {
+  type: 'history_request';
+  sessionId: string;
+}
+
+export interface UndoRequest {
+  type: 'undo';
+  sessionId: string;
+}
+
+export interface CompactRequest {
+  type: 'compact';
+  sessionId: string;
+}
+
 export type ClientMessage =
   | UserMessage
   | ConfirmationResponse
@@ -43,7 +67,12 @@ export type ClientMessage =
   | SessionCreateRequest
   | SessionSwitchRequest
   | PingMessage
-  | CancelRequest;
+  | CancelRequest
+  | ModelGetRequest
+  | ModelSetRequest
+  | HistoryRequest
+  | UndoRequest
+  | CompactRequest;
 
 // === Server → Client messages ===
 
@@ -104,6 +133,28 @@ export interface GenerationCancelled {
   type: 'generation_cancelled';
 }
 
+export interface ModelInfo {
+  type: 'model_info';
+  model: string;
+  provider: string;
+}
+
+export interface HistoryResponse {
+  type: 'history_response';
+  messages: Array<{ role: string; text: string; timestamp: number }>;
+}
+
+export interface UndoComplete {
+  type: 'undo_complete';
+  removedCount: number;
+}
+
+export interface CompactComplete {
+  type: 'compact_complete';
+  originalCount: number;
+  compactedCount: number;
+}
+
 export type ServerMessage =
   | AssistantTextDelta
   | ToolUseStart
@@ -114,7 +165,11 @@ export type ServerMessage =
   | SessionListResponse
   | ErrorMessage
   | PongMessage
-  | GenerationCancelled;
+  | GenerationCancelled
+  | ModelInfo
+  | HistoryResponse
+  | UndoComplete
+  | CompactComplete;
 
 // === Serialization ===
 

@@ -171,6 +171,92 @@ export class Session {
     }
   }
 
+  getMessages(): Message[] {
+    return this.messages;
+  }
+
+  /**
+   * Remove the last user+assistant exchange from memory and DB.
+   * Returns the number of messages removed.
+   */
+  undo(): number {
+    if (this.processing) return 0;
+
+    // Find last user message in memory
+    let lastUserIdx = -1;
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].role === 'user') {
+        lastUserIdx = i;
+        break;
+      }
+    }
+    if (lastUserIdx === -1) return 0;
+
+    const removed = this.messages.length - lastUserIdx;
+    this.messages = this.messages.slice(0, lastUserIdx);
+
+    // Also remove from DB
+    conversationStore.deleteLastExchange(this.conversationId);
+
+    return removed;
+  }
+
+  /**
+   * Compact the conversation by summarizing it with the LLM.
+   * Replaces all messages with a single assistant summary.
+   */
+  async compact(
+    onEvent: (msg: ServerMessage) => void,
+  ): Promise<{ originalCount: number; compactedCount: number }> {
+    if (this.processing) {
+      return { originalCount: 0, compactedCount: 0 };
+    }
+
+    const originalCount = this.messages.length;
+    if (originalCount === 0) {
+      return { originalCount: 0, compactedCount: 0 };
+    }
+
+    this.processing = true;
+    try {
+      // Build a text summary of the conversation
+      const summaryRequest: Message[] = [
+        ...this.messages,
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'Please provide a concise summary of our conversation so far. Include key decisions, code changes, and any important context. This will be used to continue the conversation with reduced context.' }],
+        },
+      ];
+
+      const summaryMessages = await this.agentLoop.run(
+        summaryRequest,
+        (event) => {
+          if (event.type === 'text_delta') {
+            onEvent({ type: 'assistant_text_delta', text: event.text });
+          }
+        },
+      );
+
+      // Extract the last assistant message as the summary
+      const lastAssistant = summaryMessages[summaryMessages.length - 1];
+      if (lastAssistant && lastAssistant.role === 'assistant') {
+        // Clear DB messages and replace with summary
+        conversationStore.deleteAllMessages(this.conversationId);
+        conversationStore.addMessage(
+          this.conversationId,
+          'assistant',
+          JSON.stringify(lastAssistant.content),
+        );
+
+        this.messages = [lastAssistant];
+      }
+
+      return { originalCount, compactedCount: this.messages.length };
+    } finally {
+      this.processing = false;
+    }
+  }
+
   private async generateTitle(userMessage: string, assistantResponse: string): Promise<void> {
     const config = getConfig();
     const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
