@@ -2,11 +2,13 @@ import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
+import { ensureBunInPath } from '../lib/bun-path.js';
 import { exec, execOutput, runSteps } from '../lib/step-runner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export async function setup(): Promise<void> {
+  ensureBunInPath();
   console.log('\n🔧 vel setup\n');
 
   const repoRoot = join(__dirname, '..', '..', '..');

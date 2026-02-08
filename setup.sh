@@ -18,6 +18,21 @@ if ! command -v bun &> /dev/null; then
     curl -fsSL https://bun.sh/install | bash
     export BUN_INSTALL="$HOME/.bun"
     export PATH="$BUN_INSTALL/bin:$PATH"
+
+    BUN_PATH_LINE='export BUN_INSTALL="$HOME/.bun"'
+    BUN_EXPORT_LINE='export PATH="$BUN_INSTALL/bin:$PATH"'
+
+    for RC_FILE in "$HOME/.bashrc" "$HOME/.zshrc"; do
+        if [ -f "$RC_FILE" ]; then
+            if ! grep -q 'BUN_INSTALL' "$RC_FILE"; then
+                echo "" >> "$RC_FILE"
+                echo "# bun" >> "$RC_FILE"
+                echo "$BUN_PATH_LINE" >> "$RC_FILE"
+                echo "$BUN_EXPORT_LINE" >> "$RC_FILE"
+            fi
+        fi
+    done
+
     echo "✅ bun installed"
 else
     echo "✅ bun already installed"

@@ -2,9 +2,12 @@ import { spawn } from 'child_process';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
+import { ensureBunInPath } from '../lib/bun-path.js';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export async function up(): Promise<void> {
+  ensureBunInPath();
   console.log('🚀 vel up - Starting development environment\n');
 
   const repoRoot = join(__dirname, '..', '..', '..');
