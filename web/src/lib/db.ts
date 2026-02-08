@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import postgres from "postgres";
 
 import * as schema from "./schema";
@@ -149,8 +149,8 @@ export async function createApiKey(data: NewApiKey) {
   return result[0];
 }
 
-export async function deleteApiKey(id: string, _userId: string) {
+export async function deleteApiKey(id: string, userId: string) {
   await db
     .delete(schema.apiKeys)
-    .where(eq(schema.apiKeys.id, id));
+    .where(and(eq(schema.apiKeys.id, id), eq(schema.apiKeys.userId, userId)));
 }
