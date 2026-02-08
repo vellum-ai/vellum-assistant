@@ -7,9 +7,16 @@ export interface ToolContext {
   conversationId: string;
 }
 
+export interface DiffInfo {
+  filePath: string;
+  oldContent: string;
+  newContent: string;
+}
+
 export interface ToolExecutionResult {
   content: string;
   isError: boolean;
+  diff?: DiffInfo;
 }
 
 export interface Tool {

@@ -8,6 +8,7 @@ import {
   type ServerMessage,
   type ConfirmationRequest,
 } from './daemon/ipc-protocol.js';
+import { formatDiff, formatNewFileDiff } from './util/diff.js';
 
 export async function startCli(): Promise<void> {
   const socketPath = getSocketPath();
@@ -190,6 +191,14 @@ export async function startCli(): Promise<void> {
           process.stdout.write(
             `[Result: ${msg.result.slice(0, 200)}]\n`,
           );
+          if (msg.diff) {
+            const diffOutput = msg.diff.oldContent
+              ? formatDiff(msg.diff.oldContent, msg.diff.newContent, msg.diff.filePath)
+              : formatNewFileDiff(msg.diff.newContent, msg.diff.filePath);
+            if (diffOutput) {
+              process.stdout.write(diffOutput);
+            }
+          }
           break;
 
         case 'confirmation_request':

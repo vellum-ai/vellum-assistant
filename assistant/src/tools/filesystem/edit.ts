@@ -76,7 +76,11 @@ class FileEditTool implements Tool {
         const updated = content.split(oldString).join(newString);
         const count = content.split(oldString).length - 1;
         writeFileSync(filePath, updated);
-        return { content: `Successfully replaced ${count} occurrence${count > 1 ? 's' : ''} in ${filePath}`, isError: false };
+        return {
+          content: `Successfully replaced ${count} occurrence${count > 1 ? 's' : ''} in ${filePath}`,
+          isError: false,
+          diff: { filePath, oldContent: content, newContent: updated },
+        };
       }
 
       // Single-match path: cascading exact → whitespace → fuzzy
@@ -104,7 +108,11 @@ class FileEditTool implements Tool {
         : match.method === 'whitespace'
           ? ' (matched with whitespace normalization)'
           : ` (fuzzy matched, similarity ${(match.similarity * 100).toFixed(0)}%)`;
-      return { content: `Successfully edited ${filePath}${methodNote}`, isError: false };
+      return {
+        content: `Successfully edited ${filePath}${methodNote}`,
+        isError: false,
+        diff: { filePath, oldContent: content, newContent: updated },
+      };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { content: `Error editing file: ${msg}`, isError: true };

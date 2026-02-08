@@ -123,7 +123,7 @@ export class Session {
               onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input });
               break;
             case 'tool_result':
-              onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError });
+              onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff });
               break;
             case 'error':
               onEvent({ type: 'error', message: event.error.message });

@@ -63,6 +63,7 @@ export interface ToolResult {
   toolName: string;
   result: string;
   isError?: boolean;
+  diff?: { filePath: string; oldContent: string; newContent: string };
 }
 
 export interface ConfirmationRequest {

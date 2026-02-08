@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
@@ -52,8 +52,18 @@ class FileWriteTool implements Tool {
         mkdirSync(dir, { recursive: true });
       }
 
+      // Capture old content for diff (if file exists)
+      let oldContent: string | null = null;
+      if (existsSync(filePath)) {
+        try { oldContent = readFileSync(filePath, 'utf-8'); } catch { /* new file */ }
+      }
+
       writeFileSync(filePath, fileContent);
-      return { content: `Successfully wrote to ${filePath}`, isError: false };
+      return {
+        content: `Successfully wrote to ${filePath}`,
+        isError: false,
+        diff: { filePath, oldContent: oldContent ?? '', newContent: fileContent },
+      };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { content: `Error writing file: ${msg}`, isError: true };
