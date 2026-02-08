@@ -1,5 +1,23 @@
-import { MarketingPage } from "@/components/MarketingPage";
+import { Metadata } from "next";
+
+import { CommunityBody } from "@/components/CommunityPage/CommunityBody";
+import {
+  VellumHead,
+  VellumScripts,
+  UTMTracker,
+} from "@/components/VellumHomepage";
+
+export const metadata: Metadata = {
+  title: "Community - Vellum",
+};
 
 export default function CommunityPage() {
-  return <MarketingPage htmlFile="community.html" title="Community - Vellum" />;
+  return (
+    <>
+      <VellumHead />
+      <VellumScripts />
+      <UTMTracker />
+      <CommunityBody />
+    </>
+  );
 }
