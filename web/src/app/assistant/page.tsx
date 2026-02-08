@@ -24,7 +24,7 @@ export default function AssistantPage() {
     }
     
     if (!isLoggedIn) {
-      router.push("/login");
+      router.push("/");
       return;
     }
 
@@ -127,7 +127,7 @@ export default function AssistantPage() {
             <Bot className="h-10 w-10 text-indigo-600 dark:text-indigo-400" />
           </div>
           <h2 className="mt-6 text-2xl font-bold text-zinc-900 dark:text-white">
-            Welcome to Vellum Assistant
+            Welcome to Vellum
           </h2>
           <p className="mt-2 text-center text-zinc-500 dark:text-zinc-400">
             You don&apos;t have an assistant yet. Let&apos;s hatch one for you!
