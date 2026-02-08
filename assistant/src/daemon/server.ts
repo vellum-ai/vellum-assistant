@@ -8,6 +8,7 @@ import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
 import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { Session } from './session.js';
+import { estimateCost } from '../util/pricing.js';
 import {
   serialize,
   createMessageParser,
@@ -442,11 +443,17 @@ export class DaemonServer {
       return;
     }
     const config = getConfig();
+    // Legacy fallback: pre-upgrade conversations have tokens but cost=0.
+    // Re-estimate using current model — not perfect if model changed, but
+    // better than reporting $0 for sessions with real usage.
+    const cost = conversation.totalEstimatedCost > 0
+      ? conversation.totalEstimatedCost
+      : estimateCost(conversation.totalInputTokens, conversation.totalOutputTokens, config.model);
     this.send(socket, {
       type: 'usage_response',
       totalInputTokens: conversation.totalInputTokens,
       totalOutputTokens: conversation.totalOutputTokens,
-      estimatedCost: conversation.totalEstimatedCost,
+      estimatedCost: cost,
       model: config.model,
     });
   }
