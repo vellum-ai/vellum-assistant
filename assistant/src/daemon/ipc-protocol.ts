@@ -32,13 +32,18 @@ export interface PingMessage {
   type: 'ping';
 }
 
+export interface CancelRequest {
+  type: 'cancel';
+}
+
 export type ClientMessage =
   | UserMessage
   | ConfirmationResponse
   | SessionListRequest
   | SessionCreateRequest
   | SessionSwitchRequest
-  | PingMessage;
+  | PingMessage
+  | CancelRequest;
 
 // === Server → Client messages ===
 
@@ -94,6 +99,10 @@ export interface PongMessage {
   type: 'pong';
 }
 
+export interface GenerationCancelled {
+  type: 'generation_cancelled';
+}
+
 export type ServerMessage =
   | AssistantTextDelta
   | ToolUseStart
@@ -103,7 +112,8 @@ export type ServerMessage =
   | SessionInfo
   | SessionListResponse
   | ErrorMessage
-  | PongMessage;
+  | PongMessage
+  | GenerationCancelled;
 
 // === Serialization ===
 

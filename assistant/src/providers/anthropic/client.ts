@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type {
   Provider,
-  ProviderEvent,
   ProviderResponse,
+  SendMessageOptions,
   Message,
   ToolDefinition,
   ContentBlock,
@@ -32,9 +32,9 @@ export class AnthropicProvider implements Provider {
     messages: Message[],
     tools?: ToolDefinition[],
     systemPrompt?: string,
-    config?: object,
-    onEvent?: (event: ProviderEvent) => void,
+    options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
+    const { config, onEvent, signal } = options ?? {};
     try {
       const params: Anthropic.MessageCreateParams = {
         model: this.model,
@@ -58,7 +58,7 @@ export class AnthropicProvider implements Provider {
         }));
       }
 
-      const stream = this.client.messages.stream(params);
+      const stream = this.client.messages.stream(params, { signal });
 
       stream.on("text", (text) => {
         onEvent?.({ type: "text_delta", text });

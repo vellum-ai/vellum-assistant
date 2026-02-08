@@ -45,22 +45,27 @@ export class AgentLoop {
   async run(
     messages: Message[],
     onEvent: (event: AgentEvent) => void,
+    signal?: AbortSignal,
   ): Promise<Message[]> {
     const history = [...messages];
     let toolUseTurns = 0;
 
     while (true) {
+      if (signal?.aborted) break;
 
       try {
         const response = await this.provider.sendMessage(
           history,
           this.tools.length > 0 ? this.tools : undefined,
           this.systemPrompt,
-          { max_tokens: this.config.maxTokens },
-          (event) => {
-            if (event.type === 'text_delta') {
-              onEvent({ type: 'text_delta', text: event.text });
-            }
+          {
+            config: { max_tokens: this.config.maxTokens },
+            onEvent: (event) => {
+              if (event.type === 'text_delta') {
+                onEvent({ type: 'text_delta', text: event.text });
+              }
+            },
+            signal,
           },
         );
 
@@ -86,6 +91,7 @@ export class AgentLoop {
         // Execute tools and collect results
         const resultBlocks: ContentBlock[] = [];
         for (const toolUse of toolUseBlocks) {
+          if (signal?.aborted) break;
           onEvent({
             type: 'tool_use',
             id: toolUse.id,

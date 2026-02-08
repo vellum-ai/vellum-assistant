@@ -1,4 +1,4 @@
-import type { Provider, ProviderResponse, ProviderEvent, Message, ToolDefinition } from './types.js';
+import type { Provider, ProviderResponse, SendMessageOptions, Message, ToolDefinition } from './types.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('retry');
@@ -55,14 +55,13 @@ export class RetryProvider implements Provider {
     messages: Message[],
     tools?: ToolDefinition[],
     systemPrompt?: string,
-    config?: object,
-    onEvent?: (event: ProviderEvent) => void,
+    options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        return await this.inner.sendMessage(messages, tools, systemPrompt, config, onEvent);
+        return await this.inner.sendMessage(messages, tools, systemPrompt, options);
       } catch (error) {
         lastError = error;
 

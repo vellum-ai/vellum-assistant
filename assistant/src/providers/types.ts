@@ -56,13 +56,18 @@ export interface ProviderResponse {
 export type ProviderEvent =
   | { type: 'text_delta'; text: string };
 
+export interface SendMessageOptions {
+  config?: object;
+  onEvent?: (event: ProviderEvent) => void;
+  signal?: AbortSignal;
+}
+
 export interface Provider {
   name: string;
   sendMessage(
     messages: Message[],
     tools?: ToolDefinition[],
     systemPrompt?: string,
-    config?: object,
-    onEvent?: (event: ProviderEvent) => void,
+    options?: SendMessageOptions,
   ): Promise<ProviderResponse>;
 }
