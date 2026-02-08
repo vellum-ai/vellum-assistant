@@ -44,13 +44,12 @@ export async function runSteps(steps: Step[]): Promise<void> {
 export function exec(
   command: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}
+  options: { cwd?: string } = {}
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
       stdio: 'pipe',
-      env: options.env,
     });
 
     child.on('close', (code) => {

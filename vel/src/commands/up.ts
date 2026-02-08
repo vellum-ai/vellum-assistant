@@ -39,7 +39,31 @@ export async function up(): Promise<void> {
     await waitForPostgres(repoRoot);
     console.log('✅ PostgreSQL is ready\n');
 
-    // Step 3: Start the web dev server
+    // Step 3: Run database migrations
+    console.log('🔄 Running database migrations...');
+    const migrate = spawn('npx', ['drizzle-kit', 'migrate'], {
+      cwd: webDir,
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        DATABASE_URL: process.env.DATABASE_URL || 'postgresql://vellum:password@localhost:5432/vellum',
+      },
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      migrate.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`drizzle-kit migrate failed with code ${code}`));
+        }
+      });
+      migrate.on('error', reject);
+    });
+
+    console.log('✅ Database migrations complete\n');
+
+    // Step 4: Start the web dev server
     console.log('🌐 Starting web dev server...');
     console.log('   Web server will run on http://localhost:3000');
     console.log('   Press Ctrl+C to stop\n');
