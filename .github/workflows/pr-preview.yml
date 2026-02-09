@@ -276,7 +276,7 @@ jobs:
         with:
           script: |
             const namespace = 'pr-${{ github.event.pull_request.number }}';
-            const previewUrl = `http://${namespace}.assistant-previews.vellum.ai`;
+            const previewUrl = `http://app.${namespace}.previews.vellum.ai`;
             const logsQuery = `resource.labels.cluster_name="vellum-previews-cluster"\nresource.labels.namespace_name="${namespace}"`;
             const logsUrl = `https://console.cloud.google.com/logs/query;query=${encodeURIComponent(logsQuery)}?project=vellum-nonprod`;
 

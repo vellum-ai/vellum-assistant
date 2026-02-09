@@ -25,7 +25,7 @@ spec:
             - name: NODE_ENV
               value: production
             - name: BETTER_AUTH_URL
-              value: http://${NAMESPACE}.assistant-previews.vellum.ai
+              value: http://app.${NAMESPACE}.previews.vellum.ai
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

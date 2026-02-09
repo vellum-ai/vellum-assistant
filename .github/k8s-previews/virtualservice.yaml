@@ -5,7 +5,7 @@ metadata:
   namespace: ${NAMESPACE}
 spec:
   hosts:
-    - "${NAMESPACE}.assistant-previews.vellum.ai"
+    - "app.${NAMESPACE}.previews.vellum.ai"
   gateways:
     - istio-system/preview-gateway
   http:
