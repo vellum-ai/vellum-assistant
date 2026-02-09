@@ -151,4 +151,50 @@ describe('RateLimitProvider', () => {
       expect(provider.sendMessage(messages)).rejects.toThrow(RateLimitError);
     });
   });
+
+  describe('race condition prevention', () => {
+    test('concurrent calls are rate-limited because timestamp is recorded before await', async () => {
+      const config: RateLimitConfig = { maxRequestsPerMinute: 1, maxTokensPerSession: 0 };
+      // Slow provider that yields to the event loop
+      const inner: Provider = {
+        name: 'slow',
+        sendMessage: async () => {
+          await new Promise((r) => setTimeout(r, 10));
+          return {
+            content: [{ type: 'text' as const, text: '' }],
+            model: 'test',
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: 'end_turn',
+          };
+        },
+      };
+      const provider = new RateLimitProvider(inner, config);
+
+      // Fire two concurrent requests — second should fail
+      const results = await Promise.allSettled([
+        provider.sendMessage(messages),
+        provider.sendMessage(messages),
+      ]);
+
+      const fulfilled = results.filter((r) => r.status === 'fulfilled');
+      const rejected = results.filter((r) => r.status === 'rejected');
+      expect(fulfilled.length).toBe(1);
+      expect(rejected.length).toBe(1);
+    });
+
+    test('failed inner calls still count toward request rate', async () => {
+      const config: RateLimitConfig = { maxRequestsPerMinute: 1, maxTokensPerSession: 0 };
+      const inner: Provider = {
+        name: 'failing',
+        sendMessage: async () => { throw new Error('provider error'); },
+      };
+      const provider = new RateLimitProvider(inner, config);
+
+      // First call fails at the provider level
+      await expect(provider.sendMessage(messages)).rejects.toThrow('provider error');
+
+      // Second call should be rate-limited (timestamp was recorded before the failed await)
+      await expect(provider.sendMessage(messages)).rejects.toThrow(RateLimitError);
+    });
+  });
 });

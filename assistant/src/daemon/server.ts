@@ -3,6 +3,7 @@ import { unlinkSync, existsSync, chmodSync, watch, type FSWatcher } from 'node:f
 import { getSocketPath, getDataDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
+import { RateLimitProvider } from '../providers/ratelimit.js';
 import { getConfig, loadRawConfig, saveRawConfig, invalidateConfigCache } from '../config/loader.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
 import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
@@ -247,7 +248,11 @@ export class DaemonServer {
 
       const createPromise = (async () => {
         const config = getConfig();
-        const provider = getProvider(config.provider);
+        let provider = getProvider(config.provider);
+        const { rateLimit } = config;
+        if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
+          provider = new RateLimitProvider(provider, rateLimit);
+        }
         const workingDir = process.cwd();
 
         const newSession = new Session(

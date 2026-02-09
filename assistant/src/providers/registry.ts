@@ -1,8 +1,6 @@
 import type { Provider } from "./types.js";
-import type { RateLimitConfig } from "../config/types.js";
 import { AnthropicProvider } from "./anthropic/client.js";
 import { RetryProvider } from "./retry.js";
-import { RateLimitProvider } from "./ratelimit.js";
 import { ConfigError } from "../util/errors.js";
 
 const providers = new Map<string, Provider>();
@@ -29,17 +27,13 @@ export interface ProvidersConfig {
   apiKeys: Record<string, string>;
   provider: string;
   model: string;
-  rateLimit: RateLimitConfig;
 }
 
 export function initializeProviders(config: ProvidersConfig): void {
   if (config.apiKeys.anthropic) {
-    let provider: Provider = new RetryProvider(
+    const provider: Provider = new RetryProvider(
       new AnthropicProvider(config.apiKeys.anthropic, config.model),
     );
-    if (config.rateLimit.maxRequestsPerMinute > 0 || config.rateLimit.maxTokensPerSession > 0) {
-      provider = new RateLimitProvider(provider, config.rateLimit);
-    }
     registerProvider("anthropic", provider);
   }
 }
