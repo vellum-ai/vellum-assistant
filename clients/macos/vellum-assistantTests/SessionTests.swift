@@ -523,6 +523,33 @@ final class SessionTests: XCTestCase {
 
     // MARK: - Task Property
 
+    // MARK: - Open App
+
+    @MainActor
+    func testOpenApp_executesSuccessfully() async {
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .openApp, reasoning: "Open Slack to send message", appName: "Slack"),
+            AgentAction(type: .done, reasoning: "done", summary: "Opened Slack")
+        ])
+        let executor = MockActionExecutor()
+        let session = makeSession(provider: provider, executor: executor)
+
+        await session.run()
+
+        if case .completed(let summary, let steps) = session.state {
+            XCTAssertEqual(steps, 2)
+            XCTAssertEqual(summary, "Opened Slack")
+        } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+
+        XCTAssertEqual(executor.executedActions.count, 1)
+        XCTAssertEqual(executor.executedActions[0].type, .openApp)
+        XCTAssertEqual(executor.executedActions[0].appName, "Slack")
+    }
+
+    // MARK: - Task Property
+
     @MainActor
     func testTaskProperty_matchesInput() async {
         let provider = MockInferenceProvider(actions: [

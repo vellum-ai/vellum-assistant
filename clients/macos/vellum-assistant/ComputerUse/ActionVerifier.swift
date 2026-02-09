@@ -91,7 +91,7 @@ final class ActionVerifier {
     // MARK: - Comparison
 
     private func actionsAreIdentical(_ a: AgentAction, _ b: AgentAction) -> Bool {
-        a.type == b.type && a.x == b.x && a.y == b.y && a.text == b.text && a.key == b.key
+        a.type == b.type && a.x == b.x && a.y == b.y && a.text == b.text && a.key == b.key && a.appName == b.appName
     }
 
     // MARK: - Sensitive Data Detection

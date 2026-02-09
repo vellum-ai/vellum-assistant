@@ -11,6 +11,7 @@ enum ActionType: String, Codable {
     case wait
     case done
     case drag
+    case openApp = "open_app"
 }
 
 struct AgentAction: Codable {
@@ -25,6 +26,7 @@ struct AgentAction: Codable {
     var toY: CGFloat?
     var summary: String?
     var waitDuration: Int?
+    var appName: String?
     var reasoning: String
     var resolvedFromElementId: Int?
     var elementDescription: String?
@@ -42,6 +44,7 @@ struct AgentAction: Codable {
         scrollAmount: Int? = nil,
         summary: String? = nil,
         waitDuration: Int? = nil,
+        appName: String? = nil,
         resolvedFromElementId: Int? = nil,
         elementDescription: String? = nil
     ) {
@@ -57,6 +60,7 @@ struct AgentAction: Codable {
         self.scrollAmount = scrollAmount
         self.summary = summary
         self.waitDuration = waitDuration
+        self.appName = appName
         self.resolvedFromElementId = resolvedFromElementId
         self.elementDescription = elementDescription
     }
@@ -112,6 +116,11 @@ struct AgentAction: Codable {
                 return "Drag from (\(Int(x)),\(Int(y))) to (\(Int(tx)),\(Int(ty)))"
             }
             return "Drag"
+        case .openApp:
+            if let name = appName {
+                return "Open app: \(name)"
+            }
+            return "Open app"
         case .done:
             if let summary = summary {
                 let preview = summary.count > 60 ? String(summary.prefix(60)) + "..." : summary

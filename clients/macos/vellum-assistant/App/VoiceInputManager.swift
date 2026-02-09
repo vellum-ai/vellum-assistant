@@ -9,6 +9,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 final class VoiceInputManager {
     var onTranscription: ((String) -> Void)?
+    var onPartialTranscription: ((String) -> Void)?
     var onRecordingStateChanged: ((Bool) -> Void)?
 
     private var isRecording = false
@@ -94,7 +95,7 @@ final class VoiceInputManager {
         log.info("Voice recording started")
 
         let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = false
+        request.shouldReportPartialResults = true
         recognitionRequest = request
 
         let inputNode = audioEngine.inputNode
@@ -115,13 +116,17 @@ final class VoiceInputManager {
             Task { @MainActor in
                 guard let self = self else { return }
 
-                if let result = result, result.isFinal {
+                if let result = result {
                     let text = result.bestTranscription.formattedString
-                    log.info("Transcription: \(text, privacy: .public)")
-                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        self.onTranscription?(text)
+                    if result.isFinal {
+                        log.info("Transcription: \(text, privacy: .public)")
+                        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            self.onTranscription?(text)
+                        }
+                        self.recognitionTask = nil
+                    } else {
+                        self.onPartialTranscription?(text)
                     }
-                    self.recognitionTask = nil
                 } else if let error = error {
                     log.error("Recognition error: \(error.localizedDescription)")
                     self.recognitionTask = nil
