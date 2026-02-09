@@ -27,7 +27,7 @@ declare -a PATTERNS=(
     "aws[_-]?secret[_-]?access[_-]?key"
 
     # Private Keys
-    "-----BEGIN (RSA|DSA )?PRIVATE KEY-----"
+    "-----BEGIN (RSA |DSA )?PRIVATE KEY-----"
     "-----BEGIN PRIVATE KEY-----"
     "private[_-]?key['\"]?[[:space:]]*[:=]"
 
