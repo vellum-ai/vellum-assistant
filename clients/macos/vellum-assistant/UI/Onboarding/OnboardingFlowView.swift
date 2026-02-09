@@ -30,6 +30,8 @@ struct OnboardingFlowView: View {
                     case 4:
                         ScreenPermissionStepView(state: state)
                     case 5:
+                        IntegrationPickerStepView(state: state)
+                    case 6:
                         AliveStepView(
                             state: state,
                             onComplete: onComplete,
@@ -53,7 +55,7 @@ struct OnboardingFlowView: View {
     private var orbSize: CGFloat {
         switch state.currentStep {
         case 0: return 48
-        case 5: return 72
+        case 6: return 72
         default: return 56
         }
     }

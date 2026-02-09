@@ -27,6 +27,7 @@ dist
 .claude/
 .private/
 temp.sh
+context.md
 
 # debug
 npm-debug.log*

@@ -22,7 +22,8 @@ let package = Package(
             path: "vellum-assistant",
             exclude: ["Resources/Info.plist"],
             resources: [
-                .process("Resources/Assets.xcassets")
+                .process("Resources/Assets.xcassets"),
+                .copy("Resources/Recipes")
             ],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),

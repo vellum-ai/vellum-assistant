@@ -9,49 +9,10 @@ enum AmbientDecision: String, Codable {
     case suggest
 }
 
-enum SuggestionIcon: String, Codable {
-    case cleanup       // trash, inbox cleanup, file organization
-    case error         // visible errors, warnings, failures
-    case automation    // repetitive tasks, manual work
-    case update        // stale items, pending updates
-    case organize      // tabs, windows, desktop clutter
-    case security      // expired certs, outdated software
-
-    var sfSymbol: String {
-        switch self {
-        case .cleanup: return "archivebox.fill"
-        case .error: return "exclamationmark.triangle.fill"
-        case .automation: return "gearshape.2.fill"
-        case .update: return "arrow.clockwise.circle.fill"
-        case .organize: return "square.grid.2x2.fill"
-        case .security: return "shield.lefthalf.filled"
-        }
-    }
-
-    var tintColor: String {
-        switch self {
-        case .cleanup: return "blue"
-        case .error: return "red"
-        case .automation: return "purple"
-        case .update: return "orange"
-        case .organize: return "teal"
-        case .security: return "yellow"
-        }
-    }
-}
-
-struct AmbientSuggestionDetail {
-    let title: String
-    let icon: SuggestionIcon
-    let headlineStat: String?
-    let actionSteps: [String]
-    let taskDescription: String  // full description sent to startSession
-}
-
 struct AmbientAnalysisResult {
     let decision: AmbientDecision
     let observation: String?
-    let suggestionDetail: AmbientSuggestionDetail?
+    let suggestion: String?
     let confidence: Double
     let reasoning: String
 }
@@ -93,7 +54,6 @@ final class AmbientAnalyzer {
         - NEVER suggest help for: sensitive/private content (banking, passwords, personal messages), creative flow states (writing, coding in focus), or casual browsing.
         - Keep observations concise (one sentence).
         - Keep suggestions actionable and specific (describe what the computer-use agent should do to help).
-        - When suggesting, also provide: a short punchy title (2-4 words), a category icon, an optional headline stat (the key number that jumps out, e.g. "8,312 unread"), and 2-3 short action steps (what the agent will do, each under 10 words).
         - Do NOT observe the same activity repeatedly. If the user is still doing the same thing as a recent observation, choose "ignore" instead.
         - Check the knowledge context below — if a similar observation already exists, do not create a duplicate.
         - Observations should capture NEW learnings about the user, not restate what is already known.
@@ -130,25 +90,7 @@ final class AmbientAnalyzer {
                     ],
                     "suggestion": [
                         "type": "string",
-                        "description": "When decision is 'suggest': a full description of what the computer-use agent should do to help. Required for 'suggest'."
-                    ],
-                    "suggestion_title": [
-                        "type": "string",
-                        "description": "When decision is 'suggest': a short punchy title, 2-4 words (e.g. 'Inbox Cleanup', 'Fix Build Error', 'Close Stale Tabs'). Required for 'suggest'."
-                    ],
-                    "suggestion_icon": [
-                        "type": "string",
-                        "enum": ["cleanup", "error", "automation", "update", "organize", "security"],
-                        "description": "When decision is 'suggest': category icon. cleanup=inbox/file cleanup, error=visible errors/warnings, automation=repetitive tasks, update=stale/pending items, organize=tabs/windows/desktop, security=expired certs/outdated software. Required for 'suggest'."
-                    ],
-                    "headline_stat": [
-                        "type": "string",
-                        "description": "When decision is 'suggest': optional key metric that jumps out (e.g. '8,312 unread', '47 open tabs', '3 failed builds'). Short, punchy. Omit if no clear number."
-                    ],
-                    "action_steps": [
-                        "type": "array",
-                        "items": ["type": "string"],
-                        "description": "When decision is 'suggest': 2-3 short action steps describing what the agent will do (each under 10 words, e.g. 'Archive promotional emails older than 30 days'). Required for 'suggest'."
+                        "description": "When decision is 'suggest': a specific, actionable description of what the computer-use agent should do to help. Required for 'suggest'."
                     ],
                     "confidence": [
                         "type": "number",
@@ -182,36 +124,15 @@ final class AmbientAnalyzer {
             throw InferenceError.parseError("Failed to parse analyze_screen tool response")
         }
 
-        // Build rich suggestion detail if this is a suggest decision
-        var suggestionDetail: AmbientSuggestionDetail?
-        if decision == .suggest, let suggestion = input["suggestion"] as? String {
-            let title = input["suggestion_title"] as? String ?? "Suggestion"
-            let iconStr = input["suggestion_icon"] as? String ?? "cleanup"
-            let icon = SuggestionIcon(rawValue: iconStr) ?? .cleanup
-            let headlineStat = input["headline_stat"] as? String
-            let actionSteps = input["action_steps"] as? [String] ?? []
-
-            suggestionDetail = AmbientSuggestionDetail(
-                title: title,
-                icon: icon,
-                headlineStat: headlineStat,
-                actionSteps: actionSteps,
-                taskDescription: suggestion
-            )
-        }
-
         let result = AmbientAnalysisResult(
             decision: decision,
             observation: input["observation"] as? String,
-            suggestionDetail: suggestionDetail,
+            suggestion: input["suggestion"] as? String,
             confidence: confidence,
             reasoning: reasoning
         )
 
         log.info("Analysis: \(decision.rawValue) (confidence: \(String(format: "%.2f", confidence))) — \(reasoning)")
-        if let detail = suggestionDetail {
-            log.info("Suggestion: \(detail.title) — \(detail.actionSteps.joined(separator: "; "))")
-        }
         return result
     }
 }

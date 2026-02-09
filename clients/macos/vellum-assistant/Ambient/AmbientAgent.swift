@@ -194,10 +194,10 @@ final class AmbientAgent: ObservableObject {
             }
 
         case .suggest:
-            if let detail = result.suggestionDetail, result.confidence > 0.8 {
-                log.info("[\(cycle)] Suggestion: \(detail.title) — \(detail.taskDescription)")
-                lastSuggestion = detail.taskDescription
-                showSuggestion(detail)
+            if let suggestion = result.suggestion, result.confidence > 0.8 {
+                log.info("[\(cycle)] Suggestion: \(suggestion)")
+                lastSuggestion = suggestion
+                showSuggestion(suggestion)
             } else {
                 log.debug("[\(cycle)] Suggestion below confidence threshold (\(String(format: "%.2f", result.confidence)))")
             }
@@ -206,16 +206,15 @@ final class AmbientAgent: ObservableObject {
         state = .watching
     }
 
-    private func showSuggestion(_ detail: AmbientSuggestionDetail) {
+    private func showSuggestion(_ suggestion: String) {
         guard let appDelegate = appDelegate else { return }
-        let taskDescription = detail.taskDescription
         let window = AmbientSuggestionWindow(
-            detail: detail,
+            suggestion: suggestion,
             onAccept: { [weak self] in
                 self?.activeSuggestionWindow = nil
                 self?.lastSuggestion = nil
                 self?.suggestionWindow = nil
-                appDelegate.startSession(task: taskDescription)
+                appDelegate.startSession(task: suggestion)
             },
             onDismiss: { [weak self] in
                 self?.activeSuggestionWindow = nil
