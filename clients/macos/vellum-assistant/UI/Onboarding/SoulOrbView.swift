@@ -45,7 +45,7 @@ struct SoulOrbView: View {
                     )
                 )
                 .frame(width: size, height: size)
-                .shadow(color: Color(hex: 0xD4A843).opacity(0.4), radius: 12)
+                .shadow(color: Color(hex: 0xD4A843).opacity(mood == .dormant ? 0.2 : 0.4), radius: mood == .dormant ? 6 : 12)
                 .scaleEffect(scale)
         }
         .onChange(of: mood, initial: true) { _, newMood in
@@ -55,6 +55,10 @@ struct SoulOrbView: View {
 
     private func applyAnimation(for mood: OrbMood) {
         switch mood {
+        case .dormant:
+            withAnimation(.easeInOut(duration: 3.5).repeatForever(autoreverses: true)) {
+                scale = 1.02
+            }
         case .breathing:
             withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
                 scale = 1.05

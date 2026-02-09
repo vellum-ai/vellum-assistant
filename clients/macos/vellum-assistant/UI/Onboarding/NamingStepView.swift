@@ -8,14 +8,20 @@ struct NamingStepView: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            ReactionBubble(text: "Hey! Nice to meet you.")
+            ReactionBubble(text: "Oh\u{2026} I\u{2019}m here! Who are you?")
 
-            Text("What should I call you?")
-                .font(.system(size: 15))
-                .foregroundColor(.white.opacity(0.6))
-                .opacity(showInput ? 1 : 0)
+            VStack(spacing: 8) {
+                Text("Every creature needs a name.")
+                    .font(.system(.title2, design: .serif))
+                    .foregroundColor(.white)
 
-            TextField("Your name", text: $state.assistantName)
+                Text("What should this one be called?")
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+            .opacity(showInput ? 1 : 0)
+
+            TextField("Name your agent\u{2026}", text: $state.assistantName)
                 .textFieldStyle(.plain)
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(.white)
@@ -38,7 +44,7 @@ struct NamingStepView: View {
                 }
 
             OnboardingButton(
-                title: "That's me",
+                title: "That\u{2019}s your name",
                 style: .primary,
                 disabled: state.assistantName.trimmingCharacters(in: .whitespaces).isEmpty
             ) {
@@ -47,6 +53,7 @@ struct NamingStepView: View {
             .opacity(showInput ? 1 : 0)
         }
         .onAppear {
+            state.orbMood = .breathing
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showInput = true

@@ -18,12 +18,14 @@ struct AliveStepView: View {
     @State private var particles: [SparkleParticle] = []
     @State private var particlesLaunched = false
 
-    private let abilities = [
-        ("Hands-free", "cursorarrow.click.2"),
-        ("Voice input", "mic.fill"),
-        ("Screen-aware", "eye.fill"),
-        ("Adaptive", "brain.head.profile"),
-    ]
+    private var abilities: [(String, String)] {
+        [
+            ("Talk to me", "mic.fill"),
+            ("I'll help you", "sparkles"),
+            ("Hold \(state.chosenKey.displayName) to activate", "keyboard"),
+            ("I learn as you work", "brain.head.profile"),
+        ]
+    }
 
     var body: some View {
         VStack(spacing: 28) {
@@ -38,11 +40,17 @@ struct AliveStepView: View {
                         .offset(x: particle.x, y: particle.y)
                 }
             }
-            .frame(width: 120, height: 120)
+            .frame(width: 140, height: 140)
 
-            Text("\(state.assistantName.isEmpty ? "I'm" : state.assistantName + " is") ready.")
-                .font(.system(.title, design: .serif))
-                .foregroundColor(.white)
+            VStack(spacing: 8) {
+                Text("\(state.assistantName.isEmpty ? "It" : state.assistantName) has hatched.")
+                    .font(.system(.title, design: .serif))
+                    .foregroundColor(.white)
+
+                Text("All set up and ready to help.")
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.5))
+            }
 
             // Ability tags — 2×2 grid
             VStack(spacing: 10) {
@@ -62,7 +70,10 @@ struct AliveStepView: View {
             }
 
             VStack(spacing: 16) {
-                OnboardingButton(title: "Start using Vellum", style: .primary) {
+                OnboardingButton(
+                    title: "Start using \(state.assistantName.isEmpty ? "your agent" : state.assistantName)",
+                    style: .primary
+                ) {
                     onComplete()
                 }
                 .font(.system(size: 17, weight: .semibold))
@@ -124,19 +135,19 @@ struct AliveStepView: View {
         guard !particlesLaunched else { return }
         particlesLaunched = true
 
-        for _ in 0..<12 {
+        for _ in 0..<16 {
             let angle = Double.random(in: 0...(2 * .pi))
-            let distance = CGFloat.random(in: 30...60)
+            let distance = CGFloat.random(in: 40...80)
             let particle = SparkleParticle(
                 x: 0,
                 y: 0,
-                opacity: 0.8,
-                scale: CGFloat.random(in: 0.5...1.5)
+                opacity: 0.9,
+                scale: CGFloat.random(in: 0.5...1.8)
             )
             particles.append(particle)
 
             let index = particles.count - 1
-            withAnimation(.easeOut(duration: 1.0)) {
+            withAnimation(.easeOut(duration: 1.2)) {
                 particles[index].x = cos(angle) * distance
                 particles[index].y = sin(angle) * distance
                 particles[index].opacity = 0
@@ -144,7 +155,7 @@ struct AliveStepView: View {
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
             particles.removeAll()
         }
     }

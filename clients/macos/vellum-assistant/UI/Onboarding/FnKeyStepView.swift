@@ -7,6 +7,7 @@ struct FnKeyStepView: View {
     @State private var highlightedKey: ActivationKey?
     @State private var wrongKeyHint: String?
     @State private var eventMonitor: Any?
+    @State private var nameReaction: String = ""
 
     private let keyOptions: [(key: ActivationKey, label: String)] = [
         (.fn, "fn"),
@@ -14,16 +15,28 @@ struct FnKeyStepView: View {
         (.ctrl, "ctrl"),
     ]
 
+    private static let nameReactions = [
+        "%@\u{2026} that feels like mine.",
+        "%@. I\u{2019}ll grow into it.",
+        "%@ \u{2014} I already like the sound of it.",
+    ]
+
     var body: some View {
         VStack(spacing: 24) {
-            ReactionBubble(
-                text: "Great, \(state.assistantName)! Let's set up how you'll summon me."
-            )
+            ReactionBubble(text: nameReaction)
 
-            Text("Press or pick your activation key")
-                .font(.system(size: 15))
-                .foregroundColor(.white.opacity(0.6))
-                .opacity(showButtons ? 1 : 0)
+            VStack(spacing: 8) {
+                Text("Let\u{2019}s find your voice.")
+                    .font(.system(.title2, design: .serif))
+                    .foregroundColor(.white)
+
+                Text("To call \(state.assistantName), you\u{2019}ll hold down a key. Try pressing it now \u{2014} which of these lights up?")
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
+            .opacity(showButtons ? 1 : 0)
 
             HStack(spacing: 12) {
                 ForEach(keyOptions, id: \.key) { option in
@@ -49,6 +62,9 @@ struct FnKeyStepView: View {
         .animation(.easeOut(duration: 0.3), value: wrongKeyHint)
         .animation(.easeOut(duration: 0.3), value: highlightedKey)
         .onAppear {
+            let format = Self.nameReactions.randomElement()!
+            nameReaction = String(format: format, state.assistantName)
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showButtons = true
@@ -97,12 +113,12 @@ struct FnKeyStepView: View {
                 selectKey(.ctrl)
             } else if flags.contains(.command) {
                 withAnimation {
-                    wrongKeyHint = "That's Cmd \u{2014} try fn or ctrl"
+                    wrongKeyHint = "That\u{2019}s Cmd \u{2014} try fn or ctrl"
                 }
                 clearHintAfterDelay()
             } else if flags.contains(.option) {
                 withAnimation {
-                    wrongKeyHint = "Close! That's Option \u{2014} try fn or ctrl"
+                    wrongKeyHint = "Close! That\u{2019}s Option \u{2014} try fn or ctrl"
                 }
                 clearHintAfterDelay()
             }
