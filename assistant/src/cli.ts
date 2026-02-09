@@ -338,9 +338,9 @@ export async function startCli(): Promise<void> {
       case 'error':
         spinner.stop();
         generating = false;
-        pendingSessionPick = false;
-        if (pendingConfirmation) {
+        if (pendingConfirmation || pendingSessionPick) {
           pendingConfirmation = false;
+          pendingSessionPick = false;
           rl.removeAllListeners('line');
           rl.on('line', handleLine);
         }
