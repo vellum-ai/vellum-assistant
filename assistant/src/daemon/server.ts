@@ -28,6 +28,8 @@ export class DaemonServer {
   // with the same conversation ID concurrently. The first caller creates the
   // session; subsequent callers await the same promise.
   private sessionCreating = new Map<string, Promise<Session>>();
+  // Shared across all sessions so maxRequestsPerMinute is enforced globally.
+  private sharedRequestTimestamps: number[] = [];
   private socketPath: string;
   private watchers: FSWatcher[] = [];
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -243,6 +245,7 @@ export class DaemonServer {
       if (pending) {
         session = await pending;
         session.updateClient(sendToClient);
+        session.setSandboxOverride(this.socketSandboxOverride.get(socket));
         return session;
       }
 
@@ -251,7 +254,7 @@ export class DaemonServer {
         let provider = getProvider(config.provider);
         const { rateLimit } = config;
         if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
-          provider = new RateLimitProvider(provider, rateLimit);
+          provider = new RateLimitProvider(provider, rateLimit, this.sharedRequestTimestamps);
         }
         const workingDir = process.cwd();
 

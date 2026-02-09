@@ -8,14 +8,16 @@ const log = getLogger('rate-limit');
 export class RateLimitProvider implements Provider {
   public readonly name: string;
 
-  private requestTimestamps: number[] = [];
+  private requestTimestamps: number[];
   private sessionTokens = 0;
 
   constructor(
     private readonly inner: Provider,
     private readonly config: RateLimitConfig,
+    sharedRequestTimestamps?: number[],
   ) {
     this.name = inner.name;
+    this.requestTimestamps = sharedRequestTimestamps ?? [];
   }
 
   async sendMessage(
