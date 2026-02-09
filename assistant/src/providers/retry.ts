@@ -13,11 +13,18 @@ function isRetryableError(error: unknown): boolean {
     if (error.statusCode === 429 || error.statusCode >= 500) return true;
   }
 
-  // Check for network errors
+  // Check for network errors (direct or wrapped in cause chain)
   if (error instanceof Error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'ETIMEDOUT' || code === 'EPIPE') {
       return true;
+    }
+
+    if (error.cause instanceof Error) {
+      const causeCode = (error.cause as NodeJS.ErrnoException).code;
+      if (causeCode === 'ECONNRESET' || causeCode === 'ECONNREFUSED' || causeCode === 'ETIMEDOUT' || causeCode === 'EPIPE') {
+        return true;
+      }
     }
   }
 

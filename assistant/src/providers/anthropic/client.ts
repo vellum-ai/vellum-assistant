@@ -79,6 +79,8 @@ export class AnthropicProvider implements Provider {
       throw new ProviderError(
         `Anthropic request failed: ${error instanceof Error ? error.message : String(error)}`,
         'anthropic',
+        undefined,
+        { cause: error },
       );
     }
   }

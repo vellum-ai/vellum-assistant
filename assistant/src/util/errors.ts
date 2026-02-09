@@ -31,8 +31,9 @@ export class AssistantError extends Error {
   constructor(
     message: string,
     public readonly code: ErrorCode,
+    options?: { cause?: unknown },
   ) {
-    super(message);
+    super(message, options);
     this.name = 'AssistantError';
   }
 }
@@ -42,8 +43,9 @@ export class ProviderError extends AssistantError {
     message: string,
     public readonly provider: string,
     public readonly statusCode?: number,
+    options?: { cause?: unknown },
   ) {
-    super(message, ErrorCode.PROVIDER_ERROR);
+    super(message, ErrorCode.PROVIDER_ERROR, options);
     this.name = 'ProviderError';
   }
 }
