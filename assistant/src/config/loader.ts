@@ -51,7 +51,7 @@ export function loadConfig(): AssistantConfig {
       fileConfig.apiKeys !== undefined &&
       (typeof fileConfig.apiKeys !== 'object' || fileConfig.apiKeys === null || Array.isArray(fileConfig.apiKeys))
     ) {
-      log.error('Invalid apiKeys in config file: must be an object with string values. Ignoring.');
+      log.warn('Invalid apiKeys in config file: must be an object with string values. Ignoring.');
       delete fileConfig.apiKeys;
     }
 
@@ -93,26 +93,26 @@ export function loadConfig(): AssistantConfig {
 
 function validateConfig(config: AssistantConfig): void {
   if (!VALID_PROVIDERS.includes(config.provider as (typeof VALID_PROVIDERS)[number])) {
-    log.error(
+    log.warn(
       `Invalid provider "${config.provider}". Valid providers: ${VALID_PROVIDERS.join(', ')}. Falling back to "${DEFAULT_CONFIG.provider}".`,
     );
     config.provider = DEFAULT_CONFIG.provider;
   }
 
   if (!Number.isInteger(config.maxTokens) || config.maxTokens <= 0) {
-    log.error(
+    log.warn(
       `Invalid maxTokens "${config.maxTokens}". Must be a positive integer. Falling back to ${DEFAULT_CONFIG.maxTokens}.`,
     );
     config.maxTokens = DEFAULT_CONFIG.maxTokens;
   }
 
   if (typeof config.apiKeys !== 'object' || config.apiKeys === null || Array.isArray(config.apiKeys)) {
-    log.error('Invalid apiKeys: must be an object with string values. Falling back to empty object.');
+    log.warn('Invalid apiKeys: must be an object with string values. Falling back to empty object.');
     config.apiKeys = {};
   } else {
     for (const [key, value] of Object.entries(config.apiKeys)) {
       if (typeof value !== 'string') {
-        log.error(`Invalid apiKeys.${key}: value must be a string. Removing entry.`);
+        log.warn(`Invalid apiKeys.${key}: value must be a string. Removing entry.`);
         delete config.apiKeys[key];
       }
     }
@@ -121,7 +121,7 @@ function validateConfig(config: AssistantConfig): void {
   for (const field of ['shellDefaultTimeoutSec', 'shellMaxTimeoutSec', 'permissionTimeoutSec'] as const) {
     const val = config.timeouts[field];
     if (typeof val !== 'number' || !Number.isFinite(val) || val <= 0) {
-      log.error(
+      log.warn(
         `Invalid timeouts.${field} "${val}". Must be a positive number. Falling back to ${DEFAULT_CONFIG.timeouts[field]}.`,
       );
       config.timeouts[field] = DEFAULT_CONFIG.timeouts[field];
