@@ -99,25 +99,26 @@ export function setSecureKey(account: string, value: string): boolean {
  */
 export function deleteSecureKey(account: string): boolean {
   const backend = getBackend();
-  if (backend === 'encrypted') return encryptedStore.deleteKey(account);
+  if (backend === 'encrypted') {
+    const result = encryptedStore.deleteKey(account);
+    // After a runtime downgrade, keys may still exist in the keychain.
+    // Attempt best-effort cleanup so stale credentials don't linger.
+    if (downgradedFromKeychain) {
+      keychain.deleteKey(account); // best-effort, ignore result
+    }
+    return result;
+  }
   if (backend !== 'keychain') return false;
 
-  // Check if the key exists before attempting deletion so we can
-  // distinguish "key not found" (not an error) from a real runtime failure.
-  const exists = keychain.getKey(account) !== undefined;
-  const result = keychain.deleteKey(account);
-  if (result) return true;
-
-  if (!exists) {
-    // Key didn't exist — not a runtime failure, no downgrade needed.
-    return false;
-  }
-
-  // Key existed but deletion failed — treat as runtime failure and downgrade.
-  log.warn('Keychain delete failed at runtime, falling back to encrypted file storage');
-  resolvedBackend = 'encrypted';
-  downgradedFromKeychain = true;
-  return encryptedStore.deleteKey(account);
+  // Use the same fallback pattern as setSecureKey: if deleteKey returns
+  // false, downgrade. keychain.deleteKey returns false for both "not found"
+  // and "runtime error", but downgrading on "not found" is harmless — the
+  // encrypted store also returns false for a missing key.
+  return withKeychainFallback(
+    () => keychain.deleteKey(account),
+    () => encryptedStore.deleteKey(account),
+    false,
+  );
 }
 
 /**
