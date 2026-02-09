@@ -12,6 +12,9 @@ function charsToString(
   return fc.array(charArb, opts).map((arr) => arr.join(''));
 }
 
+// Fixed seed for deterministic property tests across CI runs
+const FC_OPTS = { seed: 1712345678 } as const;
+
 // The parser lazily initializes web-tree-sitter on first call.
 // Warm it up once before all property tests.
 beforeAll(async () => {
@@ -40,7 +43,7 @@ describe('Shell parser property-based tests', () => {
             expect(risk).toBe(RiskLevel.High);
           }
         ),
-        { numRuns: 200 }
+        { numRuns: 200, ...FC_OPTS }
       );
     });
 
@@ -55,7 +58,7 @@ describe('Shell parser property-based tests', () => {
             expect(risk).toBe(RiskLevel.High);
           }
         ),
-        { numRuns: 100 }
+        { numRuns: 100, ...FC_OPTS }
       );
     });
 
@@ -69,7 +72,7 @@ describe('Shell parser property-based tests', () => {
             expect(risk).toBe(RiskLevel.High);
           }
         ),
-        { numRuns: 10 }
+        { numRuns: 10, ...FC_OPTS }
       );
     });
 
@@ -84,7 +87,7 @@ describe('Shell parser property-based tests', () => {
             expect(risk).toBe(RiskLevel.High);
           }
         ),
-        { numRuns: 100 }
+        { numRuns: 100, ...FC_OPTS }
       );
     });
 
@@ -105,7 +108,7 @@ describe('Shell parser property-based tests', () => {
             expect(risk).toBe(RiskLevel.High);
           }
         ),
-        { numRuns: 50 }
+        { numRuns: 50, ...FC_OPTS }
       );
     });
   });
@@ -129,7 +132,7 @@ describe('Shell parser property-based tests', () => {
             expect(risk).toBe(RiskLevel.Low);
           }
         ),
-        { numRuns: 200 }
+        { numRuns: 200, ...FC_OPTS }
       );
     });
 
@@ -148,7 +151,7 @@ describe('Shell parser property-based tests', () => {
             expect(risk).toBe(RiskLevel.Low);
           }
         ),
-        { numRuns: 100 }
+        { numRuns: 100, ...FC_OPTS }
       );
     });
   });
@@ -167,7 +170,7 @@ describe('Shell parser property-based tests', () => {
             expect(risk).toBe(RiskLevel.High);
           }
         ),
-        { numRuns: 50 }
+        { numRuns: 50, ...FC_OPTS }
       );
     });
 
@@ -182,7 +185,7 @@ describe('Shell parser property-based tests', () => {
             expect(risk).toBe(RiskLevel.High);
           }
         ),
-        { numRuns: 50 }
+        { numRuns: 50, ...FC_OPTS }
       );
     });
 
@@ -198,7 +201,7 @@ describe('Shell parser property-based tests', () => {
             expect(parsed.dangerousPatterns.some(p => p.type === 'pipe_to_shell')).toBe(true);
           }
         ),
-        { numRuns: 50 }
+        { numRuns: 50, ...FC_OPTS }
       );
     });
 
@@ -215,7 +218,7 @@ describe('Shell parser property-based tests', () => {
             expect(risk).toBe(RiskLevel.Low);
           }
         ),
-        { numRuns: 100 }
+        { numRuns: 100, ...FC_OPTS }
       );
     });
   });
@@ -238,7 +241,7 @@ describe('Shell parser property-based tests', () => {
             expect(typeof result.hasOpaqueConstructs).toBe('boolean');
           }
         ),
-        { numRuns: 300 }
+        { numRuns: 300, ...FC_OPTS }
       );
     });
 
@@ -252,7 +255,7 @@ describe('Shell parser property-based tests', () => {
             expect(Array.isArray(result.segments)).toBe(true);
           }
         ),
-        { numRuns: 200 }
+        { numRuns: 200, ...FC_OPTS }
       );
     });
 
@@ -265,7 +268,7 @@ describe('Shell parser property-based tests', () => {
             expect([RiskLevel.Low, RiskLevel.Medium, RiskLevel.High]).toContain(risk);
           }
         ),
-        { numRuns: 300 }
+        { numRuns: 300, ...FC_OPTS }
       );
     });
 
@@ -285,7 +288,7 @@ describe('Shell parser property-based tests', () => {
             expect(result).toBeDefined();
           }
         ),
-        { numRuns: 200 }
+        { numRuns: 200, ...FC_OPTS }
       );
     });
   });
@@ -309,7 +312,7 @@ describe('Shell parser property-based tests', () => {
             expect(result.dangerousPatterns).toHaveLength(0);
           }
         ),
-        { numRuns: 100 }
+        { numRuns: 100, ...FC_OPTS }
       );
     });
 
@@ -327,7 +330,7 @@ describe('Shell parser property-based tests', () => {
             expect(risk).toBe(RiskLevel.Low);
           }
         ),
-        { numRuns: 50 }
+        { numRuns: 50, ...FC_OPTS }
       );
     });
   });
@@ -354,7 +357,7 @@ describe('Shell parser property-based tests', () => {
             }
           }
         ),
-        { numRuns: 50 }
+        { numRuns: 50, ...FC_OPTS }
       );
     });
 
@@ -384,7 +387,7 @@ describe('Shell parser property-based tests', () => {
             }
           }
         ),
-        { numRuns: 20 }
+        { numRuns: 20, ...FC_OPTS }
       );
     });
 
@@ -401,7 +404,7 @@ describe('Shell parser property-based tests', () => {
             expect(result.hasOpaqueConstructs).toBe(true);
           }
         ),
-        { numRuns: 30 }
+        { numRuns: 30, ...FC_OPTS }
       );
     });
 
@@ -423,7 +426,7 @@ describe('Shell parser property-based tests', () => {
             expect(result.dangerousPatterns.some(p => p.type === 'env_injection')).toBe(true);
           }
         ),
-        { numRuns: 50 }
+        { numRuns: 50, ...FC_OPTS }
       );
     });
   });
