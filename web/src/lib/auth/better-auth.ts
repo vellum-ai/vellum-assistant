@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { username } from "better-auth/plugins";
 import { db } from "@/lib/db";
+import { sendEmail } from "@/lib/mailgun";
 import * as schema from "@/lib/schema";
 
 export const auth = betterAuth({
@@ -14,7 +15,11 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     sendResetPassword: async ({ user, url }) => {
-      console.log(`Password reset requested for ${user.email}: ${url}`);
+      void sendEmail({
+        to: user.email,
+        subject: "Reset your password",
+        text: `Click the link to reset your password: ${url}`,
+      });
     },
   },
   plugins: [username()],
