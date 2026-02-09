@@ -1,9 +1,10 @@
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { dirname } from 'node:path';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
+import { validateFilePath } from './path-guard.js';
 
 class FileWriteTool implements Tool {
   name = 'file_write';
@@ -43,7 +44,11 @@ class FileWriteTool implements Tool {
       return { content: 'Error: content is required and must be a string', isError: true };
     }
 
-    const filePath = resolve(context.workingDir, rawPath);
+    const pathCheck = validateFilePath(rawPath, context.workingDir, { mustExist: false });
+    if (!pathCheck.ok) {
+      return { content: `Error: ${pathCheck.error}`, isError: true };
+    }
+    const filePath = pathCheck.resolved;
 
     try {
       // Create parent directories if needed

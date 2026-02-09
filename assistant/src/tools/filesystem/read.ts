@@ -1,9 +1,9 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
+import { validateFilePath } from './path-guard.js';
 
 class FileReadTool implements Tool {
   name = 'file_read';
@@ -42,7 +42,11 @@ class FileReadTool implements Tool {
       return { content: 'Error: path is required and must be a string', isError: true };
     }
 
-    const filePath = resolve(context.workingDir, rawPath);
+    const pathCheck = validateFilePath(rawPath, context.workingDir);
+    if (!pathCheck.ok) {
+      return { content: `Error: ${pathCheck.error}`, isError: true };
+    }
+    const filePath = pathCheck.resolved;
 
     if (!existsSync(filePath)) {
       return { content: `Error: File not found: ${filePath}`, isError: true };
