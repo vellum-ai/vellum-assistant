@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, statSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
@@ -251,6 +251,36 @@ describe('encrypted-store', () => {
       expect(result).toBe(true);
       expect(getKey('test')).toBe('value');
     });
+
+    test('setKey refuses to overwrite a corrupt store file', () => {
+      // Write a valid store first
+      setKey('existing', 'old-secret');
+      // Corrupt the store
+      writeFileSync(STORE_PATH, 'corrupted data');
+      // setKey should fail rather than overwrite with new salt
+      const result = setKey('new-key', 'new-value');
+      expect(result).toBe(false);
+    });
+
+    test('setKey refuses to overwrite a store with invalid version', () => {
+      writeFileSync(STORE_PATH, JSON.stringify({
+        version: 99,
+        salt: 'abc',
+        entries: {},
+      }));
+      const result = setKey('test', 'value');
+      expect(result).toBe(false);
+    });
+
+    test('writeStore enforces 0600 permissions on existing files', () => {
+      setKey('test', 'value');
+      // Loosen permissions
+      chmodSync(STORE_PATH, 0o644);
+      // Write again — should re-enforce 0600
+      setKey('test2', 'value2');
+      const mode = statSync(STORE_PATH).mode & 0o777;
+      expect(mode).toBe(0o600);
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -277,6 +307,14 @@ describe('encrypted-store', () => {
     test('handles special characters in account name', () => {
       setKey('my/nested.key', 'value');
       expect(getKey('my/nested.key')).toBe('value');
+    });
+
+    test('__proto__ account name works correctly', () => {
+      setKey('__proto__', 'proto-value');
+      expect(getKey('__proto__')).toBe('proto-value');
+      expect(listKeys()).toContain('__proto__');
+      deleteKey('__proto__');
+      expect(getKey('__proto__')).toBeUndefined();
     });
 
     test('salt is preserved across set operations', () => {

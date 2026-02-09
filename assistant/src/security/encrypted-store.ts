@@ -17,7 +17,7 @@ import {
   createCipheriv,
   createDecipheriv,
 } from 'node:crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { hostname, userInfo } from 'node:os';
 import { getDataDir } from '../util/platform.js';
@@ -90,21 +90,26 @@ function deriveKey(salt: Buffer): Buffer {
 // Store I/O
 // ---------------------------------------------------------------------------
 
+/**
+ * Read result: distinguishes "file missing" from "file corrupt/unreadable".
+ * - `null`: file does not exist (safe to create)
+ * - `StoreFile`: successfully parsed
+ * - throws: file exists but cannot be parsed (corrupt/invalid)
+ */
 function readStore(): StoreFile | null {
   const path = getStorePath();
   if (!existsSync(path)) return null;
-  try {
-    const raw = readFileSync(path, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (parsed.version !== 1 || typeof parsed.salt !== 'string' || typeof parsed.entries !== 'object') {
-      log.warn('Encrypted store has invalid format, ignoring');
-      return null;
-    }
-    return parsed as StoreFile;
-  } catch (err) {
-    log.warn({ err }, 'Failed to read encrypted store');
-    return null;
+
+  const raw = readFileSync(path, 'utf-8');
+  const parsed = JSON.parse(raw);
+  if (parsed.version !== 1 || typeof parsed.salt !== 'string' || typeof parsed.entries !== 'object') {
+    throw new Error('Encrypted store has invalid format');
   }
+  // Use null-prototype object for entries to prevent prototype pollution
+  const safeEntries: Record<string, EncryptedEntry> = Object.create(null);
+  Object.assign(safeEntries, parsed.entries);
+  parsed.entries = safeEntries;
+  return parsed as StoreFile;
 }
 
 function writeStore(store: StoreFile): void {
@@ -114,16 +119,22 @@ function writeStore(store: StoreFile): void {
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(path, JSON.stringify(store, null, 2), { mode: 0o600 });
+  // Enforce 0600 even if the file already existed with permissive bits
+  chmodSync(path, 0o600);
 }
 
 function getOrCreateStore(): StoreFile {
-  const existing = readStore();
-  if (existing) return existing;
+  const path = getStorePath();
+  if (existsSync(path)) {
+    // File exists — must be parseable, otherwise fail to prevent data loss
+    return readStore()!;
+  }
   const salt = randomBytes(SALT_LENGTH);
+  const entries: Record<string, EncryptedEntry> = Object.create(null);
   const store: StoreFile = {
     version: 1,
     salt: salt.toString('hex'),
-    entries: {},
+    entries,
   };
   writeStore(store);
   return store;
@@ -205,7 +216,7 @@ export function setKey(account: string, value: string): boolean {
 export function deleteKey(account: string): boolean {
   try {
     const store = readStore();
-    if (!store || !(account in store.entries)) return false;
+    if (!store || !Object.prototype.hasOwnProperty.call(store.entries, account)) return false;
 
     delete store.entries[account];
     writeStore(store);
