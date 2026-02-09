@@ -45,9 +45,8 @@ function withKeychainFallback<T>(
   if (backend !== 'keychain') return fallbackValue;
 
   const result = keychainFn();
-  // keychain.getKey returns undefined on not-found (not an error),
   // keychain.setKey/deleteKey return false on failure.
-  // We only downgrade on set/delete failures (false), not on get misses (undefined).
+  // We downgrade on failures (false) to switch to encrypted backend.
   if (result === false) {
     log.warn('Keychain operation failed at runtime, falling back to encrypted file storage');
     resolvedBackend = 'encrypted';
@@ -64,17 +63,26 @@ function withKeychainFallback<T>(
 export function getSecureKey(account: string): string | undefined {
   const backend = getBackend();
   if (backend === 'keychain') {
-    const value = keychain.getKey(account);
-    // getKey returns undefined for both not-found and error — we can't
-    // distinguish, so no fallback on read. The fallback triggers on write.
-    return value;
+    try {
+      return keychain.getKey(account) ?? undefined;
+    } catch {
+      // Keychain runtime error on read — downgrade to encrypted store
+      log.warn('Keychain read failed at runtime, falling back to encrypted file storage');
+      resolvedBackend = 'encrypted';
+      downgradedFromKeychain = true;
+      return encryptedStore.getKey(account);
+    }
   }
   if (backend === 'encrypted') {
     const value = encryptedStore.getKey(account);
     // After a runtime downgrade, keys may still exist in the keychain.
     // Try keychain read as fallback so pre-downgrade keys remain accessible.
     if (value === undefined && downgradedFromKeychain) {
-      return keychain.getKey(account);
+      try {
+        return keychain.getKey(account) ?? undefined;
+      } catch {
+        return undefined;
+      }
     }
     return value;
   }
@@ -113,8 +121,14 @@ export function deleteSecureKey(account: string): boolean {
   // keychain.deleteKey returns false for both "not found" and "runtime error".
   // Check existence first so a missing key doesn't spuriously downgrade the
   // backend — saveConfig routinely deletes keys for unset providers.
-  if (keychain.getKey(account) === undefined) {
-    return false;
+  // getKey now returns null for "not found" and throws on runtime errors.
+  try {
+    if (keychain.getKey(account) === null) {
+      return false;
+    }
+  } catch {
+    // Keychain runtime error — fall through to withKeychainFallback which
+    // will handle the downgrade when deleteKey also fails.
   }
 
   return withKeychainFallback(

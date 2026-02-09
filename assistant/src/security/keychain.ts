@@ -46,21 +46,17 @@ export function isKeychainAvailable(): boolean {
 
 /**
  * Retrieve a secret from the OS keychain.
- * Returns `undefined` if the key doesn't exist or the keychain is unavailable.
+ * Returns `null` if the key doesn't exist.
+ * Throws on runtime errors (keychain unavailable, locked, etc.).
  */
-export function getKey(account: string): string | undefined {
-  try {
-    if (isMacOS()) {
-      return macosGetKey(account);
-    }
-    if (isLinux()) {
-      return linuxGetKey(account);
-    }
-    return undefined;
-  } catch (err) {
-    log.debug({ err, account }, 'Failed to read from keychain');
-    return undefined;
+export function getKey(account: string): string | null {
+  if (isMacOS()) {
+    return macosGetKey(account);
   }
+  if (isLinux()) {
+    return linuxGetKey(account);
+  }
+  return null;
 }
 
 /**
@@ -105,7 +101,7 @@ export function deleteKey(account: string): boolean {
 // macOS Keychain via `security` CLI
 // ---------------------------------------------------------------------------
 
-function macosGetKey(account: string): string | undefined {
+function macosGetKey(account: string): string | null {
   try {
     const result = execFileSync('security', [
       'find-generic-password',
@@ -118,10 +114,14 @@ function macosGetKey(account: string): string | undefined {
       encoding: 'utf-8',
     });
     // Strip only the trailing newline added by the security CLI
-    return result.replace(/\n$/, '') || undefined;
-  } catch {
-    // Item not found (exit code 44) or other error
-    return undefined;
+    return result.replace(/\n$/, '') || null;
+  } catch (err: unknown) {
+    // Exit code 44 = item not found — return null.
+    // All other errors are runtime failures — re-throw.
+    if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 44) {
+      return null;
+    }
+    throw err;
   }
 }
 
@@ -167,7 +167,7 @@ function macosDeleteKey(account: string): boolean {
 // Linux via `secret-tool` (libsecret)
 // ---------------------------------------------------------------------------
 
-function linuxGetKey(account: string): string | undefined {
+function linuxGetKey(account: string): string | null {
   try {
     const result = execFileSync('secret-tool', [
       'lookup',
@@ -179,9 +179,13 @@ function linuxGetKey(account: string): string | undefined {
       encoding: 'utf-8',
     });
     // Strip only the trailing newline added by secret-tool
-    return result.replace(/\n$/, '') || undefined;
-  } catch {
-    return undefined;
+    return result.replace(/\n$/, '') || null;
+  } catch (err: unknown) {
+    // secret-tool exits with code 1 when the key is not found.
+    if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 1) {
+      return null;
+    }
+    throw err;
   }
 }
 

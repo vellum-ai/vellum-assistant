@@ -21,7 +21,10 @@ const keychainStore = new Map<string, string>();
 
 mock.module('../security/keychain.js', () => ({
   isKeychainAvailable: () => keychainAvailable,
-  getKey: (account: string) => keychainStore.get(account),
+  getKey: (account: string): string | null => {
+    if (keychainFailAtRuntime) throw new Error('Keychain runtime error');
+    return keychainStore.get(account) ?? null;
+  },
   setKey: (account: string, value: string) => {
     if (keychainFailAtRuntime) return false;
     keychainStore.set(account, value);
@@ -241,6 +244,30 @@ describe('secure-keys', () => {
       const result = deleteSecureKey('openai');
       expect(result).toBe(true);
       expect(getSecureKey('openai')).toBeUndefined();
+    });
+
+    test('deleteSecureKey triggers downgrade when key exists in keychain but keychain starts failing', () => {
+      // Step 1: Store a key while keychain is working
+      setSecureKey('anthropic', 'sk-ant-exists');
+      expect(keychainStore.get('anthropic')).toBe('sk-ant-exists');
+
+      // Step 2: Keychain starts failing at runtime
+      keychainFailAtRuntime = true;
+
+      // Step 3: Attempt to delete — should trigger fallback/downgrade
+      const result = deleteSecureKey('anthropic');
+      // deleteKey returns false because keychain is failing, and fallback
+      // encrypted store doesn't have the key, so the overall result is false.
+      // But the important thing is that the backend was downgraded.
+      expect(result).toBe(false);
+
+      // Step 4: Verify the backend has been downgraded to encrypted store.
+      // Subsequent operations should use encrypted store.
+      keychainFailAtRuntime = false;
+      setSecureKey('openai', 'sk-openai-new');
+      // Should be in encrypted store, not keychain
+      expect(keychainStore.has('openai')).toBe(false);
+      expect(getSecureKey('openai')).toBe('sk-openai-new');
     });
 
     test('backend permanently downgrades after keychain runtime failure', () => {

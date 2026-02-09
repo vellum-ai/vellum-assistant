@@ -107,9 +107,16 @@ describe('keychain', () => {
       expect(call!.args).toContain('-w');
     });
 
-    test('getKey returns undefined when key not found', () => {
-      execFileResults.set('find-generic-password', new Error('item not found'));
-      expect(getKey('nonexistent')).toBeUndefined();
+    test('getKey returns null when key not found', () => {
+      const err = Object.assign(new Error('item not found'), { status: 44 });
+      execFileResults.set('find-generic-password', err);
+      expect(getKey('nonexistent')).toBeNull();
+    });
+
+    test('getKey throws on runtime errors', () => {
+      const err = Object.assign(new Error('keychain locked'), { status: 1 });
+      execFileResults.set('find-generic-password', err);
+      expect(() => getKey('test')).toThrow('keychain locked');
     });
 
     test('setKey calls security add-generic-password with -U flag', () => {
@@ -178,9 +185,16 @@ describe('keychain', () => {
       expect(call!.args).toContain('openai');
     });
 
-    test('getKey returns undefined when key not found', () => {
-      execFileResults.set('lookup', new Error('not found'));
-      expect(getKey('missing')).toBeUndefined();
+    test('getKey returns null when key not found', () => {
+      const err = Object.assign(new Error('not found'), { status: 1 });
+      execFileResults.set('lookup', err);
+      expect(getKey('missing')).toBeNull();
+    });
+
+    test('getKey throws on runtime errors', () => {
+      const err = Object.assign(new Error('D-Bus error'), { status: 5 });
+      execFileResults.set('lookup', err);
+      expect(() => getKey('test')).toThrow('D-Bus error');
     });
 
     test('getKey preserves internal whitespace', () => {
@@ -216,8 +230,8 @@ describe('keychain', () => {
       mockPlatform = 'win32';
     });
 
-    test('getKey returns undefined', () => {
-      expect(getKey('any')).toBeUndefined();
+    test('getKey returns null', () => {
+      expect(getKey('any')).toBeNull();
     });
 
     test('setKey returns false', () => {
@@ -233,10 +247,11 @@ describe('keychain', () => {
   // Error handling
   // -----------------------------------------------------------------------
   describe('error handling', () => {
-    test('getKey gracefully handles unexpected errors', () => {
+    test('getKey throws on unexpected runtime errors', () => {
       mockPlatform = 'darwin';
-      execFileResults.set('find-generic-password', new Error('unexpected'));
-      expect(getKey('key')).toBeUndefined();
+      const err = Object.assign(new Error('unexpected'), { status: 1 });
+      execFileResults.set('find-generic-password', err);
+      expect(() => getKey('key')).toThrow('unexpected');
     });
 
     test('setKey gracefully handles unexpected errors', () => {
