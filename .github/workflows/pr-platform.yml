@@ -48,7 +48,15 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      - name: Fetch Stripe keys from Secret Manager
+        id: stripe_secrets
+        run: |
+          echo "STRIPE_SECRET_KEY=$(gcloud secrets versions access latest --secret=STRIPE_SECRET_KEY --project=vellum-ai-prod)" >> "$GITHUB_OUTPUT"
+          echo "STRIPE_PUBLISHABLE_KEY=$(gcloud secrets versions access latest --secret=NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY --project=vellum-ai-prod)" >> "$GITHUB_OUTPUT"
+
       - name: Terraform Plan
         run: terraform plan -no-color
         env:
           TF_VAR_anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          TF_VAR_stripe_secret_key: ${{ steps.stripe_secrets.outputs.STRIPE_SECRET_KEY }}
+          TF_VAR_stripe_publishable_key: ${{ steps.stripe_secrets.outputs.STRIPE_PUBLISHABLE_KEY }}
