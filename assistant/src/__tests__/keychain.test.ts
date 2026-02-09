@@ -191,8 +191,11 @@ describe('keychain', () => {
       expect(getKey('missing')).toBeNull();
     });
 
-    test('getKey throws on runtime errors', () => {
-      const err = Object.assign(new Error('D-Bus error'), { status: 5 });
+    test('getKey throws on runtime errors (exit code 1 with stderr)', () => {
+      const err = Object.assign(new Error('D-Bus error'), {
+        status: 1,
+        stderr: 'Cannot autolaunch D-Bus without X11',
+      });
       execFileResults.set('lookup', err);
       expect(() => getKey('test')).toThrow('D-Bus error');
     });

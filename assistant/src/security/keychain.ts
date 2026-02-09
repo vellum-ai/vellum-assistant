@@ -174,15 +174,21 @@ function linuxGetKey(account: string): string | null {
       'service', SERVICE_NAME,
       'account', account,
     ], {
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 5000,
       encoding: 'utf-8',
     });
     // Strip only the trailing newline added by secret-tool
     return result.replace(/\n$/, '') || null;
   } catch (err: unknown) {
-    // secret-tool exits with code 1 when the key is not found.
+    // secret-tool exits with code 1 for BOTH "not found" and runtime errors
+    // (D-Bus failures, keyring locked, etc.). Distinguish by checking stderr:
+    // empty stderr → key not found; non-empty stderr → runtime error.
     if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 1) {
+      const stderr = String((err as { stderr?: unknown }).stderr ?? '').trim();
+      if (stderr.length > 0) {
+        throw err;
+      }
       return null;
     }
     throw err;
