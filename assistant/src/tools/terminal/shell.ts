@@ -31,6 +31,10 @@ const SAFE_ENV_VARS = [
   'DISPLAY',
   'COLORTERM',
   'TERM_PROGRAM',
+  'SSH_AUTH_SOCK',
+  'SSH_AGENT_PID',
+  'GPG_TTY',
+  'GNUPGHOME',
 ] as const;
 
 function buildSanitizedEnv(): Record<string, string> {
