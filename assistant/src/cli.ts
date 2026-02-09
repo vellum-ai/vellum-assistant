@@ -468,6 +468,9 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
       try {
         await ensureDaemonRunning();
         await connect();
+        if (options.noSandbox) {
+          send({ type: 'sandbox_set', enabled: false });
+        }
         reconnecting = false;
         return;
       } catch {

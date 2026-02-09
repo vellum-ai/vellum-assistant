@@ -25,6 +25,7 @@ export class Session {
   private prompter: PermissionPrompter;
   private executor: ToolExecutor;
   private workingDir: string;
+  private sandboxOverride?: boolean;
   private totalInputTokens = 0;
   private totalOutputTokens = 0;
   private totalEstimatedCost = 0;
@@ -49,6 +50,7 @@ export class Session {
         sessionId: this.conversationId,
         conversationId: this.conversationId,
         onOutput,
+        sandboxOverride: this.sandboxOverride,
       });
     };
 
@@ -80,6 +82,10 @@ export class Session {
 
   updateClient(sendToClient: (msg: ServerMessage) => void): void {
     this.prompter.updateSender(sendToClient);
+  }
+
+  setSandboxOverride(enabled: boolean): void {
+    this.sandboxOverride = enabled;
   }
 
   isProcessing(): boolean {

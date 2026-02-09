@@ -68,7 +68,8 @@ export class ToolExecutor {
         // Check if this shell command will run sandboxed
         let sandboxed: boolean | undefined;
         if (name === 'shell' && typeof input.command === 'string') {
-          const wrapped = wrapCommand(input.command, context.workingDir, getConfig().sandbox.enabled);
+          const sandboxEnabled = context.sandboxOverride ?? getConfig().sandbox.enabled;
+          const wrapped = wrapCommand(input.command, context.workingDir, sandboxEnabled);
           sandboxed = wrapped.sandboxed;
         }
 

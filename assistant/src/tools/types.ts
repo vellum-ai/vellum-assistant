@@ -7,6 +7,8 @@ export interface ToolContext {
   conversationId: string;
   /** Optional callback for streaming incremental output to the client. */
   onOutput?: (chunk: string) => void;
+  /** Per-session sandbox override. When set, takes precedence over the global config. */
+  sandboxOverride?: boolean;
 }
 
 export interface DiffInfo {

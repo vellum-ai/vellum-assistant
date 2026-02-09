@@ -22,6 +22,7 @@ export class DaemonServer {
   private sessions = new Map<string, Session>();
   private socketToSession = new Map<net.Socket, string>();
   private connectedSockets = new Set<net.Socket>();
+  private socketSandboxOverride = new Map<net.Socket, boolean>();
   // Guards against duplicate session creation when multiple clients connect
   // with the same conversation ID concurrently. The first caller creates the
   // session; subsequent callers await the same promise.
@@ -102,6 +103,7 @@ export class DaemonServer {
     }
     this.connectedSockets.clear();
     this.socketToSession.clear();
+    this.socketSandboxOverride.clear();
 
     await serverClosed;
     log.info('Daemon server stopped');
@@ -188,6 +190,7 @@ export class DaemonServer {
 
     socket.on('close', () => {
       this.connectedSockets.delete(socket);
+      this.socketSandboxOverride.delete(socket);
       const sessionId = this.socketToSession.get(socket);
       if (sessionId) {
         const session = this.sessions.get(sessionId);
@@ -256,6 +259,10 @@ export class DaemonServer {
           workingDir,
         );
         await newSession.loadFromDb();
+        const override = this.socketSandboxOverride.get(socket);
+        if (override !== undefined) {
+          newSession.setSandboxOverride(override);
+        }
         this.sessions.set(conversationId, newSession);
         return newSession;
       })();
@@ -269,6 +276,10 @@ export class DaemonServer {
     } else {
       // Rebind to the new socket so IPC goes to the current client
       session.updateClient(sendToClient);
+      const override = this.socketSandboxOverride.get(socket);
+      if (override !== undefined) {
+        session.setSandboxOverride(override);
+      }
     }
     return session;
   }
@@ -328,7 +339,7 @@ export class DaemonServer {
         this.handleUsageRequest(msg.sessionId, socket);
         break;
       case 'sandbox_set':
-        this.handleSandboxSet(msg.enabled);
+        this.handleSandboxSet(msg.enabled, socket);
         break;
       case 'ping':
         this.send(socket, { type: 'pong' });
@@ -454,12 +465,18 @@ export class DaemonServer {
     }
   }
 
-  private handleSandboxSet(enabled: boolean): void {
-    // Runtime-only override: modify the in-memory config without persisting
-    // to disk. Takes effect immediately for all subsequent shell executions.
-    const config = getConfig();
-    config.sandbox.enabled = enabled;
-    log.info({ enabled }, 'Sandbox override applied (runtime only)');
+  private handleSandboxSet(enabled: boolean, socket: net.Socket): void {
+    // Per-socket override: store the sandbox preference for this client only.
+    // The override is applied to the session so it doesn't affect other clients.
+    this.socketSandboxOverride.set(socket, enabled);
+    const sessionId = this.socketToSession.get(socket);
+    if (sessionId) {
+      const session = this.sessions.get(sessionId);
+      if (session) {
+        session.setSandboxOverride(enabled);
+      }
+    }
+    log.info({ enabled }, 'Sandbox override applied (per-session)');
   }
 
   private handleHistoryRequest(sessionId: string, socket: net.Socket): void {

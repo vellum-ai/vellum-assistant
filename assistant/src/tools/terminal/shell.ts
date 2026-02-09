@@ -63,7 +63,8 @@ class ShellTool implements Tool {
       let stderr = '';
       let timedOut = false;
 
-      const wrapped = wrapCommand(command, context.workingDir, config.sandbox.enabled);
+      const sandboxEnabled = context.sandboxOverride ?? config.sandbox.enabled;
+      const wrapped = wrapCommand(command, context.workingDir, sandboxEnabled);
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,
         env: { ...process.env },
