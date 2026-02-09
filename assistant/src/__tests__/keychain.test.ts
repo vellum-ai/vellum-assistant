@@ -112,21 +112,34 @@ describe('keychain', () => {
       expect(getKey('nonexistent')).toBeUndefined();
     });
 
-    test('setKey calls security add-generic-password', () => {
+    test('setKey calls security add-generic-password with -U flag', () => {
       const result = setKey('anthropic', 'sk-ant-key123');
       expect(result).toBe(true);
       const addCall = execFileCalls.find((c) => c.args.includes('add-generic-password'));
       expect(addCall).toBeDefined();
+      expect(addCall!.args).toContain('-U');
       expect(addCall!.args).toContain('-w');
-      expect(addCall!.args).toContain('sk-ant-key123');
     });
 
-    test('setKey deletes before adding (update pattern)', () => {
+    test('setKey passes secret via stdin, not in args', () => {
+      setKey('anthropic', 'sk-ant-key123');
+      const addCall = execFileCalls.find((c) => c.args.includes('add-generic-password'));
+      expect(addCall).toBeDefined();
+      // Secret should be in opts.input, not in the args array
+      expect(addCall!.opts.input).toBe('sk-ant-key123');
+      expect(addCall!.args).not.toContain('sk-ant-key123');
+    });
+
+    test('setKey does not delete before adding (relies on -U flag)', () => {
       setKey('anthropic', 'new-value');
-      // Should have a delete call before the add call
-      const deleteIdx = execFileCalls.findIndex((c) => c.args.includes('delete-generic-password'));
-      const addIdx = execFileCalls.findIndex((c) => c.args.includes('add-generic-password'));
-      expect(deleteIdx).toBeLessThan(addIdx);
+      const deleteCall = execFileCalls.find((c) => c.args.includes('delete-generic-password'));
+      expect(deleteCall).toBeUndefined();
+    });
+
+    test('getKey preserves internal whitespace', () => {
+      execFileResults.set('find-generic-password', ' value with spaces \n');
+      const result = getKey('test');
+      expect(result).toBe(' value with spaces ');
     });
 
     test('deleteKey calls security delete-generic-password', () => {
@@ -167,6 +180,12 @@ describe('keychain', () => {
     test('getKey returns undefined when key not found', () => {
       execFileResults.set('lookup', new Error('not found'));
       expect(getKey('missing')).toBeUndefined();
+    });
+
+    test('getKey preserves internal whitespace', () => {
+      execFileResults.set('lookup', ' value with spaces \n');
+      const result = getKey('test');
+      expect(result).toBe(' value with spaces ');
     });
 
     test('setKey calls secret-tool store with input', () => {
