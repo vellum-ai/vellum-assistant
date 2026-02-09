@@ -60,9 +60,14 @@ export class AgentLoop {
       try {
         const providerConfig: Record<string, unknown> = { max_tokens: this.config.maxTokens };
         if (this.config.thinking?.enabled) {
+          // Anthropic requires budget_tokens < max_tokens
+          const budgetTokens = Math.min(
+            this.config.thinking.budgetTokens,
+            this.config.maxTokens - 1,
+          );
           providerConfig.thinking = {
             type: 'enabled',
-            budget_tokens: this.config.thinking.budgetTokens,
+            budget_tokens: budgetTokens,
           };
         }
 
