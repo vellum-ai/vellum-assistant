@@ -43,7 +43,6 @@ const SETUP_GRACE_PERIOD_MS = 10 * 60 * 1000;
 
 type TabId =
   | "interaction"
-  | "architecture"
   | "filesystem"
   | "logs"
   | "details";
@@ -60,7 +59,6 @@ interface FileEntry {
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "interaction", label: "Interaction" },
-  { id: "architecture", label: "Architecture" },
   { id: "filesystem", label: "File System" },
   { id: "logs", label: "Logs" },
   { id: "details", label: "Details" },
@@ -239,9 +237,6 @@ function Editor({ assistantId, username }: EditorProps) {
               assistantName={assistant?.name ?? "Assistant"}
               assistantCreatedAt={assistant?.created_at ?? ""}
             />
-          )}
-          {activeTab === "architecture" && (
-            <ArchitectureView assistantName={assistant?.name ?? "Assistant"} />
           )}
           {activeTab === "filesystem" && (
             <FileSystemView assistantId={assistantId} />
@@ -655,75 +650,6 @@ function InteractionView({
           </form>
         </>
       )}
-    </div>
-  );
-}
-
-function ArchitectureView({ assistantName }: { assistantName: string }) {
-  return (
-    <div className="flex h-full flex-col overflow-auto p-8">
-      <div className="mx-auto w-full max-w-2xl">
-        <div className="rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50 p-8 dark:border-zinc-700 dark:bg-zinc-900">
-          <div className="flex flex-col items-center">
-            <div className="mb-4 flex items-center gap-4">
-              <div className="flex flex-col items-center">
-                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2 shadow-sm dark:border-amber-800 dark:bg-zinc-800">
-                  <span className="text-xs text-zinc-600 dark:text-zinc-300">
-                    Scheduled
-                  </span>
-                </div>
-                <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
-              </div>
-              <div className="flex flex-col items-center">
-                <div className="flex items-center gap-2 rounded-lg border border-purple-200 bg-white px-3 py-2 shadow-sm dark:border-purple-800 dark:bg-zinc-800">
-                  <span className="text-xs text-zinc-600 dark:text-zinc-300">
-                    Slack
-                  </span>
-                </div>
-                <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
-              </div>
-              <div className="flex flex-col items-center">
-                <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 shadow-sm dark:border-blue-800 dark:bg-zinc-800">
-                  <span className="text-xs text-zinc-600 dark:text-zinc-300">
-                    Agent
-                  </span>
-                </div>
-                <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
-              </div>
-            </div>
-
-            <div className="mb-2 h-px w-48 bg-zinc-300 dark:bg-zinc-700" />
-            <div className="mb-2 h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
-
-            <div className="flex items-center gap-3 rounded-lg border-2 border-indigo-300 bg-white px-5 py-4 shadow-md dark:border-indigo-700 dark:bg-zinc-800">
-              <div>
-                <span className="font-semibold text-zinc-900 dark:text-white">
-                  {assistantName}
-                </span>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Main Assistant
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-2 h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
-            <div className="mt-2 h-px w-64 bg-zinc-300 dark:bg-zinc-700" />
-
-            <div className="mt-4 flex items-start gap-4">
-              {["Search", "Code", "Chat", "API"].map((skill) => (
-                <div key={skill} className="flex flex-col items-center">
-                  <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
-                  <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 shadow-sm dark:border-emerald-800 dark:bg-zinc-800">
-                    <span className="text-xs text-zinc-600 dark:text-zinc-300">
-                      {skill}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
