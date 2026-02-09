@@ -58,21 +58,61 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker
 
-      - name: Build Docker image
+      - name: Build Docker images
         run: |
           docker build -t gcr.io/vellum-ai-prod/vellum-assistant:${{ github.sha }} .
           docker tag gcr.io/vellum-ai-prod/vellum-assistant:${{ github.sha }} gcr.io/vellum-ai-prod/vellum-assistant:latest
+          docker build --target migrator -t gcr.io/vellum-ai-prod/vellum-assistant-migrate:${{ github.sha }} .
 
-      - name: Push Docker image
+      - name: Push Docker images
         run: |
           docker push gcr.io/vellum-ai-prod/vellum-assistant:${{ github.sha }}
           docker push gcr.io/vellum-ai-prod/vellum-assistant:latest
+          docker push gcr.io/vellum-ai-prod/vellum-assistant-migrate:${{ github.sha }}
 
       - name: Get GKE credentials
         run: |
           gcloud container clusters get-credentials vellum-ai-prod \
             --region us-central1 \
             --project vellum-ai-prod
+
+      - name: Run database migrations
+        run: |
+          JOB_NAME="db-migrate-${{ github.sha }}"
+
+          kubectl apply -f - <<EOF
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: ${JOB_NAME}
+            namespace: vellum-assistant
+          spec:
+            ttlSecondsAfterFinished: 300
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: migrate
+                    image: gcr.io/vellum-ai-prod/vellum-assistant-migrate:${{ github.sha }}
+                    command: ["bun", "run", "db:push"]
+                    envFrom:
+                      - configMapRef:
+                          name: vellum-assistant-config
+                      - secretRef:
+                          name: vellum-assistant-secrets
+          EOF
+
+          echo "Waiting for migration job to complete..."
+          if ! kubectl wait --for=condition=complete --timeout=120s job/${JOB_NAME} -n vellum-assistant; then
+            echo "Migration job failed. Logs:"
+            kubectl logs job/${JOB_NAME} -n vellum-assistant
+            kubectl delete job ${JOB_NAME} -n vellum-assistant
+            exit 1
+          fi
+
+          echo "Migration completed successfully."
+          kubectl delete job ${JOB_NAME} -n vellum-assistant
 
       - name: Deploy to Kubernetes
         run: |

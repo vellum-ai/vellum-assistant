@@ -41,7 +41,9 @@ if (preview) {
     rmSync(diffDir, { recursive: true, force: true });
   }
 } else {
-  console.log("Pushing schema changes to database...\n");
+  console.log("Ensuring database exists...\n");
+  execSync("bun run scripts/ensure-db.mts", { stdio: "inherit" });
+  console.log("\nPushing schema changes to database...\n");
   execSync("bunx drizzle-kit push --force", { stdio: "inherit" });
   console.log("\nSchema push completed successfully.");
 }

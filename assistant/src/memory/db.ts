@@ -16,6 +16,15 @@ export function getDb() {
   return db;
 }
 
+/** Reset the db singleton. Used by tests to ensure isolation between test files. */
+export function resetDb(): void {
+  if (db) {
+    const raw = (db as unknown as { $client: Database }).$client;
+    raw.close();
+    db = null;
+  }
+}
+
 export function initializeDb(): void {
   const database = getDb();
 
