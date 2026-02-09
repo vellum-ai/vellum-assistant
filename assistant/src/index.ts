@@ -637,7 +637,7 @@ ${subcmdCases}
         completions) compadd bash zsh fish ;;
     esac
 }
-_vellum "$@"
+compdef _vellum vellum
 `;
 }
 
