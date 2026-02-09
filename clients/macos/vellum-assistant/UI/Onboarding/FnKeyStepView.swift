@@ -10,8 +10,7 @@ struct FnKeyStepView: View {
     @State private var nameReaction: String = ""
 
     private let keyOptions: [(key: ActivationKey, label: String)] = [
-        (.fn, "fn"),
-        (.globe, "\u{1F310}"),
+        (.fn, "\u{1F310} fn"),
         (.ctrl, "ctrl"),
     ]
 
