@@ -173,13 +173,18 @@ final class ComputerUseSession: ObservableObject {
                     log.debug("[\(stepNumber)] Secondary windows text:\n\(secText)")
                 }
 
-                // Also capture a screenshot so the model can see content beyond the AX tree
-                do {
-                    screenshot = try await screenCapture.captureScreen()
-                    log.info("[\(stepNumber)] Screenshot captured alongside AX tree (\(screenshot?.count ?? 0) bytes)")
-                } catch {
-                    log.warning("[\(stepNumber)] Screenshot capture failed alongside AX tree: \(error.localizedDescription)")
-                    // Non-fatal — we still have the AX tree
+                // Conditionally capture a screenshot — skip on middle steps when AX tree is sufficient
+                let lastAction = actionHistory.last?.action
+                if shouldCaptureScreenshot(stepNumber: stepNumber, flatElements: flat, lastAction: lastAction) {
+                    do {
+                        screenshot = try await screenCapture.captureScreen()
+                        log.info("[\(stepNumber)] Screenshot captured alongside AX tree (\(screenshot?.count ?? 0) bytes)")
+                    } catch {
+                        log.warning("[\(stepNumber)] Screenshot capture failed alongside AX tree: \(error.localizedDescription)")
+                        // Non-fatal — we still have the AX tree
+                    }
+                } else {
+                    log.debug("[\(stepNumber)] Screenshot skipped — AX tree is sufficient")
                 }
             } else {
                 // No focused window — try screenshot as last resort
@@ -399,6 +404,28 @@ final class ComputerUseSession: ObservableObject {
         }
 
         log.debug("UI settle timeout after \(elapsed)ms (polls: \(pollCount))")
+    }
+
+    // MARK: - Conditional Screenshot
+
+    /// Decide whether to capture a screenshot alongside the AX tree.
+    /// Skips on middle steps when the AX tree provides sufficient context.
+    private func shouldCaptureScreenshot(stepNumber: Int, flatElements: [AXElement], lastAction: AgentAction?) -> Bool {
+        // Always capture on step 1 (model needs full visual context to start)
+        if stepNumber == 1 { return true }
+
+        // Capture after openApp (visual context for new app)
+        if lastAction?.type == .openApp { return true }
+
+        // Capture when AX tree is too sparse to be useful (< 3 interactive elements)
+        let interactiveCount = flatElements.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
+        if interactiveCount < 3 { return true }
+
+        // Capture when UI appears stuck (model may need visual clues to break out)
+        if consecutiveUnchangedSteps >= 2 { return true }
+
+        // AX tree is sufficient — skip screenshot
+        return false
     }
 
     // MARK: - No-Op Detection
