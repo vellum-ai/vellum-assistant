@@ -48,8 +48,8 @@ The web app lives in `/web`. See [web/README.md](./web/README.md) for setup inst
 
 ```bash
 cd web
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 ## License

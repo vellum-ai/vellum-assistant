@@ -27,15 +27,14 @@ If you prefer to install manually:
 
 ```bash
 cd vel
-npm install
-npm run build
+bun install
 ```
 
 Then you can run commands directly:
 
 ```bash
-node ./dist/index.js <command>
-```
+bun run ves <command>
+```gv
 
 Or create your own symlink:
 
@@ -57,51 +56,35 @@ vel <command>
 Start the development environment (all services).
 
 ```bash
-npm run vel up
+bun run vel up
 ```
 
 ### `vel down`
 Stop the development environment.
 
 ```bash
-npm run vel down
+bun run vel down
 ```
 
 ### `vel setup`
 Set up the development environment (initial configuration).
 
 ```bash
-npm run vel setup
+bun run vel setup
 ```
 
 ### `vel ps`
 List running services and their status.
 
 ```bash
-npm run vel ps
+bun run vel ps
 ```
 
 ### `vel help`
 Show help information.
 
 ```bash
-npm run vel help
-```
-
-## Development
-
-### Watch Mode
-
-```bash
-npm run dev
-```
-
-This will watch for changes and rebuild automatically.
-
-### Build
-
-```bash
-npm run build
+bun run vel help
 ```
 
 ## Development Status
