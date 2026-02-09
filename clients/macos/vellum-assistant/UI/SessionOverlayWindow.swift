@@ -29,10 +29,16 @@ final class SessionOverlayWindow {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
+        // Size window to fit SwiftUI content
+        if let fittingSize = panel.contentView?.fittingSize {
+            panel.setContentSize(fittingSize)
+        }
+
         // Position bottom-right — less obtrusive during computer use
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
-            let x = screenFrame.maxX - 340 - 20
+            let panelFrame = panel.frame
+            let x = screenFrame.maxX - panelFrame.width - 20
             let y = screenFrame.minY + 20
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
