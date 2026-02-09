@@ -168,8 +168,9 @@ final class KnowledgeCron {
             )
 
             guard let rawInsights = result.input["insights"] as? [[String: Any]] else {
-                log.warning("Cron: failed to parse insights from response")
-                advanceOrRetry()
+                log.warning("Cron: failed to parse insights from response, advancing watermark (deterministic failure)")
+                consecutiveFailures = 0
+                lastRunTimestamp = Date().timeIntervalSince1970
                 return
             }
 
