@@ -23,6 +23,9 @@ export enum ErrorCode {
   // WASM integrity check failures
   INTEGRITY_ERROR = 'INTEGRITY_ERROR',
 
+  // Rate limit exceeded
+  RATE_LIMIT_ERROR = 'RATE_LIMIT_ERROR',
+
   // Internal/unexpected errors
   INTERNAL_ERROR = 'INTERNAL_ERROR',
 }
@@ -102,5 +105,12 @@ export class IntegrityError extends AssistantError {
   constructor(message: string) {
     super(message, ErrorCode.INTEGRITY_ERROR);
     this.name = 'IntegrityError';
+  }
+}
+
+export class RateLimitError extends AssistantError {
+  constructor(message: string) {
+    super(message, ErrorCode.RATE_LIMIT_ERROR);
+    this.name = 'RateLimitError';
   }
 }
