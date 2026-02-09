@@ -9,40 +9,42 @@
 /* Begin PBXBuildFile section */
 		0654885DAD8FFD16D639D50F /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09137E88F2AB02DF31D32BD0 /* MenuBarController.swift */; };
 		0BAED176454C59993573CA0A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24486EB2442797096CD3CC38 /* SettingsView.swift */; };
+		11195B895BA484A8C5564FA0 /* AmbientSuggestionWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC313FB9D43F0FD9389049EF /* AmbientSuggestionWindow.swift */; };
 		1602CEC331C383C46984277A /* AnthropicProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FB2E3A6215CE30550FE5E61 /* AnthropicProvider.swift */; };
-		EE07B2C3D4E5F607ABCDE007 /* AnthropicClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF07B2C3D4E5F607ABCDE007 /* AnthropicClient.swift */; };
+		1D3F4B2FE6DF331921F9F662 /* ChromeAccessibilityHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2629FF17F2DCED2C27B5C7B /* ChromeAccessibilityHelper.swift */; };
 		1DEE9818AE627F372EADF74A /* ActionVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12CA14B79D8E0E84EB07D6E4 /* ActionVerifier.swift */; };
+		23E47F126C62659F8CFFB9E1 /* AmbientAgent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A3D1A1DE8CD5DA3C9E222C4 /* AmbientAgent.swift */; };
 		24539EB93D0273F1439687A8 /* VellumAssistantApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7288C576664B021EF155B9C /* VellumAssistantApp.swift */; };
-		D2E3F4A5B6C70890ABCDE013 /* VoiceInputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F4A5B6C7D80901ABCDE014 /* VoiceInputManager.swift */; };
+		276E0F3405EDFF3346E01494 /* AXTreeDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77A1CAAAD324097345D0EB38 /* AXTreeDiff.swift */; };
 		29E492439AEE36E5F9B7ED8F /* ToolDefinitionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0D9802001C0CCEFD3078EB8 /* ToolDefinitionsTests.swift */; };
 		3CBEF918BC31B5CDA67AB307 /* ToolDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F3A04455B6DC1C1F89CB685 /* ToolDefinitions.swift */; };
 		43B58A748C33955C52226B4B /* AccessibilityTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FE5799AF5C42990EF37C42 /* AccessibilityTree.swift */; };
-		A1B2C3D4E5F60789ABCDE012 /* ChromeAccessibilityHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F7089ABCDE01 /* ChromeAccessibilityHelper.swift */; };
-		AA08B2C3D4E5F607ABCDE008 /* AXTreeDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB08B2C3D4E5F607ABCDE008 /* AXTreeDiff.swift */; };
 		4D469EED4BFBA43F6B759AAC /* SessionLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE229BFCE748FF4A968E86B1 /* SessionLogger.swift */; };
 		5099794339FDE050C79700BB /* LogViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C691BD0FDCE6190A60F45F5C /* LogViewer.swift */; };
 		535ADB8BECF9E185F1BD3E19 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF062AE5C6B78D85CEDC7C3B /* Session.swift */; };
+		60CDA80564833C4E9EC115AB /* VoiceTranscriptionWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8B923D05524A1E51EBB318E /* VoiceTranscriptionWindow.swift */; };
 		658A24BC47071CE83C3645B1 /* AccessibilityTreeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD33DCEFE581D93580243939 /* AccessibilityTreeTests.swift */; };
 		6A077380F3286DD96EFD3522 /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A751A31DD82FE6622EA4CD /* PermissionManager.swift */; };
 		6AD6CEEFD8DA3B5E15FB28C6 /* ActionTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93BDB5AED0253CF3298634F3 /* ActionTypes.swift */; };
 		6CB40FE359E8E66B2112DD8F /* ActionVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7699446B63C8A3B7CAC33CC /* ActionVerifierTests.swift */; };
 		7F1E97ABA962B7ECB1511DAE /* ActionInferenceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83CC29E51897B98BDD9F7796 /* ActionInferenceProvider.swift */; };
+		838F86592B4B71C8C09E52A9 /* AnthropicClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90114A8759B9BCF2CD7111A6 /* AnthropicClient.swift */; };
 		8A677CC74636049BC83014BC /* ScreenCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8713F420A1D6E04F9FD6CC4C /* ScreenCapture.swift */; };
+		9141EE67DA21DA6752556CBC /* AmbientAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D30A82CDD870C48EFE78D1 /* AmbientAnalyzer.swift */; };
 		A2215F8493C316D8E139D1E6 /* ActionExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE4EE4DD3EA49608F227A7C3 /* ActionExecutor.swift */; };
 		A22ACF7097DF1475D184958A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A85D8A6EFE72B2A9326B16AD /* Assets.xcassets */; };
 		A2B8C0BC3677B95F736E9DF4 /* ConfirmationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0760D7F261720758A5FAC3E /* ConfirmationView.swift */; };
+		B609076A4DE741205CB2D3A4 /* SessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AC306D40EC020E7A284F2A7 /* SessionTests.swift */; };
 		B8E68D3E4BAE108BA4DFAD15 /* SessionOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD264E70E6D22EE5E53B20F /* SessionOverlayView.swift */; };
 		C12CF51CE1378D77F77732CB /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC4932108265C798B9FDE108 /* AppDelegate.swift */; };
+		D221DDF07D84CEFFA28CB596 /* ScreenOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = C372E6C0EBAC12EE67226107 /* ScreenOCR.swift */; };
 		DC3B028DC386EFE1436E30FF /* HotKey in Frameworks */ = {isa = PBXBuildFile; productRef = F6CB2EC7443D3897D22E6D3E /* HotKey */; };
+		E079EDED2AA9AE71CBE2C2DA /* KnowledgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE6E192E05E051AF75167BC /* KnowledgeStore.swift */; };
 		E96230E4CB5C96C982458657 /* APIKeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822B891B496900302404DF02 /* APIKeyManager.swift */; };
 		EE8D6587E18994C45CB48652 /* SessionOverlayWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9F692FD82187BA84D6FB66B /* SessionOverlayWindow.swift */; };
+		F18D712D0E89F3DAD30D747C /* ActionPreviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87B2FD36E44863204BB546D0 /* ActionPreviewWindow.swift */; };
 		F29831F8092D9BBB259BAF7C /* TaskInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08ABA40D80D70550AA640AF8 /* TaskInputView.swift */; };
-		AA01B2C3D4E5F607ABCDE001 /* AmbientAgent.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB01B2C3D4E5F607ABCDE001 /* AmbientAgent.swift */; };
-		AA02B2C3D4E5F607ABCDE002 /* AmbientAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB02B2C3D4E5F607ABCDE002 /* AmbientAnalyzer.swift */; };
-		AA03B2C3D4E5F607ABCDE003 /* KnowledgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB03B2C3D4E5F607ABCDE003 /* KnowledgeStore.swift */; };
-		AA04B2C3D4E5F607ABCDE004 /* ScreenOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB04B2C3D4E5F607ABCDE004 /* ScreenOCR.swift */; };
-		AA05B2C3D4E5F607ABCDE005 /* AmbientSuggestionWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB05B2C3D4E5F607ABCDE005 /* AmbientSuggestionWindow.swift */; };
-		CC06B2C3D4E5F607ABCDE006 /* ActionPreviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD06B2C3D4E5F607ABCDE006 /* ActionPreviewWindow.swift */; };
+		FDB24168B7548DA9112747EB /* VoiceInputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6554B9F2EF61617575B63118 /* VoiceInputManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,37 +65,40 @@
 		24486EB2442797096CD3CC38 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		244CA8647EA7EA0E89AF1577 /* Info-generated.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Info-generated.plist"; sourceTree = "<group>"; };
 		2FB2E3A6215CE30550FE5E61 /* AnthropicProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicProvider.swift; sourceTree = "<group>"; };
-		FF07B2C3D4E5F607ABCDE007 /* AnthropicClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicClient.swift; sourceTree = "<group>"; };
 		3F3A04455B6DC1C1F89CB685 /* ToolDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolDefinitions.swift; sourceTree = "<group>"; };
+		4A3D1A1DE8CD5DA3C9E222C4 /* AmbientAgent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientAgent.swift; sourceTree = "<group>"; };
+		4AC306D40EC020E7A284F2A7 /* SessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTests.swift; sourceTree = "<group>"; };
 		4BD264E70E6D22EE5E53B20F /* SessionOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionOverlayView.swift; sourceTree = "<group>"; };
 		56FE5799AF5C42990EF37C42 /* AccessibilityTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTree.swift; sourceTree = "<group>"; };
-		F1A2B3C4D5E6F7089ABCDE01 /* ChromeAccessibilityHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromeAccessibilityHelper.swift; sourceTree = "<group>"; };
-		BB08B2C3D4E5F607ABCDE008 /* AXTreeDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AXTreeDiff.swift; sourceTree = "<group>"; };
+		6554B9F2EF61617575B63118 /* VoiceInputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceInputManager.swift; sourceTree = "<group>"; };
 		6679C7528847C8E31C861F34 /* vellum-assistantTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "vellum-assistantTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		77A1CAAAD324097345D0EB38 /* AXTreeDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AXTreeDiff.swift; sourceTree = "<group>"; };
 		822B891B496900302404DF02 /* APIKeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyManager.swift; sourceTree = "<group>"; };
 		83CC29E51897B98BDD9F7796 /* ActionInferenceProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionInferenceProvider.swift; sourceTree = "<group>"; };
 		8713F420A1D6E04F9FD6CC4C /* ScreenCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCapture.swift; sourceTree = "<group>"; };
+		87B2FD36E44863204BB546D0 /* ActionPreviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionPreviewWindow.swift; sourceTree = "<group>"; };
+		90114A8759B9BCF2CD7111A6 /* AnthropicClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicClient.swift; sourceTree = "<group>"; };
 		93BDB5AED0253CF3298634F3 /* ActionTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionTypes.swift; sourceTree = "<group>"; };
 		A7288C576664B021EF155B9C /* VellumAssistantApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VellumAssistantApp.swift; sourceTree = "<group>"; };
-		E3F4A5B6C7D80901ABCDE014 /* VoiceInputManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceInputManager.swift; sourceTree = "<group>"; };
 		A7699446B63C8A3B7CAC33CC /* ActionVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionVerifierTests.swift; sourceTree = "<group>"; };
 		A85D8A6EFE72B2A9326B16AD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BC313FB9D43F0FD9389049EF /* AmbientSuggestionWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSuggestionWindow.swift; sourceTree = "<group>"; };
 		BC4932108265C798B9FDE108 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		BD33DCEFE581D93580243939 /* AccessibilityTreeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTreeTests.swift; sourceTree = "<group>"; };
 		BE4EE4DD3EA49608F227A7C3 /* ActionExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionExecutor.swift; sourceTree = "<group>"; };
+		BEE6E192E05E051AF75167BC /* KnowledgeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeStore.swift; sourceTree = "<group>"; };
 		C0760D7F261720758A5FAC3E /* ConfirmationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmationView.swift; sourceTree = "<group>"; };
+		C2629FF17F2DCED2C27B5C7B /* ChromeAccessibilityHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromeAccessibilityHelper.swift; sourceTree = "<group>"; };
+		C372E6C0EBAC12EE67226107 /* ScreenOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenOCR.swift; sourceTree = "<group>"; };
 		C691BD0FDCE6190A60F45F5C /* LogViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogViewer.swift; sourceTree = "<group>"; };
+		D6D30A82CDD870C48EFE78D1 /* AmbientAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientAnalyzer.swift; sourceTree = "<group>"; };
+		DDD574E193C2B9D622904350 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
 		DF062AE5C6B78D85CEDC7C3B /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		E0D9802001C0CCEFD3078EB8 /* ToolDefinitionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolDefinitionsTests.swift; sourceTree = "<group>"; };
 		E4A751A31DD82FE6622EA4CD /* PermissionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionManager.swift; sourceTree = "<group>"; };
+		E8B923D05524A1E51EBB318E /* VoiceTranscriptionWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTranscriptionWindow.swift; sourceTree = "<group>"; };
 		E9F692FD82187BA84D6FB66B /* SessionOverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionOverlayWindow.swift; sourceTree = "<group>"; };
 		FE229BFCE748FF4A968E86B1 /* SessionLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionLogger.swift; sourceTree = "<group>"; };
-		BB01B2C3D4E5F607ABCDE001 /* AmbientAgent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientAgent.swift; sourceTree = "<group>"; };
-		BB02B2C3D4E5F607ABCDE002 /* AmbientAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientAnalyzer.swift; sourceTree = "<group>"; };
-		BB03B2C3D4E5F607ABCDE003 /* KnowledgeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeStore.swift; sourceTree = "<group>"; };
-		BB04B2C3D4E5F607ABCDE004 /* ScreenOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenOCR.swift; sourceTree = "<group>"; };
-		BB05B2C3D4E5F607ABCDE005 /* AmbientSuggestionWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSuggestionWindow.swift; sourceTree = "<group>"; };
-		DD06B2C3D4E5F607ABCDE006 /* ActionPreviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionPreviewWindow.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -111,33 +116,23 @@
 		240BE551C8B6D79A8D0A192D /* UI */ = {
 			isa = PBXGroup;
 			children = (
-				DD06B2C3D4E5F607ABCDE006 /* ActionPreviewWindow.swift */,
-				BB05B2C3D4E5F607ABCDE005 /* AmbientSuggestionWindow.swift */,
+				87B2FD36E44863204BB546D0 /* ActionPreviewWindow.swift */,
+				BC313FB9D43F0FD9389049EF /* AmbientSuggestionWindow.swift */,
 				C0760D7F261720758A5FAC3E /* ConfirmationView.swift */,
 				09137E88F2AB02DF31D32BD0 /* MenuBarController.swift */,
 				4BD264E70E6D22EE5E53B20F /* SessionOverlayView.swift */,
 				E9F692FD82187BA84D6FB66B /* SessionOverlayWindow.swift */,
 				24486EB2442797096CD3CC38 /* SettingsView.swift */,
 				08ABA40D80D70550AA640AF8 /* TaskInputView.swift */,
+				E8B923D05524A1E51EBB318E /* VoiceTranscriptionWindow.swift */,
 			);
 			path = UI;
-			sourceTree = "<group>";
-		};
-		CC01B2C3D4E5F607ABCDE001 /* Ambient */ = {
-			isa = PBXGroup;
-			children = (
-				BB01B2C3D4E5F607ABCDE001 /* AmbientAgent.swift */,
-				BB02B2C3D4E5F607ABCDE002 /* AmbientAnalyzer.swift */,
-				BB03B2C3D4E5F607ABCDE003 /* KnowledgeStore.swift */,
-				BB04B2C3D4E5F607ABCDE004 /* ScreenOCR.swift */,
-			);
-			path = Ambient;
 			sourceTree = "<group>";
 		};
 		25DD8E1203E655B696FA8DB4 /* vellum-assistant */ = {
 			isa = PBXGroup;
 			children = (
-				CC01B2C3D4E5F607ABCDE001 /* Ambient */,
+				39F628DAE7EFDEAC563EB45F /* Ambient */,
 				552A2C545E2BF56B3E87BD60 /* App */,
 				77446C593F1B020A68C4E343 /* ComputerUse */,
 				803423BF8679AFBCCA292F91 /* Inference */,
@@ -157,6 +152,17 @@
 			path = Logging;
 			sourceTree = "<group>";
 		};
+		39F628DAE7EFDEAC563EB45F /* Ambient */ = {
+			isa = PBXGroup;
+			children = (
+				4A3D1A1DE8CD5DA3C9E222C4 /* AmbientAgent.swift */,
+				D6D30A82CDD870C48EFE78D1 /* AmbientAnalyzer.swift */,
+				BEE6E192E05E051AF75167BC /* KnowledgeStore.swift */,
+				C372E6C0EBAC12EE67226107 /* ScreenOCR.swift */,
+			);
+			path = Ambient;
+			sourceTree = "<group>";
+		};
 		4AF1F140E0C5F77CB8669CAC /* Resources */ = {
 			isa = PBXGroup;
 			children = (
@@ -173,7 +179,7 @@
 				BC4932108265C798B9FDE108 /* AppDelegate.swift */,
 				E4A751A31DD82FE6622EA4CD /* PermissionManager.swift */,
 				A7288C576664B021EF155B9C /* VellumAssistantApp.swift */,
-				E3F4A5B6C7D80901ABCDE014 /* VoiceInputManager.swift */,
+				6554B9F2EF61617575B63118 /* VoiceInputManager.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -181,6 +187,7 @@
 		6795C8638FF2B8939D24D72C = {
 			isa = PBXGroup;
 			children = (
+				F848644DE2D136558EBCF8B5 /* macos */,
 				25DD8E1203E655B696FA8DB4 /* vellum-assistant */,
 				833A49EB3959BFC35C57D434 /* vellum-assistantTests */,
 				C05A937512C71620246E7F6C /* Products */,
@@ -191,11 +198,11 @@
 			isa = PBXGroup;
 			children = (
 				56FE5799AF5C42990EF37C42 /* AccessibilityTree.swift */,
-				BB08B2C3D4E5F607ABCDE008 /* AXTreeDiff.swift */,
 				BE4EE4DD3EA49608F227A7C3 /* ActionExecutor.swift */,
 				93BDB5AED0253CF3298634F3 /* ActionTypes.swift */,
 				12CA14B79D8E0E84EB07D6E4 /* ActionVerifier.swift */,
-				F1A2B3C4D5E6F7089ABCDE01 /* ChromeAccessibilityHelper.swift */,
+				77A1CAAAD324097345D0EB38 /* AXTreeDiff.swift */,
+				C2629FF17F2DCED2C27B5C7B /* ChromeAccessibilityHelper.swift */,
 				8713F420A1D6E04F9FD6CC4C /* ScreenCapture.swift */,
 				DF062AE5C6B78D85CEDC7C3B /* Session.swift */,
 			);
@@ -206,7 +213,7 @@
 			isa = PBXGroup;
 			children = (
 				83CC29E51897B98BDD9F7796 /* ActionInferenceProvider.swift */,
-				FF07B2C3D4E5F607ABCDE007 /* AnthropicClient.swift */,
+				90114A8759B9BCF2CD7111A6 /* AnthropicClient.swift */,
 				2FB2E3A6215CE30550FE5E61 /* AnthropicProvider.swift */,
 				3F3A04455B6DC1C1F89CB685 /* ToolDefinitions.swift */,
 			);
@@ -218,6 +225,7 @@
 			children = (
 				BD33DCEFE581D93580243939 /* AccessibilityTreeTests.swift */,
 				A7699446B63C8A3B7CAC33CC /* ActionVerifierTests.swift */,
+				4AC306D40EC020E7A284F2A7 /* SessionTests.swift */,
 				E0D9802001C0CCEFD3078EB8 /* ToolDefinitionsTests.swift */,
 			);
 			path = "vellum-assistantTests";
@@ -230,6 +238,15 @@
 				6679C7528847C8E31C861F34 /* vellum-assistantTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		F848644DE2D136558EBCF8B5 /* macos */ = {
+			isa = PBXGroup;
+			children = (
+				DDD574E193C2B9D622904350 /* Local.xcconfig */,
+			);
+			name = macos;
+			path = .;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -284,7 +301,7 @@
 				TargetAttributes = {
 					9FF83BE615D71B14DBCD81CC = {
 						DevelopmentTeam = 7A7LUB87GP;
-						ProvisioningStyle = Automatic;
+						ProvisioningStyle = Manual;
 					};
 				};
 			};
@@ -329,6 +346,7 @@
 			files = (
 				658A24BC47071CE83C3645B1 /* AccessibilityTreeTests.swift in Sources */,
 				6CB40FE359E8E66B2112DD8F /* ActionVerifierTests.swift in Sources */,
+				B609076A4DE741205CB2D3A4 /* SessionTests.swift in Sources */,
 				29E492439AEE36E5F9B7ED8F /* ToolDefinitionsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -338,27 +356,27 @@
 			buildActionMask = 2147483647;
 			files = (
 				E96230E4CB5C96C982458657 /* APIKeyManager.swift in Sources */,
+				276E0F3405EDFF3346E01494 /* AXTreeDiff.swift in Sources */,
 				43B58A748C33955C52226B4B /* AccessibilityTree.swift in Sources */,
-				AA08B2C3D4E5F607ABCDE008 /* AXTreeDiff.swift in Sources */,
-				CC06B2C3D4E5F607ABCDE006 /* ActionPreviewWindow.swift in Sources */,
 				A2215F8493C316D8E139D1E6 /* ActionExecutor.swift in Sources */,
-				A1B2C3D4E5F60789ABCDE012 /* ChromeAccessibilityHelper.swift in Sources */,
 				7F1E97ABA962B7ECB1511DAE /* ActionInferenceProvider.swift in Sources */,
+				F18D712D0E89F3DAD30D747C /* ActionPreviewWindow.swift in Sources */,
 				6AD6CEEFD8DA3B5E15FB28C6 /* ActionTypes.swift in Sources */,
 				1DEE9818AE627F372EADF74A /* ActionVerifier.swift in Sources */,
-				AA01B2C3D4E5F607ABCDE001 /* AmbientAgent.swift in Sources */,
-				AA02B2C3D4E5F607ABCDE002 /* AmbientAnalyzer.swift in Sources */,
-				AA05B2C3D4E5F607ABCDE005 /* AmbientSuggestionWindow.swift in Sources */,
-				EE07B2C3D4E5F607ABCDE007 /* AnthropicClient.swift in Sources */,
+				23E47F126C62659F8CFFB9E1 /* AmbientAgent.swift in Sources */,
+				9141EE67DA21DA6752556CBC /* AmbientAnalyzer.swift in Sources */,
+				11195B895BA484A8C5564FA0 /* AmbientSuggestionWindow.swift in Sources */,
+				838F86592B4B71C8C09E52A9 /* AnthropicClient.swift in Sources */,
 				1602CEC331C383C46984277A /* AnthropicProvider.swift in Sources */,
 				C12CF51CE1378D77F77732CB /* AppDelegate.swift in Sources */,
+				1D3F4B2FE6DF331921F9F662 /* ChromeAccessibilityHelper.swift in Sources */,
 				A2B8C0BC3677B95F736E9DF4 /* ConfirmationView.swift in Sources */,
-				AA03B2C3D4E5F607ABCDE003 /* KnowledgeStore.swift in Sources */,
+				E079EDED2AA9AE71CBE2C2DA /* KnowledgeStore.swift in Sources */,
 				5099794339FDE050C79700BB /* LogViewer.swift in Sources */,
 				0654885DAD8FFD16D639D50F /* MenuBarController.swift in Sources */,
 				6A077380F3286DD96EFD3522 /* PermissionManager.swift in Sources */,
 				8A677CC74636049BC83014BC /* ScreenCapture.swift in Sources */,
-				AA04B2C3D4E5F607ABCDE004 /* ScreenOCR.swift in Sources */,
+				D221DDF07D84CEFFA28CB596 /* ScreenOCR.swift in Sources */,
 				535ADB8BECF9E185F1BD3E19 /* Session.swift in Sources */,
 				4D469EED4BFBA43F6B759AAC /* SessionLogger.swift in Sources */,
 				B8E68D3E4BAE108BA4DFAD15 /* SessionOverlayView.swift in Sources */,
@@ -366,8 +384,9 @@
 				0BAED176454C59993573CA0A /* SettingsView.swift in Sources */,
 				F29831F8092D9BBB259BAF7C /* TaskInputView.swift in Sources */,
 				3CBEF918BC31B5CDA67AB307 /* ToolDefinitions.swift in Sources */,
-				D2E3F4A5B6C70890ABCDE013 /* VoiceInputManager.swift in Sources */,
 				24539EB93D0273F1439687A8 /* VellumAssistantApp.swift in Sources */,
+				FDB24168B7548DA9112747EB /* VoiceInputManager.swift in Sources */,
+				60CDA80564833C4E9EC115AB /* VoiceTranscriptionWindow.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -463,13 +482,11 @@
 		};
 		A2D7A9E6E16AF469775E918D /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = DDD574E193C2B9D622904350 /* Local.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7A7LUB87GP;
 				INFOPLIST_FILE = "vellum-assistant/Resources/Info-generated.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -502,13 +519,11 @@
 		};
 		C1CC177E70FFF5BAE135B483 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = DDD574E193C2B9D622904350 /* Local.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7A7LUB87GP;
 				INFOPLIST_FILE = "vellum-assistant/Resources/Info-generated.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
