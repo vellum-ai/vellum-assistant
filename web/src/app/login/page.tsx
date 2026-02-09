@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 
 import { useAuth } from "@/lib/auth";
 import { toast } from "@/components/Toast";
@@ -15,7 +15,7 @@ interface LoginFormValues {
 }
 
 export default function LoginPage() {
-  const { register, handleSubmit, formState: { isSubmitting, errors } } = useForm<LoginFormValues>();
+  const { control, handleSubmit, formState: { isSubmitting, errors } } = useForm<LoginFormValues>();
   const { login } = useAuth();
   const router = useRouter();
 
@@ -68,26 +68,40 @@ export default function LoginPage() {
               >
                 <div className="flex flex-col gap-3">
                   <div>
-                    <input
-                      id="username"
-                      type="text"
-                      autoComplete="username"
-                      placeholder="Username"
-                      className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
-                      {...register("username", { required: "Username is required" })}
+                    <Controller
+                      name="username"
+                      control={control}
+                      rules={{ required: "Username is required" }}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          id="username"
+                          type="text"
+                          autoComplete="username"
+                          placeholder="Username"
+                          className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
+                        />
+                      )}
                     />
                     {errors.username && (
                       <p className="text-red-300 text-xs mt-1">{errors.username.message}</p>
                     )}
                   </div>
                   <div>
-                    <input
-                      id="password"
-                      type="password"
-                      autoComplete="current-password"
-                      placeholder="Password"
-                      className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
-                      {...register("password", { required: "Password is required" })}
+                    <Controller
+                      name="password"
+                      control={control}
+                      rules={{ required: "Password is required" }}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          id="password"
+                          type="password"
+                          autoComplete="current-password"
+                          placeholder="Password"
+                          className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
+                        />
+                      )}
                     />
                     {errors.password && (
                       <p className="text-red-300 text-xs mt-1">{errors.password.message}</p>

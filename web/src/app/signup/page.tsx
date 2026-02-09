@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 
 import { useAuth } from "@/lib/auth";
 import { toast } from "@/components/Toast";
@@ -17,7 +17,7 @@ interface SignupFormValues {
 }
 
 export default function SignupPage() {
-  const { register, handleSubmit, getValues, formState: { isSubmitting, errors } } = useForm<SignupFormValues>();
+  const { control, handleSubmit, getValues, formState: { isSubmitting, errors } } = useForm<SignupFormValues>();
   const { signup } = useAuth();
   const router = useRouter();
 
@@ -71,68 +71,96 @@ export default function SignupPage() {
               >
                 <div className="flex flex-col gap-3">
                   <div>
-                    <input
-                      id="username"
-                      type="text"
-                      autoComplete="username"
-                      placeholder="Username"
-                      className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
-                      {...register("username", { required: "Username is required" })}
+                    <Controller
+                      name="username"
+                      control={control}
+                      rules={{ required: "Username is required" }}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          id="username"
+                          type="text"
+                          autoComplete="username"
+                          placeholder="Username"
+                          className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
+                        />
+                      )}
                     />
                     {errors.username && (
                       <p className="text-red-300 text-xs mt-1">{errors.username.message}</p>
                     )}
                   </div>
                   <div>
-                    <input
-                      id="email"
-                      type="email"
-                      autoComplete="email"
-                      placeholder="Email"
-                      className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
-                      {...register("email", {
+                    <Controller
+                      name="email"
+                      control={control}
+                      rules={{
                         required: "Email is required",
                         pattern: {
                           value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
                           message: "Invalid email address",
                         },
-                      })}
+                      }}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          id="email"
+                          type="email"
+                          autoComplete="email"
+                          placeholder="Email"
+                          className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
+                        />
+                      )}
                     />
                     {errors.email && (
                       <p className="text-red-300 text-xs mt-1">{errors.email.message}</p>
                     )}
                   </div>
                   <div>
-                    <input
-                      id="password"
-                      type="password"
-                      autoComplete="new-password"
-                      placeholder="Password (min 8 characters)"
-                      className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
-                      {...register("password", {
+                    <Controller
+                      name="password"
+                      control={control}
+                      rules={{
                         required: "Password is required",
                         minLength: {
                           value: 8,
                           message: "Password must be at least 8 characters",
                         },
-                      })}
+                      }}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          id="password"
+                          type="password"
+                          autoComplete="new-password"
+                          placeholder="Password (min 8 characters)"
+                          className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
+                        />
+                      )}
                     />
                     {errors.password && (
                       <p className="text-red-300 text-xs mt-1">{errors.password.message}</p>
                     )}
                   </div>
                   <div>
-                    <input
-                      id="confirm-password"
-                      type="password"
-                      autoComplete="new-password"
-                      placeholder="Confirm password"
-                      className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
-                      {...register("confirmPassword", {
+                    <Controller
+                      name="confirmPassword"
+                      control={control}
+                      rules={{
                         required: "Please confirm your password",
                         validate: (value) =>
                           value === getValues("password") || "Passwords do not match",
-                      })}
+                      }}
+                      render={({ field }) => (
+                        <input
+                          {...field}
+                          id="confirm-password"
+                          type="password"
+                          autoComplete="new-password"
+                          placeholder="Confirm password"
+                          className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
+                        />
+                      )}
                     />
                     {errors.confirmPassword && (
                       <p className="text-red-300 text-xs mt-1">{errors.confirmPassword.message}</p>
