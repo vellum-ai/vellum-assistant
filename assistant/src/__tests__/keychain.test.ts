@@ -1,49 +1,21 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
-
-// ---------------------------------------------------------------------------
-// Mocks — declared before imports
-// ---------------------------------------------------------------------------
-
-let mockPlatform = 'darwin';
-let execFileCalls: Array<{ cmd: string; args: string[]; opts: Record<string, unknown> }> = [];
-let execFileResults: Map<string, string | Error> = new Map();
-
-mock.module('../util/platform.js', () => ({
-  isMacOS: () => mockPlatform === 'darwin',
-  isLinux: () => mockPlatform === 'linux',
-  isWindows: () => mockPlatform === 'win32',
-  getDataDir: () => '/tmp/vellum-test',
-}));
-
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
-}));
-
-mock.module('node:child_process', () => ({
-  execFileSync: (cmd: string, args: string[], opts: Record<string, unknown>) => {
-    execFileCalls.push({ cmd, args: [...args], opts: { ...opts } });
-
-    // Build a key from the command for result lookup
-    const key = `${cmd} ${args.join(' ')}`;
-    for (const [pattern, result] of execFileResults) {
-      if (key.includes(pattern)) {
-        if (result instanceof Error) throw result;
-        return result;
-      }
-    }
-    // Default: return empty string (success)
-    return '';
-  },
-}));
-
+import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import {
   isKeychainAvailable,
   getKey,
   setKey,
   deleteKey,
+  _overrideDeps,
+  _resetDeps,
 } from '../security/keychain.js';
+
+// ---------------------------------------------------------------------------
+// Test state — uses _overrideDeps instead of mock.module to avoid
+// process-global mock leakage between test files in Bun's shared runner.
+// ---------------------------------------------------------------------------
+
+let mockPlatform = 'darwin';
+let execFileCalls: Array<{ cmd: string; args: string[]; opts: Record<string, unknown> }> = [];
+let execFileResults: Map<string, string | Error> = new Map();
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -54,6 +26,27 @@ describe('keychain', () => {
     execFileCalls = [];
     execFileResults = new Map();
     mockPlatform = 'darwin';
+
+    _overrideDeps({
+      isMacOS: () => mockPlatform === 'darwin',
+      isLinux: () => mockPlatform === 'linux',
+      execFileSync: ((cmd: string, args: string[], opts: Record<string, unknown>) => {
+        execFileCalls.push({ cmd, args: [...args], opts: { ...opts } });
+
+        const key = `${cmd} ${args.join(' ')}`;
+        for (const [pattern, result] of execFileResults) {
+          if (key.includes(pattern)) {
+            if (result instanceof Error) throw result;
+            return result;
+          }
+        }
+        return '';
+      }) as typeof import('node:child_process').execFileSync,
+    });
+  });
+
+  afterAll(() => {
+    _resetDeps();
   });
 
   // -----------------------------------------------------------------------
@@ -132,7 +125,6 @@ describe('keychain', () => {
       setKey('anthropic', 'sk-ant-key123');
       const addCall = execFileCalls.find((c) => c.args.includes('add-generic-password'));
       expect(addCall).toBeDefined();
-      // macOS security CLI requires password as the -w argument value
       const wIndex = addCall!.args.indexOf('-w');
       expect(wIndex).toBeGreaterThanOrEqual(0);
       expect(addCall!.args[wIndex + 1]).toBe('sk-ant-key123');

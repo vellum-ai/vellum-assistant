@@ -17,21 +17,43 @@ const log = getLogger('keychain');
 
 const SERVICE_NAME = 'vellum-assistant';
 
+// ---------------------------------------------------------------------------
+// Injectable deps — avoids process-global mock.module for testing
+// ---------------------------------------------------------------------------
+
+const deps = {
+  execFileSync: execFileSync as typeof execFileSync,
+  isMacOS,
+  isLinux,
+};
+
+/** @internal test-only — override deps to avoid mock.module conflicts */
+export function _overrideDeps(overrides: Partial<typeof deps>): void {
+  Object.assign(deps, overrides);
+}
+
+/** @internal test-only — restore original deps */
+export function _resetDeps(): void {
+  deps.execFileSync = execFileSync;
+  deps.isMacOS = isMacOS;
+  deps.isLinux = isLinux;
+}
+
 /** Check if the OS keychain is available on this system. */
 export function isKeychainAvailable(): boolean {
   try {
-    if (isMacOS()) {
+    if (deps.isMacOS()) {
       // Verify `security` CLI exists and can list keychains
-      execFileSync('security', ['list-keychains'], {
+      deps.execFileSync('security', ['list-keychains'], {
         stdio: ['ignore', 'ignore', 'ignore'],
         timeout: 5000,
       });
       return true;
     }
 
-    if (isLinux()) {
+    if (deps.isLinux()) {
       // Verify `secret-tool` exists
-      execFileSync('which', ['secret-tool'], {
+      deps.execFileSync('which', ['secret-tool'], {
         stdio: ['ignore', 'ignore', 'ignore'],
         timeout: 5000,
       });
@@ -50,10 +72,10 @@ export function isKeychainAvailable(): boolean {
  * Throws on runtime errors (keychain unavailable, locked, etc.).
  */
 export function getKey(account: string): string | null {
-  if (isMacOS()) {
+  if (deps.isMacOS()) {
     return macosGetKey(account);
   }
-  if (isLinux()) {
+  if (deps.isLinux()) {
     return linuxGetKey(account);
   }
   return null;
@@ -65,10 +87,10 @@ export function getKey(account: string): string | null {
  */
 export function setKey(account: string, value: string): boolean {
   try {
-    if (isMacOS()) {
+    if (deps.isMacOS()) {
       return macosSetKey(account, value);
     }
-    if (isLinux()) {
+    if (deps.isLinux()) {
       return linuxSetKey(account, value);
     }
     return false;
@@ -84,10 +106,10 @@ export function setKey(account: string, value: string): boolean {
  */
 export function deleteKey(account: string): boolean {
   try {
-    if (isMacOS()) {
+    if (deps.isMacOS()) {
       return macosDeleteKey(account);
     }
-    if (isLinux()) {
+    if (deps.isLinux()) {
       return linuxDeleteKey(account);
     }
     return false;
@@ -103,7 +125,7 @@ export function deleteKey(account: string): boolean {
 
 function macosGetKey(account: string): string | null {
   try {
-    const result = execFileSync('security', [
+    const result = deps.execFileSync('security', [
       'find-generic-password',
       '-s', SERVICE_NAME,
       '-a', account,
@@ -131,7 +153,7 @@ function macosSetKey(account: string, value: string): boolean {
   // it does NOT read from stdin. Using `-w` without a value causes
   // the next flag to be consumed as the password.
   try {
-    execFileSync('security', [
+    deps.execFileSync('security', [
       'add-generic-password',
       '-s', SERVICE_NAME,
       '-a', account,
@@ -149,7 +171,7 @@ function macosSetKey(account: string, value: string): boolean {
 
 function macosDeleteKey(account: string): boolean {
   try {
-    execFileSync('security', [
+    deps.execFileSync('security', [
       'delete-generic-password',
       '-s', SERVICE_NAME,
       '-a', account,
@@ -169,7 +191,7 @@ function macosDeleteKey(account: string): boolean {
 
 function linuxGetKey(account: string): string | null {
   try {
-    const result = execFileSync('secret-tool', [
+    const result = deps.execFileSync('secret-tool', [
       'lookup',
       'service', SERVICE_NAME,
       'account', account,
@@ -197,7 +219,7 @@ function linuxGetKey(account: string): string | null {
 
 function linuxSetKey(account: string, value: string): boolean {
   try {
-    execFileSync('secret-tool', [
+    deps.execFileSync('secret-tool', [
       'store',
       '--label', `${SERVICE_NAME}: ${account}`,
       'service', SERVICE_NAME,
@@ -215,7 +237,7 @@ function linuxSetKey(account: string, value: string): boolean {
 
 function linuxDeleteKey(account: string): boolean {
   try {
-    execFileSync('secret-tool', [
+    deps.execFileSync('secret-tool', [
       'clear',
       'service', SERVICE_NAME,
       'account', account,

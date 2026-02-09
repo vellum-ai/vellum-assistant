@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 
 // ---------------------------------------------------------------------------
-// Mock logger and keychain
+// Mock logger (no-op — compatible with other test files' identical mock)
 // ---------------------------------------------------------------------------
 
 mock.module('../util/logger.js', () => ({
@@ -14,27 +14,56 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-// Track keychain availability, stored keys, and runtime failures for mock
+// ---------------------------------------------------------------------------
+// Keychain simulation via _overrideDeps — avoids process-global mock.module
+// for keychain.js which leaks into keychain.test.ts.
+// ---------------------------------------------------------------------------
+
+import { _overrideDeps, _resetDeps } from '../security/keychain.js';
+
 let keychainAvailable = false;
 let keychainFailAtRuntime = false;
 const keychainStore = new Map<string, string>();
 
-mock.module('../security/keychain.js', () => ({
-  isKeychainAvailable: () => keychainAvailable,
-  getKey: (account: string): string | null => {
-    if (keychainFailAtRuntime) throw new Error('Keychain runtime error');
-    return keychainStore.get(account) ?? null;
-  },
-  setKey: (account: string, value: string) => {
-    if (keychainFailAtRuntime) return false;
-    keychainStore.set(account, value);
-    return true;
-  },
-  deleteKey: (account: string) => {
-    if (keychainFailAtRuntime) return false;
-    return keychainStore.delete(account);
-  },
-}));
+function installKeychainDeps(): void {
+  _overrideDeps({
+    isMacOS: () => keychainAvailable,
+    isLinux: () => false,
+    execFileSync: ((cmd: string, args: string[]) => {
+      if (keychainFailAtRuntime) throw new Error('Keychain runtime error');
+
+      if (cmd === 'security') {
+        if (args.includes('list-keychains')) return '';
+
+        if (args.includes('find-generic-password')) {
+          const aIdx = args.indexOf('-a');
+          const account = args[aIdx + 1];
+          const val = keychainStore.get(account);
+          if (!val) throw Object.assign(new Error('not found'), { status: 44 });
+          return val + '\n';
+        }
+
+        if (args.includes('add-generic-password')) {
+          const aIdx = args.indexOf('-a');
+          const account = args[aIdx + 1];
+          const wIdx = args.indexOf('-w');
+          const value = args[wIdx + 1];
+          keychainStore.set(account, value);
+          return '';
+        }
+
+        if (args.includes('delete-generic-password')) {
+          const aIdx = args.indexOf('-a');
+          const account = args[aIdx + 1];
+          keychainStore.delete(account);
+          return '';
+        }
+      }
+
+      return '';
+    }) as typeof import('node:child_process').execFileSync,
+  });
+}
 
 import {
   getSecureKey,
@@ -60,6 +89,7 @@ describe('secure-keys', () => {
     keychainFailAtRuntime = false;
     keychainStore.clear();
     _resetBackend();
+    installKeychainDeps();
 
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true });
@@ -74,6 +104,7 @@ describe('secure-keys', () => {
   });
 
   afterAll(() => {
+    _resetDeps();
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true });
     }
@@ -188,12 +219,14 @@ describe('secure-keys', () => {
     });
 
     test('forces keychain backend', () => {
+      keychainAvailable = true;
       _setBackend('keychain');
       setSecureKey('test', 'value');
       expect(keychainStore.get('test')).toBe('value');
     });
 
     test('reset re-evaluates backend', () => {
+      keychainAvailable = true;
       _setBackend('keychain');
       setSecureKey('k1', 'v1');
       expect(keychainStore.get('k1')).toBe('v1');
