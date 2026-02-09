@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { existsSync } from 'fs';
 import { join } from 'path';
 
 import { execOutput } from '../lib/step-runner';
@@ -18,11 +19,16 @@ export async function up(): Promise<void> {
   const webDir = join(repoRoot, 'web');
 
   try {
-    // Step 0: Pull secrets from GCP Secret Manager
+    // Step 0: Ensure correct Node.js version via nvm
+    console.log('📌 Ensuring correct Node.js version from .nvmrc...');
+    await ensureNodeVersion(repoRoot);
+    console.log('✅ Node.js version set\n');
+
+    // Step 1: Pull secrets from GCP Secret Manager
     console.log('🔑 Pulling secrets from GCP Secret Manager...');
     const secrets = await fetchSecrets();
     console.log('✅ Secrets loaded\n');
-    // Step 1: Start Docker Compose for postgres
+    // Step 2: Start Docker Compose for postgres
     console.log('📦 Starting PostgreSQL container...');
     const composeUp = spawn('docker', ['compose', 'up', '-d'], {
       cwd: repoRoot,
@@ -42,12 +48,12 @@ export async function up(): Promise<void> {
 
     console.log('✅ PostgreSQL container started\n');
 
-    // Step 2: Wait for postgres to be healthy
+    // Step 3: Wait for postgres to be healthy
     console.log('⏳ Waiting for PostgreSQL to be ready...');
     await waitForPostgres(repoRoot);
     console.log('✅ PostgreSQL is ready\n');
 
-    // Step 3: Push schema to database
+    // Step 4: Push schema to database
     console.log('🔄 Pushing database schema...');
     const push = spawn('bunx', ['drizzle-kit', 'push', '--force'], {
       cwd: webDir,
@@ -86,7 +92,7 @@ export async function up(): Promise<void> {
 
     console.log('✅ Database schema pushed\n');
 
-    // Step 4: Start the web dev server
+    // Step 5: Start the web dev server
     console.log('🌐 Starting web dev server...');
     console.log('   Web server will run on http://localhost:3000');
     console.log('   Press Ctrl+C to stop\n');
@@ -153,6 +159,38 @@ async function fetchSecrets(): Promise<Record<string, string>> {
   );
   const entries = results.filter((entry): entry is [string, string] => entry !== null);
   return Object.fromEntries(entries);
+}
+
+async function ensureNodeVersion(repoRoot: string): Promise<void> {
+  const nvmrcPath = join(repoRoot, '.nvmrc');
+  if (!existsSync(nvmrcPath)) {
+    console.warn('⚠️  No .nvmrc found, skipping nvm setup');
+    return;
+  }
+
+  const nvmDir = process.env.NVM_DIR || join(process.env.HOME || '', '.nvm');
+  const nvmScript = join(nvmDir, 'nvm.sh');
+
+  if (!existsSync(nvmScript)) {
+    console.warn('⚠️  nvm not found, skipping Node.js version management');
+    return;
+  }
+
+  const child = spawn('bash', ['-c', `source "${nvmScript}" && nvm install`], {
+    cwd: repoRoot,
+    stdio: 'inherit',
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`nvm install failed with code ${code}`));
+      }
+    });
+    child.on('error', reject);
+  });
 }
 
 async function waitForPostgres(repoRoot: string, maxRetries = 30): Promise<void> {
