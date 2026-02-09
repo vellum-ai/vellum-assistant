@@ -7,6 +7,7 @@ import { RateLimitProvider } from '../providers/ratelimit.js';
 import { getConfig, loadRawConfig, saveRawConfig, invalidateConfigCache } from '../config/loader.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
 import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
+import { resetAllowlist } from '../security/secret-allowlist.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { Session } from './session.js';
 import {
@@ -140,6 +141,9 @@ export class DaemonServer {
       },
       'trust.json': () => {
         clearTrustCache();
+      },
+      'secret-allowlist.json': () => {
+        resetAllowlist();
       },
     };
 
