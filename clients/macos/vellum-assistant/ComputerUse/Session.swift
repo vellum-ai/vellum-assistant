@@ -180,6 +180,7 @@ final class ComputerUseSession: ObservableObject {
                     logger.finishSession(result: "cancelled: user rejected confirmation")
                     return
                 }
+                verifier.recordConfirmedAction(action)
                 state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: action.displayDescription)
 
             case .blocked(let reason):

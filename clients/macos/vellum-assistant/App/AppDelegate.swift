@@ -136,7 +136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let provider = AnthropicProvider(apiKey: apiKey)
-        let session = ComputerUseSession(task: task, provider: provider)
+        let storedMaxSteps = UserDefaults.standard.double(forKey: "maxStepsPerSession")
+        let maxSteps = storedMaxSteps > 0 ? Int(storedMaxSteps) : 50
+        let session = ComputerUseSession(task: task, provider: provider, maxSteps: maxSteps)
         currentSession = session
 
         let overlay = SessionOverlayWindow(session: session)

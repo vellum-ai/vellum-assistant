@@ -21,6 +21,9 @@ struct AXElement: Identifiable {
 
 final class AccessibilityTreeEnumerator {
     private var nextId = 1
+    /// PID of the last successfully enumerated target app, used to resolve the
+    /// correct app when our own window is frontmost.
+    private var lastTargetPid: pid_t?
 
     static let interactiveRoles: Set<String> = [
         "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
@@ -88,40 +91,57 @@ final class AccessibilityTreeEnumerator {
         let interactive = flat.filter { Self.interactiveRoles.contains($0.role) }
         log.info("Enumerated \(appName, privacy: .public): \(flat.count) total, \(interactive.count) interactive, maxId=\(self.nextId - 1)")
 
+        lastTargetPid = pid
         return (elements: elements, windowTitle: windowTitle, appName: appName)
     }
 
     /// When our own app is focused, find the previously-active app's window instead.
+    /// Prefers `lastTargetPid` so the agent returns to the correct window rather than
+    /// an arbitrary app from the running-apps list.
     private func enumeratePreviousApp() -> (elements: [AXElement], windowTitle: String, appName: String)? {
         let runningApps = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier && !$0.isTerminated }
 
+        // Try the last-known target app first for deterministic behavior
+        if let targetPid = lastTargetPid,
+           let targetApp = runningApps.first(where: { $0.processIdentifier == targetPid }),
+           let result = enumerateAppWindow(targetApp) {
+            return result
+        }
+
+        // Fallback: scan all running apps
         for app in runningApps {
-            let pid = app.processIdentifier
-            let appElement = AXUIElementCreateApplication(pid)
-
-            if !Self.enhancedAXEnabled.contains(pid) {
-                AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
-                Self.enhancedAXEnabled.insert(pid)
-            }
-
-            var windowValue: CFTypeRef?
-            let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowValue)
-            guard result == .success, let windowRef = windowValue else { continue }
-            let windowElement = windowRef as! AXUIElement
-
-            let windowTitle = getStringAttribute(windowElement, kAXTitleAttribute as CFString) ?? "Untitled"
-            let appName = app.localizedName ?? "Unknown"
-
-            nextId = 1
-            let elements = enumerateElement(element: windowElement, depth: 0, maxDepth: 25)
-
-            // Only return if we found something useful
-            if !elements.isEmpty {
-                return (elements: elements, windowTitle: windowTitle, appName: appName)
+            if let result = enumerateAppWindow(app) {
+                return result
             }
         }
         return nil
+    }
+
+    /// Enumerate the focused window of a given app, returning nil if unavailable.
+    private func enumerateAppWindow(_ app: NSRunningApplication) -> (elements: [AXElement], windowTitle: String, appName: String)? {
+        let pid = app.processIdentifier
+        let appElement = AXUIElementCreateApplication(pid)
+
+        if !Self.enhancedAXEnabled.contains(pid) {
+            AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
+            Self.enhancedAXEnabled.insert(pid)
+        }
+
+        var windowValue: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowValue)
+        guard result == .success, let windowRef = windowValue else { return nil }
+        let windowElement = windowRef as! AXUIElement
+
+        let windowTitle = getStringAttribute(windowElement, kAXTitleAttribute as CFString) ?? "Untitled"
+        let appName = app.localizedName ?? "Unknown"
+
+        nextId = 1
+        let elements = enumerateElement(element: windowElement, depth: 0, maxDepth: 25)
+
+        guard !elements.isEmpty else { return nil }
+        lastTargetPid = pid
+        return (elements: elements, windowTitle: windowTitle, appName: appName)
     }
 
     private func enumerateElement(element: AXUIElement, depth: Int, maxDepth: Int) -> [AXElement] {
