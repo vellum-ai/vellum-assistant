@@ -180,7 +180,7 @@ resource "kubernetes_ingress_v1" "app" {
       "kubernetes.io/ingress.class"                 = "gce"
       "kubernetes.io/ingress.global-static-ip-name" = google_compute_global_address.ingress_ip.name
       "ingress.gcp.kubernetes.io/pre-shared-cert"   = google_compute_managed_ssl_certificate.default.name
-      "kubernetes.io/ingress.allow-http"            = "false"
+      "kubernetes.io/ingress.allow-http"            = "true"
     }
   }
 
