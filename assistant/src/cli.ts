@@ -269,6 +269,11 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         process.stdout.write(msg.text);
         break;
 
+      case 'assistant_thinking_delta':
+        spinner.stop();
+        process.stdout.write(`\x1B[2m${msg.thinking}\x1B[0m`);
+        break;
+
       case 'usage_update':
         lastUsage = msg;
         break;

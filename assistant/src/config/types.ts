@@ -33,12 +33,20 @@ export interface AuditLogConfig {
   retentionDays: number;
 }
 
+export interface ThinkingConfig {
+  /** Enable extended thinking. Default: false. */
+  enabled: boolean;
+  /** Thinking budget in tokens. Default: 10000. */
+  budgetTokens: number;
+}
+
 export interface AssistantConfig {
   provider: string;
   model: string;
   apiKeys: Record<string, string>;
   systemPrompt?: string;
   maxTokens: number;
+  thinking: ThinkingConfig;
   dataDir: string;
   timeouts: TimeoutConfig;
   sandbox: SandboxConfig;

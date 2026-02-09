@@ -62,10 +62,11 @@ export class Session {
       });
     };
 
+    const config = getConfig();
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
-      { maxTokens },
+      { maxTokens, thinking: config.thinking },
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
     );
@@ -164,6 +165,9 @@ export class Session {
             case 'text_delta':
               onEvent({ type: 'assistant_text_delta', text: event.text });
               if (isFirstMessage) firstAssistantText += event.text;
+              break;
+            case 'thinking_delta':
+              onEvent({ type: 'assistant_thinking_delta', thinking: event.thinking });
               break;
             case 'tool_use':
               onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input });

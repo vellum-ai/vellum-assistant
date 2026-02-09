@@ -19,6 +19,17 @@ export interface ToolUseContent {
   input: Record<string, unknown>;
 }
 
+export interface ThinkingContent {
+  type: "thinking";
+  thinking: string;
+  signature: string;
+}
+
+export interface RedactedThinkingContent {
+  type: "redacted_thinking";
+  data: string;
+}
+
 export interface ToolResultContent {
   type: "tool_result";
   tool_use_id: string;
@@ -28,6 +39,8 @@ export interface ToolResultContent {
 
 export type ContentBlock =
   | TextContent
+  | ThinkingContent
+  | RedactedThinkingContent
   | ImageContent
   | ToolUseContent
   | ToolResultContent;
@@ -54,7 +67,8 @@ export interface ProviderResponse {
 }
 
 export type ProviderEvent =
-  | { type: 'text_delta'; text: string };
+  | { type: 'text_delta'; text: string }
+  | { type: 'thinking_delta'; thinking: string };
 
 export interface SendMessageOptions {
   config?: object;

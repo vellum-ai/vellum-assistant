@@ -95,6 +95,11 @@ export interface AssistantTextDelta {
   text: string;
 }
 
+export interface AssistantThinkingDelta {
+  type: 'assistant_thinking_delta';
+  thinking: string;
+}
+
 export interface ToolUseStart {
   type: 'tool_use_start';
   toolName: string;
@@ -198,6 +203,7 @@ export interface SecretDetected {
 
 export type ServerMessage =
   | AssistantTextDelta
+  | AssistantThinkingDelta
   | ToolUseStart
   | ToolOutputChunk
   | ToolResult

@@ -55,6 +55,10 @@ export class AnthropicProvider implements Provider {
         onEvent?.({ type: "text_delta", text });
       });
 
+      stream.on("thinking", (thinking) => {
+        onEvent?.({ type: "thinking_delta", thinking });
+      });
+
       const response = await stream.finalMessage();
 
       return {
@@ -91,6 +95,10 @@ export class AnthropicProvider implements Provider {
     switch (block.type) {
       case "text":
         return { type: "text", text: block.text };
+      case "thinking":
+        return { type: "thinking", thinking: block.thinking, signature: block.signature };
+      case "redacted_thinking":
+        return { type: "redacted_thinking", data: block.data };
       case "image":
         return {
           type: "image",
@@ -115,6 +123,10 @@ export class AnthropicProvider implements Provider {
           content: block.content,
           is_error: block.is_error,
         };
+      default: {
+        const _exhaustive: never = block;
+        throw new Error(`Unsupported content block type: ${(_exhaustive as ContentBlock).type}`);
+      }
     }
   }
 
@@ -124,6 +136,10 @@ export class AnthropicProvider implements Provider {
     switch (block.type) {
       case "text":
         return { type: "text", text: block.text };
+      case "thinking":
+        return { type: "thinking", thinking: block.thinking, signature: block.signature };
+      case "redacted_thinking":
+        return { type: "redacted_thinking", data: block.data };
       case "tool_use":
         return {
           type: "tool_use",
@@ -132,7 +148,7 @@ export class AnthropicProvider implements Provider {
           input: block.input as Record<string, unknown>,
         };
       default:
-        return { type: "text", text: `[unsupported block type: ${block.type}]` };
+        return { type: "text", text: `[unsupported block type: ${(block as { type: string }).type}]` };
     }
   }
 }

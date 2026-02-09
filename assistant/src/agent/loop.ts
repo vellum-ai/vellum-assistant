@@ -5,10 +5,12 @@ const log = getLogger('agent-loop');
 
 export interface AgentLoopConfig {
   maxTokens: number;
+  thinking?: { enabled: boolean; budgetTokens: number };
 }
 
 export type AgentEvent =
   | { type: 'text_delta'; text: string }
+  | { type: 'thinking_delta'; thinking: string }
   | { type: 'message_complete'; message: Message }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_output_chunk'; toolUseId: string; chunk: string }
@@ -56,15 +58,25 @@ export class AgentLoop {
       if (signal?.aborted) break;
 
       try {
+        const providerConfig: Record<string, unknown> = { max_tokens: this.config.maxTokens };
+        if (this.config.thinking?.enabled) {
+          providerConfig.thinking = {
+            type: 'enabled',
+            budget_tokens: this.config.thinking.budgetTokens,
+          };
+        }
+
         const response = await this.provider.sendMessage(
           history,
           this.tools.length > 0 ? this.tools : undefined,
           this.systemPrompt,
           {
-            config: { max_tokens: this.config.maxTokens },
+            config: providerConfig,
             onEvent: (event) => {
               if (event.type === 'text_delta') {
                 onEvent({ type: 'text_delta', text: event.text });
+              } else if (event.type === 'thinking_delta') {
+                onEvent({ type: 'thinking_delta', thinking: event.thinking });
               }
             },
             signal,

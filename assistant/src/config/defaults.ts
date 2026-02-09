@@ -6,6 +6,10 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   model: 'claude-sonnet-4-5-20250929', // alias: claude-sonnet-4-5
   apiKeys: {},
   maxTokens: 64000,
+  thinking: {
+    enabled: false,
+    budgetTokens: 10000,
+  },
   dataDir: getDataDir(),
   timeouts: {
     shellDefaultTimeoutSec: 120,

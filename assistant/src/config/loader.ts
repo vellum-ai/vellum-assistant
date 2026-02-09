@@ -27,7 +27,7 @@ export function loadConfig(): AssistantConfig {
   // Re-entrancy guard: log calls during loading (e.g. file-mode warning,
   // invalid apiKeys) can trigger loadConfig again. Return defaults to
   // break the cycle instead of recursing to stack overflow.
-  if (loading) return { ...DEFAULT_CONFIG, apiKeys: { ...DEFAULT_CONFIG.apiKeys }, timeouts: { ...DEFAULT_CONFIG.timeouts }, sandbox: { ...DEFAULT_CONFIG.sandbox }, rateLimit: { ...DEFAULT_CONFIG.rateLimit }, secretDetection: { ...DEFAULT_CONFIG.secretDetection }, auditLog: { ...DEFAULT_CONFIG.auditLog } };
+  if (loading) return { ...DEFAULT_CONFIG, apiKeys: { ...DEFAULT_CONFIG.apiKeys }, timeouts: { ...DEFAULT_CONFIG.timeouts }, sandbox: { ...DEFAULT_CONFIG.sandbox }, rateLimit: { ...DEFAULT_CONFIG.rateLimit }, thinking: { ...DEFAULT_CONFIG.thinking }, secretDetection: { ...DEFAULT_CONFIG.secretDetection }, auditLog: { ...DEFAULT_CONFIG.auditLog } };
   loading = true;
 
   try {
@@ -106,6 +106,7 @@ export function loadConfig(): AssistantConfig {
       timeouts: { ...DEFAULT_CONFIG.timeouts, ...(fileConfig as Record<string, unknown>).timeouts as Partial<AssistantConfig['timeouts']> },
       sandbox: { ...DEFAULT_CONFIG.sandbox, ...(fileConfig as Record<string, unknown>).sandbox as Partial<AssistantConfig['sandbox']> },
       rateLimit: { ...DEFAULT_CONFIG.rateLimit, ...(fileConfig as Record<string, unknown>).rateLimit as Partial<AssistantConfig['rateLimit']> },
+      thinking: { ...DEFAULT_CONFIG.thinking, ...(fileConfig as Record<string, unknown>).thinking as Partial<AssistantConfig['thinking']> },
       secretDetection: { ...DEFAULT_CONFIG.secretDetection, ...(fileConfig as Record<string, unknown>).secretDetection as Partial<AssistantConfig['secretDetection']> },
       auditLog: { ...DEFAULT_CONFIG.auditLog, ...(fileConfig as Record<string, unknown>).auditLog as Partial<AssistantConfig['auditLog']> },
     };
@@ -189,6 +190,16 @@ function validateConfig(config: AssistantConfig): void {
       );
       config.timeouts[field] = DEFAULT_CONFIG.timeouts[field];
     }
+  }
+
+  if (typeof config.thinking.enabled !== 'boolean') {
+    log.warn(`Invalid thinking.enabled "${config.thinking.enabled}". Must be a boolean. Falling back to ${DEFAULT_CONFIG.thinking.enabled}.`);
+    config.thinking.enabled = DEFAULT_CONFIG.thinking.enabled;
+  }
+
+  if (typeof config.thinking.budgetTokens !== 'number' || !Number.isFinite(config.thinking.budgetTokens) || config.thinking.budgetTokens <= 0 || !Number.isInteger(config.thinking.budgetTokens)) {
+    log.warn(`Invalid thinking.budgetTokens "${config.thinking.budgetTokens}". Must be a positive integer. Falling back to ${DEFAULT_CONFIG.thinking.budgetTokens}.`);
+    config.thinking.budgetTokens = DEFAULT_CONFIG.thinking.budgetTokens;
   }
 
   if (typeof config.sandbox.enabled !== 'boolean') {
