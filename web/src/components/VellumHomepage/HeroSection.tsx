@@ -5,11 +5,27 @@
  * - Main headline ("AI agents for your boring ops tasks")
  * - JUST LAUNCHED tag with link
  * - Prompt input box with textarea and upload button
+ * - Category tabs with template cards
  * 
  * All Webflow classes and data-w-id attributes preserved for animations.
  */
 
-export function HeroSection() {
+import { CategoryTemplates } from "./CategoryTemplates";
+
+interface Template {
+  title: string;
+  slug: string;
+  shortDescription: string;
+  heroIntroParagraph: string;
+  industry: string;
+  integrations: string[];
+}
+
+interface HeroSectionProps {
+  templatesByCategory?: Record<string, Template[]>;
+}
+
+export function HeroSection({ templatesByCategory = {} }: HeroSectionProps) {
   return (
     <div className="section_home home">
       <div className="padding-global home z-index-2">
@@ -110,39 +126,21 @@ export function HeroSection() {
                           <div className="w-form-fail"><div>Oops! Something went wrong while submitting the form.</div></div>
                         </div>
                       </div>
-                      {/* Form filter section with tags truncated for brevity - keeping structure */}
-                      <div className="form_filter alt hide-mobile w-form">
-                        <form id="wf-form-Filter" name="wf-form-Filter" data-name="Filter" method="get" fs-list-element="filters" data-wf-page-id="69425ca6dc666af71b39217d" data-wf-element-id="5c824377-8880-f5b2-e6f3-c4e1eaa3d650">
-                          <div className="prompt_box-tags-wrapper hide-mobile alt">
-                            <div className="collection_hero w-dyn-list">
-                              <div role="list" className="template_tags-wrapper w-dyn-items">
-                                {['Product', 'Sales', 'Marketing', 'Finance', 'Customer support'].map(tag => (
-                                  <div key={tag} role="listitem" className="item_radio inter w-dyn-item">
-                                    <label className="template_text-tag w-radio" htmlFor="radio">
-                                      <input type="radio" name="radio" id="radio" data-name="Radio" fs-list-activeclass="is-active" className="w-form-formradioinput hide w-radio-input" value="Radio"/>
-                                      <span className="label-text w-form-label">{tag}</span>
-                                    </label>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        </form>
-                        <div className="w-form-done"><div>Thank you! Your submission has been received!</div></div>
-                        <div className="w-form-fail"><div>Oops! Something went wrong while submitting the form.</div></div>
-                      </div>
+                      
+                      {/* Category Templates - Interactive tabs with template cards */}
+                      <CategoryTemplates templatesByCategory={templatesByCategory} />
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Placeholder for prompt boxes collection - would be dynamically loaded in production */}
+            {/* Spacer for layout */}
             <div show-item="300" data-w-id="2b66fe54-1231-1b48-759b-cb802ac91fc1" className="spacer-xxlarge hide-mobile new hero">
               <div prompt-boxs="" className="prompt-box_main is-max-width">
                 <div className="prompts-collection w-dyn-list">
                   <div fs-list-element="list" role="list" className="prompts-collection_list w-dyn-items">
-                    {/* Dynamic prompt items would go here - keeping structure minimal for now */}
+                    {/* Dynamic prompt items would go here */}
                   </div>
                 </div>
               </div>
