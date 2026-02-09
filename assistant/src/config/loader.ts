@@ -229,7 +229,9 @@ export function saveConfig(config: AssistantConfig): void {
   // Route apiKeys to secure storage, write config without them
   for (const [provider, value] of Object.entries(config.apiKeys)) {
     if (typeof value === 'string' && value.length > 0) {
-      setSecureKey(provider, value);
+      if (!setSecureKey(provider, value)) {
+        throw new ConfigError(`Failed to save API key for "${provider}" to secure storage`);
+      }
     }
   }
   // Delete secure keys for providers no longer in apiKeys or with empty values

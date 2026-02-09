@@ -14,6 +14,8 @@ const log = getLogger('secure-keys');
 
 type Backend = 'keychain' | 'encrypted' | null;
 let resolvedBackend: Backend | undefined;
+/** True when backend was downgraded from keychain to encrypted at runtime. */
+let downgradedFromKeychain = false;
 
 function getBackend(): Backend {
   if (resolvedBackend !== undefined) return resolvedBackend;
@@ -49,6 +51,7 @@ function withKeychainFallback<T>(
   if (result === false) {
     log.warn('Keychain operation failed at runtime, falling back to encrypted file storage');
     resolvedBackend = 'encrypted';
+    downgradedFromKeychain = true;
     return encryptedFn();
   }
   return result;
@@ -66,7 +69,15 @@ export function getSecureKey(account: string): string | undefined {
     // distinguish, so no fallback on read. The fallback triggers on write.
     return value;
   }
-  if (backend === 'encrypted') return encryptedStore.getKey(account);
+  if (backend === 'encrypted') {
+    const value = encryptedStore.getKey(account);
+    // After a runtime downgrade, keys may still exist in the keychain.
+    // Try keychain read as fallback so pre-downgrade keys remain accessible.
+    if (value === undefined && downgradedFromKeychain) {
+      return keychain.getKey(account);
+    }
+    return value;
+  }
   return undefined;
 }
 
@@ -87,11 +98,26 @@ export function setSecureKey(account: string, value: string): boolean {
  * Returns `true` on success, `false` if not found or on error.
  */
 export function deleteSecureKey(account: string): boolean {
-  return withKeychainFallback(
-    () => keychain.deleteKey(account),
-    () => encryptedStore.deleteKey(account),
-    false,
-  );
+  const backend = getBackend();
+  if (backend === 'encrypted') return encryptedStore.deleteKey(account);
+  if (backend !== 'keychain') return false;
+
+  // Check if the key exists before attempting deletion so we can
+  // distinguish "key not found" (not an error) from a real runtime failure.
+  const exists = keychain.getKey(account) !== undefined;
+  const result = keychain.deleteKey(account);
+  if (result) return true;
+
+  if (!exists) {
+    // Key didn't exist — not a runtime failure, no downgrade needed.
+    return false;
+  }
+
+  // Key existed but deletion failed — treat as runtime failure and downgrade.
+  log.warn('Keychain delete failed at runtime, falling back to encrypted file storage');
+  resolvedBackend = 'encrypted';
+  downgradedFromKeychain = true;
+  return encryptedStore.deleteKey(account);
 }
 
 /**
@@ -108,9 +134,11 @@ export function listSecureKeys(): string[] {
 /** @internal Test-only: reset the cached backend so it's re-evaluated. */
 export function _resetBackend(): void {
   resolvedBackend = undefined;
+  downgradedFromKeychain = false;
 }
 
 /** @internal Test-only: force a specific backend. Pass `undefined` to reset. */
 export function _setBackend(backend: Backend | undefined): void {
   resolvedBackend = backend;
+  downgradedFromKeychain = false;
 }
