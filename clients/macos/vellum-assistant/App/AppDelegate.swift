@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
     private var voiceInput: VoiceInputManager?
+    private(set) var ambientAgent: AmbientAgent?
 
     private var windowObserver: Any?
 
@@ -19,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
+        setupAmbientAgent()
 
         // Watch for Settings window closing to revert to accessory activation policy
         windowObserver = NotificationCenter.default.addObserver(
@@ -69,8 +71,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showContextMenu() {
         guard let button = statusItem.button else { return }
         let menu = NSMenu()
+
+        let ambientEnabled = ambientAgent?.isEnabled ?? false
+        let ambientTitle = ambientEnabled ? "Disable Ambient Agent" : "Enable Ambient Agent"
+        let ambientItem = NSMenuItem(title: ambientTitle, action: #selector(toggleAmbientAgent), keyEquivalent: "")
+        ambientItem.target = self
+        menu.addItem(ambientItem)
+
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: 0), in: button)
+    }
+
+    @objc private func toggleAmbientAgent() {
+        guard let agent = ambientAgent else { return }
+        agent.isEnabled = !agent.isEnabled
+        updateMenuBarIcon()
     }
 
     // MARK: - Hotkey
@@ -100,12 +116,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.startSession(task: text)
         }
         voiceInput?.onRecordingStateChanged = { [weak self] isRecording in
-            self?.statusItem.button?.image = NSImage(
-                systemSymbolName: isRecording ? "mic.fill" : "sparkles",
-                accessibilityDescription: "vellum-assistant"
-            )
+            if isRecording {
+                self?.statusItem.button?.image = NSImage(
+                    systemSymbolName: "mic.fill",
+                    accessibilityDescription: "vellum-assistant"
+                )
+            } else {
+                self?.updateMenuBarIcon()
+            }
         }
         voiceInput?.start()
+    }
+
+    // MARK: - Ambient Agent
+
+    private func setupAmbientAgent() {
+        let agent = AmbientAgent()
+        agent.appDelegate = self
+        ambientAgent = agent
+
+        if agent.isEnabled {
+            agent.start()
+            updateMenuBarIcon()
+        }
+    }
+
+    func updateMenuBarIcon() {
+        let isAmbientActive = ambientAgent?.state == .watching || ambientAgent?.state == .analyzing
+        let iconName = isAmbientActive ? "eye" : "sparkles"
+        statusItem.button?.image = NSImage(
+            systemSymbolName: iconName,
+            accessibilityDescription: "vellum-assistant"
+        )
     }
 
     // MARK: - Popover
@@ -143,12 +185,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.show()
         overlayWindow = overlay
 
+        ambientAgent?.pause()
+
         Task { @MainActor in
             await session.run()
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             overlay.close()
             self.overlayWindow = nil
             self.currentSession = nil
+            self.ambientAgent?.resume()
         }
     }
 
@@ -157,5 +202,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(monitor)
         }
         voiceInput?.stop()
+        ambientAgent?.stop()
     }
 }

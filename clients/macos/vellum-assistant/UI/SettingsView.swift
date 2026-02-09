@@ -6,6 +6,12 @@ struct SettingsView: View {
     @State private var maxSteps: Double = 50
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
+    @State private var ambientEnabled = UserDefaults.standard.bool(forKey: "ambientAgentEnabled")
+    @State private var ambientInterval: Double = {
+        let val = UserDefaults.standard.double(forKey: "ambientCaptureInterval")
+        return val == 0 ? 30 : val
+    }()
+    var ambientAgent: AmbientAgent?
 
     // Re-check permissions every 2 seconds while the window is open
     private let permissionTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
@@ -56,6 +62,42 @@ struct SettingsView: View {
                 Slider(value: $maxSteps, in: 10...100, step: 10)
             }
 
+            Section("Ambient Agent") {
+                Toggle("Enable ambient screen watching", isOn: $ambientEnabled)
+                    .onChange(of: ambientEnabled) { _, newValue in
+                        UserDefaults.standard.set(newValue, forKey: "ambientAgentEnabled")
+                        ambientAgent?.isEnabled = newValue
+                    }
+
+                if ambientEnabled {
+                    HStack {
+                        Text("Capture interval")
+                        Spacer()
+                        Text("\(Int(ambientInterval))s")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(value: $ambientInterval, in: 10...120, step: 5)
+                        .onChange(of: ambientInterval) { _, newValue in
+                            UserDefaults.standard.set(newValue, forKey: "ambientCaptureInterval")
+                            ambientAgent?.captureIntervalSeconds = newValue
+                        }
+
+                    HStack {
+                        Text("Knowledge entries")
+                        Spacer()
+                        Text("\(ambientAgent?.knowledge.entries.count ?? 0)")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button("Clear Knowledge") {
+                        ambientAgent?.knowledge.clearAll()
+                    }
+                    .tint(.red)
+                }
+            }
+
             Section("Permissions") {
                 HStack {
                     Image(systemName: accessibilityGranted ? "checkmark.circle.fill" : "xmark.circle.fill")
@@ -87,7 +129,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 450, height: 350)
+        .frame(width: 450, height: 520)
         .onAppear {
             checkPermissions()
         }
