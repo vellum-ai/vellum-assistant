@@ -1,0 +1,16 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: vellum-assistant
+  namespace: ${NAMESPACE}
+spec:
+  hosts:
+    - "${NAMESPACE}.assistant-previews.vellum.ai"
+  gateways:
+    - istio-system/preview-gateway
+  http:
+    - route:
+        - destination:
+            host: vellum-assistant.${NAMESPACE}.svc.cluster.local
+            port:
+              number: 80

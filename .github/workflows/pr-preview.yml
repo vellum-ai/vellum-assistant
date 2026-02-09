@@ -1,0 +1,400 @@
+name: PR Preview Environment
+
+on:
+  pull_request:
+    types: [labeled, synchronize, closed]
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  GKE_CLUSTER: vellum-previews-cluster
+  GKE_ZONE: us-central1
+  GCP_PROJECT: vellum-nonprod
+
+jobs:
+  check-preview-label:
+    if: github.event.action == 'labeled' || github.event.action == 'synchronize'
+    runs-on: ubuntu-latest
+    outputs:
+      has-preview-label: ${{ steps.check-label.outputs.has-preview-label }}
+      namespace: ${{ steps.set-namespace.outputs.namespace }}
+    steps:
+      - name: Check for preview label
+        id: check-label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let hasPreviewLabel = false;
+            if (context.payload.action === 'labeled') {
+              hasPreviewLabel = context.payload.label?.name === 'preview';
+            } else {
+              const labels = context.payload.pull_request.labels.map(l => l.name);
+              hasPreviewLabel = labels.includes('preview');
+            }
+            core.setOutput('has-preview-label', hasPreviewLabel.toString());
+
+      - name: Set namespace
+        id: set-namespace
+        if: steps.check-label.outputs.has-preview-label == 'true'
+        run: |
+          NS=pr-${{ github.event.pull_request.number }}
+          echo "namespace=$NS" >> $GITHUB_OUTPUT
+
+  build-image:
+    needs: check-preview-label
+    if: needs.check-preview-label.outputs.has-preview-label == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up GCP auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          create_credentials_file: true
+          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-previews/providers/github-actions-provider-0
+          service_account: github-gcr-sa-previews@vellum-nonprod.iam.gserviceaccount.com
+          access_token_lifetime: 1200s
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: vellum-nonprod
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker
+
+      - name: Build and push Docker image
+        working-directory: web
+        run: |
+          IMAGE_TAG="pr-${{ github.event.pull_request.number }}"
+
+          docker pull gcr.io/${{ env.GCP_PROJECT }}/vellum-assistant:latest || true
+
+          DOCKER_BUILDKIT=1 docker build \
+            --cache-from gcr.io/${{ env.GCP_PROJECT }}/vellum-assistant:latest \
+            -t gcr.io/${{ env.GCP_PROJECT }}/vellum-assistant:${IMAGE_TAG} \
+            .
+
+          docker push gcr.io/${{ env.GCP_PROJECT }}/vellum-assistant:${IMAGE_TAG}
+
+  setup-environment:
+    needs: check-preview-label
+    if: github.event.action == 'labeled' && github.event.label.name == 'preview'
+    runs-on: ubuntu-latest
+    outputs:
+      namespace: ${{ steps.vars.outputs.namespace }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up GCP auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          create_credentials_file: true
+          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-previews/providers/github-actions-provider-0
+          service_account: github-gcr-sa-previews@vellum-nonprod.iam.gserviceaccount.com
+          access_token_lifetime: 1200s
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: vellum-nonprod
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          location: ${{ env.GKE_ZONE }}
+
+      - name: Set variables
+        id: vars
+        run: |
+          NS=pr-${{ github.event.pull_request.number }}
+          echo "NAMESPACE=$NS" >> $GITHUB_ENV
+          echo "namespace=$NS" >> $GITHUB_OUTPUT
+
+      - name: Create namespace
+        run: envsubst < .github/k8s-previews/namespace.yaml | kubectl apply -f -
+        env:
+          NAMESPACE: ${{ env.NAMESPACE }}
+
+      - name: Setup CloudSQL database
+        run: |
+          DB_NAME="assistant_${{ env.NAMESPACE }}"
+          USER_NAME="assistant_${{ env.NAMESPACE }}"
+
+          gcloud sql databases create "$DB_NAME" \
+            --instance=vellum-previews-postgres \
+            --project=vellum-nonprod || echo "Database may already exist"
+
+          gcloud sql users create "$USER_NAME" \
+            --instance=vellum-previews-postgres \
+            --password=password \
+            --project=vellum-nonprod || echo "User may already exist"
+
+  deploy:
+    needs: [check-preview-label, build-image, setup-environment]
+    if: always() && github.event.action == 'labeled' && github.event.label.name == 'preview' && needs.build-image.result == 'success' && needs.setup-environment.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up GCP auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          create_credentials_file: true
+          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-previews/providers/github-actions-provider-0
+          service_account: github-gcr-sa-previews@vellum-nonprod.iam.gserviceaccount.com
+          access_token_lifetime: 1200s
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: vellum-nonprod
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          location: ${{ env.GKE_ZONE }}
+
+      - name: Fetch secrets
+        id: secrets
+        run: |
+          ANTHROPIC_API_KEY=$(gcloud secrets versions access latest --secret=ANTHROPIC_API_KEY --project=vellum-nonprod)
+          BETTER_AUTH_SECRET=$(gcloud secrets versions access latest --secret=BETTER_AUTH_SECRET --project=vellum-nonprod)
+          echo "::add-mask::$ANTHROPIC_API_KEY"
+          echo "::add-mask::$BETTER_AUTH_SECRET"
+          echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> $GITHUB_OUTPUT
+          echo "BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET" >> $GITHUB_OUTPUT
+
+      - name: Deploy application
+        run: |
+          NAMESPACE="${{ needs.setup-environment.outputs.namespace }}"
+          envsubst < .github/k8s-previews/deployment.yaml | kubectl apply -f -
+          envsubst < .github/k8s-previews/service.yaml | kubectl apply -f -
+          envsubst < .github/k8s-previews/virtualservice.yaml | kubectl apply -f -
+        env:
+          NAMESPACE: ${{ needs.setup-environment.outputs.namespace }}
+          IMAGE_TAG: pr-${{ github.event.pull_request.number }}
+          DATABASE_URL: postgresql://assistant_${{ needs.setup-environment.outputs.namespace }}:password@vellum-previews-postgres:5432/assistant_${{ needs.setup-environment.outputs.namespace }}
+          ANTHROPIC_API_KEY: ${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}
+          BETTER_AUTH_SECRET: ${{ steps.secrets.outputs.BETTER_AUTH_SECRET }}
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/vellum-assistant \
+            -n ${{ needs.setup-environment.outputs.namespace }} \
+            --timeout=300s
+
+      - name: Debug deployment failure
+        if: failure()
+        run: |
+          NAMESPACE="${{ needs.setup-environment.outputs.namespace }}"
+          echo "=== Pods ==="
+          kubectl get pods -n $NAMESPACE
+          echo "=== Pod Events ==="
+          kubectl describe pods -n $NAMESPACE -l app=vellum-assistant
+          echo "=== Recent Events ==="
+          kubectl get events -n $NAMESPACE --sort-by='.lastTimestamp' | tail -30
+
+  run-migrations:
+    needs: [setup-environment, deploy]
+    if: always() && needs.setup-environment.result == 'success' && needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Set up GCP auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          create_credentials_file: true
+          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-previews/providers/github-actions-provider-0
+          service_account: github-gcr-sa-previews@vellum-nonprod.iam.gserviceaccount.com
+          access_token_lifetime: 1200s
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: vellum-nonprod
+
+      - name: Push schema to preview database
+        run: bun run db:push
+        env:
+          DATABASE_URL: postgresql://assistant_${{ needs.setup-environment.outputs.namespace }}:password@vellum-previews-postgres:5432/assistant_${{ needs.setup-environment.outputs.namespace }}
+
+  comment-preview-link:
+    needs: [setup-environment, deploy, run-migrations]
+    if: always() && needs.setup-environment.result == 'success' && needs.deploy.result == 'success' && needs.run-migrations.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const namespace = 'pr-${{ github.event.pull_request.number }}';
+            const previewUrl = `http://${namespace}.assistant-previews.vellum.ai`;
+            const logsQuery = `resource.labels.cluster_name="vellum-previews-cluster"\nresource.labels.namespace_name="${namespace}"`;
+            const logsUrl = `https://console.cloud.google.com/logs/query;query=${encodeURIComponent(logsQuery)}?project=vellum-nonprod`;
+
+            const comment = `## Preview Environment Ready
+
+            **Preview URL:** [${previewUrl}](${previewUrl})
+
+            **Namespace:** \`${namespace}\`
+
+            **Logs:** [View logs in GCP](${logsUrl})
+
+            The environment will be cleaned up when the PR is closed or the \`preview\` label is removed.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  update-deployment:
+    needs: [check-preview-label, build-image]
+    if: |
+      always() &&
+      github.event.action == 'synchronize' &&
+      needs.check-preview-label.outputs.has-preview-label == 'true' &&
+      needs.build-image.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up GCP auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          create_credentials_file: true
+          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-previews/providers/github-actions-provider-0
+          service_account: github-gcr-sa-previews@vellum-nonprod.iam.gserviceaccount.com
+          access_token_lifetime: 1200s
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: vellum-nonprod
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          location: ${{ env.GKE_ZONE }}
+
+      - name: Fetch secrets
+        id: secrets
+        run: |
+          ANTHROPIC_API_KEY=$(gcloud secrets versions access latest --secret=ANTHROPIC_API_KEY --project=vellum-nonprod)
+          BETTER_AUTH_SECRET=$(gcloud secrets versions access latest --secret=BETTER_AUTH_SECRET --project=vellum-nonprod)
+          echo "::add-mask::$ANTHROPIC_API_KEY"
+          echo "::add-mask::$BETTER_AUTH_SECRET"
+          echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> $GITHUB_OUTPUT
+          echo "BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET" >> $GITHUB_OUTPUT
+
+      - name: Update deployment
+        run: |
+          NAMESPACE="${{ needs.check-preview-label.outputs.namespace }}"
+          envsubst < .github/k8s-previews/deployment.yaml | kubectl apply -f -
+        env:
+          NAMESPACE: ${{ needs.check-preview-label.outputs.namespace }}
+          IMAGE_TAG: pr-${{ github.event.pull_request.number }}
+          DATABASE_URL: postgresql://assistant_${{ needs.check-preview-label.outputs.namespace }}:password@vellum-previews-postgres:5432/assistant_${{ needs.check-preview-label.outputs.namespace }}
+          ANTHROPIC_API_KEY: ${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}
+          BETTER_AUTH_SECRET: ${{ steps.secrets.outputs.BETTER_AUTH_SECRET }}
+
+      - name: Restart and wait for rollout
+        run: |
+          NAMESPACE="${{ needs.check-preview-label.outputs.namespace }}"
+          kubectl rollout restart deployment/vellum-assistant -n $NAMESPACE
+          kubectl rollout status deployment/vellum-assistant -n $NAMESPACE --timeout=300s
+
+      - name: Run migrations
+        run: |
+          NAMESPACE="${{ needs.check-preview-label.outputs.namespace }}"
+          kubectl wait --for=condition=ready pod -l app=vellum-assistant -n $NAMESPACE --timeout=300s
+
+  cleanup-preview:
+    if: github.event.action == 'closed' || (github.event.action == 'unlabeled' && github.event.label.name == 'preview')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up GCP auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          create_credentials_file: true
+          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-previews/providers/github-actions-provider-0
+          service_account: github-gcr-sa-previews@vellum-nonprod.iam.gserviceaccount.com
+          access_token_lifetime: 1200s
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: vellum-nonprod
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          location: ${{ env.GKE_ZONE }}
+
+      - name: Set namespace
+        run: |
+          NS=pr-${{ github.event.pull_request.number }}
+          echo "NAMESPACE=$NS" >> $GITHUB_ENV
+
+      - name: Delete namespace and all resources
+        run: kubectl delete namespace ${{ env.NAMESPACE }} --ignore-not-found=true
+        continue-on-error: true
+
+      - name: Delete CloudSQL database and user
+        run: |
+          DB_NAME="assistant_${{ env.NAMESPACE }}"
+          USER_NAME="assistant_${{ env.NAMESPACE }}"
+
+          gcloud sql databases delete "$DB_NAME" \
+            --instance=vellum-previews-postgres \
+            --project=vellum-nonprod \
+            --quiet || true
+
+          gcloud sql users delete "$USER_NAME" \
+            --instance=vellum-previews-postgres \
+            --project=vellum-nonprod \
+            --quiet || true
+        continue-on-error: true
+
+      - name: Delete Docker image
+        run: |
+          gcloud container images delete \
+            gcr.io/${{ env.GCP_PROJECT }}/vellum-assistant:pr-${{ github.event.pull_request.number }} \
+            --force-delete-tags \
+            --quiet || true
+        continue-on-error: true
+
+      - name: Log cleanup
+        run: |
+          echo "Cleaned up preview environment for PR #${{ github.event.pull_request.number }}"
+          echo "Namespace: ${{ env.NAMESPACE }}"
