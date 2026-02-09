@@ -88,7 +88,7 @@ export default function AssistantsPage() {
               if (eventType === "progress") {
                 setProgressMessage(data.message);
               } else if (eventType === "complete") {
-                router.push(`/assistants/${data.agent.id}`);
+                router.push(`/assistant`);
                 return;
               } else if (eventType === "error") {
                 throw new Error(data.message);
@@ -214,7 +214,7 @@ export default function AssistantsPage() {
             {assistants.map((assistant) => (
               <div
                 key={assistant.id}
-                onClick={() => router.push(`/assistants/${assistant.id}`)}
+                onClick={() => router.push(`/assistant`)}
                 className="group cursor-pointer rounded-lg border border-zinc-200 bg-white p-4 transition-all hover:border-indigo-300 hover:shadow-md sm:p-6 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-indigo-700"
               >
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-950">

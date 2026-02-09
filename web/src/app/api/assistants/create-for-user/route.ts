@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
       `;
     }
 
-    const assistantLink = `${APP_URL}/assistants/${newAssistant.id}`;
+    const assistantLink = `${APP_URL}/assistant`;
 
     return NextResponse.json({
       success: true,

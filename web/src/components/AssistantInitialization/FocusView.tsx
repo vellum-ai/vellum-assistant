@@ -53,7 +53,6 @@ export function FocusView() {
 
         const decoder = new TextDecoder();
         let buffer = '';
-        let agentId: string | null = null;
         const seenCapabilities = new Set<string>();
 
         while (true) {
@@ -92,7 +91,6 @@ export function FocusView() {
                 }
 
                 if (data.assistant) {
-                  agentId = data.assistant.id;
                   // Add all remaining capabilities
                   for (const stage of STAGES) {
                     if (!seenCapabilities.has(stage.capability)) {
@@ -116,12 +114,7 @@ export function FocusView() {
         setCurrentLabel('Your assistant is ready!');
         await new Promise(resolve => setTimeout(resolve, 1500));
 
-        // Navigate to the new assistant
-        if (agentId) {
-          router.push(`/assistants/${agentId}`);
-        } else {
-          router.push('/assistants');
-        }
+        router.push('/assistant');
 
       } catch (err) {
         console.error('Assistant creation failed:', err);
