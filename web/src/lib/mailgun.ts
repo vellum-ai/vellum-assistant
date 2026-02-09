@@ -35,10 +35,7 @@ function getMailgunConfig(): { apiKey: string; domain: string } {
     throw new Error("MAILGUN_API_KEY environment variable is not set");
   }
 
-  const domain = process.env.MAILGUN_DOMAIN;
-  if (!domain) {
-    throw new Error("MAILGUN_DOMAIN environment variable is not set");
-  }
+  const domain = process.env.MAILGUN_DOMAIN ?? "email.vellum.ai";
 
   return { apiKey, domain };
 }
