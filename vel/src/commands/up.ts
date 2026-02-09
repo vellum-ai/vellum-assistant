@@ -60,36 +60,15 @@ export async function up(): Promise<void> {
       },
     });
 
-    const FILTERED_PATTERNS = [
-      'severity_local:',
-      'severity:',
-      'code:',
-      'message:',
-      'file:',
-      'line:',
-      'routine:',
-    ];
+    const NOTICE_BLOCK_RE = /\{\s*\n\s*severity_local:\s*'NOTICE',[\s\S]*?\}\n?/g;
 
     const filterOutput = (stream: NodeJS.ReadableStream, target: NodeJS.WritableStream) => {
       let buffer = '';
       stream.on('data', (chunk: Buffer) => {
         buffer += chunk.toString();
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed === '{' || trimmed === '}') continue;
-          if (FILTERED_PATTERNS.some(p => trimmed.startsWith(p))) continue;
-          target.write(line + '\n');
-        }
       });
       stream.on('end', () => {
-        if (buffer.trim()) {
-          const trimmed = buffer.trim();
-          if (trimmed !== '{' && trimmed !== '}' && !FILTERED_PATTERNS.some(p => trimmed.startsWith(p))) {
-            target.write(buffer + '\n');
-          }
-        }
+        target.write(buffer.replace(NOTICE_BLOCK_RE, ''));
       });
     };
 
