@@ -29,7 +29,7 @@ export class AnthropicProvider implements Provider {
     try {
       const params: Anthropic.MessageCreateParams = {
         model: this.model,
-        max_tokens: 8192,
+        max_tokens: 64000,
         messages: messages.map((m) => ({
           role: m.role,
           content: m.content.map((block) => this.toAnthropicBlock(block)),

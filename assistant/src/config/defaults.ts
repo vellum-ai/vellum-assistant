@@ -5,7 +5,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   provider: 'anthropic',
   model: 'claude-sonnet-4-5-20250929', // alias: claude-sonnet-4-5
   apiKeys: {},
-  maxTokens: 4096,
+  maxTokens: 64000,
   dataDir: getDataDir(),
   timeouts: {
     shellDefaultTimeoutSec: 120,

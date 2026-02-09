@@ -17,7 +17,7 @@ export type AgentEvent =
   | { type: 'usage'; inputTokens: number; outputTokens: number; model: string };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
-  maxTokens: 4096,
+  maxTokens: 64000,
 };
 
 const PROGRESS_CHECK_INTERVAL = 5;
