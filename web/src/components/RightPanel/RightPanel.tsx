@@ -3,9 +3,8 @@
 import { DetailsTab } from "./_DetailsTab";
 import { FileSystemTab } from "./_FileSystemTab";
 import { InteractionTab } from "./_InteractionTab";
-import { LogsTab } from "./_LogsTab";
 
-export type TabId = "interaction" | "filesystem" | "logs" | "details";
+export type TabId = "interaction" | "filesystem" | "details";
 
 export interface Tab {
   id: TabId;
@@ -13,9 +12,8 @@ export interface Tab {
 }
 
 export const TABS: Tab[] = [
-  { id: "interaction", label: "Interaction" },
+  { id: "interaction", label: "Chat" },
   { id: "filesystem", label: "File System" },
-  { id: "logs", label: "Logs" },
   { id: "details", label: "Details" },
 ];
 
@@ -34,7 +32,6 @@ export function RightPanel({ assistantId, assistantName, assistantCreatedAt, act
           <InteractionTab assistantId={assistantId} assistantName={assistantName} assistantCreatedAt={assistantCreatedAt} />
         )}
         {activeTab === "filesystem" && <FileSystemTab assistantId={assistantId} />}
-        {activeTab === "logs" && <LogsTab assistantId={assistantId} />}
         {activeTab === "details" && <DetailsTab assistantId={assistantId} />}
       </div>
     </div>
