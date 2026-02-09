@@ -12,6 +12,7 @@ enum ActionType: String, Codable {
     case done
     case drag
     case openApp = "open_app"
+    case runAppleScript = "run_applescript"
 }
 
 struct AgentAction: Codable {
@@ -27,6 +28,7 @@ struct AgentAction: Codable {
     var summary: String?
     var waitDuration: Int?
     var appName: String?
+    var script: String?
     var reasoning: String
     var resolvedFromElementId: Int?
     var elementDescription: String?
@@ -45,6 +47,7 @@ struct AgentAction: Codable {
         summary: String? = nil,
         waitDuration: Int? = nil,
         appName: String? = nil,
+        script: String? = nil,
         resolvedFromElementId: Int? = nil,
         elementDescription: String? = nil
     ) {
@@ -61,6 +64,7 @@ struct AgentAction: Codable {
         self.summary = summary
         self.waitDuration = waitDuration
         self.appName = appName
+        self.script = script
         self.resolvedFromElementId = resolvedFromElementId
         self.elementDescription = elementDescription
     }
@@ -121,6 +125,12 @@ struct AgentAction: Codable {
                 return "Open app: \(name)"
             }
             return "Open app"
+        case .runAppleScript:
+            if let script = script {
+                let preview = script.count > 60 ? String(script.prefix(60)) + "..." : script
+                return "AppleScript: \(preview)"
+            }
+            return "AppleScript"
         case .done:
             if let summary = summary {
                 let preview = summary.count > 60 ? String(summary.prefix(60)) + "..." : summary

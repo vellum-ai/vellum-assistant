@@ -180,6 +180,32 @@ enum ToolDefinitions {
             ] as [String: Any]
         ],
         [
+            "name": "run_applescript",
+            "description": """
+            Execute an AppleScript to control applications via Apple's scripting bridge. \
+            Use this for operations that are more reliable through scripting than UI interaction: \
+            setting a browser URL directly, navigating Finder to a path, querying app state \
+            (tab count, window titles, document status), or clicking deeply nested menu items. \
+            The script's return value (if any) will be reported back. \
+            NEVER use "do shell script" — it is blocked for security. \
+            Keep scripts short and targeted to a single operation.
+            """,
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "script": [
+                        "type": "string",
+                        "description": "The AppleScript source code to execute"
+                    ],
+                    "reasoning": [
+                        "type": "string",
+                        "description": "Explanation of what this script does and why AppleScript is better than UI interaction for this step"
+                    ]
+                ],
+                "required": ["script", "reasoning"]
+            ] as [String: Any]
+        ],
+        [
             "name": "done",
             "description": "Task is complete",
             "input_schema": [

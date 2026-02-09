@@ -279,17 +279,38 @@ final class ComputerUseSession: ObservableObject {
             }
 
             // 5. EXECUTE
+            let executionResult: String?
             do {
-                try await executor.execute(action)
+                executionResult = try await executor.execute(action)
             } catch {
-                let record = ActionRecord(step: stepNumber, action: action, result: "ERROR: \(error.localizedDescription)", timestamp: Date())
+                let errorMessage = error.localizedDescription
+                let record = ActionRecord(step: stepNumber, action: action, result: "ERROR: \(errorMessage)", timestamp: Date())
                 actionHistory.append(record)
-                state = .failed(reason: "Execution failed: \(error.localizedDescription)")
+
+                // AppleScript errors are non-fatal — let the model adapt
+                if action.type == .runAppleScript {
+                    log.warning("[\(stepNumber)] AppleScript error (non-fatal): \(errorMessage)")
+                    state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: "\(action.displayDescription) (error)", reasoning: action.reasoning)
+                    previousAXTreeText = axTreeText
+                    previousElements = elements
+                    continue
+                }
+
+                state = .failed(reason: "Execution failed: \(errorMessage)")
                 logger.finishSession(result: "failed: execution error")
                 return
             }
 
-            let record = ActionRecord(step: stepNumber, action: action, result: "executed", timestamp: Date())
+            // Format result string, including AppleScript output when present
+            let resultString: String
+            if let output = executionResult {
+                let truncated = output.count > 500 ? String(output.prefix(500)) + "..." : output
+                resultString = "executed (result: \(truncated))"
+            } else {
+                resultString = "executed"
+            }
+
+            let record = ActionRecord(step: stepNumber, action: action, result: resultString, timestamp: Date())
             actionHistory.append(record)
 
             // 6. UPDATE UI
