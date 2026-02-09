@@ -1,3 +1,11 @@
+// === Shared types ===
+
+export interface UsageStats {
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+}
+
 // === Client → Server messages ===
 
 export interface UserMessage {

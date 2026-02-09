@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Message } from '../providers/types.js';
-import type { ServerMessage } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats } from './ipc-protocol.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
 import { createUserMessage } from '../agent/message-types.js';
@@ -27,9 +27,7 @@ export class Session {
   private sendToClient: (msg: ServerMessage) => void;
   private workingDir: string;
   private sandboxOverride?: boolean;
-  private totalInputTokens = 0;
-  private totalOutputTokens = 0;
-  private totalEstimatedCost = 0;
+  private usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
 
   constructor(
     conversationId: string,
@@ -82,9 +80,11 @@ export class Session {
 
     const conv = conversationStore.getConversation(this.conversationId);
     if (conv) {
-      this.totalInputTokens = conv.totalInputTokens;
-      this.totalOutputTokens = conv.totalOutputTokens;
-      this.totalEstimatedCost = conv.totalEstimatedCost;
+      this.usageStats = {
+        inputTokens: conv.totalInputTokens,
+        outputTokens: conv.totalOutputTokens,
+        estimatedCost: conv.totalEstimatedCost,
+      };
     }
 
     log.info({ conversationId: this.conversationId, count: this.messages.length }, 'Loaded messages from DB');
@@ -199,22 +199,24 @@ export class Session {
 
       // Update cumulative token usage
       if (exchangeInputTokens > 0 || exchangeOutputTokens > 0) {
-        this.totalInputTokens += exchangeInputTokens;
-        this.totalOutputTokens += exchangeOutputTokens;
         const exchangeCost = estimateCost(exchangeInputTokens, exchangeOutputTokens, model);
-        this.totalEstimatedCost += exchangeCost;
+        this.usageStats = {
+          inputTokens: this.usageStats.inputTokens + exchangeInputTokens,
+          outputTokens: this.usageStats.outputTokens + exchangeOutputTokens,
+          estimatedCost: this.usageStats.estimatedCost + exchangeCost,
+        };
         conversationStore.updateConversationUsage(
           this.conversationId,
-          this.totalInputTokens,
-          this.totalOutputTokens,
-          this.totalEstimatedCost,
+          this.usageStats.inputTokens,
+          this.usageStats.outputTokens,
+          this.usageStats.estimatedCost,
         );
         onEvent({
           type: 'usage_update',
           inputTokens: exchangeInputTokens,
           outputTokens: exchangeOutputTokens,
-          totalInputTokens: this.totalInputTokens,
-          totalOutputTokens: this.totalOutputTokens,
+          totalInputTokens: this.usageStats.inputTokens,
+          totalOutputTokens: this.usageStats.outputTokens,
           estimatedCost: exchangeCost,
           model,
         });
