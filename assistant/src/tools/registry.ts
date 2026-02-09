@@ -32,5 +32,6 @@ export async function initializeTools(): Promise<void> {
   await import('./filesystem/read.js');
   await import('./filesystem/write.js');
   await import('./filesystem/edit.js');
+  await import('./network/web-search.js');
   log.info({ count: tools.size }, 'Tools initialized');
 }

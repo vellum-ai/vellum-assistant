@@ -117,7 +117,7 @@ export function loadConfig(): AssistantConfig {
 
     // Secure storage keys override plaintext config file
     try {
-      for (const provider of ['anthropic', 'openai', 'gemini', 'ollama']) {
+      for (const provider of ['anthropic', 'openai', 'gemini', 'ollama', 'brave']) {
         const secureKey = getSecureKey(provider);
         if (secureKey) {
           config.apiKeys[provider] = secureKey;
@@ -136,6 +136,9 @@ export function loadConfig(): AssistantConfig {
     }
     if (process.env.GEMINI_API_KEY) {
       config.apiKeys.gemini = process.env.GEMINI_API_KEY;
+    }
+    if (process.env.BRAVE_API_KEY) {
+      config.apiKeys.brave = process.env.BRAVE_API_KEY;
     }
 
     loading = false;
