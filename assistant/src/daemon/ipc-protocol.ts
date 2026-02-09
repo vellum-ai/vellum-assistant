@@ -209,6 +209,9 @@ export type ServerMessage =
 
 // === Serialization ===
 
+/** Maximum size of a single line in the IPC buffer (64KB). */
+export const MAX_LINE_SIZE = 64 * 1024;
+
 export function serialize(msg: ClientMessage | ServerMessage): string {
   return JSON.stringify(msg) + '\n';
 }
@@ -232,6 +235,12 @@ export function createMessageParser() {
             // Skip malformed messages
           }
         }
+      }
+      if (buffer.length > MAX_LINE_SIZE) {
+        buffer = '';
+        throw new Error(
+          `IPC message exceeds maximum line size of ${MAX_LINE_SIZE} bytes. Message discarded.`,
+        );
       }
       return messages;
     },

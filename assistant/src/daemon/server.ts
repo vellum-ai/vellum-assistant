@@ -189,7 +189,15 @@ export class DaemonServer {
     });
 
     socket.on('data', (data) => {
-      const messages = parser.feed(data.toString());
+      let messages;
+      try {
+        messages = parser.feed(data.toString());
+      } catch (err) {
+        log.error({ err }, 'IPC parse error, dropping client');
+        socket.write(serialize({ type: 'error', message: (err as Error).message }));
+        socket.destroy();
+        return;
+      }
       for (const msg of messages) {
         this.handleMessage(msg as ClientMessage, socket);
       }
