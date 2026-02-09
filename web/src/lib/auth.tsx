@@ -14,6 +14,7 @@ interface AuthContextType {
   isLoggedIn: boolean;
   isLoading: boolean;
   username: string | null;
+  email: string | null;
   login: (username: string, password: string) => Promise<boolean>;
   signup: (username: string, email: string, password: string) => Promise<boolean>;
   logout: () => void;
@@ -29,12 +30,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [username, setUsername] = useState<string | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
 
   useEffect(() => {
     authClient.getSession().then(({ data }) => {
       if (data?.user) {
         setIsLoggedIn(true);
         setUsername(data.user.name);
+        setEmail(data.user.email);
       }
       setIsLoading(false);
     });
@@ -50,14 +53,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
     setIsLoggedIn(true);
     setUsername(user);
+    const { data: sessionData } = await authClient.getSession();
+    if (sessionData?.user?.email) {
+      setEmail(sessionData.user.email);
+    }
     return true;
   }, []);
 
-  const signup = useCallback(async (user: string, email: string, password: string): Promise<boolean> => {
+  const signup = useCallback(async (user: string, signupEmail: string, password: string): Promise<boolean> => {
     const { error } = await authClient.signUp.email({
       name: user,
       username: user,
-      email,
+      email: signupEmail,
       password,
     });
     if (error) {
@@ -65,6 +72,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
     setIsLoggedIn(true);
     setUsername(user);
+    setEmail(signupEmail);
     return true;
   }, []);
 
@@ -72,11 +80,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     await authClient.signOut();
     setIsLoggedIn(false);
     setUsername(null);
+    setEmail(null);
   }, []);
 
   return (
     <AuthContext.Provider
-      value={{ isLoggedIn, isLoading, username, login, signup, logout }}
+      value={{ isLoggedIn, isLoading, username, email, login, signup, logout }}
     >
       {children}
     </AuthContext.Provider>

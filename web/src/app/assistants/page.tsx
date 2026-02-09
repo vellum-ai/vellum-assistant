@@ -11,7 +11,7 @@ import { Assistant } from "@/lib/db";
 
 export default function AssistantsPage() {
   const router = useRouter();
-  const { isLoggedIn, isLoading: isAuthLoading, username } = useAuth();
+  const { isLoggedIn, isLoading: isAuthLoading, username, email } = useAuth();
   const [assistants, setAssistants] = useState<Assistant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -109,7 +109,9 @@ export default function AssistantsPage() {
     return null;
   }
 
-  if (!isLoggedIn) {
+  const isAdmin = email?.endsWith("@vellum.ai") ?? false;
+
+  if (!isLoggedIn || !isAdmin) {
     return (
       <Layout>
         <div className="flex flex-col items-center justify-center px-4 py-16">
@@ -117,10 +119,12 @@ export default function AssistantsPage() {
             <Lock className="h-8 w-8 text-zinc-400" />
           </div>
           <h2 className="mt-6 text-xl font-semibold text-zinc-900 dark:text-white">
-            Sign in required
+            {isLoggedIn ? "Access denied" : "Sign in required"}
           </h2>
           <p className="mt-2 text-center text-sm text-zinc-500 dark:text-zinc-400">
-            Please sign in from the Home page to view and manage your assistants.
+            {isLoggedIn
+              ? "This page is restricted to Vellum administrators."
+              : "Please sign in from the Home page to view and manage your assistants."}
           </p>
           <Link
             href="/"
