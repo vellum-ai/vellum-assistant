@@ -23,11 +23,7 @@ function getRootLogger(): pino.Logger {
   return rootLogger;
 }
 
-/**
- * Returns a lazy logger that only initializes pino when a log method is called.
- * This avoids "sonic boom is not ready yet" errors when the process exits
- * quickly (e.g. `assistant --help`).
- */
+/** Returns true when VELLUM_DEBUG=1 is set. */
 export function isDebug(): boolean {
   return process.env.VELLUM_DEBUG === '1';
 }
@@ -41,6 +37,11 @@ export function truncateForLog(value: string, maxLen = 500): string {
   return value.slice(0, maxLen) + `... (${value.length - maxLen} chars truncated)`;
 }
 
+/**
+ * Returns a lazy logger that only initializes pino when a log method is called.
+ * This avoids "sonic boom is not ready yet" errors when the process exits
+ * quickly (e.g. `assistant --help`).
+ */
 export function getLogger(name: string): pino.Logger {
   let child: pino.Logger | null = null;
   const handler: ProxyHandler<pino.Logger> = {
