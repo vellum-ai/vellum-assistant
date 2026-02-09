@@ -207,7 +207,19 @@ jobs:
 
       - name: Staple notarization ticket
         run: |
-          xcrun stapler staple "$DMG_PATH"
+          # Apple's CDN can take a minute to propagate the ticket after notarization
+          for i in 1 2 3 4 5; do
+            if xcrun stapler staple "$DMG_PATH" 2>&1; then
+              echo "Stapling succeeded on attempt $i"
+              break
+            fi
+            if [ "$i" -eq 5 ]; then
+              echo "::error::Stapling failed after 5 attempts"
+              exit 1
+            fi
+            echo "Stapling attempt $i failed, waiting 30s for CDN propagation..."
+            sleep 30
+          done
 
           # Verify stapling
           xcrun stapler validate "$DMG_PATH"
