@@ -3,19 +3,19 @@ import SwiftUI
 
 final class AmbientSuggestionWindow {
     private var panel: NSPanel?
-    private let suggestion: String
+    private let detail: AmbientSuggestionDetail
     private let onAccept: () -> Void
     private let onDismiss: () -> Void
 
-    init(suggestion: String, onAccept: @escaping () -> Void, onDismiss: @escaping () -> Void) {
-        self.suggestion = suggestion
+    init(detail: AmbientSuggestionDetail, onAccept: @escaping () -> Void, onDismiss: @escaping () -> Void) {
+        self.detail = detail
         self.onAccept = onAccept
         self.onDismiss = onDismiss
     }
 
     func show() {
         let view = AmbientSuggestionView(
-            suggestion: suggestion,
+            detail: detail,
             onAccept: { [weak self] in
                 self?.close()
                 self?.onAccept()
@@ -28,7 +28,7 @@ final class AmbientSuggestionWindow {
         let hostingController = NSHostingController(rootView: view)
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 340, height: 140),
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 200),
             styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow],
             backing: .buffered,
             defer: false
@@ -46,7 +46,7 @@ final class AmbientSuggestionWindow {
         // Position bottom-right, above where session overlay would appear
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
-            let x = screenFrame.maxX - 340 - 20
+            let x = screenFrame.maxX - 360 - 20
             let y = screenFrame.minY + 20 + 160 + 10
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
@@ -70,25 +70,58 @@ final class AmbientSuggestionWindow {
 }
 
 private struct AmbientSuggestionView: View {
-    let suggestion: String
+    let detail: AmbientSuggestionDetail
     let onAccept: () -> Void
     let onDismiss: () -> Void
 
+    private var iconColor: Color {
+        switch detail.icon.tintColor {
+        case "blue": return .blue
+        case "red": return .red
+        case "purple": return .purple
+        case "orange": return .orange
+        case "teal": return .teal
+        case "yellow": return .yellow
+        default: return .blue
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Image(systemName: "eye.fill")
-                    .foregroundStyle(.blue)
-                Text("Ambient Suggestion")
+        VStack(alignment: .leading, spacing: 10) {
+            // Header: icon + title
+            HStack(spacing: 8) {
+                Image(systemName: detail.icon.sfSymbol)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(iconColor)
+                Text(detail.title)
                     .font(.headline)
                 Spacer()
             }
 
-            Text(suggestion)
-                .font(.body)
-                .lineLimit(3)
-                .foregroundStyle(.secondary)
+            // Headline stat (if present)
+            if let stat = detail.headlineStat {
+                Text(stat)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundStyle(iconColor)
+            }
 
+            // Action steps
+            if !detail.actionSteps.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(detail.actionSteps, id: \.self) { step in
+                        HStack(alignment: .top, spacing: 6) {
+                            Text("\u{2022}")
+                                .foregroundStyle(.secondary)
+                            Text(step)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+            }
+
+            // Buttons
             HStack {
                 Spacer()
                 Button("Dismiss") {
@@ -96,14 +129,15 @@ private struct AmbientSuggestionView: View {
                 }
                 .keyboardShortcut(.escape, modifiers: [])
 
-                Button("Accept") {
+                Button("Let\u{2019}s do it") {
                     onAccept()
                 }
                 .keyboardShortcut(.return, modifiers: [])
                 .buttonStyle(.borderedProminent)
+                .tint(iconColor)
             }
         }
         .padding()
-        .frame(width: 340)
+        .frame(width: 360)
     }
 }
