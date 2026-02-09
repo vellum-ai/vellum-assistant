@@ -1,5 +1,6 @@
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { isMacOS, isLinux } from '../../util/platform.js';
 import { getLogger } from '../../util/logger.js';
@@ -55,18 +56,32 @@ const SANDBOX_PROFILE = `
 (deny process-info-pidinfo (target others))
 `.trim();
 
+/** Characters that are meaningful in SBPL syntax and must not appear in paths. */
+const SBPL_UNSAFE = /["()\\;\n\r]/;
+
+/**
+ * Validate that a path is safe to embed in an SBPL profile string.
+ * Returns true if the path contains no SBPL metacharacters.
+ */
+function isSafeForSBPL(path: string): boolean {
+  return !SBPL_UNSAFE.test(path);
+}
+
 /**
  * Get the path to the sandbox profile file, creating it if needed.
- * The profile is written to ~/.vellum/sandbox-profile.sb.
+ *
+ * Each distinct working directory gets its own profile file (keyed by
+ * a hash of the path) to avoid race conditions when concurrent commands
+ * use different working directories.
  */
 function getProfilePath(workingDir: string): string {
   const dir = join(process.env.HOME ?? '/tmp', '.vellum');
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  const path = join(dir, 'sandbox-profile.sb');
+  const hash = createHash('sha256').update(workingDir).digest('hex').slice(0, 12);
+  const path = join(dir, `sandbox-profile-${hash}.sb`);
 
-  // Always rewrite with the current working directory
   const profile = SANDBOX_PROFILE.replace(/__WORKING_DIR__/g, workingDir);
   writeFileSync(path, profile + '\n');
   return path;
@@ -144,6 +159,14 @@ export function wrapCommand(
   }
 
   if (isMacOS()) {
+    if (!isSafeForSBPL(workingDir)) {
+      log.warn('Working directory contains characters unsafe for sandbox profile. Running unsandboxed.');
+      return {
+        command: 'bash',
+        args: ['-c', '--', command],
+        sandboxed: false,
+      };
+    }
     const profile = getProfilePath(workingDir);
     return {
       command: 'sandbox-exec',
