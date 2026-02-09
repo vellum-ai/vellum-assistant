@@ -1,14 +1,10 @@
 import { execSync } from 'node:child_process';
-import { isMacOS, isLinux } from './platform.js';
+import { getClipboardCommand } from './platform.js';
 import { PlatformError } from './errors.js';
 
 export function copyToClipboard(text: string): void {
-  let cmd: string;
-  if (isMacOS()) {
-    cmd = 'pbcopy';
-  } else if (isLinux()) {
-    cmd = 'xclip -selection clipboard';
-  } else {
+  const cmd = getClipboardCommand();
+  if (!cmd) {
     throw new PlatformError('Clipboard not supported on this platform');
   }
   execSync(cmd, { input: text, stdio: ['pipe', 'ignore', 'ignore'] });

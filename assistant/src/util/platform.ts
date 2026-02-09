@@ -14,6 +14,25 @@ export function isWindows(): boolean {
   return process.platform === 'win32';
 }
 
+/**
+ * Returns the raw platform string from Node.js (e.g. 'darwin', 'linux', 'win32').
+ * Prefer this over accessing process.platform directly so all platform
+ * detection is routed through this module.
+ */
+export function getPlatformName(): string {
+  return process.platform;
+}
+
+/**
+ * Returns the platform-specific clipboard copy command, or null if
+ * clipboard access is not supported on the current platform.
+ */
+export function getClipboardCommand(): string | null {
+  if (isMacOS()) return 'pbcopy';
+  if (isLinux()) return 'xclip -selection clipboard';
+  return null;
+}
+
 export function getDataDir(): string {
   return join(homedir(), '.vellum');
 }

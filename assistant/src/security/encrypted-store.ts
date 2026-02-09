@@ -20,7 +20,7 @@ import {
 import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { hostname, userInfo } from 'node:os';
-import { getDataDir } from '../util/platform.js';
+import { getDataDir, getPlatformName } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('encrypted-store');
@@ -75,7 +75,7 @@ function getMachineEntropy(): string {
   const parts: string[] = [];
   try { parts.push(hostname()); } catch { parts.push('unknown-host'); }
   try { parts.push(userInfo().username); } catch { parts.push('unknown-user'); }
-  parts.push(process.platform);
+  parts.push(getPlatformName());
   parts.push(process.arch);
   try { parts.push(userInfo().homedir); } catch { parts.push('/tmp'); }
   return parts.join(':');
