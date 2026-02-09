@@ -148,6 +148,20 @@ export class DaemonServer {
       },
     };
 
+    // Prompt files (SOUL.md, IDENTITY.md) affect the system prompt.
+    // When they change, evict idle sessions so they pick up the new prompt.
+    const evictSessions = () => {
+      for (const [id, session] of this.sessions) {
+        if (!session.isProcessing()) {
+          this.sessions.delete(id);
+        } else {
+          session.markStale();
+        }
+      }
+    };
+    handlers['SOUL.md'] = evictSessions;
+    handlers['IDENTITY.md'] = evictSessions;
+
     try {
       const watcher = watch(dataDir, (_eventType, filename) => {
         if (!filename || !handlers[filename]) return;
@@ -162,7 +176,7 @@ export class DaemonServer {
         this.debounceTimers.set(filename, timer);
       });
       this.watchers.push(watcher);
-      log.info({ dir: dataDir }, 'Watching data directory for config/trust changes');
+      log.info({ dir: dataDir }, 'Watching data directory for config/trust/prompt changes');
     } catch (err) {
       log.warn({ err }, 'Failed to watch data directory');
     }
