@@ -117,7 +117,8 @@ function macosGetKey(account: string): string | undefined {
       timeout: 5000,
       encoding: 'utf-8',
     });
-    return result.trim() || undefined;
+    // Strip only the trailing newline added by the security CLI
+    return result.replace(/\n$/, '') || undefined;
   } catch {
     // Item not found (exit code 44) or other error
     return undefined;
@@ -125,17 +126,17 @@ function macosGetKey(account: string): string | undefined {
 }
 
 function macosSetKey(account: string, value: string): boolean {
-  // Delete first to avoid "already exists" errors on update
-  macosDeleteKey(account);
+  // -U flag handles update-if-exists, no need to delete first
   try {
     execFileSync('security', [
       'add-generic-password',
       '-s', SERVICE_NAME,
       '-a', account,
-      '-w', value,
+      '-w', // read password from stdin (avoids exposing in process args)
       '-U', // update if exists
     ], {
-      stdio: ['ignore', 'ignore', 'ignore'],
+      input: value,
+      stdio: ['pipe', 'ignore', 'ignore'],
       timeout: 5000,
     });
     return true;
@@ -175,7 +176,8 @@ function linuxGetKey(account: string): string | undefined {
       timeout: 5000,
       encoding: 'utf-8',
     });
-    return result.trim() || undefined;
+    // Strip only the trailing newline added by secret-tool
+    return result.replace(/\n$/, '') || undefined;
   } catch {
     return undefined;
   }
