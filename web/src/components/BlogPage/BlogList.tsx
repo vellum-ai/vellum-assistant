@@ -43,25 +43,25 @@ const FILTER_CATEGORIES = [
 
 const CATEGORY_STYLES: Record<string, { color: string; bgColor: string; icon?: string }> = {
   "Product Updates": {
-    color: "#12b76a",
-    bgColor: "#ecfdf5",
+    color: "#4ade80",
+    bgColor: "rgba(74, 222, 128, 0.15)",
     icon: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/66f51fbc4ccaf48d43a691b6_Icon.svg",
   },
   "Guides": {
-    color: "#6860ff",
-    bgColor: "#f0f0ff",
+    color: "#a29dff",
+    bgColor: "rgba(162, 157, 255, 0.15)",
   },
   "LLM basics": {
-    color: "#f79009",
-    bgColor: "#fffaeb",
+    color: "#fbbf24",
+    bgColor: "rgba(251, 191, 36, 0.15)",
   },
   "Customer Stories": {
-    color: "#0ea5e9",
-    bgColor: "#f0f9ff",
+    color: "#38bdf8",
+    bgColor: "rgba(56, 189, 248, 0.15)",
   },
   "Model Comparisons": {
-    color: "#8b5cf6",
-    bgColor: "#f5f3ff",
+    color: "#c084fc",
+    bgColor: "rgba(192, 132, 252, 0.15)",
   },
 };
 
@@ -69,22 +69,20 @@ const POSTS_PER_PAGE = 12;
 
 function BlogPostCard({ post }: { post: BlogPost }) {
   const categoryStyle = CATEGORY_STYLES[post.category];
-  const hasCustomCategory = categoryStyle?.color && categoryStyle?.bgColor;
-  const tagStyle = hasCustomCategory
+  const tagStyle = categoryStyle
     ? { color: categoryStyle.color, backgroundColor: categoryStyle.bgColor }
-    : { color: "#667085", backgroundColor: "#f2f4f7" };
+    : { color: "#94969c", backgroundColor: "rgba(148, 150, 156, 0.15)" };
 
   return (
     <article 
-      className="blog_coll_item"
       style={{
         display: "flex",
         flexDirection: "column",
         borderRadius: "12px",
         overflow: "hidden",
-        backgroundColor: "#fff",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-        transition: "box-shadow 0.2s ease, transform 0.2s ease",
+        backgroundColor: "#1a1a1a",
+        border: "1px solid #262626",
+        transition: "border-color 0.2s ease, transform 0.2s ease",
         position: "relative",
       }}
     >
@@ -116,14 +114,14 @@ function BlogPostCard({ post }: { post: BlogPost }) {
             )}
             {post.category}
           </span>
-          <span style={{ fontSize: "0.75rem", color: "#667085" }}>
+          <span style={{ fontSize: "0.75rem", color: "#71717a" }}>
             {post.formattedDate} • {post.readTime}
           </span>
         </div>
         <h3 style={{ 
           fontSize: "1rem", 
           fontWeight: "600", 
-          color: "#101828", 
+          color: "#ffffff", 
           lineHeight: "1.4",
           margin: 0,
           display: "-webkit-box",
@@ -178,9 +176,9 @@ export function BlogList({ posts }: BlogListProps) {
           display: "inline-flex",
           gap: "0.5rem",
           padding: "0.5rem",
-          backgroundColor: "#f9fafb",
+          backgroundColor: "#1a1a1a",
           borderRadius: "9999px",
-          border: "1px solid #e5e7eb",
+          border: "1px solid #262626",
         }}>
           {FILTER_CATEGORIES.map((cat) => {
             const isActive = selectedCategory === cat.label;
@@ -196,12 +194,11 @@ export function BlogList({ posts }: BlogListProps) {
                   padding: "0.625rem 1rem",
                   borderRadius: "9999px",
                   border: "none",
-                  backgroundColor: isActive ? "#fff" : "transparent",
-                  boxShadow: isActive ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                  backgroundColor: isActive ? "rgba(104, 96, 255, 0.2)" : "transparent",
                   cursor: "pointer",
                   fontSize: "0.875rem",
                   fontWeight: isActive ? "600" : "500",
-                  color: isActive ? "#101828" : "#667085",
+                  color: isActive ? "#a29dff" : "#94969c",
                   transition: "all 0.15s ease",
                 }}
               >
@@ -211,7 +208,7 @@ export function BlogList({ posts }: BlogListProps) {
                   width={18} 
                   height={18} 
                   unoptimized
-                  style={{ opacity: isActive ? 1 : 0.7 }}
+                  style={{ opacity: isActive ? 1 : 0.6 }}
                 />
                 {cat.label}
               </button>
@@ -224,9 +221,9 @@ export function BlogList({ posts }: BlogListProps) {
       <div style={{ 
         marginBottom: "1.5rem", 
         fontSize: "0.875rem", 
-        color: "#667085",
+        color: "#71717a",
       }}>
-        <span style={{ fontWeight: "600", color: "#101828" }}>{filteredPosts.length}</span>
+        <span style={{ fontWeight: "600", color: "#ffffff" }}>{filteredPosts.length}</span>
         {" / "}
         {posts.length} posts
       </div>
@@ -248,7 +245,7 @@ export function BlogList({ posts }: BlogListProps) {
         <div style={{ 
           padding: "4rem 2rem", 
           textAlign: "center",
-          color: "#667085",
+          color: "#71717a",
         }}>
           <p>No posts found in this category.</p>
         </div>
@@ -270,9 +267,9 @@ export function BlogList({ posts }: BlogListProps) {
             style={{ 
               padding: "0.5rem 0.75rem",
               borderRadius: "0.375rem",
-              border: "1px solid #e5e7eb",
-              backgroundColor: "#fff",
-              color: currentPage === 1 ? "#d1d5db" : "#374151",
+              border: "1px solid #333",
+              backgroundColor: "#1a1a1a",
+              color: currentPage === 1 ? "#4a4a4a" : "#e4e4e7",
               cursor: currentPage === 1 ? "not-allowed" : "pointer",
               fontSize: "0.875rem",
               fontWeight: "500",
@@ -304,7 +301,7 @@ export function BlogList({ posts }: BlogListProps) {
                     borderRadius: "0.375rem",
                     border: currentPage === pageNum ? "none" : "1px solid transparent",
                     backgroundColor: currentPage === pageNum ? "#6860ff" : "transparent",
-                    color: currentPage === pageNum ? "#fff" : "#374151",
+                    color: currentPage === pageNum ? "#fff" : "#94969c",
                     cursor: "pointer",
                     fontSize: "0.875rem",
                     fontWeight: currentPage === pageNum ? "600" : "500",
@@ -322,9 +319,9 @@ export function BlogList({ posts }: BlogListProps) {
             style={{ 
               padding: "0.5rem 0.75rem",
               borderRadius: "0.375rem",
-              border: "1px solid #e5e7eb",
-              backgroundColor: "#fff",
-              color: currentPage === totalPages ? "#d1d5db" : "#374151",
+              border: "1px solid #333",
+              backgroundColor: "#1a1a1a",
+              color: currentPage === totalPages ? "#4a4a4a" : "#e4e4e7",
               cursor: currentPage === totalPages ? "not-allowed" : "pointer",
               fontSize: "0.875rem",
               fontWeight: "500",
