@@ -1,33 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 
-// Mock logger before importing modules
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
-}));
-
-// Mock secure-keys
-mock.module('../security/secure-keys.js', () => ({
-  getSecureKey: () => undefined,
-  setSecureKey: () => true,
-  deleteSecureKey: () => true,
-}));
-
-// Mock config loader
-mock.module('../config/loader.js', () => ({
-  getConfig: () => ({ apiKeys: {} }),
-  loadConfig: () => ({ apiKeys: {} }),
-}));
-
-// Mock registry so side-effect registration doesn't fail
-mock.module('../tools/registry.js', () => ({
-  registerTool: () => {},
-}));
-
-// Import the module to trigger registration side effects
-await import('../tools/network/web-search.js');
+// No mock.module calls — this test file uses its own inline executeWebSearch
+// helper and does not import any production modules.  Stray mock.module calls
+// here leak into the shared Bun test process and break other test files.
 
 describe('WebSearchTool', () => {
   const originalEnv = process.env;

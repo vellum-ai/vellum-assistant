@@ -23,6 +23,12 @@ const recordedInvocations: unknown[] = [];
 mock.module('../config/loader.js', () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
+  invalidateConfigCache: () => {},
+  saveConfig: () => {},
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
 }));
 
 mock.module('../util/logger.js', () => ({
@@ -66,9 +72,11 @@ mock.module('../tools/filesystem/path-guard.js', () => ({
 mock.module('../tools/terminal/sandbox.js', () => ({
   wrapCommand: () => ({ command: '', sandboxed: false }),
 }));
-mock.module('../permissions/trust-store.js', () => ({
-  addRule: () => {},
-}));
+// NOTE: trust-store.js is intentionally NOT mocked here.  The executor only
+// calls addRule() in the always_allow / always_deny code paths, which these
+// tests never exercise (the mock checker always returns 'allow').  Mocking
+// trust-store here would leak a stub addRule into trust-store.test.ts via
+// Bun's process-global mock.module, breaking its 22 tests.
 
 // Now import the module under test — mocks are already in place
 import { ToolExecutor } from '../tools/executor.js';

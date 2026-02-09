@@ -1,5 +1,5 @@
-import { describe, test, expect, beforeAll, beforeEach, afterAll, mock } from 'bun:test';
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
+import { describe, test, expect, beforeAll, beforeEach, mock } from 'bun:test';
+import { mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
@@ -21,6 +21,7 @@ mock.module('../util/logger.js', () => ({
 mock.module('../util/platform.js', () => ({
   getDataDir: () => TEST_DIR,
   getDbPath: () => DB_PATH,
+  getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
   ensureDataDir: () => {
     if (!existsSync(TEST_DIR)) mkdirSync(TEST_DIR, { recursive: true });
   },
@@ -66,19 +67,21 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 describe('audit log rotation', () => {
   beforeAll(() => {
-    mkdirSync(TEST_DIR, { recursive: true });
+    mkdirSync(join(TEST_DIR, 'logs'), { recursive: true });
     initializeDb();
+    // Insert a conversations row so FK-enforced ORM inserts succeed
+    const db = new Database(DB_PATH);
+    db.run(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 'test', ${Date.now()}, ${Date.now()})`);
+    db.close();
   });
 
   beforeEach(() => {
     clearTable();
   });
 
-  afterAll(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true });
-    }
-  });
+  // TEST_DIR is in os.tmpdir() — let the OS handle cleanup.
+  // Deleting it here would trigger ENOENT in other test files because
+  // the platform.js mock leaks getDataDir() → TEST_DIR globally.
 
   test('returns 0 when retentionDays is 0 (retain forever)', () => {
     addInvocation(100 * ONE_DAY_MS); // 100 days old

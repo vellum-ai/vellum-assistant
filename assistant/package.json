@@ -10,7 +10,7 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "lint": "eslint",
-    "test": "bun test"
+    "test": "bash scripts/test.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
