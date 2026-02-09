@@ -1,4 +1,4 @@
-import { resolve, relative } from 'node:path';
+import { resolve, relative, dirname, basename, join } from 'node:path';
 import { realpathSync } from 'node:fs';
 
 /**
@@ -9,8 +9,8 @@ import { realpathSync } from 'node:fs';
  *
  * For existing paths, symlinks are resolved via realpathSync so a symlink
  * pointing outside the boundary is caught. For new paths (file_write),
- * the caller should pass `mustExist: false` to skip the realpath check —
- * the lexical prefix check still catches `../` traversal.
+ * the caller should pass `mustExist: false` — the nearest existing ancestor
+ * directory is resolved via realpathSync to catch symlinks in parent dirs.
  */
 export function validateFilePath(
   rawPath: string,
@@ -22,7 +22,10 @@ export function validateFilePath(
   // Resolve to absolute path (handles relative paths and ..)
   const resolved = resolve(workingDir, rawPath);
 
-  // For existing files, resolve symlinks to catch symlink-based escapes
+  // Resolve symlinks to catch symlink-based escapes.
+  // For mustExist=false (file_write), walk up to the nearest existing
+  // ancestor and resolve it, then re-append the trailing components.
+  // This prevents symlink directories from escaping the boundary.
   let realResolved = resolved;
   if (mustExist) {
     try {
@@ -30,6 +33,19 @@ export function validateFilePath(
     } catch {
       // File doesn't exist — will be caught by the tool's own existence check
       realResolved = resolved;
+    }
+  } else {
+    let current = resolved;
+    const trailing: string[] = [];
+    while (current !== dirname(current)) {
+      try {
+        const real = realpathSync(current);
+        realResolved = trailing.length > 0 ? join(real, ...trailing) : real;
+        break;
+      } catch {
+        trailing.unshift(basename(current));
+        current = dirname(current);
+      }
     }
   }
 
