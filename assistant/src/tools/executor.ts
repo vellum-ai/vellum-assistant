@@ -135,18 +135,6 @@ export class ToolExecutor {
       // Execute the tool
       const execResult = await tool.execute(input, context);
 
-      if (debug) {
-        const execDurationMs = Date.now() - startTime;
-        log.debug({
-          tool: name,
-          execDurationMs,
-          riskLevel,
-          decision,
-          isError: execResult.isError,
-          output: truncateForLog(execResult.content, 300),
-        }, 'Tool execute result');
-      }
-
       // Secret detection on tool output
       const sdConfig = getConfig().secretDetection;
       if (sdConfig.enabled && !execResult.isError) {
@@ -201,6 +189,18 @@ export class ToolExecutor {
             };
           }
         }
+      }
+
+      if (debug) {
+        const execDurationMs = Date.now() - startTime;
+        log.debug({
+          tool: name,
+          execDurationMs,
+          riskLevel,
+          decision,
+          isError: execResult.isError,
+          output: truncateForLog(execResult.content, 300),
+        }, 'Tool execute result');
       }
 
       const durationMs = Date.now() - startTime;
