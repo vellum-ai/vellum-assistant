@@ -537,4 +537,156 @@ program
     }
   });
 
+// --- Completions command ---
+program
+  .command('completions')
+  .argument('<shell>', 'Shell type: bash, zsh, or fish')
+  .description('Generate shell completion script (e.g. vellum completions bash >> ~/.bashrc)')
+  .action((shell: string) => {
+    const subcommands: Record<string, string[]> = {
+      daemon: ['start', 'stop', 'restart', 'status'],
+      sessions: ['list', 'new', 'export'],
+      config: ['set', 'get', 'list'],
+      keys: ['list', 'set', 'delete'],
+      trust: ['list', 'remove', 'clear'],
+    };
+    const topLevel = [
+      'daemon', 'sessions', 'config', 'keys', 'trust',
+      'audit', 'doctor', 'completions', 'help',
+    ];
+
+    switch (shell) {
+      case 'bash':
+        process.stdout.write(generateBashCompletion(topLevel, subcommands));
+        break;
+      case 'zsh':
+        process.stdout.write(generateZshCompletion(topLevel, subcommands));
+        break;
+      case 'fish':
+        process.stdout.write(generateFishCompletion(topLevel, subcommands));
+        break;
+      default:
+        console.error(`Unknown shell: ${shell}. Supported shells: bash, zsh, fish`);
+        process.exit(1);
+    }
+  });
+
+function generateBashCompletion(
+  topLevel: string[],
+  subcommands: Record<string, string[]>,
+): string {
+  const subcmdCases = Object.entries(subcommands)
+    .map(([cmd, subs]) => `        ${cmd}) COMPREPLY=( $(compgen -W "${subs.join(' ')}" -- "$cur") ) ;;`)
+    .join('\n');
+
+  return `# vellum bash completion
+# Add to ~/.bashrc: eval "$(vellum completions bash)"
+_vellum_completions() {
+    local cur prev words cword
+    _init_completion || return
+
+    if [[ $cword -eq 1 ]]; then
+        COMPREPLY=( $(compgen -W "${topLevel.join(' ')} --help --version --no-sandbox" -- "$cur") )
+        return
+    fi
+
+    case "\${words[1]}" in
+${subcmdCases}
+        audit) COMPREPLY=( $(compgen -W "--limit -l" -- "$cur") ) ;;
+        completions) COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ) ;;
+    esac
+}
+complete -F _vellum_completions vellum
+`;
+}
+
+function generateZshCompletion(
+  topLevel: string[],
+  subcommands: Record<string, string[]>,
+): string {
+  const subcmdCases = Object.entries(subcommands)
+    .map(([cmd, subs]) => `        ${cmd}) compadd ${subs.join(' ')} ;;`)
+    .join('\n');
+
+  return `#compdef vellum
+# vellum zsh completion
+# Add to ~/.zshrc: eval "$(vellum completions zsh)"
+_vellum() {
+    local -a commands
+    commands=(
+        'daemon:Manage the daemon process'
+        'sessions:Manage sessions'
+        'config:Manage configuration'
+        'keys:Manage API keys in secure storage'
+        'trust:Manage trust rules'
+        'audit:Show recent tool invocations'
+        'doctor:Run diagnostic checks'
+        'completions:Generate shell completion script'
+        'help:Display help'
+    )
+
+    if (( CURRENT == 2 )); then
+        _describe 'command' commands
+        _arguments '--help[Show help]' '--version[Show version]' '--no-sandbox[Disable sandbox]'
+        return
+    fi
+
+    case "\${words[2]}" in
+${subcmdCases}
+        audit) _arguments '-l[Number of entries]' '--limit[Number of entries]' ;;
+        completions) compadd bash zsh fish ;;
+    esac
+}
+_vellum "$@"
+`;
+}
+
+function generateFishCompletion(
+  topLevel: string[],
+  subcommands: Record<string, string[]>,
+): string {
+  let script = `# vellum fish completion
+# Add to ~/.config/fish/completions/vellum.fish or eval: vellum completions fish | source
+`;
+
+  // Disable file completions
+  script += `complete -c vellum -f\n`;
+
+  // Top-level commands
+  const descriptions: Record<string, string> = {
+    daemon: 'Manage the daemon process',
+    sessions: 'Manage sessions',
+    config: 'Manage configuration',
+    keys: 'Manage API keys in secure storage',
+    trust: 'Manage trust rules',
+    audit: 'Show recent tool invocations',
+    doctor: 'Run diagnostic checks',
+    completions: 'Generate shell completion script',
+    help: 'Display help',
+  };
+
+  for (const cmd of topLevel) {
+    const desc = descriptions[cmd] ?? '';
+    script += `complete -c vellum -n '__fish_use_subcommand' -a '${cmd}' -d '${desc}'\n`;
+  }
+  script += `complete -c vellum -n '__fish_use_subcommand' -l help -d 'Show help'\n`;
+  script += `complete -c vellum -n '__fish_use_subcommand' -l version -d 'Show version'\n`;
+  script += `complete -c vellum -n '__fish_use_subcommand' -l no-sandbox -d 'Disable sandbox'\n`;
+
+  // Subcommands
+  for (const [cmd, subs] of Object.entries(subcommands)) {
+    for (const sub of subs) {
+      script += `complete -c vellum -n '__fish_seen_subcommand_from ${cmd}' -a '${sub}'\n`;
+    }
+  }
+
+  // Audit options
+  script += `complete -c vellum -n '__fish_seen_subcommand_from audit' -s l -l limit -d 'Number of entries'\n`;
+
+  // Completions shell argument
+  script += `complete -c vellum -n '__fish_seen_subcommand_from completions' -a 'bash zsh fish'\n`;
+
+  return script;
+}
+
 program.parse();
