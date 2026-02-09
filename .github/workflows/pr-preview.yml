@@ -2,7 +2,7 @@ name: PR Preview Environment
 
 on:
   pull_request:
-    types: [labeled, synchronize, closed]
+    types: [labeled, unlabeled, synchronize, closed]
 
 permissions:
   id-token: write
@@ -16,7 +16,7 @@ env:
 
 jobs:
   check-preview-label:
-    if: github.event.action == 'labeled' || github.event.action == 'synchronize'
+    if: github.event.action == 'labeled' || github.event.action == 'synchronize' || github.event.action == 'closed'
     runs-on: ubuntu-latest
     outputs:
       has-preview-label: ${{ steps.check-label.outputs.has-preview-label }}
@@ -176,18 +176,34 @@ jobs:
           echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> $GITHUB_OUTPUT
           echo "BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET" >> $GITHUB_OUTPUT
 
+      - name: Create service account
+        run: envsubst < .github/k8s-previews/serviceaccount.yaml | kubectl apply -f -
+        env:
+          NAMESPACE: ${{ needs.setup-environment.outputs.namespace }}
+
+      - name: Configure Workload Identity binding
+        run: |
+          gcloud iam service-accounts add-iam-policy-binding \
+            vellum-previews-app@vellum-nonprod.iam.gserviceaccount.com \
+            --role roles/iam.workloadIdentityUser \
+            --member "serviceAccount:vellum-nonprod.svc.id.goog[${{ needs.setup-environment.outputs.namespace }}/vellum-assistant]"
+
+      - name: Create K8s secrets
+        run: envsubst < .github/k8s-previews/secrets.yaml | kubectl apply -f -
+        env:
+          NAMESPACE: ${{ needs.setup-environment.outputs.namespace }}
+          DATABASE_URL: postgresql://assistant_${{ needs.setup-environment.outputs.namespace }}:password@localhost:5432/assistant_${{ needs.setup-environment.outputs.namespace }}
+          ANTHROPIC_API_KEY: ${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}
+          BETTER_AUTH_SECRET: ${{ steps.secrets.outputs.BETTER_AUTH_SECRET }}
+
       - name: Deploy application
         run: |
-          NAMESPACE="${{ needs.setup-environment.outputs.namespace }}"
           envsubst < .github/k8s-previews/deployment.yaml | kubectl apply -f -
           envsubst < .github/k8s-previews/service.yaml | kubectl apply -f -
           envsubst < .github/k8s-previews/virtualservice.yaml | kubectl apply -f -
         env:
           NAMESPACE: ${{ needs.setup-environment.outputs.namespace }}
           IMAGE_TAG: pr-${{ github.event.pull_request.number }}
-          DATABASE_URL: postgresql://assistant_${{ needs.setup-environment.outputs.namespace }}:password@vellum-previews-postgres:5432/assistant_${{ needs.setup-environment.outputs.namespace }}
-          ANTHROPIC_API_KEY: ${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}
-          BETTER_AUTH_SECRET: ${{ steps.secrets.outputs.BETTER_AUTH_SECRET }}
 
       - name: Wait for rollout
         run: |
@@ -237,10 +253,18 @@ jobs:
         with:
           project_id: vellum-nonprod
 
+      - name: Start CloudSQL Auth Proxy
+        run: |
+          curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.1/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          ./cloud-sql-proxy vellum-nonprod:us-central1:vellum-previews-postgres --port=5432 &
+          sleep 3
+        working-directory: /tmp
+
       - name: Push schema to preview database
         run: bun run db:push
         env:
-          DATABASE_URL: postgresql://assistant_${{ needs.setup-environment.outputs.namespace }}:password@vellum-previews-postgres:5432/assistant_${{ needs.setup-environment.outputs.namespace }}
+          DATABASE_URL: postgresql://assistant_${{ needs.setup-environment.outputs.namespace }}:password@localhost:5432/assistant_${{ needs.setup-environment.outputs.namespace }}
 
   comment-preview-link:
     needs: [setup-environment, deploy, run-migrations]
@@ -315,16 +339,20 @@ jobs:
           echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> $GITHUB_OUTPUT
           echo "BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET" >> $GITHUB_OUTPUT
 
+      - name: Update K8s secrets
+        run: envsubst < .github/k8s-previews/secrets.yaml | kubectl apply -f -
+        env:
+          NAMESPACE: ${{ needs.check-preview-label.outputs.namespace }}
+          DATABASE_URL: postgresql://assistant_${{ needs.check-preview-label.outputs.namespace }}:password@localhost:5432/assistant_${{ needs.check-preview-label.outputs.namespace }}
+          ANTHROPIC_API_KEY: ${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}
+          BETTER_AUTH_SECRET: ${{ steps.secrets.outputs.BETTER_AUTH_SECRET }}
+
       - name: Update deployment
         run: |
-          NAMESPACE="${{ needs.check-preview-label.outputs.namespace }}"
           envsubst < .github/k8s-previews/deployment.yaml | kubectl apply -f -
         env:
           NAMESPACE: ${{ needs.check-preview-label.outputs.namespace }}
           IMAGE_TAG: pr-${{ github.event.pull_request.number }}
-          DATABASE_URL: postgresql://assistant_${{ needs.check-preview-label.outputs.namespace }}:password@vellum-previews-postgres:5432/assistant_${{ needs.check-preview-label.outputs.namespace }}
-          ANTHROPIC_API_KEY: ${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}
-          BETTER_AUTH_SECRET: ${{ steps.secrets.outputs.BETTER_AUTH_SECRET }}
 
       - name: Restart and wait for rollout
         run: |
@@ -332,13 +360,11 @@ jobs:
           kubectl rollout restart deployment/vellum-assistant -n $NAMESPACE
           kubectl rollout status deployment/vellum-assistant -n $NAMESPACE --timeout=300s
 
-      - name: Run migrations
-        run: |
-          NAMESPACE="${{ needs.check-preview-label.outputs.namespace }}"
-          kubectl wait --for=condition=ready pod -l app=vellum-assistant -n $NAMESPACE --timeout=300s
-
   cleanup-preview:
-    if: github.event.action == 'closed' || (github.event.action == 'unlabeled' && github.event.label.name == 'preview')
+    needs: check-preview-label
+    if: |
+      (github.event.action == 'closed' && needs.check-preview-label.outputs.has-preview-label == 'true') ||
+      (github.event.action == 'unlabeled' && github.event.label.name == 'preview')
     runs-on: ubuntu-latest
     steps:
       - name: Set up GCP auth
@@ -365,6 +391,15 @@ jobs:
         run: |
           NS=pr-${{ github.event.pull_request.number }}
           echo "NAMESPACE=$NS" >> $GITHUB_ENV
+
+      - name: Remove Workload Identity binding
+        run: |
+          gcloud iam service-accounts remove-iam-policy-binding \
+            vellum-previews-app@vellum-nonprod.iam.gserviceaccount.com \
+            --role roles/iam.workloadIdentityUser \
+            --member "serviceAccount:vellum-nonprod.svc.id.goog[${{ env.NAMESPACE }}/vellum-assistant]" \
+            --quiet || true
+        continue-on-error: true
 
       - name: Delete namespace and all resources
         run: kubectl delete namespace ${{ env.NAMESPACE }} --ignore-not-found=true

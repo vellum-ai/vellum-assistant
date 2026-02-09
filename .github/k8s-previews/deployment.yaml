@@ -15,6 +15,7 @@ spec:
       labels:
         app: vellum-assistant
     spec:
+      serviceAccountName: vellum-assistant
       containers:
         - name: web
           image: gcr.io/vellum-nonprod/vellum-assistant:${IMAGE_TAG}
@@ -23,14 +24,23 @@ spec:
           env:
             - name: NODE_ENV
               value: production
-            - name: DATABASE_URL
-              value: ${DATABASE_URL}
-            - name: ANTHROPIC_API_KEY
-              value: ${ANTHROPIC_API_KEY}
-            - name: BETTER_AUTH_SECRET
-              value: ${BETTER_AUTH_SECRET}
             - name: BETTER_AUTH_URL
               value: http://${NAMESPACE}.assistant-previews.vellum.ai
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vellum-assistant-secrets
+                  key: DATABASE_URL
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vellum-assistant-secrets
+                  key: ANTHROPIC_API_KEY
+            - name: BETTER_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: vellum-assistant-secrets
+                  key: BETTER_AUTH_SECRET
           resources:
             requests:
               cpu: 100m
@@ -50,3 +60,19 @@ spec:
               port: 3000
             initialDelaySeconds: 30
             periodSeconds: 10
+        - name: cloud-sql-proxy
+          image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1
+          args:
+            - "--structured-logs"
+            - "--auto-iam-authn"
+            - "vellum-nonprod:us-central1:vellum-previews-postgres"
+            - "--port=5432"
+          securityContext:
+            runAsNonRoot: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
