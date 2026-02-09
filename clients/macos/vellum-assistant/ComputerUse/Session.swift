@@ -103,6 +103,7 @@ final class ComputerUseSession: ObservableObject {
             var axDiffText: String?
             var secondaryWindowsText: String?
             var primaryPID: pid_t?
+            var currentAppName: String?
 
             if let result = enumerator.enumerateCurrentWindow() {
                 // On first step with Chrome: check if web content is visible.
@@ -133,6 +134,7 @@ final class ComputerUseSession: ObservableObject {
                     appName: result.appName
                 )
                 elements = result.elements
+                currentAppName = result.appName
                 let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
                 let interactiveCount = flat.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
                 log.info("[\(stepNumber)] AX tree: \(result.appName) — \"\(result.windowTitle)\" — \(flat.count) elements (\(interactiveCount) interactive)")
@@ -260,6 +262,17 @@ final class ComputerUseSession: ObservableObject {
                 continue
             }
 
+            // 4.5. NO-OP DETECTION — skip execution for actions that would have no effect
+            if let noOpReason = detectNoOp(action, currentAppName: currentAppName) {
+                log.info("[\(stepNumber)] NO-OP: \(noOpReason)")
+                let record = ActionRecord(step: stepNumber, action: action, result: "NO-OP: \(noOpReason). What action would you like to take?", timestamp: Date())
+                actionHistory.append(record)
+                state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: "\(action.displayDescription) (skipped)", reasoning: action.reasoning)
+                previousAXTreeText = axTreeText
+                previousElements = elements
+                continue
+            }
+
             // 5. EXECUTE
             do {
                 try await executor.execute(action)
@@ -296,14 +309,24 @@ final class ComputerUseSession: ObservableObject {
 
     // MARK: - Adaptive Delay
 
-    /// Poll the AX tree until it changes or a max wait is reached.
-    /// Returns as soon as the tree differs from `previousTree`, ensuring minimum delay.
+    /// Poll the AX tree until it changes or stabilizes.
+    /// Returns early when:
+    /// 1. The tree differs from `previousTree` (action took effect)
+    /// 2. The tree has been identical for `stableExitThreshold` consecutive polls (UI is stable)
+    /// 3. `maxPollCount` polls are exhausted
+    /// 4. `maxDelayMs` timeout is reached
     private func waitForUISettle(previousTree: String?) async {
         // Always wait the minimum delay to let CGEvents propagate
         try? await Task.sleep(nanoseconds: minDelayMs * 1_000_000)
 
         var elapsed = minDelayMs
-        while elapsed < maxDelayMs && !isCancelled {
+        var consecutiveStablePolls = 0
+        var lastPollTree: String? = previousTree
+        var pollCount = 0
+        let maxPollCount = 10
+        let stableExitThreshold = 3
+
+        while elapsed < maxDelayMs && !isCancelled && pollCount < maxPollCount {
             // Quick check if the AX tree has changed
             if let result = enumerator.enumerateCurrentWindow() {
                 let currentTree = AccessibilityTreeEnumerator.formatAXTree(
@@ -311,17 +334,62 @@ final class ComputerUseSession: ObservableObject {
                     windowTitle: result.windowTitle,
                     appName: result.appName
                 )
+
+                // Exit: tree changed from pre-action state (action took effect)
                 if currentTree != previousTree {
                     log.debug("UI settled after \(elapsed)ms (tree changed)")
+                    return
+                }
+
+                // Track consecutive identical polls for early stability exit
+                if currentTree == lastPollTree {
+                    consecutiveStablePolls += 1
+                } else {
+                    consecutiveStablePolls = 0
+                }
+                lastPollTree = currentTree
+
+                // If tree has been identical for N consecutive polls, UI is stable — no point waiting
+                if consecutiveStablePolls >= stableExitThreshold {
+                    log.debug("UI stable after \(elapsed)ms (\(consecutiveStablePolls) identical polls, no changes)")
                     return
                 }
             }
 
             try? await Task.sleep(nanoseconds: pollIntervalMs * 1_000_000)
             elapsed += pollIntervalMs
+            pollCount += 1
         }
 
-        log.debug("UI settle timeout after \(elapsed)ms")
+        log.debug("UI settle timeout after \(elapsed)ms (polls: \(pollCount))")
+    }
+
+    // MARK: - No-Op Detection
+
+    /// Detect if an action would be a no-op (e.g., opening an app that's already frontmost).
+    /// Returns a human-readable reason if no-op, nil if the action should proceed normally.
+    private func detectNoOp(_ action: AgentAction, currentAppName: String?) -> String? {
+        guard action.type == .openApp,
+              let requestedApp = action.appName,
+              let currentApp = currentAppName else {
+            return nil
+        }
+
+        let requestedLower = requestedApp.lowercased()
+        let currentLower = currentApp.lowercased()
+
+        // Direct name match
+        if requestedLower == currentLower {
+            return "\(currentApp) is already the frontmost app"
+        }
+
+        // Alias match (e.g., "chrome" → "Google Chrome")
+        if let resolvedName = ActionExecutor.appAliases[requestedLower],
+           resolvedName.lowercased() == currentLower {
+            return "\(currentApp) is already the frontmost app"
+        }
+
+        return nil
     }
 
     // MARK: - Control

@@ -36,7 +36,11 @@ final class ScreenCapture: ScreenCaptureProviding {
             throw CaptureError.permissionDenied
         }
 
-        guard let display = content.displays.first else {
+        // Match the main display (CGMainDisplayID) so screenshots align with AX tree coordinates.
+        // content.displays.first is arbitrary and may return an external monitor.
+        let mainDisplayID = CGMainDisplayID()
+        guard let display = content.displays.first(where: { $0.displayID == mainDisplayID })
+                ?? content.displays.first else {
             throw CaptureError.noDisplay
         }
 

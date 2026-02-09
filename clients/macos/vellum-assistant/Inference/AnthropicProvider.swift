@@ -60,6 +60,7 @@ final class AnthropicProvider: ActionInferenceProvider {
         RULES:
         - Call exactly one tool per turn. After each action, you'll receive the updated screen state.
         - ALWAYS use element_id to target elements from the accessibility tree. Only fall back to x,y coordinates if no tree is available.
+        - If the accessibility tree already shows you're in the correct app, do NOT call open_app again — proceed directly with your intended interaction (e.g., click an element, use a keyboard shortcut).
         - Use the wait tool when you need to pause for UI to update (e.g. after clicking a button that loads content).
         - FORM FIELD WORKFLOW: To fill a text field, first click it (by element_id) to focus it, then call type_text. If a field already shows "FOCUSED", skip the click and type immediately.
         - After typing, verify in the next turn that the text appeared correctly.
@@ -112,10 +113,10 @@ final class AnthropicProvider: ActionInferenceProvider {
         if let diff = axDiff, !history.isEmpty {
             textParts.append(diff)
             textParts.append("")
-        } else if let prevTree = previousAXTree, !history.isEmpty {
-            // Fall back to full previous tree if diff unavailable
-            textParts.append("SCREEN STATE BEFORE YOUR LAST ACTION:")
-            textParts.append(prevTree)
+        } else if previousAXTree != nil && !history.isEmpty {
+            // AX tree unchanged — send compact note instead of duplicating the full tree
+            textParts.append("CHANGES SINCE LAST ACTION:")
+            textParts.append("No visible changes detected — the UI is identical to the previous step.")
             textParts.append("")
         }
 

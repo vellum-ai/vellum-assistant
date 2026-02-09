@@ -548,6 +548,101 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(executor.executedActions[0].appName, "Slack")
     }
 
+    // MARK: - No-Op Detection
+
+    @MainActor
+    func testOpenApp_noOp_skipsExecution() async {
+        // Model emits openApp for the app that's already frontmost (TestApp from mock enumerator)
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .openApp, reasoning: "Open TestApp", appName: "TestApp"),
+            AgentAction(type: .done, reasoning: "done", summary: "Completed after no-op")
+        ])
+        let executor = MockActionExecutor()
+        let session = makeSession(provider: provider, executor: executor)
+
+        await session.run()
+
+        if case .completed(let summary, let steps) = session.state {
+            XCTAssertEqual(steps, 2)
+            XCTAssertEqual(summary, "Completed after no-op")
+        } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+
+        // Executor should NOT have received the open_app action (it was a no-op)
+        XCTAssertEqual(executor.executedActions.count, 0)
+    }
+
+    @MainActor
+    func testOpenApp_noOp_caseInsensitive() async {
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .openApp, reasoning: "Open testapp", appName: "testapp"),
+            AgentAction(type: .done, reasoning: "done", summary: "Completed")
+        ])
+        let executor = MockActionExecutor()
+        let session = makeSession(provider: provider, executor: executor)
+
+        await session.run()
+
+        if case .completed(_, _) = session.state {
+            // Good
+        } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+
+        // No-op: "testapp" matches "TestApp" (case-insensitive)
+        XCTAssertEqual(executor.executedActions.count, 0)
+    }
+
+    @MainActor
+    func testOpenApp_noOp_aliasMatch() async {
+        // "chrome" is an alias for "Google Chrome"
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .openApp, reasoning: "Open Chrome", appName: "chrome"),
+            AgentAction(type: .done, reasoning: "done", summary: "Completed")
+        ])
+        let executor = MockActionExecutor()
+        let enumerator = MockAccessibilityTreeEnumerator(
+            result: (elements: makeTestElements(), windowTitle: "New Tab", appName: "Google Chrome")
+        )
+        let session = makeSession(provider: provider, enumerator: enumerator, executor: executor)
+
+        await session.run()
+
+        if case .completed(_, _) = session.state {
+            // Good
+        } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+
+        // No-op: "chrome" resolves to "Google Chrome" which matches the frontmost app
+        XCTAssertEqual(executor.executedActions.count, 0)
+    }
+
+    @MainActor
+    func testOpenApp_differentApp_executesNormally() async {
+        // Model opens a DIFFERENT app — should execute normally
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .openApp, reasoning: "Open Safari", appName: "Safari"),
+            AgentAction(type: .done, reasoning: "done", summary: "Opened Safari")
+        ])
+        let executor = MockActionExecutor()
+        let session = makeSession(provider: provider, executor: executor)
+
+        await session.run()
+
+        if case .completed(_, _) = session.state {
+            // Good
+        } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+
+        // Different app — executor SHOULD have received the open_app action
+        XCTAssertEqual(executor.executedActions.count, 1)
+        XCTAssertEqual(executor.executedActions[0].type, .openApp)
+        XCTAssertEqual(executor.executedActions[0].appName, "Safari")
+    }
+
     // MARK: - Task Property
 
     @MainActor

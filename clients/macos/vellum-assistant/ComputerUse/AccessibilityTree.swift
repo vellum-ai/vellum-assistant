@@ -122,7 +122,13 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
 
         var windowValue: CFTypeRef?
         let windowResult = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowValue)
-        guard windowResult == .success, let windowRef = windowValue else { return nil }
+        guard windowResult == .success, let windowRef = windowValue else {
+            log.warning("Failed to get focused window for \(appName, privacy: .public) (pid \(pid)): AXError \(windowResult.rawValue)")
+            if windowResult.rawValue == -25211 {
+                log.error("AX API disabled — Accessibility permission likely not granted for this executable")
+            }
+            return nil
+        }
         let windowElement = windowRef as! AXUIElement
 
         let windowTitle = getStringAttribute(windowElement, kAXTitleAttribute as CFString) ?? "Untitled"
@@ -183,7 +189,11 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
 
         var windowValue: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowValue)
-        guard result == .success, let windowRef = windowValue else { return nil }
+        guard result == .success, let windowRef = windowValue else {
+            let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Unknown"
+            log.debug("enumerateAppByPID: no focused window for \(appName, privacy: .public) (pid \(pid)): AXError \(result.rawValue)")
+            return nil
+        }
         let windowElement = windowRef as! AXUIElement
 
         let windowTitle = getStringAttribute(windowElement, kAXTitleAttribute as CFString) ?? "Untitled"
@@ -226,10 +236,11 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
                   let windows = windowsRef as? [AXUIElement],
                   !windows.isEmpty else { continue }
 
-            // Find a window that is on-screen (has a reasonable size)
+            // Find a window that is on the main display (skip external monitors)
+            let mainDisplayBounds = CGDisplayBounds(CGMainDisplayID())
             guard let visibleWindow = windows.first(where: {
                 let frame = getFrameAttribute($0)
-                return frame.width > 50 && frame.height > 50
+                return frame.width > 50 && frame.height > 50 && frame.intersects(mainDisplayBounds)
             }) else { continue }
 
             let windowTitle = getStringAttribute(visibleWindow, kAXTitleAttribute as CFString) ?? "Untitled"
@@ -388,12 +399,16 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
 
         var interactive: [String] = []
         var staticTexts: [String] = []
-        collectFormatted(elements: elements, interactive: &interactive, staticTexts: &staticTexts)
+        var prunedCount = 0
+        collectFormatted(elements: elements, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
 
         if !interactive.isEmpty {
             lines.append("Interactive elements:")
             for line in interactive {
                 lines.append("  \(line)")
+            }
+            if prunedCount > 0 {
+                lines.append("  (\(prunedCount) unlabeled elements hidden)")
             }
         }
 
@@ -408,12 +423,31 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         return lines.joined(separator: "\n")
     }
 
-    private static func collectFormatted(elements: [AXElement], interactive: inout [String], staticTexts: inout [String]) {
+    /// Roles that represent text inputs — always shown even without a title,
+    /// since the model may need to click/type in them.
+    private static let textInputRoles: Set<String> = [
+        "AXTextField", "AXTextArea", "AXComboBox"
+    ]
+
+    private static func collectFormatted(elements: [AXElement], interactive: inout [String], staticTexts: inout [String], prunedCount: inout Int) {
         for element in elements {
             let isInteractiveRole = interactiveRoles.contains(element.role)
             let isText = element.role == "AXStaticText" || element.role == "AXHeading"
 
             if isInteractiveRole {
+                // Skip unlabeled non-text elements — the model can't meaningfully target
+                // "button at (431, 56)" without knowing what it does.
+                let hasTitle = element.title != nil && !element.title!.isEmpty
+                let isTextInput = textInputRoles.contains(element.role)
+                let hasPlaceholder = element.placeholderValue != nil && !element.placeholderValue!.isEmpty
+                let hasUrl = element.url != nil && !element.url!.isEmpty
+
+                if !hasTitle && !isTextInput && !element.isFocused && !hasPlaceholder && !hasUrl {
+                    prunedCount += 1
+                    collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
+                    continue
+                }
+
                 let cleanedRole = cleanRole(element.role)
                 let centerX = Int(element.frame.midX)
                 let centerY = Int(element.frame.midY)
@@ -442,7 +476,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
                 }
             }
 
-            collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts)
+            collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
         }
     }
 
@@ -474,7 +508,8 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
 
             var interactive: [String] = []
             var staticTexts: [String] = []
-            collectFormatted(elements: window.elements, interactive: &interactive, staticTexts: &staticTexts)
+            var prunedCount = 0
+            collectFormatted(elements: window.elements, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
 
             if !interactive.isEmpty {
                 for line in interactive.prefix(15) { // Cap per window to limit tokens

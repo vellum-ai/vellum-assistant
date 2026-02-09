@@ -264,7 +264,7 @@ final class ActionExecutor: ActionExecuting {
 
     // MARK: - Open App
 
-    private static let appAliases: [String: String] = [
+    static let appAliases: [String: String] = [
         "chrome": "Google Chrome",
         "vs code": "Visual Studio Code",
         "vscode": "Visual Studio Code",
