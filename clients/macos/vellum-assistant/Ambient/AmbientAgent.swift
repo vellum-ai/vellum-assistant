@@ -183,7 +183,7 @@ final class AmbientAgent: ObservableObject {
             log.debug("[\(cycle)] Decision: ignore — \(result.reasoning)")
 
         case .observe:
-            if let observation = result.observation {
+            if let observation = result.observation, result.confidence > 0.5 {
                 knowledgeStore.addEntry(
                     category: "observation",
                     observation: observation,

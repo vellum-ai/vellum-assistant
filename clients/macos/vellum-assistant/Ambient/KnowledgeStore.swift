@@ -51,6 +51,16 @@ final class KnowledgeStore: ObservableObject {
     }
 
     func addEntry(category: String, observation: String, sourceApp: String, confidence: Double) {
+        // Dedup: skip if a recent entry has a very similar observation
+        let recentWindow = knowledge.entries.suffix(20)
+        let isDuplicate = recentWindow.contains { existing in
+            ScreenOCR.similarity(existing.observation, observation) > 0.7
+        }
+        if isDuplicate {
+            log.debug("Skipping duplicate observation: \(observation.prefix(80))")
+            return
+        }
+
         let entry = KnowledgeEntry(
             id: UUID(),
             timestamp: Date(),

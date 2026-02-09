@@ -38,6 +38,9 @@ final class AmbientAnalyzer {
         - NEVER suggest help for: sensitive/private content (banking, passwords, personal messages), creative flow states (writing, coding in focus), casual browsing.
         - Keep observations concise (one sentence).
         - Keep suggestions actionable and specific (describe what the computer-use agent should do).
+        - Do NOT observe the same activity repeatedly. If the user is still doing the same thing as a recent observation, choose "ignore" instead.
+        - Check the knowledge context below before observing — if a similar observation already exists, do not create a duplicate.
+        - Observations should capture NEW learnings about the user, not restate what is already known.
         """
 
         let userMessage = """
