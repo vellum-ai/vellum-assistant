@@ -1,10 +1,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { findAllMatches, adjustIndentation } from './fuzzy-match.js';
+import { validateFilePath } from './path-guard.js';
 
 class FileEditTool implements Tool {
   name = 'file_edit';
@@ -66,7 +66,11 @@ class FileEditTool implements Tool {
     }
 
     const replaceAll = input.replace_all === true;
-    const filePath = resolve(context.workingDir, rawPath);
+    const pathCheck = validateFilePath(rawPath, context.workingDir);
+    if (!pathCheck.ok) {
+      return { content: `Error: ${pathCheck.error}`, isError: true };
+    }
+    const filePath = pathCheck.resolved;
 
     try {
       const content = readFileSync(filePath, 'utf-8');

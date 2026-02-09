@@ -1,5 +1,4 @@
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { getTool } from './registry.js';
 import type { ToolContext, ToolExecutionResult } from './types.js';
 import { RiskLevel } from '../permissions/types.js';
@@ -10,6 +9,7 @@ import { recordToolInvocation } from '../memory/tool-usage-store.js';
 import { ToolError, PermissionDeniedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { findAllMatches, adjustIndentation } from './filesystem/fuzzy-match.js';
+import { validateFilePath } from './filesystem/path-guard.js';
 
 const log = getLogger('tool-executor');
 
@@ -164,7 +164,9 @@ function computePreviewDiff(
       const rawPath = input.path as string;
       const content = input.content as string;
       if (!rawPath || typeof content !== 'string') return undefined;
-      const filePath = resolve(workingDir, rawPath);
+      const pathCheck = validateFilePath(rawPath, workingDir, { mustExist: false });
+      if (!pathCheck.ok) return undefined;
+      const filePath = pathCheck.resolved;
       const isNewFile = !existsSync(filePath);
       const oldContent = isNewFile ? '' : readFileSync(filePath, 'utf-8');
       return { filePath, oldContent, newContent: content, isNewFile };
@@ -175,7 +177,9 @@ function computePreviewDiff(
       const oldString = input.old_string as string;
       const newString = input.new_string as string;
       if (!rawPath || typeof oldString !== 'string' || typeof newString !== 'string' || oldString.length === 0) return undefined;
-      const filePath = resolve(workingDir, rawPath);
+      const pathCheck = validateFilePath(rawPath, workingDir);
+      if (!pathCheck.ok) return undefined;
+      const filePath = pathCheck.resolved;
       if (!existsSync(filePath)) return undefined;
       const content = readFileSync(filePath, 'utf-8');
       const replaceAll = input.replace_all === true;
