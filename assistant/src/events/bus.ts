@@ -17,6 +17,14 @@ export interface Subscription {
   dispose(): void;
 }
 
+interface DirectListenerEntry {
+  listener: EventListener<object>;
+}
+
+interface AnyListenerEntry<TEvents extends EventMap> {
+  listener: AnyEventListener<TEvents>;
+}
+
 class BasicSubscription implements Subscription {
   private _active = true;
   private readonly disposer: () => void;
@@ -44,26 +52,30 @@ export class EventBusDisposedError extends Error {
 }
 
 export class EventBus<TEvents extends EventMap> {
-  private readonly listeners = new Map<keyof TEvents & string, Set<EventListener<object>>>();
-  private readonly anyListeners = new Set<AnyEventListener<TEvents>>();
+  private readonly listeners = new Map<keyof TEvents & string, Set<DirectListenerEntry>>();
+  private readonly anyListeners = new Set<AnyListenerEntry<TEvents>>();
+  private readonly subscriptions = new Set<BasicSubscription>();
   private disposed = false;
 
   on<K extends keyof TEvents & string>(type: K, listener: EventListener<TEvents[K]>): Subscription {
     this.ensureActive();
     const set = this.getOrCreateSet(type);
-    set.add(listener as EventListener<object>);
+    const entry: DirectListenerEntry = { listener: listener as EventListener<object> };
+    set.add(entry);
 
-    return new BasicSubscription(() => {
-      set.delete(listener as EventListener<object>);
+    return this.createSubscription(() => {
+      set.delete(entry);
       if (set.size === 0) this.listeners.delete(type);
     });
   }
 
   onAny(listener: AnyEventListener<TEvents>): Subscription {
     this.ensureActive();
-    this.anyListeners.add(listener);
-    return new BasicSubscription(() => {
-      this.anyListeners.delete(listener);
+    const entry: AnyListenerEntry<TEvents> = { listener };
+    this.anyListeners.add(entry);
+
+    return this.createSubscription(() => {
+      this.anyListeners.delete(entry);
     });
   }
 
@@ -82,13 +94,13 @@ export class EventBus<TEvents extends EventMap> {
     this.ensureActive();
 
     const emittedAtMs = Date.now();
-    const directListeners = [...(this.listeners.get(type) ?? [])] as Array<EventListener<TEvents[K]>>;
+    const directListeners = [...(this.listeners.get(type) ?? [])];
     const anyListeners = [...this.anyListeners];
     const errors: unknown[] = [];
 
-    for (const listener of directListeners) {
+    for (const entry of directListeners) {
       try {
-        await listener(payload);
+        await (entry.listener as EventListener<TEvents[K]>)(payload);
       } catch (err) {
         errors.push(err);
       }
@@ -96,9 +108,9 @@ export class EventBus<TEvents extends EventMap> {
 
     if (anyListeners.length > 0) {
       const event = { type, payload, emittedAtMs } as AnyEventEnvelope<TEvents>;
-      for (const listener of anyListeners) {
+      for (const entry of anyListeners) {
         try {
-          await listener(event);
+          await entry.listener(event);
         } catch (err) {
           errors.push(err);
         }
@@ -113,19 +125,32 @@ export class EventBus<TEvents extends EventMap> {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    for (const subscription of [...this.subscriptions]) {
+      subscription.dispose();
+    }
     this.listeners.clear();
     this.anyListeners.clear();
+    this.subscriptions.clear();
   }
 
   private ensureActive(): void {
     if (this.disposed) throw new EventBusDisposedError();
   }
 
-  private getOrCreateSet(type: keyof TEvents & string): Set<EventListener<object>> {
+  private getOrCreateSet(type: keyof TEvents & string): Set<DirectListenerEntry> {
     const existing = this.listeners.get(type);
     if (existing) return existing;
-    const created = new Set<EventListener<object>>();
+    const created = new Set<DirectListenerEntry>();
     this.listeners.set(type, created);
     return created;
+  }
+
+  private createSubscription(disposer: () => void): Subscription {
+    const subscription = new BasicSubscription(() => {
+      disposer();
+      this.subscriptions.delete(subscription);
+    });
+    this.subscriptions.add(subscription);
+    return subscription;
   }
 }

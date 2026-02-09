@@ -1,6 +1,4 @@
-import type { EventMap } from './bus.js';
-
-export interface ToolDomainEvents extends EventMap {
+export interface ToolDomainEvents {
   'tool.execution.started': {
     conversationId: string;
     sessionId: string;
@@ -53,7 +51,7 @@ export interface ToolDomainEvents extends EventMap {
   };
 }
 
-export interface DaemonDomainEvents extends EventMap {
+export interface DaemonDomainEvents {
   'daemon.lifecycle.started': {
     pid: number;
     socketPath: string;

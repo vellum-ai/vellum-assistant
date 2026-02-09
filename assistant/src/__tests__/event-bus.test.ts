@@ -65,6 +65,30 @@ describe('EventBus', () => {
     expect(sub.active).toBe(false);
   });
 
+  test('same callback can be subscribed independently', async () => {
+    const bus = new EventBus<AssistantDomainEvents>();
+    let calls = 0;
+
+    const listener = () => {
+      calls += 1;
+    };
+
+    const first = bus.on('daemon.lifecycle.stopped', listener);
+    const second = bus.on('daemon.lifecycle.stopped', listener);
+
+    expect(bus.listenerCount('daemon.lifecycle.stopped')).toBe(2);
+    first.dispose();
+    expect(first.active).toBe(false);
+    expect(second.active).toBe(true);
+
+    await bus.emit('daemon.lifecycle.stopped', { stoppedAtMs: Date.now() });
+    expect(calls).toBe(1);
+
+    second.dispose();
+    await bus.emit('daemon.lifecycle.stopped', { stoppedAtMs: Date.now() });
+    expect(calls).toBe(1);
+  });
+
   test('dispose clears listeners and rejects new registrations/emits', async () => {
     const bus = new EventBus<AssistantDomainEvents>();
     const sub = bus.on('daemon.lifecycle.started', () => {});
@@ -77,8 +101,8 @@ describe('EventBus', () => {
 
     expect(bus.listenerCount()).toBe(0);
     expect(bus.anyListenerCount()).toBe(0);
-    expect(sub.active).toBe(true);
-    expect(anySub.active).toBe(true);
+    expect(sub.active).toBe(false);
+    expect(anySub.active).toBe(false);
 
     expect(() => bus.on('daemon.lifecycle.started', () => {})).toThrow(EventBusDisposedError);
     expect(() => bus.onAny(() => {})).toThrow(EventBusDisposedError);
