@@ -178,8 +178,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let provider = AnthropicProvider(apiKey: apiKey)
-        let storedMaxSteps = UserDefaults.standard.double(forKey: "maxStepsPerSession")
-        let maxSteps = storedMaxSteps > 0 ? Int(storedMaxSteps) : 50
+        let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
+        let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
         let session = ComputerUseSession(task: task, provider: provider, maxSteps: maxSteps)
         currentSession = session
 

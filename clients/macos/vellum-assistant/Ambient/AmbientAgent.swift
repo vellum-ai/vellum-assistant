@@ -23,10 +23,12 @@ final class AmbientAgent: ObservableObject {
     var isEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: "ambientAgentEnabled") }
         set {
-            UserDefaults.standard.set(newValue, forKey: "ambientAgentEnabled")
             if newValue {
                 start()
+                // Only persist enabled if start() actually succeeded
+                UserDefaults.standard.set(watchTask != nil, forKey: "ambientAgentEnabled")
             } else {
+                UserDefaults.standard.set(false, forKey: "ambientAgentEnabled")
                 stop()
             }
         }
@@ -42,6 +44,7 @@ final class AmbientAgent: ObservableObject {
     private let knowledgeStore = KnowledgeStore()
     private var analyzer: AmbientAnalyzer?
     private var watchTask: Task<Void, Never>?
+    private var activeSuggestionWindow: AmbientSuggestionWindow?
     private var previousOCRText: String = ""
 
     weak var appDelegate: AppDelegate?
@@ -186,13 +189,16 @@ final class AmbientAgent: ObservableObject {
         let window = AmbientSuggestionWindow(
             suggestion: suggestion,
             onAccept: { [weak self] in
+                self?.activeSuggestionWindow = nil
                 self?.lastSuggestion = nil
                 appDelegate.startSession(task: suggestion)
             },
             onDismiss: { [weak self] in
+                self?.activeSuggestionWindow = nil
                 self?.lastSuggestion = nil
             }
         )
+        activeSuggestionWindow = window
         window.show()
     }
 

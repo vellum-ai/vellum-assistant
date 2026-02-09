@@ -4,43 +4,45 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ScreenOCR")
 
-final class ScreenOCR {
+final class ScreenOCR: Sendable {
     func recognizeText(from jpegData: Data) async -> String {
         await withCheckedContinuation { continuation in
-            guard let cgImage = cgImage(from: jpegData) else {
-                log.warning("Failed to create CGImage from JPEG data")
-                continuation.resume(returning: "")
-                return
-            }
-
-            let request = VNRecognizeTextRequest { request, error in
-                if let error = error {
-                    log.warning("OCR error: \(error.localizedDescription)")
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let cgImage = self.cgImage(from: jpegData) else {
+                    log.warning("Failed to create CGImage from JPEG data")
                     continuation.resume(returning: "")
                     return
                 }
 
-                guard let observations = request.results as? [VNRecognizedTextObservation] else {
-                    continuation.resume(returning: "")
-                    return
+                let request = VNRecognizeTextRequest { request, error in
+                    if let error = error {
+                        log.warning("OCR error: \(error.localizedDescription)")
+                        continuation.resume(returning: "")
+                        return
+                    }
+
+                    guard let observations = request.results as? [VNRecognizedTextObservation] else {
+                        continuation.resume(returning: "")
+                        return
+                    }
+
+                    let text = observations.compactMap { observation in
+                        observation.topCandidates(1).first?.string
+                    }.joined(separator: "\n")
+
+                    continuation.resume(returning: text)
                 }
 
-                let text = observations.compactMap { observation in
-                    observation.topCandidates(1).first?.string
-                }.joined(separator: "\n")
+                request.recognitionLevel = .accurate
+                request.usesLanguageCorrection = true
 
-                continuation.resume(returning: text)
-            }
-
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            do {
-                try handler.perform([request])
-            } catch {
-                log.warning("VNImageRequestHandler failed: \(error.localizedDescription)")
-                continuation.resume(returning: "")
+                let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+                do {
+                    try handler.perform([request])
+                } catch {
+                    log.warning("VNImageRequestHandler failed: \(error.localizedDescription)")
+                    continuation.resume(returning: "")
+                }
             }
         }
     }

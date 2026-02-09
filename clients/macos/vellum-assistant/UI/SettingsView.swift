@@ -3,7 +3,10 @@ import SwiftUI
 struct SettingsView: View {
     @State private var apiKeyText = ""
     @State private var hasKey = APIKeyManager.getKey() != nil
-    @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
+    @State private var maxSteps: Double = {
+        let val = UserDefaults.standard.double(forKey: "maxStepsPerSession")
+        return val == 0 ? 50 : val
+    }()
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
     @State private var ambientEnabled = UserDefaults.standard.bool(forKey: "ambientAgentEnabled")
@@ -60,6 +63,9 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Slider(value: $maxSteps, in: 10...100, step: 10)
+                    .onChange(of: maxSteps) { _, newValue in
+                        UserDefaults.standard.set(newValue, forKey: "maxStepsPerSession")
+                    }
             }
 
             Section("Ambient Agent") {
