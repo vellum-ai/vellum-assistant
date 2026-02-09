@@ -1,16 +1,28 @@
 "use client";
 
 import Image from "next/image";
+import { useMemo } from "react";
 
 interface BlogPostContentProps {
   content: string;
 }
 
+// Normalize text to prevent hydration mismatches from special unicode characters
+function normalizeText(text: string): string {
+  return text
+    .replace(/\u200B/g, '') // zero-width space
+    .replace(/\u200D/g, '') // zero-width joiner
+    .replace(/\uFEFF/g, '') // byte order mark
+    .replace(/\u00A0/g, ' '); // non-breaking space to regular space
+}
+
 // Simple markdown-to-JSX renderer for dark theme
 export function BlogPostContent({ content }: BlogPostContentProps) {
-  const renderContent = () => {
-    const lines = content.split('\n');
-    const elements: React.ReactNode[] = [];
+  const elements = useMemo(() => {
+    const normalizedContent = normalizeText(content);
+    const lines = normalizedContent.split('\n');
+    const result: React.ReactNode[] = [];
+    let elementIndex = 0;
     let currentParagraph: string[] = [];
     let inCodeBlock = false;
     let codeBlockContent: string[] = [];
@@ -18,49 +30,28 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
     let listItems: string[] = [];
     let listType: 'ul' | 'ol' = 'ul';
 
-    const flushParagraph = () => {
-      if (currentParagraph.length > 0) {
-        const text = currentParagraph.join(' ').trim();
-        if (text) {
-          elements.push(
-            <p key={elements.length} style={{ marginBottom: "1.5rem", color: "#e4e4e7", lineHeight: "1.8" }}>
-              {renderInlineMarkdown(text)}
-            </p>
-          );
-        }
-        currentParagraph = [];
-      }
-    };
+    const getKey = () => `el-${elementIndex++}`;
 
-    const flushList = () => {
-      if (listItems.length > 0) {
-        const ListTag = listType;
-        elements.push(
-          <ListTag key={elements.length} style={{ marginBottom: "1.5rem", paddingLeft: "1.5rem", color: "#e4e4e7" }}>
-            {listItems.map((item, i) => (
-              <li key={i} style={{ marginBottom: "0.5rem", lineHeight: "1.7" }}>
-                {renderInlineMarkdown(item)}
-              </li>
-            ))}
-          </ListTag>
-        );
-        listItems = [];
-        inList = false;
-      }
-    };
-
-    const renderInlineMarkdown = (text: string): React.ReactNode => {
-      // Handle inline code, bold, italic, and links
+    const renderInlineMarkdown = (text: string, baseKey: string): React.ReactNode => {
       const parts: React.ReactNode[] = [];
       let remaining = text;
       let keyIndex = 0;
+      let plainText = '';
+
+      const flushPlainText = () => {
+        if (plainText) {
+          parts.push(plainText);
+          plainText = '';
+        }
+      };
 
       while (remaining.length > 0) {
         // Check for inline code
         const codeMatch = remaining.match(/^`([^`]+)`/);
         if (codeMatch) {
+          flushPlainText();
           parts.push(
-            <code key={keyIndex++} style={{
+            <code key={`${baseKey}-c${keyIndex++}`} style={{
               backgroundColor: "rgba(104, 96, 255, 0.15)",
               color: "#a29dff",
               padding: "0.125rem 0.375rem",
@@ -78,7 +69,12 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
         // Check for bold
         const boldMatch = remaining.match(/^\*\*([^*]+)\*\*/);
         if (boldMatch) {
-          parts.push(<strong key={keyIndex++} style={{ color: "#ffffff", fontWeight: "600" }}>{boldMatch[1]}</strong>);
+          flushPlainText();
+          parts.push(
+            <strong key={`${baseKey}-b${keyIndex++}`} style={{ color: "#ffffff", fontWeight: "600" }}>
+              {boldMatch[1]}
+            </strong>
+          );
           remaining = remaining.slice(boldMatch[0].length);
           continue;
         }
@@ -86,7 +82,12 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
         // Check for italic
         const italicMatch = remaining.match(/^\*([^*]+)\*/);
         if (italicMatch) {
-          parts.push(<em key={keyIndex++} style={{ color: "#d4d4d8" }}>{italicMatch[1]}</em>);
+          flushPlainText();
+          parts.push(
+            <em key={`${baseKey}-i${keyIndex++}`} style={{ color: "#d4d4d8" }}>
+              {italicMatch[1]}
+            </em>
+          );
           remaining = remaining.slice(italicMatch[0].length);
           continue;
         }
@@ -94,10 +95,11 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
         // Check for links
         const linkMatch = remaining.match(/^\[([^\]]+)\]\(([^)]+)\)/);
         if (linkMatch) {
+          flushPlainText();
           const isExternal = linkMatch[2].startsWith("http");
           parts.push(
             <a 
-              key={keyIndex++}
+              key={`${baseKey}-a${keyIndex++}`}
               href={linkMatch[2]}
               target={isExternal ? "_blank" : undefined}
               rel={isExternal ? "noopener noreferrer" : undefined}
@@ -110,12 +112,52 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
           continue;
         }
 
-        // No match, consume one character
-        parts.push(remaining[0]);
+        // No match, accumulate plain text
+        plainText += remaining[0];
         remaining = remaining.slice(1);
       }
 
-      return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : parts;
+      flushPlainText();
+
+      // If only one plain string, return it directly
+      if (parts.length === 1 && typeof parts[0] === 'string') {
+        return parts[0];
+      }
+      
+      return parts;
+    };
+
+    const flushParagraph = () => {
+      if (currentParagraph.length > 0) {
+        const text = normalizeText(currentParagraph.join(' ').trim());
+        if (text) {
+          const key = getKey();
+          result.push(
+            <p key={key} style={{ marginBottom: "1.5rem", color: "#e4e4e7", lineHeight: "1.8" }}>
+              {renderInlineMarkdown(text, key)}
+            </p>
+          );
+        }
+        currentParagraph = [];
+      }
+    };
+
+    const flushList = () => {
+      if (listItems.length > 0) {
+        const ListTag = listType;
+        const key = getKey();
+        result.push(
+          <ListTag key={key} style={{ marginBottom: "1.5rem", paddingLeft: "1.5rem", color: "#e4e4e7" }}>
+            {listItems.map((item, i) => (
+              <li key={`${key}-li${i}`} style={{ marginBottom: "0.5rem", lineHeight: "1.7" }}>
+                {renderInlineMarkdown(normalizeText(item), `${key}-li${i}`)}
+              </li>
+            ))}
+          </ListTag>
+        );
+        listItems = [];
+        inList = false;
+      }
     };
 
     for (let i = 0; i < lines.length; i++) {
@@ -125,8 +167,9 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
       if (line.startsWith('```')) {
         if (inCodeBlock) {
           flushParagraph();
-          elements.push(
-            <pre key={elements.length} style={{
+          const key = getKey();
+          result.push(
+            <pre key={key} style={{
               backgroundColor: "#1a1a1a",
               borderRadius: "0.5rem",
               marginBottom: "1.5rem",
@@ -157,9 +200,10 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
       if (line.startsWith('### ')) {
         flushParagraph();
         flushList();
-        elements.push(
-          <h3 key={elements.length} style={{ fontSize: "1.25rem", fontWeight: "600", marginTop: "2rem", marginBottom: "0.75rem", color: "#ffffff", lineHeight: "1.4" }}>
-            {renderInlineMarkdown(line.slice(4))}
+        const key = getKey();
+        result.push(
+          <h3 key={key} style={{ fontSize: "1.25rem", fontWeight: "600", marginTop: "2rem", marginBottom: "0.75rem", color: "#ffffff", lineHeight: "1.4" }}>
+            {renderInlineMarkdown(normalizeText(line.slice(4)), key)}
           </h3>
         );
         continue;
@@ -167,9 +211,10 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
       if (line.startsWith('## ')) {
         flushParagraph();
         flushList();
-        elements.push(
-          <h2 key={elements.length} style={{ fontSize: "1.5rem", fontWeight: "600", marginTop: "2.5rem", marginBottom: "1rem", color: "#ffffff", lineHeight: "1.3" }}>
-            {renderInlineMarkdown(line.slice(3))}
+        const key = getKey();
+        result.push(
+          <h2 key={key} style={{ fontSize: "1.5rem", fontWeight: "600", marginTop: "2.5rem", marginBottom: "1rem", color: "#ffffff", lineHeight: "1.3" }}>
+            {renderInlineMarkdown(normalizeText(line.slice(3)), key)}
           </h2>
         );
         continue;
@@ -177,9 +222,10 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
       if (line.startsWith('# ')) {
         flushParagraph();
         flushList();
-        elements.push(
-          <h1 key={elements.length} style={{ fontSize: "1.875rem", fontWeight: "700", marginTop: "2.5rem", marginBottom: "1rem", color: "#ffffff", lineHeight: "1.3" }}>
-            {renderInlineMarkdown(line.slice(2))}
+        const key = getKey();
+        result.push(
+          <h1 key={key} style={{ fontSize: "1.875rem", fontWeight: "700", marginTop: "2.5rem", marginBottom: "1rem", color: "#ffffff", lineHeight: "1.3" }}>
+            {renderInlineMarkdown(normalizeText(line.slice(2)), key)}
           </h1>
         );
         continue;
@@ -189,8 +235,9 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
       if (line.startsWith('>')) {
         flushParagraph();
         flushList();
-        elements.push(
-          <blockquote key={elements.length} style={{
+        const key = getKey();
+        result.push(
+          <blockquote key={key} style={{
             borderLeft: "4px solid #6860ff",
             paddingLeft: "1.25rem",
             marginLeft: 0,
@@ -198,7 +245,7 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
             fontStyle: "italic",
             color: "#a1a1aa"
           }}>
-            {renderInlineMarkdown(line.slice(1).trim())}
+            {renderInlineMarkdown(normalizeText(line.slice(1).trim()), key)}
           </blockquote>
         );
         continue;
@@ -208,8 +255,8 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
       if (line.match(/^[-*_]{3,}$/)) {
         flushParagraph();
         flushList();
-        elements.push(
-          <hr key={elements.length} style={{ border: "none", borderTop: "1px solid #333", margin: "2rem 0" }} />
+        result.push(
+          <hr key={getKey()} style={{ border: "none", borderTop: "1px solid #333", margin: "2rem 0" }} />
         );
         continue;
       }
@@ -245,8 +292,9 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
       if (imgMatch) {
         flushParagraph();
         flushList();
-        elements.push(
-          <figure key={elements.length} style={{ marginTop: "1.5rem", marginBottom: "1.5rem" }}>
+        const key = getKey();
+        result.push(
+          <figure key={key} style={{ marginTop: "1.5rem", marginBottom: "1.5rem" }}>
             <Image
               src={imgMatch[2]}
               alt={imgMatch[1]}
@@ -279,8 +327,8 @@ export function BlogPostContent({ content }: BlogPostContentProps) {
     flushParagraph();
     flushList();
 
-    return elements;
-  };
+    return result;
+  }, [content]);
 
-  return <div className="blog-post-content">{renderContent()}</div>;
+  return <div className="blog-post-content" suppressHydrationWarning>{elements}</div>;
 }
