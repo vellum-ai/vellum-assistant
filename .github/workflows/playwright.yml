@@ -1,0 +1,80 @@
+name: Playwright Tests
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Playwright
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: playwright
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: vellum
+          POSTGRES_USER: vellum
+          POSTGRES_PASSWORD: vellum
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vellum -d vellum"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Set up environment
+        run: |
+          echo "DATABASE_URL=postgresql://vellum:vellum@localhost:5432/vellum" >> "$GITHUB_ENV"
+          echo "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
+      - name: Install web dependencies
+        run: bun install --frozen-lockfile
+        working-directory: web
+
+      - name: Install Playwright dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+
+      - name: Push database schema
+        run: bunx drizzle-kit push --force
+        working-directory: web
+
+      - name: Start web server
+        run: bun run dev &
+        working-directory: web
+        env:
+          APP_URL: http://localhost:3000
+          BETTER_AUTH_URL: http://localhost:3000
+
+      - name: Wait for web server
+        run: |
+          for i in $(seq 1 30); do
+            curl -s http://localhost:3000 > /dev/null && break
+            sleep 2
+          done
+
+      - name: Run Playwright tests
+        run: bunx playwright test
+        env:
+          BASE_URL: http://localhost:3000
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright/playwright-report/
+          retention-days: 30
