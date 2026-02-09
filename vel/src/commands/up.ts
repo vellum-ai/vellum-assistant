@@ -53,12 +53,48 @@ export async function up(): Promise<void> {
     console.log('🔄 Running database migrations...');
     const migrate = spawn('bunx', ['drizzle-kit', 'migrate'], {
       cwd: webDir,
-      stdio: 'inherit',
+      stdio: ['inherit', 'pipe', 'pipe'],
       env: {
         ...process.env,
         DATABASE_URL: process.env.DATABASE_URL || 'postgresql://vellum:password@localhost:5432/vellum',
       },
     });
+
+    const FILTERED_PATTERNS = [
+      'severity_local:',
+      'severity:',
+      'code:',
+      'message:',
+      'file:',
+      'line:',
+      'routine:',
+    ];
+
+    const filterOutput = (stream: NodeJS.ReadableStream, target: NodeJS.WritableStream) => {
+      let buffer = '';
+      stream.on('data', (chunk: Buffer) => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed === '{' || trimmed === '}') continue;
+          if (FILTERED_PATTERNS.some(p => trimmed.startsWith(p))) continue;
+          target.write(line + '\n');
+        }
+      });
+      stream.on('end', () => {
+        if (buffer.trim()) {
+          const trimmed = buffer.trim();
+          if (trimmed !== '{' && trimmed !== '}' && !FILTERED_PATTERNS.some(p => trimmed.startsWith(p))) {
+            target.write(buffer + '\n');
+          }
+        }
+      });
+    };
+
+    filterOutput(migrate.stdout!, process.stdout);
+    filterOutput(migrate.stderr!, process.stderr);
 
     await new Promise<void>((resolve, reject) => {
       migrate.on('close', (code) => {
