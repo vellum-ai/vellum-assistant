@@ -1,4 +1,4 @@
-import { eq, desc, asc } from 'drizzle-orm';
+import { eq, desc, asc, and, gte, count } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { conversations, messages } from './schema.js';
@@ -108,37 +108,35 @@ export function updateConversationUsage(
  */
 export function deleteLastExchange(conversationId: string): number {
   const db = getDb();
-  const allMessages = db
-    .select()
+
+  // Find the last user message without loading all messages
+  const lastUserMsg = db
+    .select({ createdAt: messages.createdAt })
     .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt))
-    .all();
+    .where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+    .get();
 
-  if (allMessages.length === 0) return 0;
+  if (!lastUserMsg) return 0;
 
-  // Find the last user message
-  let lastUserIdx = -1;
-  for (let i = allMessages.length - 1; i >= 0; i--) {
-    if (allMessages[i].role === 'user') {
-      lastUserIdx = i;
-      break;
-    }
-  }
-  if (lastUserIdx === -1) return 0;
+  const condition = and(
+    eq(messages.conversationId, conversationId),
+    gte(messages.createdAt, lastUserMsg.createdAt),
+  );
 
-  // Delete from lastUserIdx onward, atomically with the updatedAt bump
-  const toDelete = allMessages.slice(lastUserIdx);
+  // Count messages to delete, then delete them atomically
+  const [{ deleted }] = db.select({ deleted: count() }).from(messages).where(condition).all();
+  if (deleted === 0) return 0;
+
   db.transaction((tx) => {
-    for (const m of toDelete) {
-      tx.delete(messages).where(eq(messages.id, m.id)).run();
-    }
+    tx.delete(messages).where(condition).run();
     tx.update(conversations)
       .set({ updatedAt: Date.now() })
       .where(eq(conversations.id, conversationId))
       .run();
   });
 
-  return toDelete.length;
+  return deleted;
 }
 
