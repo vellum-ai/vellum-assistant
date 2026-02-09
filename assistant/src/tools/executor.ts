@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { getTool } from './registry.js';
-import type { ToolContext, ToolExecutionResult } from './types.js';
+import type { ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
 import { RiskLevel } from '../permissions/types.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { addRule } from '../permissions/trust-store.js';
@@ -46,6 +46,16 @@ export class ToolExecutor {
       }, 'Tool execute start');
     }
 
+    await emitLifecycleEvent(context, {
+      type: 'start',
+      toolName: name,
+      input,
+      workingDir: context.workingDir,
+      sessionId: context.sessionId,
+      conversationId: context.conversationId,
+      startedAtMs: startTime,
+    });
+
     try {
       // Check permissions
       const risk = await classifyRisk(name, input);
@@ -55,6 +65,18 @@ export class ToolExecutor {
       if (result.decision === 'deny') {
         decision = 'denied';
         const durationMs = Date.now() - startTime;
+        await emitLifecycleEvent(context, {
+          type: 'permission_denied',
+          toolName: name,
+          input,
+          workingDir: context.workingDir,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          riskLevel,
+          decision: 'deny',
+          reason: result.reason,
+          durationMs,
+        });
         recordToolInvocation({
           conversationId: context.conversationId,
           toolName: name,
@@ -83,6 +105,21 @@ export class ToolExecutor {
           sandboxed = wrapped.sandboxed;
         }
 
+        await emitLifecycleEvent(context, {
+          type: 'permission_prompt',
+          toolName: name,
+          input,
+          workingDir: context.workingDir,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          riskLevel,
+          reason: result.reason,
+          allowlistOptions,
+          scopeOptions,
+          diff: previewDiff,
+          sandboxed,
+        });
+
         const response = await this.prompter.prompt(
           name,
           input,
@@ -97,6 +134,18 @@ export class ToolExecutor {
 
         if (response.decision === 'deny') {
           const durationMs = Date.now() - startTime;
+          await emitLifecycleEvent(context, {
+            type: 'permission_denied',
+            toolName: name,
+            input,
+            workingDir: context.workingDir,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            riskLevel,
+            decision: 'deny',
+            reason: 'Permission denied by user',
+            durationMs,
+          });
           recordToolInvocation({
             conversationId: context.conversationId,
             toolName: name,
@@ -115,6 +164,18 @@ export class ToolExecutor {
             addRule(name, response.selectedPattern!, response.selectedScope!, 'deny');
           }
           const durationMs = Date.now() - startTime;
+          await emitLifecycleEvent(context, {
+            type: 'permission_denied',
+            toolName: name,
+            input,
+            workingDir: context.workingDir,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            riskLevel,
+            decision: 'always_deny',
+            reason: ruleSaved ? 'Permission denied by user (rule saved)' : 'Permission denied by user',
+            durationMs,
+          });
           recordToolInvocation({
             conversationId: context.conversationId,
             toolName: name,
@@ -174,6 +235,22 @@ export class ToolExecutor {
             const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
             const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Configure secretDetection.action to "redact" or "warn" to allow output.`;
             const durationMs = Date.now() - startTime;
+            const blockedResult = {
+              content: blockedContent,
+              isError: true,
+            };
+            await emitLifecycleEvent(context, {
+              type: 'executed',
+              toolName: name,
+              input,
+              workingDir: context.workingDir,
+              sessionId: context.sessionId,
+              conversationId: context.conversationId,
+              riskLevel,
+              decision,
+              durationMs,
+              result: blockedResult,
+            });
             recordToolInvocation({
               conversationId: context.conversationId,
               toolName: name,
@@ -183,10 +260,7 @@ export class ToolExecutor {
               riskLevel,
               durationMs,
             });
-            return {
-              content: blockedContent,
-              isError: true,
-            };
+            return blockedResult;
           }
         }
       }
@@ -204,6 +278,18 @@ export class ToolExecutor {
       }
 
       const durationMs = Date.now() - startTime;
+      await emitLifecycleEvent(context, {
+        type: 'executed',
+        toolName: name,
+        input,
+        workingDir: context.workingDir,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        riskLevel,
+        decision,
+        durationMs,
+        result: execResult,
+      });
       recordToolInvocation({
         conversationId: context.conversationId,
         toolName: name,
@@ -228,6 +314,18 @@ export class ToolExecutor {
         riskLevel,
         durationMs,
       });
+      await emitLifecycleEvent(context, {
+        type: 'error',
+        toolName: name,
+        input,
+        workingDir: context.workingDir,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        riskLevel,
+        decision: 'error',
+        durationMs,
+        errorMessage: msg,
+      });
 
       if (err instanceof PermissionDeniedError || err instanceof ToolError) {
         return { content: msg, isError: true };
@@ -236,6 +334,17 @@ export class ToolExecutor {
       log.error({ err, name }, 'Tool execution error');
       return { content: `Tool error: ${msg}`, isError: true };
     }
+  }
+}
+
+async function emitLifecycleEvent(context: ToolContext, event: ToolLifecycleEvent): Promise<void> {
+  try {
+    await context.onToolLifecycleEvent?.(event);
+  } catch (err) {
+    log.warn(
+      { err, eventType: event.type, toolName: event.toolName },
+      'Tool lifecycle event handler failed',
+    );
   }
 }
 
