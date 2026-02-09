@@ -40,6 +40,12 @@ final class KnowledgeStore: ObservableObject {
 
     var entries: [KnowledgeEntry] { knowledge.entries }
 
+    var entryCount: Int { knowledge.entries.count }
+
+    func entriesSince(_ date: Date) -> [KnowledgeEntry] {
+        knowledge.entries.filter { $0.timestamp >= date }
+    }
+
     var recentEntries: [KnowledgeEntry] {
         Array(knowledge.entries.suffix(10))
     }

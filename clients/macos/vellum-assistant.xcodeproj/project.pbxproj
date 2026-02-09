@@ -45,6 +45,9 @@
 		F18D712D0E89F3DAD30D747C /* ActionPreviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87B2FD36E44863204BB546D0 /* ActionPreviewWindow.swift */; };
 		F29831F8092D9BBB259BAF7C /* TaskInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08ABA40D80D70550AA640AF8 /* TaskInputView.swift */; };
 		FDB24168B7548DA9112747EB /* VoiceInputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6554B9F2EF61617575B63118 /* VoiceInputManager.swift */; };
+		AA09B2C3D4E5F607ABCDE009 /* InsightStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC09B2C3D4E5F607ABCDE009 /* InsightStore.swift */; };
+		AA10B2C3D4E5F607ABCDE010 /* KnowledgeCron.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC10B2C3D4E5F607ABCDE010 /* KnowledgeCron.swift */; };
+		AA11B2C3D4E5F607ABCDE011 /* InsightNotificationWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC11B2C3D4E5F607ABCDE011 /* InsightNotificationWindow.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -99,6 +102,9 @@
 		E8B923D05524A1E51EBB318E /* VoiceTranscriptionWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTranscriptionWindow.swift; sourceTree = "<group>"; };
 		E9F692FD82187BA84D6FB66B /* SessionOverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionOverlayWindow.swift; sourceTree = "<group>"; };
 		FE229BFCE748FF4A968E86B1 /* SessionLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionLogger.swift; sourceTree = "<group>"; };
+		CC09B2C3D4E5F607ABCDE009 /* InsightStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightStore.swift; sourceTree = "<group>"; };
+		CC10B2C3D4E5F607ABCDE010 /* KnowledgeCron.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeCron.swift; sourceTree = "<group>"; };
+		CC11B2C3D4E5F607ABCDE011 /* InsightNotificationWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightNotificationWindow.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -119,6 +125,7 @@
 				87B2FD36E44863204BB546D0 /* ActionPreviewWindow.swift */,
 				BC313FB9D43F0FD9389049EF /* AmbientSuggestionWindow.swift */,
 				C0760D7F261720758A5FAC3E /* ConfirmationView.swift */,
+				CC11B2C3D4E5F607ABCDE011 /* InsightNotificationWindow.swift */,
 				09137E88F2AB02DF31D32BD0 /* MenuBarController.swift */,
 				4BD264E70E6D22EE5E53B20F /* SessionOverlayView.swift */,
 				E9F692FD82187BA84D6FB66B /* SessionOverlayWindow.swift */,
@@ -157,6 +164,8 @@
 			children = (
 				4A3D1A1DE8CD5DA3C9E222C4 /* AmbientAgent.swift */,
 				D6D30A82CDD870C48EFE78D1 /* AmbientAnalyzer.swift */,
+				CC09B2C3D4E5F607ABCDE009 /* InsightStore.swift */,
+				CC10B2C3D4E5F607ABCDE010 /* KnowledgeCron.swift */,
 				BEE6E192E05E051AF75167BC /* KnowledgeStore.swift */,
 				C372E6C0EBAC12EE67226107 /* ScreenOCR.swift */,
 			);
@@ -371,6 +380,9 @@
 				C12CF51CE1378D77F77732CB /* AppDelegate.swift in Sources */,
 				1D3F4B2FE6DF331921F9F662 /* ChromeAccessibilityHelper.swift in Sources */,
 				A2B8C0BC3677B95F736E9DF4 /* ConfirmationView.swift in Sources */,
+				AA09B2C3D4E5F607ABCDE009 /* InsightStore.swift in Sources */,
+				AA11B2C3D4E5F607ABCDE011 /* InsightNotificationWindow.swift in Sources */,
+				AA10B2C3D4E5F607ABCDE010 /* KnowledgeCron.swift in Sources */,
 				E079EDED2AA9AE71CBE2C2DA /* KnowledgeStore.swift in Sources */,
 				5099794339FDE050C79700BB /* LogViewer.swift in Sources */,
 				0654885DAD8FFD16D639D50F /* MenuBarController.swift in Sources */,

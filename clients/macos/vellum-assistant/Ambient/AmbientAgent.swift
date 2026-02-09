@@ -45,7 +45,9 @@ final class AmbientAgent: ObservableObject {
     let knowledgeStore = KnowledgeStore()
     private var analyzer: AmbientAnalyzer?
     private var watchTask: Task<Void, Never>?
+    private(set) var knowledgeCron: KnowledgeCron?
     private var activeSuggestionWindow: AmbientSuggestionWindow?
+    private var insightNotificationWindow: InsightNotificationWindow?
     private var previousOCRText: String = ""
     private var knowledgeCancellable: AnyCancellable?
     private var suggestionWindow: AmbientSuggestionWindow?
@@ -53,6 +55,7 @@ final class AmbientAgent: ObservableObject {
     weak var appDelegate: AppDelegate?
 
     var knowledge: KnowledgeStore { knowledgeStore }
+    var insightStore: InsightStore? { knowledgeCron?.insightStore }
 
     init() {
         knowledgeCancellable = knowledgeStore.objectWillChange.sink { [weak self] _ in
@@ -71,6 +74,13 @@ final class AmbientAgent: ObservableObject {
         state = .watching
         log.info("Ambient agent started (interval: \(self.captureIntervalSeconds)s)")
 
+        let cron = KnowledgeCron(knowledgeStore: knowledgeStore)
+        cron.onInsight = { [weak self] insight in
+            self?.showInsightNotification(insight)
+        }
+        cron.start(apiKey: apiKey)
+        knowledgeCron = cron
+
         watchTask = Task { @MainActor [weak self] in
             await self?.watchLoop()
         }
@@ -79,6 +89,8 @@ final class AmbientAgent: ObservableObject {
     func stop() {
         watchTask?.cancel()
         watchTask = nil
+        knowledgeCron?.stop()
+        knowledgeCron = nil
         analyzer = nil
         state = .disabled
         log.info("Ambient agent stopped")
@@ -212,6 +224,21 @@ final class AmbientAgent: ObservableObject {
         activeSuggestionWindow = window
         window.show()
         suggestionWindow = window
+    }
+
+    private func showInsightNotification(_ insight: KnowledgeInsight) {
+        let window = InsightNotificationWindow(
+            insight: insight,
+            onDismiss: { [weak self] in
+                self?.insightNotificationWindow = nil
+            },
+            onViewAll: { [weak self] in
+                self?.insightNotificationWindow = nil
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            }
+        )
+        insightNotificationWindow = window
+        window.show()
     }
 
     private func currentWindowTitle() -> String? {
