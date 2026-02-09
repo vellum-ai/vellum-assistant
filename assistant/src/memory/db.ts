@@ -71,7 +71,7 @@ export function initializeDb(): void {
  * This is idempotent: it checks whether the FK already exists before migrating.
  */
 function migrateToolInvocationsFk(database: ReturnType<typeof drizzle<typeof schema>>): void {
-  const raw = (database as any).$client as Database;
+  const raw = (database as unknown as { $client: Database }).$client;
   const row = raw.query(`SELECT sql FROM sqlite_master WHERE type='table' AND name='tool_invocations'`).get() as { sql: string } | null;
   if (!row) return; // table doesn't exist yet (will be created above)
 

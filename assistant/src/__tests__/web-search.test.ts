@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
 
 // Mock logger before importing modules

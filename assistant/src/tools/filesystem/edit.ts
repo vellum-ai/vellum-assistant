@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
