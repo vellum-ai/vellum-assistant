@@ -10,7 +10,7 @@ import {
 } from './daemon/ipc-protocol.js';
 import { formatDiff, formatNewFileDiff } from './util/diff.js';
 import { Spinner } from './util/spinner.js';
-import { copyToClipboard, extractLastCodeBlock } from './util/clipboard.js';
+import { copyToClipboard, extractLastCodeBlock, formatSessionForExport } from './util/clipboard.js';
 import { timeAgo } from './util/time.js';
 import { ensureDaemonRunning } from './daemon/lifecycle.js';
 
@@ -33,6 +33,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
   let lastUsage: { inputTokens: number; outputTokens: number; totalInputTokens: number; totalOutputTokens: number; estimatedCost: number; model: string } | null = null;
   let pendingSessionPick = false;
   let pendingConfirmation = false;
+  let pendingCopySession = false;
   let toolStreaming = false;
   let reconnecting = false;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -388,6 +389,22 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         break;
 
       case 'history_response':
+        if (pendingCopySession) {
+          pendingCopySession = false;
+          if (msg.messages.length === 0) {
+            process.stdout.write('\n  No messages to copy.\n\n');
+          } else {
+            try {
+              const formatted = formatSessionForExport(msg.messages);
+              copyToClipboard(formatted);
+              process.stdout.write(`\n  Copied session (${msg.messages.length} messages) to clipboard.\n\n`);
+            } catch (err) {
+              process.stdout.write(`\n  Clipboard error: ${(err as Error).message}\n\n`);
+            }
+          }
+          prompt();
+          break;
+        }
         process.stdout.write('\n');
         if (msg.messages.length === 0) {
           process.stdout.write('  No messages in this session.\n');
@@ -473,6 +490,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     toolStreaming = false;
     pendingSessionPick = false;
     pendingConfirmation = false;
+    pendingCopySession = false;
     lastUsage = null;
 
     // Remove stale rl.once('line') handlers from confirmation/selection prompts
@@ -586,6 +604,12 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
       return;
     }
 
+    if (content === '/copy-session') {
+      pendingCopySession = true;
+      send({ type: 'history_request', sessionId });
+      return;
+    }
+
     if (content === '/new') {
       send({ type: 'session_create' });
       return;
@@ -635,6 +659,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
       process.stdout.write('  /usage            Show token usage and cost\n');
       process.stdout.write('  /copy             Copy last response to clipboard\n');
       process.stdout.write('  /copy-code        Copy last code block to clipboard\n');
+      process.stdout.write('  /copy-session     Copy entire session to clipboard\n');
       process.stdout.write('  /help             Show this help\n');
       process.stdout.write('\n');
       prompt();

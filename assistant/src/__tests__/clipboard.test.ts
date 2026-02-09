@@ -1,5 +1,31 @@
 import { describe, test, expect } from 'bun:test';
-import { extractLastCodeBlock } from '../util/clipboard.js';
+import { extractLastCodeBlock, formatSessionForExport } from '../util/clipboard.js';
+
+describe('formatSessionForExport', () => {
+  test('formats user and assistant messages', () => {
+    const messages = [
+      { role: 'user', text: 'Hello' },
+      { role: 'assistant', text: 'Hi there!' },
+    ];
+    expect(formatSessionForExport(messages)).toBe('you> Hello\n\nassistant> Hi there!');
+  });
+
+  test('handles a single message', () => {
+    const messages = [{ role: 'user', text: 'Just me' }];
+    expect(formatSessionForExport(messages)).toBe('you> Just me');
+  });
+
+  test('handles empty messages array', () => {
+    expect(formatSessionForExport([])).toBe('');
+  });
+
+  test('preserves multiline message text', () => {
+    const messages = [
+      { role: 'assistant', text: 'Line 1\nLine 2\nLine 3' },
+    ];
+    expect(formatSessionForExport(messages)).toBe('assistant> Line 1\nLine 2\nLine 3');
+  });
+});
 
 describe('extractLastCodeBlock', () => {
   test('extracts a simple code block', () => {

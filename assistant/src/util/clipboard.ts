@@ -10,6 +10,17 @@ export function copyToClipboard(text: string): void {
   execSync(cmd, { input: text, stdio: ['pipe', 'ignore', 'ignore'] });
 }
 
+export function formatSessionForExport(
+  messages: Array<{ role: string; text: string }>,
+): string {
+  return messages
+    .map((m) => {
+      const label = m.role === 'user' ? 'you' : 'assistant';
+      return `${label}> ${m.text}`;
+    })
+    .join('\n\n');
+}
+
 export function extractLastCodeBlock(text: string): string | null {
   const re = /```[^\n]*\n((?:[\s\S]*?\n)?)```/g;
   let last: RegExpExecArray | null = null;
