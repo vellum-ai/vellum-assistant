@@ -190,6 +190,7 @@ final class AmbientAgent: ObservableObject {
                     sourceApp: appName,
                     confidence: result.confidence
                 )
+                knowledgeCron?.observationAdded()
             }
 
         case .suggest:

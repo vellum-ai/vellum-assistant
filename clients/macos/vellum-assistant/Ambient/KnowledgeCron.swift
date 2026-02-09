@@ -8,18 +8,14 @@ final class KnowledgeCron {
     let insightStore = InsightStore()
     private let knowledgeStore: KnowledgeStore
     private var client: AnthropicClient?
-    private var cronTask: Task<Void, Never>?
     private let model = "claude-haiku-4-5-20251001"
-    private let minimumEntries = 5
+    private let observationsPerRun = 5
     private let maxConsecutiveFailures = 3
     private var consecutiveFailures = 0
+    private var observationsSinceLastRun = 0
+    private var analysisTask: Task<Void, Never>?
 
     var onInsight: ((KnowledgeInsight) -> Void)?
-
-    private var intervalHours: Double {
-        let val = UserDefaults.standard.double(forKey: "knowledgeCronIntervalHours")
-        return val > 0 ? val : 4.0
-    }
 
     private var lastRunTimestamp: TimeInterval {
         get { UserDefaults.standard.double(forKey: "knowledgeCronLastRun") }
@@ -31,47 +27,30 @@ final class KnowledgeCron {
     }
 
     func start(apiKey: String) {
-        guard cronTask == nil else { return }
         client = AnthropicClient(apiKey: apiKey)
-        log.info("Knowledge cron started (interval: \(self.intervalHours)h)")
-
-        cronTask = Task { @MainActor [weak self] in
-            // Initial 5-minute delay
-            try? await Task.sleep(nanoseconds: 5 * 60 * 1_000_000_000)
-            guard !Task.isCancelled else { return }
-
-            while !Task.isCancelled {
-                await self?.checkAndRun()
-
-                // Sleep for 15 minutes, then re-check (handles laptop sleep correctly)
-                try? await Task.sleep(nanoseconds: 15 * 60 * 1_000_000_000)
-            }
-        }
+        observationsSinceLastRun = 0
+        log.info("Knowledge insight analyzer started (every \(self.observationsPerRun) observations)")
     }
 
     func stop() {
-        cronTask?.cancel()
-        cronTask = nil
+        analysisTask?.cancel()
+        analysisTask = nil
         client = nil
-        log.info("Knowledge cron stopped")
+        log.info("Knowledge insight analyzer stopped")
     }
 
-    private func checkAndRun() async {
-        let now = Date().timeIntervalSince1970
-        let intervalSeconds = intervalHours * 3600
-        let elapsed = now - lastRunTimestamp
+    func observationAdded() {
+        observationsSinceLastRun += 1
+        log.debug("Observations since last insight run: \(self.observationsSinceLastRun)/\(self.observationsPerRun)")
 
-        guard elapsed >= intervalSeconds else {
-            log.debug("Cron: \(String(format: "%.0f", (intervalSeconds - elapsed) / 60)) minutes until next run")
-            return
+        guard observationsSinceLastRun >= observationsPerRun else { return }
+        guard analysisTask == nil else { return }
+
+        observationsSinceLastRun = 0
+        analysisTask = Task { @MainActor [weak self] in
+            await self?.runAnalysis()
+            self?.analysisTask = nil
         }
-
-        guard knowledgeStore.entryCount >= minimumEntries else {
-            log.debug("Cron: only \(self.knowledgeStore.entryCount) entries, need \(self.minimumEntries)")
-            return
-        }
-
-        await runAnalysis()
     }
 
     private func runAnalysis() async {
