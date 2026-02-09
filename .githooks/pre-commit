@@ -9,18 +9,17 @@ NC='\033[0m' # No Color
 
 echo "🔍 Checking for plain text keys and secrets..."
 
-# Get list of staged files
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
-
-if [ -z "$STAGED_FILES" ]; then
+# Check if there are any staged files
+if ! git diff --cached --name-only --diff-filter=ACM | grep -q .; then
     exit 0
 fi
 
 # Patterns to check for sensitive information
+# Note: Using [[:space:]] instead of \s for grep -E compatibility
 declare -a PATTERNS=(
     # API Keys
     "api[_-]?key[_-]?=['\"]?[a-zA-Z0-9_\-]{20,}['\"]?"
-    "apikey['\"]?\s*[:=]\s*['\"]?[a-zA-Z0-9_\-]{20,}"
+    "apikey['\"]?[[:space:]]*[:=][[:space:]]*['\"]?[a-zA-Z0-9_\-]{20,}"
 
     # AWS Keys
     "AKIA[0-9A-Z]{16}"
@@ -30,27 +29,27 @@ declare -a PATTERNS=(
     # Private Keys
     "-----BEGIN (RSA|DSA )?PRIVATE KEY-----"
     "-----BEGIN PRIVATE KEY-----"
-    "private[_-]?key['\"]?\s*[:=]"
+    "private[_-]?key['\"]?[[:space:]]*[:=]"
 
     # Passwords
-    "password['\"]?\s*[:=]\s*['\"][^'\"]{3,}['\"]"
-    "passwd['\"]?\s*[:=]\s*['\"][^'\"]{3,}['\"]"
+    "password['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]{3,}['\"]"
+    "passwd['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]{3,}['\"]"
 
     # Secrets
-    "secret['\"]?\s*[:=]\s*['\"][^'\"]{8,}['\"]"
+    "secret['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}['\"]"
     "client[_-]?secret"
 
     # Tokens
-    "token['\"]?\s*[:=]\s*['\"][a-zA-Z0-9_\-\.]{20,}['\"]"
-    "bearer['\"]?\s*[:=]?\s*[a-zA-Z0-9_\-\.]{20,}"
+    "token['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-\.]{20,}['\"]"
+    "bearer['\"]?[[:space:]]*[:=]?[[:space:]]*[a-zA-Z0-9_\-\.]{20,}"
     "auth[_-]?token"
 
     # Database URLs with credentials
     "://[a-zA-Z0-9]+:[a-zA-Z0-9]+@[a-zA-Z0-9]"
 
     # Generic secret patterns
-    "['\"]?[a-z0-9_]*secret[a-z0-9_]*['\"]?\s*[:=]\s*['\"][^'\"]{8,}['\"]"
-    "['\"]?[a-z0-9_]*key[a-z0-9_]*['\"]?\s*[:=]\s*['\"][a-zA-Z0-9_\-]{16,}['\"]"
+    "['\"]?[a-z0-9_]*secret[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}['\"]"
+    "['\"]?[a-z0-9_]*key[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-]{16,}['\"]"
 
     # Slack tokens
     "xox[baprs]-[0-9a-zA-Z]{10,}"
@@ -65,7 +64,8 @@ declare -a PATTERNS=(
 FOUND_SECRETS=0
 CHECKED_FILES=0
 
-for FILE in $STAGED_FILES; do
+# Use NUL-delimited list to safely handle filenames with spaces
+while IFS= read -r -d '' FILE; do
     # Skip hook files themselves (they contain patterns to detect secrets)
     if [[ "$FILE" =~ ^\.githooks/ ]]; then
         continue
@@ -103,7 +103,7 @@ for FILE in $STAGED_FILES; do
             FOUND_SECRETS=1
         fi
     done
-done
+done < <(git diff --cached --name-only --diff-filter=ACM -z)
 
 if [ $FOUND_SECRETS -eq 1 ]; then
     echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
