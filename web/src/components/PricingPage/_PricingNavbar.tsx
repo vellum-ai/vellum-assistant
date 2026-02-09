@@ -178,7 +178,7 @@ News
                         </div>
                         <div className="nav_dropdown-linear"></div>
                       </a>
-                      <a aria-label="Go to Guides page" href="/blog" className="dropdown_link u-hflex-left-center dark-mode w-inline-block">
+                      <Link aria-label="Go to Guides page" href="/blog" className="dropdown_link u-hflex-left-center dark-mode w-inline-block">
                         <svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" className="dropdown_link_icon">
                           <path d="M4 9C3.4375 9 3 8.5625 3 8V7C3 5.90625 3.875 5 5 5C6.09375 5 7 5.90625 7 7V9H4ZM12 16H11.9688C11.9688 15.4688 12.4375 15 12.9688 15H13.7188H13.7812C13.9062 15 14.0312 15.0625 14.125 15.1562L14.8125 15.8438C14.9062 15.9375 15.0625 15.9375 15.1562 15.8438L15.8438 15.1562C15.9375 15.0625 16.0625 15 16.1875 15H16.25H20C20.5312 15 21 15.4688 21 16C21 17.6562 19.6562 19 18 19H9.5C10.875 19 12 17.9062 12 16.5V16Z" fill="currentColor"></path>
                           <path opacity="0.4" d="M5 5H16C17.0938 5 18 5.90625 18 7V7.75V7.8125C18 7.9375 17.9375 8.0625 17.8438 8.15625L17.1562 8.84375C17.0625 8.9375 17.0625 9.09375 17.1562 9.1875L17.8438 9.875C17.9375 9.96875 18 10.0938 18 10.2188V10.2812V10.7812V10.8125C18 10.9375 17.9375 11.0625 17.8438 11.1562L17.1562 11.8438C17.0625 11.9375 17.0625 12.0938 17.1562 12.1875L17.8438 12.875C17.9375 12.9688 18 13.0938 18 13.2188V13.2812V15.0312H16.25H16.1875C16.0625 15.0312 15.9375 15.0625 15.8438 15.1562L15.1562 15.8438C15.0625 15.9375 14.9062 15.9375 14.8125 15.8438L14.125 15.1562C14.0312 15.0625 13.9062 15.0312 13.7812 15.0312H13.7188H12.9688C12.4375 15.0312 11.9688 15.4688 11.9688 16.0312V16.5312C11.9688 17.9062 10.875 19.0312 9.46875 19.0312C8.09375 19.0312 6.96875 17.9062 6.96875 16.5312V12.2812V12.2188C6.96875 12.0938 7.03125 11.9688 7.125 11.875L7.8125 11.1875C7.90625 11.0938 7.90625 10.9375 7.8125 10.8438L7.125 10.1562C7.03125 10.0625 6.96875 9.9375 6.96875 9.8125V9.78125V9.03125V7.03125C6.96875 5.90625 6.09375 5.03125 4.96875 5.03125L5 5Z" fill="currentColor"></path>
@@ -187,7 +187,7 @@ News
 Blog
                         </div>
                         <div className="nav_dropdown-linear"></div>
-                      </a>
+                      </Link>
                       <a aria-label="Go to Leaderboards page" href="/llm-leaderboard" className="dropdown_link u-hflex-left-center dark-mode w-inline-block">
                         <svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" className="dropdown_link_icon">
                           <path d="M11 16.375C11 15.875 10.7188 15.4062 10.3438 15.0625C9 13.875 7.28125 11.2188 7.03125 5.5C6.96875 4.6875 7.65625 4 8.5 4H15.5C16.3125 4 17 4.6875 16.9688 5.5C16.6875 11.2188 14.9688 13.875 13.625 15.0625C13.25 15.4062 13 15.875 13 16.375V16.5C13 17.3438 13.6562 18 14.5 18H15C15.5312 18 16 18.4688 16 19C16 19.5625 15.5312 20 15 20H9C8.4375 20 8 19.5625 8 19C8 18.4688 8.4375 18 9 18H9.5C10.3125 18 11 17.3438 11 16.5V16.375Z" fill="currentColor"></path>
@@ -224,7 +224,7 @@ GPT-5 Playbook
                         <div className="dropdown_link_text text-color-purple nav_tag drak-mode">
 Customer Spotlights
                         </div>
-                        <a aria-label="Go to Case Studies page" href="/blog?category=Customer+Stories" className="dropdown_link u-hflex-left-center dark-mode w-inline-block">
+                        <Link aria-label="Go to Case Studies page" href="/blog?category=Customer+Stories" className="dropdown_link u-hflex-left-center dark-mode w-inline-block">
                           <svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" className="dropdown_link_icon">
                             <path d="M8 4H11V9.96875C11 10.4062 11.4688 10.625 11.8125 10.375L13.5 9L15.1875 10.375C15.5 10.625 16 10.4062 16 9.96875V4H17H18C18.5312 4 19 4.46875 19 5V15C19 15.5625 18.5312 16 18 16H16H13H8C7.4375 16 7 16.4688 7 17C7 17.5625 7.4375 18 8 18H13H16H18C18.5312 18 19 18.4688 19 19C19 19.5625 18.5312 20 18 20H17H8C6.34375 20 5 18.6562 5 17V7C5 5.34375 6.34375 4 8 4Z" fill="currentColor"></path>
                             <path opacity="0.4" d="M7 17C7 16.4688 7.4375 16 8 16H13H16H18V18H16H13H8C7.4375 18 7 17.5625 7 17Z" fill="currentColor"></path>
@@ -233,7 +233,7 @@ Customer Spotlights
 Case Studies
                           </div>
                           <div className="nav_dropdown-linear"></div>
-                        </a>
+                        </Link>
                         <a aria-label="Go to LLM Basics page" href="/use-case-directory" className="dropdown_link u-hflex-left-center dark-mode w-inline-block">
                           <svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" className="dropdown_link_icon">
                             <path d="M4 11C4 9.9375 4.5625 8.96875 5.5 8.40625C6.40625 7.875 7.5625 7.875 8.5 8.40625C9.40625 8.96875 10 9.9375 10 11C10 12.0938 9.40625 13.0625 8.5 13.625C7.5625 14.1562 6.40625 14.1562 5.5 13.625C4.5625 13.0625 4 12.0938 4 11ZM2 19.1875C2 16.875 3.84375 15 6.15625 15H7.8125C10.125 15 12 16.875 12 19.1875C12 19.625 11.625 20 11.1562 20H2.8125C2.34375 20 2 19.6562 2 19.1875ZM15 13H17C17.5312 13 18 13.4688 18 14V15H14V14C14 13.4688 14.4375 13 15 13Z" fill="currentColor"></path>
@@ -252,7 +252,7 @@ Use Cases
                               <div className="blog_coll_wrap drak-mode">
                                 <Image alt="" src="https://cdn.prod.website-files.com/plugins/Basic/assets/placeholder.60f9b1840c.svg" className="blog_coll_image" width={0} height={0} unoptimized />
                               </div>
-                              <a aria-label="Go to blog post" href="/blog/coursemojo-case-study" className="u-cover-absolute is-nav w-inline-block"></a>
+                              <Link aria-label="Go to blog post" href="/blog/coursemojo-case-study" className="u-cover-absolute is-nav w-inline-block"></Link>
                               <div className="blog_tag-wrap">
                                 <div data-wf--header-tag-new--variant="light" className="header_tag w-variant-11e7aa17-1e01-9a94-54a5-db6a960b027a">
                                   <div>
