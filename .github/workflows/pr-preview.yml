@@ -56,8 +56,8 @@ jobs:
         with:
           token_format: access_token
           create_credentials_file: true
-          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-previews/providers/github-actions-provider-0
-          service_account: github-gcr-sa-previews@vellum-nonprod.iam.gserviceaccount.com
+          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-dev/providers/github-actions-provider-0
+          service_account: github-gcr-sa-dev@vellum-nonprod.iam.gserviceaccount.com
           access_token_lifetime: 1200s
 
       - name: Set up Cloud SDK
@@ -97,8 +97,8 @@ jobs:
         with:
           token_format: access_token
           create_credentials_file: true
-          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-previews/providers/github-actions-provider-0
-          service_account: github-gcr-sa-previews@vellum-nonprod.iam.gserviceaccount.com
+          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-dev/providers/github-actions-provider-0
+          service_account: github-gcr-sa-dev@vellum-nonprod.iam.gserviceaccount.com
           access_token_lifetime: 1200s
 
       - name: Set up Cloud SDK
@@ -151,8 +151,8 @@ jobs:
         with:
           token_format: access_token
           create_credentials_file: true
-          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-previews/providers/github-actions-provider-0
-          service_account: github-gcr-sa-previews@vellum-nonprod.iam.gserviceaccount.com
+          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-dev/providers/github-actions-provider-0
+          service_account: github-gcr-sa-dev@vellum-nonprod.iam.gserviceaccount.com
           access_token_lifetime: 1200s
 
       - name: Set up Cloud SDK
@@ -244,8 +244,8 @@ jobs:
         with:
           token_format: access_token
           create_credentials_file: true
-          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-previews/providers/github-actions-provider-0
-          service_account: github-gcr-sa-previews@vellum-nonprod.iam.gserviceaccount.com
+          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-dev/providers/github-actions-provider-0
+          service_account: github-gcr-sa-dev@vellum-nonprod.iam.gserviceaccount.com
           access_token_lifetime: 1200s
 
       - name: Set up Cloud SDK
@@ -314,8 +314,8 @@ jobs:
         with:
           token_format: access_token
           create_credentials_file: true
-          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-previews/providers/github-actions-provider-0
-          service_account: github-gcr-sa-previews@vellum-nonprod.iam.gserviceaccount.com
+          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-dev/providers/github-actions-provider-0
+          service_account: github-gcr-sa-dev@vellum-nonprod.iam.gserviceaccount.com
           access_token_lifetime: 1200s
 
       - name: Set up Cloud SDK
@@ -372,8 +372,8 @@ jobs:
         with:
           token_format: access_token
           create_credentials_file: true
-          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-previews/providers/github-actions-provider-0
-          service_account: github-gcr-sa-previews@vellum-nonprod.iam.gserviceaccount.com
+          workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-dev/providers/github-actions-provider-0
+          service_account: github-gcr-sa-dev@vellum-nonprod.iam.gserviceaccount.com
           access_token_lifetime: 1200s
 
       - name: Set up Cloud SDK
