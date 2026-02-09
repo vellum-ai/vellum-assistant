@@ -1,0 +1,244 @@
+name: Build and Release macOS App
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */4 * * *'
+
+concurrency:
+  group: build-release
+  cancel-in-progress: true
+
+jobs:
+  build-sign-release:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: clients/macos
+    env:
+      SCHEME: vellum-assistant
+      ARCHIVE_PATH: build/vellum-assistant.xcarchive
+      EXPORT_PATH: build/export
+      DMG_PATH: build/vellum-assistant.dmg
+      KEYCHAIN_NAME: build.keychain
+      KEYCHAIN_PASSWORD: temporary-ci-password
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Import code-signing certificate
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Decode and import the .p12 certificate
+          echo "${{ secrets.CERTIFICATE_P12 }}" | base64 --decode > /tmp/certificate.p12
+          security import /tmp/certificate.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "${{ secrets.CERTIFICATE_PASSWORD }}" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          rm /tmp/certificate.p12
+
+          # Allow codesign to access the keychain without prompt
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Add to search list and set as default
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          # Verify the certificate was imported
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Stamp version
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          DATE=$(date -u +%Y%m%d)
+          VERSION="1.0.0-${SHORT_SHA}-${DATE}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "Stamping version: $VERSION"
+
+          # Update CFBundleVersion in Info-generated.plist (used by xcodebuild)
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" \
+            vellum-assistant/Resources/Info-generated.plist
+
+          # Also update CFBundleShortVersionString for display
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" \
+            vellum-assistant/Resources/Info-generated.plist
+
+      - name: Resolve SPM dependencies
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project vellum-assistant.xcodeproj \
+            -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath build/SourcePackages
+
+      - name: Archive
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project vellum-assistant.xcodeproj \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -archivePath "$ARCHIVE_PATH" \
+            -clonedSourcePackagesDirPath build/SourcePackages \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp" \
+            | xcpretty
+
+      - name: Generate ExportOptions.plist
+        run: |
+          cat > build/ExportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>developer-id</string>
+              <key>teamID</key>
+              <string>${{ secrets.APPLE_TEAM_ID }}</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>Developer ID Application</string>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Export .app
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist build/ExportOptions.plist \
+            | xcpretty
+
+          # Verify the app exists
+          ls -la "$EXPORT_PATH/"
+          APP_PATH=$(find "$EXPORT_PATH" -name "*.app" -maxdepth 1 | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::No .app found in export directory"
+            exit 1
+          fi
+          echo "Exported app: $APP_PATH"
+
+          # Verify code signature
+          codesign --verify --deep --strict "$APP_PATH"
+          echo "Code signature verified"
+
+      - name: Create DMG
+        run: |
+          APP_PATH=$(find "$EXPORT_PATH" -name "*.app" -maxdepth 1 | head -1)
+          APP_NAME=$(basename "$APP_PATH")
+
+          # Create staging directory for DMG contents
+          DMG_STAGING="build/dmg-staging"
+          mkdir -p "$DMG_STAGING"
+          cp -R "$APP_PATH" "$DMG_STAGING/"
+          ln -s /Applications "$DMG_STAGING/Applications"
+
+          # Create DMG
+          hdiutil create \
+            -volname "vellum-assistant" \
+            -srcfolder "$DMG_STAGING" \
+            -ov \
+            -format UDZO \
+            "$DMG_PATH"
+
+          echo "DMG created at $DMG_PATH"
+          ls -lh "$DMG_PATH"
+
+      - name: Sign DMG
+        run: |
+          codesign --sign "Developer ID Application" \
+            --timestamp \
+            "$DMG_PATH"
+
+          # Verify DMG signature
+          codesign --verify --verbose "$DMG_PATH"
+          echo "DMG signature verified"
+
+      - name: Notarize DMG
+        run: |
+          echo "Submitting DMG for notarization..."
+          NOTARIZE_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --wait \
+            --timeout 30m \
+            2>&1) || NOTARIZE_FAILED=true
+
+          echo "$NOTARIZE_OUTPUT"
+
+          # Extract the submission ID for log fetching
+          SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+
+          if [ "$NOTARIZE_FAILED" = "true" ]; then
+            echo "::error::Notarization failed"
+            if [ -n "$SUBMISSION_ID" ]; then
+              echo "Fetching notarization log for submission $SUBMISSION_ID..."
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --apple-id "${{ secrets.APPLE_ID }}" \
+                --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+                --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+                || echo "::warning::Could not fetch notarization log"
+            fi
+            exit 1
+          fi
+
+          echo "Notarization succeeded"
+
+      - name: Staple notarization ticket
+        run: |
+          xcrun stapler staple "$DMG_PATH"
+
+          # Verify stapling
+          xcrun stapler validate "$DMG_PATH"
+          echo "Notarization ticket stapled and validated"
+
+      - name: Create GitHub Release on public repo
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
+        run: |
+          REPO="alex-nork/vellum-assistant-macos-updates"
+          VERSION="${{ steps.version.outputs.version }}"
+          SHORT_SHA="${{ steps.version.outputs.short_sha }}"
+          FULL_SHA=$(git rev-parse HEAD)
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+          # Delete existing 'latest' release and tag if they exist
+          gh release delete latest --repo "$REPO" --yes 2>/dev/null || true
+          gh api "repos/$REPO/git/refs/tags/latest" -X DELETE 2>/dev/null || true
+
+          # Create new release with the DMG attached
+          RELEASE_NOTES="**Build:** \`$VERSION\`
+          **Commit:** [\`$SHORT_SHA\`](https://github.com/${{ github.repository }}/commit/$FULL_SHA)
+          **Built at:** $TIMESTAMP
+
+          ---
+
+          Download the DMG, open it, and drag vellum-assistant to your Applications folder."
+
+          gh release create latest "$DMG_PATH" \
+            --repo "$REPO" \
+            --title "vellum-assistant $VERSION" \
+            --notes "$RELEASE_NOTES" \
+            --latest
+
+          echo "Release created at https://github.com/$REPO/releases/tag/latest"
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
