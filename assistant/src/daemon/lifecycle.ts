@@ -168,11 +168,6 @@ export async function runDaemon(): Promise<void> {
 
   const config = loadConfig();
 
-  // Rotate old audit log entries if retention is configured
-  if (config.auditLog.retentionDays > 0) {
-    rotateToolInvocations(config.auditLog.retentionDays);
-  }
-
   initializeProviders(config);
   await initializeTools();
 
@@ -181,6 +176,17 @@ export async function runDaemon(): Promise<void> {
 
   writePid(process.pid);
   log.info({ pid: process.pid }, 'Daemon started');
+
+  // Rotate old audit log entries after startup handshake is complete.
+  // This runs after the socket is listening so it won't block the 5s
+  // readiness window in startDaemon().
+  if (config.auditLog.retentionDays > 0) {
+    try {
+      rotateToolInvocations(config.auditLog.retentionDays);
+    } catch (err) {
+      log.warn({ err }, 'Audit log rotation failed');
+    }
+  }
 
   // Graceful shutdown
   let shuttingDown = false;
