@@ -142,7 +142,7 @@ function Editor({ assistantId, username }: EditorProps) {
       if (!response.ok) {
         throw new Error("Failed to kill assistant");
       }
-      window.location.href = "/assistants";
+      window.location.href = "/assistant";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to kill assistant");
       setIsKilling(false);

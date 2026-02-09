@@ -234,7 +234,7 @@ export default function AssistantPage() {
     );
   }
 
-  // Multiple assistants - show the oldest with link to /assistants
+  // Multiple assistants - show the oldest with link to /assistant
   return (
     <div className="flex h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
       <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
@@ -242,7 +242,7 @@ export default function AssistantPage() {
           <span>Showing oldest assistant</span>
         </div>
         <Link
-          href="/assistants"
+          href="/assistant"
           className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
         >
           View All Assistants
