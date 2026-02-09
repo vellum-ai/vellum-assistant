@@ -37,6 +37,13 @@ final class ComputerUseSession: ObservableObject {
     private let initialDelayMs: UInt64
     private var didChromeAccessibilityCheck = false
     private var previousAXTreeText: String?
+    private var previousElements: [AXElement]?
+
+    /// Adaptive delay configuration
+    private let adaptiveDelayEnabled: Bool
+    private let minDelayMs: UInt64 = 100
+    private let maxDelayMs: UInt64 = 2000
+    private let pollIntervalMs: UInt64 = 50
 
     init(
         task: String,
@@ -46,7 +53,8 @@ final class ComputerUseSession: ObservableObject {
         executor: ActionExecuting = ActionExecutor(),
         maxSteps: Int = 50,
         stepDelayMs: UInt64 = 500,
-        initialDelayMs: UInt64 = 300
+        initialDelayMs: UInt64 = 300,
+        adaptiveDelay: Bool = true
     ) {
         self.task = task
         self.provider = provider
@@ -56,6 +64,7 @@ final class ComputerUseSession: ObservableObject {
         self.maxSteps = maxSteps
         self.stepDelayMs = stepDelayMs
         self.initialDelayMs = initialDelayMs
+        self.adaptiveDelayEnabled = adaptiveDelay
         self.verifier = ActionVerifier(maxSteps: maxSteps)
         self.logger = SessionLogger(task: task)
     }
@@ -66,6 +75,7 @@ final class ComputerUseSession: ObservableObject {
         isCancelled = false
         isPaused = false
         previousAXTreeText = nil
+        previousElements = nil
         state = .running(step: 0, maxSteps: maxSteps, lastAction: "Starting...", reasoning: "")
 
         log.info("Session starting — task: \(self.task, privacy: .public)")
@@ -90,6 +100,9 @@ final class ComputerUseSession: ObservableObject {
             var elements: [AXElement]?
             var screenshot: Data?
             var usedVision = false
+            var axDiffText: String?
+            var secondaryWindowsText: String?
+            var primaryPID: pid_t?
 
             if let result = enumerator.enumerateCurrentWindow() {
                 // On first step with Chrome: check if web content is visible.
@@ -125,8 +138,31 @@ final class ComputerUseSession: ObservableObject {
                 log.info("[\(stepNumber)] AX tree: \(result.appName) — \"\(result.windowTitle)\" — \(flat.count) elements (\(interactiveCount) interactive)")
                 log.debug("[\(stepNumber)] AX tree text:\n\(axTreeText ?? "(empty)")")
 
+                // Compute AX tree diff if we have a previous snapshot
+                if let prevElements = previousElements {
+                    axDiffText = AXTreeDiff.diff(previous: prevElements, current: result.elements)
+                    if let diff = axDiffText {
+                        log.info("[\(stepNumber)] AX diff:\n\(diff)")
+                    } else {
+                        log.info("[\(stepNumber)] AX tree unchanged from previous step")
+                    }
+                }
+
+                // Track the primary app's PID for secondary window exclusion
+                primaryPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+
+                // Enumerate secondary windows for cross-app awareness
+                let secondaryWindows = enumerator.enumerateSecondaryWindows(
+                    excludingPID: primaryPID,
+                    maxWindows: 2
+                )
+                secondaryWindowsText = AccessibilityTreeEnumerator.formatSecondaryWindows(secondaryWindows)
+                if let secText = secondaryWindowsText {
+                    log.info("[\(stepNumber)] Secondary windows: \(secondaryWindows.count)")
+                    log.debug("[\(stepNumber)] Secondary windows text:\n\(secText)")
+                }
+
                 // Also capture a screenshot so the model can see content beyond the AX tree
-                // (e.g., a PDF in another window, images, or other visual context)
                 do {
                     screenshot = try await screenCapture.captureScreen()
                     log.info("[\(stepNumber)] Screenshot captured alongside AX tree (\(screenshot?.count ?? 0) bytes)")
@@ -155,6 +191,8 @@ final class ComputerUseSession: ObservableObject {
                 action = try await provider.infer(
                     axTree: axTreeText,
                     previousAXTree: previousAXTreeText,
+                    axDiff: axDiffText,
+                    secondaryWindows: secondaryWindowsText,
                     screenshot: screenshot,
                     screenSize: screenCapture.screenSize(),
                     task: task,
@@ -234,14 +272,49 @@ final class ComputerUseSession: ObservableObject {
 
             // Save current AX tree for next step's context
             previousAXTreeText = axTreeText
+            previousElements = elements
 
-            // 7. WAIT
-            try? await Task.sleep(nanoseconds: stepDelayMs * 1_000_000)
+            // 7. WAIT — adaptive delay: poll for AX tree changes instead of fixed sleep
+            if adaptiveDelayEnabled && axTreeText != nil {
+                await waitForUISettle(previousTree: axTreeText)
+            } else {
+                try? await Task.sleep(nanoseconds: stepDelayMs * 1_000_000)
+            }
         }
 
         // Cancelled
         state = .cancelled
         logger.finishSession(result: "cancelled")
+    }
+
+    // MARK: - Adaptive Delay
+
+    /// Poll the AX tree until it changes or a max wait is reached.
+    /// Returns as soon as the tree differs from `previousTree`, ensuring minimum delay.
+    private func waitForUISettle(previousTree: String?) async {
+        // Always wait the minimum delay to let CGEvents propagate
+        try? await Task.sleep(nanoseconds: minDelayMs * 1_000_000)
+
+        var elapsed = minDelayMs
+        while elapsed < maxDelayMs && !isCancelled {
+            // Quick check if the AX tree has changed
+            if let result = enumerator.enumerateCurrentWindow() {
+                let currentTree = AccessibilityTreeEnumerator.formatAXTree(
+                    elements: result.elements,
+                    windowTitle: result.windowTitle,
+                    appName: result.appName
+                )
+                if currentTree != previousTree {
+                    log.debug("UI settled after \(elapsed)ms (tree changed)")
+                    return
+                }
+            }
+
+            try? await Task.sleep(nanoseconds: pollIntervalMs * 1_000_000)
+            elapsed += pollIntervalMs
+        }
+
+        log.debug("UI settle timeout after \(elapsed)ms")
     }
 
     // MARK: - Control

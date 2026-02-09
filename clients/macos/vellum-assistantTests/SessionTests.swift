@@ -18,6 +18,8 @@ final class MockInferenceProvider: ActionInferenceProvider {
     func infer(
         axTree: String?,
         previousAXTree: String?,
+        axDiff: String?,
+        secondaryWindows: String?,
         screenshot: Data?,
         screenSize: CGSize,
         task: String,
@@ -51,6 +53,10 @@ final class MockAccessibilityTreeEnumerator: AccessibilityTreeProviding {
 
     func enumerateCurrentWindow() -> (elements: [AXElement], windowTitle: String, appName: String)? {
         return result
+    }
+
+    func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int) -> [WindowInfo] {
+        return []
     }
 }
 
@@ -149,7 +155,8 @@ private func makeDefaultEnumerator() -> MockAccessibilityTreeEnumerator {
         executor: executor ?? MockActionExecutor(),
         maxSteps: maxSteps,
         stepDelayMs: 0,
-        initialDelayMs: 0
+        initialDelayMs: 0,
+        adaptiveDelay: false
     )
 }
 

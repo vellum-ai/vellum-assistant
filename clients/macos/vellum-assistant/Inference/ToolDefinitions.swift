@@ -152,6 +152,44 @@ enum ToolDefinitions {
             ] as [String: Any]
         ],
         [
+            "name": "drag",
+            "description": "Drag from one element or position to another. Use for moving files, resizing windows, rearranging items, or adjusting sliders.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "element_id": [
+                        "type": "integer",
+                        "description": "The [ID] of the source element to drag from (preferred)"
+                    ],
+                    "x": [
+                        "type": "integer",
+                        "description": "Source X coordinate (fallback when no element_id)"
+                    ],
+                    "y": [
+                        "type": "integer",
+                        "description": "Source Y coordinate (fallback when no element_id)"
+                    ],
+                    "to_element_id": [
+                        "type": "integer",
+                        "description": "The [ID] of the destination element to drag to (preferred)"
+                    ],
+                    "to_x": [
+                        "type": "integer",
+                        "description": "Destination X coordinate (fallback when no to_element_id)"
+                    ],
+                    "to_y": [
+                        "type": "integer",
+                        "description": "Destination Y coordinate (fallback when no to_element_id)"
+                    ],
+                    "reasoning": [
+                        "type": "string",
+                        "description": "Explanation of what you are dragging and why"
+                    ]
+                ],
+                "required": ["reasoning"]
+            ] as [String: Any]
+        ],
+        [
             "name": "wait",
             "description": "Wait for the UI to update",
             "input_schema": [

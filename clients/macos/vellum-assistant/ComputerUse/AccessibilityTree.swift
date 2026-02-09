@@ -19,8 +19,15 @@ struct AXElement: Identifiable {
     let placeholderValue: String?
 }
 
+struct WindowInfo {
+    let elements: [AXElement]
+    let windowTitle: String
+    let appName: String
+}
+
 protocol AccessibilityTreeProviding {
     func enumerateCurrentWindow() -> (elements: [AXElement], windowTitle: String, appName: String)?
+    func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int) -> [WindowInfo]
 }
 
 final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
@@ -188,6 +195,53 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         guard !elements.isEmpty else { return nil }
         lastTargetPid = pid
         return (elements: elements, windowTitle: windowTitle, appName: appName)
+    }
+
+    /// Enumerate the focused windows of other visible apps (not the primary one).
+    /// Returns up to `maxWindows` secondary window trees, useful for cross-app tasks.
+    func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int = 2) -> [WindowInfo] {
+        let myBundleId = Bundle.main.bundleIdentifier
+        let runningApps = NSWorkspace.shared.runningApplications
+            .filter { app in
+                app.activationPolicy == .regular
+                    && !app.isTerminated
+                    && app.bundleIdentifier != myBundleId
+                    && (excludingPID == nil || app.processIdentifier != excludingPID)
+            }
+
+        var results: [WindowInfo] = []
+        for app in runningApps {
+            guard results.count < maxWindows else { break }
+            let pid = app.processIdentifier
+            let appElement = AXUIElementCreateApplication(pid)
+
+            if !Self.enhancedAXEnabled.contains(pid) {
+                AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
+                Self.enhancedAXEnabled.insert(pid)
+            }
+
+            // Get all windows for this app
+            var windowsRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+                  let windows = windowsRef as? [AXUIElement],
+                  let firstWindow = windows.first else { continue }
+
+            // Check if the window is on-screen (has a reasonable size)
+            let frame = getFrameAttribute(firstWindow)
+            guard frame.width > 50 && frame.height > 50 else { continue }
+
+            let windowTitle = getStringAttribute(firstWindow, kAXTitleAttribute as CFString) ?? "Untitled"
+            let appName = app.localizedName ?? "Unknown"
+
+            nextId = 1
+            let elements = enumerateElement(element: firstWindow, depth: 0, maxDepth: 15) // shallower for secondary
+            guard !elements.isEmpty else { continue }
+
+            results.append(WindowInfo(elements: elements, windowTitle: windowTitle, appName: appName))
+            log.info("Secondary window: \(appName, privacy: .public) — \"\(windowTitle)\"")
+        }
+
+        return results
     }
 
     private func enumerateElement(element: AXUIElement, depth: Int, maxDepth: Int) -> [AXElement] {
@@ -404,6 +458,39 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
             result += String(char).lowercased()
         }
         return result
+    }
+
+    /// Format secondary windows into a compact text representation.
+    /// Uses a condensed format (interactive elements only) to minimize token cost.
+    static func formatSecondaryWindows(_ windows: [WindowInfo]) -> String? {
+        guard !windows.isEmpty else { return nil }
+
+        var lines: [String] = ["OTHER VISIBLE WINDOWS:"]
+        for window in windows {
+            lines.append("")
+            lines.append("  Window: \"\(window.windowTitle)\" (\(window.appName))")
+
+            var interactive: [String] = []
+            var staticTexts: [String] = []
+            collectFormatted(elements: window.elements, interactive: &interactive, staticTexts: &staticTexts)
+
+            if !interactive.isEmpty {
+                for line in interactive.prefix(15) { // Cap per window to limit tokens
+                    lines.append("    \(line)")
+                }
+                if interactive.count > 15 {
+                    lines.append("    ... and \(interactive.count - 15) more elements")
+                }
+            }
+
+            if !staticTexts.isEmpty {
+                for text in staticTexts.prefix(10) {
+                    lines.append("    \(text)")
+                }
+            }
+        }
+
+        return lines.joined(separator: "\n")
     }
 
     static func shouldFallbackToVision(elements: [AXElement]) -> Bool {
