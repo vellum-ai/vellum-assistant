@@ -66,7 +66,10 @@ final class ActionVerifier {
 
         // 7. AppleScript safety
         if action.type == .runAppleScript, let script = action.script {
-            let lower = script.lowercased()
+            // Normalize whitespace to prevent bypass via "do shell\nscript" etc.
+            let normalized = script.lowercased()
+                .split(omittingEmptySubsequences: true, whereSeparator: \.isWhitespace)
+                .joined(separator: " ")
             let blockedPatterns = [
                 "do shell script", "keychain", "password", "credential",
                 "sudo", "rm -rf", "defaults write", "defaults delete",
@@ -74,7 +77,7 @@ final class ActionVerifier {
                 "system events' to keystroke"
             ]
             for pattern in blockedPatterns {
-                if lower.contains(pattern) {
+                if normalized.contains(pattern) {
                     return .blocked("AppleScript contains blocked pattern: \(pattern)")
                 }
             }

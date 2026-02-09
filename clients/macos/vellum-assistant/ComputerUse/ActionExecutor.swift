@@ -1,7 +1,6 @@
 import CoreGraphics
 import AppKit
 import ApplicationServices
-import Carbon
 
 enum ExecutorError: LocalizedError {
     case eventCreationFailed
@@ -244,29 +243,44 @@ final class ActionExecutor: ActionExecuting {
     // MARK: - AppleScript
 
     func runAppleScript(_ source: String) async throws -> String? {
-        // Run NSAppleScript on main thread with a 5-second timeout
-        try await withThrowingTaskGroup(of: String?.self) { group in
-            group.addTask { @MainActor in
-                var errorInfo: NSDictionary?
-                let script = NSAppleScript(source: source)!
-                let descriptor = script.executeAndReturnError(&errorInfo)
+        // Run osascript as a subprocess so we can kill it on timeout and avoid blocking the main thread
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", source]
 
-                if let error = errorInfo {
-                    let message = error[NSAppleScript.errorMessage] as? String ?? "Unknown AppleScript error"
-                    throw ExecutorError.appleScriptError(message)
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+
+        // 5-second timeout — terminate the subprocess if it takes too long
+        let timeoutTask = Task {
+            try await Task.sleep(nanoseconds: 5_000_000_000)
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            process.terminationHandler = { proc in
+                timeoutTask.cancel()
+
+                let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+                let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: stdoutData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let errorOutput = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if proc.terminationReason == .uncaughtSignal {
+                    continuation.resume(throwing: ExecutorError.appleScriptTimeout)
+                } else if proc.terminationStatus != 0 {
+                    let message = errorOutput ?? "Unknown AppleScript error (exit \(proc.terminationStatus))"
+                    continuation.resume(throwing: ExecutorError.appleScriptError(message))
+                } else {
+                    continuation.resume(returning: output)
                 }
-
-                return descriptor.stringValue
             }
-
-            group.addTask {
-                try await Task.sleep(nanoseconds: 5_000_000_000) // 5s timeout
-                throw ExecutorError.appleScriptTimeout
-            }
-
-            let value = try await group.next()!
-            group.cancelAll()
-            return value
         }
     }
 
