@@ -87,13 +87,21 @@ function getProfilePath(workingDir: string): string {
   return path;
 }
 
-/** Cache bwrap availability check so we only shell out once. */
+/** Cache bwrap usability check so we only shell out once. */
 let bwrapAvailable: boolean | null = null;
 
+/**
+ * Check whether bwrap is installed AND functional (can create namespaces).
+ *
+ * Just testing `bwrap --version` is not enough — the binary may exist but
+ * namespace creation can be blocked by the kernel (e.g. inside containers
+ * or when user namespaces are disabled). We run a minimal sandbox that
+ * executes `true` to verify end-to-end functionality.
+ */
 function isBwrapAvailable(): boolean {
   if (bwrapAvailable !== null) return bwrapAvailable;
   try {
-    execSync('bwrap --version', { stdio: 'ignore' });
+    execSync('bwrap --ro-bind / / true', { stdio: 'ignore', timeout: 5000 });
     bwrapAvailable = true;
   } catch {
     bwrapAvailable = false;
@@ -177,7 +185,7 @@ export function wrapCommand(
 
   if (isLinux()) {
     if (!isBwrapAvailable()) {
-      log.warn('Sandbox is enabled but bwrap is not installed. Running unsandboxed. Install bubblewrap: apt install bubblewrap');
+      log.warn('Sandbox is enabled but bwrap is not available or cannot create namespaces. Running unsandboxed. Install bubblewrap: apt install bubblewrap');
       return {
         command: 'bash',
         args: ['-c', '--', command],
