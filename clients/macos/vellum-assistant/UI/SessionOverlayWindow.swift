@@ -29,11 +29,11 @@ final class SessionOverlayWindow {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
-        // Position top-right
+        // Position bottom-right — less obtrusive during computer use
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
             let x = screenFrame.maxX - 340 - 20
-            let y = screenFrame.maxY - 160 - 20
+            let y = screenFrame.minY + 20
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 

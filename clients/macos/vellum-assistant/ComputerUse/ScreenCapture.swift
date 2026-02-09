@@ -40,7 +40,10 @@ final class ScreenCapture: ScreenCaptureProviding {
             throw CaptureError.noDisplay
         }
 
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        // Exclude our own app's windows so the model never sees the overlay
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let ownWindows = content.windows.filter { $0.owningApplication?.processID == myPID }
+        let filter = SCContentFilter(display: display, excludingWindows: ownWindows)
         let config = SCStreamConfiguration()
 
         let displayWidth = CGFloat(display.width)

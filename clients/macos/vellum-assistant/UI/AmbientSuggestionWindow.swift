@@ -43,11 +43,11 @@ final class AmbientSuggestionWindow {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
-        // Position top-right, below where session overlay would appear
+        // Position bottom-right, above where session overlay would appear
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
             let x = screenFrame.maxX - 340 - 20
-            let y = screenFrame.maxY - 140 - 200
+            let y = screenFrame.minY + 20 + 160 + 10
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
