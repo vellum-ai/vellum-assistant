@@ -1,0 +1,294 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`IPC message snapshots ClientMessage types user_message serializes to expected JSON 1`] = `
+{
+  "content": "Hello, assistant!",
+  "sessionId": "sess-001",
+  "type": "user_message",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types confirmation_response serializes to expected JSON 1`] = `
+{
+  "decision": "allow",
+  "requestId": "req-001",
+  "selectedPattern": "bash:npm *",
+  "selectedScope": "/projects/my-app",
+  "type": "confirmation_response",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types session_list serializes to expected JSON 1`] = `
+{
+  "type": "session_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types session_create serializes to expected JSON 1`] = `
+{
+  "title": "New session",
+  "type": "session_create",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types session_switch serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-002",
+  "type": "session_switch",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types ping serializes to expected JSON 1`] = `
+{
+  "type": "ping",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types cancel serializes to expected JSON 1`] = `
+{
+  "type": "cancel",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types model_get serializes to expected JSON 1`] = `
+{
+  "type": "model_get",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types model_set serializes to expected JSON 1`] = `
+{
+  "model": "claude-sonnet-4-5-20250929",
+  "type": "model_set",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types history_request serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "type": "history_request",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types undo serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "type": "undo",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types usage_request serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "type": "usage_request",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types sandbox_set serializes to expected JSON 1`] = `
+{
+  "enabled": true,
+  "type": "sandbox_set",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
+{
+  "text": "Here is some output",
+  "type": "assistant_text_delta",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types assistant_thinking_delta serializes to expected JSON 1`] = `
+{
+  "thinking": "Let me consider this...",
+  "type": "assistant_thinking_delta",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types tool_use_start serializes to expected JSON 1`] = `
+{
+  "input": {
+    "command": "ls -la",
+  },
+  "toolName": "bash",
+  "type": "tool_use_start",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types tool_output_chunk serializes to expected JSON 1`] = `
+{
+  "chunk": 
+"file1.ts
+file2.ts
+"
+,
+  "type": "tool_output_chunk",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types tool_result serializes to expected JSON 1`] = `
+{
+  "diff": {
+    "filePath": "/tmp/test.ts",
+    "isNewFile": false,
+    "newContent": "const x = 2;",
+    "oldContent": "const x = 1;",
+  },
+  "isError": false,
+  "result": "Command completed successfully",
+  "status": "success",
+  "toolName": "bash",
+  "type": "tool_result",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types confirmation_request serializes to expected JSON 1`] = `
+{
+  "allowlistOptions": [
+    {
+      "label": "Allow rm commands",
+      "pattern": "bash:rm *",
+    },
+  ],
+  "diff": {
+    "filePath": "/tmp/test.ts",
+    "isNewFile": false,
+    "newContent": "new",
+    "oldContent": "old",
+  },
+  "input": {
+    "command": "rm -rf /tmp/test",
+  },
+  "requestId": "req-002",
+  "riskLevel": "high",
+  "sandboxed": false,
+  "scopeOptions": [
+    {
+      "label": "In /tmp",
+      "scope": "/tmp",
+    },
+  ],
+  "toolName": "bash",
+  "type": "confirmation_request",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types message_complete serializes to expected JSON 1`] = `
+{
+  "type": "message_complete",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types session_info serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "title": "My session",
+  "type": "session_info",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types session_list_response serializes to expected JSON 1`] = `
+{
+  "sessions": [
+    {
+      "id": "sess-001",
+      "title": "First session",
+      "updatedAt": 1700000000,
+    },
+    {
+      "id": "sess-002",
+      "title": "Second session",
+      "updatedAt": 1700001000,
+    },
+  ],
+  "type": "session_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types error serializes to expected JSON 1`] = `
+{
+  "message": "Something went wrong",
+  "type": "error",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types pong serializes to expected JSON 1`] = `
+{
+  "type": "pong",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types generation_cancelled serializes to expected JSON 1`] = `
+{
+  "type": "generation_cancelled",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types model_info serializes to expected JSON 1`] = `
+{
+  "model": "claude-sonnet-4-5-20250929",
+  "provider": "anthropic",
+  "type": "model_info",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types history_response serializes to expected JSON 1`] = `
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "Hello",
+      "timestamp": 1700000000,
+    },
+    {
+      "role": "assistant",
+      "text": "Hi there!",
+      "timestamp": 1700000001,
+    },
+  ],
+  "type": "history_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types undo_complete serializes to expected JSON 1`] = `
+{
+  "removedCount": 2,
+  "type": "undo_complete",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types usage_update serializes to expected JSON 1`] = `
+{
+  "estimatedCost": 0.025,
+  "inputTokens": 150,
+  "model": "claude-sonnet-4-5-20250929",
+  "outputTokens": 50,
+  "totalInputTokens": 1500,
+  "totalOutputTokens": 500,
+  "type": "usage_update",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types usage_response serializes to expected JSON 1`] = `
+{
+  "estimatedCost": 0.025,
+  "model": "claude-sonnet-4-5-20250929",
+  "totalInputTokens": 1500,
+  "totalOutputTokens": 500,
+  "type": "usage_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types secret_detected serializes to expected JSON 1`] = `
+{
+  "action": "redact",
+  "matches": [
+    {
+      "redactedValue": "sk-****abcd",
+      "type": "api_key",
+    },
+  ],
+  "toolName": "bash",
+  "type": "secret_detected",
+}
+`;
