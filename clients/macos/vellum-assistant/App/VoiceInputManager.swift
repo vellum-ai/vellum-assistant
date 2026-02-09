@@ -14,6 +14,8 @@ final class VoiceInputManager {
     private var isRecording = false
     private var globalMonitor: Any?
     private var localMonitor: Any?
+    private var fnHoldTask: Task<Void, Never>?
+    private static let holdDelay: UInt64 = 300_000_000 // 300ms in nanoseconds
 
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -58,9 +60,19 @@ final class VoiceInputManager {
         let hasOtherModifiers = !event.modifierFlags.intersection(otherModifiers).isEmpty
 
         if fnPressed && !hasOtherModifiers && !isRecording {
-            beginRecording()
-        } else if !fnPressed && isRecording {
-            stopRecording()
+            // Start a delayed hold — cancelled if Fn is released quickly (e.g. Fn+arrow combo)
+            fnHoldTask?.cancel()
+            fnHoldTask = Task {
+                try? await Task.sleep(nanoseconds: Self.holdDelay)
+                guard !Task.isCancelled else { return }
+                beginRecording()
+            }
+        } else if !fnPressed {
+            fnHoldTask?.cancel()
+            fnHoldTask = nil
+            if isRecording {
+                stopRecording()
+            }
         }
     }
 
