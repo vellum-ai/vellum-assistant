@@ -101,6 +101,14 @@ fi
 
 cd "$PROJECT_ROOT"
 
+# Install git hooks
+echo "🔒 Installing git hooks..."
+if [ -f ".githooks/install.sh" ]; then
+    ./.githooks/install.sh
+else
+    echo "⚠️  Git hooks installer not found"
+fi
+
 # Ensure vel is available even if ~/.local/bin isn't in PATH yet
 export PATH="$SYMLINK_DIR:$PATH"
 
