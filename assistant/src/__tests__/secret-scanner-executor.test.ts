@@ -62,21 +62,19 @@ mock.module('../tools/registry.js', () => ({
   },
 }));
 
-mock.module('../tools/filesystem/fuzzy-match.js', () => ({
-  findAllMatches: () => [],
-  adjustIndentation: () => '',
-}));
 mock.module('../tools/filesystem/path-guard.js', () => ({
   validateFilePath: () => ({ ok: false }),
 }));
 mock.module('../tools/terminal/sandbox.js', () => ({
   wrapCommand: () => ({ command: '', sandboxed: false }),
 }));
-// NOTE: trust-store.js is intentionally NOT mocked here.  The executor only
-// calls addRule() in the always_allow / always_deny code paths, which these
-// tests never exercise (the mock checker always returns 'allow').  Mocking
-// trust-store here would leak a stub addRule into trust-store.test.ts via
-// Bun's process-global mock.module, breaking its 22 tests.
+// NOTE: fuzzy-match.js and trust-store.js are intentionally NOT mocked here.
+// fuzzy-match.js is a pure-function module (no side effects) that doesn't
+// need mocking, and mocking it would leak stubs into fuzzy-match.test.ts.
+// trust-store.js is only called in always_allow / always_deny code paths
+// which these tests never exercise (the mock checker always returns 'allow').
+// Mocking either here would break their respective test files via Bun's
+// process-global mock.module.
 
 // Now import the module under test — mocks are already in place
 import { ToolExecutor } from '../tools/executor.js';
