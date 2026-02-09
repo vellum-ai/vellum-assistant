@@ -168,4 +168,5 @@ class ShellTool implements Tool {
   }
 }
 
-registerTool(new ShellTool());
+export const shellTool: Tool = new ShellTool();
+registerTool(shellTool);
