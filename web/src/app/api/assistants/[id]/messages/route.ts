@@ -55,7 +55,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           id: "local-greeting",
           role: "assistant" as const,
           content: `Hey there! I just hatched 🐣\n\nWhat's your name? And while we're at it — what should I call myself?`,
-          timestamp: new Date().toISOString(),
+          timestamp: new Date(),
         });
       }
 
