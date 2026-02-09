@@ -15,8 +15,8 @@ interface AuthContextType {
   isLoading: boolean;
   username: string | null;
   email: string | null;
-  login: (username: string, password: string) => Promise<boolean>;
-  signup: (username: string, email: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string) => Promise<string | null>;
+  signup: (username: string, email: string, password: string) => Promise<string | null>;
   logout: () => void;
 }
 
@@ -43,13 +43,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
   }, []);
 
-  const login = useCallback(async (user: string, password: string): Promise<boolean> => {
+  const login = useCallback(async (user: string, password: string): Promise<string | null> => {
     const { error } = await authClient.signIn.username({
       username: user,
       password,
     });
     if (error) {
-      return false;
+      return error.message ?? "Login failed. Please try again.";
     }
     setIsLoggedIn(true);
     setUsername(user);
@@ -57,10 +57,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (sessionData?.user?.email) {
       setEmail(sessionData.user.email);
     }
-    return true;
+    return null;
   }, []);
 
-  const signup = useCallback(async (user: string, signupEmail: string, password: string): Promise<boolean> => {
+  const signup = useCallback(async (user: string, signupEmail: string, password: string): Promise<string | null> => {
     const { error } = await authClient.signUp.email({
       name: user,
       username: user,
@@ -68,12 +68,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       password,
     });
     if (error) {
-      return false;
+      return error.message ?? "Failed to create account. Please try again.";
     }
     setIsLoggedIn(true);
     setUsername(user);
     setEmail(signupEmail);
-    return true;
+    return null;
   }, []);
 
   const logout = useCallback(async () => {

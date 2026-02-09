@@ -20,13 +20,11 @@ export default function LoginPage() {
     setError("");
     setIsSubmitting(true);
     try {
-      const success = await login(username, password);
-      if (success) {
+      const errorMessage = await login(username, password);
+      if (!errorMessage) {
         router.push("/assistant");
       } else {
-        setError(
-          "Invalid username or password. If you don't have an account, please sign up first."
-        );
+        setError(errorMessage);
       }
     } finally {
       setIsSubmitting(false);

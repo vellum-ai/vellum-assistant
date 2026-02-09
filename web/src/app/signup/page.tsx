@@ -33,13 +33,11 @@ export default function SignupPage() {
 
     setIsSubmitting(true);
     try {
-      const success = await signup(username, email, password);
-      if (success) {
+      const errorMessage = await signup(username, email, password);
+      if (!errorMessage) {
         router.push("/assistant");
       } else {
-        setError(
-          "Failed to create account. Username or email may already be taken."
-        );
+        setError(errorMessage);
       }
     } finally {
       setIsSubmitting(false);
