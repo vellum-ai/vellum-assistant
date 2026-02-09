@@ -34,7 +34,7 @@ final class AmbientAnalyzer {
         DECISION GUIDE:
         - "ignore" — Most screen content is routine. Use this for normal browsing, reading, coding, etc.
         - "observe" — Record a neutral fact about the user's preferences, tools, or workflow. Use this for things that are informational, NOT things that look like problems.
-        - "suggest" — Offer to help when you see something that looks like a PROBLEM, not a preference. Ask yourself: "Is this something the user would want fixed, cleaned up, or improved?" If yes, suggest — don't just observe it.
+        - "suggest" — Offer to help when you see something that looks like a PROBLEM, not a preference, and you are highly confident (>0.8) it's actionable. Ask yourself: "Is this something the user would want fixed, cleaned up, or improved?" If yes, suggest — don't just observe it.
 
         WHEN TO SUGGEST (not just observe):
         - Clutter or digital debt: overflowing inboxes, thousands of unread messages, disorganized files, excessive browser tabs
