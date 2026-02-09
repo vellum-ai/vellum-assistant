@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { isMacOS, isLinux } from '../../util/platform.js';
+import { ToolError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('sandbox');
@@ -168,12 +169,11 @@ export function wrapCommand(
 
   if (isMacOS()) {
     if (!isSafeForSBPL(workingDir)) {
-      log.warn('Working directory contains characters unsafe for sandbox profile. Running unsandboxed.');
-      return {
-        command: 'bash',
-        args: ['-c', '--', command],
-        sandboxed: false,
-      };
+      throw new ToolError(
+        `Sandbox is enabled but the working directory contains characters unsafe for the sandbox profile (SBPL metacharacters). ` +
+        `Refusing to execute unsandboxed. Change to a directory without special characters in its path, or disable sandboxing.`,
+        'shell',
+      );
     }
     const profile = getProfilePath(workingDir);
     return {
