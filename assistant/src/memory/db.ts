@@ -78,25 +78,31 @@ function migrateToolInvocationsFk(database: ReturnType<typeof drizzle<typeof sch
   // If the DDL already contains REFERENCES, the FK is in place
   if (row.sql.includes('REFERENCES')) return;
 
-  raw.exec(/*sql*/ `
-    PRAGMA foreign_keys = OFF;
-    BEGIN;
-    CREATE TABLE tool_invocations_new (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-      tool_name TEXT NOT NULL,
-      input TEXT NOT NULL,
-      result TEXT NOT NULL,
-      decision TEXT NOT NULL,
-      risk_level TEXT NOT NULL,
-      duration_ms INTEGER NOT NULL,
-      created_at INTEGER NOT NULL
-    );
-    INSERT INTO tool_invocations_new SELECT t.* FROM tool_invocations t
-      WHERE EXISTS (SELECT 1 FROM conversations c WHERE c.id = t.conversation_id);
-    DROP TABLE tool_invocations;
-    ALTER TABLE tool_invocations_new RENAME TO tool_invocations;
-    COMMIT;
-    PRAGMA foreign_keys = ON;
-  `);
+  raw.exec('PRAGMA foreign_keys = OFF');
+  try {
+    raw.exec(/*sql*/ `
+      BEGIN;
+      CREATE TABLE tool_invocations_new (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        tool_name TEXT NOT NULL,
+        input TEXT NOT NULL,
+        result TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        risk_level TEXT NOT NULL,
+        duration_ms INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO tool_invocations_new SELECT t.* FROM tool_invocations t
+        WHERE EXISTS (SELECT 1 FROM conversations c WHERE c.id = t.conversation_id);
+      DROP TABLE tool_invocations;
+      ALTER TABLE tool_invocations_new RENAME TO tool_invocations;
+      COMMIT;
+    `);
+  } catch (e) {
+    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    throw e;
+  } finally {
+    raw.exec('PRAGMA foreign_keys = ON');
+  }
 }
