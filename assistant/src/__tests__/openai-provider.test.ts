@@ -174,6 +174,25 @@ describe('OpenAIProvider', () => {
     }
   });
 
+  test('ollama wrapper treats empty OLLAMA_BASE_URL as unset', () => {
+    const previousBaseUrl = process.env.OLLAMA_BASE_URL;
+    try {
+      process.env.OLLAMA_BASE_URL = '   ';
+      const ollama = new OllamaProvider('llama3.2');
+      expect(ollama.name).toBe('ollama');
+      expect(lastConstructorOptions).toEqual({
+        apiKey: 'ollama',
+        baseURL: 'http://127.0.0.1:11434/v1',
+      });
+    } finally {
+      if (previousBaseUrl !== undefined) {
+        process.env.OLLAMA_BASE_URL = previousBaseUrl;
+      } else {
+        delete process.env.OLLAMA_BASE_URL;
+      }
+    }
+  });
+
   // -----------------------------------------------------------------------
   // Basic text response
   // -----------------------------------------------------------------------
