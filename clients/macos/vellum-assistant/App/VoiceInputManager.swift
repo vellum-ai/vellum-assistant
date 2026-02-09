@@ -127,7 +127,9 @@ final class VoiceInputManager {
                     } else {
                         self.onPartialTranscription?(text)
                     }
-                } else if let error = error {
+                }
+
+                if let error = error {
                     log.error("Recognition error: \(error.localizedDescription)")
                     self.recognitionTask = nil
                 }
