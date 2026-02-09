@@ -167,6 +167,12 @@ describe('Secret scanner executor integration', () => {
     expect(result.content).toContain('AWS Access Key');
     // Callback should still fire so the client gets notified
     expect(events).toHaveLength(1);
+    // Invocation should be recorded for audit trail
+    expect(recordedInvocations).toHaveLength(1);
+    const inv = recordedInvocations[0] as Record<string, unknown>;
+    expect(inv.toolName).toBe('file_read');
+    expect(inv.conversationId).toBe('test-conversation');
+    expect((inv.result as string)).toContain('blocked');
   });
 
   // -----------------------------------------------------------------------

@@ -163,8 +163,19 @@ export class ToolExecutor {
             }
           } else if (sdConfig.action === 'block') {
             const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
+            const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Configure secretDetection.action to "redact" or "warn" to allow output.`;
+            const durationMs = Date.now() - startTime;
+            recordToolInvocation({
+              conversationId: context.conversationId,
+              toolName: name,
+              input: JSON.stringify(input),
+              result: blockedContent.slice(0, 1000),
+              decision,
+              riskLevel,
+              durationMs,
+            });
             return {
-              content: `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Configure secretDetection.action to "redact" or "warn" to allow output.`,
+              content: blockedContent,
               isError: true,
             };
           }
