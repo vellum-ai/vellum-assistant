@@ -31,6 +31,7 @@ export interface AllowlistConfig {
 
 // Cached state
 let loaded = false;
+let fileChecked = false;
 let allowedValues: Set<string> = new Set();
 let allowedPrefixes: string[] = [];
 let allowedRegexes: RegExp[] = [];
@@ -40,10 +41,13 @@ let allowedRegexes: RegExp[] = [];
  * Safe to call multiple times — subsequent calls are no-ops unless `resetAllowlist` is called.
  */
 export function loadAllowlist(): void {
-  if (loaded) return;
+  if (loaded || fileChecked) return;
 
   const filePath = join(getDataDir(), 'secret-allowlist.json');
-  if (!existsSync(filePath)) return;
+  if (!existsSync(filePath)) {
+    fileChecked = true;
+    return;
+  }
 
   try {
     const raw = readFileSync(filePath, 'utf-8');
@@ -105,6 +109,7 @@ export function isAllowlisted(value: string): boolean {
  */
 export function resetAllowlist(): void {
   loaded = false;
+  fileChecked = false;
   allowedValues = new Set();
   allowedPrefixes = [];
   allowedRegexes = [];

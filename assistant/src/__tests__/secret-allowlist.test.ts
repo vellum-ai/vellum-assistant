@@ -178,17 +178,19 @@ describe('secret-allowlist', () => {
   // -----------------------------------------------------------------------
   // Retry on missing/malformed file
   // -----------------------------------------------------------------------
-  test('retries loading when file did not exist on first call', () => {
-    // First call — no file exists, should not cache as loaded
+  test('caches missing file check to avoid repeated existsSync', () => {
+    // First call — no file exists, caches fileChecked = true
     expect(isAllowlisted('test-key')).toBe(false);
 
-    // Now create the file
+    // Create the file — but fileChecked is cached, so it won't be seen
     writeFileSync(
       join(testDir, 'secret-allowlist.json'),
       JSON.stringify({ values: ['test-key'] }),
     );
+    expect(isAllowlisted('test-key')).toBe(false);
 
-    // Second call — should pick up the newly created file
+    // After reset, the file should be found
+    resetAllowlist();
     expect(isAllowlisted('test-key')).toBe(true);
   });
 
