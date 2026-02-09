@@ -55,6 +55,7 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   if (toolName === 'file_read') return RiskLevel.Low;
   if (toolName === 'file_write') return RiskLevel.Medium;
   if (toolName === 'file_edit') return RiskLevel.Medium;
+  if (toolName === 'web_search') return RiskLevel.Low;
 
   if (toolName === 'shell') {
     const command = (input.command as string) ?? '';

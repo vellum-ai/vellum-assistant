@@ -11,6 +11,9 @@ const log = getLogger('config');
 
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama'] as const;
 
+// Providers that store API keys in secure storage (superset of VALID_PROVIDERS)
+const API_KEY_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'brave'] as const;
+
 let cached: AssistantConfig | null = null;
 let loading = false;
 
@@ -117,7 +120,7 @@ export function loadConfig(): AssistantConfig {
 
     // Secure storage keys override plaintext config file
     try {
-      for (const provider of ['anthropic', 'openai', 'gemini', 'ollama', 'brave']) {
+      for (const provider of API_KEY_PROVIDERS) {
         const secureKey = getSecureKey(provider);
         if (secureKey) {
           config.apiKeys[provider] = secureKey;
@@ -238,7 +241,7 @@ export function saveConfig(config: AssistantConfig): void {
     }
   }
   // Delete secure keys for providers no longer in apiKeys or with empty values
-  for (const provider of VALID_PROVIDERS) {
+  for (const provider of API_KEY_PROVIDERS) {
     const value = config.apiKeys[provider];
     if (!value || (typeof value === 'string' && value.length === 0)) {
       deleteSecureKey(provider);
@@ -280,7 +283,7 @@ export function loadRawConfig(): Record<string, unknown> {
     const apiKeys = (raw.apiKeys && typeof raw.apiKeys === 'object' && !Array.isArray(raw.apiKeys))
       ? { ...raw.apiKeys as Record<string, unknown> }
       : {};
-    for (const provider of VALID_PROVIDERS) {
+    for (const provider of API_KEY_PROVIDERS) {
       const value = getSecureKey(provider);
       if (value) apiKeys[provider] = value;
     }
