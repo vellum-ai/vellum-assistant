@@ -4,6 +4,8 @@
  * from gitleaks and detect-secrets.
  */
 
+import { isAllowlisted } from './secret-allowlist.js';
+
 export interface SecretMatch {
   /** Human-readable type label, e.g. "AWS Access Key" */
   type: string;
@@ -394,8 +396,9 @@ function scanEntropy(
     const key = `${startIndex}:${endIndex}`;
     if (existingRanges.has(key)) continue;
 
-    // Skip placeholders
+    // Skip placeholders and allowlisted values
     if (isPlaceholder(value)) continue;
+    if (isAllowlisted(value)) continue;
 
     const entropy = shannonEntropy(value);
     if (entropy < config.hexThreshold) continue;
@@ -428,6 +431,7 @@ function scanEntropy(
     if (existingRanges.has(key)) continue;
 
     if (isPlaceholder(value)) continue;
+    if (isAllowlisted(value)) continue;
 
     const entropy = shannonEntropy(value);
     if (entropy < config.base64Threshold) continue;
@@ -474,6 +478,7 @@ export function scanText(text: string, entropyConfig?: Partial<EntropyConfig>): 
       const endIndex = startIndex + value.length;
 
       if (isPlaceholder(value)) continue;
+      if (isAllowlisted(value)) continue;
 
       // Extra validation for AWS Secret Keys to avoid hex-string false positives
       if (pattern.type === 'AWS Secret Key' && !isLikelyAwsSecret(value)) continue;
