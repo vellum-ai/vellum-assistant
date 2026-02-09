@@ -93,6 +93,9 @@ describe('fuzzy-match property-based tests', () => {
           if (prefix.includes(target) || suffix.includes(target)) return;
 
           const content = prefix + target + suffix;
+          // Ensure target's first occurrence is exactly at the inserted position,
+          // not at an earlier overlapping boundary (e.g. prefix='ab', target='aba')
+          fc.pre(content.indexOf(target) === prefix.length);
           const result = findMatch(content, target);
           expect(result).not.toBeNull();
           expect(result!.method).toBe('exact');
