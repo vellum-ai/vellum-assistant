@@ -15,8 +15,16 @@ final class VoiceInputManager {
     private var isRecording = false
     private var globalMonitor: Any?
     private var localMonitor: Any?
-    private var fnHoldTask: Task<Void, Never>?
+    private var holdTask: Task<Void, Never>?
     private static let holdDelay: UInt64 = 300_000_000 // 300ms in nanoseconds
+
+    private var activationFlag: NSEvent.ModifierFlags {
+        let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
+        switch stored {
+        case "ctrl": return .control
+        default: return .function // fn and globe are the same physical key
+        }
+    }
 
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -56,25 +64,27 @@ final class VoiceInputManager {
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
-        let fnPressed = event.modifierFlags.contains(.function)
-        let otherModifiers: NSEvent.ModifierFlags = [.command, .shift, .control, .option]
+        let flag = activationFlag
+        let keyPressed = event.modifierFlags.contains(flag)
+        var otherModifiers: NSEvent.ModifierFlags = [.command, .shift, .control, .option, .function]
+        otherModifiers.remove(flag)
         let hasOtherModifiers = !event.modifierFlags.intersection(otherModifiers).isEmpty
 
-        if fnPressed && !hasOtherModifiers && !isRecording {
-            // Start a delayed hold — cancelled if Fn is released quickly (e.g. Fn+arrow combo)
-            fnHoldTask?.cancel()
-            fnHoldTask = Task {
+        if keyPressed && !hasOtherModifiers && !isRecording {
+            // Start a delayed hold — cancelled if key is released quickly (e.g. Fn+arrow combo)
+            holdTask?.cancel()
+            holdTask = Task {
                 try? await Task.sleep(nanoseconds: Self.holdDelay)
                 guard !Task.isCancelled else { return }
                 beginRecording()
             }
-        } else if fnPressed && hasOtherModifiers {
-            // Another modifier pressed while Fn held — cancel pending voice activation
-            fnHoldTask?.cancel()
-            fnHoldTask = nil
-        } else if !fnPressed {
-            fnHoldTask?.cancel()
-            fnHoldTask = nil
+        } else if keyPressed && hasOtherModifiers {
+            // Another modifier pressed while activation key held — cancel pending voice activation
+            holdTask?.cancel()
+            holdTask = nil
+        } else if !keyPressed {
+            holdTask?.cancel()
+            holdTask = nil
             if isRecording {
                 stopRecording()
             }

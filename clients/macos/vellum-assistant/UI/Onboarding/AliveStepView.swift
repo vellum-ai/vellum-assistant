@@ -19,10 +19,10 @@ struct AliveStepView: View {
     @State private var particlesLaunched = false
 
     private let abilities = [
-        ("Control your Mac", "cursorarrow.click.2"),
-        ("Listen to you", "mic.fill"),
-        ("See your screen", "eye.fill"),
-        ("Learn & adapt", "brain.head.profile"),
+        ("Hands-free", "cursorarrow.click.2"),
+        ("Voice input", "mic.fill"),
+        ("Screen-aware", "eye.fill"),
+        ("Adaptive", "brain.head.profile"),
     ]
 
     var body: some View {
@@ -40,32 +40,50 @@ struct AliveStepView: View {
             }
             .frame(width: 120, height: 120)
 
-            Text("I'm fully alive.")
+            Text("\(state.assistantName.isEmpty ? "I'm" : state.assistantName + " is") ready.")
                 .font(.system(.title, design: .serif))
                 .foregroundColor(.white)
 
-            // Ability tags
-            HStack(spacing: 10) {
-                ForEach(Array(abilities.enumerated()), id: \.offset) { index, ability in
-                    abilityTag(ability.0, icon: ability.1)
-                        .opacity(showAbilities ? 1 : 0)
-                        .offset(y: showAbilities ? 0 : 10)
-                        .animation(
-                            .easeOut(duration: 0.4).delay(Double(index) * 0.2),
-                            value: showAbilities
-                        )
+            // Ability tags — 2×2 grid
+            VStack(spacing: 10) {
+                ForEach([0, 2], id: \.self) { row in
+                    HStack(spacing: 10) {
+                        ForEach(row..<min(row + 2, abilities.count), id: \.self) { index in
+                            abilityTag(abilities[index].0, icon: abilities[index].1)
+                                .opacity(showAbilities ? 1 : 0)
+                                .offset(y: showAbilities ? 0 : 10)
+                                .animation(
+                                    .easeOut(duration: 0.4).delay(Double(index) * 0.15),
+                                    value: showAbilities
+                                )
+                        }
+                    }
                 }
             }
 
-            VStack(spacing: 12) {
+            VStack(spacing: 16) {
                 OnboardingButton(title: "Start using Vellum", style: .primary) {
                     onComplete()
                 }
-                OnboardingButton(title: "Open Settings first", style: .ghost) {
+                .font(.system(size: 17, weight: .semibold))
+
+                Button {
                     onOpenSettings()
+                } label: {
+                    Text("Open Settings first")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(.white.opacity(0.45))
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    NSCursor.pointingHand.set()
+                    if !hovering { NSCursor.arrow.set() }
                 }
             }
             .opacity(showButtons ? 1 : 0)
+
+            Spacer()
+                .frame(height: 24)
         }
         .onAppear {
             state.orbMood = .celebrating

@@ -94,6 +94,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ambientItem.target = self
         menu.addItem(ambientItem)
 
+        let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
+        onboardingItem.target = self
+        menu.addItem(onboardingItem)
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: 0), in: button)
@@ -170,6 +174,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             systemSymbolName: iconName,
             accessibilityDescription: "vellum-assistant"
         )
+    }
+
+    @objc private func replayOnboarding() {
+        guard onboardingWindow == nil else { return }
+        popover.performClose(nil)
+
+        let onboarding = OnboardingWindow()
+        onboarding.onComplete = { [weak self] state in
+            UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
+            UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+
+            onboarding.close()
+            self?.onboardingWindow = nil
+            NSApp.setActivationPolicy(.accessory)
+        }
+        onboarding.show()
+        onboardingWindow = onboarding
     }
 
     // MARK: - Onboarding
