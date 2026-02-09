@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Cog, Lock, Plus, User, X } from "lucide-react";
+import { Bot, Lock, Plus, User, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -8,14 +8,13 @@ import { useCallback, useEffect, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { useAuth } from "@/lib/auth";
 import { Agent } from "@/lib/db";
-import { AgentType } from "@/lib/gcp";
 
 export default function AssistantsPage() {
   const router = useRouter();
   const { isLoggedIn, isLoading: isAuthLoading, username } = useAuth();
   const [assistants, setAssistants] = useState<Agent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isCreating, setIsCreating] = useState<AgentType | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progressMessage, setProgressMessage] = useState<string | null>(null);
 
@@ -42,8 +41,8 @@ export default function AssistantsPage() {
     fetchAssistants();
   }, [fetchAssistants]);
 
-  const handleCreateAssistant = async (agentType: AgentType) => {
-    setIsCreating(agentType);
+  const handleCreateAssistant = async () => {
+    setIsCreating(true);
     setProgressMessage("Initializing...");
     setError(null);
     try {
@@ -54,7 +53,7 @@ export default function AssistantsPage() {
       const response = await fetch("/api/assistants", {
         method: "POST",
         headers,
-        body: JSON.stringify({ agent_type: agentType }),
+        body: JSON.stringify({}),
       });
 
       if (!response.ok) {
@@ -100,7 +99,7 @@ export default function AssistantsPage() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create assistant");
-      setIsCreating(null);
+      setIsCreating(false);
       setProgressMessage(null);
     }
   };
@@ -141,7 +140,7 @@ export default function AssistantsPage() {
           <div className="relative w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
             <button
               onClick={() => {
-                setIsCreating(null);
+                setIsCreating(false);
                 setProgressMessage(null);
               }}
               className="absolute top-3 right-3 rounded-full p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
@@ -172,24 +171,14 @@ export default function AssistantsPage() {
               Create and manage your AI assistants
             </p>
           </div>
-          <div className="flex w-full gap-2 sm:w-auto">
-            <button
-              onClick={() => handleCreateAssistant("simple")}
-              disabled={isCreating !== null}
-              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50 sm:w-auto"
-            >
-              <Plus className="h-4 w-4" />
-              {isCreating === "simple" ? "Creating..." : "Simple"}
-            </button>
-            <button
-              onClick={() => handleCreateAssistant("vellumclaw")}
-              disabled={isCreating !== null}
-              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50 sm:w-auto"
-            >
-              <Cog className="h-4 w-4" />
-              {isCreating === "vellumclaw" ? "Creating..." : "VellumClaw"}
-            </button>
-          </div>
+          <button
+            onClick={() => handleCreateAssistant()}
+            disabled={isCreating}
+            className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50 sm:w-auto"
+          >
+            <Plus className="h-4 w-4" />
+            {isCreating ? "Creating..." : "New Assistant"}
+          </button>
         </div>
 
         {error && (
@@ -211,24 +200,14 @@ export default function AssistantsPage() {
             <p className="mt-1 text-center text-sm text-zinc-500 dark:text-zinc-400">
               Get started by creating your first assistant
             </p>
-            <div className="mt-4 flex gap-2">
-              <button
-                onClick={() => handleCreateAssistant("simple")}
-                disabled={isCreating !== null}
-                className="flex cursor-pointer items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" />
-                {isCreating === "simple" ? "Creating..." : "Simple"}
-              </button>
-              <button
-                onClick={() => handleCreateAssistant("vellumclaw")}
-                disabled={isCreating !== null}
-                className="flex cursor-pointer items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
-              >
-                <Cog className="h-4 w-4" />
-                {isCreating === "vellumclaw" ? "Creating..." : "VellumClaw"}
-              </button>
-            </div>
+            <button
+              onClick={() => handleCreateAssistant()}
+              disabled={isCreating}
+              className="flex cursor-pointer items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" />
+              {isCreating ? "Creating..." : "New Assistant"}
+            </button>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

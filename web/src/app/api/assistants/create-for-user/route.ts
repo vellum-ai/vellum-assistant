@@ -4,7 +4,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { Agent, getDb } from "@/lib/db";
 import {
-  AgentType,
   createAgentComputeInstance,
   uploadAgentConfigToGCS,
   uploadAgentToGCS,
@@ -24,7 +23,6 @@ const APP_URL = process.env.APP_URL || "http://localhost:3000";
  *   user_id: string,       // The user to create the agent for
  *   agent_name: string,    // Name for the new agent
  *   description?: string,  // Optional description
- *   agent_type?: string,   // "vellumclaw" or "simple", defaults to "vellumclaw"
  * }
  * 
  * Returns: {
@@ -63,7 +61,7 @@ export async function POST(request: NextRequest) {
     console.log(`[Create For User] Request from agent ${callingAgent.id} (${callingAgent.name})`);
 
     const body = await request.json();
-    const { user_id, agent_name, description, agent_type = "vellumclaw" } = body;
+    const { user_id, agent_name, description } = body;
 
     if (!user_id) {
       return NextResponse.json(
@@ -75,15 +73,6 @@ export async function POST(request: NextRequest) {
     if (!agent_name || typeof agent_name !== "string" || agent_name.trim().length === 0) {
       return NextResponse.json(
         { error: "agent_name is required and must be a non-empty string" },
-        { status: 400 }
-      );
-    }
-
-    // Validate agent type
-    const validTypes: AgentType[] = ["simple", "vellumclaw"];
-    if (!validTypes.includes(agent_type as AgentType)) {
-      return NextResponse.json(
-        { error: `Invalid agent_type. Must be one of: ${validTypes.join(", ")}` },
         { status: 400 }
       );
     }
@@ -115,7 +104,6 @@ export async function POST(request: NextRequest) {
         ${agent_name.trim()},
         ${description || null},
         ${JSON.stringify({ 
-          agent_type,
           apiKey: newAgentApiKey,
           created_by_agent: callingAgent.id,
         })},
@@ -130,34 +118,28 @@ export async function POST(request: NextRequest) {
     // Provision the agent infrastructure
     try {
       // Check for prequeued instance
-      const prequeued = await getAvailablePrequeuedInstance(agent_type as AgentType);
+      const prequeued = await getAvailablePrequeuedInstance();
 
       let gcsResult;
       if (prequeued) {
-        // Use prequeued instance - only upload config
         gcsResult = await uploadAgentConfigToGCS(
           newAgent.id,
           newAgent.name,
-          agent_type as AgentType,
           { apiKey: newAgentApiKey }
         );
       } else {
-        // No prequeued instance - upload full agent files
         gcsResult = await uploadAgentToGCS(
           newAgent.id,
           newAgent.name,
-          agent_type as AgentType,
           { apiKey: newAgentApiKey }
         );
       }
 
-      // Create or activate compute instance
       const instanceResult = await createAgentComputeInstance(
         newAgent.id,
         newAgent.name,
         gcsResult.bucket,
-        gcsResult.prefix,
-        agent_type as AgentType
+        gcsResult.prefix
       );
 
       // Update agent with compute config

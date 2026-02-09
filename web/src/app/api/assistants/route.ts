@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 
 import { Agent, CreateAgentInput, getDb } from "@/lib/db";
 import {
-  AgentType,
   createAgentComputeInstance,
   getAvailablePrequeuedInstance,
   getDefaultEditorTemplate,
@@ -104,15 +103,11 @@ export async function POST(request: Request) {
           body.name = await generateAgentName();
         }
 
-        const agentType: AgentType = (body.assistant_type as AgentType) || "simple";
-        
-        // Generate API key for agent to authenticate with platform APIs
         const apiKey = generateApiKey();
         
         const initialConfig = { 
           ...body.configuration, 
-          agent_type: agentType,
-          apiKey, // Store API key in configuration
+          apiKey,
         };
 
         controller.enqueue(sseEvent("progress", { step: "database", message: "Creating agent record..." }));
@@ -133,19 +128,17 @@ export async function POST(request: Request) {
 
         try {
           // Check if a prequeued instance is available first
-          const prequeued = await getAvailablePrequeuedInstance(agentType);
+          const prequeued = await getAvailablePrequeuedInstance();
           
           let bucket: string;
           let prefix: string;
           
           if (prequeued) {
-            // Fast path: only upload .env config (templates already on instance)
             controller.enqueue(sseEvent("progress", { step: "upload", message: "Uploading agent config..." }));
-            ({ bucket, prefix } = await uploadAgentConfigToGCS(agent.id, agent.name, agentType, { apiKey }));
+            ({ bucket, prefix } = await uploadAgentConfigToGCS(agent.id, agent.name, { apiKey }));
           } else {
-            // Slow path: upload all files (fresh instance)
             controller.enqueue(sseEvent("progress", { step: "upload", message: "Uploading agent files..." }));
-            ({ bucket, prefix } = await uploadAgentToGCS(agent.id, agent.name, agentType, { apiKey }));
+            ({ bucket, prefix } = await uploadAgentToGCS(agent.id, agent.name, { apiKey }));
           }
 
           controller.enqueue(sseEvent("progress", { 
@@ -157,8 +150,7 @@ export async function POST(request: Request) {
             agent.id,
             agent.name,
             bucket,
-            prefix,
-            agentType
+            prefix
           );
 
           // Report whether we used a prequeued instance

@@ -21,7 +21,6 @@ interface Message {
 }
 
 interface AgentDetails {
-  agentType: string | null;
   instanceName: string | null;
   zone: string | null;
   ipAddress: string | null;
@@ -1239,7 +1238,6 @@ function DetailsView({ agentId }: { agentId: string }) {
         return;
       }
       const agentData = await response.json();
-      const agentType = (agentData.configuration?.agent_type as string) ?? null;
       const computeConfig = agentData.configuration?.compute as
         | { instanceName?: string; zone?: string }
         | undefined;
@@ -1265,7 +1263,6 @@ function DetailsView({ agentId }: { agentId: string }) {
       }
 
       setDetails({
-        agentType,
         instanceName: computeConfig?.instanceName ?? null,
         zone: computeConfig?.zone ?? null,
         ipAddress,
@@ -1304,26 +1301,6 @@ function DetailsView({ agentId }: { agentId: string }) {
         Agent Details
       </h2>
       <div className="space-y-6">
-        <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="mb-3 text-sm font-medium text-zinc-900 dark:text-white">
-            Agent Type
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-zinc-500 dark:text-zinc-400">
-                Type
-              </span>
-              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                details.agentType === "openclaw"
-                  ? "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-400"
-                  : "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400"
-              }`}>
-                {details.agentType === "openclaw" ? "OpenClaw" : details.agentType === "simple" ? "Simple" : details.agentType ?? "Unknown"}
-              </span>
-            </div>
-          </div>
-        </div>
-
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <div className="mb-3 text-sm font-medium text-zinc-900 dark:text-white">
             GCP Instance

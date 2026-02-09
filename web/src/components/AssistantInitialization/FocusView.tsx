@@ -39,7 +39,7 @@ export function FocusView() {
         const response = await fetch('/api/assistants', {
           method: 'POST',
           headers,
-          body: JSON.stringify({ agent_type: 'simple' }),
+          body: JSON.stringify({}),
         });
 
         if (!response.ok) {

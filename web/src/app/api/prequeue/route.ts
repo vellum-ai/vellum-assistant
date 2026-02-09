@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import {
-  AgentType,
   cleanupStalePrequeueInstances,
   createPrequeuedInstance,
   ensurePrequeuePool,
@@ -15,25 +14,20 @@ export async function GET() {
   try {
     const instances = await listPrequeuedInstances();
 
-    const byType: Record<string, { total: number; ready: number; starting: number }> = {};
-
-    for (const instance of instances) {
-      if (!byType[instance.agentType]) {
-        byType[instance.agentType] = { total: 0, ready: 0, starting: 0 };
-      }
-      byType[instance.agentType].total++;
-      if (instance.ready) {
-        byType[instance.agentType].ready++;
-      } else if (instance.status === "RUNNING" || instance.status === "STAGING") {
-        byType[instance.agentType].starting++;
-      }
-    }
+    const totalReady = instances.filter((i) => i.ready).length;
+    const totalStarting = instances.filter(
+      (i) => !i.ready && (i.status === "RUNNING" || i.status === "STAGING")
+    ).length;
 
     return NextResponse.json({
       instances,
-      summary: byType,
+      summary: {
+        total: instances.length,
+        ready: totalReady,
+        starting: totalStarting,
+      },
       totalInstances: instances.length,
-      totalReady: instances.filter((i) => i.ready).length,
+      totalReady,
     });
   } catch (error) {
     console.error("Error listing prequeue instances:", error);
@@ -48,18 +42,18 @@ export async function GET() {
  * POST /api/prequeue - Manage prequeue pool
  *
  * Actions:
- * - { action: "create", agentType?: "vellumclaw" | "simple" } - Create a single prequeued instance
- * - { action: "ensure", agentType?: string, minSize?: number } - Ensure pool has minimum instances
+ * - { action: "create" } - Create a single prequeued instance
+ * - { action: "ensure", minSize?: number } - Ensure pool has minimum instances
  * - { action: "cleanup", maxAgeHours?: number } - Clean up stale instances
  */
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { action, agentType = "vellumclaw", minSize = 1, maxAgeHours = 24 } = body;
+    const { action, minSize = 1, maxAgeHours = 24 } = body;
 
     switch (action) {
       case "create": {
-        const result = await createPrequeuedInstance(agentType as AgentType);
+        const result = await createPrequeuedInstance();
         return NextResponse.json({
           success: true,
           action: "create",
@@ -68,7 +62,7 @@ export async function POST(request: Request) {
       }
 
       case "ensure": {
-        const result = await ensurePrequeuePool(agentType as AgentType, minSize);
+        const result = await ensurePrequeuePool(minSize);
         return NextResponse.json({
           success: true,
           action: "ensure",

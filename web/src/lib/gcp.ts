@@ -73,9 +73,7 @@ async function ensureFirewallRuleExists(): Promise<void> {
     }
   }
 }
-
-export type AgentType = "simple" | "vellumclaw";
-
+ 
 interface TemplateContext {
   agentId: string;
   agentName: string;
@@ -104,22 +102,21 @@ function readDirectoryRecursive(dirPath: string, basePath: string = ""): string[
 export function generateAgentFiles(
   agentId: string,
   agentName: string,
-  agentType: AgentType = "simple",
   options?: { apiKey?: string }
 ): Record<string, string> {
   const databaseUrl = process.env.DATABASE_URL || "";
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY || "";
   const apiUrl = process.env.APP_URL || "http://localhost:3000";
-  
-  const context: TemplateContext = { 
-    agentId, 
-    agentName, 
-    databaseUrl, 
+
+  const context: TemplateContext = {
+    agentId,
+    agentName,
+    databaseUrl,
     anthropicApiKey,
     apiKey: options?.apiKey,
     apiUrl,
   };
-  const templateDir = path.join(process.cwd(), "agent-templates", agentType);
+  const templateDir = path.join(process.cwd(), "agent-templates");
   const filePaths = readDirectoryRecursive(templateDir);
   const files: Record<string, string> = {};
 
@@ -137,13 +134,12 @@ export function generateAgentFiles(
 export async function uploadAgentToGCS(
   agentId: string,
   agentName: string,
-  agentType: AgentType = "simple",
   options?: { apiKey?: string }
 ): Promise<{ bucket: string; prefix: string }> {
   const storage = getStorage();
   const bucket = storage.bucket(GCS_BUCKET_NAME);
 
-  const files = generateAgentFiles(agentId, agentName, agentType, options);
+  const files = generateAgentFiles(agentId, agentName, options);
   const prefix = `${GCS_PREFIX_BASE}/assistants/${agentId}`;
 
   for (const [filename, content] of Object.entries(files)) {
@@ -178,7 +174,6 @@ export async function uploadAgentToGCS(
 export async function uploadAgentConfigToGCS(
   agentId: string,
   agentName: string,
-  agentType: AgentType = "simple",
   options?: { apiKey?: string }
 ): Promise<{ bucket: string; prefix: string }> {
   const storage = getStorage();
@@ -187,26 +182,25 @@ export async function uploadAgentConfigToGCS(
   const databaseUrl = process.env.DATABASE_URL || "";
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY || "";
   const apiUrl = process.env.APP_URL || "http://localhost:3000";
-  
-  const context: TemplateContext = { 
-    agentId, 
-    agentName, 
-    databaseUrl, 
+
+  const context: TemplateContext = {
+    agentId,
+    agentName,
+    databaseUrl,
     anthropicApiKey,
     apiKey: options?.apiKey,
     apiUrl,
   };
-  
-  // Only process the .env template
-  const templateDir = path.join(process.cwd(), "agent-templates", agentType);
+
+  const templateDir = path.join(process.cwd(), "agent-templates");
   const envTemplatePath = path.join(templateDir, "env.template");
   const prefix = `${GCS_PREFIX_BASE}/assistants/${agentId}`;
-  
+
   if (fs.existsSync(envTemplatePath)) {
     const content = fs.readFileSync(envTemplatePath, "utf-8");
     const template = Handlebars.compile(content);
     const envContent = template(context);
-    
+
     const file = bucket.file(`${prefix}/.env`);
     await file.save(envContent, {
       contentType: "text/plain",
@@ -257,10 +251,8 @@ http.server.HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 HEALTH_PID=$!
 `;
 
-// Phase 1: Prequeue startup script - installs dependencies and waits
-function getPrequeueStartupScript(agentType: AgentType): string {
-  if (agentType === "vellumclaw") {
-    return `#!/bin/bash
+function getPrequeueStartupScript(): string {
+  return `#!/bin/bash
 
 PROGRESS_FILE="/opt/vellum-agent/setup-progress"
 READY_FILE="/opt/vellum-agent/prequeue-ready"
@@ -292,7 +284,7 @@ mkdir -p data/inbox data/outbox
 
 # PHASE 1: Download templates from GCS and install dependencies
 echo "Downloading template files..." > "$PROGRESS_FILE"
-gsutil -m cp -r "gs://${GCS_BUCKET_NAME}/${GCS_TEMPLATES_PREFIX}/vellumclaw/*" .
+gsutil -m cp -r "gs://${GCS_BUCKET_NAME}/${GCS_TEMPLATES_PREFIX}/*" .
 
 echo "Installing packages with bun..." > "$PROGRESS_FILE"
 if ! bun install; then
@@ -303,10 +295,9 @@ fi
 
 echo "Creating systemd service..." > "$PROGRESS_FILE"
 
-# Create systemd service for the agent (don't start yet)
 cat > /etc/systemd/system/vellum-agent.service << 'SYSTEMD_EOF'
 [Unit]
-Description=Vellum VellumClaw Agent
+Description=Vellum Agent
 After=network.target
 
 [Service]
@@ -336,7 +327,6 @@ echo "Instance prequeued and ready. Waiting for activation signal..."
 
 # Wait for activation signal (poll for activate file or GCS signal)
 while [ ! -f "$ACTIVATE_FILE" ]; do
-  # Also check GCS for activation signal
   if gsutil -q stat "gs://${GCS_BUCKET_NAME}/${GCS_PREFIX_BASE}/prequeue/$(hostname)/activate" 2>/dev/null; then
     gsutil cp "gs://${GCS_BUCKET_NAME}/${GCS_PREFIX_BASE}/prequeue/$(hostname)/activate" "$ACTIVATE_FILE"
     break
@@ -374,117 +364,13 @@ else
   exit 1
 fi
 `;
-  }
-
-  // Simple agent type prequeue script
-  return `#!/bin/bash
-
-PROGRESS_FILE="/opt/vellum-agent/setup-progress"
-READY_FILE="/opt/vellum-agent/prequeue-ready"
-ACTIVATE_FILE="/opt/vellum-agent/activate"
-mkdir -p /opt/vellum-agent
-
-# Redirect stdout to startup log, stderr to both error log and startup log
-exec > /var/log/vellum-agent-startup.log 2> >(tee -a /opt/vellum-agent/error.log >&1)
-
-echo "Preparing environment..." > "$PROGRESS_FILE"
-${SETUP_HEALTH_SERVER_SCRIPT}
-
-echo "Installing system dependencies..." > "$PROGRESS_FILE"
-curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="/root/.local/bin:$PATH"
-
-# Create working directory
-mkdir -p /opt/vellum-agent
-cd /opt/vellum-agent
-
-# PHASE 1: Download templates from GCS and install dependencies
-echo "Downloading template files..." > "$PROGRESS_FILE"
-gsutil -m cp -r "gs://${GCS_BUCKET_NAME}/${GCS_TEMPLATES_PREFIX}/simple/*" .
-
-echo "Installing Python dependencies..." > "$PROGRESS_FILE"
-if ! uv sync; then
-  echo "uv sync failed" > /opt/vellum-agent/setup-error
-  echo "[STARTUP ERROR] uv sync failed" >&2
-  exit 1
-fi
-
-echo "Creating systemd service..." > "$PROGRESS_FILE"
-
-cat > /etc/systemd/system/vellum-agent.service << 'SYSTEMD_EOF'
-[Unit]
-Description=Vellum Simple Agent
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/vellum-agent
-ExecStart=/root/.local/bin/uv run python main.py
-Restart=on-failure
-RestartSec=10
-StandardOutput=append:/var/log/vellum-agent.log
-StandardError=append:/var/log/vellum-agent.log
-Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
-
-[Install]
-WantedBy=multi-user.target
-SYSTEMD_EOF
-
-systemctl daemon-reload
-systemctl enable vellum-agent
-
-# Mark as ready and wait for activation
-echo "prequeue-ready" > "$PROGRESS_FILE"
-touch "$READY_FILE"
-
-echo "Instance prequeued and ready. Waiting for activation signal..."
-
-# Wait for activation signal
-while [ ! -f "$ACTIVATE_FILE" ]; do
-  if gsutil -q stat "gs://${GCS_BUCKET_NAME}/${GCS_PREFIX_BASE}/prequeue/$(hostname)/activate" 2>/dev/null; then
-    gsutil cp "gs://${GCS_BUCKET_NAME}/${GCS_PREFIX_BASE}/prequeue/$(hostname)/activate" "$ACTIVATE_FILE"
-    break
-  fi
-  sleep 5
-done
-
-echo "Activation signal received!"
-
-# PHASE 2: Read activation config and download agent-specific files
-source "$ACTIVATE_FILE"
-
-echo "Downloading agent config for $AGENT_ID..." > "$PROGRESS_FILE"
-gsutil cp "gs://$GCS_BUCKET/$GCS_PREFIX/.env" .
-
-# Start the service
-echo "Starting agent..." > "$PROGRESS_FILE"
-kill $HEALTH_PID 2>/dev/null || true
-systemctl start vellum-agent
-
-rm -f "$READY_FILE" "$ACTIVATE_FILE"
-
-sleep 2
-
-if systemctl is-active --quiet vellum-agent; then
-  echo "Agent service started successfully"
-  rm -f "$PROGRESS_FILE"
-else
-  echo "Agent service failed to start" > /opt/vellum-agent/setup-error
-  echo "[STARTUP ERROR] Agent service failed to start" >&2
-  systemctl status vellum-agent >&2
-  exit 1
-fi
-`;
 }
 
-// Original full startup script (for fallback when no prequeued instance available)
 function getStartupScript(
-  agentType: AgentType,
   gcsBucket: string,
   gcsPrefix: string
 ): string {
-  if (agentType === "vellumclaw") {
-    return `#!/bin/bash
+  return `#!/bin/bash
 
 PROGRESS_FILE="/opt/vellum-agent/setup-progress"
 mkdir -p /opt/vellum-agent
@@ -524,10 +410,9 @@ fi
 
 echo "Creating systemd service..." > "$PROGRESS_FILE"
 
-# Create systemd service for the agent (runs in background, doesn't block SSH)
 cat > /etc/systemd/system/vellum-agent.service << 'SYSTEMD_EOF'
 [Unit]
-Description=Vellum VellumClaw Agent
+Description=Vellum Agent
 After=network.target
 
 [Service]
@@ -568,81 +453,6 @@ else
   exit 1
 fi
 `;
-  }
-
-  return `#!/bin/bash
-
-PROGRESS_FILE="/opt/vellum-agent/setup-progress"
-mkdir -p /opt/vellum-agent
-
-# Redirect stdout to startup log, stderr to both error log and startup log
-exec > /var/log/vellum-agent-startup.log 2> >(tee -a /opt/vellum-agent/error.log >&1)
-
-echo "Preparing environment..." > "$PROGRESS_FILE"
-${SETUP_HEALTH_SERVER_SCRIPT}
-
-echo "Installing system dependencies..." > "$PROGRESS_FILE"
-curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="/root/.local/bin:$PATH"
-
-# Create working directory
-mkdir -p /opt/vellum-agent
-cd /opt/vellum-agent
-
-echo "Downloading agent files..." > "$PROGRESS_FILE"
-gsutil -m cp -r gs://${gcsBucket}/${gcsPrefix}/* .
-
-echo "Installing Python dependencies..." > "$PROGRESS_FILE"
-if ! uv sync; then
-  echo "uv sync failed" > /opt/vellum-agent/setup-error
-  echo "[STARTUP ERROR] uv sync failed" >&2
-  exit 1
-fi
-
-echo "Creating systemd service..." > "$PROGRESS_FILE"
-
-# Create systemd service for the agent (runs in background, doesn't block SSH)
-cat > /etc/systemd/system/vellum-agent.service << 'SYSTEMD_EOF'
-[Unit]
-Description=Vellum Simple Agent
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/vellum-agent
-ExecStart=/root/.local/bin/uv run python main.py
-Restart=on-failure
-RestartSec=10
-StandardOutput=append:/var/log/vellum-agent.log
-StandardError=append:/var/log/vellum-agent.log
-Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
-
-[Install]
-WantedBy=multi-user.target
-SYSTEMD_EOF
-
-# Reload systemd, enable and start the service
-systemctl daemon-reload
-systemctl enable vellum-agent
-systemctl start vellum-agent
-
-echo "Starting agent..." > "$PROGRESS_FILE"
-kill $HEALTH_PID 2>/dev/null || true
-
-# Give the service a moment to start
-sleep 2
-
-# Verify service started
-if systemctl is-active --quiet vellum-agent; then
-  echo "Agent service started successfully"
-  rm -f "$PROGRESS_FILE"
-else
-  echo "Agent service failed to start" > /opt/vellum-agent/setup-error
-  echo "[STARTUP ERROR] Agent service failed to start" >&2
-  systemctl status vellum-agent >&2
-  exit 1
-fi
-`;
 }
 
 // ============================================================================
@@ -652,7 +462,6 @@ fi
 export interface PrequeuedInstance {
   instanceName: string;
   zone: string;
-  agentType: AgentType;
   status: string;
   createdAt: string;
   ready: boolean;
@@ -661,16 +470,14 @@ export interface PrequeuedInstance {
 /**
  * Create a prequeued instance that's ready to be assigned to an agent
  */
-export async function createPrequeuedInstance(
-  agentType: AgentType = "vellumclaw"
-): Promise<{ instanceName: string; zone: string }> {
+export async function createPrequeuedInstance(): Promise<{ instanceName: string; zone: string }> {
   const computeClient = getComputeClient();
   const instanceId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  const instanceName = `${PREQUEUE_INSTANCE_PREFIX}-${agentType}-${instanceId}`;
+  const instanceName = `${PREQUEUE_INSTANCE_PREFIX}-${instanceId}`;
 
   console.log(`[Prequeue] Creating prequeued instance: ${instanceName}`);
 
-  const startupScript = getPrequeueStartupScript(agentType);
+  const startupScript = getPrequeueStartupScript();
 
   const [operation] = await computeClient.insert({
     project: GCP_PROJECT_ID,
@@ -715,15 +522,10 @@ export async function createPrequeuedInstance(
             key: "prequeue",
             value: "true",
           },
-          {
-            key: "agent-type",
-            value: agentType,
-          },
         ],
       },
       labels: {
         "vellum-prequeue": "true",
-        "agent-type": agentType,
       },
       tags: {
         items: [VELLY_AGENT_NETWORK_TAG],
@@ -755,12 +557,12 @@ export async function listPrequeuedInstances(): Promise<PrequeuedInstance[]> {
     });
 
     for (const instance of instanceList || []) {
-      if (!instance.name) continue;
+      if (!instance.name) {
+        continue;
+      }
 
-      const agentTypeLabel = instance.labels?.["agent-type"] || "vellumclaw";
       const creationTimestamp = instance.creationTimestamp || new Date().toISOString();
 
-      // Check if instance is ready by looking at its health endpoint
       let ready = false;
       if (instance.status === "RUNNING") {
         const ip = instance.networkInterfaces?.[0]?.accessConfigs?.[0]?.natIP;
@@ -782,7 +584,6 @@ export async function listPrequeuedInstances(): Promise<PrequeuedInstance[]> {
       instances.push({
         instanceName: instance.name,
         zone: GCP_ZONE,
-        agentType: agentTypeLabel as AgentType,
         status: instance.status || "UNKNOWN",
         createdAt: creationTimestamp,
         ready,
@@ -798,20 +599,17 @@ export async function listPrequeuedInstances(): Promise<PrequeuedInstance[]> {
 /**
  * Get an available (ready) prequeued instance
  */
-export async function getAvailablePrequeuedInstance(
-  agentType: AgentType = "vellumclaw"
-): Promise<PrequeuedInstance | null> {
+export async function getAvailablePrequeuedInstance(): Promise<PrequeuedInstance | null> {
   const instances = await listPrequeuedInstances();
 
-  // Find a ready instance of the right type
   const available = instances.find(
-    (i) => i.ready && i.agentType === agentType && i.status === "RUNNING"
+    (i) => i.ready && i.status === "RUNNING"
   );
 
   if (available) {
     console.log(`[Prequeue] Found available instance: ${available.instanceName}`);
   } else {
-    console.log(`[Prequeue] No available prequeued instances for type: ${agentType}`);
+    console.log(`[Prequeue] No available prequeued instances`);
   }
 
   return available || null;
@@ -906,27 +704,24 @@ export GCS_PREFIX="${gcsPrefix}"
  * Ensure the prequeue pool has minimum instances
  */
 export async function ensurePrequeuePool(
-  agentType: AgentType = "vellumclaw",
   minSize: number = PREQUEUE_POOL_SIZE
 ): Promise<{ created: number; available: number }> {
   const instances = await listPrequeuedInstances();
-  const typeInstances = instances.filter((i) => i.agentType === agentType);
 
-  // Count instances that are ready or still starting up
-  const activeCount = typeInstances.filter(
+  const activeCount = instances.filter(
     (i) => i.status === "RUNNING" || i.status === "STAGING" || i.status === "PROVISIONING"
   ).length;
 
   const toCreate = Math.max(0, minSize - activeCount);
 
   console.log(
-    `[Prequeue] Pool status for ${agentType}: ${activeCount} active, need ${minSize}, creating ${toCreate}`
+    `[Prequeue] Pool status: ${activeCount} active, need ${minSize}, creating ${toCreate}`
   );
 
   let created = 0;
   for (let i = 0; i < toCreate; i++) {
     try {
-      await createPrequeuedInstance(agentType);
+      await createPrequeuedInstance();
       created++;
     } catch (error) {
       console.error(`[Prequeue] Error creating instance:`, error);
@@ -950,7 +745,9 @@ export async function cleanupStalePrequeueInstances(maxAgeHours: number = 24): P
     if (age > maxAgeMs) {
       console.log(`[Prequeue] Deleting stale instance: ${instance.instanceName} (age: ${Math.round(age / 1000 / 60 / 60)}h)`);
       const success = await deleteInstance(instance.instanceName, instance.zone);
-      if (success) deleted++;
+      if (success) {
+        deleted++;
+      }
     }
   }
 
@@ -965,11 +762,9 @@ export async function createAgentComputeInstance(
   agentId: string,
   agentName: string,
   gcsBucket: string,
-  gcsPrefix: string,
-  agentType: AgentType = "simple"
+  gcsPrefix: string
 ): Promise<{ instanceName: string; zone: string; machineType: string; fromPrequeue: boolean }> {
-  // Try to use a prequeued instance first
-  const prequeued = await getAvailablePrequeuedInstance(agentType);
+  const prequeued = await getAvailablePrequeuedInstance();
 
   if (prequeued) {
     console.log(`[Agent] Using prequeued instance: ${prequeued.instanceName}`);
@@ -983,8 +778,7 @@ export async function createAgentComputeInstance(
     );
 
     if (activated) {
-      // Trigger pool replenishment asynchronously
-      ensurePrequeuePool(agentType).catch((err) =>
+      ensurePrequeuePool().catch((err) =>
         console.error("[Prequeue] Error replenishing pool:", err)
       );
 
@@ -999,12 +793,11 @@ export async function createAgentComputeInstance(
     console.log(`[Agent] Failed to activate prequeued instance, falling back to fresh creation`);
   }
 
-  // Fallback: create a fresh instance
   console.log(`[Agent] Creating fresh instance for agent ${agentId}`);
 
   const computeClient = getComputeClient();
   const instanceName = `vellum-agent-${agentId.slice(0, 8)}`;
-  const startupScript = getStartupScript(agentType, gcsBucket, gcsPrefix);
+  const startupScript = getStartupScript(gcsBucket, gcsPrefix);
 
   const [operation] = await computeClient.insert({
     project: GCP_PROJECT_ID,
@@ -1071,8 +864,7 @@ export async function createAgentComputeInstance(
 
   await ensureFirewallRuleExists();
 
-  // Trigger pool replenishment asynchronously
-  ensurePrequeuePool(agentType).catch((err) =>
+  ensurePrequeuePool().catch((err) =>
     console.error("[Prequeue] Error replenishing pool:", err)
   );
 

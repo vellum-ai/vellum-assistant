@@ -6,7 +6,6 @@ type OnboardingStep =
   | 'welcome'
   | 'use_case'
   | 'experience_level'
-  | 'template_selection'
   | 'agent_customization'
   | 'complete';
 
@@ -26,7 +25,6 @@ type ExperienceLevel =
 interface OnboardingState {
   useCase: UseCase | null;
   experienceLevel: ExperienceLevel | null;
-  selectedTemplate: string | null;
 }
 
 export function OnboardingWizard() {
@@ -35,8 +33,7 @@ export function OnboardingWizard() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [onboardingState, setOnboardingState] = useState<OnboardingState>({
     useCase: null,
-    experienceLevel: null,
-    selectedTemplate: null
+    experienceLevel: null
   });
 
   const handleUseCaseSelect = (useCase: UseCase) => {
@@ -46,11 +43,6 @@ export function OnboardingWizard() {
 
   const handleExperienceLevelSelect = (level: ExperienceLevel) => {
     setOnboardingState(prev => ({ ...prev, experienceLevel: level }));
-    setCurrentStep('template_selection');
-  };
-
-  const handleTemplateSelect = (template: string) => {
-    setOnboardingState(prev => ({ ...prev, selectedTemplate: template }));
     setCurrentStep('agent_customization');
   };
 
@@ -113,41 +105,6 @@ export function OnboardingWizard() {
                 >
                   <h4 className="font-semibold">{label}</h4>
                   <p className="text-sm text-zinc-500">{description}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-
-      case 'template_selection':
-        return (
-          <div>
-            <h3 className="text-2xl font-semibold mb-4">Choose an Agent Template</h3>
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                { 
-                  value: 'simple', 
-                  label: 'Simple Agent', 
-                  description: 'Basic, flexible agent for various tasks',
-                  icon: Bot 
-                },
-                { 
-                  value: 'openclaw', 
-                  label: 'OpenClaw Agent', 
-                  description: 'Advanced, modular agent with rich capabilities',
-                  icon: Zap 
-                }
-              ].map(({ value, label, description, icon: Icon }) => (
-                <button
-                  key={value}
-                  onClick={() => handleTemplateSelect(value)}
-                  className="border rounded-lg p-4 hover:bg-zinc-100 flex items-center gap-4"
-                >
-                  <Icon className="w-6 h-6 text-indigo-600" />
-                  <div className="text-left">
-                    <h4 className="font-semibold">{label}</h4>
-                    <p className="text-sm text-zinc-500">{description}</p>
-                  </div>
                 </button>
               ))}
             </div>
