@@ -154,18 +154,26 @@ final class AnthropicProvider: ActionInferenceProvider {
 
     // MARK: - Tool Call Parsing
 
+    /// Extract an integer from a JSON value that may be NSNumber (int or double).
+    private func intFromJSON(_ value: Any?) -> Int? {
+        if let n = value as? Int { return n }
+        if let n = value as? NSNumber { return n.intValue }
+        return nil
+    }
+
     private func parseToolCall(name: String, input: [String: Any], elements: [AXElement]?) throws -> AgentAction {
         let reasoning = input["reasoning"] as? String ?? ""
-        let elementId = input["element_id"] as? Int
-        let inputX = input["x"] as? Int
-        let inputY = input["y"] as? Int
+        let elementId = intFromJSON(input["element_id"])
+        let inputX = intFromJSON(input["x"])
+        let inputY = intFromJSON(input["y"])
 
         switch name {
         case "click", "double_click", "right_click":
             let actionType: ActionType = name == "click" ? .click : name == "double_click" ? .doubleClick : .rightClick
             let (x, y, resolvedId, desc) = resolvePosition(elementId: elementId, inputX: inputX, inputY: inputY, elements: elements)
             guard let finalX = x, let finalY = y else {
-                throw InferenceError.parseError("\(name) requires element_id or x,y coordinates")
+                let rawKeys = Array(input.keys).joined(separator: ", ")
+                throw InferenceError.parseError("\(name) requires element_id or x,y coordinates (got keys: \(rawKeys), element_id=\(input["element_id"] ?? "nil"), x=\(input["x"] ?? "nil"), y=\(input["y"] ?? "nil"))")
             }
             return AgentAction(
                 type: actionType,
@@ -189,9 +197,9 @@ final class AnthropicProvider: ActionInferenceProvider {
             return AgentAction(type: .key, reasoning: reasoning, key: key)
 
         case "drag":
-            let toElementId = input["to_element_id"] as? Int
-            let inputToX = input["to_x"] as? Int
-            let inputToY = input["to_y"] as? Int
+            let toElementId = intFromJSON(input["to_element_id"])
+            let inputToX = intFromJSON(input["to_x"])
+            let inputToY = intFromJSON(input["to_y"])
             let (fromX, fromY, fromResolvedId, fromDesc) = resolvePosition(elementId: elementId, inputX: inputX, inputY: inputY, elements: elements)
             let (toX, toY, _, _) = resolvePosition(elementId: toElementId, inputX: inputToX, inputY: inputToY, elements: elements)
             guard let finalFromX = fromX, let finalFromY = fromY else {
@@ -215,7 +223,7 @@ final class AnthropicProvider: ActionInferenceProvider {
             guard let direction = input["direction"] as? String else {
                 throw InferenceError.parseError("scroll requires 'direction' field")
             }
-            let amount = input["amount"] as? Int ?? 3
+            let amount = intFromJSON(input["amount"]) ?? 3
             let (x, y, resolvedId, desc) = resolvePosition(elementId: elementId, inputX: inputX, inputY: inputY, elements: elements)
             return AgentAction(
                 type: .scroll,
@@ -229,7 +237,7 @@ final class AnthropicProvider: ActionInferenceProvider {
             )
 
         case "wait":
-            guard let durationMs = input["duration_ms"] as? Int else {
+            guard let durationMs = intFromJSON(input["duration_ms"]) else {
                 throw InferenceError.parseError("wait requires 'duration_ms' field")
             }
             return AgentAction(type: .wait, reasoning: reasoning, waitDuration: durationMs)
