@@ -25,7 +25,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     const format = url.searchParams.get("format");
 
     // Always use the default template from disk.
-    // Stored versions in GCS may be stale after code changes (e.g. prop renames).
+    // TODO: Corn should coordinate with Brain / Apollo on where we can expect to pull the dynamic editor
     const source = getDefaultEditorTemplate();
 
     if (format === "source") {
