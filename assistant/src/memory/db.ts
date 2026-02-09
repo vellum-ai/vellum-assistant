@@ -58,6 +58,11 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN total_estimated_cost REAL NOT NULL DEFAULT 0`); } catch { /* already exists */ }
 
   migrateToolInvocationsFk(database);
+
+  // Indexes for query performance on large datasets
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_tool_invocations_conversation_id ON tool_invocations(conversation_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at)`);
 }
 
 /**
