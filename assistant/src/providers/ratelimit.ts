@@ -47,18 +47,21 @@ export class RateLimitProvider implements Provider {
     const now = Date.now();
     const windowStart = now - 60_000;
     // Prune expired timestamps in-place to preserve the shared array
-    // reference. Single-pass compaction: copy valid entries to the front
-    // and truncate, handling out-of-order entries correctly in O(n).
+    // reference. Single-pass compaction: copy valid entries to the front,
+    // track the oldest surviving entry, and truncate — all in O(n).
     let write = 0;
+    let oldestInWindow = Infinity;
     for (let read = 0; read < this.requestTimestamps.length; read++) {
       if (this.requestTimestamps[read] > windowStart) {
+        if (this.requestTimestamps[read] < oldestInWindow) {
+          oldestInWindow = this.requestTimestamps[read];
+        }
         this.requestTimestamps[write++] = this.requestTimestamps[read];
       }
     }
     this.requestTimestamps.length = write;
 
     if (this.requestTimestamps.length >= limit) {
-      const oldestInWindow = Math.min(...this.requestTimestamps);
       const waitSec = Math.ceil((oldestInWindow + 60_000 - now) / 1000);
       throw new RateLimitError(
         `Rate limit exceeded: ${limit} requests/minute. Try again in ${waitSec}s.`,

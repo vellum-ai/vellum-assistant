@@ -212,6 +212,22 @@ describe('RateLimitProvider', () => {
       }
     });
 
+    test('handles large timestamp arrays without stack overflow', async () => {
+      const highLimit = 200_000;
+      const config: RateLimitConfig = { maxRequestsPerMinute: highLimit, maxTokensPerSession: 0 };
+      const shared: number[] = [];
+      const provider = new RateLimitProvider(makeProvider(), config, shared);
+
+      // Fill with timestamps that are all within the window
+      const now = Date.now();
+      for (let i = 0; i < highLimit; i++) {
+        shared.push(now - Math.floor(Math.random() * 59_000));
+      }
+
+      // This should throw RateLimitError, not RangeError
+      await expect(provider.sendMessage(messages)).rejects.toThrow(RateLimitError);
+    });
+
     test('shared array reference survives pruning', async () => {
       const config: RateLimitConfig = { maxRequestsPerMinute: 100, maxTokensPerSession: 0 };
       const shared: number[] = [];
