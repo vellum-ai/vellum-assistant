@@ -161,12 +161,6 @@ function Editor({ assistantId, username }: EditorProps) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center">
         <p className="text-red-600 dark:text-red-400">{error}</p>
-        <a
-          href="/assistants"
-          className="mt-4 text-indigo-600 hover:underline dark:text-indigo-400"
-        >
-          Back to Assistants
-        </a>
       </div>
     );
   }
@@ -176,13 +170,6 @@ function Editor({ assistantId, username }: EditorProps) {
       <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-            <a
-              href="/assistants"
-              className="flex items-center gap-2 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
-            >
-              &#8592; Back to Assistants
-            </a>
-            <div className="hidden h-6 w-px bg-zinc-200 sm:block dark:bg-zinc-700" />
             <div className="flex-1">
               <input
                 type="text"
