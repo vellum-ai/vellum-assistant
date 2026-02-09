@@ -2,8 +2,10 @@ import { describe, test, expect } from 'bun:test';
 import {
   scanText,
   redactSecrets,
+  shannonEntropy,
   _isPlaceholder,
   _redact,
+  _hasSecretContext,
   type SecretMatch,
 } from '../security/secret-scanner.js';
 
@@ -500,5 +502,146 @@ describe('false positive resistance', () => {
     const matches = scanText(pubKey);
     const privKeys = matches.filter((m) => m.type === 'Private Key');
     expect(privKeys).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shannon entropy
+// ---------------------------------------------------------------------------
+describe('shannonEntropy', () => {
+  test('returns 0 for empty string', () => {
+    expect(shannonEntropy('')).toBe(0);
+  });
+
+  test('returns 0 for single repeated character', () => {
+    expect(shannonEntropy('aaaaaa')).toBe(0);
+  });
+
+  test('returns 1.0 for two equally distributed characters', () => {
+    expect(shannonEntropy('ababab')).toBeCloseTo(1.0, 5);
+  });
+
+  test('returns high entropy for random-looking strings', () => {
+    // A high-entropy hex string
+    const entropy = shannonEntropy('a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4');
+    expect(entropy).toBeGreaterThan(3.0);
+  });
+
+  test('returns lower entropy for structured/repetitive content', () => {
+    const entropy = shannonEntropy('abcabcabcabcabcabc');
+    expect(entropy).toBeLessThan(2.0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Entropy-based secret detection
+// ---------------------------------------------------------------------------
+describe('entropy-based detection', () => {
+  test('detects high-entropy hex token near secret keyword', () => {
+    const hexSecret = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
+    const input = `api_key = ${hexSecret}`;
+    const matches = scanText(input);
+    const entropyMatch = matches.find((m) => m.type === 'High-Entropy Hex Token');
+    expect(entropyMatch).toBeDefined();
+    expect(entropyMatch!.startIndex).toBe(input.indexOf(hexSecret));
+  });
+
+  test('detects high-entropy base64 token near secret keyword', () => {
+    const b64Secret = 'aB3cD4eF5gH6iJ7kL8mN+pQ/rS0tU1vW2xY3zA=';
+    const input = `token: "${b64Secret}"`;
+    const matches = scanText(input);
+    const entropyMatch = matches.find((m) => m.type === 'High-Entropy Base64 Token');
+    expect(entropyMatch).toBeDefined();
+  });
+
+  test('does not flag high-entropy hex without secret context', () => {
+    const hexString = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
+    // No secret keyword nearby — just "checksum"
+    const input = `checksum: ${hexString}`;
+    const matches = scanText(input);
+    const entropyMatches = matches.filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropyMatches).toHaveLength(0);
+  });
+
+  test('does not flag low-entropy tokens even with context', () => {
+    // Repeated pattern = low entropy
+    const lowEntropy = 'abcabcabcabcabcabcabcabc';
+    const input = `secret = ${lowEntropy}`;
+    const matches = scanText(input);
+    const entropyMatches = matches.filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropyMatches).toHaveLength(0);
+  });
+
+  test('does not flag tokens shorter than minLength', () => {
+    const shortToken = 'a3f8c1b2d9e4f5a6';
+    const input = `api_key = ${shortToken}`;
+    const matches = scanText(input);
+    const entropyMatches = matches.filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropyMatches).toHaveLength(0);
+  });
+
+  test('can be disabled via config', () => {
+    const hexSecret = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
+    const input = `api_key = ${hexSecret}`;
+    const matches = scanText(input, { enabled: false });
+    const entropyMatches = matches.filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropyMatches).toHaveLength(0);
+  });
+
+  test('respects custom threshold', () => {
+    const hexSecret = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
+    const input = `api_key = ${hexSecret}`;
+
+    // With extremely high threshold, nothing matches
+    const matchesHigh = scanText(input, { hexThreshold: 10.0 });
+    const entropyHigh = matchesHigh.filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropyHigh).toHaveLength(0);
+
+    // With low threshold, it matches
+    const matchesLow = scanText(input, { hexThreshold: 1.0 });
+    const entropyLow = matchesLow.filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropyLow.length).toBeGreaterThan(0);
+  });
+
+  test('does not double-count tokens already matched by patterns', () => {
+    // An AWS access key should only appear once (pattern match), not again as entropy
+    const input = `api_key = AKIAIOSFODNN7REALKEY`;
+    const matches = scanText(input);
+    const awsMatches = matches.filter((m) => m.type === 'AWS Access Key');
+    const entropyMatches = matches.filter((m) => m.type.startsWith('High-Entropy'));
+    expect(awsMatches).toHaveLength(1);
+    // Should not have an entropy match for the same range
+    expect(entropyMatches).toHaveLength(0);
+  });
+
+  test('recognizes various secret context keywords', () => {
+    const hexSecret = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
+    const keywords = ['secret', 'password', 'bearer', 'credentials', 'access_key', 'private_key'];
+    for (const kw of keywords) {
+      const input = `${kw} = ${hexSecret}`;
+      const matches = scanText(input);
+      const entropyMatches = matches.filter((m) => m.type.startsWith('High-Entropy'));
+      expect(entropyMatches.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hasSecretContext helper
+// ---------------------------------------------------------------------------
+describe('hasSecretContext', () => {
+  test('detects keyword in prefix', () => {
+    const text = 'api_key = abc123';
+    expect(_hasSecretContext(text, 10)).toBe(true);
+  });
+
+  test('returns false without keyword', () => {
+    const text = 'username = abc123';
+    expect(_hasSecretContext(text, 11)).toBe(false);
+  });
+
+  test('detects keyword case-insensitively', () => {
+    const text = 'API_KEY = abc123';
+    expect(_hasSecretContext(text, 10)).toBe(true);
   });
 });

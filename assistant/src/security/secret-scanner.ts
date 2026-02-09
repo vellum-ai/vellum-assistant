@@ -271,6 +271,170 @@ function isLikelyAwsSecret(value: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Entropy-based detection
+// ---------------------------------------------------------------------------
+
+export interface EntropyConfig {
+  /** Enable entropy-based scanning. Default: true */
+  enabled: boolean;
+  /** Minimum Shannon entropy (bits per char) for hex tokens. Default: 3.0 */
+  hexThreshold: number;
+  /** Minimum Shannon entropy (bits per char) for base64 tokens. Default: 4.0 */
+  base64Threshold: number;
+  /** Minimum token length to consider. Default: 20 */
+  minLength: number;
+}
+
+export const DEFAULT_ENTROPY_CONFIG: EntropyConfig = {
+  enabled: true,
+  hexThreshold: 3.0,
+  base64Threshold: 4.0,
+  minLength: 20,
+};
+
+/**
+ * Calculate Shannon entropy in bits per character.
+ * Higher entropy = more random = more likely to be a secret.
+ */
+export function shannonEntropy(s: string): number {
+  if (s.length === 0) return 0;
+  const freq = new Map<string, number>();
+  for (const ch of s) {
+    freq.set(ch, (freq.get(ch) ?? 0) + 1);
+  }
+  let entropy = 0;
+  for (const count of freq.values()) {
+    const p = count / s.length;
+    entropy -= p * Math.log2(p);
+  }
+  return entropy;
+}
+
+/** Keywords that, when adjacent to a high-entropy token, boost confidence. */
+const SECRET_CONTEXT_KEYWORDS = [
+  'key', 'token', 'secret', 'password', 'passwd', 'pwd',
+  'api_key', 'api-key', 'apikey',
+  'access_key', 'access-key', 'accesskey',
+  'auth_token', 'auth-token', 'authtoken',
+  'bearer', 'authorization',
+  'credential', 'credentials',
+  'private_key', 'private-key',
+  'client_secret', 'client-secret',
+  'signing_key', 'signing-key',
+  'encryption_key', 'encryption-key',
+];
+
+/** Match hex strings (20+ chars of [0-9a-fA-F]) */
+const HEX_TOKEN_RE = /\b([0-9a-fA-F]{20,})\b/g;
+
+/** Match base64 strings (20+ chars of [A-Za-z0-9+/=_-]) that aren't pure alphanumeric */
+const BASE64_TOKEN_RE = /\b([A-Za-z0-9+/\-_]{20,}={0,3})\b/g;
+
+/**
+ * Check whether a token appears near a secret-related keyword in the
+ * surrounding text (up to 60 chars before the match).
+ */
+function hasSecretContext(text: string, matchStart: number): boolean {
+  // Look at up to 60 chars before the token for context keywords
+  const contextStart = Math.max(0, matchStart - 60);
+  const prefix = text.slice(contextStart, matchStart).toLowerCase();
+  return SECRET_CONTEXT_KEYWORDS.some((kw) => prefix.includes(kw));
+}
+
+/**
+ * Check if a string is purely hex characters.
+ */
+function isHex(s: string): boolean {
+  return /^[0-9a-fA-F]+$/.test(s);
+}
+
+/**
+ * Check if a string looks like base64 (has mixed case or base64 special chars).
+ */
+function isBase64Like(s: string): boolean {
+  return /[A-Za-z]/.test(s) && /[0-9]/.test(s) && /[+/\-_=]/.test(s);
+}
+
+/**
+ * Scan for high-entropy tokens that may be secrets not matching known patterns.
+ * Returns matches only for tokens with entropy above the configured threshold
+ * AND that appear in a secret-related context (near keywords like "key", "token",
+ * "password", etc.).
+ */
+function scanEntropy(
+  text: string,
+  config: EntropyConfig,
+  existingRanges: Set<string>,
+): SecretMatch[] {
+  if (!config.enabled) return [];
+  const matches: SecretMatch[] = [];
+
+  // Scan hex tokens
+  HEX_TOKEN_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = HEX_TOKEN_RE.exec(text)) !== null) {
+    const value = m[1];
+    if (value.length < config.minLength) continue;
+    const startIndex = m.index;
+    const endIndex = startIndex + value.length;
+
+    // Skip if already covered by a pattern match
+    const key = `${startIndex}:${endIndex}`;
+    if (existingRanges.has(key)) continue;
+
+    // Skip placeholders
+    if (isPlaceholder(value)) continue;
+
+    const entropy = shannonEntropy(value);
+    if (entropy < config.hexThreshold) continue;
+
+    // Require secret-related context to reduce false positives
+    if (!hasSecretContext(text, startIndex)) continue;
+
+    existingRanges.add(key);
+    matches.push({
+      type: 'High-Entropy Hex Token',
+      startIndex,
+      endIndex,
+      redactedValue: redact(value),
+    });
+  }
+
+  // Scan base64 tokens
+  BASE64_TOKEN_RE.lastIndex = 0;
+  while ((m = BASE64_TOKEN_RE.exec(text)) !== null) {
+    const value = m[1];
+    if (value.length < config.minLength) continue;
+    // Must look like base64 (not pure alphanumeric) or pure hex
+    if (isHex(value)) continue; // Already handled above
+    if (!isBase64Like(value) && !/[A-Z]/.test(value)) continue;
+
+    const startIndex = m.index;
+    const endIndex = startIndex + value.length;
+
+    const key = `${startIndex}:${endIndex}`;
+    if (existingRanges.has(key)) continue;
+
+    if (isPlaceholder(value)) continue;
+
+    const entropy = shannonEntropy(value);
+    if (entropy < config.base64Threshold) continue;
+
+    if (!hasSecretContext(text, startIndex)) continue;
+
+    existingRanges.add(key);
+    matches.push({
+      type: 'High-Entropy Base64 Token',
+      startIndex,
+      endIndex,
+      redactedValue: redact(value),
+    });
+  }
+
+  return matches;
+}
+
+// ---------------------------------------------------------------------------
 // Scan function
 // ---------------------------------------------------------------------------
 
@@ -278,8 +442,11 @@ function isLikelyAwsSecret(value: string): boolean {
  * Scan text for leaked secrets. Returns an array of matches sorted by
  * position. Each match includes the secret type, position, and a redacted
  * preview of the matched value.
+ *
+ * @param entropyConfig — optional config for entropy-based scanning.
+ *   Pass `{ enabled: false }` to disable. Defaults to DEFAULT_ENTROPY_CONFIG.
  */
-export function scanText(text: string): SecretMatch[] {
+export function scanText(text: string, entropyConfig?: Partial<EntropyConfig>): SecretMatch[] {
   const matches: SecretMatch[] = [];
   // De-duplicate overlapping ranges (a match can fire on multiple patterns)
   const seen = new Set<string>();
@@ -312,6 +479,11 @@ export function scanText(text: string): SecretMatch[] {
     }
   }
 
+  // Entropy-based scanning for tokens that don't match known patterns
+  const eConfig = { ...DEFAULT_ENTROPY_CONFIG, ...entropyConfig };
+  const entropyMatches = scanEntropy(text, eConfig, seen);
+  matches.push(...entropyMatches);
+
   // Sort by position
   matches.sort((a, b) => a.startIndex - b.startIndex);
   return matches;
@@ -321,8 +493,8 @@ export function scanText(text: string): SecretMatch[] {
  * Replace detected secrets in text with redaction markers.
  * Returns the modified text.
  */
-export function redactSecrets(text: string): string {
-  const matches = scanText(text);
+export function redactSecrets(text: string, entropyConfig?: Partial<EntropyConfig>): string {
+  const matches = scanText(text, entropyConfig);
   if (matches.length === 0) return text;
 
   let result = '';
@@ -339,4 +511,9 @@ export function redactSecrets(text: string): string {
 }
 
 // Exported for testing only
-export { isPlaceholder as _isPlaceholder, redact as _redact, PATTERNS as _PATTERNS };
+export {
+  isPlaceholder as _isPlaceholder,
+  redact as _redact,
+  PATTERNS as _PATTERNS,
+  hasSecretContext as _hasSecretContext,
+};
