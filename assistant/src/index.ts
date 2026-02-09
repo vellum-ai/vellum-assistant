@@ -601,7 +601,7 @@ program
       try {
         const sockStat = statSync(sockPath);
         const mode = sockStat.mode & 0o777;
-        if (mode === 0o600 || mode === 0o755) {
+        if (mode === 0o600 || mode === 0o700) {
           pass(`Socket permissions (${mode.toString(8).padStart(4, '0')})`);
         } else {
           fail('Socket permissions', `expected 0600, got 0${mode.toString(8)}`);
@@ -648,7 +648,7 @@ program
 
     // 11. WASM files
     const wasmFiles = [
-      'node_modules/web-tree-sitter/tree-sitter.wasm',
+      'node_modules/web-tree-sitter/web-tree-sitter.wasm',
       'node_modules/tree-sitter-bash/tree-sitter-bash.wasm',
     ];
     let wasmOk = true;
