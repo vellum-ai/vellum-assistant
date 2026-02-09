@@ -10,16 +10,12 @@ import { PromptsGrid } from "./PromptsGrid";
 import { TriggerCards } from "./TriggerCards";
 import { VideoIntro } from "./VideoIntro";
 import { WorkflowCTA } from "./WorkflowCTA";
-import { getTemplatesForHomepage } from "@/lib/template-content";
 
 export function VellumBody() {
-  // Fetch templates for each category
-  const templatesByCategory = getTemplatesForHomepage();
-
   return (
     <>
       <NavBar />
-      <HeroSection templatesByCategory={templatesByCategory} />
+      <HeroSection />
       <LogoMarquee />
       <AutomateSection />
       <TriggerCards />
