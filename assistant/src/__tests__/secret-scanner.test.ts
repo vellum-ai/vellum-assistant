@@ -549,7 +549,8 @@ describe('entropy-based detection', () => {
 
   test('detects high-entropy base64 token near secret keyword', () => {
     const b64Secret = 'aB3cD4eF5gH6iJ7kL8mN+pQ/rS0tU1vW2xY3zA=';
-    const input = `token: "${b64Secret}"`;
+    // Use "is" instead of ": " to avoid triggering the generic assignment pattern
+    const input = `The token is ${b64Secret}`;
     const matches = scanText(input);
     const entropyMatch = matches.find((m) => m.type === 'High-Entropy Base64 Token');
     expect(entropyMatch).toBeDefined();
@@ -746,5 +747,91 @@ describe('unquoted generic secret assignments', () => {
     const matches = scanText(input);
     const generic = matches.filter((m) => m.type === 'Generic Secret Assignment');
     expect(generic).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Base64 padding in entropy detection (#169 feedback)
+// ---------------------------------------------------------------------------
+describe('base64 padding handling', () => {
+  test('includes trailing = padding in the match', () => {
+    const b64 = 'aB3cD4eF5gH6iJ7kL8mN9pQrS0tU1vW2xY3zA=';
+    const input = `token: ${b64}`;
+    const matches = scanText(input);
+    const entropyMatch = matches.find((m) => m.type === 'High-Entropy Base64 Token');
+    expect(entropyMatch).toBeDefined();
+    // endIndex should include the '='
+    expect(input.slice(entropyMatch!.startIndex, entropyMatch!.endIndex)).toContain('=');
+  });
+
+  test('includes trailing == padding in the match', () => {
+    const b64 = 'aB3cD4eF5gH6iJ7kL8mN9pQrS0tU1vW2x==';
+    const input = `token: ${b64}`;
+    const matches = scanText(input);
+    const entropyMatch = matches.find((m) => m.type === 'High-Entropy Base64 Token');
+    expect(entropyMatch).toBeDefined();
+    expect(input.slice(entropyMatch!.startIndex, entropyMatch!.endIndex)).toContain('==');
+  });
+
+  test('redactSecrets fully redacts padded base64 tokens', () => {
+    const b64 = 'aB3cD4eF5gH6iJ7kL8mN9pQrS0tU1vW2xY3zA=';
+    const input = `token: "${b64}"`;
+    const result = redactSecrets(input);
+    // No trailing '=' should leak after redaction
+    expect(result).not.toMatch(/\[REDACTED:[^\]]+\]=/);
+    expect(result).toContain('[REDACTED:');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Word-boundary context keyword matching (#169 feedback)
+// ---------------------------------------------------------------------------
+describe('word-boundary context keywords', () => {
+  test('does not match "key" inside "monkey"', () => {
+    const hexSecret = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
+    const input = `monkey: ${hexSecret}`;
+    const matches = scanText(input);
+    const entropy = matches.filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropy).toHaveLength(0);
+  });
+
+  test('does not match "key" inside "keyboard"', () => {
+    const hexSecret = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
+    const input = `keyboard = ${hexSecret}`;
+    const matches = scanText(input);
+    const entropy = matches.filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropy).toHaveLength(0);
+  });
+
+  test('does not match "token" inside "tokenizer"', () => {
+    const hexSecret = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
+    const input = `tokenizer: ${hexSecret}`;
+    const matches = scanText(input);
+    const entropy = matches.filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropy).toHaveLength(0);
+  });
+
+  test('still matches "key" as a standalone word', () => {
+    const hexSecret = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
+    const input = `The key is ${hexSecret}`;
+    const matches = scanText(input);
+    const entropy = matches.filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropy.length).toBeGreaterThan(0);
+  });
+
+  test('still matches "api_key" with underscores', () => {
+    const hexSecret = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
+    const input = `The api_key is ${hexSecret}`;
+    const matches = scanText(input);
+    const entropy = matches.filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropy.length).toBeGreaterThan(0);
+  });
+
+  test('still matches "api-key" with hyphens', () => {
+    const hexSecret = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
+    const input = `The api-key is ${hexSecret}`;
+    const matches = scanText(input);
+    const entropy = matches.filter((m) => m.type.startsWith('High-Entropy'));
+    expect(entropy.length).toBeGreaterThan(0);
   });
 });

@@ -333,18 +333,24 @@ const SECRET_CONTEXT_KEYWORDS = [
 /** Match hex strings (20+ chars of [0-9a-fA-F]) */
 const HEX_TOKEN_RE = /\b([0-9a-fA-F]{20,})\b/g;
 
-/** Match base64 strings (20+ chars of [A-Za-z0-9+/=_-]) that aren't pure alphanumeric */
-const BASE64_TOKEN_RE = /\b([A-Za-z0-9+/\-_]{20,}={0,3})\b/g;
+/** Match base64 strings (20+ chars of [A-Za-z0-9+/_-]) with optional = padding.
+ *  Trailing \b would fail after '=' (non-word char), so we use a lookahead. */
+const BASE64_TOKEN_RE = /\b([A-Za-z0-9+/\-_]{20,}={0,3})(?=\W|$)/g;
 
 /**
  * Check whether a token appears near a secret-related keyword in the
  * surrounding text (up to 60 chars before the match).
  */
+/** Pre-compiled word-boundary regex for each context keyword. */
+const SECRET_CONTEXT_RES = SECRET_CONTEXT_KEYWORDS.map(
+  (kw) => new RegExp(`(?:^|[^a-z0-9])${kw.replace(/[-]/g, '\\$&')}(?:[^a-z0-9]|$)`, 'i'),
+);
+
 function hasSecretContext(text: string, matchStart: number): boolean {
   // Look at up to 60 chars before the token for context keywords
   const contextStart = Math.max(0, matchStart - 60);
-  const prefix = text.slice(contextStart, matchStart).toLowerCase();
-  return SECRET_CONTEXT_KEYWORDS.some((kw) => prefix.includes(kw));
+  const prefix = text.slice(contextStart, matchStart);
+  return SECRET_CONTEXT_RES.some((re) => re.test(prefix));
 }
 
 /**
