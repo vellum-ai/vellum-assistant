@@ -59,8 +59,8 @@ class ShellTool implements Tool {
     log.info({ command, cwd: context.workingDir, timeoutSec }, 'Executing shell command');
 
     return new Promise<ToolExecutionResult>((resolve) => {
-      let stdout = '';
-      let stderr = '';
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
       let timedOut = false;
 
       const sandboxEnabled = context.sandboxOverride ?? config.sandbox.enabled;
@@ -77,19 +77,20 @@ class ShellTool implements Tool {
       }, timeoutMs);
 
       child.stdout.on('data', (data: Buffer) => {
-        const chunk = data.toString();
-        stdout += chunk;
-        context.onOutput?.(chunk);
+        stdoutChunks.push(data);
+        context.onOutput?.(data.toString());
       });
 
       child.stderr.on('data', (data: Buffer) => {
-        const chunk = data.toString();
-        stderr += chunk;
-        context.onOutput?.(chunk);
+        stderrChunks.push(data);
+        context.onOutput?.(data.toString());
       });
 
       child.on('close', (code) => {
         clearTimeout(timer);
+
+        const stdout = Buffer.concat(stdoutChunks).toString();
+        const stderr = Buffer.concat(stderrChunks).toString();
 
         let output = stdout;
         if (stderr) {
