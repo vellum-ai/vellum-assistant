@@ -49,7 +49,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       password,
     });
     if (error) {
-      return error.message ?? "Login failed. Please try again.";
+      return "Invalid username or password.";
     }
     setIsLoggedIn(true);
     setUsername(user);
@@ -70,9 +70,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (error) {
       return error.message ?? "Failed to create account. Please try again.";
     }
-    setIsLoggedIn(true);
-    setUsername(user);
-    setEmail(signupEmail);
     return null;
   }, []);
 

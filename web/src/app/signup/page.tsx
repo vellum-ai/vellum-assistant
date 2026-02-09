@@ -35,7 +35,7 @@ export default function SignupPage() {
     try {
       const errorMessage = await signup(username, email, password);
       if (!errorMessage) {
-        router.push("/assistant");
+        router.push(`/check-email?email=${encodeURIComponent(email)}`);
       } else {
         setError(errorMessage);
       }
