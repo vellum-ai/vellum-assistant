@@ -1,0 +1,118 @@
+import Foundation
+import CoreGraphics
+
+enum ActionType: String, Codable {
+    case click
+    case doubleClick = "double_click"
+    case rightClick = "right_click"
+    case type
+    case key
+    case scroll
+    case wait
+    case done
+}
+
+struct AgentAction: Codable {
+    let type: ActionType
+    var x: CGFloat?
+    var y: CGFloat?
+    var text: String?
+    var key: String?
+    var scrollDirection: String?
+    var scrollAmount: Int?
+    var summary: String?
+    var waitDuration: Int?
+    var reasoning: String
+    var resolvedFromElementId: Int?
+    var elementDescription: String?
+
+    init(
+        type: ActionType,
+        reasoning: String,
+        x: CGFloat? = nil,
+        y: CGFloat? = nil,
+        text: String? = nil,
+        key: String? = nil,
+        scrollDirection: String? = nil,
+        scrollAmount: Int? = nil,
+        summary: String? = nil,
+        waitDuration: Int? = nil,
+        resolvedFromElementId: Int? = nil,
+        elementDescription: String? = nil
+    ) {
+        self.type = type
+        self.reasoning = reasoning
+        self.x = x
+        self.y = y
+        self.text = text
+        self.key = key
+        self.scrollDirection = scrollDirection
+        self.scrollAmount = scrollAmount
+        self.summary = summary
+        self.waitDuration = waitDuration
+        self.resolvedFromElementId = resolvedFromElementId
+        self.elementDescription = elementDescription
+    }
+
+    var displayDescription: String {
+        switch type {
+        case .click:
+            if let id = resolvedFromElementId, let desc = elementDescription {
+                return "Click [\(id)] \(desc)"
+            }
+            if let x = x, let y = y {
+                return "Click at (\(Int(x)), \(Int(y)))"
+            }
+            return "Click"
+        case .doubleClick:
+            if let id = resolvedFromElementId, let desc = elementDescription {
+                return "Double-click [\(id)] \(desc)"
+            }
+            if let x = x, let y = y {
+                return "Double-click at (\(Int(x)), \(Int(y)))"
+            }
+            return "Double-click"
+        case .rightClick:
+            if let id = resolvedFromElementId, let desc = elementDescription {
+                return "Right-click [\(id)] \(desc)"
+            }
+            if let x = x, let y = y {
+                return "Right-click at (\(Int(x)), \(Int(y)))"
+            }
+            return "Right-click"
+        case .type:
+            if let text = text {
+                let preview = text.count > 40 ? String(text.prefix(40)) + "..." : text
+                return "Type \"\(preview)\""
+            }
+            return "Type"
+        case .key:
+            if let key = key {
+                return "Press \(key)"
+            }
+            return "Press key"
+        case .scroll:
+            let dir = scrollDirection ?? "down"
+            let amt = scrollAmount ?? 3
+            return "Scroll \(dir) \(amt)x"
+        case .wait:
+            if let ms = waitDuration {
+                return "Wait \(ms)ms"
+            }
+            return "Wait"
+        case .done:
+            if let summary = summary {
+                let preview = summary.count > 60 ? String(summary.prefix(60)) + "..." : summary
+                return "Done: \(preview)"
+            }
+            return "Done"
+        }
+    }
+}
+
+struct ActionRecord: Codable {
+    let step: Int
+    let action: AgentAction
+    let result: String?
+    let timestamp: Date
+}

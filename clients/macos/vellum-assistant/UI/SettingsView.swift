@@ -1,0 +1,106 @@
+import SwiftUI
+
+struct SettingsView: View {
+    @State private var apiKeyText = ""
+    @State private var hasKey = APIKeyManager.getKey() != nil
+    @State private var maxSteps: Double = 50
+    @State private var accessibilityGranted = false
+    @State private var screenRecordingGranted = false
+
+    // Re-check permissions every 2 seconds while the window is open
+    private let permissionTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        Form {
+            Section("Anthropic API Key") {
+                if hasKey {
+                    HStack {
+                        Text("sk-ant-...configured")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Clear") {
+                            APIKeyManager.deleteKey()
+                            hasKey = false
+                            apiKeyText = ""
+                        }
+                        .tint(.red)
+                    }
+                } else {
+                    SecureField("Enter API key", text: $apiKeyText)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Text("Get your API key at console.anthropic.com")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Save") {
+                            let trimmed = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !trimmed.isEmpty else { return }
+                            APIKeyManager.setKey(trimmed)
+                            hasKey = true
+                            apiKeyText = ""
+                        }
+                        .disabled(apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+
+            Section("Computer Use") {
+                HStack {
+                    Text("Max steps per session")
+                    Spacer()
+                    Text("\(Int(maxSteps))")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: $maxSteps, in: 10...100, step: 10)
+            }
+
+            Section("Permissions") {
+                HStack {
+                    Image(systemName: accessibilityGranted ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundStyle(accessibilityGranted ? .green : .red)
+                    Text("Accessibility")
+                    Spacer()
+                    if !accessibilityGranted {
+                        Button("Grant") {
+                            _ = PermissionManager.accessibilityStatus(prompt: true)
+                            checkPermissions()
+                        }
+                    }
+                }
+
+                HStack {
+                    Image(systemName: screenRecordingGranted ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundStyle(screenRecordingGranted ? .green : .red)
+                    Text("Screen Recording")
+                    Spacer()
+                    if !screenRecordingGranted {
+                        Button("Check") {
+                            Task {
+                                let status = await PermissionManager.screenRecordingStatus()
+                                screenRecordingGranted = status == .granted
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 450, height: 350)
+        .onAppear {
+            checkPermissions()
+        }
+        .onReceive(permissionTimer) { _ in
+            checkPermissions()
+        }
+    }
+
+    private func checkPermissions() {
+        accessibilityGranted = PermissionManager.accessibilityStatus() == .granted
+        Task {
+            let status = await PermissionManager.screenRecordingStatus()
+            screenRecordingGranted = status == .granted
+        }
+    }
+}
