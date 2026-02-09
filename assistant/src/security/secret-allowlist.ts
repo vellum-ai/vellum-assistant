@@ -41,7 +41,6 @@ let allowedRegexes: RegExp[] = [];
  */
 export function loadAllowlist(): void {
   if (loaded) return;
-  loaded = true;
 
   const filePath = join(getDataDir(), 'secret-allowlist.json');
   if (!existsSync(filePath)) return;
@@ -68,6 +67,9 @@ export function loadAllowlist(): void {
         }
       }
     }
+
+    // Only mark as loaded after successful parse
+    loaded = true;
 
     const total = allowedValues.size + allowedPrefixes.length + allowedRegexes.length;
     if (total > 0) {
