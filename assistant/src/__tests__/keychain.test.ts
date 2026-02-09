@@ -121,13 +121,14 @@ describe('keychain', () => {
       expect(addCall!.args).toContain('-w');
     });
 
-    test('setKey passes secret via stdin, not in args', () => {
+    test('setKey passes secret as -w argument', () => {
       setKey('anthropic', 'sk-ant-key123');
       const addCall = execFileCalls.find((c) => c.args.includes('add-generic-password'));
       expect(addCall).toBeDefined();
-      // Secret should be in opts.input, not in the args array
-      expect(addCall!.opts.input).toBe('sk-ant-key123');
-      expect(addCall!.args).not.toContain('sk-ant-key123');
+      // macOS security CLI requires password as the -w argument value
+      const wIndex = addCall!.args.indexOf('-w');
+      expect(wIndex).toBeGreaterThanOrEqual(0);
+      expect(addCall!.args[wIndex + 1]).toBe('sk-ant-key123');
     });
 
     test('setKey does not delete before adding (relies on -U flag)', () => {

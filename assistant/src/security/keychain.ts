@@ -126,17 +126,19 @@ function macosGetKey(account: string): string | undefined {
 }
 
 function macosSetKey(account: string, value: string): boolean {
-  // -U flag handles update-if-exists, no need to delete first
+  // -U flag handles update-if-exists, no need to delete first.
+  // macOS `security` requires the password as the argument to -w;
+  // it does NOT read from stdin. Using `-w` without a value causes
+  // the next flag to be consumed as the password.
   try {
     execFileSync('security', [
       'add-generic-password',
       '-s', SERVICE_NAME,
       '-a', account,
-      '-w', // read password from stdin (avoids exposing in process args)
+      '-w', value,
       '-U', // update if exists
     ], {
-      input: value,
-      stdio: ['pipe', 'ignore', 'ignore'],
+      stdio: ['ignore', 'ignore', 'ignore'],
       timeout: 5000,
     });
     return true;
