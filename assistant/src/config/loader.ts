@@ -4,12 +4,11 @@ import { getDataDir, ensureDataDir } from '../util/platform.js';
 import { ConfigError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { DEFAULT_CONFIG } from './defaults.js';
+import { AssistantConfigSchema } from './schema.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../security/secure-keys.js';
 import type { AssistantConfig } from './types.js';
 
 const log = getLogger('config');
-
-const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama'] as const;
 
 // Providers that store API keys in secure storage (superset of VALID_PROVIDERS)
 const API_KEY_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'brave'] as const;
@@ -19,6 +18,54 @@ let loading = false;
 
 function getConfigPath(): string {
   return join(getDataDir(), 'config.json');
+}
+
+/**
+ * Validate a raw config object with Zod. Invalid fields are logged as warnings
+ * and replaced with defaults (matching prior behavior of per-field fallback).
+ */
+function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
+  const result = AssistantConfigSchema.safeParse(raw);
+  if (result.success) {
+    return result.data;
+  }
+
+  // Log each validation issue as a warning
+  for (const issue of result.error.issues) {
+    const path = issue.path.join('.');
+    log.warn(`Invalid config${path ? ` at "${path}"` : ''}: ${issue.message}. Falling back to default.`);
+  }
+
+  // Strip invalid fields by setting them to undefined so Zod defaults apply,
+  // then re-parse. We walk the error paths and delete the offending keys.
+  const cleaned = structuredClone(raw);
+  for (const issue of result.error.issues) {
+    if (issue.path.length === 0) {
+      // Top-level error — return full defaults
+      return { ...DEFAULT_CONFIG };
+    }
+    deleteNestedKey(cleaned, issue.path as (string | number)[]);
+  }
+
+  const retry = AssistantConfigSchema.safeParse(cleaned);
+  if (retry.success) {
+    return retry.data;
+  }
+
+  // If still failing, fall back to full defaults
+  log.warn('Config validation failed after cleanup. Using full defaults.');
+  return { ...DEFAULT_CONFIG };
+}
+
+function deleteNestedKey(obj: Record<string, unknown>, path: (string | number)[]): void {
+  let current: unknown = obj;
+  for (let i = 0; i < path.length - 1; i++) {
+    if (current === null || current === undefined || typeof current !== 'object') return;
+    current = (current as Record<string, unknown>)[String(path[i])];
+  }
+  if (current !== null && current !== undefined && typeof current === 'object') {
+    delete (current as Record<string, unknown>)[String(path[path.length - 1])];
+  }
 }
 
 export function loadConfig(): AssistantConfig {
@@ -34,7 +81,7 @@ export function loadConfig(): AssistantConfig {
     ensureDataDir();
     const configPath = getConfigPath();
 
-    let fileConfig: Partial<AssistantConfig> = {};
+    let fileConfig: Record<string, unknown> = {};
     if (existsSync(configPath)) {
       const mode = statSync(configPath).mode;
       if (mode & 0o077) {
@@ -51,6 +98,7 @@ export function loadConfig(): AssistantConfig {
       }
     }
 
+    // Pre-validate apiKeys shape before migration (must be a plain object)
     if (
       fileConfig.apiKeys !== undefined &&
       (typeof fileConfig.apiKeys !== 'object' || fileConfig.apiKeys === null || Array.isArray(fileConfig.apiKeys))
@@ -61,8 +109,9 @@ export function loadConfig(): AssistantConfig {
 
     // Auto-migrate plaintext apiKeys from config.json to secure storage
     if (fileConfig.apiKeys && typeof fileConfig.apiKeys === 'object') {
-      const plaintextKeys = Object.entries(fileConfig.apiKeys).filter(
-        ([, v]) => typeof v === 'string' && v.length > 0,
+      const apiKeysObj = fileConfig.apiKeys as Record<string, unknown>;
+      const plaintextKeys = Object.entries(apiKeysObj).filter(
+        ([, v]) => typeof v === 'string' && (v as string).length > 0,
       );
       if (plaintextKeys.length > 0) {
         const migratedProviders: string[] = [];
@@ -91,33 +140,20 @@ export function loadConfig(): AssistantConfig {
         }
         // Clear only migrated keys from fileConfig so failed keys still flow into config
         for (const p of migratedProviders) {
-          delete fileConfig.apiKeys![p];
+          delete apiKeysObj[p];
         }
-        if (Object.keys(fileConfig.apiKeys!).length === 0) {
+        if (Object.keys(apiKeysObj).length === 0) {
           delete fileConfig.apiKeys;
         }
       }
     }
 
-    const config: AssistantConfig = {
-      ...DEFAULT_CONFIG,
-      ...fileConfig,
-      apiKeys: { ...DEFAULT_CONFIG.apiKeys, ...fileConfig.apiKeys },
-      timeouts: { ...DEFAULT_CONFIG.timeouts, ...(fileConfig as Record<string, unknown>).timeouts as Partial<AssistantConfig['timeouts']> },
-      sandbox: { ...DEFAULT_CONFIG.sandbox, ...(fileConfig as Record<string, unknown>).sandbox as Partial<AssistantConfig['sandbox']> },
-      rateLimit: { ...DEFAULT_CONFIG.rateLimit, ...(fileConfig as Record<string, unknown>).rateLimit as Partial<AssistantConfig['rateLimit']> },
-      thinking: { ...DEFAULT_CONFIG.thinking, ...(fileConfig as Record<string, unknown>).thinking as Partial<AssistantConfig['thinking']> },
-      secretDetection: { ...DEFAULT_CONFIG.secretDetection, ...(fileConfig as Record<string, unknown>).secretDetection as Partial<AssistantConfig['secretDetection']> },
-      auditLog: { ...DEFAULT_CONFIG.auditLog, ...(fileConfig as Record<string, unknown>).auditLog as Partial<AssistantConfig['auditLog']> },
-    };
+    // Validate and apply defaults via Zod schema
+    const config = validateWithSchema(fileConfig);
 
-    // Set cached before validation so re-entrant calls (e.g. validateConfig
-    // logging triggers loadConfig) return the in-flight config instead of
-    // bare defaults. Validation mutates the same object, so callers see
-    // corrected values.
+    // Set cached before secure-key/env overrides so re-entrant calls
+    // return the in-flight config instead of bare defaults.
     cached = config;
-
-    validateConfig(config);
 
     // Secure storage keys override plaintext config file
     try {
@@ -131,7 +167,7 @@ export function loadConfig(): AssistantConfig {
       log.debug({ err }, 'Failed to load keys from secure storage');
     }
 
-    // Environment variables override everything (after validation so apiKeys is a valid object)
+    // Environment variables override everything
     if (process.env.ANTHROPIC_API_KEY) {
       config.apiKeys.anthropic = process.env.ANTHROPIC_API_KEY;
     }
@@ -152,90 +188,6 @@ export function loadConfig(): AssistantConfig {
     cached = null;
     loading = false;
     throw err;
-  }
-}
-
-function validateConfig(config: AssistantConfig): void {
-  if (!VALID_PROVIDERS.includes(config.provider as (typeof VALID_PROVIDERS)[number])) {
-    log.warn(
-      `Invalid provider "${config.provider}". Valid providers: ${VALID_PROVIDERS.join(', ')}. Falling back to "${DEFAULT_CONFIG.provider}".`,
-    );
-    config.provider = DEFAULT_CONFIG.provider;
-  }
-
-  if (!Number.isInteger(config.maxTokens) || config.maxTokens <= 0) {
-    log.warn(
-      `Invalid maxTokens "${config.maxTokens}". Must be a positive integer. Falling back to ${DEFAULT_CONFIG.maxTokens}.`,
-    );
-    config.maxTokens = DEFAULT_CONFIG.maxTokens;
-  }
-
-  if (typeof config.apiKeys !== 'object' || config.apiKeys === null || Array.isArray(config.apiKeys)) {
-    log.warn('Invalid apiKeys: must be an object with string values. Falling back to empty object.');
-    config.apiKeys = {};
-  } else {
-    for (const [key, value] of Object.entries(config.apiKeys)) {
-      if (typeof value !== 'string') {
-        log.warn(`Invalid apiKeys.${key}: value must be a string. Removing entry.`);
-        delete config.apiKeys[key];
-      }
-    }
-  }
-
-  for (const field of ['shellDefaultTimeoutSec', 'shellMaxTimeoutSec', 'permissionTimeoutSec'] as const) {
-    const val = config.timeouts[field];
-    if (typeof val !== 'number' || !Number.isFinite(val) || val <= 0) {
-      log.warn(
-        `Invalid timeouts.${field} "${val}". Must be a positive number. Falling back to ${DEFAULT_CONFIG.timeouts[field]}.`,
-      );
-      config.timeouts[field] = DEFAULT_CONFIG.timeouts[field];
-    }
-  }
-
-  if (typeof config.thinking.enabled !== 'boolean') {
-    log.warn(`Invalid thinking.enabled "${config.thinking.enabled}". Must be a boolean. Falling back to ${DEFAULT_CONFIG.thinking.enabled}.`);
-    config.thinking.enabled = DEFAULT_CONFIG.thinking.enabled;
-  }
-
-  if (typeof config.thinking.budgetTokens !== 'number' || !Number.isFinite(config.thinking.budgetTokens) || config.thinking.budgetTokens <= 0 || !Number.isInteger(config.thinking.budgetTokens)) {
-    log.warn(`Invalid thinking.budgetTokens "${config.thinking.budgetTokens}". Must be a positive integer. Falling back to ${DEFAULT_CONFIG.thinking.budgetTokens}.`);
-    config.thinking.budgetTokens = DEFAULT_CONFIG.thinking.budgetTokens;
-  }
-
-  if (typeof config.sandbox.enabled !== 'boolean') {
-    log.warn(`Invalid sandbox.enabled "${config.sandbox.enabled}". Must be a boolean. Falling back to ${DEFAULT_CONFIG.sandbox.enabled}.`);
-    config.sandbox.enabled = DEFAULT_CONFIG.sandbox.enabled;
-  }
-
-  for (const field of ['maxRequestsPerMinute', 'maxTokensPerSession'] as const) {
-    const val = config.rateLimit[field];
-    if (typeof val !== 'number' || !Number.isFinite(val) || val < 0 || !Number.isInteger(val)) {
-      log.warn(
-        `Invalid rateLimit.${field} "${val}". Must be a non-negative integer. Falling back to ${DEFAULT_CONFIG.rateLimit[field]}.`,
-      );
-      config.rateLimit[field] = DEFAULT_CONFIG.rateLimit[field];
-    }
-  }
-
-  if (typeof config.secretDetection.enabled !== 'boolean') {
-    log.warn(`Invalid secretDetection.enabled "${config.secretDetection.enabled}". Must be a boolean. Falling back to ${DEFAULT_CONFIG.secretDetection.enabled}.`);
-    config.secretDetection.enabled = DEFAULT_CONFIG.secretDetection.enabled;
-  }
-
-  const validActions = ['redact', 'warn', 'block'] as const;
-  if (!validActions.includes(config.secretDetection.action as (typeof validActions)[number])) {
-    log.warn(`Invalid secretDetection.action "${config.secretDetection.action}". Must be one of: ${validActions.join(', ')}. Falling back to "${DEFAULT_CONFIG.secretDetection.action}".`);
-    config.secretDetection.action = DEFAULT_CONFIG.secretDetection.action;
-  }
-
-  if (typeof config.secretDetection.entropyThreshold !== 'number' || !Number.isFinite(config.secretDetection.entropyThreshold) || config.secretDetection.entropyThreshold <= 0) {
-    log.warn(`Invalid secretDetection.entropyThreshold "${config.secretDetection.entropyThreshold}". Must be a positive number. Falling back to ${DEFAULT_CONFIG.secretDetection.entropyThreshold}.`);
-    config.secretDetection.entropyThreshold = DEFAULT_CONFIG.secretDetection.entropyThreshold;
-  }
-
-  if (typeof config.auditLog.retentionDays !== 'number' || !Number.isFinite(config.auditLog.retentionDays) || config.auditLog.retentionDays < 0 || !Number.isInteger(config.auditLog.retentionDays)) {
-    log.warn(`Invalid auditLog.retentionDays "${config.auditLog.retentionDays}". Must be a non-negative integer. Falling back to ${DEFAULT_CONFIG.auditLog.retentionDays}.`);
-    config.auditLog.retentionDays = DEFAULT_CONFIG.auditLog.retentionDays;
   }
 }
 
