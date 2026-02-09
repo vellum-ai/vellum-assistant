@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
     private var voiceInput: VoiceInputManager?
-    private(set) var ambientAgent: AmbientAgent?
+    let ambientAgent = AmbientAgent()
 
     private var windowObserver: Any?
 
@@ -72,7 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem.button else { return }
         let menu = NSMenu()
 
-        let ambientEnabled = ambientAgent?.isEnabled ?? false
+        let ambientEnabled = ambientAgent.isEnabled
         let ambientTitle = ambientEnabled ? "Disable Ambient Agent" : "Enable Ambient Agent"
         let ambientItem = NSMenuItem(title: ambientTitle, action: #selector(toggleAmbientAgent), keyEquivalent: "")
         ambientItem.target = self
@@ -84,8 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleAmbientAgent() {
-        guard let agent = ambientAgent else { return }
-        agent.isEnabled = !agent.isEnabled
+        ambientAgent.isEnabled = !ambientAgent.isEnabled
         updateMenuBarIcon()
     }
 
@@ -131,18 +130,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Ambient Agent
 
     private func setupAmbientAgent() {
-        let agent = AmbientAgent()
-        agent.appDelegate = self
-        ambientAgent = agent
-
-        if agent.isEnabled {
-            agent.start()
+        ambientAgent.appDelegate = self
+        if ambientAgent.isEnabled {
+            ambientAgent.start()
             updateMenuBarIcon()
         }
     }
 
     func updateMenuBarIcon() {
-        let isAmbientActive = ambientAgent?.state == .watching || ambientAgent?.state == .analyzing
+        let isAmbientActive = ambientAgent.state == .watching || ambientAgent.state == .analyzing
         let iconName = isAmbientActive ? "eye" : "sparkles"
         statusItem.button?.image = NSImage(
             systemSymbolName: iconName,
@@ -187,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.show()
         overlayWindow = overlay
 
-        ambientAgent?.pause()
+        ambientAgent.pause()
 
         Task { @MainActor in
             await session.run()
@@ -195,7 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             overlay.close()
             self.overlayWindow = nil
             self.currentSession = nil
-            self.ambientAgent?.resume()
+            self.ambientAgent.resume()
         }
     }
 
@@ -204,6 +200,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(monitor)
         }
         voiceInput?.stop()
-        ambientAgent?.stop()
+        ambientAgent.stop()
     }
 }

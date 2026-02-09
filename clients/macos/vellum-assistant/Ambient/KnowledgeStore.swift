@@ -17,9 +17,9 @@ struct KnowledgeFile: Codable {
     var entries: [KnowledgeEntry]
 }
 
-final class KnowledgeStore {
+final class KnowledgeStore: ObservableObject {
     private let maxEntries = 500
-    private var knowledge: KnowledgeFile
+    @Published private var knowledge: KnowledgeFile
     private let fileURL: URL
 
     init() {
@@ -62,6 +62,11 @@ final class KnowledgeStore {
 
         save()
         log.info("Added knowledge entry: \(observation.prefix(80))")
+    }
+
+    func removeEntry(id: UUID) {
+        knowledge.entries.removeAll { $0.id == id }
+        save()
     }
 
     func clearAll() {

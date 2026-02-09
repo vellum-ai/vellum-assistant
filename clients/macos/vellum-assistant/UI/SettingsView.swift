@@ -11,7 +11,7 @@ struct SettingsView: View {
         let val = UserDefaults.standard.double(forKey: "ambientCaptureInterval")
         return val == 0 ? 30 : val
     }()
-    var ambientAgent: AmbientAgent?
+    var ambientAgent: AmbientAgent
 
     // Re-check permissions every 2 seconds while the window is open
     private let permissionTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
@@ -66,7 +66,7 @@ struct SettingsView: View {
                 Toggle("Enable ambient screen watching", isOn: $ambientEnabled)
                     .onChange(of: ambientEnabled) { _, newValue in
                         UserDefaults.standard.set(newValue, forKey: "ambientAgentEnabled")
-                        ambientAgent?.isEnabled = newValue
+                        ambientAgent.isEnabled = newValue
                     }
 
                 if ambientEnabled {
@@ -80,21 +80,10 @@ struct SettingsView: View {
                     Slider(value: $ambientInterval, in: 10...120, step: 5)
                         .onChange(of: ambientInterval) { _, newValue in
                             UserDefaults.standard.set(newValue, forKey: "ambientCaptureInterval")
-                            ambientAgent?.captureIntervalSeconds = newValue
+                            ambientAgent.captureIntervalSeconds = newValue
                         }
 
-                    HStack {
-                        Text("Knowledge entries")
-                        Spacer()
-                        Text("\(ambientAgent?.knowledge.entries.count ?? 0)")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Button("Clear Knowledge") {
-                        ambientAgent?.knowledge.clearAll()
-                    }
-                    .tint(.red)
+                    KnowledgeSection(store: ambientAgent.knowledgeStore)
                 }
             }
 
@@ -129,7 +118,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 450, height: 520)
+        .frame(width: 450, height: 550)
         .onAppear {
             checkPermissions()
         }
@@ -144,5 +133,96 @@ struct SettingsView: View {
             let status = await PermissionManager.screenRecordingStatus()
             screenRecordingGranted = status == .granted
         }
+    }
+}
+
+// MARK: - Knowledge Section
+
+private struct KnowledgeSection: View {
+    @ObservedObject var store: KnowledgeStore
+    @State private var showingEntries = false
+
+    var body: some View {
+        HStack {
+            Text("Knowledge entries")
+            Spacer()
+            Text("\(store.entries.count)")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+
+        HStack {
+            Button("View Entries") {
+                showingEntries = true
+            }
+            .disabled(store.entries.isEmpty)
+
+            Spacer()
+
+            Button("Clear All") {
+                store.clearAll()
+            }
+            .tint(.red)
+            .disabled(store.entries.isEmpty)
+        }
+        .sheet(isPresented: $showingEntries) {
+            KnowledgeEntriesView(store: store)
+        }
+    }
+}
+
+private struct KnowledgeEntriesView: View {
+    @ObservedObject var store: KnowledgeStore
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Knowledge Entries (\(store.entries.count))")
+                    .font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+            }
+            .padding()
+
+            Divider()
+
+            if store.entries.isEmpty {
+                Spacer()
+                Text("No entries yet")
+                    .foregroundStyle(.secondary)
+                Spacer()
+            } else {
+                List {
+                    ForEach(store.entries.reversed()) { entry in
+                        HStack(alignment: .top, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(entry.observation)
+                                HStack(spacing: 4) {
+                                    Text(entry.sourceApp)
+                                    Text("\u{00b7}")
+                                    Text(entry.timestamp, style: .relative)
+                                    Text("ago")
+                                    Text("\u{00b7}")
+                                    Text("\(Int(entry.confidence * 100))%")
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button {
+                                store.removeEntry(id: entry.id)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+        }
+        .frame(width: 500, height: 400)
     }
 }
