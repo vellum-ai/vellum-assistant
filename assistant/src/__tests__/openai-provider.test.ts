@@ -355,6 +355,67 @@ describe('OpenAIProvider', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Tool result with is_error flag
+  // -----------------------------------------------------------------------
+  test('prepends [ERROR] prefix when tool_result has is_error true', async () => {
+    fakeChunks = [textChunk('I see the error'), usageChunk(20, 10)];
+
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Read /tmp/secret' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'call_err', name: 'file_read', input: { path: '/tmp/secret' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_err', content: 'Permission denied', is_error: true },
+        ],
+      },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const sent = lastCreateParams!.messages as Array<Record<string, unknown>>;
+    expect(sent[2]).toEqual({
+      role: 'tool',
+      tool_call_id: 'call_err',
+      content: '[ERROR] Permission denied',
+    });
+  });
+
+  test('does not prepend [ERROR] prefix when is_error is false', async () => {
+    fakeChunks = [textChunk('OK'), usageChunk(20, 10)];
+
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Read /tmp/test' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'call_ok', name: 'file_read', input: { path: '/tmp/test' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_ok', content: 'file content here', is_error: false },
+        ],
+      },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const sent = lastCreateParams!.messages as Array<Record<string, unknown>>;
+    expect(sent[2]).toEqual({
+      role: 'tool',
+      tool_call_id: 'call_ok',
+      content: 'file content here',
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // Mixed tool_result + text in user message
   // -----------------------------------------------------------------------
   test('splits user message with tool_result + text into separate messages', async () => {
