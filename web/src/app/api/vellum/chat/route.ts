@@ -10,26 +10,26 @@ interface ChatMessage {
 
 interface ChatRequest {
   messages: ChatMessage[];
-  agentId?: string;
+  assistantId?: string;
   currentPage?: string;
   username?: string;
 }
 
-const SYSTEM_PROMPT = `You are Vellum, a friendly and helpful AI agent builder assistant. You help users configure, improve, and understand their AI agents.
+const SYSTEM_PROMPT = `You are Vellum, a friendly and helpful AI assistant builder. You help users configure, improve, and understand their AI assistants.
 
 Your personality:
 - Friendly and approachable
 - Knowledgeable about AI agents and their configuration
 - Helpful and proactive in suggesting improvements
 
-You have access to tools that let you view and edit the user's agent editor page. The editor page is a React TSX component stored in the cloud that renders the ENTIRE agent editor UI (header, tabs, all tab content). When users ask you to change their editor UI, use these tools to fetch the current source, modify it, and save it back.
+You have access to tools that let you view and edit the user's assistant editor page. The editor page is a React TSX component stored in the cloud that renders the ENTIRE agent editor UI (header, tabs, all tab content). When users ask you to change their editor UI, use these tools to fetch the current source, modify it, and save it back.
 
 When editing the editor page:
-- The component receives props: agentId (string), username (string | null)
+- The component receives props: assistantId (string), username (string | null)
 - It has access to React hooks: useState, useEffect, useCallback, useMemo, useRef
 - It uses Tailwind CSS classes for styling
 - The main component function must be named "Editor"
-- The editor manages its own state including activeTab, agent data fetching, save/kill operations
+- The editor manages its own state including activeTab, assistant data fetching, save/kill operations
 - Do NOT include import or export statements - dependencies are injected at runtime
 
 When users ask questions:
@@ -43,7 +43,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "get_editor_page",
     description:
-      "Fetch the current React TSX source code of the user's agent editor page. Use this to see what the editor currently looks like before making changes.",
+      "Fetch the current React TSX source code of the user's assistant editor page. Use this to see what the editor currently looks like before making changes.",
     input_schema: {
       type: "object" as const,
       properties: {},
@@ -53,7 +53,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "update_editor_page",
     description:
-      "Update the user's agent editor page with new React TSX source code. The source should be valid TSX that defines a function named 'Editor' accepting { agentId, username } props. Do NOT include import/export statements.",
+      "Update the user's assistant editor page with new React TSX source code. The source should be valid TSX that defines a function named 'Editor' accepting { assistantId, username } props. Do NOT include import/export statements.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -98,17 +98,17 @@ function parseTextToolCalls(text: string): {
 async function handleToolCall(
   toolName: string,
   toolInput: Record<string, string>,
-  agentId: string
+  assistantId: string
 ): Promise<string> {
-  console.log(`[Vellum Chat] 🔧 Executing tool: ${toolName}`, { agentId, toolInput });
+  console.log(`[Vellum Chat] 🔧 Executing tool: ${toolName}`, { assistantId, toolInput });
 
   if (toolName === "get_editor_page") {
-    const source = await getEditorPage(agentId);
+    const source = await getEditorPage(assistantId);
     if (!source) {
-      console.log(`[Vellum Chat] 📄 No editor page found for agent ${agentId}`);
+      console.log(`[Vellum Chat] 📄 No editor page found for assistant ${assistantId}`);
       return "No editor page found for this agent. The default template will be used.";
     }
-    console.log(`[Vellum Chat] 📄 Fetched editor page for agent ${agentId} (${source.length} chars)`);
+    console.log(`[Vellum Chat] 📄 Fetched editor page for agent ${assistantId} (${source.length} chars)`);
     return source;
   }
 
@@ -118,12 +118,12 @@ async function handleToolCall(
       return "Error: source content is required";
     }
 
-    const success = await updateEditorPage(agentId, source);
+    const success = await updateEditorPage(assistantId, source);
     if (!success) {
-      console.error(`[Vellum Chat] ❌ Failed to update editor page for agent ${agentId}`);
+      console.error(`[Vellum Chat] ❌ Failed to update editor page for agent ${assistantId}`);
       return "Error: Failed to update the editor page in storage.";
     }
-    console.log(`[Vellum Chat] ✅ Updated editor page for agent ${agentId} (${source.length} chars)`);
+    console.log(`[Vellum Chat] ✅ Updated editor page for agent ${assistantId} (${source.length} chars)`);
     return "Editor page updated successfully. The user will see the changes when they refresh.";
   }
 
@@ -137,11 +137,11 @@ export async function POST(request: Request) {
   try {
     console.log(`[Vellum Chat] 📥 [${requestId}] Parsing request body...`);
     const body: ChatRequest = await request.json();
-    const { messages, agentId, currentPage, username: chatUsername } = body;
+    const { messages, assistantId, currentPage, username: chatUsername } = body;
 
     console.log(`[Vellum Chat] 📋 [${requestId}] Request parsed:`, {
       messageCount: messages?.length,
-      agentId: agentId || "(none)",
+      assistantId: assistantId || "(none)",
       currentPage: currentPage || "(none)",
       username: chatUsername || "(none)",
       firstMessage: messages?.[0]?.content?.substring(0, 100) || "(empty)",
@@ -174,8 +174,8 @@ export async function POST(request: Request) {
     if (currentPage) {
       contextParts.push(`The user is currently on the page: ${currentPage}.`);
     }
-    if (agentId) {
-      contextParts.push(`The user is viewing agent ID: ${agentId}.`);
+    if (assistantId) {
+      contextParts.push(`The user is viewing agent ID: ${assistantId}.`);
     }
     const contextSuffix = contextParts.length > 0
       ? `\n\nContext about the current session:\n${contextParts.join(" ")}`
@@ -187,7 +187,7 @@ export async function POST(request: Request) {
     }));
 
     const systemPrompt = SYSTEM_PROMPT + contextSuffix;
-    const tools = agentId ? TOOLS : [];
+    const tools = assistantId ? TOOLS : [];
 
     console.log(`[Vellum Chat] 🤖 [${requestId}] Calling Anthropic API...`, {
       model: "claude-opus-4-6",
@@ -232,11 +232,11 @@ export async function POST(request: Request) {
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const toolUse of toolUseBlocks) {
         console.log(`[Vellum Chat] 🔧 [${requestId}] Executing tool: ${toolUse.name}`);
-        const result = agentId
+        const result = assistantId
           ? await handleToolCall(
               toolUse.name,
               toolUse.input as Record<string, string>,
-              agentId
+              assistantId
             )
           : `Tool ${toolUse.name} requires an agent context`;
 
@@ -292,7 +292,7 @@ export async function POST(request: Request) {
 
     let finalText = textBlock.text;
 
-    if (agentId) {
+    if (assistantId) {
       const { toolCalls, cleanedText } = parseTextToolCalls(finalText);
       if (toolCalls.length > 0) {
         console.log(`[Vellum Chat] 🔧 [${requestId}] Found ${toolCalls.length} text-based tool call(s), executing...`);
@@ -302,7 +302,7 @@ export async function POST(request: Request) {
           const result = await handleToolCall(
             toolCall.name,
             toolCall.arguments,
-            agentId
+            assistantId
           );
           toolResultMessages.push(
             `Tool ${toolCall.name} result: ${result}`

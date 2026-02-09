@@ -10,10 +10,10 @@ import {
 } from "lucide-react";
 
 interface ArchitectureTabProps {
-  agentName: string;
+  assistantName: string;
 }
 
-export function ArchitectureTab({ agentName }: ArchitectureTabProps) {
+export function ArchitectureTab({ assistantName }: ArchitectureTabProps) {
   return (
     <div className="flex h-full flex-col overflow-auto p-8">
       <div className="mx-auto w-full max-w-2xl">
@@ -56,7 +56,7 @@ export function ArchitectureTab({ agentName }: ArchitectureTabProps) {
                     <Bot className="h-3 w-3 text-blue-600 dark:text-blue-400" />
                   </div>
                   <span className="text-xs text-zinc-600 dark:text-zinc-300">
-                    Agent
+                    Assistant
                   </span>
                 </div>
                 <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
@@ -64,26 +64,26 @@ export function ArchitectureTab({ agentName }: ArchitectureTabProps) {
               </div>
             </div>
 
-            {/* Connector line from triggers to main agent */}
+            {/* Connector line from triggers to main assistant */}
             <div className="mb-2 h-px w-48 bg-zinc-300 dark:bg-zinc-700" />
             <div className="mb-2 h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
 
-            {/* Main Agent Node */}
+            {/* Main Assistant Node */}
             <div className="flex items-center gap-3 rounded-lg border-2 border-indigo-300 bg-white px-5 py-4 shadow-md dark:border-indigo-700 dark:bg-zinc-800">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-950">
                 <Layers className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
               </div>
               <div>
                 <span className="font-semibold text-zinc-900 dark:text-white">
-                  {agentName}
+                  {assistantName}
                 </span>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Main Agent
+                  Main Assistant
                 </p>
               </div>
             </div>
 
-            {/* Connector line from main agent to skills */}
+            {/* Connector line from main assistant to skills */}
             <div className="mt-2 h-4 w-px bg-zinc-300 dark:bg-zinc-700" />
             <div className="h-0 w-0 border-x-4 border-t-4 border-x-transparent border-t-zinc-300 dark:border-t-zinc-700" />
             <div className="mt-2 h-px w-64 bg-zinc-300 dark:bg-zinc-700" />

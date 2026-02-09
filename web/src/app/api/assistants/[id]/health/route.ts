@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { Agent, getDb } from "@/lib/db";
+import { Assistant, getDb } from "@/lib/db";
 import { getInstanceExternalIp, getInstanceStatus } from "@/lib/gcp";
 
 interface RouteParams {
@@ -9,21 +9,21 @@ interface RouteParams {
 
 export async function GET(request: Request, { params }: RouteParams) {
   try {
-    const { id: agentId } = await params;
+    const { id: assistantId } = await params;
 
     const sql = getDb();
-    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
 
     if (result.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
 
-    const agent = result[0] as Agent;
-    const computeConfig = (agent.configuration as Record<string, unknown>)?.compute as
+    const assistant = result[0] as Assistant;
+    const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
 
-    const provisioningError = (agent.configuration as Record<string, unknown>)?.provisioningError as string | undefined;
+    const provisioningError = (assistant.configuration as Record<string, unknown>)?.provisioningError as string | undefined;
     if (provisioningError) {
       return NextResponse.json({
         status: "provisioning_failed",
@@ -132,9 +132,9 @@ export async function GET(request: Request, { params }: RouteParams) {
       });
     }
   } catch (error: unknown) {
-    console.error("Error checking agent health:", error);
+    console.error("Error checking assistant health:", error);
     return NextResponse.json(
-      { error: "Failed to check agent health" },
+      { error: "Failed to check assistant health" },
       { status: 500 }
     );
   }

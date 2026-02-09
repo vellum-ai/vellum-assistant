@@ -5,7 +5,7 @@ export interface Message {
   content: string;
   status: "unread" | "read" | "queued" | "sent";
   createdAt: string;
-  sender: "user" | "agent";
+  sender: "user" | "assistant";
   processedAt?: string;
 }
 

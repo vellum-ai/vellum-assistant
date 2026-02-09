@@ -18,7 +18,7 @@ interface AgentMailWebhook {
   inbox_ids: string[] | null;
 }
 
-function agentNameToUsername(agentName: string): string {
+function assistantNameToUsername(assistantName: string): string {
   return agentName
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "")
@@ -33,12 +33,12 @@ function getAgentMailApiKey(): string {
   return apiKey;
 }
 
-export async function createAgentMailInbox(
-  agentName: string,
-  agentId: string
+export async function createAssistantMailInbox(
+  assistantName: string,
+  assistantId: string
 ): Promise<AgentMailInbox> {
   const apiKey = getAgentMailApiKey();
-  const username = agentNameToUsername(agentName);
+  const username = assistantNameToUsername(assistantName);
 
   const response = await fetch(`${AGENTMAIL_API_BASE}/inboxes`, {
     method: "POST",
@@ -48,8 +48,8 @@ export async function createAgentMailInbox(
     },
     body: JSON.stringify({
       username,
-      display_name: agentName,
-      client_id: agentId,
+      display_name: assistantName,
+      client_id: assistantId,
     }),
   });
 
@@ -63,7 +63,7 @@ export async function createAgentMailInbox(
   return response.json() as Promise<AgentMailInbox>;
 }
 
-export async function deleteAgentMailInbox(inboxId: string): Promise<void> {
+export async function deleteAssistantMailInbox(inboxId: string): Promise<void> {
   const apiKey = getAgentMailApiKey();
 
   const response = await fetch(`${AGENTMAIL_API_BASE}/inboxes/${encodeURIComponent(inboxId)}`, {
@@ -81,7 +81,7 @@ export async function deleteAgentMailInbox(inboxId: string): Promise<void> {
   }
 }
 
-export async function deleteAgentMailWebhook(webhookId: string): Promise<void> {
+export async function deleteAssistantMailWebhook(webhookId: string): Promise<void> {
   const apiKey = getAgentMailApiKey();
 
   const response = await fetch(`${AGENTMAIL_API_BASE}/webhooks/${encodeURIComponent(webhookId)}`, {
@@ -99,7 +99,7 @@ export async function deleteAgentMailWebhook(webhookId: string): Promise<void> {
   }
 }
 
-export async function registerAgentMailWebhook(
+export async function registerAssistantMailWebhook(
   inboxId: string
 ): Promise<AgentMailWebhook> {
   const apiKey = getAgentMailApiKey();

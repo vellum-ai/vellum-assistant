@@ -11,18 +11,18 @@ interface Message {
 }
 
 interface ChatWindowProps {
-  agentName: string;
+  assistantName: string;
 }
 
 const INITIAL_VELLY_MESSAGE: Message = {
   id: "vellum-welcome",
   role: "assistant",
   content:
-    "Hey! I just made your new agent. Go interact with it in the right panel!",
+    "Hey! I just made your new assistant. Go interact with it in the right panel!",
   timestamp: new Date(),
 };
 
-export function ChatWindow({ agentName }: ChatWindowProps) {
+export function ChatWindow({ assistantName }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>([INITIAL_VELLY_MESSAGE]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -50,14 +50,14 @@ export function ChatWindow({ agentName }: ChatWindowProps) {
         const assistantMessage: Message = {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: `Hello! I'm ${agentName}. This is a placeholder response. In a real implementation, this would be connected to an AI model.`,
+          content: `Hello! I'm ${assistantName}. This is a placeholder response. In a real implementation, this would be connected to an AI model.`,
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, assistantMessage]);
         setIsLoading(false);
       }, 1000);
     },
-    [input, isLoading, agentName]
+    [input, isLoading, assistantName]
   );
 
   const handleKeyDown = useCallback(

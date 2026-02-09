@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { Agent, getDb } from "@/lib/db";
+import { Assistant, getDb } from "@/lib/db";
 import { getInstanceExternalIp } from "@/lib/gcp";
 
 interface AgentMailWebhookMessage {
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const agent = assistants[0] as Agent;
+    const agent = assistants[0] as Assistant;
     const computeConfig = (agent.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;

@@ -58,9 +58,6 @@ export type NewUser = typeof schema.user.$inferInsert;
 export type ApiKey = typeof schema.apiKeysTable.$inferSelect;
 export type NewApiKey = typeof schema.apiKeysTable.$inferInsert;
 
-// Legacy type aliases for backwards compatibility
-export type Agent = Assistant;
-export type NewAgent = NewAssistant;
 
 // API input types
 export type CreateAssistantInput = {
@@ -76,9 +73,6 @@ export type UpdateAssistantInput = {
   configuration?: Record<string, unknown>;
 };
 
-// Legacy type aliases
-export type CreateAgentInput = CreateAssistantInput;
-export type UpdateAgentInput = UpdateAssistantInput;
 
 // Assistant queries
 export async function getAssistants() {
@@ -108,12 +102,6 @@ export async function deleteAssistant(id: string) {
   await db.delete(schema.assistantsTable).where(eq(schema.assistantsTable.id, id));
 }
 
-// Legacy function aliases for backwards compatibility
-export const getAgents = getAssistants;
-export const getAgentById = getAssistantById;
-export const createAgent = createAssistant;
-export const updateAgent = updateAssistant;
-export const deleteAgent = deleteAssistant;
 
 // Chat message queries
 export async function getChatMessages(assistantId: string) {

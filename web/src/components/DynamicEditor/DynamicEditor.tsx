@@ -18,17 +18,17 @@ import { DeleteAssistantModal } from "@/components/DeleteAssistantModal";
 import { UserMenu } from "@/components/UserMenu";
 
 interface DynamicEditorProps {
-  agentId: string;
+  assistantId: string;
   username: string | null;
 }
 
 interface EditorComponentProps {
-  agentId: string;
+  assistantId: string;
   username: string | null;
 }
 
 export function DynamicEditor({
-  agentId,
+  assistantId,
   username,
 }: DynamicEditorProps) {
   const router = useRouter();
@@ -44,7 +44,7 @@ export function DynamicEditor({
     setIsDeleting(true);
     setDeleteError(null);
     try {
-      const response = await fetch(`/api/assistants/${agentId}`, {
+      const response = await fetch(`/api/assistants/${assistantId}`, {
         method: "DELETE",
       });
       if (!response.ok) {
@@ -55,7 +55,7 @@ export function DynamicEditor({
       setDeleteError(err instanceof Error ? err.message : "Failed to delete assistant");
       setIsDeleting(false);
     }
-  }, [agentId, router]);
+  }, [assistantId, router]);
 
   const handleDeleteClose = useCallback(() => {
     if (!isDeleting) {
@@ -72,7 +72,7 @@ export function DynamicEditor({
 
     async function fetchEditor() {
       try {
-        const response = await fetch(`/api/assistants/${agentId}/editor`);
+        const response = await fetch(`/api/assistants/${assistantId}/editor`);
         if (!response.ok) {
           throw new Error("Failed to fetch editor page");
         }
@@ -86,7 +86,7 @@ export function DynamicEditor({
     }
 
     fetchEditor();
-  }, [agentId]);
+  }, [assistantId]);
 
   const DynamicComponent = useMemo(() => {
     if (!compiled) {
@@ -204,7 +204,7 @@ export function DynamicEditor({
   return (
     <>
       <DynamicComponent
-        agentId={agentId}
+        assistantId={assistantId}
         username={username}
       />
       {showDeleteModal && (

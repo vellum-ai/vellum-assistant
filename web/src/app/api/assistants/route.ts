@@ -4,11 +4,11 @@ import { NextResponse } from "next/server";
 
 import { Agent, CreateAgentInput, getDb } from "@/lib/db";
 import {
-  createAgentComputeInstance,
+  createAssistantComputeInstance,
   getAvailablePrequeuedInstance,
   getDefaultEditorTemplate,
-  uploadAgentConfigToGCS,
-  uploadAgentToGCS,
+  uploadAssistantConfigToGCS,
+  uploadAssistantToGCS,
   uploadEditorPage,
 } from "@/lib/gcp";
 
@@ -31,13 +31,13 @@ function generateRandomName(): string {
 }
 
 /**
- * Generate a secure API key for agent authentication
+ * Generate a secure API key for assistant authentication
  */
 function generateApiKey(): string {
   return `vellum_${randomBytes(32).toString("hex")}`;
 }
 
-async function generateAgentName(): Promise<string> {
+async function generateAssistantName(): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return generateRandomName();
@@ -52,7 +52,7 @@ async function generateAgentName(): Promise<string> {
         {
           role: "user",
           content:
-            "Generate a single cute, caricature-y name for an AI agent (like 'Sparky', 'Professor Wobble', 'Captain Crunch', 'Pixel Pete'). Reply with ONLY the name, nothing else.",
+            "Generate a single cute, caricature-y name for an AI assistant (like 'Sparky', 'Professor Wobble', 'Captain Crunch', 'Pixel Pete'). Reply with ONLY the name, nothing else.",
         },
       ],
     });
@@ -62,7 +62,7 @@ async function generateAgentName(): Promise<string> {
       return content.text.trim().replace(/^["']|["']$/g, "");
     }
   } catch (error: unknown) {
-    console.error("Failed to generate agent name:", error);
+    console.error("Failed to generate assistant name:", error);
     throw error;
   }
 
@@ -98,9 +98,9 @@ export async function POST(request: Request) {
       try {
         const sql = getDb();
 
-        controller.enqueue(sseEvent("progress", { step: "naming", message: "Generating agent name..." }));
+        controller.enqueue(sseEvent("progress", { step: "naming", message: "Generating assistant name..." }));
         if (!body.name) {
-          body.name = await generateAgentName();
+          body.name = await generateAssistantName();
         }
 
         const apiKey = generateApiKey();
@@ -110,18 +110,18 @@ export async function POST(request: Request) {
           apiKey,
         };
 
-        controller.enqueue(sseEvent("progress", { step: "database", message: "Creating agent record..." }));
+        controller.enqueue(sseEvent("progress", { step: "database", message: "Creating assistant record..." }));
         const result = await sql`
           INSERT INTO assistants (name, description, configuration, created_by)
           VALUES (${body.name}, ${body.description || null}, ${JSON.stringify(initialConfig)}, ${createdBy})
           RETURNING *
         `;
-        const agent = result[0] as Agent;
+        const assistant = result[0] as Agent;
 
         controller.enqueue(sseEvent("progress", { step: "editor", message: "Setting up editor..." }));
         try {
           const editorTemplate = getDefaultEditorTemplate();
-          await uploadEditorPage(agent.id, editorTemplate);
+          await uploadEditorPage(assistant.id, editorTemplate);
         } catch (editorError) {
           console.error("Editor page upload failed (continuing anyway):", editorError);
         }
@@ -134,11 +134,11 @@ export async function POST(request: Request) {
           let prefix: string;
           
           if (prequeued) {
-            controller.enqueue(sseEvent("progress", { step: "upload", message: "Uploading agent config..." }));
-            ({ bucket, prefix } = await uploadAgentConfigToGCS(agent.id, agent.name, { apiKey }));
+            controller.enqueue(sseEvent("progress", { step: "upload", message: "Uploading assistant config..." }));
+            ({ bucket, prefix } = await uploadAssistantConfigToGCS(assistant.id, assistant.name, { apiKey }));
           } else {
-            controller.enqueue(sseEvent("progress", { step: "upload", message: "Uploading agent files..." }));
-            ({ bucket, prefix } = await uploadAgentToGCS(agent.id, agent.name, { apiKey }));
+            controller.enqueue(sseEvent("progress", { step: "upload", message: "Uploading assistant files..." }));
+            ({ bucket, prefix } = await uploadAssistantToGCS(assistant.id, assistant.name, { apiKey }));
           }
 
           controller.enqueue(sseEvent("progress", { 
@@ -146,9 +146,9 @@ export async function POST(request: Request) {
             message: prequeued ? "Activating prequeued instance... ⚡" : "Provisioning compute instance..." 
           }));
 
-          const { instanceName, zone, machineType, fromPrequeue } = await createAgentComputeInstance(
-            agent.id,
-            agent.name,
+          const { instanceName, zone, machineType, fromPrequeue } = await createAssistantComputeInstance(
+            assistant.id,
+            assistant.name,
             bucket,
             prefix
           );
@@ -164,11 +164,11 @@ export async function POST(request: Request) {
           await sql`
             UPDATE assistants
             SET configuration = ${JSON.stringify({
-              ...(agent.configuration as Record<string, unknown> || {}),
+              ...(assistant.configuration as Record<string, unknown> || {}),
               gcs: { bucket, prefix },
               compute: { instanceName, zone, machineType, fromPrequeue },
             })}
-            WHERE id = ${agent.id}
+            WHERE id = ${assistant.id}
           `;
         } catch (gcpError) {
           console.error("GCP operations failed (continuing anyway):", gcpError);
@@ -176,22 +176,22 @@ export async function POST(request: Request) {
           await sql`
             UPDATE assistants
             SET configuration = ${JSON.stringify({
-              ...(agent.configuration as Record<string, unknown> || {}),
+              ...(assistant.configuration as Record<string, unknown> || {}),
               provisioningError: errorMessage,
             })}
-            WHERE id = ${agent.id}
+            WHERE id = ${assistant.id}
           `;
         }
 
-        // Note: Email setup is now delayed - agent can call POST /api/assistants/{id}/setup-email
+        // Note: Email setup is now delayed - assistant can call POST /api/assistants/{id}/setup-email
         // when it's ready to set up its own email inbox
 
-        const updatedResult = await sql`SELECT * FROM assistants WHERE id = ${agent.id}`;
-        controller.enqueue(sseEvent("complete", { agent: updatedResult[0] }));
+        const updatedResult = await sql`SELECT * FROM assistants WHERE id = ${assistant.id}`;
+        controller.enqueue(sseEvent("complete", { assistant: updatedResult[0] }));
         controller.close();
       } catch (error: unknown) {
-        console.error("Error creating agent:", error);
-        const errorMessage = error instanceof Error ? error.message : "Failed to create agent";
+        console.error("Error creating assistant:", error);
+        const errorMessage = error instanceof Error ? error.message : "Failed to create assistant";
         controller.enqueue(sseEvent("error", { message: errorMessage }));
         controller.close();
       }

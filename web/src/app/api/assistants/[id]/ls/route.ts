@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { Agent, getDb } from "@/lib/db";
+import { Assistant, getDb } from "@/lib/db";
 import { getInstanceExternalIp } from "@/lib/gcp";
 
 interface RouteParams {
@@ -35,19 +35,19 @@ async function fetchFilesFromAgentServer(
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { id: agentId } = await params;
+    const { id: assistantId } = await params;
     const searchParams = request.nextUrl.searchParams;
     const path = searchParams.get("path") || "/opt/vellum-agent";
 
     const sql = getDb();
-    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
 
     if (result.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
 
-    const agent = result[0] as Agent;
-    const computeConfig = (agent.configuration as Record<string, unknown>)?.compute as
+    const assistant = result[0] as Assistant;
+    const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
 

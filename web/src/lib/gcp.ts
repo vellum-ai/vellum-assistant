@@ -64,7 +64,7 @@ async function ensureFirewallRuleExists(): Promise<void> {
             },
           ],
           sourceRanges: ["0.0.0.0/0"],
-          description: "Allow HTTP traffic on port 8080 for Vellum agent servers",
+          description: "Allow HTTP traffic on port 8080 for Vellum assistant servers",
         },
       });
       console.log(`Firewall rule ${VELLY_AGENT_FIREWALL_NAME} created`);
@@ -75,8 +75,8 @@ async function ensureFirewallRuleExists(): Promise<void> {
 }
  
 interface TemplateContext {
-  agentId: string;
-  agentName: string;
+  assistantId: string;
+  assistantName: string;
   databaseUrl?: string;
   anthropicApiKey?: string;
   apiKey?: string;
@@ -99,9 +99,9 @@ function readDirectoryRecursive(dirPath: string, basePath: string = ""): string[
   return filePaths;
 }
 
-export function generateAgentFiles(
-  agentId: string,
-  agentName: string,
+export function generateAssistantFiles(
+  assistantId: string,
+  assistantName: string,
   options?: { apiKey?: string }
 ): Record<string, string> {
   const databaseUrl = process.env.DATABASE_URL || "";
@@ -109,8 +109,8 @@ export function generateAgentFiles(
   const apiUrl = process.env.APP_URL || "http://localhost:3000";
 
   const context: TemplateContext = {
-    agentId,
-    agentName,
+    assistantId,
+    assistantName,
     databaseUrl,
     anthropicApiKey,
     apiKey: options?.apiKey,
@@ -131,16 +131,16 @@ export function generateAgentFiles(
   return files;
 }
 
-export async function uploadAgentToGCS(
-  agentId: string,
-  agentName: string,
+export async function uploadAssistantToGCS(
+  assistantId: string,
+  assistantName: string,
   options?: { apiKey?: string }
 ): Promise<{ bucket: string; prefix: string }> {
   const storage = getStorage();
   const bucket = storage.bucket(GCS_BUCKET_NAME);
 
-  const files = generateAgentFiles(agentId, agentName, options);
-  const prefix = `${GCS_PREFIX_BASE}/assistants/${agentId}`;
+  const files = generateAssistantFiles(assistantId, assistantName, options);
+  const prefix = `${GCS_PREFIX_BASE}/assistants/${assistantId}`;
 
   for (const [filename, content] of Object.entries(files)) {
     const file = bucket.file(`${prefix}/${filename}`);
@@ -157,8 +157,8 @@ export async function uploadAgentToGCS(
                 ? "text/yaml"
                 : "text/plain",
       metadata: {
-        agentId,
-        agentName,
+        assistantId,
+        assistantName,
         createdAt: new Date().toISOString(),
       },
     });
@@ -168,12 +168,12 @@ export async function uploadAgentToGCS(
 }
 
 /**
- * Upload only agent-specific config (.env) to GCS.
+ * Upload only assistant-specific config (.env) to GCS.
  * Used when activating prequeued instances (templates already downloaded).
  */
-export async function uploadAgentConfigToGCS(
-  agentId: string,
-  agentName: string,
+export async function uploadAssistantConfigToGCS(
+  assistantId: string,
+  assistantName: string,
   options?: { apiKey?: string }
 ): Promise<{ bucket: string; prefix: string }> {
   const storage = getStorage();
@@ -184,8 +184,8 @@ export async function uploadAgentConfigToGCS(
   const apiUrl = process.env.APP_URL || "http://localhost:3000";
 
   const context: TemplateContext = {
-    agentId,
-    agentName,
+    assistantId,
+    assistantName,
     databaseUrl,
     anthropicApiKey,
     apiKey: options?.apiKey,
@@ -194,7 +194,7 @@ export async function uploadAgentConfigToGCS(
 
   const templateDir = path.join(process.cwd(), "agent-templates");
   const envTemplatePath = path.join(templateDir, "env.template");
-  const prefix = `${GCS_PREFIX_BASE}/assistants/${agentId}`;
+  const prefix = `${GCS_PREFIX_BASE}/assistants/${assistantId}`;
 
   if (fs.existsSync(envTemplatePath)) {
     const content = fs.readFileSync(envTemplatePath, "utf-8");
@@ -205,8 +205,8 @@ export async function uploadAgentConfigToGCS(
     await file.save(envContent, {
       contentType: "text/plain",
       metadata: {
-        agentId,
-        agentName,
+        assistantId,
+        assistantName,
         createdAt: new Date().toISOString(),
       },
     });
@@ -468,7 +468,7 @@ export interface PrequeuedInstance {
 }
 
 /**
- * Create a prequeued instance that's ready to be assigned to an agent
+ * Create a prequeued instance that's ready to be assigned to an assistant
  */
 export async function createPrequeuedInstance(): Promise<{ instanceName: string; zone: string }> {
   const computeClient = getComputeClient();
@@ -616,24 +616,24 @@ export async function getAvailablePrequeuedInstance(): Promise<PrequeuedInstance
 }
 
 /**
- * Activate a prequeued instance for a specific agent
+ * Activate a prequeued instance for a specific assistant
  */
 export async function activatePrequeuedInstance(
   instanceName: string,
-  agentId: string,
-  agentName: string,
+  assistantId: string,
+  assistantName: string,
   gcsBucket: string,
   gcsPrefix: string
 ): Promise<boolean> {
-  console.log(`[Prequeue] Activating instance ${instanceName} for agent ${agentId}`);
+  console.log(`[Prequeue] Activating instance ${instanceName} for assistant ${assistantId}`);
 
   const storage = getStorage();
   const bucket = storage.bucket(GCS_BUCKET_NAME);
 
   // Create activation signal file in GCS
   const activateContent = `#!/bin/bash
-export AGENT_ID="${agentId}"
-export AGENT_NAME="${agentName}"
+export AGENT_ID="${assistantId}"
+export AGENT_NAME="${assistantName}"
 export GCS_BUCKET="${gcsBucket}"
 export GCS_PREFIX="${gcsPrefix}"
 `;
@@ -666,20 +666,20 @@ export GCS_PREFIX="${gcsPrefix}"
           ...instance.labels,
           "vellum-prequeue": "false",
           "vellum-agent": "true",
-          "agent-id": agentId.slice(0, 63).toLowerCase().replace(/[^a-z0-9-]/g, "-"),
+          "agent-id": assistantId.slice(0, 63).toLowerCase().replace(/[^a-z0-9-]/g, "-"),
         },
         labelFingerprint: instance.labelFingerprint,
       },
     });
 
-    // Update metadata to add agent info
+    // Update metadata to add assistant info
     const currentMetadata = instance.metadata?.items || [];
     const newMetadata = currentMetadata.filter(
       (item) => item.key !== "prequeue" && item.key !== "agent-id" && item.key !== "agent-name"
     );
     newMetadata.push(
-      { key: "agent-id", value: agentId },
-      { key: "agent-name", value: agentName }
+      { key: "agent-id", value: assistantId },
+      { key: "agent-name", value: assistantName }
     );
 
     await computeClient.setMetadata({
@@ -758,9 +758,9 @@ export async function cleanupStalePrequeueInstances(maxAgeHours: number = 24): P
 // AGENT INSTANCE MANAGEMENT (updated to use prequeue)
 // ============================================================================
 
-export async function createAgentComputeInstance(
-  agentId: string,
-  agentName: string,
+export async function createAssistantComputeInstance(
+  assistantId: string,
+  assistantName: string,
   gcsBucket: string,
   gcsPrefix: string
 ): Promise<{ instanceName: string; zone: string; machineType: string; fromPrequeue: boolean }> {
@@ -771,8 +771,8 @@ export async function createAgentComputeInstance(
 
     const activated = await activatePrequeuedInstance(
       prequeued.instanceName,
-      agentId,
-      agentName,
+      assistantId,
+      assistantName,
       gcsBucket,
       gcsPrefix
     );
@@ -793,10 +793,10 @@ export async function createAgentComputeInstance(
     console.log(`[Agent] Failed to activate prequeued instance, falling back to fresh creation`);
   }
 
-  console.log(`[Agent] Creating fresh instance for agent ${agentId}`);
+  console.log(`[Agent] Creating fresh instance for assistant ${assistantId}`);
 
   const computeClient = getComputeClient();
-  const instanceName = `vellum-agent-${agentId.slice(0, 8)}`;
+  const instanceName = `vellum-agent-${assistantId.slice(0, 8)}`;
   const startupScript = getStartupScript(gcsBucket, gcsPrefix);
 
   const [operation] = await computeClient.insert({
@@ -840,17 +840,17 @@ export async function createAgentComputeInstance(
           },
           {
             key: "agent-id",
-            value: agentId,
+            value: assistantId,
           },
           {
             key: "agent-name",
-            value: agentName,
+            value: assistantName,
           },
         ],
       },
       labels: {
         "vellum-agent": "true",
-        "agent-id": agentId.slice(0, 63).toLowerCase().replace(/[^a-z0-9-]/g, "-"),
+        "agent-id": assistantId.slice(0, 63).toLowerCase().replace(/[^a-z0-9-]/g, "-"),
       },
       tags: {
         items: [VELLY_AGENT_NETWORK_TAG],
@@ -977,18 +977,18 @@ const EDITOR_PREFIX = `${GCS_PREFIX_BASE}/editor-pages`;
 const EDITOR_FILENAME = "EditorPage.tsx";
 
 export async function uploadEditorPage(
-  agentId: string,
+  assistantId: string,
   content: string
 ): Promise<{ bucket: string; prefix: string }> {
   const storage = getStorage();
   const bucket = storage.bucket(GCS_BUCKET_NAME);
-  const prefix = `${EDITOR_PREFIX}/${agentId}`;
+  const prefix = `${EDITOR_PREFIX}/${assistantId}`;
   const file = bucket.file(`${prefix}/${EDITOR_FILENAME}`);
 
   await file.save(content, {
     contentType: "text/x-typescript",
     metadata: {
-      agentId,
+      assistantId,
       createdAt: new Date().toISOString(),
     },
   });
@@ -996,10 +996,10 @@ export async function uploadEditorPage(
   return { bucket: GCS_BUCKET_NAME, prefix };
 }
 
-export async function getEditorPage(agentId: string): Promise<string | null> {
+export async function getEditorPage(assistantId: string): Promise<string | null> {
   const storage = getStorage();
   const bucket = storage.bucket(GCS_BUCKET_NAME);
-  const file = bucket.file(`${EDITOR_PREFIX}/${agentId}/${EDITOR_FILENAME}`);
+  const file = bucket.file(`${EDITOR_PREFIX}/${assistantId}/${EDITOR_FILENAME}`);
 
   try {
     const [exists] = await file.exists();
@@ -1015,18 +1015,18 @@ export async function getEditorPage(agentId: string): Promise<string | null> {
 }
 
 export async function updateEditorPage(
-  agentId: string,
+  assistantId: string,
   content: string
 ): Promise<boolean> {
   const storage = getStorage();
   const bucket = storage.bucket(GCS_BUCKET_NAME);
-  const file = bucket.file(`${EDITOR_PREFIX}/${agentId}/${EDITOR_FILENAME}`);
+  const file = bucket.file(`${EDITOR_PREFIX}/${assistantId}/${EDITOR_FILENAME}`);
 
   try {
     await file.save(content, {
       contentType: "text/x-typescript",
       metadata: {
-        agentId,
+        assistantId,
         updatedAt: new Date().toISOString(),
       },
     });

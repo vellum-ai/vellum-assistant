@@ -3,10 +3,10 @@
 import { GitBranch, Layers, Workflow } from "lucide-react";
 
 interface ArchitectureDiagramProps {
-  agentName: string;
+  assistantName: string;
 }
 
-export function ArchitectureDiagram({ agentName }: ArchitectureDiagramProps) {
+export function ArchitectureDiagram({ assistantName }: ArchitectureDiagramProps) {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
@@ -14,7 +14,7 @@ export function ArchitectureDiagram({ agentName }: ArchitectureDiagramProps) {
           Architecture
         </h2>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Visual representation of your agent
+          Visual representation of your assistant
         </p>
       </div>
 
@@ -29,7 +29,7 @@ export function ArchitectureDiagram({ agentName }: ArchitectureDiagramProps) {
                   <Layers className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                 </div>
                 <span className="font-medium text-zinc-900 dark:text-white">
-                  {agentName}
+                  {assistantName}
                 </span>
               </div>
 

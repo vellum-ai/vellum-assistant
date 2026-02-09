@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { Agent, getDb, UpdateAgentInput } from "@/lib/db";
+import { Assistant, getDb, UpdateAgentInput } from "@/lib/db";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -20,11 +20,11 @@ export async function GET(request: Request, { params }: RouteParams) {
       );
     }
 
-    return NextResponse.json(result[0] as Agent);
+    return NextResponse.json(result[0] as Assistant);
   } catch (error) {
-    console.error("Error fetching agent:", error);
+    console.error("Error fetching assistant:", error);
     return NextResponse.json(
-      { error: "Failed to fetch agent" },
+      { error: "Failed to fetch assistant" },
       { status: 500 }
     );
   }
@@ -54,11 +54,11 @@ export async function PUT(request: Request, { params }: RouteParams) {
       );
     }
 
-    return NextResponse.json(result[0] as Agent);
+    return NextResponse.json(result[0] as Assistant);
   } catch (error) {
-    console.error("Error updating agent:", error);
+    console.error("Error updating assistant:", error);
     return NextResponse.json(
-      { error: "Failed to update agent" },
+      { error: "Failed to update assistant" },
       { status: 500 }
     );
   }
@@ -80,9 +80,9 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting agent:", error);
+    console.error("Error deleting assistant:", error);
     return NextResponse.json(
-      { error: "Failed to delete agent" },
+      { error: "Failed to delete assistant" },
       { status: 500 }
     );
   }

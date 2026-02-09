@@ -11,12 +11,12 @@ interface Stage {
 }
 
 const STAGES: Stage[] = [
-  { step: 'naming', label: 'Generating agent name...', capability: '✨ Identity' },
-  { step: 'database', label: 'Creating agent record...', capability: '💾 Memory' },
+  { step: 'naming', label: 'Generating assistant name...', capability: '✨ Identity' },
+  { step: 'database', label: 'Creating assistant record...', capability: '💾 Memory' },
   { step: 'editor', label: 'Setting up editor...', capability: '📝 Editor' },
-  { step: 'upload', label: 'Uploading agent files...', capability: '📦 Knowledge' },
+  { step: 'upload', label: 'Uploading assistant files...', capability: '📦 Knowledge' },
   { step: 'compute', label: 'Creating compute instance...', capability: '🧠 Intelligence' },
-  { step: 'email', label: 'Setting up agent email...', capability: '📧 Communication' },
+  { step: 'email', label: 'Setting up assistant email...', capability: '📧 Communication' },
 ];
 
 export function FocusView() {
@@ -91,8 +91,8 @@ export function FocusView() {
                   }
                 }
 
-                if (data.agent) {
-                  agentId = data.agent.id;
+                if (data.assistant) {
+                  agentId = data.assistant.id;
                   // Add all remaining capabilities
                   for (const stage of STAGES) {
                     if (!seenCapabilities.has(stage.capability)) {
@@ -116,7 +116,7 @@ export function FocusView() {
         setCurrentLabel('Your assistant is ready!');
         await new Promise(resolve => setTimeout(resolve, 1500));
 
-        // Navigate to the new agent
+        // Navigate to the new assistant
         if (agentId) {
           router.push(`/assistants/${agentId}`);
         } else {

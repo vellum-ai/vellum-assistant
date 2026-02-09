@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { Agent, getDb } from "@/lib/db";
+import { Assistant, getDb } from "@/lib/db";
 
 /**
  * POST /api/assistants/[id]/set-avatar
  * 
- * Allows an agent to set its global avatar.
+ * Allows an assistant to set its global avatar.
  * Requires API key authentication via X-API-Key header.
  * 
  * Body: { avatar_url: string } or { avatar_base64: string, content_type: string }
@@ -14,7 +14,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id: agentId } = await params;
+  const { id: assistantId } = await params;
   const apiKey = request.headers.get("X-API-Key");
 
   if (!apiKey) {
@@ -27,8 +27,8 @@ export async function POST(
   try {
     const sql = getDb();
 
-    // Fetch agent and verify API key
-    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
+    // Fetch assistant and verify API key
+    const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
     if (result.length === 0) {
       return NextResponse.json(
         { error: "Agent not found" },
@@ -36,8 +36,8 @@ export async function POST(
       );
     }
 
-    const agent = result[0] as Agent;
-    const storedApiKey = (agent.configuration as Record<string, unknown>)?.apiKey;
+    const assistant = result[0] as Assistant;
+    const storedApiKey = (assistant.configuration as Record<string, unknown>)?.apiKey;
 
     if (!storedApiKey || storedApiKey !== apiKey) {
       return NextResponse.json(
@@ -100,8 +100,8 @@ export async function POST(
       );
     }
 
-    // Update agent configuration with avatar
-    const currentConfig = agent.configuration as Record<string, unknown>;
+    // Update assistant configuration with avatar
+    const currentConfig = assistant.configuration as Record<string, unknown>;
     const newConfig = {
       ...currentConfig,
       avatar_url: finalAvatarUrl,
@@ -111,10 +111,10 @@ export async function POST(
       UPDATE assistants
       SET configuration = ${JSON.stringify(newConfig)},
       updated_at = NOW()
-      WHERE id = ${agentId}
+      WHERE id = ${assistantId}
     `;
 
-    console.log(`[Set Avatar] Avatar set for agent ${agentId} (${agent.name})`);
+    console.log(`[Set Avatar] Avatar set for assistant ${assistantId} (${assistant.name})`);
 
     return NextResponse.json({
       message: "Avatar set successfully",
@@ -135,14 +135,14 @@ export async function POST(
 /**
  * GET /api/assistants/[id]/set-avatar
  * 
- * Get the current avatar for an agent.
+ * Get the current avatar for an assistant.
  * Requires API key authentication.
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id: agentId } = await params;
+  const { id: assistantId } = await params;
   const apiKey = request.headers.get("X-API-Key");
 
   if (!apiKey) {
@@ -155,7 +155,7 @@ export async function GET(
   try {
     const sql = getDb();
 
-    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
     if (result.length === 0) {
       return NextResponse.json(
         { error: "Agent not found" },
@@ -163,8 +163,8 @@ export async function GET(
       );
     }
 
-    const agent = result[0] as Agent;
-    const storedApiKey = (agent.configuration as Record<string, unknown>)?.apiKey;
+    const assistant = result[0] as Assistant;
+    const storedApiKey = (assistant.configuration as Record<string, unknown>)?.apiKey;
 
     if (!storedApiKey || storedApiKey !== apiKey) {
       return NextResponse.json(
@@ -173,7 +173,7 @@ export async function GET(
       );
     }
 
-    const avatarUrl = (agent.configuration as Record<string, unknown>)?.avatar_url as string | undefined;
+    const avatarUrl = (assistant.configuration as Record<string, unknown>)?.avatar_url as string | undefined;
 
     return NextResponse.json({
       has_avatar: !!avatarUrl,
@@ -191,14 +191,14 @@ export async function GET(
 /**
  * DELETE /api/assistants/[id]/set-avatar
  * 
- * Remove the avatar for an agent.
+ * Remove the avatar for an assistant.
  * Requires API key authentication.
  */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id: agentId } = await params;
+  const { id: assistantId } = await params;
   const apiKey = request.headers.get("X-API-Key");
 
   if (!apiKey) {
@@ -211,7 +211,7 @@ export async function DELETE(
   try {
     const sql = getDb();
 
-    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
     if (result.length === 0) {
       return NextResponse.json(
         { error: "Agent not found" },
@@ -219,8 +219,8 @@ export async function DELETE(
       );
     }
 
-    const agent = result[0] as Agent;
-    const storedApiKey = (agent.configuration as Record<string, unknown>)?.apiKey;
+    const assistant = result[0] as Assistant;
+    const storedApiKey = (assistant.configuration as Record<string, unknown>)?.apiKey;
 
     if (!storedApiKey || storedApiKey !== apiKey) {
       return NextResponse.json(
@@ -230,7 +230,7 @@ export async function DELETE(
     }
 
     // Remove avatar from configuration
-    const currentConfig = agent.configuration as Record<string, unknown>;
+    const currentConfig = assistant.configuration as Record<string, unknown>;
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { avatar_url: _, ...newConfig } = currentConfig;
 
@@ -238,10 +238,10 @@ export async function DELETE(
       UPDATE assistants
       SET configuration = ${JSON.stringify(newConfig)},
       updated_at = NOW()
-      WHERE id = ${agentId}
+      WHERE id = ${assistantId}
     `;
 
-    console.log(`[Set Avatar] Avatar removed for agent ${agentId} (${agent.name})`);
+    console.log(`[Set Avatar] Avatar removed for assistant ${assistantId} (${assistant.name})`);
 
     return NextResponse.json({
       message: "Avatar removed successfully",

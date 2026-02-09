@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
-  Agent,
+  Assistant,
   ChatMessage,
   createChatMessage,
   getDb,
@@ -22,24 +22,24 @@ interface OutboxMessage {
   sender: string;
 }
 
-interface AgentError {
+interface AssistantError {
   timestamp: string;
   message: string;
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { id: agentId } = await params;
+    const { id: assistantId } = await params;
 
     const sql = getDb();
-    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
 
     if (result.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
 
-    const agent = result[0] as Agent;
-    const computeConfig = (agent.configuration as Record<string, unknown>)?.compute as
+    const assistant = result[0] as Assistant;
+    const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
 
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
                 const existingMsg = await getMessageByGcsId(outboxMsg.id);
                 if (!existingMsg) {
                   await createChatMessage({
-                    assistantId: agentId,
+                    assistantId: assistantId,
                     role: "assistant",
                     content: outboxMsg.content,
                     status: "delivered",
@@ -79,11 +79,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           }
         }
       } catch (error: unknown) {
-        console.error("Failed to sync messages from agent outbox:", error);
+        console.error("Failed to sync messages from assistant outbox:", error);
       }
     }
 
-    const updatedMessages = await getChatMessages(agentId);
+    const updatedMessages = await getChatMessages(assistantId);
     const formattedMessages = updatedMessages.map((msg: ChatMessage) => ({
       id: msg.id,
       role: msg.role,
@@ -91,8 +91,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       timestamp: msg.createdAt,
     }));
 
-    // Fetch recent errors from the agent
-    let recentErrors: AgentError[] = [];
+    // Fetch recent errors from the assistant
+    let recentErrors: AssistantError[] = [];
     if (computeConfig?.instanceName && computeConfig?.zone) {
       try {
         const externalIp = await getInstanceExternalIp(
@@ -111,7 +111,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           }
         }
       } catch (error: unknown) {
-        console.error("Failed to fetch errors from agent:", error);
+        console.error("Failed to fetch errors from assistant:", error);
       }
     }
 
@@ -127,7 +127,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { id: agentId } = await params;
+    const { id: assistantId } = await params;
     const body = await request.json();
     const { content } = body;
 
@@ -139,14 +139,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const sql = getDb();
-    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
 
     if (result.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
 
-    const agent = result[0] as Agent;
-    const computeConfig = (agent.configuration as Record<string, unknown>)?.compute as
+    const assistant = result[0] as Assistant;
+    const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
 
@@ -169,34 +169,34 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const agentResponse = await fetch(`http://${externalIp}:8080/messages`, {
+    const assistantResponse = await fetch(`http://${externalIp}:8080/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content }),
     });
 
-    if (!agentResponse.ok) {
-      const errorData = await agentResponse.json().catch(() => ({}));
+    if (!assistantResponse.ok) {
+      const errorData = await assistantResponse.json().catch(() => ({}));
       return NextResponse.json(
-        { error: errorData.error || "Failed to send message to agent" },
-        { status: agentResponse.status }
+        { error: errorData.error || "Failed to send message to assistant" },
+        { status: assistantResponse.status }
       );
     }
 
-    const agentData = await agentResponse.json();
+    const assistantData = await assistantResponse.json();
 
     const dbMessage = await createChatMessage({
-      assistantId: agentId,
+      assistantId: assistantId,
       role: "user",
       content,
       status: "sent",
-      gcsMessageId: agentData.messageId,
+      gcsMessageId: assistantData.messageId,
     });
 
     return NextResponse.json({
       success: true,
       messageId: dbMessage.id,
-      message: "Message sent to agent inbox",
+      message: "Message sent to assistant inbox",
     });
   } catch (error: unknown) {
     console.error("Error sending message:", error);

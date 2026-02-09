@@ -1,9 +1,9 @@
 interface EditorProps {
-  agentId: string;
+  assistantId: string;
   username: string | null;
 }
 
-interface Agent {
+interface Assistant {
   id: string;
   name: string;
   description: string;
@@ -20,14 +20,14 @@ interface Message {
   timestamp: string;
 }
 
-interface AgentDetails {
+interface AssistantDetails {
   instanceName: string | null;
   zone: string | null;
   ipAddress: string | null;
-  agentEmail: string | null;
+  assistantEmail: string | null;
 }
 
-type AgentStatus =
+type AssistantStatus =
   | "healthy"
   | "unhealthy"
   | "stopped"
@@ -66,8 +66,8 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "details", label: "Details" },
 ];
 
-function Editor({ agentId, username }: EditorProps) {
-  const [agent, setAgent] = useState<Agent | null>(null);
+function Editor({ assistantId, username }: EditorProps) {
+  const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [isPageLoading, setIsPageLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isKilling, setIsKilling] = useState(false);
@@ -75,60 +75,60 @@ function Editor({ agentId, username }: EditorProps) {
   const [activeTab, setActiveTab] = useState<TabId>("interaction");
   const [name, setName] = useState("");
 
-  const isOwner = !agent?.created_by || agent.created_by === username;
+  const isOwner = !assistant?.created_by || assistant.created_by === username;
 
   const hasUnsavedChanges = useMemo(() => {
-    if (!agent) {
+    if (!assistant) {
       return false;
     }
-    return name !== agent.name;
-  }, [agent, name]);
+    return name !== assistant.name;
+  }, [assistant, name]);
 
-  const fetchAgent = useCallback(async () => {
+  const fetchAssistant = useCallback(async () => {
     try {
-      const response = await fetch(`/api/assistants/${agentId}`);
+      const response = await fetch(`/api/assistants/${assistantId}`);
       if (!response.ok) {
-        throw new Error("Failed to fetch agent");
+        throw new Error("Failed to fetch assistant");
       }
       const data = await response.json();
-      setAgent(data);
+      setAssistant(data);
       setName(data.name);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setIsPageLoading(false);
     }
-  }, [agentId]);
+  }, [assistantId]);
 
   useEffect(() => {
-    fetchAgent();
-  }, [fetchAgent]);
+    fetchAssistant();
+  }, [fetchAssistant]);
 
   const handleSave = useCallback(async () => {
     setIsSaving(true);
     setError(null);
     try {
-      const response = await fetch(`/api/assistants/${agentId}`, {
+      const response = await fetch(`/api/assistants/${assistantId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
       if (!response.ok) {
-        throw new Error("Failed to save agent");
+        throw new Error("Failed to save assistant");
       }
-      const updatedAgent = await response.json();
-      setAgent(updatedAgent);
+      const updatedAssistant = await response.json();
+      setAssistant(updatedAssistant);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save agent");
+      setError(err instanceof Error ? err.message : "Failed to save assistant");
     } finally {
       setIsSaving(false);
     }
-  }, [agentId, name]);
+  }, [assistantId, name]);
 
   const handleKill = useCallback(async () => {
     if (
       !window.confirm(
-        "Are you sure you want to permanently delete this agent and its compute instance? This action cannot be undone."
+        "Are you sure you want to permanently delete this assistant and its compute instance? This action cannot be undone."
       )
     ) {
       return;
@@ -136,18 +136,18 @@ function Editor({ agentId, username }: EditorProps) {
     setIsKilling(true);
     setError(null);
     try {
-      const response = await fetch(`/api/assistants/${agentId}/kill`, {
+      const response = await fetch(`/api/assistants/${assistantId}/kill`, {
         method: "POST",
       });
       if (!response.ok) {
-        throw new Error("Failed to kill agent");
+        throw new Error("Failed to kill assistant");
       }
       window.location.href = "/assistants";
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to kill agent");
+      setError(err instanceof Error ? err.message : "Failed to kill assistant");
       setIsKilling(false);
     }
-  }, [agentId]);
+  }, [assistantId]);
 
   if (isPageLoading) {
     return (
@@ -157,7 +157,7 @@ function Editor({ agentId, username }: EditorProps) {
     );
   }
 
-  if (error && !agent) {
+  if (error && !assistant) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center">
         <p className="text-red-600 dark:text-red-400">{error}</p>
@@ -165,7 +165,7 @@ function Editor({ agentId, username }: EditorProps) {
           href="/assistants"
           className="mt-4 text-indigo-600 hover:underline dark:text-indigo-400"
         >
-          Back to Agents
+          Back to Assistants
         </a>
       </div>
     );
@@ -180,7 +180,7 @@ function Editor({ agentId, username }: EditorProps) {
               href="/assistants"
               className="flex items-center gap-2 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
             >
-              &#8592; Back to Agents
+              &#8592; Back to Assistants
             </a>
             <div className="hidden h-6 w-px bg-zinc-200 sm:block dark:bg-zinc-700" />
             <div className="flex-1">
@@ -192,7 +192,7 @@ function Editor({ agentId, username }: EditorProps) {
                 }
                 disabled={!isOwner}
                 className="w-full bg-transparent text-base font-semibold text-zinc-900 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:text-lg dark:text-white"
-                placeholder="Agent Name"
+                placeholder="Assistant Name"
               />
             </div>
           </div>
@@ -248,19 +248,19 @@ function Editor({ agentId, username }: EditorProps) {
         <div className="h-full w-full bg-white dark:bg-zinc-900">
           {activeTab === "interaction" && (
             <InteractionView
-              agentId={agentId}
-              agentName={agent?.name ?? "Agent"}
-              agentCreatedAt={agent?.created_at ?? ""}
+              assistantId={assistantId}
+              assistantName={assistant?.name ?? "Assistant"}
+              assistantCreatedAt={assistant?.created_at ?? ""}
             />
           )}
           {activeTab === "architecture" && (
-            <ArchitectureView agentName={agent?.name ?? "Agent"} />
+            <ArchitectureView assistantName={assistant?.name ?? "Assistant"} />
           )}
           {activeTab === "filesystem" && (
-            <FileSystemView agentId={agentId} />
+            <FileSystemView assistantId={assistantId} />
           )}
-          {activeTab === "logs" && <LogsView agentId={agentId} />}
-          {activeTab === "details" && <DetailsView agentId={agentId} />}
+          {activeTab === "logs" && <LogsView assistantId={assistantId} />}
+          {activeTab === "details" && <DetailsView assistantId={assistantId} />}
         </div>
       </div>
     </>
@@ -268,15 +268,15 @@ function Editor({ agentId, username }: EditorProps) {
 }
 
 function InteractionView({
-  agentId,
-  agentName,
-  agentCreatedAt,
+  assistantId,
+  assistantName,
+  assistantCreatedAt,
 }: {
-  agentId: string;
-  agentName: string;
-  agentCreatedAt: string;
+  assistantId: string;
+  assistantName: string;
+  assistantCreatedAt: string;
 }) {
-  const [agentStatus, setAgentStatus] = useState<AgentStatus>("checking");
+  const [assistantStatus, setAssistantStatus] = useState<AssistantStatus>("checking");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -285,7 +285,7 @@ function InteractionView({
 
   const fetchMessages = useCallback(async () => {
     try {
-      const response = await fetch(`/api/assistants/${agentId}/messages`);
+      const response = await fetch(`/api/assistants/${assistantId}/messages`);
       if (!response.ok) {
         return;
       }
@@ -308,7 +308,7 @@ function InteractionView({
     } catch (fetchErr) {
       console.error("Failed to fetch messages:", fetchErr);
     }
-  }, [agentId]);
+  }, [assistantId]);
 
   useEffect(() => {
     fetchMessages();
@@ -318,9 +318,9 @@ function InteractionView({
 
   const checkHealth = useCallback(async () => {
     try {
-      const response = await fetch(`/api/assistants/${agentId}/health`);
+      const response = await fetch(`/api/assistants/${assistantId}/health`);
       if (!response.ok) {
-        setAgentStatus("unknown");
+        setAssistantStatus("unknown");
         return;
       }
       const data = await response.json();
@@ -328,32 +328,32 @@ function InteractionView({
         data.status === "unknown" &&
         data.message === "No compute instance configured"
       ) {
-        setAgentStatus("getting_set_up");
+        setAssistantStatus("getting_set_up");
         setStatusMessage(null);
       } else if (data.status === "provisioning_failed") {
-        setAgentStatus("provisioning_failed");
+        setAssistantStatus("provisioning_failed");
         setStatusMessage(data.message || "Failed to create compute instance");
       } else if (data.status === "setting_up") {
-        setAgentStatus("setting_up");
+        setAssistantStatus("setting_up");
         setStatusMessage(data.progress || null);
-      } else if (data.status === "unreachable" && agentCreatedAt) {
-        const agentAge = Date.now() - new Date(agentCreatedAt).getTime();
-        if (agentAge < SETUP_GRACE_PERIOD_MS) {
-          setAgentStatus("getting_set_up");
+      } else if (data.status === "unreachable" && assistantCreatedAt) {
+        const assistantAge = Date.now() - new Date(assistantCreatedAt).getTime();
+        if (assistantAge < SETUP_GRACE_PERIOD_MS) {
+          setAssistantStatus("getting_set_up");
           setStatusMessage(null);
         } else {
-          setAgentStatus("unreachable");
+          setAssistantStatus("unreachable");
           setStatusMessage(data.message || null);
         }
       } else {
-        setAgentStatus(data.status as AgentStatus);
+        setAssistantStatus(data.status as AssistantStatus);
         setStatusMessage(data.message || null);
       }
     } catch (healthErr) {
       console.error("Health check failed:", healthErr);
-      setAgentStatus("unknown");
+      setAssistantStatus("unknown");
     }
-  }, [agentId, agentCreatedAt]);
+  }, [assistantId, assistantCreatedAt]);
 
   useEffect(() => {
     checkHealth();
@@ -361,41 +361,41 @@ function InteractionView({
     return () => clearInterval(interval);
   }, [checkHealth]);
 
-  const isAlive = agentStatus === "healthy";
+  const isAlive = assistantStatus === "healthy";
 
   const handleStart = useCallback(async () => {
     setIsToggling(true);
     try {
-      const response = await fetch(`/api/assistants/${agentId}/start`, {
+      const response = await fetch(`/api/assistants/${assistantId}/start`, {
         method: "POST",
       });
       if (response.ok) {
-        setAgentStatus("checking");
+        setAssistantStatus("checking");
         setTimeout(checkHealth, 5000);
       }
     } catch (startErr) {
-      console.error("Failed to start agent:", startErr);
+      console.error("Failed to start assistant:", startErr);
     } finally {
       setIsToggling(false);
     }
-  }, [agentId, checkHealth]);
+  }, [assistantId, checkHealth]);
 
   const handleStop = useCallback(async () => {
     setIsToggling(true);
     try {
-      const response = await fetch(`/api/assistants/${agentId}/stop`, {
+      const response = await fetch(`/api/assistants/${assistantId}/stop`, {
         method: "POST",
       });
       if (response.ok) {
-        setAgentStatus("checking");
+        setAssistantStatus("checking");
         setTimeout(checkHealth, 5000);
       }
     } catch (stopErr) {
-      console.error("Failed to stop agent:", stopErr);
+      console.error("Failed to stop assistant:", stopErr);
     } finally {
       setIsToggling(false);
     }
-  }, [agentId, checkHealth]);
+  }, [assistantId, checkHealth]);
 
   const handleSubmit = useCallback(
     async (e: { preventDefault: () => void }) => {
@@ -416,7 +416,7 @@ function InteractionView({
       setIsLoading(true);
 
       try {
-        const response = await fetch(`/api/assistants/${agentId}/messages`, {
+        const response = await fetch(`/api/assistants/${assistantId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ content: userMessage.content }),
@@ -435,13 +435,13 @@ function InteractionView({
         setIsLoading(false);
       }
     },
-    [input, isLoading, isAlive, agentId]
+    [input, isLoading, isAlive, assistantId]
   );
 
   const getStatusDisplay = () => {
-    switch (agentStatus) {
+    switch (assistantStatus) {
       case "healthy":
-        return { text: "Agent is alive", color: "bg-green-500", pulse: true };
+        return { text: "Assistant is alive", color: "bg-green-500", pulse: true };
       case "checking":
         return {
           text: "Checking status...",
@@ -464,25 +464,25 @@ function InteractionView({
         return { text: "Setup failed", color: "bg-red-500", pulse: false };
       case "starting":
         return {
-          text: "Agent is starting up...",
+          text: "Assistant is starting up...",
           color: "bg-yellow-500",
           pulse: true,
         };
       case "stopped":
         return {
-          text: "Agent is stopped",
+          text: "Assistant is stopped",
           color: "bg-zinc-400 dark:bg-zinc-600",
           pulse: false,
         };
       case "unreachable":
         return {
-          text: "Agent is unreachable",
+          text: "Assistant is unreachable",
           color: "bg-red-500",
           pulse: false,
         };
       case "unhealthy":
         return {
-          text: "Agent is unhealthy",
+          text: "Assistant is unhealthy",
           color: "bg-red-500",
           pulse: false,
         };
@@ -516,12 +516,12 @@ function InteractionView({
             onClick={() => (isAlive ? handleStop() : handleStart())}
             disabled={
               isToggling ||
-              agentStatus === "checking" ||
-              agentStatus === "starting" ||
-              agentStatus === "getting_set_up" ||
-              agentStatus === "setting_up" ||
-              agentStatus === "provisioning_failed" ||
-              agentStatus === "unreachable"
+              assistantStatus === "checking" ||
+              assistantStatus === "starting" ||
+              assistantStatus === "getting_set_up" ||
+              assistantStatus === "setting_up" ||
+              assistantStatus === "provisioning_failed" ||
+              assistantStatus === "unreachable"
             }
             className={`flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
               isAlive
@@ -543,31 +543,31 @@ function InteractionView({
       {!isAlive ? (
         <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
           <h3 className="mt-4 text-lg font-medium text-zinc-900 dark:text-white">
-            {agentStatus === "checking"
-              ? "Checking agent status..."
-              : agentStatus === "starting"
-                ? "Agent is starting up..."
-                : agentStatus === "getting_set_up"
+            {assistantStatus === "checking"
+              ? "Checking assistant status..."
+              : assistantStatus === "starting"
+                ? "Assistant is starting up..."
+                : assistantStatus === "getting_set_up"
                   ? "Getting set up..."
-                  : agentStatus === "setting_up"
+                  : assistantStatus === "setting_up"
                     ? "Setting up..."
-                    : agentStatus === "provisioning_failed"
+                    : assistantStatus === "provisioning_failed"
                       ? "Setup failed"
-                      : "Agent is not running"}
+                      : "Assistant is not running"}
           </h3>
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            {agentStatus === "checking"
-              ? "Please wait while we check the agent status"
-              : agentStatus === "starting"
-                ? "Your agent's compute instance is booting up. This may take a minute."
-                : agentStatus === "getting_set_up"
-                  ? "Your agent's compute instance is being created."
-                  : agentStatus === "setting_up"
-                    ? statusMessage ?? "Your agent is being configured."
-                    : agentStatus === "provisioning_failed"
+            {assistantStatus === "checking"
+              ? "Please wait while we check the assistant status"
+              : assistantStatus === "starting"
+                ? "Your assistant's compute instance is booting up. This may take a minute."
+                : assistantStatus === "getting_set_up"
+                  ? "Your assistant's compute instance is being created."
+                  : assistantStatus === "setting_up"
+                    ? statusMessage ?? "Your assistant is being configured."
+                    : assistantStatus === "provisioning_failed"
                       ? statusMessage ??
-                        "Failed to create the compute instance for this agent."
-                      : "Start the agent to interact with it directly"}
+                        "Failed to create the compute instance for this assistant."
+                      : "Start the assistant to interact with it directly"}
           </p>
         </div>
       ) : (
@@ -576,7 +576,7 @@ function InteractionView({
             {messages.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center text-center">
                 <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-                  Chat directly with {agentName}
+                  Chat directly with {assistantName}
                 </p>
               </div>
             ) : (
@@ -653,7 +653,7 @@ function InteractionView({
                     handleSubmit(e);
                   }
                 }}
-                placeholder={`Message ${agentName}...`}
+                placeholder={`Message ${assistantName}...`}
                 rows={1}
                 className="flex-1 resize-none rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
               />
@@ -672,7 +672,7 @@ function InteractionView({
   );
 }
 
-function ArchitectureView({ agentName }: { agentName: string }) {
+function ArchitectureView({ assistantName }: { assistantName: string }) {
   return (
     <div className="flex h-full flex-col overflow-auto p-8">
       <div className="mx-auto w-full max-w-2xl">
@@ -711,10 +711,10 @@ function ArchitectureView({ agentName }: { agentName: string }) {
             <div className="flex items-center gap-3 rounded-lg border-2 border-indigo-300 bg-white px-5 py-4 shadow-md dark:border-indigo-700 dark:bg-zinc-800">
               <div>
                 <span className="font-semibold text-zinc-900 dark:text-white">
-                  {agentName}
+                  {assistantName}
                 </span>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Main Agent
+                  Main Assistant
                 </p>
               </div>
             </div>
@@ -741,7 +741,7 @@ function ArchitectureView({ agentName }: { agentName: string }) {
   );
 }
 
-function FileSystemView({ agentId }: { agentId: string }) {
+function FileSystemView({ assistantId }: { assistantId: string }) {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [currentPath, setCurrentPath] = useState("/opt/vellum-agent");
   const [isLoading, setIsLoading] = useState(true);
@@ -755,7 +755,7 @@ function FileSystemView({ agentId }: { agentId: string }) {
   const fetchFilesForPath = useCallback(
     async (dirPath: string) => {
       const response = await fetch(
-        `/api/assistants/${agentId}/ls?path=${encodeURIComponent(dirPath)}`
+        `/api/assistants/${assistantId}/ls?path=${encodeURIComponent(dirPath)}`
       );
       if (!response.ok) {
         throw new Error("Failed to fetch files");
@@ -773,7 +773,7 @@ function FileSystemView({ agentId }: { agentId: string }) {
         })
       );
     },
-    [agentId]
+    [assistantId]
   );
 
   const fetchFileContent = useCallback(
@@ -783,7 +783,7 @@ function FileSystemView({ agentId }: { agentId: string }) {
       setSelectedFile(filePath);
       try {
         const response = await fetch(
-          `/api/assistants/${agentId}/cat?path=${encodeURIComponent(filePath)}`
+          `/api/assistants/${assistantId}/cat?path=${encodeURIComponent(filePath)}`
         );
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
@@ -798,7 +798,7 @@ function FileSystemView({ agentId }: { agentId: string }) {
         setIsLoadingContent(false);
       }
     },
-    [agentId]
+    [assistantId]
   );
 
   const fetchFiles = useCallback(async () => {
@@ -1090,7 +1090,7 @@ function FileSystemView({ agentId }: { agentId: string }) {
   );
 }
 
-function LogsView({ agentId }: { agentId: string }) {
+function LogsView({ assistantId }: { assistantId: string }) {
   const [logDates, setLogDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [logContent, setLogContent] = useState<string | null>(null);
@@ -1103,7 +1103,7 @@ function LogsView({ agentId }: { agentId: string }) {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/assistants/${agentId}/logs`);
+      const response = await fetch(`/api/assistants/${assistantId}/logs`);
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || "Failed to fetch logs");
@@ -1119,14 +1119,14 @@ function LogsView({ agentId }: { agentId: string }) {
     } finally {
       setIsLoading(false);
     }
-  }, [agentId, selectedDate]);
+  }, [assistantId, selectedDate]);
 
   const fetchLogContent = useCallback(
     async (date: string) => {
       setIsLoadingContent(true);
       try {
         const response = await fetch(
-          `/api/assistants/${agentId}/logs?date=${encodeURIComponent(date)}`
+          `/api/assistants/${assistantId}/logs?date=${encodeURIComponent(date)}`
         );
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
@@ -1142,7 +1142,7 @@ function LogsView({ agentId }: { agentId: string }) {
         setIsLoadingContent(false);
       }
     },
-    [agentId]
+    [assistantId]
   );
 
   useEffect(() => {
@@ -1165,7 +1165,7 @@ function LogsView({ agentId }: { agentId: string }) {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
         <span className="text-sm font-medium text-zinc-900 dark:text-white">
-          Agent Logs
+          Assistant Logs
         </span>
         <button
           onClick={fetchLogDates}
@@ -1227,21 +1227,21 @@ function LogsView({ agentId }: { agentId: string }) {
   );
 }
 
-function DetailsView({ agentId }: { agentId: string }) {
-  const [details, setDetails] = useState<AgentDetails | null>(null);
+function DetailsView({ assistantId }: { assistantId: string }) {
+  const [details, setDetails] = useState<AssistantDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchDetails = useCallback(async () => {
     try {
-      const response = await fetch(`/api/assistants/${agentId}`);
+      const response = await fetch(`/api/assistants/${assistantId}`);
       if (!response.ok) {
         return;
       }
-      const agentData = await response.json();
-      const computeConfig = agentData.configuration?.compute as
+      const assistantData = await response.json();
+      const computeConfig = assistantData.configuration?.compute as
         | { instanceName?: string; zone?: string }
         | undefined;
-      const agentmailConfig = agentData.configuration?.agentmail as
+      const assistantmailConfig = assistantData.configuration?.agentmail as
         | { inbox_id?: string }
         | undefined;
 
@@ -1249,7 +1249,7 @@ function DetailsView({ agentId }: { agentId: string }) {
       if (computeConfig?.instanceName) {
         try {
           const healthResponse = await fetch(
-            `/api/assistants/${agentId}/health`
+            `/api/assistants/${assistantId}/health`
           );
           if (healthResponse.ok) {
             const healthData = await healthResponse.json();
@@ -1266,14 +1266,14 @@ function DetailsView({ agentId }: { agentId: string }) {
         instanceName: computeConfig?.instanceName ?? null,
         zone: computeConfig?.zone ?? null,
         ipAddress,
-        agentEmail: agentmailConfig?.inbox_id ?? null,
+        assistantEmail: assistantmailConfig?.inbox_id ?? null,
       });
     } catch (detailsErr) {
-      console.error("Failed to fetch agent details:", detailsErr);
+      console.error("Failed to fetch assistant details:", detailsErr);
     } finally {
       setIsLoading(false);
     }
-  }, [agentId]);
+  }, [assistantId]);
 
   useEffect(() => {
     fetchDetails();
@@ -1290,7 +1290,7 @@ function DetailsView({ agentId }: { agentId: string }) {
   if (!details) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
-        Failed to load agent details
+        Failed to load assistant details
       </div>
     );
   }
@@ -1298,7 +1298,7 @@ function DetailsView({ agentId }: { agentId: string }) {
   return (
     <div className="h-full overflow-y-auto p-6">
       <h2 className="mb-6 text-lg font-semibold text-zinc-900 dark:text-white">
-        Agent Details
+        Assistant Details
       </h2>
       <div className="space-y-6">
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
@@ -1341,7 +1341,7 @@ function DetailsView({ agentId }: { agentId: string }) {
 
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <div className="mb-3 text-sm font-medium text-zinc-900 dark:text-white">
-            Agent Email
+            Assistant Email
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
@@ -1349,7 +1349,7 @@ function DetailsView({ agentId }: { agentId: string }) {
                 Email Address
               </span>
               <span className="font-mono text-zinc-900 dark:text-white">
-                {details.agentEmail ?? "Not configured"}
+                {details.assistantEmail ?? "Not configured"}
               </span>
             </div>
           </div>

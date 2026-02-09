@@ -15,7 +15,7 @@ export type ApiKeyEntity = (typeof AVAILABLE_ENTITIES)[number];
 export interface ApiKeyScopes {
   actions: ApiKeyAction[];
   entities: ApiKeyEntity[];
-  assistant_ids: string[]; // ["*"] for all, or specific agent IDs
+  assistant_ids: string[]; // ["*"] for all, or specific assistant IDs
 }
 
 export interface ApiKey {

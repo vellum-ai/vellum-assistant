@@ -22,25 +22,25 @@ export const TABS: Tab[] = [
 ];
 
 interface RightPanelProps {
-  agentId: string;
-  agentName: string;
-  agentCreatedAt: string;
+  assistantId: string;
+  assistantName: string;
+  assistantCreatedAt: string;
   activeTab: TabId;
 }
 
-export function RightPanel({ agentId, agentName, agentCreatedAt, activeTab }: RightPanelProps) {
+export function RightPanel({ assistantId, assistantName, assistantCreatedAt, activeTab }: RightPanelProps) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex-1 overflow-hidden">
         {activeTab === "interaction" && (
-          <InteractionTab agentId={agentId} agentName={agentName} agentCreatedAt={agentCreatedAt} />
+          <InteractionTab assistantId={assistantId} assistantName={assistantName} assistantCreatedAt={assistantCreatedAt} />
         )}
         {activeTab === "architecture" && (
-          <ArchitectureTab agentName={agentName} />
+          <ArchitectureTab assistantName={assistantName} />
         )}
-        {activeTab === "filesystem" && <FileSystemTab agentId={agentId} />}
-        {activeTab === "logs" && <LogsTab agentId={agentId} />}
-        {activeTab === "details" && <DetailsTab agentId={agentId} />}
+        {activeTab === "filesystem" && <FileSystemTab assistantId={assistantId} />}
+        {activeTab === "logs" && <LogsTab assistantId={assistantId} />}
+        {activeTab === "details" && <DetailsTab assistantId={assistantId} />}
       </div>
     </div>
   );

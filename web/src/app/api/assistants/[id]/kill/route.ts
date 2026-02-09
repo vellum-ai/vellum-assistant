@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { deleteAgentMailInbox, deleteAgentMailWebhook } from "@/lib/agentmail";
-import { Agent, getDb } from "@/lib/db";
+import { deleteAssistantMailInbox, deleteAssistantMailWebhook } from "@/lib/agentmail";
+import { Assistant, getDb } from "@/lib/db";
 import { deleteInstance } from "@/lib/gcp";
 
 interface RouteParams {
@@ -10,17 +10,17 @@ interface RouteParams {
 
 export async function POST(request: Request, { params }: RouteParams) {
   try {
-    const { id: agentId } = await params;
+    const { id: assistantId } = await params;
 
     const sql = getDb();
-    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
 
     if (result.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
 
-    const agent = result[0] as Agent;
-    const computeConfig = (agent.configuration as Record<string, unknown>)?.compute as
+    const assistant = result[0] as Assistant;
+    const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
 
@@ -37,18 +37,18 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
 
-    const agentmailConfig = (agent.configuration as Record<string, unknown>)?.agentmail as
+    const agentmailConfig = (assistant.configuration as Record<string, unknown>)?.agentmail as
       | { inbox_id?: string; webhook_id?: string }
       | undefined;
 
     if (agentmailConfig) {
       try {
         if (agentmailConfig.webhook_id) {
-          await deleteAgentMailWebhook(agentmailConfig.webhook_id);
+          await deleteAssistantMailWebhook(agentmailConfig.webhook_id);
           console.log(`Deleted AgentMail webhook ${agentmailConfig.webhook_id}`);
         }
         if (agentmailConfig.inbox_id) {
-          await deleteAgentMailInbox(agentmailConfig.inbox_id);
+          await deleteAssistantMailInbox(agentmailConfig.inbox_id);
           console.log(`Deleted AgentMail inbox ${agentmailConfig.inbox_id}`);
         }
       } catch (mailError: unknown) {
@@ -56,16 +56,16 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
 
-    await sql`DELETE FROM assistants WHERE id = ${agentId}`;
+    await sql`DELETE FROM assistants WHERE id = ${assistantId}`;
 
     return NextResponse.json({
       success: true,
-      message: "Agent, compute instance, and email resources deleted",
+      message: "Assistant, compute instance, and email resources deleted",
     });
   } catch (error: unknown) {
-    console.error("Error killing agent:", error);
+    console.error("Error killing assistant:", error);
     return NextResponse.json(
-      { error: "Failed to kill agent" },
+      { error: "Failed to kill assistant" },
       { status: 500 }
     );
   }

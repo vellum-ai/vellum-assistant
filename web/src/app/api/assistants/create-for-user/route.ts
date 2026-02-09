@@ -4,9 +4,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { Agent, getDb } from "@/lib/db";
 import {
-  createAgentComputeInstance,
-  uploadAgentConfigToGCS,
-  uploadAgentToGCS,
+  createAssistantComputeInstance,
+  uploadAssistantConfigToGCS,
+  uploadAssistantToGCS,
   getAvailablePrequeuedInstance,
 } from "@/lib/gcp";
 
@@ -16,18 +16,18 @@ const APP_URL = process.env.APP_URL || "http://localhost:3000";
 /**
  * POST /api/assistants/create-for-user
  * 
- * Allows an agent to create a new agent for a user.
+ * Allows an assistant to create a new assistant for a user.
  * Requires API key authentication via X-API-Key header.
  * 
  * Body: {
- *   user_id: string,       // The user to create the agent for
- *   agent_name: string,    // Name for the new agent
+ *   user_id: string,       // The user to create the assistant for
+ *   assistant_name: string,    // Name for the new assistant
  *   description?: string,  // Optional description
  * }
  * 
  * Returns: {
  *   agent: Agent,
- *   link: string,          // Link to the new agent's page
+ *   link: string,          // Link to the new assistant's page
  * }
  */
 export async function POST(request: NextRequest) {
@@ -43,25 +43,25 @@ export async function POST(request: NextRequest) {
   try {
     const sql = getDb();
 
-    // Verify the API key belongs to a valid agent
-    const callingAgentResult = await sql`
+    // Verify the API key belongs to a valid assistant
+    const callingAssistantResult = await sql`
       SELECT * FROM assistants 
       WHERE configuration->>'apiKey' = ${apiKey}
       LIMIT 1
     `;
 
-    if (callingAgentResult.length === 0) {
+    if (callingAssistantResult.length === 0) {
       return NextResponse.json(
         { error: "Invalid API key" },
         { status: 401 }
       );
     }
 
-    const callingAgent = callingAgentResult[0] as Agent;
-    console.log(`[Create For User] Request from agent ${callingAgent.id} (${callingAgent.name})`);
+    const callingAssistant = callingAssistantResult[0] as Agent;
+    console.log(`[Create For User] Request from assistant ${callingAssistant.id} (${callingAssistant.name})`);
 
     const body = await request.json();
-    const { user_id, agent_name, description } = body;
+    const { user_id, assistant_name, description } = body;
 
     if (!user_id) {
       return NextResponse.json(
@@ -70,9 +70,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!agent_name || typeof agent_name !== "string" || agent_name.trim().length === 0) {
+    if (!assistant_name || typeof assistant_name !== "string" || assistant_name.trim().length === 0) {
       return NextResponse.json(
-        { error: "agent_name is required and must be a non-empty string" },
+        { error: "assistant_name is required and must be a non-empty string" },
         { status: 400 }
       );
     }
@@ -94,59 +94,59 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate API key for the new agent
-    const newAgentApiKey = `vellum_${crypto.randomBytes(24).toString("base64url")}`;
+    // Generate API key for the new assistant
+    const newAssistantApiKey = `vellum_${crypto.randomBytes(24).toString("base64url")}`;
 
-    // Create the agent in the database
-    const newAgentResult = await sql`
+    // Create the assistant in the database
+    const newAssistantResult = await sql`
       INSERT INTO assistants (name, description, configuration, created_by)
       VALUES (
-        ${agent_name.trim()},
+        ${assistant_name.trim()},
         ${description || null},
         ${JSON.stringify({ 
-          apiKey: newAgentApiKey,
-          created_by_agent: callingAgent.id,
+          apiKey: newAssistantApiKey,
+          created_by_assistant: callingAssistant.id,
         })},
         ${user_id}
       )
       RETURNING *
     `;
 
-    const newAgent = newAgentResult[0] as Agent;
-    console.log(`[Create For User] Created agent ${newAgent.id} (${newAgent.name}) for user ${user_id}`);
+    const newAssistant = newAssistantResult[0] as Agent;
+    console.log(`[Create For User] Created assistant ${newAssistant.id} (${newAssistant.name}) for user ${user_id}`);
 
-    // Provision the agent infrastructure
+    // Provision the assistant infrastructure
     try {
       // Check for prequeued instance
       const prequeued = await getAvailablePrequeuedInstance();
 
       let gcsResult;
       if (prequeued) {
-        gcsResult = await uploadAgentConfigToGCS(
-          newAgent.id,
-          newAgent.name,
-          { apiKey: newAgentApiKey }
+        gcsResult = await uploadAssistantConfigToGCS(
+          newAssistant.id,
+          newAssistant.name,
+          { apiKey: newAssistantApiKey }
         );
       } else {
-        gcsResult = await uploadAgentToGCS(
-          newAgent.id,
-          newAgent.name,
-          { apiKey: newAgentApiKey }
+        gcsResult = await uploadAssistantToGCS(
+          newAssistant.id,
+          newAssistant.name,
+          { apiKey: newAssistantApiKey }
         );
       }
 
-      const instanceResult = await createAgentComputeInstance(
-        newAgent.id,
-        newAgent.name,
+      const instanceResult = await createAssistantComputeInstance(
+        newAssistant.id,
+        newAssistant.name,
         gcsResult.bucket,
         gcsResult.prefix
       );
 
-      // Update agent with compute config
+      // Update assistant with compute config
       await sql`
         UPDATE assistants
         SET configuration = ${JSON.stringify({
-          ...(newAgent.configuration as Record<string, unknown> || {}),
+          ...(newAssistant.configuration as Record<string, unknown> || {}),
           compute: {
             instanceName: instanceResult.instanceName,
             zone: instanceResult.zone,
@@ -158,41 +158,41 @@ export async function POST(request: NextRequest) {
           },
         })},
         updated_at = NOW()
-        WHERE id = ${newAgent.id}
+        WHERE id = ${newAssistant.id}
       `;
 
-      console.log(`[Create For User] Provisioned instance ${instanceResult.instanceName} for agent ${newAgent.id}`);
+      console.log(`[Create For User] Provisioned instance ${instanceResult.instanceName} for assistant ${newAssistant.id}`);
     } catch (provisionError) {
-      console.error(`[Create For User] Failed to provision agent ${newAgent.id}:`, provisionError);
+      console.error(`[Create For User] Failed to provision assistant ${newAssistant.id}:`, provisionError);
       
-      // Update agent with error status
+      // Update assistant with error status
       await sql`
         UPDATE assistants
         SET configuration = ${JSON.stringify({
-          ...(newAgent.configuration as Record<string, unknown> || {}),
+          ...(newAssistant.configuration as Record<string, unknown> || {}),
           provisioningError: provisionError instanceof Error ? provisionError.message : "Provisioning failed",
         })},
         updated_at = NOW()
-        WHERE id = ${newAgent.id}
+        WHERE id = ${newAssistant.id}
       `;
     }
 
-    const agentLink = `${APP_URL}/assistants/${newAgent.id}`;
+    const assistantLink = `${APP_URL}/assistants/${newAssistant.id}`;
 
     return NextResponse.json({
       success: true,
-      agent: {
-        id: newAgent.id,
-        name: newAgent.name,
-        description: newAgent.description,
-        created_at: newAgent.createdAt,
+      assistant: {
+        id: newAssistant.id,
+        name: newAssistant.name,
+        description: newAssistant.description,
+        created_at: newAssistant.createdAt,
       },
-      link: agentLink,
-      message: `Assistant "${newAgent.name}" created successfully. The user now has ${currentAssistantCount + 1}/${MAX_ASSISTANTS_PER_USER} assistants.`,
+      link: assistantLink,
+      message: `Assistant "${newAssistant.name}" created successfully. The user now has ${currentAssistantCount + 1}/${MAX_ASSISTANTS_PER_USER} assistants.`,
     });
   } catch (error: unknown) {
     console.error("[Create For User] Error:", error);
-    const message = error instanceof Error ? error.message : "Failed to create agent";
+    const message = error instanceof Error ? error.message : "Failed to create assistant";
     return NextResponse.json(
       { error: message },
       { status: 500 }
@@ -219,14 +219,14 @@ export async function GET(request: NextRequest) {
   try {
     const sql = getDb();
 
-    // Verify the API key belongs to a valid agent
-    const callingAgentResult = await sql`
+    // Verify the API key belongs to a valid assistant
+    const callingAssistantResult = await sql`
       SELECT * FROM assistants 
       WHERE configuration->>'apiKey' = ${apiKey}
       LIMIT 1
     `;
 
-    if (callingAgentResult.length === 0) {
+    if (callingAssistantResult.length === 0) {
       return NextResponse.json(
         { error: "Invalid API key" },
         { status: 401 }
@@ -259,7 +259,7 @@ export async function GET(request: NextRequest) {
   } catch (error: unknown) {
     console.error("[Create For User] Error:", error);
     return NextResponse.json(
-      { error: "Failed to check agent count" },
+      { error: "Failed to check assistant count" },
       { status: 500 }
     );
   }

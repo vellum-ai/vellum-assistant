@@ -20,10 +20,10 @@ interface FileEntry {
 }
 
 interface FileSystemTabProps {
-  agentId: string;
+  assistantId: string;
 }
 
-export function FileSystemTab({ agentId }: FileSystemTabProps) {
+export function FileSystemTab({ assistantId }: FileSystemTabProps) {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [currentPath, setCurrentPath] = useState("/opt/vellum-agent");
   const [isLoading, setIsLoading] = useState(true);
@@ -33,7 +33,7 @@ export function FileSystemTab({ agentId }: FileSystemTabProps) {
   const fetchFilesForPath = useCallback(
     async (path: string): Promise<FileEntry[]> => {
       const response = await fetch(
-        `/api/assistants/${agentId}/ls?path=${encodeURIComponent(path)}`
+        `/api/assistants/${assistantId}/ls?path=${encodeURIComponent(path)}`
       );
       if (!response.ok) {
         throw new Error("Failed to fetch files");
@@ -44,7 +44,7 @@ export function FileSystemTab({ agentId }: FileSystemTabProps) {
         path: `${path}/${f.name}`,
       }));
     },
-    [agentId]
+    [assistantId]
   );
 
   const fetchFiles = useCallback(async () => {

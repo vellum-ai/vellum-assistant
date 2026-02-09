@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { createAgentMailInbox, registerAgentMailWebhook } from "@/lib/agentmail";
-import { Agent, getDb } from "@/lib/db";
+import { createAssistantMailInbox, registerAssistantMailWebhook } from "@/lib/agentmail";
+import { Assistant, getDb } from "@/lib/db";
 
 /**
  * POST /api/assistants/[id]/setup-email
  * 
- * Allows an agent to set up its own email inbox.
+ * Allows an assistant to set up its own email inbox.
  * Requires API key authentication via X-API-Key header.
  */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id: agentId } = await params;
+  const { id: assistantId } = await params;
   const apiKey = request.headers.get("X-API-Key");
 
   if (!apiKey) {
@@ -26,8 +26,8 @@ export async function POST(
   try {
     const sql = getDb();
 
-    // Fetch agent and verify API key
-    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
+    // Fetch assistant and verify API key
+    const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
     if (result.length === 0) {
       return NextResponse.json(
         { error: "Agent not found" },
@@ -35,8 +35,8 @@ export async function POST(
       );
     }
 
-    const agent = result[0] as Agent;
-    const storedApiKey = (agent.configuration as Record<string, unknown>)?.apiKey;
+    const assistant = result[0] as Assistant;
+    const storedApiKey = (assistant.configuration as Record<string, unknown>)?.apiKey;
 
     if (!storedApiKey || storedApiKey !== apiKey) {
       return NextResponse.json(
@@ -46,7 +46,7 @@ export async function POST(
     }
 
     // Check if email is already set up
-    const existingMail = (agent.configuration as Record<string, unknown>)?.agentmail;
+    const existingMail = (assistant.configuration as Record<string, unknown>)?.agentmail;
     if (existingMail) {
       return NextResponse.json({
         message: "Email already configured",
@@ -55,9 +55,9 @@ export async function POST(
     }
 
     // Set up AgentMail inbox
-    console.log(`[Setup Email] Creating inbox for agent ${agentId} (${agent.name})`);
-    const inbox = await createAgentMailInbox(agent.name, agentId);
-    const webhook = await registerAgentMailWebhook(inbox.inbox_id);
+    console.log(`[Setup Email] Creating inbox for assistant ${assistantId} (${assistant.name})`);
+    const inbox = await createAssistantMailInbox(assistant.name, assistantId);
+    const webhook = await registerAssistantMailWebhook(inbox.inbox_id);
 
     const agentmailConfig = {
       inbox_id: inbox.inbox_id,
@@ -65,18 +65,18 @@ export async function POST(
       webhook_id: webhook.webhook_id,
     };
 
-    // Update agent configuration
+    // Update assistant configuration
     await sql`
       UPDATE assistants
       SET configuration = ${JSON.stringify({
-        ...(agent.configuration as Record<string, unknown> || {}),
+        ...(assistant.configuration as Record<string, unknown> || {}),
         agentmail: agentmailConfig,
       })},
       updated_at = NOW()
-      WHERE id = ${agentId}
+      WHERE id = ${assistantId}
     `;
 
-    console.log(`[Setup Email] Email configured for agent ${agentId}: inbox ${inbox.inbox_id}`);
+    console.log(`[Setup Email] Email configured for assistant ${assistantId}: inbox ${inbox.inbox_id}`);
 
     return NextResponse.json({
       message: "Email configured successfully",
@@ -95,14 +95,14 @@ export async function POST(
 /**
  * GET /api/assistants/[id]/setup-email
  * 
- * Check email setup status for an agent.
+ * Check email setup status for an assistant.
  * Requires API key authentication.
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id: agentId } = await params;
+  const { id: assistantId } = await params;
   const apiKey = request.headers.get("X-API-Key");
 
   if (!apiKey) {
@@ -115,7 +115,7 @@ export async function GET(
   try {
     const sql = getDb();
 
-    const result = await sql`SELECT * FROM assistants WHERE id = ${agentId}`;
+    const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
     if (result.length === 0) {
       return NextResponse.json(
         { error: "Agent not found" },
@@ -123,8 +123,8 @@ export async function GET(
       );
     }
 
-    const agent = result[0] as Agent;
-    const storedApiKey = (agent.configuration as Record<string, unknown>)?.apiKey;
+    const assistant = result[0] as Assistant;
+    const storedApiKey = (assistant.configuration as Record<string, unknown>)?.apiKey;
 
     if (!storedApiKey || storedApiKey !== apiKey) {
       return NextResponse.json(
@@ -133,7 +133,7 @@ export async function GET(
       );
     }
 
-    const agentmail = (agent.configuration as Record<string, unknown>)?.agentmail;
+    const agentmail = (assistant.configuration as Record<string, unknown>)?.agentmail;
 
     return NextResponse.json({
       configured: !!agentmail,

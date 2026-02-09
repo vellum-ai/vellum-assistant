@@ -9,9 +9,9 @@ import {
   useState,
 } from "react";
 
-type AgentStatus = "healthy" | "unhealthy" | "stopped" | "unreachable" | "unknown" | "checking" | "getting_set_up" | "setting_up" | "provisioning_failed";
+type AssistantStatus = "healthy" | "unhealthy" | "stopped" | "unreachable" | "unknown" | "checking" | "getting_set_up" | "setting_up" | "provisioning_failed";
 
-interface AgentError {
+interface AssistantError {
   timestamp: string;
   message: string;
 }
@@ -24,20 +24,20 @@ interface Message {
 }
 
 interface InteractionTabProps {
-  agentId: string;
-  agentName: string;
-  agentCreatedAt: string;
+  assistantId: string;
+  assistantName: string;
+  assistantCreatedAt: string;
 }
 
 const HEALTH_CHECK_INTERVAL = 10000;
 const MESSAGE_POLL_INTERVAL = 5000;
 const SETUP_GRACE_PERIOD_MS = 10 * 60 * 1000;
 
-export function InteractionTab({ agentId, agentName, agentCreatedAt }: InteractionTabProps) {
-  const [agentStatus, setAgentStatus] = useState<AgentStatus>("checking");
+export function InteractionTab({ assistantId, assistantName, assistantCreatedAt }: InteractionTabProps) {
+  const [assistantStatus, setAssistantStatus] = useState<AssistantStatus>("checking");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [errors, setErrors] = useState<AgentError[]>([]);
+  const [errors, setErrors] = useState<AssistantError[]>([]);
   const [showErrors, setShowErrors] = useState(false);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -45,7 +45,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
 
   const fetchMessages = useCallback(async () => {
     try {
-      const response = await fetch(`/api/assistants/${agentId}/messages`);
+      const response = await fetch(`/api/assistants/${assistantId}/messages`);
       if (!response.ok) {
         return;
       }
@@ -68,7 +68,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
     } catch (error) {
       console.error("Failed to fetch messages:", error);
     }
-  }, [agentId]);
+  }, [assistantId]);
 
   useEffect(() => {
     fetchMessages();
@@ -78,39 +78,39 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
 
   const checkHealth = useCallback(async () => {
     try {
-      const response = await fetch(`/api/assistants/${agentId}/health`);
+      const response = await fetch(`/api/assistants/${assistantId}/health`);
       if (!response.ok) {
-        setAgentStatus("unknown");
+        setAssistantStatus("unknown");
         return;
       }
       const data = await response.json();
       if (data.status === "unknown" && data.message === "No compute instance configured") {
-        setAgentStatus("getting_set_up");
+        setAssistantStatus("getting_set_up");
         setStatusMessage(null);
       } else if (data.status === "provisioning_failed") {
-        setAgentStatus("provisioning_failed");
+        setAssistantStatus("provisioning_failed");
         setStatusMessage(data.message || "Failed to create compute instance");
       } else if (data.status === "setting_up") {
-        setAgentStatus("setting_up");
+        setAssistantStatus("setting_up");
         setStatusMessage(data.progress || null);
-      } else if (data.status === "unreachable" && agentCreatedAt) {
-        const agentAge = Date.now() - new Date(agentCreatedAt).getTime();
-        if (agentAge < SETUP_GRACE_PERIOD_MS) {
-          setAgentStatus("getting_set_up");
+      } else if (data.status === "unreachable" && assistantCreatedAt) {
+        const assistantAge = Date.now() - new Date(assistantCreatedAt).getTime();
+        if (assistantAge < SETUP_GRACE_PERIOD_MS) {
+          setAssistantStatus("getting_set_up");
           setStatusMessage(null);
         } else {
-          setAgentStatus("unreachable");
+          setAssistantStatus("unreachable");
           setStatusMessage(data.message || null);
         }
       } else {
-        setAgentStatus(data.status as AgentStatus);
+        setAssistantStatus(data.status as AssistantStatus);
         setStatusMessage(data.message || null);
       }
     } catch (error) {
       console.error("Health check failed:", error);
-      setAgentStatus("unknown");
+      setAssistantStatus("unknown");
     }
-  }, [agentId, agentCreatedAt]);
+  }, [assistantId, assistantCreatedAt]);
 
   useEffect(() => {
     checkHealth();
@@ -118,45 +118,45 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
     return () => clearInterval(interval);
   }, [checkHealth]);
 
-  const isAlive = agentStatus === "healthy";
+  const isAlive = assistantStatus === "healthy";
   
-  // Show typing indicator when waiting for agent response
+  // Show typing indicator when waiting for assistant response
   const lastMessage = messages[messages.length - 1];
   const isWaitingForResponse = lastMessage?.role === "user";
 
   const handleStart = useCallback(async () => {
     setIsToggling(true);
     try {
-      const response = await fetch(`/api/assistants/${agentId}/start`, {
+      const response = await fetch(`/api/assistants/${assistantId}/start`, {
         method: "POST",
       });
       if (response.ok) {
-        setAgentStatus("checking");
+        setAssistantStatus("checking");
         setTimeout(checkHealth, 5000);
       }
     } catch (error) {
-      console.error("Failed to start agent:", error);
+      console.error("Failed to start assistant:", error);
     } finally {
       setIsToggling(false);
     }
-  }, [agentId, checkHealth]);
+  }, [assistantId, checkHealth]);
 
   const handleStop = useCallback(async () => {
     setIsToggling(true);
     try {
-      const response = await fetch(`/api/assistants/${agentId}/stop`, {
+      const response = await fetch(`/api/assistants/${assistantId}/stop`, {
         method: "POST",
       });
       if (response.ok) {
-        setAgentStatus("checking");
+        setAssistantStatus("checking");
         setTimeout(checkHealth, 5000);
       }
     } catch (error) {
-      console.error("Failed to stop agent:", error);
+      console.error("Failed to stop assistant:", error);
     } finally {
       setIsToggling(false);
     }
-  }, [agentId, checkHealth]);
+  }, [assistantId, checkHealth]);
 
   const handleToggleStatus = useCallback(() => {
     if (isAlive) {
@@ -185,7 +185,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
       setIsLoading(true);
 
       try {
-        const response = await fetch(`/api/assistants/${agentId}/messages`, {
+        const response = await fetch(`/api/assistants/${assistantId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ content: userMessage.content }),
@@ -205,7 +205,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
         setIsLoading(false);
       }
     },
-    [input, isLoading, isAlive, agentId, fetchMessages]
+    [input, isLoading, isAlive, assistantId, fetchMessages]
   );
 
   const handleKeyDown = useCallback(
@@ -219,7 +219,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
   );
 
   const getStatusDisplay = () => {
-    switch (agentStatus) {
+    switch (assistantStatus) {
       case "healthy":
         return { text: "Agent is alive", color: "bg-green-500", pulse: true, tooltip: null };
       case "checking":
@@ -233,7 +233,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
       case "stopped":
         return { text: "Agent is stopped", color: "bg-zinc-400 dark:bg-zinc-600", pulse: false, tooltip: null };
       case "unreachable":
-        return { text: "Agent is unreachable", color: "bg-red-500", pulse: false, tooltip: statusMessage };
+        return { text: "Assistant is unreachable", color: "bg-red-500", pulse: false, tooltip: statusMessage };
       case "unhealthy":
         return { text: "Agent is unhealthy", color: "bg-red-500", pulse: false, tooltip: statusMessage };
       default:
@@ -259,7 +259,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
           </div>
           <button
             onClick={handleToggleStatus}
-            disabled={isToggling || agentStatus === "checking" || agentStatus === "getting_set_up" || agentStatus === "setting_up" || agentStatus === "provisioning_failed" || agentStatus === "unreachable"}
+            disabled={isToggling || assistantStatus === "checking" || assistantStatus === "getting_set_up" || assistantStatus === "setting_up" || assistantStatus === "provisioning_failed" || assistantStatus === "unreachable"}
             className={`flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
               isAlive
                 ? "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:hover:bg-amber-900"
@@ -329,31 +329,31 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
       {!isAlive ? (
         <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800">
-            {agentStatus === "checking" || agentStatus === "getting_set_up" ? (
+            {assistantStatus === "checking" || assistantStatus === "getting_set_up" ? (
               <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
-            ) : agentStatus === "provisioning_failed" ? (
+            ) : assistantStatus === "provisioning_failed" ? (
               <X className="h-8 w-8 text-red-400" />
             ) : (
               <Pause className="h-8 w-8 text-zinc-400" />
             )}
           </div>
           <h3 className="mt-4 text-lg font-medium text-zinc-900 dark:text-white">
-            {agentStatus === "checking" ? "Checking agent status..." : agentStatus === "getting_set_up" ? "Getting set up..." : agentStatus === "setting_up" ? "Setting up..." : agentStatus === "provisioning_failed" ? "Setup failed" : agentStatus === "unreachable" ? "Agent is unreachable" : "Agent is not running"}
+            {assistantStatus === "checking" ? "Checking assistant status..." : assistantStatus === "getting_set_up" ? "Getting set up..." : assistantStatus === "setting_up" ? "Setting up..." : assistantStatus === "provisioning_failed" ? "Setup failed" : assistantStatus === "unreachable" ? "Assistant is unreachable" : "Assistant is not running"}
           </h3>
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            {agentStatus === "checking"
-              ? "Please wait while we check the agent status"
-              : agentStatus === "getting_set_up"
-                ? "Your agent's compute instance is being created. This may take a minute."
-                : agentStatus === "setting_up"
-                  ? statusMessage ?? "Your agent is being configured."
-                  : agentStatus === "provisioning_failed"
-                    ? statusMessage || "Failed to create the compute instance for this agent."
-                    : agentStatus === "unreachable"
-                      ? "The instance is running but the agent server is not responding. Check the Details tab for more info."
-                      : "Start the agent to interact with it directly"}
+            {assistantStatus === "checking"
+              ? "Please wait while we check the assistant status"
+              : assistantStatus === "getting_set_up"
+                ? "Your assistant's compute instance is being created. This may take a minute."
+                : assistantStatus === "setting_up"
+                  ? statusMessage ?? "Your assistant is being configured."
+                  : assistantStatus === "provisioning_failed"
+                    ? statusMessage || "Failed to create the compute instance for this assistant."
+                    : assistantStatus === "unreachable"
+                      ? "The instance is running but the assistant server is not responding. Check the Details tab for more info."
+                      : "Start the assistant to interact with it directly"}
           </p>
-          {agentStatus !== "checking" && agentStatus !== "getting_set_up" && agentStatus !== "setting_up" && agentStatus !== "provisioning_failed" && agentStatus !== "unreachable" && (
+          {assistantStatus !== "checking" && assistantStatus !== "getting_set_up" && assistantStatus !== "setting_up" && assistantStatus !== "provisioning_failed" && assistantStatus !== "unreachable" && (
             <button
               onClick={handleStart}
               disabled={isToggling}
@@ -367,7 +367,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
               ) : (
                 <>
                   <Play className="h-4 w-4" />
-                  Start Agent
+                  Start Assistant
                 </>
               )}
             </button>
@@ -380,7 +380,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
               <div className="flex h-full flex-col items-center justify-center text-center">
                 <Bot className="h-12 w-12 text-zinc-300 dark:text-zinc-700" />
                 <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-                  Chat directly with {agentName}
+                  Chat directly with {assistantName}
                 </p>
               </div>
             ) : (
@@ -442,7 +442,7 @@ export function InteractionTab({ agentId, agentName, agentCreatedAt }: Interacti
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={`Message ${agentName}...`}
+                placeholder={`Message ${assistantName}...`}
                 rows={1}
                 className="flex-1 resize-none rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
               />

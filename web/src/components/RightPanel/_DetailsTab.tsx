@@ -3,10 +3,10 @@
 import { Activity, Globe, Mail, Server } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
-import { Agent } from "@/lib/db";
+import { Assistant } from "@/lib/db";
 
 interface DetailsTabProps {
-  agentId: string;
+  assistantId: string;
 }
 
 interface SystemStats {
@@ -21,30 +21,30 @@ interface SystemStats {
   } | null;
 }
 
-interface AgentDetails {
+interface AssistantDetails {
   instanceName: string | null;
   zone: string | null;
   machineType: string | null;
   ipAddress: string | null;
-  agentEmail: string | null;
+  assistantEmail: string | null;
   stats: SystemStats | null;
 }
 
-export function DetailsTab({ agentId }: DetailsTabProps) {
-  const [details, setDetails] = useState<AgentDetails | null>(null);
+export function DetailsTab({ assistantId }: DetailsTabProps) {
+  const [details, setDetails] = useState<AssistantDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchDetails = useCallback(async () => {
     try {
-      const response = await fetch(`/api/assistants/${agentId}`);
+      const response = await fetch(`/api/assistants/${assistantId}`);
       if (!response.ok) {
         return;
       }
-      const agent: Agent = await response.json();
-      const computeConfig = (agent.configuration as Record<string, unknown>)?.compute as
+      const assistant: Assistant = await response.json();
+      const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
         | { instanceName?: string; zone?: string; machineType?: string }
         | undefined;
-      const agentmailConfig = (agent.configuration as Record<string, unknown>)?.agentmail as
+      const agentmailConfig = (assistant.configuration as Record<string, unknown>)?.agentmail as
         | { inbox_id?: string }
         | undefined;
 
@@ -52,7 +52,7 @@ export function DetailsTab({ agentId }: DetailsTabProps) {
       let stats: SystemStats | null = null;
       if (computeConfig?.instanceName) {
         try {
-          const healthResponse = await fetch(`/api/assistants/${agentId}/health`);
+          const healthResponse = await fetch(`/api/assistants/${assistantId}/health`);
           if (healthResponse.ok) {
             const healthData = await healthResponse.json();
             if (healthData.ip) {
@@ -72,15 +72,15 @@ export function DetailsTab({ agentId }: DetailsTabProps) {
         zone: computeConfig?.zone ?? null,
         machineType: computeConfig?.machineType ?? null,
         ipAddress,
-        agentEmail: agentmailConfig?.inbox_id ?? null,
+        assistantEmail: agentmailConfig?.inbox_id ?? null,
         stats,
       });
     } catch (error: unknown) {
-      console.error("Failed to fetch agent details:", error);
+      console.error("Failed to fetch assistant details:", error);
     } finally {
       setIsLoading(false);
     }
-  }, [agentId]);
+  }, [assistantId]);
 
   useEffect(() => {
     fetchDetails();
@@ -97,7 +97,7 @@ export function DetailsTab({ agentId }: DetailsTabProps) {
   if (!details) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
-        Failed to load agent details
+        Failed to load assistant details
       </div>
     );
   }
@@ -105,7 +105,7 @@ export function DetailsTab({ agentId }: DetailsTabProps) {
   return (
     <div className="h-full overflow-y-auto p-6">
       <h2 className="mb-6 text-lg font-semibold text-zinc-900 dark:text-white">
-        Agent Details
+        Assistant Details
       </h2>
 
       <div className="space-y-6">
@@ -179,10 +179,10 @@ export function DetailsTab({ agentId }: DetailsTabProps) {
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
           <div className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-900 dark:text-white">
             <Mail className="h-4 w-4 text-blue-500" />
-            Agent Email
+            Assistant Email
           </div>
           <div className="space-y-2">
-            <DetailRow label="Email Address" value={details.agentEmail} />
+            <DetailRow label="Email Address" value={details.assistantEmail} />
           </div>
         </div>
       </div>

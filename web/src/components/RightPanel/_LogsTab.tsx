@@ -4,10 +4,10 @@ import { FileText, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 interface LogsTabProps {
-  agentId: string;
+  assistantId: string;
 }
 
-export function LogsTab({ agentId }: LogsTabProps) {
+export function LogsTab({ assistantId }: LogsTabProps) {
   const [logDates, setLogDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [logContent, setLogContent] = useState<string | null>(null);
@@ -19,7 +19,7 @@ export function LogsTab({ agentId }: LogsTabProps) {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/assistants/${agentId}/logs`);
+      const response = await fetch(`/api/assistants/${assistantId}/logs`);
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || "Failed to fetch logs");
@@ -35,14 +35,14 @@ export function LogsTab({ agentId }: LogsTabProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [agentId, selectedDate]);
+  }, [assistantId, selectedDate]);
 
   const fetchLogContent = useCallback(
     async (date: string) => {
       setIsLoadingContent(true);
       try {
         const response = await fetch(
-          `/api/assistants/${agentId}/logs?date=${encodeURIComponent(date)}`
+          `/api/assistants/${assistantId}/logs?date=${encodeURIComponent(date)}`
         );
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
@@ -58,7 +58,7 @@ export function LogsTab({ agentId }: LogsTabProps) {
         setIsLoadingContent(false);
       }
     },
-    [agentId]
+    [assistantId]
   );
 
   useEffect(() => {
@@ -77,7 +77,7 @@ export function LogsTab({ agentId }: LogsTabProps) {
         <div className="flex items-center gap-2">
           <FileText className="h-4 w-4 text-zinc-400" />
           <span className="text-sm font-medium text-zinc-900 dark:text-white">
-            Agent Logs
+            Assistant Logs
           </span>
         </div>
         <button
