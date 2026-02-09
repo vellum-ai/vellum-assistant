@@ -28,6 +28,11 @@ export interface SecretDetectionConfig {
   entropyThreshold: number;
 }
 
+export interface AuditLogConfig {
+  /** Number of days to retain tool invocation records. 0 = retain forever. Default: 0. */
+  retentionDays: number;
+}
+
 export interface AssistantConfig {
   provider: string;
   model: string;
@@ -39,4 +44,5 @@ export interface AssistantConfig {
   sandbox: SandboxConfig;
   rateLimit: RateLimitConfig;
   secretDetection: SecretDetectionConfig;
+  auditLog: AuditLogConfig;
 }
