@@ -767,7 +767,7 @@ export async function createAssistantComputeInstance(
   const prequeued = await getAvailablePrequeuedInstance();
 
   if (prequeued) {
-    console.log(`[Agent] Using prequeued instance: ${prequeued.instanceName}`);
+    console.log(`[Assistant] Using prequeued instance: ${prequeued.instanceName}`);
 
     const activated = await activatePrequeuedInstance(
       prequeued.instanceName,
@@ -790,7 +790,7 @@ export async function createAssistantComputeInstance(
       };
     }
 
-    console.log(`[Agent] Failed to activate prequeued instance, falling back to fresh creation`);
+    console.log(`[Assistant] Failed to activate prequeued instance, falling back to fresh creation`);
   }
 
   console.log(`[Agent] Creating fresh instance for assistant ${assistantId}`);

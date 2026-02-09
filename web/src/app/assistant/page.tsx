@@ -229,7 +229,7 @@ export default function AssistantPage() {
   if (assistants.length === 1) {
     return (
       <div className="flex h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
-        <DynamicEditor agentId={oldestAssistant.id} username={username} />
+        <DynamicEditor assistantId={oldestAssistant.id} username={username} />
       </div>
     );
   }
@@ -249,7 +249,7 @@ export default function AssistantPage() {
           <ArrowRight className="h-4 w-4" />
         </Link>
       </div>
-      <DynamicEditor agentId={oldestAssistant.id} username={username} />
+      <DynamicEditor assistantId={oldestAssistant.id} username={username} />
     </div>
   );
 }

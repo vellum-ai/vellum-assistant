@@ -19,7 +19,7 @@ interface AgentMailWebhook {
 }
 
 function assistantNameToUsername(assistantName: string): string {
-  return agentName
+  return assistantName
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "")
     .slice(0, 64);

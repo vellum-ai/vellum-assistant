@@ -91,7 +91,7 @@ export function OnboardingWizard() {
       case 'experience_level':
         return (
           <div>
-            <h3 className="text-2xl font-semibold mb-4">Your AI Agent Experience</h3>
+            <h3 className="text-2xl font-semibold mb-4">Your AI Assistant Experience</h3>
             <div className="grid grid-cols-3 gap-4">
               {[
                 { value: 'beginner', label: 'Beginner', description: 'Just getting started' },
@@ -114,7 +114,7 @@ export function OnboardingWizard() {
       case 'agent_customization':
         return (
           <div>
-            <h3 className="text-2xl font-semibold mb-4">Name Your Agent</h3>
+            <h3 className="text-2xl font-semibold mb-4">Name Your Assistant</h3>
             <input 
               type="text" 
               placeholder="Enter your agent's name" 

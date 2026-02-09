@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { Assistant, getDb, UpdateAgentInput } from "@/lib/db";
+import { Assistant, getDb, UpdateAssistantInput } from "@/lib/db";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -15,7 +15,7 @@ export async function GET(request: Request, { params }: RouteParams) {
 
     if (result.length === 0) {
       return NextResponse.json(
-        { error: "Agent not found" },
+        { error: "Assistant not found" },
         { status: 404 }
       );
     }
@@ -34,7 +34,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
   try {
     const sql = getDb();
     const { id } = await params;
-    const body: UpdateAgentInput = await request.json();
+    const body: UpdateAssistantInput = await request.json();
 
     const result = await sql`
       UPDATE assistants
@@ -49,7 +49,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
 
     if (result.length === 0) {
       return NextResponse.json(
-        { error: "Agent not found" },
+        { error: "Assistant not found" },
         { status: 404 }
       );
     }
@@ -73,7 +73,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 
     if (result.length === 0) {
       return NextResponse.json(
-        { error: "Agent not found" },
+        { error: "Assistant not found" },
         { status: 404 }
       );
     }

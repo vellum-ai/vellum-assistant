@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Layout } from "@/components/Layout";
 import { useAuth } from "@/lib/auth";
-import { Agent } from "@/lib/db";
+import { Assistant } from "@/lib/db";
 
 export default function AssistantsPage() {
   const router = useRouter();

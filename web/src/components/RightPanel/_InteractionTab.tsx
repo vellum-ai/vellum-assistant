@@ -221,7 +221,7 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const getStatusDisplay = () => {
     switch (assistantStatus) {
       case "healthy":
-        return { text: "Agent is alive", color: "bg-green-500", pulse: true, tooltip: null };
+        return { text: "Assistant is alive", color: "bg-green-500", pulse: true, tooltip: null };
       case "checking":
         return { text: "Checking status...", color: "bg-yellow-500", pulse: true, tooltip: null };
       case "getting_set_up":
@@ -231,11 +231,11 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
       case "provisioning_failed":
         return { text: "Setup failed", color: "bg-red-500", pulse: false, tooltip: statusMessage };
       case "stopped":
-        return { text: "Agent is stopped", color: "bg-zinc-400 dark:bg-zinc-600", pulse: false, tooltip: null };
+        return { text: "Assistant is stopped", color: "bg-zinc-400 dark:bg-zinc-600", pulse: false, tooltip: null };
       case "unreachable":
         return { text: "Assistant is unreachable", color: "bg-red-500", pulse: false, tooltip: statusMessage };
       case "unhealthy":
-        return { text: "Agent is unhealthy", color: "bg-red-500", pulse: false, tooltip: statusMessage };
+        return { text: "Assistant is unhealthy", color: "bg-red-500", pulse: false, tooltip: statusMessage };
       default:
         return { text: "Status unknown", color: "bg-zinc-400 dark:bg-zinc-600", pulse: false, tooltip: null };
     }

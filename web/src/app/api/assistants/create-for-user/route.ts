@@ -2,7 +2,7 @@ import crypto from "crypto";
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { Agent, getDb } from "@/lib/db";
+import { Assistant, getDb } from "@/lib/db";
 import {
   createAssistantComputeInstance,
   uploadAssistantConfigToGCS,
