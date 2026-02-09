@@ -501,8 +501,8 @@ export function scanText(text: string, entropyConfig?: Partial<EntropyConfig>): 
   const entropyMatches = scanEntropy(text, eConfig, seen);
   matches.push(...entropyMatches);
 
-  // Sort by position
-  matches.sort((a, b) => a.startIndex - b.startIndex);
+  // Sort by position; at same start, wider match first so redaction covers the full span
+  matches.sort((a, b) => a.startIndex - b.startIndex || b.endIndex - a.endIndex);
   return matches;
 }
 
@@ -518,7 +518,13 @@ export function redactSecrets(text: string, entropyConfig?: Partial<EntropyConfi
   let lastIndex = 0;
 
   for (const match of matches) {
-    if (match.startIndex < lastIndex) continue; // skip overlapping match
+    if (match.startIndex < lastIndex) {
+      // Overlapping match — extend the redacted span if this one reaches further
+      if (match.endIndex > lastIndex) {
+        lastIndex = match.endIndex;
+      }
+      continue;
+    }
     result += text.slice(lastIndex, match.startIndex);
     result += `[REDACTED:${match.type}]`;
     lastIndex = match.endIndex;

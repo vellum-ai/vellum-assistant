@@ -672,6 +672,26 @@ describe('overlapping match redaction', () => {
     // Should not contain the raw key
     expect(result).not.toContain('AKIAIOSFODNN7REALKEY');
   });
+
+  test('wider overlapping match extends redaction span (#172 feedback)', () => {
+    // A shorter match (e.g. AWS-like 40 chars) inside a longer generic assignment
+    // should not leak the suffix of the longer match
+    const input = `password = "AKIAIOSFODNN7REALKEY extra-tail-secret"`;
+    const result = redactSecrets(input);
+    // Nothing from the original secret value should leak
+    expect(result).not.toContain('extra-tail-secret');
+    expect(result).not.toContain('AKIAIOSFODNN7REALKEY');
+    expect(result).toContain('[REDACTED:');
+  });
+
+  test('wider match at same start position wins', () => {
+    // When two matches start at same offset, wider one should be used
+    const input = `token = "AKIAIOSFODNN7REALKEY-plus-extra-data"`;
+    const result = redactSecrets(input);
+    expect(result).not.toContain('AKIAIOSFODNN7REALKEY');
+    expect(result).not.toContain('plus-extra-data');
+    expect(result).toContain('[REDACTED:');
+  });
 });
 
 // ---------------------------------------------------------------------------
