@@ -29,12 +29,43 @@ function getBackend(): Backend {
 }
 
 /**
+ * Try a keychain operation; on failure, permanently downgrade to encrypted
+ * backend and retry. This handles systems where the keychain CLI exists
+ * but is unusable at runtime (headless/locked sessions).
+ */
+function withKeychainFallback<T>(
+  keychainFn: () => T,
+  encryptedFn: () => T,
+  fallbackValue: T,
+): T {
+  const backend = getBackend();
+  if (backend === 'encrypted') return encryptedFn();
+  if (backend !== 'keychain') return fallbackValue;
+
+  const result = keychainFn();
+  // keychain.getKey returns undefined on not-found (not an error),
+  // keychain.setKey/deleteKey return false on failure.
+  // We only downgrade on set/delete failures (false), not on get misses (undefined).
+  if (result === false) {
+    log.warn('Keychain operation failed at runtime, falling back to encrypted file storage');
+    resolvedBackend = 'encrypted';
+    return encryptedFn();
+  }
+  return result;
+}
+
+/**
  * Retrieve a secret from secure storage.
  * Returns `undefined` if the key doesn't exist or on error.
  */
 export function getSecureKey(account: string): string | undefined {
   const backend = getBackend();
-  if (backend === 'keychain') return keychain.getKey(account);
+  if (backend === 'keychain') {
+    const value = keychain.getKey(account);
+    // getKey returns undefined for both not-found and error — we can't
+    // distinguish, so no fallback on read. The fallback triggers on write.
+    return value;
+  }
   if (backend === 'encrypted') return encryptedStore.getKey(account);
   return undefined;
 }
@@ -44,10 +75,11 @@ export function getSecureKey(account: string): string | undefined {
  * Returns `true` on success, `false` on failure.
  */
 export function setSecureKey(account: string, value: string): boolean {
-  const backend = getBackend();
-  if (backend === 'keychain') return keychain.setKey(account, value);
-  if (backend === 'encrypted') return encryptedStore.setKey(account, value);
-  return false;
+  return withKeychainFallback(
+    () => keychain.setKey(account, value),
+    () => encryptedStore.setKey(account, value),
+    false,
+  );
 }
 
 /**
@@ -55,10 +87,11 @@ export function setSecureKey(account: string, value: string): boolean {
  * Returns `true` on success, `false` if not found or on error.
  */
 export function deleteSecureKey(account: string): boolean {
-  const backend = getBackend();
-  if (backend === 'keychain') return keychain.deleteKey(account);
-  if (backend === 'encrypted') return encryptedStore.deleteKey(account);
-  return false;
+  return withKeychainFallback(
+    () => keychain.deleteKey(account),
+    () => encryptedStore.deleteKey(account),
+    false,
+  );
 }
 
 /**

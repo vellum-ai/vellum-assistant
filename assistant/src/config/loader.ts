@@ -222,6 +222,13 @@ export function saveConfig(config: AssistantConfig): void {
       setSecureKey(provider, value);
     }
   }
+  // Delete secure keys for providers no longer in apiKeys or with empty values
+  for (const provider of VALID_PROVIDERS) {
+    const value = config.apiKeys[provider];
+    if (!value || (typeof value === 'string' && value.length === 0)) {
+      deleteSecureKey(provider);
+    }
+  }
   const { apiKeys: _, ...rest } = config;
   writeFileSync(configPath, JSON.stringify(rest, null, 2) + '\n');
 
@@ -281,7 +288,9 @@ export function saveRawConfig(config: Record<string, unknown>): void {
   if (apiKeys && typeof apiKeys === 'object' && !Array.isArray(apiKeys)) {
     for (const [provider, value] of Object.entries(apiKeys as Record<string, unknown>)) {
       if (typeof value === 'string' && value.length > 0) {
-        setSecureKey(provider, value);
+        if (!setSecureKey(provider, value)) {
+          throw new ConfigError(`Failed to save API key for "${provider}" to secure storage. Key not removed from config to prevent data loss.`);
+        }
       } else if (value === undefined || value === null || value === '') {
         deleteSecureKey(provider);
       }

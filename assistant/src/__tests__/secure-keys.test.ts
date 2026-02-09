@@ -14,15 +14,23 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-// Track keychain availability and stored keys for mock
+// Track keychain availability, stored keys, and runtime failures for mock
 let keychainAvailable = false;
+let keychainFailAtRuntime = false;
 const keychainStore = new Map<string, string>();
 
 mock.module('../security/keychain.js', () => ({
   isKeychainAvailable: () => keychainAvailable,
   getKey: (account: string) => keychainStore.get(account),
-  setKey: (account: string, value: string) => { keychainStore.set(account, value); return true; },
-  deleteKey: (account: string) => keychainStore.delete(account),
+  setKey: (account: string, value: string) => {
+    if (keychainFailAtRuntime) return false;
+    keychainStore.set(account, value);
+    return true;
+  },
+  deleteKey: (account: string) => {
+    if (keychainFailAtRuntime) return false;
+    return keychainStore.delete(account);
+  },
 }));
 
 import {
@@ -46,6 +54,7 @@ describe('secure-keys', () => {
   beforeEach(() => {
     // Clean state
     keychainAvailable = false;
+    keychainFailAtRuntime = false;
     keychainStore.clear();
     _resetBackend();
 
@@ -191,6 +200,54 @@ describe('secure-keys', () => {
       setSecureKey('k2', 'v2');
       expect(keychainStore.has('k2')).toBe(false);
       expect(getSecureKey('k2')).toBe('v2');
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Keychain runtime failure fallback
+  // -----------------------------------------------------------------------
+  describe('keychain runtime fallback', () => {
+    beforeEach(() => {
+      keychainAvailable = true;
+      _resetBackend();
+    });
+
+    test('setSecureKey falls back to encrypted store when keychain fails at runtime', () => {
+      keychainFailAtRuntime = true;
+      const result = setSecureKey('anthropic', 'sk-test-fallback');
+      expect(result).toBe(true);
+      // Should have stored in encrypted store
+      expect(keychainStore.has('anthropic')).toBe(false);
+      expect(existsSync(STORE_PATH)).toBe(true);
+      // Subsequent gets should also use encrypted store now
+      expect(getSecureKey('anthropic')).toBe('sk-test-fallback');
+    });
+
+    test('deleteSecureKey falls back to encrypted store when keychain fails at runtime', () => {
+      // First store successfully in encrypted store via fallback
+      keychainFailAtRuntime = true;
+      setSecureKey('openai', 'sk-openai-test');
+      // Delete should also use encrypted store
+      const result = deleteSecureKey('openai');
+      expect(result).toBe(true);
+      expect(getSecureKey('openai')).toBeUndefined();
+    });
+
+    test('backend permanently downgrades after keychain runtime failure', () => {
+      // Start with working keychain
+      setSecureKey('anthropic', 'key1');
+      expect(keychainStore.get('anthropic')).toBe('key1');
+
+      // Keychain starts failing
+      keychainFailAtRuntime = true;
+      setSecureKey('openai', 'key2');
+
+      // Backend should now be encrypted — even if keychain "recovers"
+      keychainFailAtRuntime = false;
+      setSecureKey('gemini', 'key3');
+      // gemini should be in encrypted store, not keychain
+      expect(keychainStore.has('gemini')).toBe(false);
+      expect(getSecureKey('gemini')).toBe('key3');
     });
   });
 });
