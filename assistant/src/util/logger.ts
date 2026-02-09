@@ -28,6 +28,19 @@ function getRootLogger(): pino.Logger {
  * This avoids "sonic boom is not ready yet" errors when the process exits
  * quickly (e.g. `assistant --help`).
  */
+export function isDebug(): boolean {
+  return process.env.VELLUM_DEBUG === '1';
+}
+
+/**
+ * Truncate a string for debug logging. Returns the original if under maxLen,
+ * otherwise returns the first maxLen chars with a suffix indicating how much was cut.
+ */
+export function truncateForLog(value: string, maxLen = 500): string {
+  if (value.length <= maxLen) return value;
+  return value.slice(0, maxLen) + `... (${value.length - maxLen} chars truncated)`;
+}
+
 export function getLogger(name: string): pino.Logger {
   let child: pino.Logger | null = null;
   const handler: ProxyHandler<pino.Logger> = {

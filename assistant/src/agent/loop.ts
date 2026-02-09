@@ -1,5 +1,5 @@
 import type { Provider, Message, ToolDefinition, ContentBlock } from '../providers/types.js';
-import { getLogger } from '../util/logger.js';
+import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 
 const log = getLogger('agent-loop');
 
@@ -53,9 +53,12 @@ export class AgentLoop {
   ): Promise<Message[]> {
     const history = [...messages];
     let toolUseTurns = 0;
+    const debug = isDebug();
 
     while (true) {
       if (signal?.aborted) break;
+
+      const turnStart = Date.now();
 
       try {
         const providerConfig: Record<string, unknown> = { max_tokens: this.config.maxTokens };
@@ -70,6 +73,20 @@ export class AgentLoop {
             budget_tokens: budgetTokens,
           };
         }
+
+        if (debug) {
+          log.debug({
+            systemPrompt: truncateForLog(this.systemPrompt, 200),
+            messageCount: history.length,
+            lastMessage: history.length > 0
+              ? summarizeMessage(history[history.length - 1])
+              : null,
+            toolCount: this.tools.length,
+            config: providerConfig,
+          }, 'Sending request to provider');
+        }
+
+        const providerStart = Date.now();
 
         const response = await this.provider.sendMessage(
           history,
@@ -87,6 +104,23 @@ export class AgentLoop {
             signal,
           },
         );
+
+        const providerDurationMs = Date.now() - providerStart;
+
+        if (debug) {
+          log.debug({
+            providerDurationMs,
+            model: response.model,
+            stopReason: response.stopReason,
+            inputTokens: response.usage.inputTokens,
+            outputTokens: response.usage.outputTokens,
+            contentBlocks: response.content.map((b) => ({
+              type: b.type,
+              ...(b.type === 'text' ? { text: truncateForLog(b.text, 200) } : {}),
+              ...(b.type === 'tool_use' ? { name: b.name, input: truncateForLog(JSON.stringify(b.input), 200) } : {}),
+            })),
+          }, 'Provider response received');
+        }
 
         onEvent({
           type: 'usage',
@@ -125,9 +159,29 @@ export class AgentLoop {
             input: toolUse.input,
           });
 
+          if (debug) {
+            log.debug({
+              tool: toolUse.name,
+              input: truncateForLog(JSON.stringify(toolUse.input), 300),
+            }, 'Executing tool');
+          }
+
+          const toolStart = Date.now();
+
           const result = await this.toolExecutor(toolUse.name, toolUse.input, (chunk) => {
             onEvent({ type: 'tool_output_chunk', toolUseId: toolUse.id, chunk });
           });
+
+          const toolDurationMs = Date.now() - toolStart;
+
+          if (debug) {
+            log.debug({
+              tool: toolUse.name,
+              toolDurationMs,
+              isError: result.isError,
+              output: truncateForLog(result.content, 300),
+            }, 'Tool execution complete');
+          }
 
           onEvent({
             type: 'tool_result',
@@ -180,6 +234,16 @@ export class AgentLoop {
 
         // Add tool results as a user message and continue the loop
         history.push({ role: 'user', content: resultBlocks });
+
+        if (debug) {
+          const turnDurationMs = Date.now() - turnStart;
+          log.debug({
+            turnDurationMs,
+            providerDurationMs,
+            toolCount: toolUseBlocks.length,
+            turn: toolUseTurns,
+          }, 'Turn complete');
+        }
       } catch (error) {
         // Abort errors are expected when user cancels — don't emit as errors
         if (signal?.aborted) break;
@@ -192,4 +256,11 @@ export class AgentLoop {
 
     return history;
   }
+}
+
+function summarizeMessage(msg: Message): { role: string; blockTypes: string[] } {
+  return {
+    role: msg.role,
+    blockTypes: msg.content.map((b) => b.type),
+  };
 }

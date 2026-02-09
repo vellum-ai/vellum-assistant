@@ -7,7 +7,7 @@ import { addRule } from '../permissions/trust-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { recordToolInvocation } from '../memory/tool-usage-store.js';
 import { ToolError, PermissionDeniedError } from '../util/errors.js';
-import { getLogger } from '../util/logger.js';
+import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 import { findAllMatches, adjustIndentation } from './filesystem/fuzzy-match.js';
 import { validateFilePath } from './filesystem/path-guard.js';
 import { MAX_FILE_SIZE_BYTES } from './filesystem/size-guard.js';
@@ -37,6 +37,14 @@ export class ToolExecutor {
     const startTime = Date.now();
     let decision = 'allow';
     let riskLevel: string = RiskLevel.Low;
+    const debug = isDebug();
+
+    if (debug) {
+      log.debug({
+        tool: name,
+        input: truncateForLog(JSON.stringify(input), 300),
+      }, 'Tool execute start');
+    }
 
     try {
       // Check permissions
@@ -126,6 +134,18 @@ export class ToolExecutor {
 
       // Execute the tool
       const execResult = await tool.execute(input, context);
+
+      if (debug) {
+        const execDurationMs = Date.now() - startTime;
+        log.debug({
+          tool: name,
+          execDurationMs,
+          riskLevel,
+          decision,
+          isError: execResult.isError,
+          output: truncateForLog(execResult.content, 300),
+        }, 'Tool execute result');
+      }
 
       // Secret detection on tool output
       const sdConfig = getConfig().secretDetection;
