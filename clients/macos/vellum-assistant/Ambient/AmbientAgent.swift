@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Combine
+import UserNotifications
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AmbientAgent")
@@ -46,7 +47,7 @@ final class AmbientAgent: ObservableObject {
     private var analyzer: AmbientAnalyzer?
     private var watchTask: Task<Void, Never>?
     private(set) var knowledgeCron: KnowledgeCron?
-    private var syncClient: AmbientSyncClient?
+    private(set) var syncClient: AmbientSyncClient?
     private var activeSuggestionWindow: AmbientSuggestionWindow?
     private var insightNotificationWindow: InsightNotificationWindow?
     private var previousOCRText: String = ""
@@ -261,6 +262,11 @@ final class AmbientAgent: ObservableObject {
     }
 
     private func showInsightNotification(_ insight: KnowledgeInsight) {
+        if insight.category == .automation && Bundle.main.bundleIdentifier != nil {
+            showAutomationNotification(insight)
+            return
+        }
+
         let window = InsightNotificationWindow(
             insight: insight,
             onDismiss: { [weak self] in
@@ -273,6 +279,30 @@ final class AmbientAgent: ObservableObject {
         )
         insightNotificationWindow = window
         window.show()
+    }
+
+    private func showAutomationNotification(_ insight: KnowledgeInsight) {
+        let content = UNMutableNotificationContent()
+        content.title = "Automation Opportunity"
+        content.body = insight.title
+        content.categoryIdentifier = "AUTOMATION_INSIGHT"
+        content.sound = .default
+        content.userInfo = [
+            "insightId": insight.id.uuidString,
+            "insightTitle": insight.title,
+            "insightDescription": insight.description
+        ]
+
+        let request = UNNotificationRequest(
+            identifier: "automation-\(insight.id.uuidString)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                log.warning("Failed to deliver automation notification: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func currentWindowTitle() -> String? {

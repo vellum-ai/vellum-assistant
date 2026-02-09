@@ -65,6 +65,10 @@ final class AmbientSyncClient {
         encodeThenSend(endpoint: "api/analysis", body: result)
     }
 
+    func sendDecision(_ decision: AutomationDecision) {
+        encodeThenSend(endpoint: "api/decision", body: decision)
+    }
+
     // MARK: - Batch Sync (on launch)
 
     func syncExisting(observations: [KnowledgeEntry], insights: [KnowledgeInsight]) {
@@ -142,4 +146,13 @@ final class AmbientSyncClient {
             }
         }
     }
+}
+
+struct AutomationDecision: Encodable {
+    let insightId: String
+    let insightTitle: String
+    let description: String
+    let schedule: String
+    let approved: Bool
+    let source: String
 }
