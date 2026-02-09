@@ -45,13 +45,17 @@ final class MockInferenceProvider: ActionInferenceProvider {
 }
 
 final class MockAccessibilityTreeEnumerator: AccessibilityTreeProviding {
-    var result: (elements: [AXElement], windowTitle: String, appName: String)?
+    var result: (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
 
     init(result: (elements: [AXElement], windowTitle: String, appName: String)? = nil) {
-        self.result = result
+        if let r = result {
+            self.result = (elements: r.elements, windowTitle: r.windowTitle, appName: r.appName, pid: 12345)
+        } else {
+            self.result = nil
+        }
     }
 
-    func enumerateCurrentWindow() -> (elements: [AXElement], windowTitle: String, appName: String)? {
+    func enumerateCurrentWindow() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
         return result
     }
 

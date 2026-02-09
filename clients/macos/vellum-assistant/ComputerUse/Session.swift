@@ -148,8 +148,9 @@ final class ComputerUseSession: ObservableObject {
                     }
                 }
 
-                // Track the primary app's PID for secondary window exclusion
-                primaryPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+                // Use the actual enumerated app's PID (not frontmostApplication,
+                // which may be our own app when we fell back to enumeratePreviousApp)
+                primaryPID = result.pid
 
                 // Enumerate secondary windows for cross-app awareness
                 let secondaryWindows = enumerator.enumerateSecondaryWindows(

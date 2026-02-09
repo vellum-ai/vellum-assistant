@@ -26,7 +26,7 @@ struct WindowInfo {
 }
 
 protocol AccessibilityTreeProviding {
-    func enumerateCurrentWindow() -> (elements: [AXElement], windowTitle: String, appName: String)?
+    func enumerateCurrentWindow() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
     func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int) -> [WindowInfo]
 }
 
@@ -88,7 +88,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         enhancedAXEnabled.removeAll()
     }
 
-    func enumerateCurrentWindow() -> (elements: [AXElement], windowTitle: String, appName: String)? {
+    func enumerateCurrentWindow() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
         guard let frontApp = NSWorkspace.shared.frontmostApplication else {
             log.warning("No frontmost application found")
             return nil
@@ -135,13 +135,13 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         log.info("Enumerated \(appName, privacy: .public): \(flat.count) total, \(interactive.count) interactive, maxId=\(self.nextId - 1)")
 
         lastTargetPid = pid
-        return (elements: elements, windowTitle: windowTitle, appName: appName)
+        return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
     }
 
     /// When our own app is focused, find the previously-active app's window instead.
     /// Prefers `lastTargetPid` so the agent returns to the correct window rather than
     /// an arbitrary app from the running-apps list.
-    private func enumeratePreviousApp() -> (elements: [AXElement], windowTitle: String, appName: String)? {
+    private func enumeratePreviousApp() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
         // Fast path: try the tracked last-focused PID first
         if let trackedPID = Self.lastFocusedPID {
             log.debug("enumeratePreviousApp: trying tracked PID \(trackedPID)")
@@ -173,7 +173,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
 
     /// Try to enumerate the focused window for a specific PID.
     /// Returns nil if the app has no focused window or yields no elements.
-    private func enumerateAppByPID(_ pid: pid_t) -> (elements: [AXElement], windowTitle: String, appName: String)? {
+    private func enumerateAppByPID(_ pid: pid_t) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
         let appElement = AXUIElementCreateApplication(pid)
 
         if !Self.enhancedAXEnabled.contains(pid) {
@@ -194,7 +194,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
 
         guard !elements.isEmpty else { return nil }
         lastTargetPid = pid
-        return (elements: elements, windowTitle: windowTitle, appName: appName)
+        return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
     }
 
     /// Enumerate the focused windows of other visible apps (not the primary one).
@@ -220,21 +220,23 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
                 Self.enhancedAXEnabled.insert(pid)
             }
 
-            // Get all windows for this app
+            // Get all windows for this app and find the first visible one
             var windowsRef: CFTypeRef?
             guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
                   let windows = windowsRef as? [AXUIElement],
-                  let firstWindow = windows.first else { continue }
+                  !windows.isEmpty else { continue }
 
-            // Check if the window is on-screen (has a reasonable size)
-            let frame = getFrameAttribute(firstWindow)
-            guard frame.width > 50 && frame.height > 50 else { continue }
+            // Find a window that is on-screen (has a reasonable size)
+            guard let visibleWindow = windows.first(where: {
+                let frame = getFrameAttribute($0)
+                return frame.width > 50 && frame.height > 50
+            }) else { continue }
 
-            let windowTitle = getStringAttribute(firstWindow, kAXTitleAttribute as CFString) ?? "Untitled"
+            let windowTitle = getStringAttribute(visibleWindow, kAXTitleAttribute as CFString) ?? "Untitled"
             let appName = app.localizedName ?? "Unknown"
 
             nextId = 1
-            let elements = enumerateElement(element: firstWindow, depth: 0, maxDepth: 15) // shallower for secondary
+            let elements = enumerateElement(element: visibleWindow, depth: 0, maxDepth: 15) // shallower for secondary
             guard !elements.isEmpty else { continue }
 
             results.append(WindowInfo(elements: elements, windowTitle: windowTitle, appName: appName))

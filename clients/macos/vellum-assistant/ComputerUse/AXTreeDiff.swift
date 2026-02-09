@@ -4,6 +4,16 @@ import Foundation
 /// Returns a human-readable summary of what changed (elements added, removed, value changes, focus changes).
 enum AXTreeDiff {
 
+    /// Stable identity for matching elements across scans.
+    /// Uses structural properties instead of ephemeral IDs (which reset each enumeration).
+    struct StableKey: Hashable {
+        let role: String
+        let title: String?
+        let identifier: String?
+        let frameX: Int
+        let frameY: Int
+    }
+
     struct ElementSnapshot: Hashable {
         let id: Int
         let role: String
@@ -15,43 +25,47 @@ enum AXTreeDiff {
 
     /// Produce a compact diff summary between two AX tree element lists.
     /// Returns nil if the trees are identical.
+    ///
+    /// Elements are matched by stable structural identity (role, title, identifier,
+    /// frame position) rather than ephemeral IDs, which reset each enumeration and
+    /// shift when elements are inserted or removed.
     static func diff(previous: [AXElement], current: [AXElement]) -> String? {
         let prevFlat = AccessibilityTreeEnumerator.flattenElements(previous)
         let currFlat = AccessibilityTreeEnumerator.flattenElements(current)
 
-        let prevSnapshots = Dictionary(
-            prevFlat.map { (snapshot(of: $0).id, snapshot(of: $0)) },
+        let prevByKey = Dictionary(
+            prevFlat.map { (stableKey(of: $0), snapshot(of: $0)) },
             uniquingKeysWith: { first, _ in first }
         )
-        let currSnapshots = Dictionary(
-            currFlat.map { (snapshot(of: $0).id, snapshot(of: $0)) },
+        let currByKey = Dictionary(
+            currFlat.map { (stableKey(of: $0), snapshot(of: $0)) },
             uniquingKeysWith: { first, _ in first }
         )
 
         var changes: [String] = []
 
         // Find removed elements (in previous but not in current)
-        let removedIds = Set(prevSnapshots.keys).subtracting(currSnapshots.keys)
-        for id in removedIds.sorted() {
-            if let snap = prevSnapshots[id] {
+        let removedKeys = Set(prevByKey.keys).subtracting(currByKey.keys)
+        for key in removedKeys.sorted(by: { $0.role < $1.role || ($0.role == $1.role && ($0.title ?? "") < ($1.title ?? "")) }) {
+            if let snap = prevByKey[key] {
                 let label = snap.title ?? snap.role
-                changes.append("- Removed: [\(id)] \(label)")
+                changes.append("- Removed: [\(snap.id)] \(label)")
             }
         }
 
         // Find added elements (in current but not in previous)
-        let addedIds = Set(currSnapshots.keys).subtracting(prevSnapshots.keys)
-        for id in addedIds.sorted() {
-            if let snap = currSnapshots[id] {
+        let addedKeys = Set(currByKey.keys).subtracting(prevByKey.keys)
+        for key in addedKeys.sorted(by: { $0.role < $1.role || ($0.role == $1.role && ($0.title ?? "") < ($1.title ?? "")) }) {
+            if let snap = currByKey[key] {
                 let label = snap.title ?? snap.role
-                changes.append("+ Added: [\(id)] \(label)")
+                changes.append("+ Added: [\(snap.id)] \(label)")
             }
         }
 
-        // Find changed elements (same ID, different state)
-        let commonIds = Set(prevSnapshots.keys).intersection(currSnapshots.keys)
-        for id in commonIds.sorted() {
-            guard let prev = prevSnapshots[id], let curr = currSnapshots[id] else { continue }
+        // Find changed elements (same stable identity, different state)
+        let commonKeys = Set(prevByKey.keys).intersection(currByKey.keys)
+        for key in commonKeys.sorted(by: { $0.role < $1.role || ($0.role == $1.role && ($0.title ?? "") < ($1.title ?? "")) }) {
+            guard let prev = prevByKey[key], let curr = currByKey[key] else { continue }
             if prev == curr { continue }
 
             var elementChanges: [String] = []
@@ -75,13 +89,24 @@ enum AXTreeDiff {
             }
 
             if !elementChanges.isEmpty {
-                changes.append("~ Changed: [\(id)] \(label) — \(elementChanges.joined(separator: ", "))")
+                // Use the current element's ID so the model can target it
+                changes.append("~ Changed: [\(curr.id)] \(label) — \(elementChanges.joined(separator: ", "))")
             }
         }
 
         guard !changes.isEmpty else { return nil }
 
         return "CHANGES SINCE LAST ACTION:\n" + changes.joined(separator: "\n")
+    }
+
+    private static func stableKey(of element: AXElement) -> StableKey {
+        StableKey(
+            role: element.role,
+            title: element.title,
+            identifier: element.identifier,
+            frameX: Int(element.frame.origin.x),
+            frameY: Int(element.frame.origin.y)
+        )
     }
 
     private static func snapshot(of element: AXElement) -> ElementSnapshot {
