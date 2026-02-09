@@ -63,6 +63,93 @@ final class AccessibilityTreeTests: XCTestCase {
                         "Should not fallback with 3+ interactive elements")
     }
 
+    // MARK: - AX Tree Diff
+
+    func testDiff_identicalTrees_returnsNil() {
+        let elements = [
+            AXElement(id: 1, role: "AXButton", title: "OK", value: nil, frame: .zero,
+                      isEnabled: true, isFocused: false, children: [],
+                      roleDescription: nil, identifier: nil, url: nil, placeholderValue: nil)
+        ]
+        XCTAssertNil(AXTreeDiff.diff(previous: elements, current: elements))
+    }
+
+    func testDiff_addedElement() {
+        let prev = [
+            AXElement(id: 1, role: "AXButton", title: "OK", value: nil, frame: .zero,
+                      isEnabled: true, isFocused: false, children: [],
+                      roleDescription: nil, identifier: nil, url: nil, placeholderValue: nil)
+        ]
+        let curr = [
+            AXElement(id: 1, role: "AXButton", title: "OK", value: nil, frame: .zero,
+                      isEnabled: true, isFocused: false, children: [],
+                      roleDescription: nil, identifier: nil, url: nil, placeholderValue: nil),
+            AXElement(id: 2, role: "AXButton", title: "Cancel", value: nil, frame: .zero,
+                      isEnabled: true, isFocused: false, children: [],
+                      roleDescription: nil, identifier: nil, url: nil, placeholderValue: nil)
+        ]
+        let diff = AXTreeDiff.diff(previous: prev, current: curr)
+        XCTAssertNotNil(diff)
+        XCTAssertTrue(diff!.contains("Added"))
+        XCTAssertTrue(diff!.contains("Cancel"))
+    }
+
+    func testDiff_removedElement() {
+        let prev = [
+            AXElement(id: 1, role: "AXButton", title: "OK", value: nil, frame: .zero,
+                      isEnabled: true, isFocused: false, children: [],
+                      roleDescription: nil, identifier: nil, url: nil, placeholderValue: nil),
+            AXElement(id: 2, role: "AXButton", title: "Cancel", value: nil, frame: .zero,
+                      isEnabled: true, isFocused: false, children: [],
+                      roleDescription: nil, identifier: nil, url: nil, placeholderValue: nil)
+        ]
+        let curr = [
+            AXElement(id: 1, role: "AXButton", title: "OK", value: nil, frame: .zero,
+                      isEnabled: true, isFocused: false, children: [],
+                      roleDescription: nil, identifier: nil, url: nil, placeholderValue: nil)
+        ]
+        let diff = AXTreeDiff.diff(previous: prev, current: curr)
+        XCTAssertNotNil(diff)
+        XCTAssertTrue(diff!.contains("Removed"))
+        XCTAssertTrue(diff!.contains("Cancel"))
+    }
+
+    func testDiff_changedValue() {
+        let prev = [
+            AXElement(id: 1, role: "AXTextField", title: "Name", value: "John", frame: .zero,
+                      isEnabled: true, isFocused: false, children: [],
+                      roleDescription: nil, identifier: nil, url: nil, placeholderValue: nil)
+        ]
+        let curr = [
+            AXElement(id: 1, role: "AXTextField", title: "Name", value: "Jane", frame: .zero,
+                      isEnabled: true, isFocused: false, children: [],
+                      roleDescription: nil, identifier: nil, url: nil, placeholderValue: nil)
+        ]
+        let diff = AXTreeDiff.diff(previous: prev, current: curr)
+        XCTAssertNotNil(diff)
+        XCTAssertTrue(diff!.contains("Changed"))
+        XCTAssertTrue(diff!.contains("John"))
+        XCTAssertTrue(diff!.contains("Jane"))
+    }
+
+    func testDiff_focusChange() {
+        let prev = [
+            AXElement(id: 1, role: "AXTextField", title: "Name", value: nil, frame: .zero,
+                      isEnabled: true, isFocused: false, children: [],
+                      roleDescription: nil, identifier: nil, url: nil, placeholderValue: nil)
+        ]
+        let curr = [
+            AXElement(id: 1, role: "AXTextField", title: "Name", value: nil, frame: .zero,
+                      isEnabled: true, isFocused: true, children: [],
+                      roleDescription: nil, identifier: nil, url: nil, placeholderValue: nil)
+        ]
+        let diff = AXTreeDiff.diff(previous: prev, current: curr)
+        XCTAssertNotNil(diff)
+        XCTAssertTrue(diff!.contains("gained focus"))
+    }
+
+    // MARK: - Flatten
+
     func testFlattenElements() {
         let child = AXElement(id: 2, role: "AXButton", title: "Child", value: nil, frame: .zero,
                               isEnabled: true, isFocused: false, children: [],

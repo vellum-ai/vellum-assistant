@@ -13,6 +13,8 @@ final class AnthropicProvider: ActionInferenceProvider {
     func infer(
         axTree: String?,
         previousAXTree: String?,
+        axDiff: String?,
+        secondaryWindows: String?,
         screenshot: Data?,
         screenSize: CGSize,
         task: String,
@@ -20,7 +22,7 @@ final class AnthropicProvider: ActionInferenceProvider {
         elements: [AXElement]?
     ) async throws -> AgentAction {
         let systemPrompt = buildSystemPrompt(screenSize: screenSize)
-        let messages = buildMessages(axTree: axTree, previousAXTree: previousAXTree, screenshot: screenshot, task: task, history: history)
+        let messages = buildMessages(axTree: axTree, previousAXTree: previousAXTree, axDiff: axDiff, secondaryWindows: secondaryWindows, screenshot: screenshot, task: task, history: history)
 
         let (toolName, input) = try await client.sendToolUseRequest(
             model: model,
@@ -59,13 +61,15 @@ final class AnthropicProvider: ActionInferenceProvider {
         - NEVER type passwords, credit card numbers, SSNs, or other sensitive data.
         - Prefer keyboard shortcuts (cmd+c, cmd+v) over menu navigation when possible.
         - When the task is complete, call the done tool with a summary.
-        - You may receive the previous screen state alongside the current one. Compare them to understand what changed after your last action.
+        - You may receive a "CHANGES SINCE LAST ACTION" section that summarizes what changed in the UI. Use this to confirm your action worked or to adapt.
+        - You may see "OTHER VISIBLE WINDOWS" showing elements from other apps. Use this for cross-app tasks (e.g., "copy from Safari, paste into Notes").
+        - For drag operations (moving files, resizing, sliders), use the drag tool with source and destination element_ids or coordinates.
         """
     }
 
     // MARK: - Message Building
 
-    private func buildMessages(axTree: String?, previousAXTree: String?, screenshot: Data?, task: String, history: [ActionRecord]) -> [[String: Any]] {
+    private func buildMessages(axTree: String?, previousAXTree: String?, axDiff: String?, secondaryWindows: String?, screenshot: Data?, task: String, history: [ActionRecord]) -> [[String: Any]] {
         var contentBlocks: [[String: Any]] = []
 
         // Screenshot image block
@@ -85,8 +89,12 @@ final class AnthropicProvider: ActionInferenceProvider {
         textParts.append("TASK: \(task)")
         textParts.append("")
 
-        // Include previous AX tree so the model can see what changed
-        if let prevTree = previousAXTree, !history.isEmpty {
+        // Include AX tree diff (compact summary of what changed)
+        if let diff = axDiff, !history.isEmpty {
+            textParts.append(diff)
+            textParts.append("")
+        } else if let prevTree = previousAXTree, !history.isEmpty {
+            // Fall back to full previous tree if diff unavailable
             textParts.append("SCREEN STATE BEFORE YOUR LAST ACTION:")
             textParts.append(prevTree)
             textParts.append("")
@@ -97,9 +105,17 @@ final class AnthropicProvider: ActionInferenceProvider {
             textParts.append(tree)
             textParts.append("")
             textParts.append("Use element_id with the [ID] numbers shown above to target elements.")
+            // Include secondary windows for cross-app awareness
+            if let secWindows = secondaryWindows {
+                textParts.append("")
+                textParts.append(secWindows)
+                textParts.append("")
+                textParts.append("Note: The element [ID]s above are from other windows — you can reference them for context but can only interact with the focused window's elements.")
+            }
+
             if screenshot != nil {
                 textParts.append("")
-                textParts.append("A screenshot of the FULL SCREEN is also attached above. Use it to see content outside the focused window (e.g., reference documents, PDFs, other apps visible behind the current window). The AX tree only covers the focused window, but the screenshot shows everything visible on screen.")
+                textParts.append("A screenshot of the FULL SCREEN is also attached above. Use it to see content outside the focused window (e.g., reference documents, PDFs, other apps visible behind the current window).")
             }
         } else if screenshot != nil {
             textParts.append("CURRENT SCREEN STATE:")
