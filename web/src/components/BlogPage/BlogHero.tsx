@@ -12,21 +12,36 @@ export function BlogHero() {
   }));
 
   return (
-    <section className="overflow-hidden">
-      <div className="u-container is--hero-blog">
-        <div className="hero_container_blog u-vflex-center-top gap-prod">
-          <div className="u-vflex-center-top gap-medium">
-            <h1 className="u-text-h1 blog-text">The Latest Learnings in AI</h1>
-            <p className="u-text-regular text-center">
-              Drowning in AI information? Experts at Vellum distill the latest and greatest into
-              bite-sized articles to keep you informed.
-            </p>
-          </div>
+    <section style={{ paddingTop: "6rem", paddingBottom: "4rem" }}>
+      <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "0 1.5rem" }}>
+        {/* Hero Header */}
+        <div style={{ 
+          textAlign: "center", 
+          marginBottom: "3rem",
+          maxWidth: "700px",
+          margin: "0 auto 3rem",
+        }}>
+          <h1 style={{ 
+            fontSize: "clamp(2rem, 5vw, 3rem)", 
+            fontWeight: "700", 
+            color: "#101828",
+            marginBottom: "1rem",
+            lineHeight: "1.2",
+          }}>
+            The Latest Learnings in AI
+          </h1>
+          <p style={{ 
+            fontSize: "1.125rem", 
+            color: "#667085",
+            lineHeight: "1.6",
+          }}>
+            Drowning in AI information? Experts at Vellum distill the latest and greatest into
+            bite-sized articles to keep you informed.
+          </p>
         </div>
 
         <BlogList posts={postsWithDates} />
       </div>
-      <div className="backface_block page_grad" />
     </section>
   );
 }
