@@ -182,9 +182,14 @@ final class AnthropicProvider: ActionInferenceProvider {
     // MARK: - Tool Call Parsing
 
     /// Extract an integer from a JSON value that may be NSNumber (int or double).
+    /// Rejects fractional values to avoid silently truncating coordinates/IDs.
     private func intFromJSON(_ value: Any?) -> Int? {
         if let n = value as? Int { return n }
-        if let n = value as? NSNumber { return n.intValue }
+        if let n = value as? NSNumber {
+            let d = n.doubleValue
+            guard d == d.rounded(.towardZero) && !d.isNaN && !d.isInfinite else { return nil }
+            return n.intValue
+        }
         return nil
     }
 

@@ -68,6 +68,10 @@ final class VoiceInputManager {
                 guard !Task.isCancelled else { return }
                 beginRecording()
             }
+        } else if fnPressed && hasOtherModifiers {
+            // Another modifier pressed while Fn held — cancel pending voice activation
+            fnHoldTask?.cancel()
+            fnHoldTask = nil
         } else if !fnPressed {
             fnHoldTask?.cancel()
             fnHoldTask = nil
