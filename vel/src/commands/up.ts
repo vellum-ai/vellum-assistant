@@ -149,28 +149,40 @@ export async function up(): Promise<void> {
 const EXPECTED_ACCOUNT_SUFFIX = `.iam.gserviceaccount.com`;
 
 async function verifyGcloudAccount(): Promise<void> {
-  const output = await execOutput('gcloud', ['auth', 'list', '--filter=status:ACTIVE', '--format=value(account)']);
+  let output: string;
+  try {
+    output = await execOutput('gcloud', ['auth', 'list', '--filter=status:ACTIVE', '--format=value(account)']);
+  } catch {
+    console.error(
+      '⚠️  Could not run gcloud auth list. Is gcloud installed?\n' +
+      `   Expected an account matching *@${GS_PROJECT_ID}${EXPECTED_ACCOUNT_SUFFIX}\n`
+    );
+    return;
+  }
+
   const activeAccount = output.trim();
 
   if (!activeAccount) {
-    throw new Error(
-      'No active gcloud account found.\n\n' +
-      'Please authenticate with a service account:\n' +
-      `  gcloud auth activate-service-account --key-file=<path-to-key>\n\n` +
-      `Expected an account matching *@${GS_PROJECT_ID}${EXPECTED_ACCOUNT_SUFFIX}`
+    console.error(
+      '⚠️  No active gcloud account found.\n' +
+      '   Please authenticate with a service account:\n' +
+      `     gcloud auth activate-service-account --key-file=<path-to-key>\n` +
+      `   Expected an account matching *@${GS_PROJECT_ID}${EXPECTED_ACCOUNT_SUFFIX}\n`
     );
+    return;
   }
 
   const expectedSuffix = `@${GS_PROJECT_ID}${EXPECTED_ACCOUNT_SUFFIX}`;
   if (!activeAccount.endsWith(expectedSuffix)) {
-    throw new Error(
-      `Wrong gcloud account active: ${activeAccount}\n\n` +
-      `Expected an account matching *${expectedSuffix}\n` +
-      'Switch to the correct service account with:\n' +
-      `  gcloud auth activate-service-account --key-file=<path-to-key>\n` +
-      'Or switch configurations with:\n' +
-      `  gcloud config configurations activate <config-name>`
+    console.error(
+      `⚠️  Wrong gcloud account active: ${activeAccount}\n` +
+      `   Expected an account matching *${expectedSuffix}\n` +
+      '   Switch to the correct service account with:\n' +
+      `     gcloud auth activate-service-account --key-file=<path-to-key>\n` +
+      '   Or switch configurations with:\n' +
+      `     gcloud config configurations activate <config-name>\n`
     );
+    return;
   }
 }
 
