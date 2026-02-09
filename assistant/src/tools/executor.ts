@@ -5,7 +5,6 @@ import { RiskLevel } from '../permissions/types.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { addRule } from '../permissions/trust-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
-import { recordToolInvocation } from '../memory/tool-usage-store.js';
 import { ToolError, PermissionDeniedError } from '../util/errors.js';
 import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 import { findAllMatches, adjustIndentation } from './filesystem/fuzzy-match.js';
@@ -91,15 +90,6 @@ export class ToolExecutor {
           reason: result.reason,
           durationMs,
         });
-        recordToolInvocation({
-          conversationId: context.conversationId,
-          toolName: name,
-          input: JSON.stringify(input),
-          result: `denied: ${result.reason}`,
-          decision: 'denied',
-          riskLevel,
-          durationMs,
-        });
         return { content: result.reason, isError: true };
       }
 
@@ -160,15 +150,6 @@ export class ToolExecutor {
             reason: 'Permission denied by user',
             durationMs,
           });
-          recordToolInvocation({
-            conversationId: context.conversationId,
-            toolName: name,
-            input: JSON.stringify(input),
-            result: 'denied',
-            decision: 'denied',
-            riskLevel,
-            durationMs,
-          });
           return { content: 'Permission denied by user', isError: true };
         }
 
@@ -188,15 +169,6 @@ export class ToolExecutor {
             riskLevel,
             decision: 'always_deny',
             reason: ruleSaved ? 'Permission denied by user (rule saved)' : 'Permission denied by user',
-            durationMs,
-          });
-          recordToolInvocation({
-            conversationId: context.conversationId,
-            toolName: name,
-            input: JSON.stringify(input),
-            result: ruleSaved ? 'denied (permanent)' : 'denied',
-            decision: 'denied',
-            riskLevel,
             durationMs,
           });
           return { content: ruleSaved ? 'Permission denied by user (rule saved)' : 'Permission denied by user', isError: true };
@@ -265,15 +237,6 @@ export class ToolExecutor {
               durationMs,
               result: blockedResult,
             });
-            recordToolInvocation({
-              conversationId: context.conversationId,
-              toolName: name,
-              input: JSON.stringify(input),
-              result: blockedContent.slice(0, 1000),
-              decision,
-              riskLevel,
-              durationMs,
-            });
             return blockedResult;
           }
         }
@@ -304,30 +267,12 @@ export class ToolExecutor {
         durationMs,
         result: execResult,
       });
-      recordToolInvocation({
-        conversationId: context.conversationId,
-        toolName: name,
-        input: JSON.stringify(input),
-        result: execResult.content.slice(0, 1000), // Truncate for storage
-        decision,
-        riskLevel,
-        durationMs,
-      });
 
       return execResult;
     } catch (err) {
       const durationMs = Date.now() - startTime;
       const msg = err instanceof Error ? err.message : String(err);
 
-      recordToolInvocation({
-        conversationId: context.conversationId,
-        toolName: name,
-        input: JSON.stringify(input),
-        result: `error: ${msg}`,
-        decision: 'error',
-        riskLevel,
-        durationMs,
-      });
       emitLifecycleEvent(context, {
         type: 'error',
         toolName: name,
