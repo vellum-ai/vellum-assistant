@@ -47,6 +47,7 @@ mkdir -p "$SYMLINK_DIR"
 
 # Write wrapper script that runs vel from source via bun
 echo "🔗 Installing vel wrapper script..."
+rm -f "$SYMLINK_PATH"
 cat > "$SYMLINK_PATH" << 'WRAPPER'
 #!/bin/bash
 
