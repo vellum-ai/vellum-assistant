@@ -31,6 +31,7 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("Security"),
                 .linkedFramework("Speech"),
+                .linkedFramework("Vision"),
             ]
         ),
         .testTarget(
