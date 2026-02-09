@@ -27,15 +27,14 @@ export class AnthropicProvider implements Provider {
   ): Promise<ProviderResponse> {
     const { config, onEvent, signal } = options ?? {};
     try {
-      const params: Anthropic.MessageCreateParams = {
+      const params = {
         model: this.model,
-        max_tokens: 8192,
         messages: messages.map((m) => ({
           role: m.role,
           content: m.content.map((block) => this.toAnthropicBlock(block)),
         })),
         ...config,
-      };
+      } as Anthropic.MessageCreateParams;
 
       if (systemPrompt) {
         params.system = systemPrompt;
