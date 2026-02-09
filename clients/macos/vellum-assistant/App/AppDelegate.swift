@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
     private var voiceInput: VoiceInputManager?
+    private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     let ambientAgent = AmbientAgent()
 
     private var windowObserver: Any?
@@ -112,7 +113,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupVoiceInput() {
         voiceInput = VoiceInputManager()
         voiceInput?.onTranscription = { [weak self] text in
+            self?.voiceTranscriptionWindow?.close()
+            self?.voiceTranscriptionWindow = nil
             self?.startSession(task: text)
+        }
+        voiceInput?.onPartialTranscription = { [weak self] text in
+            self?.voiceTranscriptionWindow?.updateText(text)
         }
         voiceInput?.onRecordingStateChanged = { [weak self] isRecording in
             if isRecording {
@@ -120,7 +126,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     systemSymbolName: "mic.fill",
                     accessibilityDescription: "vellum-assistant"
                 )
+                let window = VoiceTranscriptionWindow()
+                window.show()
+                self?.voiceTranscriptionWindow = window
             } else {
+                self?.voiceTranscriptionWindow?.close()
+                self?.voiceTranscriptionWindow = nil
                 self?.updateMenuBarIcon()
             }
         }

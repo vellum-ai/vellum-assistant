@@ -208,6 +208,24 @@ enum ToolDefinitions {
             ] as [String: Any]
         ],
         [
+            "name": "open_app",
+            "description": "Open or switch to a macOS application by name. Preferred over cmd+tab for switching apps — more reliable and explicit.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "app_name": [
+                        "type": "string",
+                        "description": "The name of the application to open (e.g. \"Slack\", \"Safari\", \"Google Chrome\", \"VS Code\")"
+                    ],
+                    "reasoning": [
+                        "type": "string",
+                        "description": "Explanation of why you need to open or switch to this app"
+                    ]
+                ],
+                "required": ["app_name", "reasoning"]
+            ] as [String: Any]
+        ],
+        [
             "name": "done",
             "description": "Task is complete",
             "input_schema": [

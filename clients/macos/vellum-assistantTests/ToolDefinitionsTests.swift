@@ -4,7 +4,7 @@ import XCTest
 final class ToolDefinitionsTests: XCTestCase {
 
     func testToolCount() {
-        XCTAssertEqual(ToolDefinitions.tools.count, 9, "Should have 9 tools defined")
+        XCTAssertEqual(ToolDefinitions.tools.count, 10, "Should have 10 tools defined")
     }
 
     func testToolNames() {
@@ -17,6 +17,7 @@ final class ToolDefinitionsTests: XCTestCase {
         XCTAssertTrue(names.contains("scroll"))
         XCTAssertTrue(names.contains("wait"))
         XCTAssertTrue(names.contains("drag"))
+        XCTAssertTrue(names.contains("open_app"))
         XCTAssertTrue(names.contains("done"))
     }
 

@@ -9,6 +9,7 @@ enum ExecutorError: LocalizedError {
     case missingKey
     case unknownKey(String)
     case accessibilityNotGranted
+    case appNotFound(String)
 
     var errorDescription: String? {
         switch self {
@@ -18,6 +19,7 @@ enum ExecutorError: LocalizedError {
         case .missingKey: return "Key action requires key name"
         case .unknownKey(let key): return "Unknown key: \(key)"
         case .accessibilityNotGranted: return "Accessibility permission not granted"
+        case .appNotFound(let name): return "Application not found: \(name)"
         }
     }
 }
@@ -216,6 +218,9 @@ final class ActionExecutor: ActionExecuting {
             guard let fromX = action.x, let fromY = action.y else { throw ExecutorError.missingCoordinates }
             guard let endX = action.toX, let endY = action.toY else { throw ExecutorError.missingCoordinates }
             try drag(from: CGPoint(x: fromX, y: fromY), to: CGPoint(x: endX, y: endY))
+        case .openApp:
+            guard let appName = action.appName else { throw ExecutorError.appNotFound("(no name)") }
+            try await openApp(name: appName)
         case .wait:
             let ms = action.waitDuration ?? 500
             try await Task.sleep(nanoseconds: UInt64(ms) * 1_000_000)
@@ -255,6 +260,71 @@ final class ActionExecutor: ActionExecuting {
             throw ExecutorError.eventCreationFailed
         }
         mouseUp.post(tap: .cghidEventTap)
+    }
+
+    // MARK: - Open App
+
+    private static let appAliases: [String: String] = [
+        "chrome": "Google Chrome",
+        "vs code": "Visual Studio Code",
+        "vscode": "Visual Studio Code",
+        "edge": "Microsoft Edge",
+        "word": "Microsoft Word",
+        "excel": "Microsoft Excel",
+        "powerpoint": "Microsoft PowerPoint",
+        "outlook": "Microsoft Outlook",
+        "teams": "Microsoft Teams",
+        "iterm": "iTerm",
+    ]
+
+    func openApp(name: String) async throws {
+        let workspace = NSWorkspace.shared
+
+        // 1. Check running apps for exact or case-insensitive match
+        let nameLower = name.lowercased()
+        if let runningApp = workspace.runningApplications.first(where: {
+            $0.localizedName?.lowercased() == nameLower
+        }) {
+            runningApp.activate()
+            try await Task.sleep(nanoseconds: 300_000_000) // 300ms for app to come forward
+            return
+        }
+
+        // 2. Resolve aliases
+        let resolvedName = Self.appAliases[nameLower] ?? name
+
+        // 3. Search common application directories
+        let searchDirs = [
+            "/Applications",
+            "/System/Applications",
+            "/System/Applications/Utilities",
+            NSString("~/Applications").expandingTildeInPath,
+        ]
+
+        for dir in searchDirs {
+            let appPath = "\(dir)/\(resolvedName).app"
+            let appURL = URL(fileURLWithPath: appPath)
+            if FileManager.default.fileExists(atPath: appPath) {
+                let config = NSWorkspace.OpenConfiguration()
+                config.activates = true
+                try await workspace.openApplication(at: appURL, configuration: config)
+                return
+            }
+        }
+
+        // 4. Try case-insensitive filesystem search in /Applications
+        if let found = try? FileManager.default.contentsOfDirectory(atPath: "/Applications")
+            .first(where: {
+                $0.lowercased() == "\(resolvedName.lowercased()).app"
+            }) {
+            let appURL = URL(fileURLWithPath: "/Applications/\(found)")
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            try await workspace.openApplication(at: appURL, configuration: config)
+            return
+        }
+
+        throw ExecutorError.appNotFound(name)
     }
 
     // MARK: - Key Code Map

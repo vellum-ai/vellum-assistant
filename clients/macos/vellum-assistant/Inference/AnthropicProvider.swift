@@ -47,7 +47,7 @@ final class AnthropicProvider: ActionInferenceProvider {
 
         You will receive the current screen state as an accessibility tree. Each interactive element has an [ID] number like [3] or [17]. Use these IDs with element_id to target elements — this is much more reliable than pixel coordinates.
 
-        YOUR ONLY AVAILABLE TOOLS ARE: click, double_click, right_click, type_text, key, scroll, drag, wait, done.
+        YOUR ONLY AVAILABLE TOOLS ARE: click, double_click, right_click, type_text, key, scroll, drag, wait, open_app, done.
         You MUST only call one of these tools each turn. Do NOT attempt to call any other tool.
 
         RULES:
@@ -64,6 +64,18 @@ final class AnthropicProvider: ActionInferenceProvider {
         - You may receive a "CHANGES SINCE LAST ACTION" section that summarizes what changed in the UI. Use this to confirm your action worked or to adapt.
         - You may see "OTHER VISIBLE WINDOWS" showing elements from other apps. Use this for cross-app tasks (e.g., "copy from Safari, paste into Notes").
         - For drag operations (moving files, resizing, sliders), use the drag tool with source and destination element_ids or coordinates.
+
+        MULTI-STEP WORKFLOWS:
+        - When a task involves multiple apps (e.g., "send a message in Slack"), use open_app to switch apps — it is much more reliable than cmd+tab.
+        - After switching apps with open_app, wait one turn for the UI to update before interacting with the new app's elements.
+        - Break cross-app tasks into phases: (1) open_app to switch, (2) wait for UI, (3) interact with the app.
+
+        APP-SPECIFIC TIPS:
+        - Slack: Use cmd+k to quickly jump to a channel or DM by name.
+        - Safari / Chrome: Use cmd+l to focus the address bar.
+        - VS Code: Use cmd+shift+p to open the command palette.
+        - Finder: Use cmd+shift+g for "Go to Folder".
+        - Messages: Click the search bar or use cmd+n for a new message.
         """
     }
 
@@ -241,6 +253,12 @@ final class AnthropicProvider: ActionInferenceProvider {
                 throw InferenceError.parseError("wait requires 'duration_ms' field")
             }
             return AgentAction(type: .wait, reasoning: reasoning, waitDuration: durationMs)
+
+        case "open_app":
+            guard let appName = input["app_name"] as? String else {
+                throw InferenceError.parseError("open_app requires 'app_name' field")
+            }
+            return AgentAction(type: .openApp, reasoning: reasoning, appName: appName)
 
         case "done":
             let summary = input["summary"] as? String ?? "Task completed"
