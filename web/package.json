@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.72.1",
+    "@aws-sdk/client-s3": "^3.985.0",
     "@google-cloud/compute": "^6.7.0",
     "@google-cloud/storage": "^7.18.0",
     "@stripe/react-stripe-js": "^5.6.0",
