@@ -10,6 +10,8 @@ import { ToolError, PermissionDeniedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { findAllMatches, adjustIndentation } from './filesystem/fuzzy-match.js';
 import { validateFilePath } from './filesystem/path-guard.js';
+import { wrapCommand } from './terminal/sandbox.js';
+import { getConfig } from '../config/loader.js';
 
 const log = getLogger('tool-executor');
 
@@ -63,6 +65,13 @@ export class ToolExecutor {
         // Compute preview diff for file tools so the user sees what will change
         const previewDiff = computePreviewDiff(name, input, context.workingDir);
 
+        // Check if this shell command will run sandboxed
+        let sandboxed: boolean | undefined;
+        if (name === 'shell' && typeof input.command === 'string') {
+          const wrapped = wrapCommand(input.command, context.workingDir, getConfig().sandbox.enabled);
+          sandboxed = wrapped.sandboxed;
+        }
+
         const response = await this.prompter.prompt(
           name,
           input,
@@ -70,6 +79,7 @@ export class ToolExecutor {
           allowlistOptions,
           scopeOptions,
           previewDiff,
+          sandboxed,
         );
 
         decision = response.decision;

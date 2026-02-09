@@ -60,6 +60,11 @@ export interface UsageRequest {
   sessionId: string;
 }
 
+export interface SandboxSetRequest {
+  type: 'sandbox_set';
+  enabled: boolean;
+}
+
 export type ClientMessage =
   | UserMessage
   | ConfirmationResponse
@@ -72,7 +77,8 @@ export type ClientMessage =
   | ModelSetRequest
   | HistoryRequest
   | UndoRequest
-  | UsageRequest;
+  | UsageRequest
+  | SandboxSetRequest;
 
 // === Server → Client messages ===
 
@@ -110,6 +116,7 @@ export interface ConfirmationRequest {
   allowlistOptions: Array<{ label: string; pattern: string }>;
   scopeOptions: Array<{ label: string; scope: string }>;
   diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
+  sandboxed?: boolean;
 }
 
 export interface MessageComplete {

@@ -19,7 +19,11 @@ const HEARTBEAT_TIMEOUT_MS = 10_000;
 const RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
-export async function startCli(): Promise<void> {
+export interface CliOptions {
+  noSandbox?: boolean;
+}
+
+export async function startCli(options: CliOptions = {}): Promise<void> {
   const socketPath = getSocketPath();
   let socket: net.Socket;
   let parser = createMessageParser();
@@ -85,7 +89,7 @@ export async function startCli(): Promise<void> {
     const preview = formatCommandPreview(req);
     process.stdout.write('\n');
     process.stdout.write(`\u250C ${req.toolName}: ${preview}\n`);
-    process.stdout.write(`\u2502 Risk: ${req.riskLevel}\n`);
+    process.stdout.write(`\u2502 Risk: ${req.riskLevel}${req.sandboxed ? '  [sandboxed]' : ''}\n`);
     if (req.diff) {
       const diffOutput = req.diff.isNewFile
         ? formatNewFileDiff(req.diff.newContent, req.diff.filePath)
@@ -645,4 +649,9 @@ export async function startCli(): Promise<void> {
 
   // Initial connection
   await connect();
+
+  // Send sandbox override if --no-sandbox was passed
+  if (options.noSandbox) {
+    send({ type: 'sandbox_set', enabled: false });
+  }
 }

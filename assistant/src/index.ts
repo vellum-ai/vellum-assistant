@@ -84,9 +84,10 @@ program
   .name('vellum')
   .description('Local AI assistant')
   .version('0.1.0')
-  .action(async () => {
+  .option('--no-sandbox', 'Disable sandbox for this session (runtime override, not persisted)')
+  .action(async (opts: { sandbox?: boolean }) => {
     await ensureDaemonRunning();
-    await startCli();
+    await startCli({ noSandbox: opts.sandbox === false });
   });
 
 const daemon = program.command('daemon').description('Manage the daemon process');

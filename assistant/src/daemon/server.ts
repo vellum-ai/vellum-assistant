@@ -327,6 +327,9 @@ export class DaemonServer {
       case 'usage_request':
         this.handleUsageRequest(msg.sessionId, socket);
         break;
+      case 'sandbox_set':
+        this.handleSandboxSet(msg.enabled);
+        break;
       case 'ping':
         this.send(socket, { type: 'pong' });
         break;
@@ -449,6 +452,14 @@ export class DaemonServer {
       const message = err instanceof Error ? err.message : String(err);
       this.send(socket, { type: 'error', message: `Failed to set model: ${message}` });
     }
+  }
+
+  private handleSandboxSet(enabled: boolean): void {
+    // Runtime-only override: modify the in-memory config without persisting
+    // to disk. Takes effect immediately for all subsequent shell executions.
+    const config = getConfig();
+    config.sandbox.enabled = enabled;
+    log.info({ enabled }, 'Sandbox override applied (runtime only)');
   }
 
   private handleHistoryRequest(sessionId: string, socket: net.Socket): void {
