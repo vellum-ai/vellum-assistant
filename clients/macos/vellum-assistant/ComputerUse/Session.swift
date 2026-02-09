@@ -330,6 +330,7 @@ final class ComputerUseSession: ObservableObject {
         var pollCount = 0
         let maxPollCount = 10
         let stableExitThreshold = 3
+        var hasChangedFromPrevious = false
 
         while elapsed < maxDelayMs && !isCancelled && pollCount < maxPollCount {
             // Quick check if the AX tree has changed
@@ -342,11 +343,15 @@ final class ComputerUseSession: ObservableObject {
 
                 // Exit: tree changed from pre-action state (action took effect)
                 if currentTree != previousTree {
+                    hasChangedFromPrevious = true
                     log.debug("UI settled after \(elapsed)ms (tree changed)")
                     return
                 }
 
-                // Track consecutive identical polls for early stability exit
+                // Track consecutive identical polls for early stability exit,
+                // but ONLY use this shortcut after we've seen the tree change
+                // at least once. Otherwise slow UI updates (app launches,
+                // delayed renders) get declared "stable" prematurely.
                 if currentTree == lastPollTree {
                     consecutiveStablePolls += 1
                 } else {
@@ -354,9 +359,8 @@ final class ComputerUseSession: ObservableObject {
                 }
                 lastPollTree = currentTree
 
-                // If tree has been identical for N consecutive polls, UI is stable — no point waiting
-                if consecutiveStablePolls >= stableExitThreshold {
-                    log.debug("UI stable after \(elapsed)ms (\(consecutiveStablePolls) identical polls, no changes)")
+                if hasChangedFromPrevious && consecutiveStablePolls >= stableExitThreshold {
+                    log.debug("UI stable after \(elapsed)ms (\(consecutiveStablePolls) identical polls after change)")
                     return
                 }
             }

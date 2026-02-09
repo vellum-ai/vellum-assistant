@@ -114,8 +114,10 @@ final class AnthropicProvider: ActionInferenceProvider {
         if let diff = axDiff, !history.isEmpty {
             textParts.append(diff)
             textParts.append("")
-        } else if previousAXTree != nil && !history.isEmpty {
+        } else if previousAXTree != nil && axTree != nil && !history.isEmpty {
             // AX tree unchanged — tell the model its action had no effect
+            // (only when we have both current and previous trees; if current tree
+            // is nil we fell back to screenshot-only and can't judge)
             let lastAction = history.last
             let wasWait = lastAction?.action.type == .wait
             textParts.append("CHANGES SINCE LAST ACTION:")
