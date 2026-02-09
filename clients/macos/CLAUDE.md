@@ -4,21 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by Claude via the Anthropic Messages API with tool use. It lives as a sparkles icon in the menu bar — users type a task (or will soon use voice), and the agent executes it step-by-step.
+A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by Claude via the Anthropic Messages API with tool use. It lives as a sparkles icon in the menu bar — users type a task (or hold Fn for voice), and the agent executes it step-by-step.
 
 ## Build & Test
 
-The project has **dual build systems**: an Xcode project (generated via XcodeGen from `project.yml`) and a SwiftPM `Package.swift`. The Xcode build is the primary one for the app bundle:
+Dual build systems: SwiftPM `Package.swift` (fast iteration) and XcodeGen `project.yml` → Xcode project (app bundle). **MUST set `DEVELOPER_DIR`** — the CommandLineTools toolchain fails with linker errors.
 
 ```bash
+# Build (debug, via SPM)
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build
+
 # Build (release, via xcodebuild)
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme vellum-assistant -configuration Release -derivedDataPath build build
 
-# Build (debug, via SPM — faster iteration, but no bundle ID at runtime)
-swift build
+# Run all tests
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 
-# Run tests
-swift test
+# Run a single test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter SessionTests/testHappyPath_completesInThreeSteps
 
 # Watch logs from a running instance
 log stream --predicate 'subsystem == "com.vellum.vellum-assistant"' --level debug
@@ -26,32 +29,67 @@ log stream --predicate 'subsystem == "com.vellum.vellum-assistant"' --level debu
 
 ## Architecture
 
-**Session loop** (`Session.swift`) — the core orchestration cycle runs per-task:
-1. **PERCEIVE** — enumerate the AX tree of the focused window (`AccessibilityTree.swift`); fall back to screenshot (`ScreenCapture.swift`) if no tree available
-2. **INFER** — send AX tree (or screenshot) + task + action history to Claude via Anthropic Messages API with forced tool use (`AnthropicProvider.swift`); model returns exactly one tool call per turn
-3. **VERIFY** — safety checks: sensitive data, destructive keys, loop detection, step limits, system menu bar exclusion (`ActionVerifier.swift`)
-4. **EXECUTE** — inject mouse/keyboard events via CGEvent (`ActionExecutor.swift`)
-5. **LOG** — record each turn to JSON (`SessionLogger.swift`)
+### Session Loop (`Session.swift`)
 
-**App lifecycle** (`AppDelegate.swift`) — sets up NSStatusItem with NSPopover for task input, global hotkey (Cmd+Shift+G via HotKey package), and global Escape monitor. `VellumAssistantApp.swift` is the `@main` entry point using `@NSApplicationDelegateAdaptor`.
+The core orchestration cycle runs per-task in `ComputerUseSession` (`@MainActor`):
 
-**Inference** — `ActionInferenceProvider` protocol with `AnthropicProvider` implementation. Uses 8 tools: `click`, `double_click`, `right_click`, `type_text`, `key`, `scroll`, `wait`, `done`. Element targeting uses `[ID]` numbers from the AX tree resolved to screen coordinates via `resolvePosition`.
+1. **PERCEIVE** — enumerate the AX tree of the focused window (`AccessibilityTree.swift`); also captures a screenshot alongside; falls back to screenshot-only if no AX tree. Computes `AXTreeDiff` between steps. Enumerates secondary windows for cross-app awareness.
+2. **INFER** — send AX tree + screenshot + previous AX tree + diff + task + action history to Claude via `AnthropicProvider`; model returns exactly one tool call per turn.
+3. **VERIFY** — safety checks: sensitive data, destructive keys, loop detection (3 identical consecutive actions), step limits, system menu bar exclusion (`ActionVerifier`).
+4. **EXECUTE** — inject mouse/keyboard events via CGEvent (`ActionExecutor`). Text input uses clipboard-paste (Cmd+V) with save/restore.
+5. **WAIT** — adaptive delay: polls AX tree for changes instead of fixed sleep, returns early when UI settles.
 
-**Text input** uses clipboard-paste (Cmd+V) rather than keystroke simulation, with clipboard save/restore.
+### Dependency Injection
+
+All session dependencies are protocol-based for testability:
+- `ActionInferenceProvider` — inference (impl: `AnthropicProvider`)
+- `AccessibilityTreeProviding` — AX enumeration (impl: `AccessibilityTreeEnumerator`)
+- `ScreenCaptureProviding` — screenshots (impl: `ScreenCapture`)
+- `ActionExecuting` — CGEvent injection (impl: `ActionExecutor`)
+
+Tests use `Mock*` versions defined in `SessionTests.swift`. Test pattern: `@MainActor func testX() async`.
+
+### Inference Layer
+
+`AnthropicClient` is the shared HTTP client with retry logic (exponential backoff for 429/5xx). Used by both `AnthropicProvider` (session inference) and `AmbientAnalyzer`.
+
+`AnthropicProvider` builds Messages API requests with 10 tools: `click`, `double_click`, `right_click`, `type_text`, `key`, `scroll`, `wait`, `drag`, `open_app`, `done`. Element targeting uses `[ID]` numbers from the AX tree resolved to screen coordinates via `resolvePosition`.
+
+### Ambient Agent (`Ambient/`)
+
+A background screen-watching system that runs alongside the manual session loop:
+- `AmbientAgent` — orchestrates periodic capture → OCR → analyze cycles (configurable interval, default 30s)
+- `AmbientAnalyzer` — sends OCR text to Haiku; returns ignore/observe/suggest decisions
+- `KnowledgeStore` — persists observations as JSON in Application Support (max 500 entries)
+- `KnowledgeCron` — triggers insight analysis after every N observations; generates higher-level insights via `InsightStore`
+
+### Voice Input
+
+`VoiceInputManager` — hold Fn (or Ctrl, configurable) for speech-to-text via `SFSpeechRecognizer`. Shows `VoiceTranscriptionWindow` during recording.
+
+### App Lifecycle
+
+`AppDelegate` sets up: NSStatusItem with NSPopover, global hotkey (Cmd+Shift+G via HotKey package), global Escape monitor, voice input, ambient agent, and onboarding flow. `VellumAssistantApp` is the `@main` entry point with `@NSApplicationDelegateAdaptor`.
+
+### Onboarding
+
+`UI/Onboarding/` — multi-step flow (`OnboardingFlowView` → `OnboardingState`) covering wake-up animation, naming, permissions (screen recording, microphone), Fn key setup, and an alive-check step. Shown on first launch; skip with `--skip-onboarding` in debug.
 
 ## Key Constraints
 
-- **LSUIElement app** — no dock icon; uses `.accessory` activation policy. Must temporarily switch to `.regular` when showing Settings window (see `TaskInputView.swift`).
-- **`Bundle.main.bundleIdentifier` is nil** when built via SwiftPM (no app bundle). The `os.Logger` subsystem uses a hardcoded fallback `"com.vellum.vellum-assistant"`.
-- **Two plists**: `Info.plist` (for SPM) and `Info-generated.plist` (for Xcode/XcodeGen). When adding new plist keys (e.g., usage descriptions), update both.
-- **Adding new .swift files**: When adding source files, they are automatically picked up by SwiftPM but must be **manually added to `vellum-assistant.xcodeproj/project.pbxproj`** (add to both PBXFileReference and PBXSourcesBuildPhase). Look at how `ChromeAccessibilityHelper.swift` was added as a pattern.
+- **LSUIElement app** — no dock icon; uses `.accessory` activation policy. Must temporarily switch to `.regular` when showing Settings window.
+- **`Bundle.main.bundleIdentifier` is nil** in SPM builds. All `os.Logger` instances use hardcoded fallback `"com.vellum.vellum-assistant"`.
+- **Two plists**: `Info.plist` (SPM) and `Info-generated.plist` (XcodeGen). When adding plist keys, update both.
+- **Adding .swift files**: Auto-picked up by SPM. Must be **manually added to `project.pbxproj`** for Xcode (PBXFileReference + PBXSourcesBuildPhase).
 - **Chrome special handling** — `ChromeAccessibilityHelper` detects when Chrome's AX tree lacks web content and auto-restarts Chrome with `--force-renderer-accessibility`.
-- **Popover close delay** — 300ms delay before session starts to let the popover close and target app regain focus.
+- **Popover close delay** — 300ms initial delay before session starts to let the popover close and target app regain focus.
+- **SessionState enum** must stay in sync with `SessionOverlayView` pattern matching.
 
 ## Permissions
 
-The app requires macOS Accessibility and Screen Recording permissions (System Settings > Privacy & Security). `PermissionManager` and `ActionExecutor.checkAccessibilityPermission` handle checking/prompting.
+Requires Accessibility, Screen Recording, and Microphone permissions (System Settings > Privacy & Security). `PermissionManager` handles checking/prompting. API key stored in Keychain via `APIKeyManager`.
 
-## Session Logs
+## Data Storage
 
-Written to `~/Library/Application Support/vellum-assistant/logs/session-*.json`.
+- Session logs: `~/Library/Application Support/vellum-assistant/logs/session-*.json`
+- Knowledge store: `~/Library/Application Support/vellum-assistant/knowledge.json`
