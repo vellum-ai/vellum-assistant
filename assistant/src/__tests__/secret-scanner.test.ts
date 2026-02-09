@@ -539,7 +539,8 @@ describe('shannonEntropy', () => {
 describe('entropy-based detection', () => {
   test('detects high-entropy hex token near secret keyword', () => {
     const hexSecret = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
-    const input = `api_key = ${hexSecret}`;
+    // Use context that triggers entropy detection but not generic assignment pattern
+    const input = `The signing_key is ${hexSecret}`;
     const matches = scanText(input);
     const entropyMatch = matches.find((m) => m.type === 'High-Entropy Hex Token');
     expect(entropyMatch).toBeDefined();
@@ -590,7 +591,7 @@ describe('entropy-based detection', () => {
 
   test('respects custom threshold', () => {
     const hexSecret = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
-    const input = `api_key = ${hexSecret}`;
+    const input = `The signing_key is ${hexSecret}`;
 
     // With extremely high threshold, nothing matches
     const matchesHigh = scanText(input, { hexThreshold: 10.0 });
@@ -616,9 +617,10 @@ describe('entropy-based detection', () => {
 
   test('recognizes various secret context keywords', () => {
     const hexSecret = 'a3f8c1b2d9e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8';
-    const keywords = ['secret', 'password', 'bearer', 'credentials', 'access_key', 'private_key'];
+    // Use "is" instead of "=" to avoid matching the generic assignment pattern
+    const keywords = ['bearer', 'credential', 'private_key', 'signing_key', 'encryption_key'];
     for (const kw of keywords) {
-      const input = `${kw} = ${hexSecret}`;
+      const input = `The ${kw} is ${hexSecret}`;
       const matches = scanText(input);
       const entropyMatches = matches.filter((m) => m.type.startsWith('High-Entropy'));
       expect(entropyMatches.length).toBeGreaterThanOrEqual(1);
@@ -643,5 +645,106 @@ describe('hasSecretContext', () => {
   test('detects keyword case-insensitively', () => {
     const text = 'API_KEY = abc123';
     expect(_hasSecretContext(text, 10)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Overlapping match handling in redactSecrets (#166 feedback)
+// ---------------------------------------------------------------------------
+describe('overlapping match redaction', () => {
+  test('does not corrupt output when matches overlap', () => {
+    // An AWS key inside a generic secret assignment produces overlapping matches
+    const input = `api_key = "AKIAIOSFODNN7REALKEY"`;
+    const result = redactSecrets(input);
+    // Should redact correctly without duplicating markers or losing text
+    expect(result).not.toContain('AKIAIOSFODNN7REALKEY');
+    // The outer quotes should be preserved somewhere in the output
+    expect(result).toContain('[REDACTED:');
+  });
+
+  test('skips nested match and preserves surrounding text', () => {
+    // Construct a case where a specific match is entirely inside a broader one
+    const input = `password = "AKIAIOSFODNN7REALKEY inside text"`;
+    const result = redactSecrets(input);
+    // Should have at least one redaction
+    expect(result).toContain('[REDACTED:');
+    // Should not contain the raw key
+    expect(result).not.toContain('AKIAIOSFODNN7REALKEY');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Heroku UUID context requirement (#166 feedback)
+// ---------------------------------------------------------------------------
+describe('Heroku API Key', () => {
+  test('detects UUID with heroku context keyword', () => {
+    const uuid = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+    const input = `HEROKU_API_KEY=${uuid}`;
+    const matches = scanText(input);
+    const heroku = matches.filter((m) => m.type === 'Heroku API Key');
+    expect(heroku).toHaveLength(1);
+  });
+
+  test('detects UUID with heroku_auth_token prefix', () => {
+    const uuid = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+    const input = `heroku_auth_token = "${uuid}"`;
+    const matches = scanText(input);
+    const heroku = matches.filter((m) => m.type === 'Heroku API Key');
+    expect(heroku).toHaveLength(1);
+  });
+
+  test('does not flag random UUIDs without heroku context', () => {
+    const uuid = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+    const input = `request_id: ${uuid}`;
+    const matches = scanText(input);
+    const heroku = matches.filter((m) => m.type === 'Heroku API Key');
+    expect(heroku).toHaveLength(0);
+  });
+
+  test('does not flag UUIDs in logs', () => {
+    const input = 'Processed request id=a1b2c3d4-e5f6-7890-abcd-ef1234567890 in 42ms';
+    const matches = scanText(input);
+    const heroku = matches.filter((m) => m.type === 'Heroku API Key');
+    expect(heroku).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unquoted generic secret assignments (#166 feedback)
+// ---------------------------------------------------------------------------
+describe('unquoted generic secret assignments', () => {
+  test('detects .env-style unquoted password', () => {
+    const input = 'DATABASE_PASSWORD=supersecret123';
+    const matches = scanText(input);
+    const generic = matches.filter((m) => m.type === 'Generic Secret Assignment');
+    expect(generic.length).toBeGreaterThan(0);
+  });
+
+  test('detects .env-style unquoted api key', () => {
+    const input = 'API_KEY=abcdef1234567890';
+    const matches = scanText(input);
+    const generic = matches.filter((m) => m.type === 'Generic Secret Assignment');
+    expect(generic.length).toBeGreaterThan(0);
+  });
+
+  test('detects unquoted token assignment', () => {
+    const input = 'AUTH_TOKEN=mysecuretokenvalue123';
+    const matches = scanText(input);
+    const generic = matches.filter((m) => m.type === 'Generic Secret Assignment');
+    expect(generic.length).toBeGreaterThan(0);
+  });
+
+  test('still detects quoted assignments', () => {
+    const input = `secret = "mysupersecretsecret"`;
+    const matches = scanText(input);
+    const generic = matches.filter((m) => m.type === 'Generic Secret Assignment');
+    expect(generic.length).toBeGreaterThan(0);
+  });
+
+  test('does not match short unquoted values', () => {
+    const input = 'password=short';
+    const matches = scanText(input);
+    const generic = matches.filter((m) => m.type === 'Generic Secret Assignment');
+    expect(generic).toHaveLength(0);
   });
 });

@@ -138,7 +138,8 @@ const PATTERNS: SecretPattern[] = [
   // -- Heroku --
   {
     type: 'Heroku API Key',
-    regex: /\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/g,
+    // Require a heroku-related keyword prefix to avoid flagging every UUID
+    regex: /(?:heroku[_-]?api[_-]?key|HEROKU[_-]?API[_-]?KEY|heroku[_-]?auth[_-]?token)\s*[:=]\s*['"]?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})['"]?/gi,
   },
 
   // -- Private keys --
@@ -159,10 +160,15 @@ const PATTERNS: SecretPattern[] = [
     regex: /((?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|mssql|redis|amqp|amqps):\/\/[^\s'"]+)/g,
   },
 
-  // -- Generic "password" / "secret" / "token" assignments --
+  // -- Generic "password" / "secret" / "token" assignments (quoted) --
   {
     type: 'Generic Secret Assignment',
     regex: /(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|auth[_-]?token|credentials)\s*[:=]\s*['"]([^'"]{8,})['"]/gi,
+  },
+  // -- Generic assignments (unquoted, e.g. .env files) --
+  {
+    type: 'Generic Secret Assignment',
+    regex: /(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|auth[_-]?token|credentials)\s*=\s*([^\s'"]{8,})/gi,
   },
 ];
 
@@ -501,6 +507,7 @@ export function redactSecrets(text: string, entropyConfig?: Partial<EntropyConfi
   let lastIndex = 0;
 
   for (const match of matches) {
+    if (match.startIndex < lastIndex) continue; // skip overlapping match
     result += text.slice(lastIndex, match.startIndex);
     result += `[REDACTED:${match.type}]`;
     lastIndex = match.endIndex;
