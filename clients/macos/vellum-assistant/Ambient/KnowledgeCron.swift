@@ -11,6 +11,8 @@ final class KnowledgeCron {
     private var cronTask: Task<Void, Never>?
     private let model = "claude-haiku-4-5-20251001"
     private let minimumEntries = 5
+    private let maxConsecutiveFailures = 3
+    private var consecutiveFailures = 0
 
     var onInsight: ((KnowledgeInsight) -> Void)?
 
@@ -167,6 +169,7 @@ final class KnowledgeCron {
 
             guard let rawInsights = result.input["insights"] as? [[String: Any]] else {
                 log.warning("Cron: failed to parse insights from response")
+                advanceOrRetry()
                 return
             }
 
@@ -201,12 +204,23 @@ final class KnowledgeCron {
                 log.info("Cron: no insights found in this run")
             }
 
-            // Only advance watermark after successful parse — transient API/network
-            // failures should not skip unanalyzed entries.
+            consecutiveFailures = 0
             lastRunTimestamp = Date().timeIntervalSince1970
 
         } catch {
             log.warning("Cron: analysis failed: \(error.localizedDescription)")
+            advanceOrRetry()
+        }
+    }
+
+    /// Increment failure counter; advance watermark after repeated failures to avoid
+    /// getting permanently stuck on a deterministic error (e.g. payload too large).
+    private func advanceOrRetry() {
+        consecutiveFailures += 1
+        if consecutiveFailures >= maxConsecutiveFailures {
+            log.warning("Cron: \(self.consecutiveFailures) consecutive failures, advancing watermark to avoid stuck retry loop")
+            consecutiveFailures = 0
+            lastRunTimestamp = Date().timeIntervalSince1970
         }
     }
 }
