@@ -152,6 +152,24 @@ resource "kubernetes_service" "app" {
   }
 }
 
+# Static IP for Ingress
+resource "google_compute_global_address" "ingress_ip" {
+  name = "vellum-assistant-ip"
+
+  depends_on = [google_project_service.compute]
+}
+
+# Managed SSL Certificate
+resource "google_compute_managed_ssl_certificate" "default" {
+  name = "vellum-assistant-cert"
+
+  depends_on = [google_project_service.compute]
+
+  managed {
+    domains = [var.domain]
+  }
+}
+
 # Ingress with Google-managed SSL
 resource "kubernetes_ingress_v1" "app" {
   metadata {
