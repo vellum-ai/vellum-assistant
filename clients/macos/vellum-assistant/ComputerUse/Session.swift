@@ -162,19 +162,19 @@ final class ComputerUseSession: ObservableObject {
                 // which may be our own app when we fell back to enumeratePreviousApp)
                 primaryPID = result.pid
 
-                // Enumerate secondary windows for cross-app awareness
-                let secondaryWindows = enumerator.enumerateSecondaryWindows(
-                    excludingPID: primaryPID,
-                    maxWindows: 2
-                )
-                secondaryWindowsText = AccessibilityTreeEnumerator.formatSecondaryWindows(secondaryWindows)
-                if let secText = secondaryWindowsText {
-                    log.info("[\(stepNumber)] Secondary windows: \(secondaryWindows.count)")
-                    log.debug("[\(stepNumber)] Secondary windows text:\n\(secText)")
-                }
-
-                // Conditionally capture a screenshot — skip on middle steps when AX tree is sufficient
+                // Enumerate secondary windows for cross-app awareness (skip for single-app tasks)
                 let lastAction = actionHistory.last?.action
+                if shouldEnumerateSecondaryWindows(stepNumber: stepNumber, lastAction: lastAction) {
+                    let secondaryWindows = enumerator.enumerateSecondaryWindows(
+                        excludingPID: primaryPID,
+                        maxWindows: 2
+                    )
+                    secondaryWindowsText = AccessibilityTreeEnumerator.formatSecondaryWindows(secondaryWindows)
+                    if let secText = secondaryWindowsText {
+                        log.info("[\(stepNumber)] Secondary windows: \(secondaryWindows.count)")
+                        log.debug("[\(stepNumber)] Secondary windows text:\n\(secText)")
+                    }
+                }
                 if shouldCaptureScreenshot(stepNumber: stepNumber, flatElements: flat, lastAction: lastAction) {
                     do {
                         screenshot = try await screenCapture.captureScreen()
@@ -404,6 +404,56 @@ final class ComputerUseSession: ObservableObject {
         }
 
         log.debug("UI settle timeout after \(elapsed)ms (polls: \(pollCount))")
+    }
+
+    // MARK: - Conditional Secondary Windows
+
+    /// Decide whether to enumerate secondary windows.
+    /// Skips on middle steps for single-app tasks where cross-app context isn't needed.
+    private func shouldEnumerateSecondaryWindows(stepNumber: Int, lastAction: AgentAction?) -> Bool {
+        // Always enumerate on step 1 (need full context)
+        if stepNumber == 1 { return true }
+
+        // Enumerate after openApp (just switched apps, secondary context is relevant)
+        if lastAction?.type == .openApp { return true }
+
+        // Enumerate if the task mentions multiple apps or cross-app phrases
+        if taskMentionsMultipleApps() { return true }
+
+        return false
+    }
+
+    private static let appKeywords: Set<String> = [
+        "safari", "chrome", "firefox", "slack", "finder", "notes", "mail",
+        "messages", "terminal", "vscode", "code", "xcode", "spotify",
+        "discord", "notion", "figma", "teams", "zoom", "preview",
+        "textedit", "pages", "numbers", "keynote", "calendar"
+    ]
+
+    private static let crossAppPhrases = [
+        "copy from", "paste into", "switch to", "drag from", "move to",
+        "from safari", "from chrome", "from slack", "to safari", "to chrome",
+        "to slack", "between"
+    ]
+
+    private func taskMentionsMultipleApps() -> Bool {
+        let lower = task.lowercased()
+
+        // Check for cross-app phrases first
+        for phrase in Self.crossAppPhrases {
+            if lower.contains(phrase) { return true }
+        }
+
+        // Check if 2+ app names appear in the task
+        var appCount = 0
+        for keyword in Self.appKeywords {
+            if lower.contains(keyword) {
+                appCount += 1
+                if appCount >= 2 { return true }
+            }
+        }
+
+        return false
     }
 
     // MARK: - Conditional Screenshot
