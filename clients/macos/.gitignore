@@ -5,4 +5,5 @@ build/
 xcuserdata/
 DerivedData/
 .DS_Store
+CLAUDE.md
 context.md
