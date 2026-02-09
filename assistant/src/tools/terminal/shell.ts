@@ -11,6 +11,38 @@ const log = getLogger('shell-tool');
 
 const MAX_OUTPUT_LENGTH = 50_000;
 
+/**
+ * Environment variables that are safe to pass through to child processes.
+ * Everything else (API keys, tokens, credentials) is stripped to prevent
+ * accidental leakage via agent-spawned commands.
+ */
+const SAFE_ENV_VARS = [
+  'PATH',
+  'HOME',
+  'TERM',
+  'LANG',
+  'EDITOR',
+  'SHELL',
+  'USER',
+  'TMPDIR',
+  'LC_ALL',
+  'LC_CTYPE',
+  'XDG_RUNTIME_DIR',
+  'DISPLAY',
+  'COLORTERM',
+  'TERM_PROGRAM',
+] as const;
+
+function buildSanitizedEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of SAFE_ENV_VARS) {
+    if (process.env[key] != null) {
+      env[key] = process.env[key]!;
+    }
+  }
+  return env;
+}
+
 class ShellTool implements Tool {
   name = 'shell';
   description = 'Execute a shell command on the local machine';
@@ -67,7 +99,7 @@ class ShellTool implements Tool {
       const wrapped = wrapCommand(command, context.workingDir, sandboxEnabled);
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,
-        env: { ...process.env },
+        env: buildSanitizedEnv(),
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
