@@ -5,7 +5,7 @@ import { getLogger } from '../util/logger.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
 import { getConfig, loadRawConfig, saveRawConfig, invalidateConfigCache } from '../config/loader.js';
-import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
+import { buildSystemPrompt } from '../config/system-prompt.js';
 import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
 import { resetAllowlist } from '../security/secret-allowlist.js';
 import * as conversationStore from '../memory/conversation-store.js';
@@ -274,7 +274,7 @@ export class DaemonServer {
         const newSession = new Session(
           conversationId,
           provider,
-          config.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+          buildSystemPrompt(config.systemPrompt),
           config.maxTokens,
           sendToClient,
           workingDir,
