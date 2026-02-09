@@ -3,9 +3,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import {
   getDefaultEditorTemplate,
-  getEditorPage,
   updateEditorPage,
-  uploadEditorPage,
 } from "@/lib/gcp";
 import { transpileEditorSource } from "@/lib/transpile";
 
@@ -26,12 +24,9 @@ export async function GET(request: Request, { params }: RouteParams) {
     const url = new URL(request.url);
     const format = url.searchParams.get("format");
 
-    let source = await getEditorPage(id);
-
-    if (!source) {
-      source = getDefaultEditorTemplate();
-      await uploadEditorPage(id, source);
-    }
+    // Always use the default template from disk.
+    // Stored versions in GCS may be stale after code changes (e.g. prop renames).
+    const source = getDefaultEditorTemplate();
 
     if (format === "source") {
       return NextResponse.json({ source });
