@@ -81,7 +81,7 @@ export class GeminiProvider implements Provider {
         if (calls) {
           for (const fc of calls) {
             functionCalls.push({
-              id: fc.id ?? `call_${functionCalls.length}`,
+              id: fc.id ?? `call_${crypto.randomUUID()}`,
               name: fc.name ?? '',
               args: fc.args ?? {},
             });
