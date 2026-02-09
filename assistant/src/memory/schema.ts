@@ -22,7 +22,9 @@ export const messages = sqliteTable('messages', {
 
 export const toolInvocations = sqliteTable('tool_invocations', {
   id: text('id').primaryKey(),
-  conversationId: text('conversation_id').notNull(),
+  conversationId: text('conversation_id')
+    .notNull()
+    .references(() => conversations.id),
   toolName: text('tool_name').notNull(),
   input: text('input').notNull(),
   result: text('result').notNull(),
