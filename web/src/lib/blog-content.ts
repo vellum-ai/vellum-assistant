@@ -153,3 +153,17 @@ export function formatDate(dateString: string): string {
     return dateString;
   }
 }
+
+export function getAllCategories(): string[] {
+  const posts = getAllBlogPosts();
+  const categories = new Set(posts.map(p => p.category));
+  return Array.from(categories).sort();
+}
+
+export function getBlogPostsByCategory(category: string): BlogPost[] {
+  const posts = getAllBlogPosts();
+  if (category === 'All' || !category) {
+    return posts;
+  }
+  return posts.filter(p => p.category === category);
+}
