@@ -207,18 +207,22 @@ jobs:
 
       - name: Staple notarization ticket
         run: |
-          # Apple's CDN can take a minute to propagate the ticket after notarization
-          for i in 1 2 3 4 5; do
+          # Apple's CDN can take several minutes to propagate the ticket after notarization
+          MAX_ATTEMPTS=10
+          WAIT_SECS=30
+          for i in $(seq 1 $MAX_ATTEMPTS); do
             if xcrun stapler staple "$DMG_PATH" 2>&1; then
               echo "Stapling succeeded on attempt $i"
               break
             fi
-            if [ "$i" -eq 5 ]; then
-              echo "::error::Stapling failed after 5 attempts"
+            if [ "$i" -eq "$MAX_ATTEMPTS" ]; then
+              echo "::error::Stapling failed after $MAX_ATTEMPTS attempts"
               exit 1
             fi
-            echo "Stapling attempt $i failed, waiting 30s for CDN propagation..."
-            sleep 30
+            echo "Stapling attempt $i failed, waiting ${WAIT_SECS}s for CDN propagation..."
+            sleep $WAIT_SECS
+            # Increase wait time for subsequent attempts (30, 45, 60, 75, ...)
+            WAIT_SECS=$((WAIT_SECS + 15))
           done
 
           # Verify stapling
