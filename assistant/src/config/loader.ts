@@ -20,6 +20,10 @@ function getConfigPath(): string {
   return join(getDataDir(), 'config.json');
 }
 
+function cloneDefaultConfig(): AssistantConfig {
+  return structuredClone(DEFAULT_CONFIG);
+}
+
 /**
  * Validate a raw config object with Zod. Invalid fields are logged as warnings
  * and replaced with defaults (matching prior behavior of per-field fallback).
@@ -42,7 +46,7 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   for (const issue of result.error.issues) {
     if (issue.path.length === 0) {
       // Top-level error — return full defaults
-      return { ...DEFAULT_CONFIG };
+      return cloneDefaultConfig();
     }
     deleteNestedKey(cleaned, issue.path as (string | number)[]);
   }
@@ -54,7 +58,7 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
 
   // If still failing, fall back to full defaults
   log.warn('Config validation failed after cleanup. Using full defaults.');
-  return { ...DEFAULT_CONFIG };
+  return cloneDefaultConfig();
 }
 
 function deleteNestedKey(obj: Record<string, unknown>, path: (string | number)[]): void {
@@ -74,7 +78,7 @@ export function loadConfig(): AssistantConfig {
   // Re-entrancy guard: log calls during loading (e.g. file-mode warning,
   // invalid apiKeys) can trigger loadConfig again. Return defaults to
   // break the cycle instead of recursing to stack overflow.
-  if (loading) return { ...DEFAULT_CONFIG, apiKeys: { ...DEFAULT_CONFIG.apiKeys }, timeouts: { ...DEFAULT_CONFIG.timeouts }, sandbox: { ...DEFAULT_CONFIG.sandbox }, rateLimit: { ...DEFAULT_CONFIG.rateLimit }, thinking: { ...DEFAULT_CONFIG.thinking }, secretDetection: { ...DEFAULT_CONFIG.secretDetection }, auditLog: { ...DEFAULT_CONFIG.auditLog } };
+  if (loading) return cloneDefaultConfig();
   loading = true;
 
   try {

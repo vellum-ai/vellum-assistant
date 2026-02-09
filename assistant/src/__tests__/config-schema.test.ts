@@ -357,4 +357,28 @@ describe('loadConfig with schema validation', () => {
     const config = loadConfig();
     expect(config.auditLog.retentionDays).toBe(0);
   });
+
+  test('does not mutate default apiKeys when fallback config is overridden by env keys', () => {
+    const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
+    try {
+      process.env.ANTHROPIC_API_KEY = 'sk-test-in-memory-default-leak';
+      writeConfig('this is not a config object');
+
+      const configWithEnv = loadConfig();
+      expect(configWithEnv.apiKeys.anthropic).toBe('sk-test-in-memory-default-leak');
+
+      invalidateConfigCache();
+      delete process.env.ANTHROPIC_API_KEY;
+      writeConfig('still not a config object');
+
+      const configWithoutEnv = loadConfig();
+      expect(configWithoutEnv.apiKeys.anthropic).toBeUndefined();
+    } finally {
+      if (originalAnthropicApiKey !== undefined) {
+        process.env.ANTHROPIC_API_KEY = originalAnthropicApiKey;
+      } else {
+        delete process.env.ANTHROPIC_API_KEY;
+      }
+    }
+  });
 });
