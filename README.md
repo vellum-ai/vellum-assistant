@@ -31,6 +31,17 @@ The setup script creates a symlink at `~/.local/bin/vel` for easy access from an
 
 See [vel/README.md](./vel/README.md) for more details.
 
+## Git Hooks
+
+This repository includes git hooks to help maintain code quality and security. The hooks are automatically installed when you run `./setup.sh`.
+
+To manually install or update hooks:
+```bash
+./.githooks/install.sh
+```
+
+See [.githooks/README.md](./.githooks/README.md) for more details about available hooks.
+
 ## Web Application
 
 The web app lives in `/web`. See [web/README.md](./web/README.md) for setup instructions.

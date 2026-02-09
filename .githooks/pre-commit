@@ -1,0 +1,123 @@
+#!/bin/bash
+
+# Pre-commit hook to check for plain text keys and secrets
+# This hook scans staged files for common patterns of sensitive information
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo "🔍 Checking for plain text keys and secrets..."
+
+# Check if there are any staged files
+if ! git diff --cached --name-only --diff-filter=ACM | grep -q .; then
+    exit 0
+fi
+
+# Patterns to check for sensitive information
+# Note: Using [[:space:]] instead of \s for grep -E compatibility
+declare -a PATTERNS=(
+    # API Keys
+    "api[_-]?key[_-]?=['\"]?[a-zA-Z0-9_\-]{20,}['\"]?"
+    "apikey['\"]?[[:space:]]*[:=][[:space:]]*['\"]?[a-zA-Z0-9_\-]{20,}"
+
+    # AWS Keys
+    "AKIA[0-9A-Z]{16}"
+    "aws[_-]?access[_-]?key[_-]?id"
+    "aws[_-]?secret[_-]?access[_-]?key"
+
+    # Private Keys
+    "-----BEGIN (RSA|DSA )?PRIVATE KEY-----"
+    "-----BEGIN PRIVATE KEY-----"
+    "private[_-]?key['\"]?[[:space:]]*[:=]"
+
+    # Passwords
+    "password['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]{3,}['\"]"
+    "passwd['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]{3,}['\"]"
+
+    # Secrets
+    "secret['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}['\"]"
+    "client[_-]?secret"
+
+    # Tokens
+    "token['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-\.]{20,}['\"]"
+    "bearer['\"]?[[:space:]]*[:=]?[[:space:]]*[a-zA-Z0-9_\-\.]{20,}"
+    "auth[_-]?token"
+
+    # Database URLs with credentials
+    "://[a-zA-Z0-9]+:[a-zA-Z0-9]+@[a-zA-Z0-9]"
+
+    # Generic secret patterns
+    "['\"]?[a-z0-9_]*secret[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}['\"]"
+    "['\"]?[a-z0-9_]*key[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-]{16,}['\"]"
+
+    # Slack tokens
+    "xox[baprs]-[0-9a-zA-Z]{10,}"
+
+    # GitHub tokens
+    "gh[pousr]_[0-9a-zA-Z]{36,}"
+
+    # Generic high entropy strings (likely keys)
+    "['\"][a-zA-Z0-9+/]{40,}={0,2}['\"]"
+)
+
+FOUND_SECRETS=0
+CHECKED_FILES=0
+
+# Use NUL-delimited list to safely handle filenames with spaces
+while IFS= read -r -d '' FILE; do
+    # Skip hook files themselves (they contain patterns to detect secrets)
+    if [[ "$FILE" =~ ^\.githooks/ ]]; then
+        continue
+    fi
+
+    # Skip binary files and common exclusions
+    if [[ "$FILE" =~ \.(jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot|pdf|zip|tar|gz)$ ]]; then
+        continue
+    fi
+
+    # Skip if file doesn't exist (deleted files)
+    if [ ! -f "$FILE" ]; then
+        continue
+    fi
+
+    CHECKED_FILES=$((CHECKED_FILES + 1))
+
+    # Check each pattern
+    for PATTERN in "${PATTERNS[@]}"; do
+        # Use git show to check the staged content, not the working directory
+        # Use -- to indicate end of options for patterns starting with dashes
+        MATCHES=$(git show ":$FILE" 2>/dev/null | grep -niE -- "$PATTERN" 2>/dev/null)
+
+        if [ ! -z "$MATCHES" ]; then
+            if [ $FOUND_SECRETS -eq 0 ]; then
+                echo -e "${RED}❌ Found potential secrets in staged files:${NC}\n"
+            fi
+
+            echo -e "${YELLOW}File: $FILE${NC}"
+            echo "$MATCHES" | while read -r line; do
+                echo "  Line: $line"
+            done
+            echo ""
+
+            FOUND_SECRETS=1
+        fi
+    done
+done < <(git diff --cached --name-only --diff-filter=ACM -z)
+
+if [ $FOUND_SECRETS -eq 1 ]; then
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${RED}COMMIT REJECTED: Potential secrets detected!${NC}"
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "Please remove sensitive information before committing."
+    echo "If this is a false positive, you can:"
+    echo "  1. Move secrets to environment variables or a .env file"
+    echo "  2. Use a secrets management system"
+    echo "  3. Skip this hook with: git commit --no-verify (NOT recommended)"
+    echo ""
+    exit 1
+fi
+
+echo "✅ No plain text keys detected in $CHECKED_FILES files"
+exit 0
