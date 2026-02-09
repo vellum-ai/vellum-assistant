@@ -3,12 +3,6 @@ import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 import { Assistant, getDb } from "@/lib/db";
-import {
-  createAssistantComputeInstance,
-  uploadAssistantConfigToGCS,
-  uploadAssistantToGCS,
-  getAvailablePrequeuedInstance,
-} from "@/lib/gcp";
 
 const MAX_ASSISTANTS_PER_USER = 3;
 const APP_URL = process.env.APP_URL || "http://localhost:3000";
@@ -115,67 +109,53 @@ export async function POST(request: NextRequest) {
     const newAssistant = newAssistantResult[0] as Assistant;
     console.log(`[Create For User] Created assistant ${newAssistant.id} (${newAssistant.name}) for user ${user_id}`);
 
-    // Provision the assistant infrastructure
-    try {
-      // Check for prequeued instance
-      const prequeued = await getAvailablePrequeuedInstance();
-
-      let gcsResult;
-      if (prequeued) {
-        gcsResult = await uploadAssistantConfigToGCS(
-          newAssistant.id,
-          newAssistant.name,
-          { apiKey: newAssistantApiKey }
-        );
-      } else {
-        gcsResult = await uploadAssistantToGCS(
-          newAssistant.id,
-          newAssistant.name,
-          { apiKey: newAssistantApiKey }
-        );
-      }
-
-      const instanceResult = await createAssistantComputeInstance(
-        newAssistant.id,
-        newAssistant.name,
-        gcsResult.bucket,
-        gcsResult.prefix
-      );
-
-      // Update assistant with compute config
-      await sql`
-        UPDATE assistants
-        SET configuration = ${JSON.stringify({
-          ...(newAssistant.configuration as Record<string, unknown> || {}),
-          compute: {
-            instanceName: instanceResult.instanceName,
-            zone: instanceResult.zone,
-            machineType: instanceResult.machineType,
-          },
-          gcs: {
-            bucket: gcsResult.bucket,
-            prefix: gcsResult.prefix,
-          },
-        })},
-        updated_at = NOW()
-        WHERE id = ${newAssistant.id}
-      `;
-
-      console.log(`[Create For User] Provisioned instance ${instanceResult.instanceName} for assistant ${newAssistant.id}`);
-    } catch (provisionError) {
-      console.error(`[Create For User] Failed to provision assistant ${newAssistant.id}:`, provisionError);
-      
-      // Update assistant with error status
-      await sql`
-        UPDATE assistants
-        SET configuration = ${JSON.stringify({
-          ...(newAssistant.configuration as Record<string, unknown> || {}),
-          provisioningError: provisionError instanceof Error ? provisionError.message : "Provisioning failed",
-        })},
-        updated_at = NOW()
-        WHERE id = ${newAssistant.id}
-      `;
-    }
+    // TODO(Team Apollo): Re-enable compute assistant creation
+    // try {
+    //   const gcsResult = await uploadAssistantToGCS(
+    //     newAssistant.id,
+    //     newAssistant.name,
+    //     { apiKey: newAssistantApiKey }
+    //   );
+    //
+    //   const instanceResult = await createAssistantComputeInstance(
+    //     newAssistant.id,
+    //     newAssistant.name,
+    //     gcsResult.bucket,
+    //     gcsResult.prefix
+    //   );
+    //
+    //   await sql`
+    //     UPDATE assistants
+    //     SET configuration = ${JSON.stringify({
+    //       ...(newAssistant.configuration as Record<string, unknown> || {}),
+    //       compute: {
+    //         instanceName: instanceResult.instanceName,
+    //         zone: instanceResult.zone,
+    //         machineType: instanceResult.machineType,
+    //       },
+    //       gcs: {
+    //         bucket: gcsResult.bucket,
+    //         prefix: gcsResult.prefix,
+    //       },
+    //     })},
+    //     updated_at = NOW()
+    //     WHERE id = ${newAssistant.id}
+    //   `;
+    //
+    //   console.log(`[Create For User] Provisioned instance ${instanceResult.instanceName} for assistant ${newAssistant.id}`);
+    // } catch (provisionError) {
+    //   console.error(`[Create For User] Failed to provision assistant ${newAssistant.id}:`, provisionError);
+    //
+    //   await sql`
+    //     UPDATE assistants
+    //     SET configuration = ${JSON.stringify({
+    //       ...(newAssistant.configuration as Record<string, unknown> || {}),
+    //       provisioningError: provisionError instanceof Error ? provisionError.message : "Provisioning failed",
+    //     })},
+    //     updated_at = NOW()
+    //     WHERE id = ${newAssistant.id}
+    //   `;
+    // }
 
     const assistantLink = `${APP_URL}/assistant`;
 
