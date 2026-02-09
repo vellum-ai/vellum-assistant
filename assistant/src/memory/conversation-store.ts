@@ -1,4 +1,4 @@
-import { eq, desc, asc, and, gte, count } from 'drizzle-orm';
+import { eq, desc, asc, and, count, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { conversations, messages } from './schema.js';
@@ -104,14 +104,16 @@ export function updateConversationUsage(
 
 /**
  * Delete the last user message and any subsequent assistant messages.
+ * Uses rowid comparison instead of timestamps to avoid deleting messages
+ * that share the same millisecond timestamp.
  * Returns the number of messages deleted.
  */
 export function deleteLastExchange(conversationId: string): number {
   const db = getDb();
 
-  // Find the last user message without loading all messages
+  // Find the last user message's id
   const lastUserMsg = db
-    .select({ createdAt: messages.createdAt })
+    .select({ id: messages.id })
     .from(messages)
     .where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
     .orderBy(desc(messages.createdAt))
@@ -120,9 +122,13 @@ export function deleteLastExchange(conversationId: string): number {
 
   if (!lastUserMsg) return 0;
 
+  // Use rowid to identify the last user message and everything after it.
+  // rowid is monotonically increasing for inserts, so this is safe even if
+  // multiple messages share the same millisecond timestamp.
+  const rowidSubquery = sql`(SELECT rowid FROM messages WHERE id = ${lastUserMsg.id})`;
   const condition = and(
     eq(messages.conversationId, conversationId),
-    gte(messages.createdAt, lastUserMsg.createdAt),
+    sql`rowid >= ${rowidSubquery}`,
   );
 
   // Count messages to delete, then delete them atomically
