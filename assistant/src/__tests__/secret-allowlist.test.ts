@@ -176,6 +176,39 @@ describe('secret-allowlist', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Retry on missing/malformed file
+  // -----------------------------------------------------------------------
+  test('retries loading when file did not exist on first call', () => {
+    // First call — no file exists, should not cache as loaded
+    expect(isAllowlisted('test-key')).toBe(false);
+
+    // Now create the file
+    writeFileSync(
+      join(testDir, 'secret-allowlist.json'),
+      JSON.stringify({ values: ['test-key'] }),
+    );
+
+    // Second call — should pick up the newly created file
+    expect(isAllowlisted('test-key')).toBe(true);
+  });
+
+  test('retries loading when file was malformed on first call', () => {
+    // First call with malformed JSON
+    writeFileSync(join(testDir, 'secret-allowlist.json'), 'not json{{{');
+    loadAllowlist();
+    expect(isAllowlisted('test-key')).toBe(false);
+
+    // Fix the file
+    writeFileSync(
+      join(testDir, 'secret-allowlist.json'),
+      JSON.stringify({ values: ['test-key'] }),
+    );
+
+    // Should retry and pick up the fixed file
+    expect(isAllowlisted('test-key')).toBe(true);
+  });
+
+  // -----------------------------------------------------------------------
   // resetAllowlist
   // -----------------------------------------------------------------------
   test('resetAllowlist clears cached state', () => {
