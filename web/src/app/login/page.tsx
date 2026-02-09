@@ -166,6 +166,15 @@ export default function LoginPage() {
                   />
                 </div>
 
+                <div className="text-right">
+                  <Link
+                    href="/forgot-password"
+                    className="text-block-130 font-inter no-underline text-[0.8125rem]"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+
                 <button
                   type="submit"
                   disabled={isSubmitting}
