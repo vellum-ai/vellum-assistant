@@ -186,6 +186,32 @@ describe('RateLimitProvider', () => {
       expect(shared.length).toBe(3);
     });
 
+    test('waitSec uses actual oldest timestamp under clock skew', async () => {
+      const config: RateLimitConfig = { maxRequestsPerMinute: 2, maxTokensPerSession: 0 };
+      const shared: number[] = [];
+      const provider = new RateLimitProvider(makeProvider(), config, shared);
+
+      // Simulate out-of-order timestamps: newer one first, older one second
+      const now = Date.now();
+      shared.push(now);               // newest
+      shared.push(now - 30_000);      // 30s ago (oldest in window)
+
+      // Next request should be rate-limited with ~30s wait (not 60s)
+      try {
+        await provider.sendMessage(messages);
+        expect(true).toBe(false); // should not reach
+      } catch (err) {
+        expect(err).toBeInstanceOf(RateLimitError);
+        const msg = (err as RateLimitError).message;
+        // Wait time should be ~30s, not 60s
+        const waitMatch = msg.match(/(\d+)s/);
+        expect(waitMatch).toBeTruthy();
+        const waitSec = parseInt(waitMatch![1], 10);
+        expect(waitSec).toBeLessThanOrEqual(31);
+        expect(waitSec).toBeGreaterThanOrEqual(29);
+      }
+    });
+
     test('shared array reference survives pruning', async () => {
       const config: RateLimitConfig = { maxRequestsPerMinute: 100, maxTokensPerSession: 0 };
       const shared: number[] = [];

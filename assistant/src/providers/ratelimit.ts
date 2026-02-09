@@ -47,17 +47,18 @@ export class RateLimitProvider implements Provider {
     const now = Date.now();
     const windowStart = now - 60_000;
     // Prune expired timestamps in-place to preserve the shared array
-    // reference. We walk backward so each splice doesn't shift later
-    // indices, and we handle out-of-order entries (e.g. clock rollback)
-    // correctly — unlike a sorted-prefix approach.
-    for (let i = this.requestTimestamps.length - 1; i >= 0; i--) {
-      if (this.requestTimestamps[i] <= windowStart) {
-        this.requestTimestamps.splice(i, 1);
+    // reference. Single-pass compaction: copy valid entries to the front
+    // and truncate, handling out-of-order entries correctly in O(n).
+    let write = 0;
+    for (let read = 0; read < this.requestTimestamps.length; read++) {
+      if (this.requestTimestamps[read] > windowStart) {
+        this.requestTimestamps[write++] = this.requestTimestamps[read];
       }
     }
+    this.requestTimestamps.length = write;
 
     if (this.requestTimestamps.length >= limit) {
-      const oldestInWindow = this.requestTimestamps[0];
+      const oldestInWindow = Math.min(...this.requestTimestamps);
       const waitSec = Math.ceil((oldestInWindow + 60_000 - now) / 1000);
       throw new RateLimitError(
         `Rate limit exceeded: ${limit} requests/minute. Try again in ${waitSec}s.`,
