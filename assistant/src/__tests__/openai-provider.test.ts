@@ -355,6 +355,38 @@ describe('OpenAIProvider', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Tool result with is_error flag
+  // -----------------------------------------------------------------------
+  test('prefixes tool result content with [ERROR] when is_error is true', async () => {
+    fakeChunks = [textChunk('I see the error'), usageChunk(20, 10)];
+
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Read /tmp/nope' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'call_err', name: 'file_read', input: { path: '/tmp/nope' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_err', content: 'ENOENT: no such file', is_error: true },
+        ],
+      },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const sent = lastCreateParams!.messages as Array<Record<string, unknown>>;
+    expect(sent[2]).toEqual({
+      role: 'tool',
+      tool_call_id: 'call_err',
+      content: '[ERROR] ENOENT: no such file',
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // Mixed tool_result + text in user message
   // -----------------------------------------------------------------------
   test('splits user message with tool_result + text into separate messages', async () => {

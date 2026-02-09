@@ -164,10 +164,13 @@ export class OpenAIProvider implements Provider {
 
         // Emit tool results as separate tool-role messages
         for (const tr of toolResults) {
+          const content = tr.is_error
+            ? `[ERROR] ${tr.content}`
+            : tr.content;
           result.push({
             role: 'tool',
             tool_call_id: tr.tool_use_id,
-            content: tr.content,
+            content,
           });
         }
 
