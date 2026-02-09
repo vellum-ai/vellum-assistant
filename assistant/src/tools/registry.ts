@@ -50,6 +50,9 @@ class LazyTool implements Tool {
           this.resolvedTool = tool;
           log.info({ name: this.name }, 'Lazy tool loaded');
           return tool;
+        }).catch((err) => {
+          this.loadPromise = null;
+          throw err;
         });
       }
       await this.loadPromise;
