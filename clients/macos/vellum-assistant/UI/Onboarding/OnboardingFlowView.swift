@@ -10,8 +10,9 @@ struct OnboardingFlowView: View {
             OnboardingBackground()
 
             VStack(spacing: 0) {
-                // Orb area — always visible at top
-                SoulOrbView(mood: state.orbMood)
+                // Orb area — always visible at top, progressively larger
+                SoulOrbView(mood: state.orbMood, size: orbSize)
+                    .animation(.easeOut(duration: 0.8), value: orbSize)
                     .padding(.top, 60)
                     .padding(.bottom, 32)
 
@@ -47,6 +48,14 @@ struct OnboardingFlowView: View {
         }
         .frame(width: 600, height: 500)
         .animation(.easeOut(duration: 0.8), value: state.currentStep)
+    }
+
+    private var orbSize: CGFloat {
+        switch state.currentStep {
+        case 0: return 48
+        case 5: return 72
+        default: return 56
+        }
     }
 }
 

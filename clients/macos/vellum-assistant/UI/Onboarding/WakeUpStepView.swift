@@ -9,7 +9,7 @@ struct WakeUpStepView: View {
     var body: some View {
         VStack(spacing: 24) {
             TypewriterText(
-                fullText: "Hello, world.",
+                fullText: "Something is ready to hatch.",
                 speed: 0.06,
                 font: .system(.largeTitle, design: .serif)
             ) {
@@ -20,7 +20,7 @@ struct WakeUpStepView: View {
                 }
             }
 
-            Text("I've been waiting for you.")
+            Text("It's been waiting for you.")
                 .font(.system(size: 15))
                 .foregroundColor(.white.opacity(0.5))
                 .opacity(showSubtext ? 1 : 0)
@@ -36,7 +36,7 @@ struct WakeUpStepView: View {
                 }
 
             OnboardingButton(
-                title: "Say hello",
+                title: "Crack it open",
                 style: .primary
             ) {
                 state.advance()

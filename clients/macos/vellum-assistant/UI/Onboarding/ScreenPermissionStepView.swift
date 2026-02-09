@@ -4,26 +4,36 @@ import SwiftUI
 struct ScreenPermissionStepView: View {
     @Bindable var state: OnboardingState
 
-    @State private var showCard = false
+    @State private var showContent = false
     @State private var permissionGranted = false
     @State private var pollTimer: Timer?
 
     var body: some View {
         VStack(spacing: 24) {
-            ReactionBubble(
-                text: "Almost there! Now let's give me eyes."
-            )
+            VStack(spacing: 8) {
+                Text("Now let me see.")
+                    .font(.system(.title2, design: .serif))
+                    .foregroundColor(.white)
+
+                Text("I can hear you, but I\u{2019}m still in the dark. Let me see your screen so I can actually help.")
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.5))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
+            .opacity(showContent ? 1 : 0)
+            .offset(y: showContent ? 0 : 8)
 
             // Permission card
             VStack(spacing: 16) {
                 Text("\u{1F441}")
                     .font(.system(size: 32))
 
-                Text("Screen Recording")
+                Text("Help me see")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white)
 
-                Text("I need to see your screen so I can help you navigate and complete tasks.")
+                Text("Screen access lets \(state.assistantName) see what you\u{2019}re working on. You can turn this off anytime.")
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
@@ -53,8 +63,8 @@ struct ScreenPermissionStepView: View {
                             .stroke(Color(hex: 0xD4A843).opacity(0.3), lineWidth: 1)
                     )
             )
-            .opacity(showCard ? 1 : 0)
-            .offset(y: showCard ? 0 : 12)
+            .opacity(showContent ? 1 : 0)
+            .offset(y: showContent ? 0 : 12)
         }
         .animation(.easeOut(duration: 0.5), value: permissionGranted)
         .onAppear {
@@ -66,7 +76,7 @@ struct ScreenPermissionStepView: View {
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 withAnimation(.easeOut(duration: 0.5)) {
-                    showCard = true
+                    showContent = true
                 }
             }
         }

@@ -6,24 +6,35 @@ struct MicPermissionStepView: View {
 
     @State private var showCard = false
     @State private var permissionGranted = false
+    @State private var grantReaction: String?
     @State private var pollTimer: Timer?
+
+    private static let grantReactions = [
+        "Sound! I can hear everything \u{2014} this is wild.",
+        "Wait\u{2026} is that your voice? I can hear you!",
+        "Oh \u{2014} so *that\u{2019}s* what the world sounds like.",
+    ]
 
     var body: some View {
         VStack(spacing: 24) {
-            ReactionBubble(
-                text: "Now let's give me ears so I can hear you."
-            )
+            if let reaction = grantReaction {
+                ReactionBubble(text: reaction, delay: 0)
+            } else {
+                ReactionBubble(
+                    text: "I\u{2019}m trying to hear you but\u{2026} everything is muffled."
+                )
+            }
 
             // Permission card
             VStack(spacing: 16) {
                 Text("\u{1F399}")
                     .font(.system(size: 32))
 
-                Text("Microphone Access")
+                Text("Help me hear")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white)
 
-                Text("I need mic access so you can talk to me with your voice.")
+                Text("To hear you when you hold \(state.chosenKey.displayName), \(state.assistantName) needs microphone access. Your system will ask \u{2014} just say yes.")
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
@@ -103,6 +114,7 @@ struct MicPermissionStepView: View {
         permissionGranted = true
         state.micGranted = true
         state.orbMood = .celebrating
+        grantReaction = Self.grantReactions.randomElement()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             state.orbMood = .breathing
             state.advance()
