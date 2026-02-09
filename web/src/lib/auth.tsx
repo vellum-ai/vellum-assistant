@@ -3,7 +3,6 @@
 import {
   createContext,
   ReactNode,
-  useCallback,
   useContext,
   useEffect,
   useState,
@@ -27,8 +26,8 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [username, setUsername] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
 
@@ -43,7 +42,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
   }, []);
 
-  const login = useCallback(async (user: string, password: string): Promise<string | null> => {
+  const login = async (user: string, password: string): Promise<string | null> => {
     const { error } = await authClient.signIn.username({
       username: user,
       password,
@@ -58,9 +57,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setEmail(sessionData.user.email);
     }
     return null;
-  }, []);
+  };
 
-  const signup = useCallback(async (user: string, signupEmail: string, password: string): Promise<string | null> => {
+  const signup = async (user: string, signupEmail: string, password: string): Promise<string | null> => {
     const { error } = await authClient.signUp.email({
       name: user,
       username: user,
@@ -71,14 +70,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return error.message ?? "Failed to create account. Please try again.";
     }
     return null;
-  }, []);
+  };
 
-  const logout = useCallback(async () => {
+  const logout = async () => {
     await authClient.signOut();
     setIsLoggedIn(false);
     setUsername(null);
     setEmail(null);
-  }, []);
+  };
 
   return (
     <AuthContext.Provider

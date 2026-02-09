@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
 import { VellumHead } from "@/components/VellumHomepage";
@@ -11,10 +11,10 @@ import { VellumHead } from "@/components/VellumHomepage";
 function CheckEmailContent() {
   const searchParams = useSearchParams();
   const email = searchParams.get("email");
-  const [resending, setResending] = useState(false);
-  const [resent, setResent] = useState(false);
+  const [resending, setResending] = useState<boolean>(false);
+  const [resent, setResent] = useState<boolean>(false);
 
-  const handleResend = useCallback(async () => {
+  const handleResend = async () => {
     if (!email || resending) {
       return;
     }
@@ -25,7 +25,7 @@ function CheckEmailContent() {
     });
     setResent(true);
     setResending(false);
-  }, [email, resending]);
+  };
 
   return (
     <>

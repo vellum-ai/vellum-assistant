@@ -18,7 +18,7 @@ function VerifyEmailContent() {
     }
     return "verifying";
   });
-  const verifiedRef = useRef(false);
+  const verifiedRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (!token || verifiedRef.current) {

@@ -1,73 +1,43 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+
 import { useAuth } from "@/lib/auth";
 import { VellumHead } from "@/components/VellumHomepage";
 
+interface SignupFormValues {
+  username: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+}
+
 export default function SignupPage() {
-  const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { register, handleSubmit, getValues, formState: { isSubmitting, errors } } = useForm<SignupFormValues>();
+  const [serverError, setServerError] = useState<string>("");
   const { signup } = useAuth();
   const router = useRouter();
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
-
-    if (password !== confirmPassword) {
-      setError("Passwords do not match");
-      return;
-    }
-
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters");
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const errorMessage = await signup(username, email, password);
-      if (!errorMessage) {
-        router.push(`/check-email?email=${encodeURIComponent(email)}`);
-      } else {
-        setError(errorMessage);
-      }
-    } finally {
-      setIsSubmitting(false);
+  const onSubmit = async (data: SignupFormValues) => {
+    setServerError("");
+    const errorMessage = await signup(data.username, data.email, data.password);
+    if (!errorMessage) {
+      router.push(`/check-email?email=${encodeURIComponent(data.email)}`);
+    } else {
+      setServerError(errorMessage);
     }
   };
 
   return (
     <>
       <VellumHead />
-      <div
-        className="section_home home"
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <div
-          className="padding-global home z-index-2"
-          style={{ width: "100%", maxWidth: "480px" }}
-        >
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "2.5rem",
-            }}
-          >
+      <div className="section_home home min-h-screen flex items-center justify-center">
+        <div className="padding-global home z-index-2 w-full max-w-[480px]">
+          <div className="flex flex-col items-center gap-10">
             <Link href="/" aria-label="Back to home">
               <Image
                 loading="lazy"
@@ -80,26 +50,16 @@ export default function SignupPage() {
               />
             </Link>
 
-            <div style={{ width: "100%" }}>
-              <div
-                className="text-align-center"
-                style={{ marginBottom: "2rem" }}
-              >
-                <h1
-                  className="heading-2-new font-playfair"
-                  style={{ fontSize: "2rem", marginBottom: "0.5rem" }}
-                >
+            <div className="w-full">
+              <div className="text-align-center mb-8">
+                <h1 className="heading-2-new font-playfair text-[2rem] mb-2">
                   <em>Create your account</em>
                 </h1>
-                <div
-                  className="text-size-medium font-inter"
-                  style={{ color: "#a1a1aa" }}
-                >
+                <div className="text-size-medium font-inter text-[#a1a1aa]">
                   {"Already have an account? "}
                   <Link
                     href="/login"
-                    className="text-block-130"
-                    style={{ textDecoration: "none" }}
+                    className="text-block-130 no-underline"
                   >
                     Sign in
                   </Link>
@@ -107,143 +67,96 @@ export default function SignupPage() {
               </div>
 
               <form
-                onSubmit={handleSubmit}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "1rem",
-                }}
+                onSubmit={handleSubmit(onSubmit)}
+                className="flex flex-col gap-4"
               >
-                {error && (
-                  <div
-                    style={{
-                      padding: "0.75rem 1rem",
-                      borderRadius: "0.5rem",
-                      backgroundColor: "rgba(239, 68, 68, 0.1)",
-                      border: "1px solid rgba(239, 68, 68, 0.3)",
-                      color: "#fca5a5",
-                      fontSize: "0.875rem",
-                    }}
-                  >
-                    {error}
+                {serverError && (
+                  <div className="py-3 px-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
+                    {serverError}
                   </div>
                 )}
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "0.75rem",
-                  }}
-                >
-                  <input
-                    id="username"
-                    name="username"
-                    type="text"
-                    autoComplete="username"
-                    required
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Username"
-                    className="font-inter"
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem 1rem",
-                      borderRadius: "0.5rem",
-                      border: "1px solid rgba(255, 255, 255, 0.1)",
-                      backgroundColor: "rgba(255, 255, 255, 0.05)",
-                      color: "#fff",
-                      fontSize: "0.875rem",
-                      outline: "none",
-                    }}
-                  />
-                  <input
-                    id="email"
-                    name="email"
-                    type="email"
-                    autoComplete="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Email"
-                    className="font-inter"
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem 1rem",
-                      borderRadius: "0.5rem",
-                      border: "1px solid rgba(255, 255, 255, 0.1)",
-                      backgroundColor: "rgba(255, 255, 255, 0.05)",
-                      color: "#fff",
-                      fontSize: "0.875rem",
-                      outline: "none",
-                    }}
-                  />
-                  <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    autoComplete="new-password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Password (min 8 characters)"
-                    className="font-inter"
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem 1rem",
-                      borderRadius: "0.5rem",
-                      border: "1px solid rgba(255, 255, 255, 0.1)",
-                      backgroundColor: "rgba(255, 255, 255, 0.05)",
-                      color: "#fff",
-                      fontSize: "0.875rem",
-                      outline: "none",
-                    }}
-                  />
-                  <input
-                    id="confirm-password"
-                    name="confirm-password"
-                    type="password"
-                    autoComplete="new-password"
-                    required
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Confirm password"
-                    className="font-inter"
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem 1rem",
-                      borderRadius: "0.5rem",
-                      border: "1px solid rgba(255, 255, 255, 0.1)",
-                      backgroundColor: "rgba(255, 255, 255, 0.05)",
-                      color: "#fff",
-                      fontSize: "0.875rem",
-                      outline: "none",
-                    }}
-                  />
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <input
+                      id="username"
+                      type="text"
+                      autoComplete="username"
+                      placeholder="Username"
+                      className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
+                      {...register("username", { required: "Username is required" })}
+                    />
+                    {errors.username && (
+                      <p className="text-red-300 text-xs mt-1">{errors.username.message}</p>
+                    )}
+                  </div>
+                  <div>
+                    <input
+                      id="email"
+                      type="email"
+                      autoComplete="email"
+                      placeholder="Email"
+                      className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
+                      {...register("email", {
+                        required: "Email is required",
+                        pattern: {
+                          value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                          message: "Invalid email address",
+                        },
+                      })}
+                    />
+                    {errors.email && (
+                      <p className="text-red-300 text-xs mt-1">{errors.email.message}</p>
+                    )}
+                  </div>
+                  <div>
+                    <input
+                      id="password"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="Password (min 8 characters)"
+                      className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
+                      {...register("password", {
+                        required: "Password is required",
+                        minLength: {
+                          value: 8,
+                          message: "Password must be at least 8 characters",
+                        },
+                      })}
+                    />
+                    {errors.password && (
+                      <p className="text-red-300 text-xs mt-1">{errors.password.message}</p>
+                    )}
+                  </div>
+                  <div>
+                    <input
+                      id="confirm-password"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="Confirm password"
+                      className="font-inter w-full py-3 px-4 rounded-lg border border-white/10 bg-white/5 text-white text-sm outline-none"
+                      {...register("confirmPassword", {
+                        required: "Please confirm your password",
+                        validate: (value) =>
+                          value === getValues("password") || "Passwords do not match",
+                      })}
+                    />
+                    {errors.confirmPassword && (
+                      <p className="text-red-300 text-xs mt-1">{errors.confirmPassword.message}</p>
+                    )}
+                  </div>
                 </div>
 
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="d-button nav-button-5 cta-get-started new"
-                  style={{
-                    width: "100%",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "0.5rem",
-                    cursor: isSubmitting ? "wait" : "pointer",
-                    border: "none",
-                    marginTop: "0.5rem",
-                    opacity: isSubmitting ? 0.5 : 1,
-                  }}
+                  className={`d-button nav-button-5 cta-get-started new w-full inline-flex items-center justify-center gap-2 border-none mt-2 ${
+                    isSubmitting ? "cursor-wait opacity-50" : "cursor-pointer"
+                  }`}
                 >
                   <div className="btn-text nav-button-6 new">
                     {isSubmitting ? "Creating account..." : "Create account"}
                   </div>
-                  <div
-                    className="btn_arrow nav-button-7"
-                    style={{ width: "20px", height: "20px" }}
-                  >
+                  <div className="btn_arrow nav-button-7 w-5 h-5">
                     <svg
                       width="100%"
                       height="100%"
@@ -264,14 +177,10 @@ export default function SignupPage() {
                 </button>
               </form>
 
-              <div
-                className="text-align-center"
-                style={{ marginTop: "2rem" }}
-              >
+              <div className="text-align-center mt-8">
                 <Link
                   href="/"
-                  className="text-block-130 font-inter"
-                  style={{ textDecoration: "none", fontSize: "0.875rem" }}
+                  className="text-block-130 font-inter no-underline text-sm"
                 >
                   &larr; Back to home
                 </Link>
