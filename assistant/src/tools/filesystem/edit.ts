@@ -73,9 +73,13 @@ class FileEditTool implements Tool {
     }
     const filePath = pathCheck.resolved;
 
-    const sizeError = checkFileSizeOnDisk(filePath);
-    if (sizeError) {
-      return { content: `Error: ${sizeError}`, isError: true };
+    try {
+      const sizeError = checkFileSizeOnDisk(filePath);
+      if (sizeError) {
+        return { content: `Error: ${sizeError}`, isError: true };
+      }
+    } catch {
+      // File may not exist — will be caught by readFileSync below
     }
 
     try {
