@@ -1,7 +1,11 @@
 #!/usr/bin/env bun
 
 import { Command } from 'commander';
+import { createRequire } from 'node:module';
 import * as net from 'node:net';
+
+const require = createRequire(import.meta.url);
+const { version } = require('../package.json') as { version: string };
 import {
   ensureDaemonRunning,
   startDaemon,
@@ -84,7 +88,7 @@ const program = new Command();
 program
   .name('vellum')
   .description('Local AI assistant')
-  .version('0.1.0')
+  .version(version)
   .option('--no-sandbox', 'Disable sandbox for this session (runtime override, not persisted)')
   .action(async (opts: { sandbox?: boolean }) => {
     await ensureDaemonRunning();
