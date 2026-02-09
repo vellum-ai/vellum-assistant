@@ -16,6 +16,7 @@ final class KnowledgeCron {
     private var analysisTask: Task<Void, Never>?
 
     var onInsight: ((KnowledgeInsight) -> Void)?
+    var onInsightsAdded: (([KnowledgeInsight]) -> Void)?
 
     private var lastRunTimestamp: TimeInterval {
         get { UserDefaults.standard.double(forKey: "knowledgeCronLastRun") }
@@ -175,6 +176,7 @@ final class KnowledgeCron {
             if !insights.isEmpty {
                 insightStore.addInsights(insights)
                 log.info("Cron: added \(insights.count) insights")
+                onInsightsAdded?(insights)
 
                 // Fire callback for the highest-confidence insight
                 if let best = insights.max(by: { $0.confidence < $1.confidence }) {

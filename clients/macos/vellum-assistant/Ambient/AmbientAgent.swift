@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Combine
+import UserNotifications
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AmbientAgent")
@@ -46,6 +47,8 @@ final class AmbientAgent: ObservableObject {
     private var analyzer: AmbientAnalyzer?
     private var watchTask: Task<Void, Never>?
     private(set) var knowledgeCron: KnowledgeCron?
+    private(set) var syncClient: AmbientSyncClient?
+    private var syncTask: Task<Void, Never>?
     private var activeSuggestionWindow: AmbientSuggestionWindow?
     private var insightNotificationWindow: InsightNotificationWindow?
     private var previousOCRText: String = ""
@@ -81,6 +84,33 @@ final class AmbientAgent: ObservableObject {
         cron.start(apiKey: apiKey)
         knowledgeCron = cron
 
+        // Remote sync
+        let sync = AmbientSyncClient()
+        syncClient = sync
+
+        knowledgeStore.onEntryAdded = { [weak sync] entry in
+            Task { await sync?.sendObservation(entry) }
+        }
+        cron.onInsightsAdded = { [weak sync] insights in
+            Task { await sync?.sendInsights(insights) }
+        }
+
+        syncTask = Task.detached { [weak self] in
+            guard !Task.isCancelled else { return }
+            let healthy = await sync.checkHealth()
+            if healthy {
+                log.info("Remote sync: healthy, uploading existing data")
+            } else {
+                log.warning("Remote sync: health check failed, will queue")
+            }
+            guard !Task.isCancelled else { return }
+            guard let self else { return }
+            await sync.syncExisting(
+                observations: await self.knowledgeStore.entries,
+                insights: await self.knowledgeCron?.insightStore.insights ?? []
+            )
+        }
+
         watchTask = Task { @MainActor [weak self] in
             await self?.watchLoop()
         }
@@ -89,8 +119,12 @@ final class AmbientAgent: ObservableObject {
     func stop() {
         watchTask?.cancel()
         watchTask = nil
+        syncTask?.cancel()
+        syncTask = nil
         knowledgeCron?.stop()
         knowledgeCron = nil
+        syncClient = nil
+        knowledgeStore.onEntryAdded = nil
         analyzer = nil
         state = .disabled
         log.info("Ambient agent stopped")
@@ -203,6 +237,12 @@ final class AmbientAgent: ObservableObject {
             }
         }
 
+        // Sync non-ignore analysis results and flush retry queue
+        if result.decision != .ignore {
+            await syncClient?.sendAnalysis(result)
+        }
+        await syncClient?.flushQueue()
+
         state = .watching
     }
 
@@ -228,6 +268,11 @@ final class AmbientAgent: ObservableObject {
     }
 
     private func showInsightNotification(_ insight: KnowledgeInsight) {
+        if insight.category == .automation && Bundle.main.bundleIdentifier != nil {
+            showAutomationNotification(insight)
+            return
+        }
+
         let window = InsightNotificationWindow(
             insight: insight,
             onDismiss: { [weak self] in
@@ -240,6 +285,30 @@ final class AmbientAgent: ObservableObject {
         )
         insightNotificationWindow = window
         window.show()
+    }
+
+    private func showAutomationNotification(_ insight: KnowledgeInsight) {
+        let content = UNMutableNotificationContent()
+        content.title = "Automation Opportunity"
+        content.body = insight.title
+        content.categoryIdentifier = "AUTOMATION_INSIGHT"
+        content.sound = .default
+        content.userInfo = [
+            "insightId": insight.id.uuidString,
+            "insightTitle": insight.title,
+            "insightDescription": insight.description
+        ]
+
+        let request = UNNotificationRequest(
+            identifier: "automation-\(insight.id.uuidString)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                log.warning("Failed to deliver automation notification: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func currentWindowTitle() -> String? {
