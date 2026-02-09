@@ -110,11 +110,16 @@ final class ActionVerifier {
 
     private func looksLikePassword(_ text: String) -> Bool {
         guard text.count >= 8 && text.count <= 64 else { return false }
+        // Natural language contains spaces; passwords almost never do.
+        // Bail out early if the text has 2+ spaces — it's a sentence, not a password.
+        if text.filter({ $0 == " " }).count >= 2 { return false }
         let hasUpper = text.contains(where: \.isUppercase)
         let hasLower = text.contains(where: \.isLowercase)
         let hasDigit = text.contains(where: \.isNumber)
-        let symbols = CharacterSet.alphanumerics.inverted
-        let hasSymbol = text.unicodeScalars.contains(where: { symbols.contains($0) })
+        // Require a non-whitespace symbol (spaces alone shouldn't trigger this)
+        let hasSymbol = text.unicodeScalars.contains(where: {
+            !CharacterSet.alphanumerics.contains($0) && !CharacterSet.whitespaces.contains($0)
+        })
         return hasUpper && hasLower && hasDigit && hasSymbol
     }
 }

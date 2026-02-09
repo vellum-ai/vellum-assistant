@@ -78,6 +78,35 @@ final class ActionVerifierTests: XCTestCase {
         XCTAssertEqual(isAllowed(verifier2.verify(action2)), true, "Email should be allowed")
     }
 
+    func testNaturalLanguage_notFlaggedAsPassword() {
+        // Sentences with mixed case, digits, and spaces were false-positiving
+        let sentences = [
+            "Focus Time at 3 PM for 1 hour",
+            "Meeting with Bob at 2 PM tomorrow",
+            "Buy 3 apples from Trader Joe's",
+            "Deploy version 2.1 to Production",
+            "Call Dr. Smith at 4 PM on Friday",
+        ]
+        for sentence in sentences {
+            let v = ActionVerifier()
+            let action = AgentAction(type: .type, reasoning: "test", text: sentence)
+            XCTAssertEqual(isAllowed(v.verify(action)), true, "Natural language should be allowed: \"\(sentence)\"")
+        }
+    }
+
+    func testActualPasswords_stillBlocked() {
+        let passwords = [
+            "P@ssw0rd!",
+            "MyS3cur3!Pass",
+            "hunter2!Ab",
+        ]
+        for pw in passwords {
+            let v = ActionVerifier()
+            let action = AgentAction(type: .type, reasoning: "test", text: pw)
+            XCTAssertEqual(isBlocked(v.verify(action)), true, "Password should be blocked: \"\(pw)\"")
+        }
+    }
+
     // MARK: - System Menu Bar
 
     func testSystemMenuBar_blocked() {
