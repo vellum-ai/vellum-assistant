@@ -1,12 +1,14 @@
 import type { Provider } from "./types.js";
 import { AnthropicProvider } from "./anthropic/client.js";
 import { OpenAIProvider } from "./openai/client.js";
+import { GeminiProvider } from "./gemini/client.js";
 import { RetryProvider } from "./retry.js";
 import { ConfigError } from "../util/errors.js";
 
 const DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-5-20250929',
   openai: 'gpt-5.2',
+  gemini: 'gemini-3-flash',
 };
 
 const providers = new Map<string, Provider>();
@@ -46,6 +48,12 @@ export function initializeProviders(config: ProvidersConfig): void {
     const model = config.provider === 'openai' ? config.model : DEFAULT_MODELS.openai;
     registerProvider('openai', new RetryProvider(
       new OpenAIProvider(config.apiKeys.openai, model),
+    ));
+  }
+  if (config.apiKeys.gemini) {
+    const model = config.provider === 'gemini' ? config.model : DEFAULT_MODELS.gemini;
+    registerProvider('gemini', new RetryProvider(
+      new GeminiProvider(config.apiKeys.gemini, model),
     ));
   }
 }
