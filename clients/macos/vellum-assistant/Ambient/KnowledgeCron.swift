@@ -153,7 +153,7 @@ final class KnowledgeCron {
         ]
 
         do {
-            let (_, input) = try await client.sendToolUseRequest(
+            let result = try await client.sendToolUseRequest(
                 model: model,
                 maxTokens: 1024,
                 system: systemPrompt,
@@ -165,7 +165,7 @@ final class KnowledgeCron {
                 timeout: 30
             )
 
-            guard let rawInsights = input["insights"] as? [[String: Any]] else {
+            guard let rawInsights = result.input["insights"] as? [[String: Any]] else {
                 log.warning("Cron: failed to parse insights from response")
                 lastRunTimestamp = Date().timeIntervalSince1970
                 return
