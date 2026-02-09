@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
 import { getTool } from './registry.js';
 import type { ToolContext, ToolExecutionResult } from './types.js';
 import { RiskLevel } from '../permissions/types.js';
@@ -10,6 +10,7 @@ import { ToolError, PermissionDeniedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { findAllMatches, adjustIndentation } from './filesystem/fuzzy-match.js';
 import { validateFilePath } from './filesystem/path-guard.js';
+import { MAX_FILE_SIZE_BYTES } from './filesystem/size-guard.js';
 import { wrapCommand } from './terminal/sandbox.js';
 import { getConfig } from '../config/loader.js';
 import { scanText, redactSecrets } from '../security/secret-scanner.js';
@@ -236,6 +237,10 @@ function computePreviewDiff(
       if (!pathCheck.ok) return undefined;
       const filePath = pathCheck.resolved;
       const isNewFile = !existsSync(filePath);
+      if (!isNewFile) {
+        const stat = statSync(filePath);
+        if (stat.size > MAX_FILE_SIZE_BYTES) return undefined;
+      }
       const oldContent = isNewFile ? '' : readFileSync(filePath, 'utf-8');
       return { filePath, oldContent, newContent: content, isNewFile };
     }
@@ -249,6 +254,8 @@ function computePreviewDiff(
       if (!pathCheck.ok) return undefined;
       const filePath = pathCheck.resolved;
       if (!existsSync(filePath)) return undefined;
+      const stat = statSync(filePath);
+      if (stat.size > MAX_FILE_SIZE_BYTES) return undefined;
       const content = readFileSync(filePath, 'utf-8');
       const replaceAll = input.replace_all === true;
       let updated: string;

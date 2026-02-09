@@ -4,6 +4,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { validateFilePath } from './path-guard.js';
+import { checkFileSizeOnDisk } from './size-guard.js';
 
 class FileReadTool implements Tool {
   name = 'file_read';
@@ -55,6 +56,11 @@ class FileReadTool implements Tool {
     const stat = statSync(filePath);
     if (stat.isDirectory()) {
       return { content: `Error: ${filePath} is a directory, not a file`, isError: true };
+    }
+
+    const sizeError = checkFileSizeOnDisk(filePath);
+    if (sizeError) {
+      return { content: `Error: ${sizeError}`, isError: true };
     }
 
     try {

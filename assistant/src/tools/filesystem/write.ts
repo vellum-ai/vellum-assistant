@@ -5,6 +5,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { validateFilePath } from './path-guard.js';
+import { checkContentSize } from './size-guard.js';
 
 class FileWriteTool implements Tool {
   name = 'file_write';
@@ -49,6 +50,11 @@ class FileWriteTool implements Tool {
       return { content: `Error: ${pathCheck.error}`, isError: true };
     }
     const filePath = pathCheck.resolved;
+
+    const sizeError = checkContentSize(fileContent, filePath);
+    if (sizeError) {
+      return { content: `Error: ${sizeError}`, isError: true };
+    }
 
     try {
       // Create parent directories if needed

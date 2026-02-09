@@ -1,10 +1,11 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, statSync } from 'node:fs';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { findAllMatches, adjustIndentation } from './fuzzy-match.js';
 import { validateFilePath } from './path-guard.js';
+import { checkFileSizeOnDisk } from './size-guard.js';
 
 class FileEditTool implements Tool {
   name = 'file_edit';
@@ -71,6 +72,11 @@ class FileEditTool implements Tool {
       return { content: `Error: ${pathCheck.error}`, isError: true };
     }
     const filePath = pathCheck.resolved;
+
+    const sizeError = checkFileSizeOnDisk(filePath);
+    if (sizeError) {
+      return { content: `Error: ${sizeError}`, isError: true };
+    }
 
     try {
       const content = readFileSync(filePath, 'utf-8');
