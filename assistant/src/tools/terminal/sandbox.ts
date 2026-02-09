@@ -97,12 +97,13 @@ let bwrapAvailable: boolean | null = null;
  * Just testing `bwrap --version` is not enough — the binary may exist but
  * namespace creation can be blocked by the kernel (e.g. inside containers
  * or when user namespaces are disabled). We run a minimal sandbox that
- * executes `true` to verify end-to-end functionality.
+ * exercises all namespace types used by buildBwrapArgs() (mount, network,
+ * PID) to verify end-to-end functionality.
  */
 function isBwrapAvailable(): boolean {
   if (bwrapAvailable !== null) return bwrapAvailable;
   try {
-    execSync('bwrap --ro-bind / / true', { stdio: 'ignore', timeout: 5000 });
+    execSync('bwrap --ro-bind / / --unshare-net --unshare-pid true', { stdio: 'ignore', timeout: 5000 });
     bwrapAvailable = true;
   } catch {
     bwrapAvailable = false;
