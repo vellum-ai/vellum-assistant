@@ -2,8 +2,6 @@ name: Build and Release macOS App
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 */4 * * *'
 
 concurrency:
   group: build-release
@@ -174,13 +172,18 @@ jobs:
           codesign --verify --verbose "$DMG_PATH"
           echo "DMG signature verified"
 
+      - name: Store API key for notarization
+        run: |
+          mkdir -p ~/private_keys
+          echo "${{ secrets.APPLE_API_KEY }}" > ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
+
       - name: Notarize DMG
         run: |
           echo "Submitting DMG for notarization..."
           NOTARIZE_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
-            --apple-id "${{ secrets.APPLE_ID }}" \
-            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
-            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --key ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8 \
+            --key-id "${{ secrets.APPLE_API_KEY_ID }}" \
+            --issuer "${{ secrets.APPLE_API_ISSUER }}" \
             --wait \
             --timeout 30m \
             2>&1) || NOTARIZE_FAILED=true
@@ -195,9 +198,9 @@ jobs:
             if [ -n "$SUBMISSION_ID" ]; then
               echo "Fetching notarization log for submission $SUBMISSION_ID..."
               xcrun notarytool log "$SUBMISSION_ID" \
-                --apple-id "${{ secrets.APPLE_ID }}" \
-                --password "${{ secrets.APPLE_APP_PASSWORD }}" \
-                --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+                --key ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8 \
+                --key-id "${{ secrets.APPLE_API_KEY_ID }}" \
+                --issuer "${{ secrets.APPLE_API_ISSUER }}" \
                 || echo "::warning::Could not fetch notarization log"
             fi
             exit 1
@@ -260,8 +263,9 @@ jobs:
 
           echo "Release created at https://github.com/$REPO/releases/tag/latest"
 
-      - name: Cleanup keychain
+      - name: Cleanup keychain and secrets
         if: always()
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -rf ~/private_keys 2>/dev/null || true
