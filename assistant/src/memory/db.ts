@@ -79,6 +79,8 @@ function migrateToolInvocationsFk(database: ReturnType<typeof drizzle<typeof sch
   if (row.sql.includes('REFERENCES')) return;
 
   raw.exec(/*sql*/ `
+    PRAGMA foreign_keys = OFF;
+    BEGIN;
     CREATE TABLE tool_invocations_new (
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -90,8 +92,11 @@ function migrateToolInvocationsFk(database: ReturnType<typeof drizzle<typeof sch
       duration_ms INTEGER NOT NULL,
       created_at INTEGER NOT NULL
     );
-    INSERT INTO tool_invocations_new SELECT * FROM tool_invocations;
+    INSERT INTO tool_invocations_new SELECT t.* FROM tool_invocations t
+      WHERE EXISTS (SELECT 1 FROM conversations c WHERE c.id = t.conversation_id);
     DROP TABLE tool_invocations;
     ALTER TABLE tool_invocations_new RENAME TO tool_invocations;
+    COMMIT;
+    PRAGMA foreign_keys = ON;
   `);
 }
