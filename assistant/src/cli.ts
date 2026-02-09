@@ -339,7 +339,11 @@ export async function startCli(): Promise<void> {
         spinner.stop();
         generating = false;
         pendingSessionPick = false;
-        pendingConfirmation = false;
+        if (pendingConfirmation) {
+          pendingConfirmation = false;
+          rl.removeAllListeners('line');
+          rl.on('line', handleLine);
+        }
         process.stdout.write(`\n[Error: ${msg.message}]\n`);
         prompt();
         break;
