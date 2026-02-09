@@ -6,7 +6,10 @@ on:
       - main
     paths:
       - 'web/src/lib/schema.ts'
+      - 'web/scripts/ensure-db.mts'
+      - 'web/scripts/migrate.mts'
       - '.github/workflows/migrate-web.yml'
+  workflow_call:
 
 jobs:
   migrate:
@@ -15,19 +18,10 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    defaults:
-      run:
-        working-directory: web
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -37,12 +31,69 @@ jobs:
 
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: gke-gcloud-auth-plugin
 
-      - name: Fetch DATABASE_URL from Secret Manager
-        id: secrets
-        run: echo "DATABASE_URL=$(gcloud secrets versions access latest --secret=database-url --project=vellum-ai-prod)" >> "$GITHUB_OUTPUT"
+      - name: Get GKE credentials
+        run: |
+          gcloud container clusters get-credentials vellum-ai-prod \
+            --region us-central1 \
+            --project vellum-ai-prod
 
-      - name: Push schema to database
-        run: bun run db:push
-        env:
-          DATABASE_URL: ${{ steps.secrets.outputs.DATABASE_URL }}
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Build migration image
+        working-directory: web
+        run: |
+          docker build --target migrator -t gcr.io/vellum-ai-prod/vellum-assistant-migrate:${{ github.sha }} .
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker
+
+      - name: Push migration image
+        working-directory: web
+        run: |
+          docker push gcr.io/vellum-ai-prod/vellum-assistant-migrate:${{ github.sha }}
+
+      - name: Run migrations via K8s Job
+        run: |
+          JOB_NAME="db-migrate-${{ github.sha }}"
+
+          kubectl apply -f - <<EOF
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: ${JOB_NAME}
+            namespace: vellum-assistant
+          spec:
+            ttlSecondsAfterFinished: 300
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: migrate
+                    image: gcr.io/vellum-ai-prod/vellum-assistant-migrate:${{ github.sha }}
+                    command: ["bun", "run", "db:push"]
+                    envFrom:
+                      - configMapRef:
+                          name: vellum-assistant-config
+                      - secretRef:
+                          name: vellum-assistant-secrets
+          EOF
+
+          echo "Waiting for migration job to complete..."
+          if ! kubectl wait --for=condition=complete --timeout=120s job/${JOB_NAME} -n vellum-assistant; then
+            echo "Migration job failed. Logs:"
+            kubectl logs job/${JOB_NAME} -n vellum-assistant
+            kubectl delete job ${JOB_NAME} -n vellum-assistant
+            exit 1
+          fi
+
+          echo "Migration completed successfully."
+          kubectl delete job ${JOB_NAME} -n vellum-assistant

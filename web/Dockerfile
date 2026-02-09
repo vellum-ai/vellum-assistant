@@ -14,6 +14,12 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN bun run build
 
+# Migration stage - has bun, drizzle-kit, and all scripts for running migrations
+FROM builder AS migrator
+
+WORKDIR /app
+CMD ["bun", "run", "db:push"]
+
 # Production stage
 FROM node:20-alpine AS runner
 
