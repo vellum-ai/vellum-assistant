@@ -10,6 +10,7 @@ enum ActionType: String, Codable {
     case scroll
     case wait
     case done
+    case drag
 }
 
 struct AgentAction: Codable {
@@ -20,6 +21,8 @@ struct AgentAction: Codable {
     var key: String?
     var scrollDirection: String?
     var scrollAmount: Int?
+    var toX: CGFloat?
+    var toY: CGFloat?
     var summary: String?
     var waitDuration: Int?
     var reasoning: String
@@ -31,6 +34,8 @@ struct AgentAction: Codable {
         reasoning: String,
         x: CGFloat? = nil,
         y: CGFloat? = nil,
+        toX: CGFloat? = nil,
+        toY: CGFloat? = nil,
         text: String? = nil,
         key: String? = nil,
         scrollDirection: String? = nil,
@@ -44,6 +49,8 @@ struct AgentAction: Codable {
         self.reasoning = reasoning
         self.x = x
         self.y = y
+        self.toX = toX
+        self.toY = toY
         self.text = text
         self.key = key
         self.scrollDirection = scrollDirection
@@ -100,6 +107,11 @@ struct AgentAction: Codable {
                 return "Wait \(ms)ms"
             }
             return "Wait"
+        case .drag:
+            if let x = x, let y = y, let tx = toX, let ty = toY {
+                return "Drag from (\(Int(x)),\(Int(y))) to (\(Int(tx)),\(Int(ty)))"
+            }
+            return "Drag"
         case .done:
             if let summary = summary {
                 let preview = summary.count > 60 ? String(summary.prefix(60)) + "..." : summary

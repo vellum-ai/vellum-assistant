@@ -10,6 +10,7 @@
 		0654885DAD8FFD16D639D50F /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09137E88F2AB02DF31D32BD0 /* MenuBarController.swift */; };
 		0BAED176454C59993573CA0A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24486EB2442797096CD3CC38 /* SettingsView.swift */; };
 		1602CEC331C383C46984277A /* AnthropicProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FB2E3A6215CE30550FE5E61 /* AnthropicProvider.swift */; };
+		EE07B2C3D4E5F607ABCDE007 /* AnthropicClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF07B2C3D4E5F607ABCDE007 /* AnthropicClient.swift */; };
 		1DEE9818AE627F372EADF74A /* ActionVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12CA14B79D8E0E84EB07D6E4 /* ActionVerifier.swift */; };
 		24539EB93D0273F1439687A8 /* VellumAssistantApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7288C576664B021EF155B9C /* VellumAssistantApp.swift */; };
 		D2E3F4A5B6C70890ABCDE013 /* VoiceInputManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F4A5B6C7D80901ABCDE014 /* VoiceInputManager.swift */; };
@@ -40,6 +41,7 @@
 		AA03B2C3D4E5F607ABCDE003 /* KnowledgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB03B2C3D4E5F607ABCDE003 /* KnowledgeStore.swift */; };
 		AA04B2C3D4E5F607ABCDE004 /* ScreenOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB04B2C3D4E5F607ABCDE004 /* ScreenOCR.swift */; };
 		AA05B2C3D4E5F607ABCDE005 /* AmbientSuggestionWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB05B2C3D4E5F607ABCDE005 /* AmbientSuggestionWindow.swift */; };
+		CC06B2C3D4E5F607ABCDE006 /* ActionPreviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD06B2C3D4E5F607ABCDE006 /* ActionPreviewWindow.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -60,6 +62,7 @@
 		24486EB2442797096CD3CC38 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		244CA8647EA7EA0E89AF1577 /* Info-generated.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Info-generated.plist"; sourceTree = "<group>"; };
 		2FB2E3A6215CE30550FE5E61 /* AnthropicProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicProvider.swift; sourceTree = "<group>"; };
+		FF07B2C3D4E5F607ABCDE007 /* AnthropicClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicClient.swift; sourceTree = "<group>"; };
 		3F3A04455B6DC1C1F89CB685 /* ToolDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolDefinitions.swift; sourceTree = "<group>"; };
 		4BD264E70E6D22EE5E53B20F /* SessionOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionOverlayView.swift; sourceTree = "<group>"; };
 		56FE5799AF5C42990EF37C42 /* AccessibilityTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTree.swift; sourceTree = "<group>"; };
@@ -88,6 +91,7 @@
 		BB03B2C3D4E5F607ABCDE003 /* KnowledgeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeStore.swift; sourceTree = "<group>"; };
 		BB04B2C3D4E5F607ABCDE004 /* ScreenOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenOCR.swift; sourceTree = "<group>"; };
 		BB05B2C3D4E5F607ABCDE005 /* AmbientSuggestionWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSuggestionWindow.swift; sourceTree = "<group>"; };
+		DD06B2C3D4E5F607ABCDE006 /* ActionPreviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionPreviewWindow.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -105,6 +109,7 @@
 		240BE551C8B6D79A8D0A192D /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				DD06B2C3D4E5F607ABCDE006 /* ActionPreviewWindow.swift */,
 				BB05B2C3D4E5F607ABCDE005 /* AmbientSuggestionWindow.swift */,
 				C0760D7F261720758A5FAC3E /* ConfirmationView.swift */,
 				09137E88F2AB02DF31D32BD0 /* MenuBarController.swift */,
@@ -198,6 +203,7 @@
 			isa = PBXGroup;
 			children = (
 				83CC29E51897B98BDD9F7796 /* ActionInferenceProvider.swift */,
+				FF07B2C3D4E5F607ABCDE007 /* AnthropicClient.swift */,
 				2FB2E3A6215CE30550FE5E61 /* AnthropicProvider.swift */,
 				3F3A04455B6DC1C1F89CB685 /* ToolDefinitions.swift */,
 			);
@@ -330,6 +336,7 @@
 			files = (
 				E96230E4CB5C96C982458657 /* APIKeyManager.swift in Sources */,
 				43B58A748C33955C52226B4B /* AccessibilityTree.swift in Sources */,
+				CC06B2C3D4E5F607ABCDE006 /* ActionPreviewWindow.swift in Sources */,
 				A2215F8493C316D8E139D1E6 /* ActionExecutor.swift in Sources */,
 				A1B2C3D4E5F60789ABCDE012 /* ChromeAccessibilityHelper.swift in Sources */,
 				7F1E97ABA962B7ECB1511DAE /* ActionInferenceProvider.swift in Sources */,
@@ -338,6 +345,7 @@
 				AA01B2C3D4E5F607ABCDE001 /* AmbientAgent.swift in Sources */,
 				AA02B2C3D4E5F607ABCDE002 /* AmbientAnalyzer.swift in Sources */,
 				AA05B2C3D4E5F607ABCDE005 /* AmbientSuggestionWindow.swift in Sources */,
+				EE07B2C3D4E5F607ABCDE007 /* AnthropicClient.swift in Sources */,
 				1602CEC331C383C46984277A /* AnthropicProvider.swift in Sources */,
 				C12CF51CE1378D77F77732CB /* AppDelegate.swift in Sources */,
 				A2B8C0BC3677B95F736E9DF4 /* ConfirmationView.swift in Sources */,

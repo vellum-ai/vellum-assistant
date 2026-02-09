@@ -7,7 +7,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 enum SessionState: Equatable {
     case idle
-    case running(step: Int, maxSteps: Int, lastAction: String)
+    case running(step: Int, maxSteps: Int, lastAction: String, reasoning: String)
     case paused(step: Int, maxSteps: Int)
     case awaitingConfirmation(reason: String)
     case completed(summary: String, steps: Int)
@@ -29,18 +29,33 @@ final class ComputerUseSession: ObservableObject {
     private var isPaused = false
     private var confirmationContinuation: CheckedContinuation<Bool, Never>?
 
-    private let enumerator = AccessibilityTreeEnumerator()
-    private let screenCapture = ScreenCapture()
-    private let executor = ActionExecutor()
+    private let enumerator: AccessibilityTreeProviding
+    private let screenCapture: ScreenCaptureProviding
+    private let executor: ActionExecuting
     private let verifier: ActionVerifier
     private let logger: SessionLogger
+    private let initialDelayMs: UInt64
     private var didChromeAccessibilityCheck = false
+    private var previousAXTreeText: String?
 
-    init(task: String, provider: ActionInferenceProvider, maxSteps: Int = 50, stepDelayMs: UInt64 = 500) {
+    init(
+        task: String,
+        provider: ActionInferenceProvider,
+        enumerator: AccessibilityTreeProviding = AccessibilityTreeEnumerator(),
+        screenCapture: ScreenCaptureProviding = ScreenCapture(),
+        executor: ActionExecuting = ActionExecutor(),
+        maxSteps: Int = 50,
+        stepDelayMs: UInt64 = 500,
+        initialDelayMs: UInt64 = 300
+    ) {
         self.task = task
         self.provider = provider
+        self.enumerator = enumerator
+        self.screenCapture = screenCapture
+        self.executor = executor
         self.maxSteps = maxSteps
         self.stepDelayMs = stepDelayMs
+        self.initialDelayMs = initialDelayMs
         self.verifier = ActionVerifier(maxSteps: maxSteps)
         self.logger = SessionLogger(task: task)
     }
@@ -50,13 +65,16 @@ final class ComputerUseSession: ObservableObject {
         verifier.reset()
         isCancelled = false
         isPaused = false
-        state = .running(step: 0, maxSteps: maxSteps, lastAction: "Starting...")
+        previousAXTreeText = nil
+        state = .running(step: 0, maxSteps: maxSteps, lastAction: "Starting...", reasoning: "")
 
         log.info("Session starting — task: \(self.task, privacy: .public)")
         log.info("Screen size: \(Int(self.screenCapture.screenSize().width))×\(Int(self.screenCapture.screenSize().height))")
 
         // Brief delay to let the popover close and the target app regain focus
-        try? await Task.sleep(nanoseconds: 300_000_000)
+        if initialDelayMs > 0 {
+            try? await Task.sleep(nanoseconds: initialDelayMs * 1_000_000)
+        }
 
         while !isCancelled {
             // Wait while paused
@@ -82,7 +100,7 @@ final class ComputerUseSession: ObservableObject {
                    !ChromeAccessibilityHelper.hasWebContent(elements: result.elements) {
                     didChromeAccessibilityCheck = true
                     log.warning("Chrome detected but AX tree has no web content — restarting with accessibility")
-                    state = .running(step: 0, maxSteps: maxSteps, lastAction: "Enabling Chrome accessibility...")
+                    state = .running(step: 0, maxSteps: maxSteps, lastAction: "Enabling Chrome accessibility...", reasoning: "")
                     let restarted = await ChromeAccessibilityHelper.restartChromeWithAccessibility(app: frontApp)
                     if restarted {
                         // Clear the enhanced-AX cache so we re-set it on the new process
@@ -136,6 +154,7 @@ final class ComputerUseSession: ObservableObject {
             do {
                 action = try await provider.infer(
                     axTree: axTreeText,
+                    previousAXTree: previousAXTreeText,
                     screenshot: screenshot,
                     screenSize: screenCapture.screenSize(),
                     task: task,
@@ -181,7 +200,7 @@ final class ComputerUseSession: ObservableObject {
                     return
                 }
                 verifier.recordConfirmedAction(action)
-                state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: action.displayDescription)
+                state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: action.displayDescription, reasoning: action.reasoning)
 
             case .blocked(let reason):
                 log.warning("[\(stepNumber)] BLOCKED: \(reason)")
@@ -211,7 +230,10 @@ final class ComputerUseSession: ObservableObject {
             actionHistory.append(record)
 
             // 6. UPDATE UI
-            state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: action.displayDescription)
+            state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: action.displayDescription, reasoning: action.reasoning)
+
+            // Save current AX tree for next step's context
+            previousAXTreeText = axTreeText
 
             // 7. WAIT
             try? await Task.sleep(nanoseconds: stepDelayMs * 1_000_000)

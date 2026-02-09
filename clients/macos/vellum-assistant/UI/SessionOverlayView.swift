@@ -39,7 +39,7 @@ struct SessionOverlayView: View {
             Text("Initializing...")
                 .foregroundStyle(.secondary)
 
-        case .running(let step, let maxSteps, let lastAction):
+        case .running(let step, let maxSteps, let lastAction, let reasoning):
             VStack(alignment: .leading, spacing: 4) {
                 Text("Step \(step) of \(maxSteps)")
                     .font(.caption)
@@ -47,6 +47,12 @@ struct SessionOverlayView: View {
                 Text(lastAction)
                     .font(.caption)
                     .lineLimit(2)
+                if !reasoning.isEmpty {
+                    Text(reasoning)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                }
             }
 
         case .paused(let step, let maxSteps):

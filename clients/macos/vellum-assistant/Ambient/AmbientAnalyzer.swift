@@ -18,13 +18,11 @@ struct AmbientAnalysisResult {
 }
 
 final class AmbientAnalyzer {
-    private let apiKey: String
+    private let client: AnthropicClient
     private let model = "claude-haiku-4-5-20251001"
-    private let baseURL = "https://api.anthropic.com/v1/messages"
-    private let apiVersion = "2023-06-01"
 
     init(apiKey: String) {
-        self.apiKey = apiKey
+        self.client = AnthropicClient(apiKey: apiKey)
     }
 
     func analyze(ocrText: String, appName: String, windowTitle: String, knowledgeContext: String) async throws -> AmbientAnalysisResult {
@@ -87,51 +85,19 @@ final class AmbientAnalyzer {
             ]
         ]
 
-        let body: [String: Any] = [
-            "model": model,
-            "max_tokens": 512,
-            "system": systemPrompt,
-            "tools": [toolDefinition],
-            "tool_choice": ["type": "any"],
-            "messages": [
+        let (_, input) = try await client.sendToolUseRequest(
+            model: model,
+            maxTokens: 512,
+            system: systemPrompt,
+            tools: [toolDefinition],
+            toolChoice: ["type": "any"],
+            messages: [
                 ["role": "user", "content": userMessage]
-            ]
-        ]
+            ],
+            timeout: 15
+        )
 
-        let jsonData = try JSONSerialization.data(withJSONObject: body)
-
-        var request = URLRequest(url: URL(string: baseURL)!)
-        request.httpMethod = "POST"
-        request.httpBody = jsonData
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
-        request.timeoutInterval = 15
-
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch {
-            throw InferenceError.networkError(error.localizedDescription)
-        }
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw InferenceError.networkError("Invalid response")
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw InferenceError.apiError(statusCode: httpResponse.statusCode, body: body)
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let content = json["content"] as? [[String: Any]] else {
-            throw InferenceError.parseError("Invalid response structure")
-        }
-
-        guard let toolUse = content.first(where: { ($0["type"] as? String) == "tool_use" }),
-              let input = toolUse["input"] as? [String: Any],
-              let decisionStr = input["decision"] as? String,
+        guard let decisionStr = input["decision"] as? String,
               let decision = AmbientDecision(rawValue: decisionStr),
               let confidence = input["confidence"] as? Double,
               let reasoning = input["reasoning"] as? String else {
