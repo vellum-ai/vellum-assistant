@@ -1,7 +1,653 @@
+"use client";
+
+import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 
-export function UseCasesContent() {
+const LINK_ICON = (
+  <svg width="100%" height="100%" viewBox="0 0 19 19" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M10.292 3.70833C10.292 3.28776 10.6383 2.91667 11.0837 2.91667H15.042C15.4626 2.91667 15.8337 3.28776 15.8337 3.70833V7.66667C15.8337 8.11198 15.4626 8.45833 15.042 8.45833C14.5967 8.45833 14.2503 8.11198 14.2503 7.66667V5.63802L9.25293 10.6107C8.95605 10.9323 8.43652 10.9323 8.13965 10.6107C7.81803 10.3138 7.81803 9.79427 8.13965 9.4974L13.1123 4.5H11.0837C10.6383 4.5 10.292 4.15365 10.292 3.70833Z" fill="url(#paint0_linear_5046_61039)" />
+    <path opacity="0.4" d="M3.16699 5.6875C3.16699 4.59896 4.03288 3.70833 5.14616 3.70833H7.91699C8.33756 3.70833 8.70866 4.07943 8.70866 4.5C8.70866 4.94531 8.33756 5.29167 7.91699 5.29167H5.14616C4.9235 5.29167 4.75033 5.48958 4.75033 5.6875V13.6042C4.75033 13.8268 4.9235 14 5.14616 14H13.0628C13.2607 14 13.4587 13.8268 13.4587 13.6042V10.8333C13.4587 10.4128 13.805 10.0417 14.2503 10.0417C14.6709 10.0417 15.042 10.4128 15.042 10.8333V13.6042C15.042 14.7174 14.1514 15.5833 13.0628 15.5833H5.14616C4.03288 15.5833 3.16699 14.7174 3.16699 13.6042V5.6875Z" fill="url(#paint1_linear_5046_61039)" />
+    <defs>
+      <linearGradient id="paint0_linear_5046_61039" x1="9.50033" y1="3" x2="9.50033" y2="16" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#EBECF8" />
+        <stop offset="0.51" stopColor="#D1CBD7" />
+        <stop offset="1" stopColor="#C9C4DD" />
+      </linearGradient>
+      <linearGradient id="paint1_linear_5046_61039" x1="9.50033" y1="3" x2="9.50033" y2="16" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#EBECF8" />
+        <stop offset="0.51" stopColor="#D1CBD7" />
+        <stop offset="1" stopColor="#C9C4DD" />
+      </linearGradient>
+    </defs>
+  </svg>
+);
+
+const ARROW_UP_RIGHT = (
+  <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentcolor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M7 7h10v10"></path>
+    <path d="M7 17 17 7"></path>
+  </svg>
+);
+
+interface TemplateIcon {
+  src: string;
+  srcSet?: string;
+}
+
+interface TemplateCardData {
+  title: string;
+  href: string;
+  icons: TemplateIcon[];
+}
+
+interface TemplateSection {
+  id: string;
+  title: string;
+  cards: TemplateCardData[];
+}
+
+const FEATURED_CARDS: TemplateCardData[] = [
+  {
+    title: "Review my roadmap based on team capacity",
+    href: "/template/roadmap-planner",
+    icons: [
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddb22bb9c44f4542f63a5_notion.svg" },
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6930f9a3075eb809524f9c15_linear-light-logo.svg" },
+    ],
+  },
+  {
+    title: "Detect declining usage trends ahead of renewals",
+    href: "/template/account-monitoring-agent",
+    icons: [
+      {
+        src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b9c9a80a4a0850e29f23_Salesforce.com_logo.svg.png",
+        srcSet: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b9c9a80a4a0850e29f23_Salesforce.com_logo.svg-p-500.png 500w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b9c9a80a4a0850e29f23_Salesforce.com_logo.svg-p-800.png 800w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b9c9a80a4a0850e29f23_Salesforce.com_logo.svg-p-1080.png 1080w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b9c9a80a4a0850e29f23_Salesforce.com_logo.svg.png 1280w",
+      },
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddc5081ede6a786ba24aa_posthog.svg" },
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddb22bb9c44f4542f63a5_notion.svg" },
+    ],
+  },
+  {
+    title: "Track team progress without standup meetings",
+    href: "/template/cross-team-status-updates",
+    icons: [
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddb22bb9c44f4542f63a5_notion.svg" },
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6930f9a3075eb809524f9c15_linear-light-logo.svg" },
+    ],
+  },
+  {
+    title: "Help me write SEO optimized articles",
+    href: "/template/seo-article-generator",
+    icons: [
+      {
+        src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b2a352120388fb64ec71_google-docs.png",
+        srcSet: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b2a352120388fb64ec71_google-docs-p-500.png 500w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b2a352120388fb64ec71_google-docs-p-800.png 800w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b2a352120388fb64ec71_google-docs-p-1080.png 1080w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b2a352120388fb64ec71_google-docs.png 1481w",
+      },
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcb05ec3b1d692ef2656_serpapi.svg" },
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda9b0f1cabf89a69986c_googlesheets.svg" },
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda145995030959e750be_firecrawl.svg" },
+    ],
+  },
+  {
+    title: "Flag suspicious Stripe transactions in Slack",
+    href: "/template/stripe-transaction-review-agent",
+    icons: [
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/693111453ed35f6092b082cc_stripelogo.webp" },
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+    ],
+  },
+  {
+    title: "Automate KYC checks and send reports to Slack",
+    href: "/template/kyc-automation-and-compliance-agent",
+    icons: [
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddaaac4f173d49864b86c_hubspot.svg" },
+      { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda5a0f617cd26a3287f8_gmail.svg" },
+    ],
+  },
+];
+
+const TEMPLATE_SECTIONS: TemplateSection[] = [
+  {
+    id: "marketing",
+    title: "Marketing and Sales",
+    cards: [
+      {
+        title: "Help me write SEO optimized articles",
+        href: "/template/seo-article-generator",
+        icons: [
+          {
+            src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b2a352120388fb64ec71_google-docs.png",
+            srcSet: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b2a352120388fb64ec71_google-docs-p-500.png 500w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b2a352120388fb64ec71_google-docs-p-800.png 800w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b2a352120388fb64ec71_google-docs-p-1080.png 1080w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962b2a352120388fb64ec71_google-docs.png 1481w",
+          },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcb05ec3b1d692ef2656_serpapi.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda9b0f1cabf89a69986c_googlesheets.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda145995030959e750be_firecrawl.svg" },
+        ],
+      },
+      {
+        title: "Pull call objections and update HubSpot contacts",
+        href: "/template/objection-capture-agent-for-sales-calls",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962af1b608741b4a2029557_gong-svg.png" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddaaac4f173d49864b86c_hubspot.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda5a0f617cd26a3287f8_gmail.svg" },
+        ],
+      },
+      {
+        title: "Get weekly HubSpot deal health insights",
+        href: "/template/active-deal-health-check-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddaaac4f173d49864b86c_hubspot.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda5a0f617cd26a3287f8_gmail.svg" },
+        ],
+      },
+      {
+        title: "Review my closed-lost HubSpot deals weekly",
+        href: "/template/closed-lost-deal-review-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddb22bb9c44f4542f63a5_notion.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddaaac4f173d49864b86c_hubspot.svg" },
+        ],
+      },
+      {
+        title: "Generate long-form articles from any link",
+        href: "/template/creative-content-generator-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6931029940c8faf754d6f3bc_globe.png" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddb22bb9c44f4542f63a5_notion.svg" },
+        ],
+      },
+      {
+        title: "Convert transcripts into Linkedin posts and articles",
+        href: "/template/content-repurposing-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6931029940c8faf754d6f3bc_globe.png" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddb22bb9c44f4542f63a5_notion.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddadc45465f43c2480144_linkedin.svg" },
+        ],
+      },
+      {
+        title: "Send me Reddit summaries in Slack",
+        href: "/template/reddit-monitoring-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddc93dbc624d7e23db45f_reddit.svg" },
+        ],
+      },
+      {
+        title: "Find company intel from the web my sales demo",
+        href: "/template/research-agent-for-sales-demos",
+        icons: [],
+      },
+      {
+        title: "Find ICP signals in competitor case studies",
+        href: "/template/competitor-research-agent",
+        icons: [],
+      },
+      {
+        title: "Build a 30-day LinkedIn content plan",
+        href: "/template/linkedin-content-planning-ai-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddb22bb9c44f4542f63a5_notion.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddadc45465f43c2480144_linkedin.svg" },
+        ],
+      },
+      {
+        title: "Generate a synthetic dataset for AI evals",
+        href: "/template/synthetic-dataset-generation-workflow",
+        icons: [],
+      },
+      {
+        title: "Turn my Linkedin posts into long-form articles",
+        href: "/template/generate-article-in-notion",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddb22bb9c44f4542f63a5_notion.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddadc45465f43c2480144_linkedin.svg" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "customer-support",
+    title: "Customer Service",
+    cards: [
+      {
+        title: "Monitor renewals in Hubspot and alert me in Slack",
+        href: "/template/renewal-tracker-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddaaac4f173d49864b86c_hubspot.svg" },
+        ],
+      },
+      {
+        title: "Auto-assign urgent tickets in Linear",
+        href: "/template/ticket-escalation-bot",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6930f9a3075eb809524f9c15_linear-light-logo.svg" },
+        ],
+      },
+      {
+        title: "Classify requests and escalate in Slack",
+        href: "/template/customer-support-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6930f46630f62aed71577199_database.png" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+        ],
+      },
+      {
+        title: "Build context-aware chatbot with internet access",
+        href: "/template/q-a-bot-workflow-reranking",
+        icons: [],
+      },
+    ],
+  },
+  {
+    id: "healthcare",
+    title: "Healthcare and Insurance",
+    cards: [
+      {
+        title: "Run review when new prior auth packets arrive",
+        href: "/template/prior-authorization-review-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/69310942ce61cf5a0628b059_medical.png" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6930f46630f62aed71577199_database.png" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda8b9d9f3b02da02b2c2_googledrive.svg" },
+        ],
+      },
+      {
+        title: "Review claims for compliance and errors",
+        href: "/template/claims-compliance-review-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6962ae18d496bb0e8642d19b_sharepoint.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/69310942ce61cf5a0628b059_medical.png" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6930f46630f62aed71577199_database.png" },
+        ],
+      },
+      {
+        title: "Generate personalized care plans from EHR",
+        href: "/template/personalized-care-plan-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/69310942ce61cf5a0628b059_medical.png" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6930f46630f62aed71577199_database.png" },
+        ],
+      },
+      {
+        title: "Find relevant clinical trials for my patients",
+        href: "/template/clinical-trial-matchmaker",
+        icons: [],
+      },
+      {
+        title: "Speed up prior authorizations for claims",
+        href: "/template/prior-authorization-navigator",
+        icons: [],
+      },
+      {
+        title: "Unify healthcare data sources in a report",
+        href: "/template/population-health-insights-reporter",
+        icons: [],
+      },
+      {
+        title: "Analyze claims and benchmark pricing",
+        href: "/template/ai-agent-for-claims-review-and-error-detection",
+        icons: [],
+      },
+      {
+        title: "Assess claims and verify policy details",
+        href: "/template/insurance-claims-automation-agent",
+        icons: [],
+      },
+      {
+        title: "Generate patient-doctor match rationale",
+        href: "/template/personalized-healthcare-description-based-on-patient-doctor-match",
+        icons: [],
+      },
+      {
+        title: "Generate a SOAP note from a medical transcript",
+        href: "/template/soap-note-generation",
+        icons: [],
+      },
+      {
+        title: "Summarize my PDFs into digestible summaries",
+        href: "/template/pdf-document-summarization",
+        icons: [],
+      },
+    ],
+  },
+  {
+    id: "retail",
+    title: "Retail, ecommerce and supply chain",
+    cards: [
+      {
+        title: "Support my customers on autopilot",
+        href: "/template/e-commerce-shopping-agent",
+        icons: [],
+      },
+      {
+        title: "Help me set a competitive pricing strategy",
+        href: "/template/retail-pricing-optimizer-agent",
+        icons: [],
+      },
+      {
+        title: "Assess my suppliers and recommend actions",
+        href: "/template/risk-assessment-agent-for-supply-chain-operations",
+        icons: [],
+      },
+    ],
+  },
+  {
+    id: "financial-services",
+    title: "Financial services",
+    cards: [
+      {
+        title: "Flag suspicious Stripe transactions in Slack",
+        href: "/template/stripe-transaction-review-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/693111453ed35f6092b082cc_stripelogo.webp" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+        ],
+      },
+      {
+        title: "Automate KYC checks and send reports to Slack",
+        href: "/template/kyc-automation-and-compliance-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddaaac4f173d49864b86c_hubspot.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda5a0f617cd26a3287f8_gmail.svg" },
+        ],
+      },
+      {
+        title: "Summarize my clients\u2019 portfolios weekly",
+        href: "/template/client-portfolio-review-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6930f46630f62aed71577199_database.png" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda5a0f617cd26a3287f8_gmail.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/69310434626042e1e29cace6_Gamma_Symbol_Sky.svg" },
+        ],
+      },
+      {
+        title: "Extract and review SEC 10-Ks documents",
+        href: "/template/financial-statement-review-workflow-h5rpt",
+        icons: [],
+      },
+    ],
+  },
+  {
+    id: "legal-tech",
+    title: "Legal tech",
+    cards: [
+      {
+        title: "Review my contracts and generate risk summaries",
+        href: "/template/contract-review-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6930f46630f62aed71577199_database.png" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda9b0f1cabf89a69986c_googlesheets.svg" },
+        ],
+      },
+      {
+        title: "Highlight NDA deviations and send alert to Slack",
+        href: "/template/nda-deviation-review-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda8b9d9f3b02da02b2c2_googledrive.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda5a0f617cd26a3287f8_gmail.svg" },
+        ],
+      },
+      {
+        title: "Review DPAs or privacy policies for compliance",
+        href: "/template/compliance-review-agent",
+        icons: [
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/6930f46630f62aed71577199_database.png" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691ddcce8a7d7ecad79b0a9c_slack.svg" },
+          { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/691dda5a0f617cd26a3287f8_gmail.svg" },
+        ],
+      },
+      {
+        title: "Generate research memos from legal docs",
+        href: "/template/legal-document-processing-agent",
+        icons: [],
+      },
+      {
+        title: "Assess contracts and risk and generate a report",
+        href: "/template/legal-contract-review-ai-agent",
+        icons: [],
+      },
+      {
+        title: "Chat with my legal documents",
+        href: "/template/legal-rag-chatbot",
+        icons: [],
+      },
+      {
+        title: "Generate a legal research memo",
+        href: "/template/ai-legal-research-agent",
+        icons: [],
+      },
+      {
+        title: "Extract data from PDF into a CSV file",
+        href: "/template/extract-data-from-pdf-to-csv",
+        icons: [],
+      },
+    ],
+  },
+];
+
+const FILTER_TAGS = [
+  "Healthcare",
+  "Finance",
+  "EdTech",
+  "Legal",
+  "Retail",
+  "Customer support",
+  "Marketing",
+];
+
+function TemplateCardComponent({ card }: { card: TemplateCardData }) {
+  const cardContent = (
+    <div className="template_card v2">
+      <div className="template_item-wrap">
+        <div className="template-tab_content-wrap">
+          <div className="tem_header">{card.title}</div>
+        </div>
+        <div style={{ opacity: 0 }} className="icon_link w-embed">
+          {LINK_ICON}
+        </div>
+      </div>
+      <div className="template-card_integrations-wrapper">
+        <div className="divider is-templates-card"></div>
+        {card.icons.length > 0 && (
+          <div>
+            <div className="template-integration_list">
+              {card.icons.map((icon) => (
+                <div key={icon.src} className="template-integration_item w-dyn-item">
+                  <Image
+                    src={icon.src}
+                    loading="lazy"
+                    alt=""
+                    className="template-integration_icon"
+                    width={0}
+                    height={0}
+                    unoptimized
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  if (card.href) {
+    return (
+      <div className="template_collection-item w-dyn-item">
+        <Link href={card.href} className="template-card_link w-inline-block"></Link>
+        {cardContent}
+        <div style={{ color: "rgb(113,113,122)", backgroundColor: "rgba(255,255,255,0)" }} className="dot_circ">
+          <div className="icon_circ w-embed">{ARROW_UP_RIGHT}</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="page_wrap"><div className="page_main"><section className="gradient-right-left expand"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 828 960" fill="none" className="u-cover-absolute prod-hero expand"><g clipPath="url(#clip0_2068_8877)"><path d="M3135 661.903C2999.23 661.903 2743.04 651.728 2381.83 449.928C1993.82 233.176 1797.73 190.736 1559.48 191.682M3135 600.825C2999.23 600.825 2743.04 590.65 2381.83 388.849C1993.82 172.098 1797.73 129.658 1559.48 130.604M3135 542.495C2999.23 542.495 2743.04 532.321 2381.83 330.52C1993.82 113.769 1797.73 71.3287 1559.48 72.274M3135 482.121C2999.23 482.121 2743.04 471.947 2381.83 270.146C1993.82 53.3947 1797.73 10.9549 1559.48 11.9002M3135 421.72C2999.23 421.72 2743.04 411.546 2381.83 209.745C1993.82 -7.00651 1797.73 -49.4463 1559.48 -48.501M3135 361.318C2999.23 361.318 2743.04 351.143 2381.83 149.343C1993.82 -67.4086 1797.73 -109.849 1559.48 -108.903M3135 298.828C2999.23 298.828 2743.04 288.654 2381.83 86.8532C1993.82 -129.898 1797.73 -172.338 1559.48 -171.393M1.90776e-05 661.341C135.767 661.341 391.959 651.167 753.171 449.366C1141.18 232.615 1337.27 190.175 1575.52 191.12M1575.52 1132C1439.75 1132 1183.56 1121.83 822.35 920.025C434.338 703.273 238.256 660.834 1.90876e-05 661.779M1.76788e-05 600.238C135.767 600.238 391.959 590.063 753.171 388.263C1141.18 171.511 1337.27 129.072 1575.52 130.017M1575.52 1070.93C1439.75 1070.93 1183.56 1060.75 822.35 858.954C434.338 642.203 238.256 599.763 1.76895e-05 600.708M1.6344e-05 541.932C135.767 541.932 391.959 531.757 753.171 329.956C1141.18 113.205 1337.27 70.7652 1575.52 71.7105M1575.52 1012.6C1439.75 1012.6 1183.56 1002.42 822.35 800.621C434.338 583.87 238.256 541.43 1.63541e-05 542.375M1.49612e-05 481.528C135.767 481.528 391.959 471.354 753.171 269.553C1141.18 52.8017 1337.27 10.3619 1575.52 11.3072M1575.52 952.217C1439.75 952.217 1183.56 942.042 822.35 740.241C434.338 523.49 238.256 481.05 1.49719e-05 481.995M1.35784e-05 421.128C135.767 421.128 391.959 410.954 753.171 209.153C1141.18 -7.59839 1337.27 -50.0382 1575.52 -49.0929M1575.52 891.822C1439.75 891.822 1183.56 881.647 822.35 679.846C434.338 463.095 238.256 420.655 1.35892e-05 421.6M1.21957e-05 360.729C135.767 360.729 391.959 350.555 753.171 148.754C1141.18 -67.9974 1337.27 -110.437 1575.52 -109.492M1575.52 831.422C1439.75 831.422 1183.56 821.247 822.35 619.446C434.338 402.695 238.256 360.255 1.22065e-05 361.2M1.07651e-05 298.237C135.767 298.237 391.959 288.062 753.171 86.2613C1141.18 -130.49 1337.27 -172.93 1575.52 -171.985M1575.52 768.93C1439.75 768.93 1183.56 758.755 822.35 556.955C434.338 340.203 238.256 297.763 1.07759e-05 298.709" stroke="url(#paint0_linear_2068_8877)" strokeWidth="1.5" strokeMiterlimit="10"></path></g><defs><linearGradient id="paint0_linear_2068_8877" x1="0%" y1="0" x2="60%" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0.175" stopColor="#8877FF" className="stop1"></stop><stop offset="0.946936" stopColor="#F1F1FF"></stop></linearGradient><clipPath id="clip0_2068_8877"><rect width="828" height="960" fill="currentColor"></rect></clipPath></defs></svg><div className="u-container is--hero-prod"><div className="hero_container_small u-vflex-center-top gap-prod"><div className="u-vflex-center-top gap-xsmall"><div className="u-vflex-center-top gap-xsmall"><div data-wf--header-tag-new--variant="base" className="header_tag"><div>404</div></div><h1 className="u-text-h1 align-center">Ooops! Page not found</h1></div><p className="u-text-regular text-center">It seems we can’t find the page you’re looking for. Try heading back to the homepage or use the menu to navigate.</p></div><div className="u-hflex-center-center gap-medium"><Link id="video-anchor" href="/" className="button_alternative w-inline-block"><div>Go back home</div><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" className="button_icon"><path d="M18.8438 12.375L13.3438 17.875C13.1562 18.0625 12.8125 18.0625 12.625 17.875C12.4375 17.6875 12.4375 17.3438 12.625 17.1562L17.2812 12.5H5.5C5.21875 12.5 5 12.2812 5 12C5 11.75 5.21875 11.5 5.5 11.5H17.2812L12.625 6.875C12.4375 6.6875 12.4375 6.34375 12.625 6.15625C12.8125 5.96875 13.1562 5.96875 13.3438 6.15625L18.8438 11.6562C19.0312 11.8438 19.0312 12.1875 18.8438 12.375Z" fill="currentColor"></path></svg></Link></div></div><div className="hero_prod_wrap u-hflex-center-center"><svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 1246 453" fill="none" className="prod_hero_frame hide"><g clipPath="url(#clip0_2068_8876)"><line x1="1246" y1="39.5" x2="-4.37115e-08" y2="39.4999" stroke="url(#paint0_linear_2068_8876)"></line><line x1="1246" y1="51.5" x2="-4.37115e-08" y2="51.4999" stroke="url(#paint1_linear_2068_8876)"></line><line x1="31.5" y1="2.18557e-08" x2="31.5" y2="742" stroke="url(#paint2_linear_2068_8876)"></line><line x1="43.5" y1="2.18557e-08" x2="43.5" y2="742" stroke="url(#paint3_linear_2068_8876)"></line><line x1="1203.5" y1="2.18557e-08" x2="1203.5" y2="742" stroke="url(#paint4_linear_2068_8876)"></line><line x1="1215.5" y1="2.18557e-08" x2="1215.5" y2="742" stroke="url(#paint5_linear_2068_8876)"></line></g><defs><linearGradient id="paint0_linear_2068_8876" x1="1246" y1="38.9291" x2="1245.98" y2="33.2816" gradientUnits="userSpaceOnUse"><stop stopColor="#DFDBF3"></stop><stop offset="1" stopColor="#D8C8D9"></stop></linearGradient><linearGradient id="paint1_linear_2068_8876" x1="1246" y1="50.9291" x2="1245.98" y2="45.2816" gradientUnits="userSpaceOnUse"><stop stopColor="#DFDBF3"></stop><stop offset="1" stopColor="#D8C8D9"></stop></linearGradient><linearGradient id="paint2_linear_2068_8876" x1="30.9291" y1="2.53132e-06" x2="25.2817" y2="0.0299998" gradientUnits="userSpaceOnUse"><stop stopColor="#DFDBF3"></stop><stop offset="1" stopColor="#D8C8D9"></stop></linearGradient><linearGradient id="paint3_linear_2068_8876" x1="42.9291" y1="2.53132e-06" x2="37.2817" y2="0.0299998" gradientUnits="userSpaceOnUse"><stop stopColor="#DFDBF3"></stop><stop offset="1" stopColor="#D8C8D9"></stop></linearGradient><linearGradient id="paint4_linear_2068_8876" x1="1202.93" y1="2.53132e-06" x2="1197.28" y2="0.0299998" gradientUnits="userSpaceOnUse"><stop stopColor="#DFDBF3"></stop><stop offset="1" stopColor="#D8C8D9"></stop></linearGradient><linearGradient id="paint5_linear_2068_8876" x1="1214.93" y1="2.53132e-06" x2="1209.28" y2="0.0299998" gradientUnits="userSpaceOnUse"><stop stopColor="#DFDBF3"></stop><stop offset="1" stopColor="#D8C8D9"></stop></linearGradient><clipPath id="clip0_2068_8876"><rect width="1246" height="453" fill="currentColor"></rect></clipPath></defs></svg></div></div></section></div></div>
+    <div className="template_collection-item w-dyn-item">
+      {cardContent}
+    </div>
+  );
+}
+
+function FeaturedSection() {
+  return (
+    <div className="templ_featured">
+      <h2 className="heading-2 mobile-center light-mode small">Featured use-cases</h2>
+      <div className="templates_content-wrap">
+        <div className="template_collection w-dyn-list">
+          <div role="list" className="template_collection-list w-dyn-items">
+            {FEATURED_CARDS.map((card) => (
+              <TemplateCardComponent key={card.title} card={card} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CategorySection({ section }: { section: TemplateSection }) {
+  return (
+    <div id={section.id} className="template_sub-wrap">
+      <h2 className="heading-2 mobile-center light-mode small">{section.title}</h2>
+      <div className="templates_content-wrap">
+        <div className="template_collection w-dyn-list">
+          <div role="list" className="template_collection-list w-dyn-items">
+            {section.cards.map((card) => (
+              <TemplateCardComponent key={card.title} card={card} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function UseCasesContent() {
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filterCards = (cards: TemplateCardData[]) => {
+    if (!searchQuery) {
+      return cards;
+    }
+    const query = searchQuery.toLowerCase();
+    return cards.filter((card) => card.title.toLowerCase().includes(query));
+  };
+
+  const filteredSections = TEMPLATE_SECTIONS.map((section) => ({
+    ...section,
+    cards: filterCards(section.cards),
+  })).filter((section) => section.cards.length > 0);
+
+  const filteredFeatured = filterCards(FEATURED_CARDS);
+
+  return (
+    <main className="main-wrapper">
+      <section className="section_home">
+        <div className="padding-global home">
+          <div className="container-new">
+            <div className="padding-section-medium padding-bottom-0 no-padding-top">
+              <div className="home-hero-main template tem">
+                <div className="template_header">
+                  <div className="z-index-2 max-width-large">
+                    <div className="margin-bottom margin-xxsmall">
+                      <h1 className="heading-1 text-color-white dark text-align-center">
+                        Start with prompts
+                      </h1>
+                    </div>
+                    <div className="text-wrap-balance">
+                      <div className="max-width-large align-center">
+                        <div className="text-size-regular small-mobile text-align-center">
+                          From agents, to RAG workflows that integrate with your favorite tools, to datapipelines that power your most important AI features, you can build it all with Vellum.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="blub-wrapper-alt">
+                  <div className="blub left-align"></div>
+                </div>
+                <div className="search_temp-wrapper">
+                  <div className="temp_form-block w-form">
+                    <form
+                      className="temp_form"
+                      onSubmit={(e) => e.preventDefault()}
+                    >
+                      <div className="search_wrap">
+                        <input
+                          className="temp-input w-input"
+                          maxLength={256}
+                          placeholder="Search template"
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                        <div className="search_btn-wrap">
+                          <button type="submit" className="btn btn_primary search w-button">
+                            Search
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+                <div className="search_tem-wrap">
+                  <div className="w-dyn-list">
+                    <div role="list" className="template_tags-wrapper w-dyn-items">
+                      {FILTER_TAGS.map((tag) => (
+                        <div key={tag} role="listitem" className="indus-item w-dyn-item">
+                          <div className="fill_tag">
+                            <button
+                              className="check-link_text template_text-tag"
+                              onClick={() => setSearchQuery(tag)}
+                            >
+                              {tag}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {filteredFeatured.length > 0 && !searchQuery && <FeaturedSection />}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section id="templates" className="section_providers-templates">
+        <div className="padding-global new">
+          <div className="container-new">
+            <div className="content-main bg_none">
+              <div className="padding-section-small top-0">
+                <div className="template_main-wrap new">
+                  <div>
+                    <div className="template_main-blcok-wrap">
+                      {filteredSections.map((section) => (
+                        <CategorySection key={section.id} section={section} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
