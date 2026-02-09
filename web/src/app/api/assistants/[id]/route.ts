@@ -10,6 +10,7 @@ export async function GET(request: Request, { params }: RouteParams) {
   try {
     const sql = getDb();
     const { id } = await params;
+    console.trace(`[DEBUG] GET /api/assistants/${id} called from:`, new Error().stack);
 
     const result = await sql`SELECT * FROM assistants WHERE id = ${id}`;
 
