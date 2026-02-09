@@ -148,8 +148,8 @@ export async function stopDaemon(): Promise<{ stopped: boolean }> {
   // Force kill
   try {
     process.kill(pid, 'SIGKILL');
-  } catch {
-    // Already dead
+  } catch (err) {
+    log.debug({ err, pid }, 'SIGKILL failed, process already exited');
   }
   cleanupPidFile();
   return { stopped: true };

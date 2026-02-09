@@ -465,7 +465,8 @@ export class DaemonServer {
         } else {
           text = String(content);
         }
-      } catch {
+      } catch (err) {
+        log.debug({ err, messageId: m.id }, 'Failed to parse message content as JSON, using raw text');
         text = m.content;
       }
       return { role: m.role, text, timestamp: m.createdAt };
