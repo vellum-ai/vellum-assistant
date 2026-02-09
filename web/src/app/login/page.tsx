@@ -3,10 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 
 import { useAuth } from "@/lib/auth";
+import { toast } from "@/components/Toast";
 import { VellumHead } from "@/components/VellumHomepage";
 
 interface LoginFormValues {
@@ -16,17 +16,15 @@ interface LoginFormValues {
 
 export default function LoginPage() {
   const { register, handleSubmit, formState: { isSubmitting, errors } } = useForm<LoginFormValues>();
-  const [serverError, setServerError] = useState<string>("");
   const { login } = useAuth();
   const router = useRouter();
 
   const onSubmit = async (data: LoginFormValues) => {
-    setServerError("");
     const errorMessage = await login(data.username, data.password);
     if (!errorMessage) {
       router.push("/assistant");
     } else {
-      setServerError(errorMessage);
+      toast.error(errorMessage);
     }
   };
 
@@ -68,11 +66,6 @@ export default function LoginPage() {
                 onSubmit={handleSubmit(onSubmit)}
                 className="flex flex-col gap-4"
               >
-                {serverError && (
-                  <div className="py-3 px-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
-                    {serverError}
-                  </div>
-                )}
                 <div className="flex flex-col gap-3">
                   <div>
                     <input

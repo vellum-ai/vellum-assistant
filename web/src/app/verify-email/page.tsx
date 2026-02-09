@@ -3,16 +3,19 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
+import { toast } from "@/components/Toast";
 import { VellumHead } from "@/components/VellumHomepage";
+
+type VerifyStatus = "verifying" | "success" | "error";
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const token = searchParams.get("token");
-  const [status, setStatus] = useState<"verifying" | "success" | "error">(() => {
+  const [status, setStatus] = useState<VerifyStatus>(() => {
     if (!token) {
       return "error";
     }
@@ -20,23 +23,27 @@ function VerifyEmailContent() {
   });
   const verifiedRef = useRef<boolean>(false);
 
+  const onVerifyResult = useEffectEvent(({ error }: { error: unknown }) => {
+    if (error) {
+      setStatus("error");
+      toast.error("Verification failed. The link may be invalid or expired.");
+    } else {
+      setStatus("success");
+      toast.success("Email verified! Redirecting...");
+      setTimeout(() => {
+        router.push("/assistant");
+      }, 2000);
+    }
+  });
+
   useEffect(() => {
     if (!token || verifiedRef.current) {
       return;
     }
     verifiedRef.current = true;
 
-    authClient.verifyEmail({ query: { token } }).then(({ error }) => {
-      if (error) {
-        setStatus("error");
-      } else {
-        setStatus("success");
-        setTimeout(() => {
-          router.push("/assistant");
-        }, 2000);
-      }
-    });
-  }, [token, router]);
+    authClient.verifyEmail({ query: { token } }).then(onVerifyResult);
+  }, [token]);
 
   return (
     <>

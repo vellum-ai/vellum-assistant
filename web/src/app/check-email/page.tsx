@@ -3,28 +3,36 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useOptimistic, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
+import { toast } from "@/components/Toast";
 import { VellumHead } from "@/components/VellumHomepage";
+
+type ResendStatus = "idle" | "sending" | "sent";
 
 function CheckEmailContent() {
   const searchParams = useSearchParams();
   const email = searchParams.get("email");
-  const [resending, setResending] = useState<boolean>(false);
-  const [resent, setResent] = useState<boolean>(false);
+  const [resendStatus, setResendStatus] = useState<ResendStatus>("idle");
+  const [optimisticStatus, setOptimisticStatus] = useOptimistic<ResendStatus>(resendStatus);
 
   const handleResend = async () => {
-    if (!email || resending) {
+    if (!email || optimisticStatus !== "idle") {
       return;
     }
-    setResending(true);
-    await authClient.sendVerificationEmail({
-      email,
-      callbackURL: "/assistant",
-    });
-    setResent(true);
-    setResending(false);
+    setOptimisticStatus("sending");
+    try {
+      await authClient.sendVerificationEmail({
+        email,
+        callbackURL: "/assistant",
+      });
+      setResendStatus("sent");
+      toast.success("Verification email sent!");
+    } catch {
+      setResendStatus("idle");
+      toast.error("Failed to resend verification email. Please try again.");
+    }
   };
 
   return (
@@ -70,15 +78,15 @@ function CheckEmailContent() {
               {email && (
                 <button
                   onClick={handleResend}
-                  disabled={resending || resent}
+                  disabled={optimisticStatus !== "idle"}
                   className={`d-button nav-button-5 cta-get-started new w-full inline-flex items-center justify-center gap-2 border-none ${
-                    resending || resent ? "cursor-default opacity-50" : "cursor-pointer"
+                    optimisticStatus !== "idle" ? "cursor-default opacity-50" : "cursor-pointer"
                   }`}
                 >
                   <div className="btn-text nav-button-6 new">
-                    {resent
+                    {optimisticStatus === "sent"
                       ? "Verification email sent!"
-                      : resending
+                      : optimisticStatus === "sending"
                         ? "Sending..."
                         : "Resend verification email"}
                   </div>

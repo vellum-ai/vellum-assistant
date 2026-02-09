@@ -3,10 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 
 import { useAuth } from "@/lib/auth";
+import { toast } from "@/components/Toast";
 import { VellumHead } from "@/components/VellumHomepage";
 
 interface SignupFormValues {
@@ -18,17 +18,16 @@ interface SignupFormValues {
 
 export default function SignupPage() {
   const { register, handleSubmit, getValues, formState: { isSubmitting, errors } } = useForm<SignupFormValues>();
-  const [serverError, setServerError] = useState<string>("");
   const { signup } = useAuth();
   const router = useRouter();
 
   const onSubmit = async (data: SignupFormValues) => {
-    setServerError("");
     const errorMessage = await signup(data.username, data.email, data.password);
     if (!errorMessage) {
+      toast.success("Account created! Check your email to verify.");
       router.push(`/check-email?email=${encodeURIComponent(data.email)}`);
     } else {
-      setServerError(errorMessage);
+      toast.error(errorMessage);
     }
   };
 
@@ -70,11 +69,6 @@ export default function SignupPage() {
                 onSubmit={handleSubmit(onSubmit)}
                 className="flex flex-col gap-4"
               >
-                {serverError && (
-                  <div className="py-3 px-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
-                    {serverError}
-                  </div>
-                )}
                 <div className="flex flex-col gap-3">
                   <div>
                     <input
