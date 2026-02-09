@@ -1,0 +1,11 @@
+// Local code signing overrides (not checked into git)
+// Copy this file to Local.xcconfig and fill in your values.
+//
+// To find your signing identity, run:
+//   security find-identity -v -p codesigning
+//
+// To find your team ID, look for the 10-character alphanumeric string in parentheses.
+
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = Apple Development
