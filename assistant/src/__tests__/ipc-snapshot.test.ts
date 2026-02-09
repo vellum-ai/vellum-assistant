@@ -15,7 +15,8 @@ import type {
 // Client → Server messages
 // ---------------------------------------------------------------------------
 
-const clientMessages: Record<string, ClientMessage> = {
+type ClientMessageType = ClientMessage['type'];
+const clientMessages: Record<ClientMessageType, ClientMessage> = {
   user_message: {
     type: 'user_message',
     sessionId: 'sess-001',
@@ -74,7 +75,8 @@ const clientMessages: Record<string, ClientMessage> = {
 // Server → Client messages
 // ---------------------------------------------------------------------------
 
-const serverMessages: Record<string, ServerMessage> = {
+type ServerMessageType = ServerMessage['type'];
+const serverMessages: Record<ServerMessageType, ServerMessage> = {
   assistant_text_delta: {
     type: 'assistant_text_delta',
     text: 'Here is some output',
