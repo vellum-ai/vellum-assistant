@@ -155,7 +155,7 @@ export function FocusView() {
             <p className="font-medium">Something went wrong</p>
             <p className="text-sm text-white/80 mt-1">{error}</p>
             <button 
-              onClick={() => router.push('/assistants')}
+              onClick={() => router.push('/assistant')}
               className="mt-4 px-4 py-2 bg-white/20 rounded-lg text-sm hover:bg-white/30 transition-colors"
             >
               Go to Dashboard
