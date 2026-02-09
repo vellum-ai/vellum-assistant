@@ -56,6 +56,36 @@ export function loadConfig(): AssistantConfig {
       delete fileConfig.apiKeys;
     }
 
+    // Auto-migrate plaintext apiKeys from config.json to secure storage
+    if (fileConfig.apiKeys && typeof fileConfig.apiKeys === 'object') {
+      const plaintextKeys = Object.entries(fileConfig.apiKeys).filter(
+        ([, v]) => typeof v === 'string' && v.length > 0,
+      );
+      if (plaintextKeys.length > 0) {
+        let migrated = 0;
+        for (const [provider, value] of plaintextKeys) {
+          if (setSecureKey(provider, value as string)) {
+            migrated++;
+          } else {
+            log.warn(`Failed to migrate API key for "${provider}" to secure storage`);
+          }
+        }
+        if (migrated > 0) {
+          // Rewrite config.json without apiKeys
+          try {
+            const rawJson = JSON.parse(readFileSync(configPath, 'utf-8'));
+            delete rawJson.apiKeys;
+            writeFileSync(configPath, JSON.stringify(rawJson, null, 2) + '\n');
+            log.info(`Migrated ${migrated} API key(s) from config.json to secure storage`);
+          } catch (err) {
+            log.warn({ err }, 'Failed to remove migrated keys from config.json');
+          }
+        }
+        // Clear from fileConfig so they don't end up in the config object from file
+        delete fileConfig.apiKeys;
+      }
+    }
+
     const config: AssistantConfig = {
       ...DEFAULT_CONFIG,
       ...fileConfig,

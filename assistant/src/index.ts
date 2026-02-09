@@ -31,6 +31,7 @@ import {
   removeRule,
   clearAllRules,
 } from './permissions/trust-store.js';
+import { getSecureKey, setSecureKey, deleteSecureKey } from './security/secure-keys.js';
 import { getRecentInvocations } from './memory/tool-usage-store.js';
 import {
   getConversation,
@@ -279,6 +280,51 @@ config
       console.log('No configuration set');
     } else {
       console.log(JSON.stringify(raw, null, 2));
+    }
+  });
+
+// --- Keys commands ---
+const keys = program.command('keys').description('Manage API keys in secure storage');
+
+keys
+  .command('list')
+  .description('List all stored API key names')
+  .action(() => {
+    const stored: string[] = [];
+    for (const provider of ['anthropic', 'openai', 'gemini', 'ollama']) {
+      const value = getSecureKey(provider);
+      if (value) stored.push(provider);
+    }
+    if (stored.length === 0) {
+      console.log('No API keys stored');
+    } else {
+      for (const name of stored) {
+        console.log(`  ${name}`);
+      }
+    }
+  });
+
+keys
+  .command('set <provider> <key>')
+  .description('Store an API key (e.g. vellum keys set anthropic sk-ant-...)')
+  .action((provider: string, key: string) => {
+    if (setSecureKey(provider, key)) {
+      console.log(`Stored API key for "${provider}"`);
+    } else {
+      console.error(`Failed to store API key for "${provider}"`);
+      process.exit(1);
+    }
+  });
+
+keys
+  .command('delete <provider>')
+  .description('Delete a stored API key')
+  .action((provider: string) => {
+    if (deleteSecureKey(provider)) {
+      console.log(`Deleted API key for "${provider}"`);
+    } else {
+      console.error(`No API key found for "${provider}"`);
+      process.exit(1);
     }
   });
 
