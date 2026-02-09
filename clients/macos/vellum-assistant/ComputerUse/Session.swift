@@ -38,6 +38,7 @@ final class ComputerUseSession: ObservableObject {
     private var didChromeAccessibilityCheck = false
     private var previousAXTreeText: String?
     private var previousElements: [AXElement]?
+    private var consecutiveUnchangedSteps = 0
 
     /// Adaptive delay configuration
     private let adaptiveDelayEnabled: Bool
@@ -76,6 +77,7 @@ final class ComputerUseSession: ObservableObject {
         isPaused = false
         previousAXTreeText = nil
         previousElements = nil
+        consecutiveUnchangedSteps = 0
         state = .running(step: 0, maxSteps: maxSteps, lastAction: "Starting...", reasoning: "")
 
         log.info("Session starting — task: \(self.task, privacy: .public)")
@@ -145,8 +147,10 @@ final class ComputerUseSession: ObservableObject {
                     axDiffText = AXTreeDiff.diff(previous: prevElements, current: result.elements)
                     if let diff = axDiffText {
                         log.info("[\(stepNumber)] AX diff:\n\(diff)")
+                        consecutiveUnchangedSteps = 0
                     } else {
-                        log.info("[\(stepNumber)] AX tree unchanged from previous step")
+                        consecutiveUnchangedSteps += 1
+                        log.info("[\(stepNumber)] AX tree unchanged from previous step (consecutive: \(self.consecutiveUnchangedSteps))")
                     }
                 }
 
@@ -201,7 +205,8 @@ final class ComputerUseSession: ObservableObject {
                     screenSize: screenCapture.screenSize(),
                     task: task,
                     history: actionHistory,
-                    elements: elements.flatMap { AccessibilityTreeEnumerator.flattenElements($0) }
+                    elements: elements.flatMap { AccessibilityTreeEnumerator.flattenElements($0) },
+                    consecutiveUnchangedSteps: consecutiveUnchangedSteps
                 )
                 action = result.action
                 tokenUsage = result.usage

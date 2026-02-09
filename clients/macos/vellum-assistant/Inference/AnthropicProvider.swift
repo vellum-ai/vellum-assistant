@@ -19,10 +19,11 @@ final class AnthropicProvider: ActionInferenceProvider {
         screenSize: CGSize,
         task: String,
         history: [ActionRecord],
-        elements: [AXElement]?
+        elements: [AXElement]?,
+        consecutiveUnchangedSteps: Int
     ) async throws -> (action: AgentAction, usage: TokenUsage?) {
         let systemPrompt = buildSystemPrompt(screenSize: screenSize)
-        let messages = buildMessages(axTree: axTree, previousAXTree: previousAXTree, axDiff: axDiff, secondaryWindows: secondaryWindows, screenshot: screenshot, task: task, history: history)
+        let messages = buildMessages(axTree: axTree, previousAXTree: previousAXTree, axDiff: axDiff, secondaryWindows: secondaryWindows, screenshot: screenshot, task: task, history: history, consecutiveUnchangedSteps: consecutiveUnchangedSteps)
 
         let result = try await client.sendToolUseRequest(
             model: model,
@@ -89,7 +90,7 @@ final class AnthropicProvider: ActionInferenceProvider {
 
     // MARK: - Message Building
 
-    private func buildMessages(axTree: String?, previousAXTree: String?, axDiff: String?, secondaryWindows: String?, screenshot: Data?, task: String, history: [ActionRecord]) -> [[String: Any]] {
+    private func buildMessages(axTree: String?, previousAXTree: String?, axDiff: String?, secondaryWindows: String?, screenshot: Data?, task: String, history: [ActionRecord], consecutiveUnchangedSteps: Int) -> [[String: Any]] {
         var contentBlocks: [[String: Any]] = []
 
         // Screenshot image block
@@ -114,9 +115,17 @@ final class AnthropicProvider: ActionInferenceProvider {
             textParts.append(diff)
             textParts.append("")
         } else if previousAXTree != nil && !history.isEmpty {
-            // AX tree unchanged — send compact note instead of duplicating the full tree
+            // AX tree unchanged — tell the model its action had no effect
+            let lastAction = history.last
+            let wasWait = lastAction?.action.type == .wait
             textParts.append("CHANGES SINCE LAST ACTION:")
-            textParts.append("No visible changes detected — the UI is identical to the previous step.")
+            if consecutiveUnchangedSteps >= 2 {
+                textParts.append("⚠️ WARNING: \(consecutiveUnchangedSteps) consecutive actions had NO VISIBLE EFFECT on the UI. You MUST try a completely different approach — do not repeat any of your recent actions.")
+            } else if !wasWait {
+                textParts.append("Your last action (\(lastAction?.action.displayDescription ?? "unknown")) had NO VISIBLE EFFECT on the UI. The screen is identical to the previous step. Do NOT repeat the same action — try something different.")
+            } else {
+                textParts.append("No visible changes detected — the UI is identical to the previous step.")
+            }
             textParts.append("")
         }
 

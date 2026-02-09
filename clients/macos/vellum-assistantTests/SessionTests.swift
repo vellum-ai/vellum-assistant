@@ -24,7 +24,8 @@ final class MockInferenceProvider: ActionInferenceProvider {
         screenSize: CGSize,
         task: String,
         history: [ActionRecord],
-        elements: [AXElement]?
+        elements: [AXElement]?,
+        consecutiveUnchangedSteps: Int
     ) async throws -> (action: AgentAction, usage: TokenUsage?) {
         if delayNanoseconds > 0 {
             try? await Task.sleep(nanoseconds: delayNanoseconds)
