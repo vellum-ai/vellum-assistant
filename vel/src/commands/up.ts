@@ -19,16 +19,21 @@ export async function up(): Promise<void> {
   const webDir = join(repoRoot, 'web');
 
   try {
-    // Step 0: Ensure correct Node.js version via nvm
+    // Step 0: Verify gcloud service account
+    console.log('🔐 Verifying gcloud service account...');
+    await verifyGcloudAccount();
+    console.log('✅ gcloud service account verified\n');
+
+    // Step 1: Ensure correct Node.js version via nvm
     console.log('📌 Ensuring correct Node.js version from .nvmrc...');
     await ensureNodeVersion(repoRoot);
     console.log('✅ Node.js version set\n');
 
-    // Step 1: Pull secrets from GCP Secret Manager
+    // Step 2: Pull secrets from GCP Secret Manager
     console.log('🔑 Pulling secrets from GCP Secret Manager...');
     const secrets = await fetchSecrets();
     console.log('✅ Secrets loaded\n');
-    // Step 2: Start Docker Compose for postgres
+    // Step 3: Start Docker Compose for postgres
     console.log('📦 Starting PostgreSQL container...');
     const composeUp = spawn('docker', ['compose', 'up', '-d'], {
       cwd: repoRoot,
@@ -48,12 +53,12 @@ export async function up(): Promise<void> {
 
     console.log('✅ PostgreSQL container started\n');
 
-    // Step 3: Wait for postgres to be healthy
+    // Step 4: Wait for postgres to be healthy
     console.log('⏳ Waiting for PostgreSQL to be ready...');
     await waitForPostgres(repoRoot);
     console.log('✅ PostgreSQL is ready\n');
 
-    // Step 4: Push schema to database
+    // Step 5: Push schema to database
     console.log('🔄 Pushing database schema...');
     const push = spawn('bunx', ['drizzle-kit', 'push', '--force'], {
       cwd: webDir,
@@ -92,7 +97,7 @@ export async function up(): Promise<void> {
 
     console.log('✅ Database schema pushed\n');
 
-    // Step 5: Start the web dev server
+    // Step 6: Start the web dev server
     console.log('🌐 Starting web dev server...');
     console.log('   Web server will run on http://localhost:3000');
     console.log('   Press Ctrl+C to stop\n');
@@ -138,6 +143,34 @@ export async function up(): Promise<void> {
   } catch (error) {
     console.error('❌ Error:', error instanceof Error ? error.message : error);
     process.exit(1);
+  }
+}
+
+const EXPECTED_ACCOUNT_SUFFIX = `.iam.gserviceaccount.com`;
+
+async function verifyGcloudAccount(): Promise<void> {
+  const output = await execOutput('gcloud', ['auth', 'list', '--filter=status:ACTIVE', '--format=value(account)']);
+  const activeAccount = output.trim();
+
+  if (!activeAccount) {
+    throw new Error(
+      'No active gcloud account found.\n\n' +
+      'Please authenticate with a service account:\n' +
+      `  gcloud auth activate-service-account --key-file=<path-to-key>\n\n` +
+      `Expected an account matching *@${GS_PROJECT_ID}${EXPECTED_ACCOUNT_SUFFIX}`
+    );
+  }
+
+  const expectedSuffix = `@${GS_PROJECT_ID}${EXPECTED_ACCOUNT_SUFFIX}`;
+  if (!activeAccount.endsWith(expectedSuffix)) {
+    throw new Error(
+      `Wrong gcloud account active: ${activeAccount}\n\n` +
+      `Expected an account matching *${expectedSuffix}\n` +
+      'Switch to the correct service account with:\n' +
+      `  gcloud auth activate-service-account --key-file=<path-to-key>\n` +
+      'Or switch configurations with:\n' +
+      `  gcloud config configurations activate <config-name>`
+    );
   }
 }
 
