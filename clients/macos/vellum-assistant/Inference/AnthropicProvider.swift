@@ -1,35 +1,18 @@
 import Foundation
 import CoreGraphics
 
-enum InferenceError: LocalizedError {
-    case networkError(String)
-    case apiError(statusCode: Int, body: String)
-    case parseError(String)
-    case noAPIKey
-
-    var errorDescription: String? {
-        switch self {
-        case .networkError(let msg): return "Network error: \(msg)"
-        case .apiError(let code, let body): return "API error (\(code)): \(body)"
-        case .parseError(let msg): return "Parse error: \(msg)"
-        case .noAPIKey: return "No API key configured"
-        }
-    }
-}
-
 final class AnthropicProvider: ActionInferenceProvider {
-    private let apiKey: String
+    private let client: AnthropicClient
     private let model: String
-    private let baseURL = "https://api.anthropic.com/v1/messages"
-    private let apiVersion = "2023-06-01"
 
     init(apiKey: String, model: String = "claude-sonnet-4-5-20250929") {
-        self.apiKey = apiKey
+        self.client = AnthropicClient(apiKey: apiKey)
         self.model = model
     }
 
     func infer(
         axTree: String?,
+        previousAXTree: String?,
         screenshot: Data?,
         screenSize: CGSize,
         task: String,
@@ -37,54 +20,17 @@ final class AnthropicProvider: ActionInferenceProvider {
         elements: [AXElement]?
     ) async throws -> AgentAction {
         let systemPrompt = buildSystemPrompt(screenSize: screenSize)
-        let messages = buildMessages(axTree: axTree, screenshot: screenshot, task: task, history: history)
+        let messages = buildMessages(axTree: axTree, previousAXTree: previousAXTree, screenshot: screenshot, task: task, history: history)
 
-        let body: [String: Any] = [
-            "model": model,
-            "max_tokens": 1024,
-            "system": systemPrompt,
-            "tools": ToolDefinitions.tools,
-            "tool_choice": ["type": "any"],
-            "messages": messages
-        ]
-
-        let jsonData = try JSONSerialization.data(withJSONObject: body)
-
-        var request = URLRequest(url: URL(string: baseURL)!)
-        request.httpMethod = "POST"
-        request.httpBody = jsonData
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
-        request.timeoutInterval = 30
-
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch {
-            throw InferenceError.networkError(error.localizedDescription)
-        }
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw InferenceError.networkError("Invalid response")
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw InferenceError.apiError(statusCode: httpResponse.statusCode, body: body)
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let content = json["content"] as? [[String: Any]] else {
-            throw InferenceError.parseError("Invalid response structure")
-        }
-
-        // Find the tool_use block
-        guard let toolUse = content.first(where: { ($0["type"] as? String) == "tool_use" }),
-              let toolName = toolUse["name"] as? String,
-              let input = toolUse["input"] as? [String: Any] else {
-            throw InferenceError.parseError("No tool_use block in response")
-        }
+        let (toolName, input) = try await client.sendToolUseRequest(
+            model: model,
+            maxTokens: 1024,
+            system: systemPrompt,
+            tools: ToolDefinitions.tools,
+            toolChoice: ["type": "any"],
+            messages: messages,
+            timeout: 30
+        )
 
         return try parseToolCall(name: toolName, input: input, elements: elements)
     }
@@ -99,7 +45,7 @@ final class AnthropicProvider: ActionInferenceProvider {
 
         You will receive the current screen state as an accessibility tree. Each interactive element has an [ID] number like [3] or [17]. Use these IDs with element_id to target elements — this is much more reliable than pixel coordinates.
 
-        YOUR ONLY AVAILABLE TOOLS ARE: click, double_click, right_click, type_text, key, scroll, wait, done.
+        YOUR ONLY AVAILABLE TOOLS ARE: click, double_click, right_click, type_text, key, scroll, drag, wait, done.
         You MUST only call one of these tools each turn. Do NOT attempt to call any other tool.
 
         RULES:
@@ -113,12 +59,13 @@ final class AnthropicProvider: ActionInferenceProvider {
         - NEVER type passwords, credit card numbers, SSNs, or other sensitive data.
         - Prefer keyboard shortcuts (cmd+c, cmd+v) over menu navigation when possible.
         - When the task is complete, call the done tool with a summary.
+        - You may receive the previous screen state alongside the current one. Compare them to understand what changed after your last action.
         """
     }
 
     // MARK: - Message Building
 
-    private func buildMessages(axTree: String?, screenshot: Data?, task: String, history: [ActionRecord]) -> [[String: Any]] {
+    private func buildMessages(axTree: String?, previousAXTree: String?, screenshot: Data?, task: String, history: [ActionRecord]) -> [[String: Any]] {
         var contentBlocks: [[String: Any]] = []
 
         // Screenshot image block
@@ -137,6 +84,13 @@ final class AnthropicProvider: ActionInferenceProvider {
         var textParts: [String] = []
         textParts.append("TASK: \(task)")
         textParts.append("")
+
+        // Include previous AX tree so the model can see what changed
+        if let prevTree = previousAXTree, !history.isEmpty {
+            textParts.append("SCREEN STATE BEFORE YOUR LAST ACTION:")
+            textParts.append(prevTree)
+            textParts.append("")
+        }
 
         if let tree = axTree {
             textParts.append("CURRENT SCREEN STATE (accessibility tree of the focused window):")
@@ -217,6 +171,29 @@ final class AnthropicProvider: ActionInferenceProvider {
                 throw InferenceError.parseError("key requires 'key' field")
             }
             return AgentAction(type: .key, reasoning: reasoning, key: key)
+
+        case "drag":
+            let toElementId = input["to_element_id"] as? Int
+            let inputToX = input["to_x"] as? Int
+            let inputToY = input["to_y"] as? Int
+            let (fromX, fromY, fromResolvedId, fromDesc) = resolvePosition(elementId: elementId, inputX: inputX, inputY: inputY, elements: elements)
+            let (toX, toY, _, _) = resolvePosition(elementId: toElementId, inputX: inputToX, inputY: inputToY, elements: elements)
+            guard let finalFromX = fromX, let finalFromY = fromY else {
+                throw InferenceError.parseError("drag requires source element_id or x,y coordinates")
+            }
+            guard let finalToX = toX, let finalToY = toY else {
+                throw InferenceError.parseError("drag requires destination to_element_id or to_x,to_y coordinates")
+            }
+            return AgentAction(
+                type: .drag,
+                reasoning: reasoning,
+                x: CGFloat(finalFromX),
+                y: CGFloat(finalFromY),
+                toX: CGFloat(finalToX),
+                toY: CGFloat(finalToY),
+                resolvedFromElementId: fromResolvedId,
+                elementDescription: fromDesc
+            )
 
         case "scroll":
             guard let direction = input["direction"] as? String else {

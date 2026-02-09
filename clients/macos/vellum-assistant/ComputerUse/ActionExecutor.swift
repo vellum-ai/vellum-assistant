@@ -22,7 +22,11 @@ enum ExecutorError: LocalizedError {
     }
 }
 
-final class ActionExecutor {
+protocol ActionExecuting {
+    func execute(_ action: AgentAction) async throws
+}
+
+final class ActionExecutor: ActionExecuting {
     private let eventSource: CGEventSource?
 
     init() {
@@ -208,12 +212,49 @@ final class ActionExecutor {
             let direction = action.scrollDirection ?? "down"
             let amount = action.scrollAmount ?? 3
             try scroll(at: CGPoint(x: x, y: y), direction: direction, amount: amount)
+        case .drag:
+            guard let fromX = action.x, let fromY = action.y else { throw ExecutorError.missingCoordinates }
+            guard let endX = action.toX, let endY = action.toY else { throw ExecutorError.missingCoordinates }
+            try drag(from: CGPoint(x: fromX, y: fromY), to: CGPoint(x: endX, y: endY))
         case .wait:
             let ms = action.waitDuration ?? 500
             try await Task.sleep(nanoseconds: UInt64(ms) * 1_000_000)
         case .done:
             break
         }
+    }
+
+    // MARK: - Drag
+
+    func drag(from startPoint: CGPoint, to endPoint: CGPoint) throws {
+        try mouseMove(to: startPoint)
+        usleep(30_000)
+
+        guard let mouseDown = CGEvent(mouseEventSource: eventSource, mouseType: .leftMouseDown, mouseCursorPosition: startPoint, mouseButton: .left) else {
+            throw ExecutorError.eventCreationFailed
+        }
+        mouseDown.post(tap: .cghidEventTap)
+        usleep(50_000)
+
+        // Interpolate drag path for smooth movement
+        let steps = 10
+        for i in 1...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let point = CGPoint(
+                x: startPoint.x + (endPoint.x - startPoint.x) * t,
+                y: startPoint.y + (endPoint.y - startPoint.y) * t
+            )
+            guard let dragEvent = CGEvent(mouseEventSource: eventSource, mouseType: .leftMouseDragged, mouseCursorPosition: point, mouseButton: .left) else {
+                throw ExecutorError.eventCreationFailed
+            }
+            dragEvent.post(tap: .cghidEventTap)
+            usleep(10_000)
+        }
+
+        guard let mouseUp = CGEvent(mouseEventSource: eventSource, mouseType: .leftMouseUp, mouseCursorPosition: endPoint, mouseButton: .left) else {
+            throw ExecutorError.eventCreationFailed
+        }
+        mouseUp.post(tap: .cghidEventTap)
     }
 
     // MARK: - Key Code Map

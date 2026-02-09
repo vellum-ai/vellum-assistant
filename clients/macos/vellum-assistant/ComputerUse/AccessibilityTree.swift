@@ -19,7 +19,11 @@ struct AXElement: Identifiable {
     let placeholderValue: String?
 }
 
-final class AccessibilityTreeEnumerator {
+protocol AccessibilityTreeProviding {
+    func enumerateCurrentWindow() -> (elements: [AXElement], windowTitle: String, appName: String)?
+}
+
+final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
     private var nextId = 1
     /// PID of the last successfully enumerated target app, used to resolve the
     /// correct app when our own window is frontmost.
@@ -45,6 +49,33 @@ final class AccessibilityTreeEnumerator {
     /// Set of app PIDs where we've already enabled enhanced AX.
     private static var enhancedAXEnabled: Set<pid_t> = []
 
+    /// Tracks the last non-self focused app PID, for fast lookup in enumeratePreviousApp().
+    private static var lastFocusedPID: pid_t?
+
+    /// Whether the NSWorkspace notification observer has been registered.
+    private static var appTrackerInstalled = false
+
+    /// Register an NSWorkspace observer to track the previously active app.
+    /// Call this once at app startup (e.g., from AppDelegate).
+    static func setupAppTracker() {
+        guard !appTrackerInstalled else { return }
+        appTrackerInstalled = true
+
+        let myBundleId = Bundle.main.bundleIdentifier
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            // Only track non-self apps
+            if let myId = myBundleId, app.bundleIdentifier == myId { return }
+            lastFocusedPID = app.processIdentifier
+            log.debug("App tracker: updated lastFocusedPID to \(app.processIdentifier) (\(app.localizedName ?? "?", privacy: .public))")
+        }
+        log.info("App activation tracker installed")
+    }
+
     /// Clear the cache so we re-set AXEnhancedUserInterface (e.g., after restarting Chrome).
     static func clearEnhancedAXCache() {
         enhancedAXEnabled.removeAll()
@@ -58,6 +89,11 @@ final class AccessibilityTreeEnumerator {
 
         let myBundleId = Bundle.main.bundleIdentifier
         log.debug("Frontmost app: \(frontApp.localizedName ?? "?", privacy: .public) (\(frontApp.bundleIdentifier ?? "no-bundle-id", privacy: .public)) — my bundle: \(myBundleId ?? "nil", privacy: .public)")
+
+        // Track the frontmost app's PID so enumeratePreviousApp() can use it directly
+        if myBundleId == nil || frontApp.bundleIdentifier != myBundleId {
+            Self.lastFocusedPID = frontApp.processIdentifier
+        }
 
         // Skip our own app — we want the window behind the overlay
         if let myId = myBundleId, frontApp.bundleIdentifier == myId {
@@ -99,28 +135,38 @@ final class AccessibilityTreeEnumerator {
     /// Prefers `lastTargetPid` so the agent returns to the correct window rather than
     /// an arbitrary app from the running-apps list.
     private func enumeratePreviousApp() -> (elements: [AXElement], windowTitle: String, appName: String)? {
+        // Fast path: try the tracked last-focused PID first
+        if let trackedPID = Self.lastFocusedPID {
+            log.debug("enumeratePreviousApp: trying tracked PID \(trackedPID)")
+            if let result = enumerateAppByPID(trackedPID) {
+                return result
+            }
+            log.debug("enumeratePreviousApp: tracked PID \(trackedPID) failed, falling back to iteration")
+        }
+
+        // Slow fallback: iterate all running apps
         let runningApps = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier && !$0.isTerminated }
 
         // Try the last-known target app first for deterministic behavior
         if let targetPid = lastTargetPid,
-           let targetApp = runningApps.first(where: { $0.processIdentifier == targetPid }),
-           let result = enumerateAppWindow(targetApp) {
+           runningApps.contains(where: { $0.processIdentifier == targetPid }),
+           let result = enumerateAppByPID(targetPid) {
             return result
         }
 
         // Fallback: scan all running apps
         for app in runningApps {
-            if let result = enumerateAppWindow(app) {
+            if let result = enumerateAppByPID(app.processIdentifier) {
                 return result
             }
         }
         return nil
     }
 
-    /// Enumerate the focused window of a given app, returning nil if unavailable.
-    private func enumerateAppWindow(_ app: NSRunningApplication) -> (elements: [AXElement], windowTitle: String, appName: String)? {
-        let pid = app.processIdentifier
+    /// Try to enumerate the focused window for a specific PID.
+    /// Returns nil if the app has no focused window or yields no elements.
+    private func enumerateAppByPID(_ pid: pid_t) -> (elements: [AXElement], windowTitle: String, appName: String)? {
         let appElement = AXUIElementCreateApplication(pid)
 
         if !Self.enhancedAXEnabled.contains(pid) {
@@ -134,7 +180,7 @@ final class AccessibilityTreeEnumerator {
         let windowElement = windowRef as! AXUIElement
 
         let windowTitle = getStringAttribute(windowElement, kAXTitleAttribute as CFString) ?? "Untitled"
-        let appName = app.localizedName ?? "Unknown"
+        let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Unknown"
 
         nextId = 1
         let elements = enumerateElement(element: windowElement, depth: 0, maxDepth: 25)

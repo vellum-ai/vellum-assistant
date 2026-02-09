@@ -16,7 +16,18 @@ enum CaptureError: LocalizedError {
     }
 }
 
-final class ScreenCapture {
+protocol ScreenCaptureProviding {
+    func captureScreen(maxWidth: Int, maxHeight: Int) async throws -> Data
+    func screenSize() -> CGSize
+}
+
+extension ScreenCaptureProviding {
+    func captureScreen() async throws -> Data {
+        try await captureScreen(maxWidth: 1920, maxHeight: 1080)
+    }
+}
+
+final class ScreenCapture: ScreenCaptureProviding {
     func captureScreen(maxWidth: Int = 1920, maxHeight: Int = 1080) async throws -> Data {
         let content: SCShareableContent
         do {
