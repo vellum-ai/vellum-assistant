@@ -1,7 +1,6 @@
 import { spawn } from 'child_process';
 import { join } from 'path';
 
-import { ensureBunInPath } from '../lib/bun-path';
 import { execOutput } from '../lib/step-runner';
 
 const GS_PROJECT_ID = 'vellum-nonprod';
@@ -13,7 +12,6 @@ const SECRET_NAMES = [
 ] as const;
 
 export async function up(): Promise<void> {
-  ensureBunInPath();
   console.log('🚀 vel up - Starting development environment\n');
 
   const repoRoot = join(import.meta.dir, '..', '..', '..');

@@ -2,6 +2,7 @@
 
 import { down } from './commands/down';
 import { help } from './commands/help';
+import { ensureBunInPath } from './lib/bun-path';
 import { ps } from './commands/ps';
 import { setup } from './commands/setup';
 import { shell } from './commands/shell';
@@ -19,6 +20,7 @@ const commands = {
 type CommandName = keyof typeof commands;
 
 async function main() {
+  ensureBunInPath();
   const args = process.argv.slice(2);
   const commandName = args[0];
 
