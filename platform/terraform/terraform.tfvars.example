@@ -12,3 +12,5 @@ app_replicas = 2
 # Secrets (use environment variables or secret management)
 # TF_VAR_database_url="postgresql://..."
 # TF_VAR_anthropic_api_key="sk-ant-..."
+# TF_VAR_stripe_secret_key="sk_live_..."
+# TF_VAR_stripe_publishable_key="pk_live_..."

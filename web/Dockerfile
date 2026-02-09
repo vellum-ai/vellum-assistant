@@ -12,6 +12,8 @@ COPY . .
 
 # Build
 ENV NEXT_TELEMETRY_DISABLED=1
+ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 RUN bun run build
 
 # Migration stage - has bun, drizzle-kit, and all scripts for running migrations

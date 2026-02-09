@@ -46,21 +46,27 @@ jobs:
         with:
           install_components: gke-gcloud-auth-plugin
 
-      - name: Fetch DATABASE_URL from Secret Manager
+      - name: Fetch secrets from Secret Manager
         id: secrets
-        run: echo "DATABASE_URL=$(gcloud secrets versions access latest --secret=database-url --project=vellum-ai-prod)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "DATABASE_URL=$(gcloud secrets versions access latest --secret=database-url --project=vellum-ai-prod)" >> "$GITHUB_OUTPUT"
+          echo "STRIPE_SECRET_KEY=$(gcloud secrets versions access latest --secret=STRIPE_SECRET_KEY --project=vellum-ai-prod)" >> "$GITHUB_OUTPUT"
+          echo "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$(gcloud secrets versions access latest --secret=NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY --project=vellum-ai-prod)" >> "$GITHUB_OUTPUT"
 
       - name: Build
         run: bun run build
         env:
           DATABASE_URL: ${{ steps.secrets.outputs.DATABASE_URL }}
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ steps.secrets.outputs.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker
 
       - name: Build Docker images
         run: |
-          docker build -t gcr.io/vellum-ai-prod/vellum-assistant:${{ github.sha }} .
+          docker build \
+            --build-arg NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ steps.secrets.outputs.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }} \
+            -t gcr.io/vellum-ai-prod/vellum-assistant:${{ github.sha }} .
           docker tag gcr.io/vellum-ai-prod/vellum-assistant:${{ github.sha }} gcr.io/vellum-ai-prod/vellum-assistant:latest
           docker build --target migrator -t gcr.io/vellum-ai-prod/vellum-assistant-migrate:${{ github.sha }} .
 

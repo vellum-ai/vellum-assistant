@@ -22,8 +22,9 @@ resource "kubernetes_config_map" "app_config" {
   }
 
   data = {
-    NODE_ENV        = "production"
-    BETTER_AUTH_URL = "https://${var.domain}"
+    NODE_ENV                           = "production"
+    BETTER_AUTH_URL                    = "https://${var.domain}"
+    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = var.stripe_publishable_key
   }
 }
 
@@ -38,6 +39,7 @@ resource "kubernetes_secret" "app_secrets" {
     DATABASE_URL       = local.database_url
     ANTHROPIC_API_KEY  = var.anthropic_api_key
     BETTER_AUTH_SECRET = random_password.better_auth_secret.result
+    STRIPE_SECRET_KEY  = var.stripe_secret_key
   }
 
   type = "Opaque"

@@ -77,3 +77,14 @@ variable "anthropic_api_key" {
   type        = string
   sensitive   = true
 }
+
+variable "stripe_secret_key" {
+  description = "Stripe secret API key for server-side billing operations"
+  type        = string
+  sensitive   = true
+}
+
+variable "stripe_publishable_key" {
+  description = "Stripe publishable key for client-side payment forms"
+  type        = string
+}
