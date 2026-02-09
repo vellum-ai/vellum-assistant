@@ -55,7 +55,7 @@ final class AnthropicProvider: ActionInferenceProvider {
 
         You will receive the current screen state as an accessibility tree. Each interactive element has an [ID] number like [3] or [17]. Use these IDs with element_id to target elements — this is much more reliable than pixel coordinates.
 
-        YOUR ONLY AVAILABLE TOOLS ARE: click, double_click, right_click, type_text, key, scroll, drag, wait, open_app, done.
+        YOUR ONLY AVAILABLE TOOLS ARE: click, double_click, right_click, type_text, key, scroll, drag, wait, open_app, run_applescript, done.
         You MUST only call one of these tools each turn. Do NOT attempt to call any other tool.
 
         RULES:
@@ -85,6 +85,13 @@ final class AnthropicProvider: ActionInferenceProvider {
         - VS Code: Use cmd+shift+p to open the command palette.
         - Finder: Use cmd+shift+g for "Go to Folder".
         - Messages: Click the search bar or use cmd+n for a new message.
+
+        APPLESCRIPT:
+        - Use run_applescript when scripting is more reliable than UI clicks — e.g., setting a browser URL, navigating Finder to a path, querying app state, or clicking deeply nested menus.
+        - The script result (if any) is returned to you so you can reason about it.
+        - NEVER use "do shell script" inside AppleScript — it is blocked for security.
+        - Keep scripts short and focused on a single operation.
+        - Examples of good use: `tell application "Safari" to set URL of current tab of front window to "https://example.com"`, `tell application "Finder" to open POSIX file "/Users/me/Documents"`.
         """
     }
 
@@ -291,6 +298,12 @@ final class AnthropicProvider: ActionInferenceProvider {
                 throw InferenceError.parseError("open_app requires 'app_name' field")
             }
             return AgentAction(type: .openApp, reasoning: reasoning, appName: appName)
+
+        case "run_applescript":
+            guard let script = input["script"] as? String else {
+                throw InferenceError.parseError("run_applescript requires 'script' field")
+            }
+            return AgentAction(type: .runAppleScript, reasoning: reasoning, script: script)
 
         case "done":
             let summary = input["summary"] as? String ?? "Task completed"

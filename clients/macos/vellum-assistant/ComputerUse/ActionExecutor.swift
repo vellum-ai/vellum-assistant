@@ -1,6 +1,7 @@
 import CoreGraphics
 import AppKit
 import ApplicationServices
+import Carbon
 
 enum ExecutorError: LocalizedError {
     case eventCreationFailed
@@ -10,6 +11,9 @@ enum ExecutorError: LocalizedError {
     case unknownKey(String)
     case accessibilityNotGranted
     case appNotFound(String)
+    case appleScriptError(String)
+    case appleScriptMissingScript
+    case appleScriptTimeout
 
     var errorDescription: String? {
         switch self {
@@ -20,12 +24,15 @@ enum ExecutorError: LocalizedError {
         case .unknownKey(let key): return "Unknown key: \(key)"
         case .accessibilityNotGranted: return "Accessibility permission not granted"
         case .appNotFound(let name): return "Application not found: \(name)"
+        case .appleScriptError(let msg): return "AppleScript error: \(msg)"
+        case .appleScriptMissingScript: return "run_applescript requires a script"
+        case .appleScriptTimeout: return "AppleScript timed out after 5 seconds"
         }
     }
 }
 
 protocol ActionExecuting {
-    func execute(_ action: AgentAction) async throws
+    func execute(_ action: AgentAction) async throws -> String?
 }
 
 final class ActionExecutor: ActionExecuting {
@@ -191,7 +198,8 @@ final class ActionExecutor: ActionExecuting {
 
     // MARK: - Dispatch
 
-    func execute(_ action: AgentAction) async throws {
+    @discardableResult
+    func execute(_ action: AgentAction) async throws -> String? {
         switch action.type {
         case .click:
             guard let x = action.x, let y = action.y else { throw ExecutorError.missingCoordinates }
@@ -221,11 +229,44 @@ final class ActionExecutor: ActionExecuting {
         case .openApp:
             guard let appName = action.appName else { throw ExecutorError.appNotFound("(no name)") }
             try await openApp(name: appName)
+        case .runAppleScript:
+            guard let source = action.script else { throw ExecutorError.appleScriptMissingScript }
+            return try await runAppleScript(source)
         case .wait:
             let ms = action.waitDuration ?? 500
             try await Task.sleep(nanoseconds: UInt64(ms) * 1_000_000)
         case .done:
             break
+        }
+        return nil
+    }
+
+    // MARK: - AppleScript
+
+    func runAppleScript(_ source: String) async throws -> String? {
+        // Run NSAppleScript on main thread with a 5-second timeout
+        try await withThrowingTaskGroup(of: String?.self) { group in
+            group.addTask { @MainActor in
+                var errorInfo: NSDictionary?
+                let script = NSAppleScript(source: source)!
+                let descriptor = script.executeAndReturnError(&errorInfo)
+
+                if let error = errorInfo {
+                    let message = error[NSAppleScript.errorMessage] as? String ?? "Unknown AppleScript error"
+                    throw ExecutorError.appleScriptError(message)
+                }
+
+                return descriptor.stringValue
+            }
+
+            group.addTask {
+                try await Task.sleep(nanoseconds: 5_000_000_000) // 5s timeout
+                throw ExecutorError.appleScriptTimeout
+            }
+
+            let value = try await group.next()!
+            group.cancelAll()
+            return value
         }
     }
 

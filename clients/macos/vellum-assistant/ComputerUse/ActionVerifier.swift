@@ -64,6 +64,24 @@ final class ActionVerifier {
             return .blocked("Action targets the system menu bar (y < 25)")
         }
 
+        // 7. AppleScript safety
+        if action.type == .runAppleScript, let script = action.script {
+            let lower = script.lowercased()
+            let blockedPatterns = [
+                "do shell script", "keychain", "password", "credential",
+                "sudo", "rm -rf", "defaults write", "defaults delete",
+                "osascript", "system events\" to keystroke",
+                "system events' to keystroke"
+            ]
+            for pattern in blockedPatterns {
+                if lower.contains(pattern) {
+                    return .blocked("AppleScript contains blocked pattern: \(pattern)")
+                }
+            }
+            let preview = script.count > 80 ? String(script.prefix(80)) + "..." : script
+            return .needsConfirmation("AppleScript execution: \(preview)")
+        }
+
         // All checks passed
         actionHistory.append(action)
         return .allowed
@@ -91,7 +109,7 @@ final class ActionVerifier {
     // MARK: - Comparison
 
     private func actionsAreIdentical(_ a: AgentAction, _ b: AgentAction) -> Bool {
-        a.type == b.type && a.x == b.x && a.y == b.y && a.text == b.text && a.key == b.key && a.appName == b.appName
+        a.type == b.type && a.x == b.x && a.y == b.y && a.text == b.text && a.key == b.key && a.appName == b.appName && a.script == b.script
     }
 
     // MARK: - Sensitive Data Detection

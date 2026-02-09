@@ -78,15 +78,26 @@ final class MockScreenCapture: ScreenCaptureProviding {
 final class MockActionExecutor: ActionExecuting {
     var executedActions: [AgentAction] = []
     var shouldFailOnCall: Int? = nil
+    var mockResult: String? = nil
+    var shouldThrowAppleScriptError: Bool = false
     private var callCount = 0
 
-    func execute(_ action: AgentAction) async throws {
+    func execute(_ action: AgentAction) async throws -> String? {
         if shouldFailOnCall == callCount {
             callCount += 1
             throw ExecutorError.eventCreationFailed
         }
+        if shouldThrowAppleScriptError && action.type == .runAppleScript {
+            callCount += 1
+            executedActions.append(action)
+            throw ExecutorError.appleScriptError("Mock AppleScript error")
+        }
         callCount += 1
         executedActions.append(action)
+        if action.type == .runAppleScript {
+            return mockResult
+        }
+        return nil
     }
 }
 
@@ -654,5 +665,120 @@ final class SessionTests: XCTestCase {
         let session = makeSession(task: "Open Safari and search for cats", provider: provider)
 
         XCTAssertEqual(session.task, "Open Safari and search for cats")
+    }
+
+    // MARK: - AppleScript
+
+    @MainActor
+    func testAppleScript_requiresConfirmation_approved() async {
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .runAppleScript, reasoning: "Set Safari URL", script: "tell application \"Safari\" to set URL of current tab of front window to \"https://example.com\""),
+            AgentAction(type: .done, reasoning: "done", summary: "Set URL via AppleScript")
+        ])
+        let executor = MockActionExecutor()
+        executor.mockResult = "https://example.com"
+        let session = makeSession(provider: provider, executor: executor)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        // Wait for confirmation state
+        var sawConfirmation = false
+        for _ in 0..<200 {
+            if case .awaitingConfirmation = session.state {
+                sawConfirmation = true
+                break
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertTrue(sawConfirmation, "AppleScript should require confirmation")
+        session.approveConfirmation()
+        await runTask.value
+
+        if case .completed(let summary, _) = session.state {
+            XCTAssertEqual(summary, "Set URL via AppleScript")
+        } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+        XCTAssertEqual(executor.executedActions.count, 1)
+        XCTAssertEqual(executor.executedActions[0].type, .runAppleScript)
+    }
+
+    @MainActor
+    func testAppleScript_doShellScript_blocked() async {
+        let blockedScript = "do shell script \"rm -rf /\""
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .runAppleScript, reasoning: "bad", script: blockedScript),
+            AgentAction(type: .runAppleScript, reasoning: "bad2", script: blockedScript),
+            AgentAction(type: .runAppleScript, reasoning: "bad3", script: blockedScript),
+        ])
+        let executor = MockActionExecutor()
+        let session = makeSession(provider: provider, executor: executor)
+
+        await session.run()
+
+        if case .failed(let reason) = session.state {
+            XCTAssertTrue(reason.contains("blocked"), "Expected block-related failure, got: \(reason)")
+        } else {
+            XCTFail("Expected failed state, got \(session.state)")
+        }
+        // None should have been executed
+        XCTAssertEqual(executor.executedActions.count, 0)
+    }
+
+    @MainActor
+    func testAppleScript_confirmationRejected_cancelsSession() async {
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .runAppleScript, reasoning: "Set URL", script: "tell application \"Safari\" to return name of front window"),
+            AgentAction(type: .done, reasoning: "done", summary: "Should not reach")
+        ])
+        let session = makeSession(provider: provider)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        for _ in 0..<200 {
+            if case .awaitingConfirmation = session.state { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        session.rejectConfirmation()
+        await runTask.value
+
+        XCTAssertEqual(session.state, .cancelled)
+    }
+
+    @MainActor
+    func testAppleScript_executionError_nonFatal() async {
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .runAppleScript, reasoning: "Try script", script: "tell application \"NonExistentApp\" to activate"),
+            AgentAction(type: .done, reasoning: "done", summary: "Recovered from error")
+        ])
+        let executor = MockActionExecutor()
+        executor.shouldThrowAppleScriptError = true
+        let session = makeSession(provider: provider, executor: executor)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        // First action is AppleScript — needs confirmation
+        for _ in 0..<200 {
+            if case .awaitingConfirmation = session.state { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        session.approveConfirmation()
+
+        await runTask.value
+
+        // Should have completed (not failed) because AppleScript errors are non-fatal
+        if case .completed(let summary, _) = session.state {
+            XCTAssertEqual(summary, "Recovered from error")
+        } else {
+            XCTFail("Expected completed state (AppleScript errors are non-fatal), got \(session.state)")
+        }
     }
 }
