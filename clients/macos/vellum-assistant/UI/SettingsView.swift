@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @State private var apiKeyText = ""
     @State private var hasKey = APIKeyManager.getKey() != nil
-    @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
+    @State private var maxSteps: Double = 50
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
     @State private var ambientEnabled = UserDefaults.standard.bool(forKey: "ambientAgentEnabled")
