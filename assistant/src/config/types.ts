@@ -7,6 +7,11 @@ export interface TimeoutConfig {
   permissionTimeoutSec: number;
 }
 
+export interface SandboxConfig {
+  /** Whether to run shell commands in a sandbox. Default: false. */
+  enabled: boolean;
+}
+
 export interface AssistantConfig {
   provider: string;
   model: string;
@@ -15,4 +20,5 @@ export interface AssistantConfig {
   maxTokens: number;
   dataDir: string;
   timeouts: TimeoutConfig;
+  sandbox: SandboxConfig;
 }

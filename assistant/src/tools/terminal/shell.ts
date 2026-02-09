@@ -5,6 +5,7 @@ import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
+import { wrapCommand } from './sandbox.js';
 
 const log = getLogger('shell-tool');
 
@@ -62,9 +63,8 @@ class ShellTool implements Tool {
       let stderr = '';
       let timedOut = false;
 
-      // The '--' separator prevents bash from interpreting the command
-      // string as additional flags if it starts with '-'.
-      const child = spawn('bash', ['-c', '--', command], {
+      const wrapped = wrapCommand(command, context.workingDir, config.sandbox.enabled);
+      const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,
         env: { ...process.env },
         stdio: ['ignore', 'pipe', 'pipe'],

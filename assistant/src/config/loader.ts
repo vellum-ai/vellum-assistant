@@ -23,7 +23,7 @@ export function loadConfig(): AssistantConfig {
   // Re-entrancy guard: log calls during loading (e.g. file-mode warning,
   // invalid apiKeys) can trigger loadConfig again. Return defaults to
   // break the cycle instead of recursing to stack overflow.
-  if (loading) return { ...DEFAULT_CONFIG, apiKeys: { ...DEFAULT_CONFIG.apiKeys }, timeouts: { ...DEFAULT_CONFIG.timeouts } };
+  if (loading) return { ...DEFAULT_CONFIG, apiKeys: { ...DEFAULT_CONFIG.apiKeys }, timeouts: { ...DEFAULT_CONFIG.timeouts }, sandbox: { ...DEFAULT_CONFIG.sandbox } };
   loading = true;
 
   try {
@@ -60,6 +60,7 @@ export function loadConfig(): AssistantConfig {
       ...fileConfig,
       apiKeys: { ...DEFAULT_CONFIG.apiKeys, ...fileConfig.apiKeys },
       timeouts: { ...DEFAULT_CONFIG.timeouts, ...(fileConfig as Record<string, unknown>).timeouts as Partial<AssistantConfig['timeouts']> },
+      sandbox: { ...DEFAULT_CONFIG.sandbox, ...(fileConfig as Record<string, unknown>).sandbox as Partial<AssistantConfig['sandbox']> },
     };
 
     // Set cached before validation so re-entrant calls (e.g. validateConfig
@@ -126,6 +127,11 @@ function validateConfig(config: AssistantConfig): void {
       );
       config.timeouts[field] = DEFAULT_CONFIG.timeouts[field];
     }
+  }
+
+  if (typeof config.sandbox.enabled !== 'boolean') {
+    log.warn(`Invalid sandbox.enabled "${config.sandbox.enabled}". Must be a boolean. Falling back to ${DEFAULT_CONFIG.sandbox.enabled}.`);
+    config.sandbox.enabled = DEFAULT_CONFIG.sandbox.enabled;
   }
 }
 
