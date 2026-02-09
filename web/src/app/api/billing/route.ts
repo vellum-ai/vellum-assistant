@@ -11,6 +11,34 @@ function getStripeClient(): Stripe {
   return new Stripe(secretKey);
 }
 
+function isStripeResourceMissing(error: unknown): boolean {
+  return (
+    error instanceof Stripe.errors.StripeInvalidRequestError &&
+    error.code === "resource_missing"
+  );
+}
+
+async function createStripeCustomer(
+  sql: ReturnType<typeof getDb>,
+  stripe: Stripe,
+  username: string,
+  foundUser: Record<string, unknown>
+): Promise<string> {
+  const customer = await stripe.customers.create({
+    metadata: { username },
+    email: (foundUser.email as string | null) ?? undefined,
+    name: (foundUser.name as string | null) ?? undefined,
+  });
+
+  await sql`
+    UPDATE "user"
+    SET stripe_customer_id = ${customer.id}, updated_at = NOW()
+    WHERE username = ${username}
+  `;
+
+  return customer.id;
+}
+
 async function getOrCreateStripeCustomer(
   sql: ReturnType<typeof getDb>,
   username: string
@@ -25,25 +53,26 @@ async function getOrCreateStripeCustomer(
 
   const foundUser = userResult[0];
   const existingCustomerId = foundUser.stripe_customer_id as string | null;
+  const stripe = getStripeClient();
 
   if (existingCustomerId) {
-    return existingCustomerId;
+    try {
+      await stripe.customers.retrieve(existingCustomerId);
+      return existingCustomerId;
+    } catch (error: unknown) {
+      if (!isStripeResourceMissing(error)) {
+        throw error;
+      }
+
+      await sql`
+        UPDATE "user"
+        SET stripe_customer_id = NULL, updated_at = NOW()
+        WHERE username = ${username}
+      `;
+    }
   }
 
-  const stripe = getStripeClient();
-  const customer = await stripe.customers.create({
-    metadata: { username },
-    email: (foundUser.email as string | null) ?? undefined,
-    name: (foundUser.name as string | null) ?? undefined,
-  });
-
-  await sql`
-    UPDATE "user"
-    SET stripe_customer_id = ${customer.id}, updated_at = NOW()
-    WHERE username = ${username}
-  `;
-
-  return customer.id;
+  return createStripeCustomer(sql, stripe, username, foundUser);
 }
 
 export async function GET(request: NextRequest) {
