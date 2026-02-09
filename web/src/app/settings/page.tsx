@@ -644,7 +644,7 @@ export default function SettingsPage() {
                     Medical
                   </h3>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Medical service and compliance costs
+                    Medical costs from Vellum Doctor
                   </p>
                 </div>
                 <span className="text-sm font-medium text-zinc-900 dark:text-white">
