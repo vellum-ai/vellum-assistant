@@ -48,3 +48,8 @@ body {
 .animation-delay-2000 {
   animation-delay: 2s;
 }
+
+.vellum-blog-page {
+  background-color: #ffffff;
+  color: #333333;
+}
