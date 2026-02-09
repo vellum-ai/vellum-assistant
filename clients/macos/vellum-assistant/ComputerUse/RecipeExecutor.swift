@@ -78,7 +78,7 @@ final class RecipeExecutor {
         let session = ComputerUseSession(
             task: taskPrompt,
             provider: provider,
-            maxSteps: recipe.totalSteps * 4, // generous headroom for retries
+            maxSteps: max(recipe.totalSteps * 4, 40), // generous headroom; floor of 40 for high-level recipes
             initialDelayMs: 500
         )
 
@@ -287,7 +287,7 @@ final class RecipeExecutor {
         - Work through each step, taking one action at a time
         - After each action, check the screen to see what changed before continuing
         - If something doesn't look right, consult the error recovery section
-        - When all steps are complete, call done() with a summary of what was set up
+        - When all steps are complete, call done() with a summary that includes labeled fields: Username: <github-username>, Repository: <repo-name>, Path: <local-clone-path>
         """
 
         // Interpolate context variables
