@@ -2,6 +2,7 @@ import type { Provider } from "./types.js";
 import { AnthropicProvider } from "./anthropic/client.js";
 import { OpenAIProvider } from "./openai/client.js";
 import { GeminiProvider } from "./gemini/client.js";
+import { OllamaProvider } from "./ollama/client.js";
 import { RetryProvider } from "./retry.js";
 import { ConfigError } from "../util/errors.js";
 
@@ -9,6 +10,7 @@ const DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-5-20250929',
   openai: 'gpt-5.2',
   gemini: 'gemini-3-flash',
+  ollama: 'llama3.2',
 };
 
 const providers = new Map<string, Provider>();
@@ -37,23 +39,43 @@ export interface ProvidersConfig {
   model: string;
 }
 
+function resolveModel(config: ProvidersConfig, providerName: keyof typeof DEFAULT_MODELS): string {
+  if (config.provider === providerName) {
+    // If a non-Anthropic provider is selected with the untouched global default
+    // model, use a provider-appropriate fallback instead.
+    if (providerName !== 'anthropic' && config.model === DEFAULT_MODELS.anthropic) {
+      return DEFAULT_MODELS[providerName];
+    }
+    return config.model;
+  }
+  return DEFAULT_MODELS[providerName];
+}
+
 export function initializeProviders(config: ProvidersConfig): void {
+  providers.clear();
+
   if (config.apiKeys.anthropic) {
-    const model = config.provider === 'anthropic' ? config.model : DEFAULT_MODELS.anthropic;
+    const model = resolveModel(config, 'anthropic');
     registerProvider('anthropic', new RetryProvider(
       new AnthropicProvider(config.apiKeys.anthropic, model),
     ));
   }
   if (config.apiKeys.openai) {
-    const model = config.provider === 'openai' ? config.model : DEFAULT_MODELS.openai;
+    const model = resolveModel(config, 'openai');
     registerProvider('openai', new RetryProvider(
       new OpenAIProvider(config.apiKeys.openai, model),
     ));
   }
   if (config.apiKeys.gemini) {
-    const model = config.provider === 'gemini' ? config.model : DEFAULT_MODELS.gemini;
+    const model = resolveModel(config, 'gemini');
     registerProvider('gemini', new RetryProvider(
       new GeminiProvider(config.apiKeys.gemini, model),
+    ));
+  }
+  if (config.provider === 'ollama' || config.apiKeys.ollama) {
+    const model = resolveModel(config, 'ollama');
+    registerProvider('ollama', new RetryProvider(
+      new OllamaProvider(model, { apiKey: config.apiKeys.ollama }),
     ));
   }
 }

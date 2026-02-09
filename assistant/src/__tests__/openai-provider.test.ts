@@ -25,6 +25,7 @@ interface FakeChunk {
 let fakeChunks: FakeChunk[] = [];
 let lastCreateParams: Record<string, unknown> | null = null;
 let lastCreateOptions: Record<string, unknown> | null = null;
+let lastConstructorOptions: Record<string, unknown> | null = null;
 let shouldThrow: Error | null = null;
 
 // Simulate OpenAI.APIError
@@ -40,7 +41,9 @@ class FakeAPIError extends Error {
 mock.module('openai', () => ({
   default: class MockOpenAI {
     static APIError = FakeAPIError;
-    constructor(_opts: Record<string, unknown>) {}
+    constructor(opts: Record<string, unknown>) {
+      lastConstructorOptions = opts;
+    }
     chat = {
       completions: {
         create: async (params: Record<string, unknown>, options?: Record<string, unknown>) => {
@@ -63,6 +66,7 @@ mock.module('openai', () => ({
 
 // Import after mocking
 import { OpenAIProvider } from '../providers/openai/client.js';
+import { OllamaProvider } from '../providers/ollama/client.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -129,11 +133,45 @@ describe('OpenAIProvider', () => {
   let provider: OpenAIProvider;
 
   beforeEach(() => {
-    provider = new OpenAIProvider('sk-test-key', 'gpt-5.2');
     fakeChunks = [];
     lastCreateParams = null;
     lastCreateOptions = null;
+    lastConstructorOptions = null;
     shouldThrow = null;
+    provider = new OpenAIProvider('sk-test-key', 'gpt-5.2');
+  });
+
+  test('supports OpenAI-compatible baseURL/provider metadata', () => {
+    const compatible = new OpenAIProvider('sk-local', 'llama3.2', {
+      baseURL: 'http://127.0.0.1:11434/v1',
+      providerName: 'ollama',
+      providerLabel: 'Ollama',
+    });
+
+    expect(compatible.name).toBe('ollama');
+    expect(lastConstructorOptions).toEqual({
+      apiKey: 'sk-local',
+      baseURL: 'http://127.0.0.1:11434/v1',
+    });
+  });
+
+  test('ollama wrapper uses OpenAI-compatible defaults', () => {
+    const previousBaseUrl = process.env.OLLAMA_BASE_URL;
+    try {
+      delete process.env.OLLAMA_BASE_URL;
+      const ollama = new OllamaProvider('llama3.2');
+      expect(ollama.name).toBe('ollama');
+      expect(lastConstructorOptions).toEqual({
+        apiKey: 'ollama',
+        baseURL: 'http://127.0.0.1:11434/v1',
+      });
+    } finally {
+      if (previousBaseUrl !== undefined) {
+        process.env.OLLAMA_BASE_URL = previousBaseUrl;
+      } else {
+        delete process.env.OLLAMA_BASE_URL;
+      }
+    }
   });
 
   // -----------------------------------------------------------------------

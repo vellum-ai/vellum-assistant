@@ -177,6 +177,9 @@ export function loadConfig(): AssistantConfig {
     if (process.env.GEMINI_API_KEY) {
       config.apiKeys.gemini = process.env.GEMINI_API_KEY;
     }
+    if (process.env.OLLAMA_API_KEY) {
+      config.apiKeys.ollama = process.env.OLLAMA_API_KEY;
+    }
     if (process.env.BRAVE_API_KEY) {
       config.apiKeys.brave = process.env.BRAVE_API_KEY;
     }
