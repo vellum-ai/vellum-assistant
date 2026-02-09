@@ -604,7 +604,7 @@ program
         if (mode === 0o600 || mode === 0o700) {
           pass(`Socket permissions (${mode.toString(8).padStart(4, '0')})`);
         } else {
-          fail('Socket permissions', `expected 0600, got 0${mode.toString(8)}`);
+          fail('Socket permissions', `expected 0600 or 0700, got 0${mode.toString(8)}`);
         }
       } catch {
         fail('Socket permissions', 'could not stat socket');
