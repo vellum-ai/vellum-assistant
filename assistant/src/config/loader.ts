@@ -62,27 +62,37 @@ export function loadConfig(): AssistantConfig {
         ([, v]) => typeof v === 'string' && v.length > 0,
       );
       if (plaintextKeys.length > 0) {
-        let migrated = 0;
+        const migratedProviders: string[] = [];
         for (const [provider, value] of plaintextKeys) {
           if (setSecureKey(provider, value as string)) {
-            migrated++;
+            migratedProviders.push(provider);
           } else {
             log.warn(`Failed to migrate API key for "${provider}" to secure storage`);
           }
         }
-        if (migrated > 0) {
-          // Rewrite config.json without apiKeys
+        if (migratedProviders.length > 0) {
+          // Rewrite config.json without successfully migrated apiKeys
           try {
             const rawJson = JSON.parse(readFileSync(configPath, 'utf-8'));
-            delete rawJson.apiKeys;
+            for (const p of migratedProviders) {
+              delete rawJson.apiKeys[p];
+            }
+            if (Object.keys(rawJson.apiKeys).length === 0) {
+              delete rawJson.apiKeys;
+            }
             writeFileSync(configPath, JSON.stringify(rawJson, null, 2) + '\n');
-            log.info(`Migrated ${migrated} API key(s) from config.json to secure storage`);
+            log.info(`Migrated ${migratedProviders.length} API key(s) from config.json to secure storage`);
           } catch (err) {
             log.warn({ err }, 'Failed to remove migrated keys from config.json');
           }
         }
-        // Clear from fileConfig so they don't end up in the config object from file
-        delete fileConfig.apiKeys;
+        // Clear only migrated keys from fileConfig so failed keys still flow into config
+        for (const p of migratedProviders) {
+          delete fileConfig.apiKeys![p];
+        }
+        if (Object.keys(fileConfig.apiKeys!).length === 0) {
+          delete fileConfig.apiKeys;
+        }
       }
     }
 
