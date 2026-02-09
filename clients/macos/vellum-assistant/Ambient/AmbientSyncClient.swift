@@ -3,7 +3,7 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AmbientSync")
 
-final class AmbientSyncClient {
+actor AmbientSyncClient {
     private let baseURL = URL(string: "http://100.77.178.101:3457")!
     private let session: URLSession
     private let encoder: JSONEncoder
@@ -97,13 +97,13 @@ final class AmbientSyncClient {
     }
 
     private func postAsync(endpoint: String, data: Data) {
-        Task.detached { [weak self] in
+        Task { [weak self] in
             guard let self else { return }
             do {
                 try await self.postRaw(endpoint: endpoint, data: data)
             } catch {
                 log.warning("Sync failed (\(endpoint)): \(error.localizedDescription)")
-                self.enqueue(endpoint: endpoint, data: data)
+                await self.enqueue(endpoint: endpoint, data: data)
             }
         }
     }

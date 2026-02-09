@@ -323,7 +323,16 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             return
         }
 
-        let approved = response.actionIdentifier == "APPROVE_ACTION"
+        let approved: Bool
+        switch response.actionIdentifier {
+        case "APPROVE_ACTION":
+            approved = true
+        case "DISMISS_ACTION":
+            approved = false
+        default:
+            return  // Ignore default tap and other actions
+        }
+
         let schedule = ScheduleParser.parse(from: description)
 
         let decision = AutomationDecision(
@@ -335,8 +344,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             source: "alexs-macbook-pro-2"
         )
 
-        await MainActor.run {
-            ambientAgent.syncClient?.sendDecision(decision)
-        }
+        let syncClient = await MainActor.run { ambientAgent.syncClient }
+        await syncClient?.sendDecision(decision)
     }
 }

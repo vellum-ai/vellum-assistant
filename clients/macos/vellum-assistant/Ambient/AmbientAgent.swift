@@ -48,6 +48,7 @@ final class AmbientAgent: ObservableObject {
     private var watchTask: Task<Void, Never>?
     private(set) var knowledgeCron: KnowledgeCron?
     private(set) var syncClient: AmbientSyncClient?
+    private var syncTask: Task<Void, Never>?
     private var activeSuggestionWindow: AmbientSuggestionWindow?
     private var insightNotificationWindow: InsightNotificationWindow?
     private var previousOCRText: String = ""
@@ -88,20 +89,23 @@ final class AmbientAgent: ObservableObject {
         syncClient = sync
 
         knowledgeStore.onEntryAdded = { [weak sync] entry in
-            sync?.sendObservation(entry)
+            Task { await sync?.sendObservation(entry) }
         }
         cron.onInsightsAdded = { [weak sync] insights in
-            sync?.sendInsights(insights)
+            Task { await sync?.sendInsights(insights) }
         }
 
-        Task.detached {
+        syncTask = Task.detached { [weak self] in
+            guard !Task.isCancelled else { return }
             let healthy = await sync.checkHealth()
             if healthy {
                 log.info("Remote sync: healthy, uploading existing data")
             } else {
                 log.warning("Remote sync: health check failed, will queue")
             }
-            sync.syncExisting(
+            guard !Task.isCancelled else { return }
+            guard let self else { return }
+            await sync.syncExisting(
                 observations: await self.knowledgeStore.entries,
                 insights: await self.knowledgeCron?.insightStore.insights ?? []
             )
@@ -115,6 +119,8 @@ final class AmbientAgent: ObservableObject {
     func stop() {
         watchTask?.cancel()
         watchTask = nil
+        syncTask?.cancel()
+        syncTask = nil
         knowledgeCron?.stop()
         knowledgeCron = nil
         syncClient = nil
@@ -233,9 +239,9 @@ final class AmbientAgent: ObservableObject {
 
         // Sync non-ignore analysis results and flush retry queue
         if result.decision != .ignore {
-            syncClient?.sendAnalysis(result)
+            await syncClient?.sendAnalysis(result)
         }
-        syncClient?.flushQueue()
+        await syncClient?.flushQueue()
 
         state = .watching
     }
