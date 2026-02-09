@@ -21,7 +21,7 @@ final class VoiceInputManager {
     private let audioEngine = AVAudioEngine()
 
     func start() {
-        setupOptionKeyMonitors()
+        setupFnKeyMonitors()
     }
 
     func stop() {
@@ -36,9 +36,9 @@ final class VoiceInputManager {
         stopRecording()
     }
 
-    // MARK: - Option Key Detection
+    // MARK: - Fn Key Detection
 
-    private func setupOptionKeyMonitors() {
+    private func setupFnKeyMonitors() {
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             Task { @MainActor in
                 self?.handleFlagsChanged(event)
@@ -53,13 +53,13 @@ final class VoiceInputManager {
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
-        let optionPressed = event.modifierFlags.contains(.option)
-        let otherModifiers: NSEvent.ModifierFlags = [.command, .shift, .control]
+        let fnPressed = event.modifierFlags.contains(.function)
+        let otherModifiers: NSEvent.ModifierFlags = [.command, .shift, .control, .option]
         let hasOtherModifiers = !event.modifierFlags.intersection(otherModifiers).isEmpty
 
-        if optionPressed && !hasOtherModifiers && !isRecording {
+        if fnPressed && !hasOtherModifiers && !isRecording {
             beginRecording()
-        } else if !optionPressed && isRecording {
+        } else if !fnPressed && isRecording {
             stopRecording()
         }
     }
@@ -81,7 +81,7 @@ final class VoiceInputManager {
         let authStatus = SFSpeechRecognizer.authorizationStatus()
         if authStatus == .notDetermined {
             SFSpeechRecognizer.requestAuthorization { _ in }
-            log.info("Requested speech recognition authorization — hold Option again after approving")
+            log.info("Requested speech recognition authorization — hold Fn again after approving")
             return
         }
         guard authStatus == .authorized else {
