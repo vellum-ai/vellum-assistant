@@ -152,6 +152,43 @@ describe('RateLimitProvider', () => {
     });
   });
 
+  describe('shared request timestamps', () => {
+    test('multiple providers sharing timestamps enforce a global rate limit', async () => {
+      const config: RateLimitConfig = { maxRequestsPerMinute: 2, maxTokensPerSession: 0 };
+      const shared: number[] = [];
+      const provider1 = new RateLimitProvider(makeProvider(), config, shared);
+      const provider2 = new RateLimitProvider(makeProvider(), config, shared);
+
+      // Each provider sends one request — together they hit the limit of 2
+      await provider1.sendMessage(messages);
+      await provider2.sendMessage(messages);
+
+      // A third request from either provider should be rate-limited
+      await expect(provider1.sendMessage(messages)).rejects.toThrow(RateLimitError);
+      await expect(provider2.sendMessage(messages)).rejects.toThrow(RateLimitError);
+    });
+
+    test('shared array reference survives pruning', async () => {
+      const config: RateLimitConfig = { maxRequestsPerMinute: 100, maxTokensPerSession: 0 };
+      const shared: number[] = [];
+      const provider1 = new RateLimitProvider(makeProvider(), config, shared);
+      const provider2 = new RateLimitProvider(makeProvider(), config, shared);
+
+      // Provider 1 sends a request, adding a timestamp to the shared array
+      await provider1.sendMessage(messages);
+      expect(shared.length).toBe(1);
+
+      // Provider 2 sends a request — enforceRequestRate prunes expired
+      // entries, but the shared reference must still be the same array
+      await provider2.sendMessage(messages);
+      expect(shared.length).toBe(2);
+
+      // Both providers still share the same underlying array
+      await provider1.sendMessage(messages);
+      expect(shared.length).toBe(3);
+    });
+  });
+
   describe('race condition prevention', () => {
     test('concurrent calls are rate-limited because timestamp is recorded before await', async () => {
       const config: RateLimitConfig = { maxRequestsPerMinute: 1, maxTokensPerSession: 0 };
