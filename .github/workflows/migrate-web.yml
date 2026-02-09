@@ -40,13 +40,6 @@ jobs:
             --region us-central1 \
             --project vellum-ai-prod
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install dependencies
-        working-directory: web
-        run: bun install --frozen-lockfile
-
       - name: Build migration image
         working-directory: web
         run: |
