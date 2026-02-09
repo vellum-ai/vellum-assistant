@@ -67,7 +67,7 @@ export function formatDate(dateString: string): string {
       day: 'numeric',
       year: 'numeric',
     });
-  } catch {
+  } catch (_) {
     return dateString;
   }
 }
