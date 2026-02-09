@@ -20,13 +20,13 @@ final class AnthropicProvider: ActionInferenceProvider {
         task: String,
         history: [ActionRecord],
         elements: [AXElement]?
-    ) async throws -> AgentAction {
+    ) async throws -> (action: AgentAction, usage: TokenUsage?) {
         let systemPrompt = buildSystemPrompt(screenSize: screenSize)
         let messages = buildMessages(axTree: axTree, previousAXTree: previousAXTree, axDiff: axDiff, secondaryWindows: secondaryWindows, screenshot: screenshot, task: task, history: history)
 
-        let (toolName, input) = try await client.sendToolUseRequest(
+        let result = try await client.sendToolUseRequest(
             model: model,
-            maxTokens: 1024,
+            maxTokens: 4096,
             system: systemPrompt,
             tools: ToolDefinitions.tools,
             toolChoice: ["type": "any"],
@@ -34,7 +34,14 @@ final class AnthropicProvider: ActionInferenceProvider {
             timeout: 30
         )
 
-        return try parseToolCall(name: toolName, input: input, elements: elements)
+        let action = try parseToolCall(name: result.name, input: result.input, elements: elements)
+        let usage: TokenUsage?
+        if let inputTokens = result.inputTokens, let outputTokens = result.outputTokens {
+            usage = TokenUsage(inputTokens: inputTokens, outputTokens: outputTokens)
+        } else {
+            usage = nil
+        }
+        return (action: action, usage: usage)
     }
 
     // MARK: - System Prompt
@@ -140,7 +147,15 @@ final class AnthropicProvider: ActionInferenceProvider {
         if !history.isEmpty {
             textParts.append("")
             textParts.append("ACTIONS TAKEN SO FAR:")
-            for record in history {
+            let maxHistoryEntries = 10
+            let windowedHistory: [ActionRecord]
+            if history.count > maxHistoryEntries {
+                textParts.append("  [... \(history.count - maxHistoryEntries) earlier actions omitted]")
+                windowedHistory = Array(history.suffix(maxHistoryEntries))
+            } else {
+                windowedHistory = history
+            }
+            for record in windowedHistory {
                 let result = record.result ?? "executed"
                 textParts.append("  \(record.step). \(record.action.displayDescription) → \(result)")
             }

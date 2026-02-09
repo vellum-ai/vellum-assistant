@@ -23,12 +23,12 @@ protocol ScreenCaptureProviding {
 
 extension ScreenCaptureProviding {
     func captureScreen() async throws -> Data {
-        try await captureScreen(maxWidth: 1920, maxHeight: 1080)
+        try await captureScreen(maxWidth: 1280, maxHeight: 720)
     }
 }
 
 final class ScreenCapture: ScreenCaptureProviding {
-    func captureScreen(maxWidth: Int = 1920, maxHeight: Int = 1080) async throws -> Data {
+    func captureScreen(maxWidth: Int = 1280, maxHeight: Int = 720) async throws -> Data {
         let content: SCShareableContent
         do {
             content = try await SCShareableContent.current
@@ -59,7 +59,7 @@ final class ScreenCapture: ScreenCaptureProviding {
         let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
         guard let tiffData = nsImage.tiffRepresentation,
               let bitmapRep = NSBitmapImageRep(data: tiffData),
-              let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
+              let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.6]) else {
             throw CaptureError.conversionFailed
         }
 

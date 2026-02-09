@@ -19,6 +19,13 @@ enum InferenceError: LocalizedError {
     }
 }
 
+struct InferenceResult {
+    let name: String
+    let input: [String: Any]
+    let inputTokens: Int?
+    let outputTokens: Int?
+}
+
 /// Shared HTTP client for the Anthropic Messages API.
 /// Handles auth headers, retry with exponential backoff for transient errors,
 /// response parsing, and tool_use block extraction.
@@ -52,7 +59,7 @@ final class AnthropicClient {
     ///   - toolChoice: Tool choice dictionary (e.g. `["type": "any"]`).
     ///   - messages: Array of message dictionaries.
     ///   - timeout: HTTP request timeout in seconds.
-    /// - Returns: A tuple of `(name, input)` from the first `tool_use` content block.
+    /// - Returns: An `InferenceResult` with tool name, input, and token usage from the response.
     /// - Throws: `InferenceError` on failure.
     func sendToolUseRequest(
         model: String,
@@ -62,7 +69,7 @@ final class AnthropicClient {
         toolChoice: [String: Any],
         messages: [[String: Any]],
         timeout: TimeInterval
-    ) async throws -> (name: String, input: [String: Any]) {
+    ) async throws -> InferenceResult {
         let body: [String: Any] = [
             "model": model,
             "max_tokens": maxTokens,
@@ -73,6 +80,7 @@ final class AnthropicClient {
         ]
 
         let jsonData = try JSONSerialization.data(withJSONObject: body)
+        log.info("Request body size: \(jsonData.count) bytes")
 
         var request = URLRequest(url: URL(string: baseURL)!)
         request.httpMethod = "POST"
@@ -136,7 +144,7 @@ final class AnthropicClient {
         return statusCode == 429 || (statusCode >= 500 && statusCode <= 599)
     }
 
-    private func parseToolUseResponse(data: Data) throws -> (name: String, input: [String: Any]) {
+    private func parseToolUseResponse(data: Data) throws -> InferenceResult {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let content = json["content"] as? [[String: Any]] else {
             throw InferenceError.parseError("Invalid response structure")
@@ -148,6 +156,10 @@ final class AnthropicClient {
             throw InferenceError.parseError("No tool_use block in response")
         }
 
-        return (name: toolName, input: input)
+        let usage = json["usage"] as? [String: Any]
+        let inputTokens = usage?["input_tokens"] as? Int
+        let outputTokens = usage?["output_tokens"] as? Int
+
+        return InferenceResult(name: toolName, input: input, inputTokens: inputTokens, outputTokens: outputTokens)
     }
 }

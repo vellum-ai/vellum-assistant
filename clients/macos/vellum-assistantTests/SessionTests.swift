@@ -25,7 +25,7 @@ final class MockInferenceProvider: ActionInferenceProvider {
         task: String,
         history: [ActionRecord],
         elements: [AXElement]?
-    ) async throws -> AgentAction {
+    ) async throws -> (action: AgentAction, usage: TokenUsage?) {
         if delayNanoseconds > 0 {
             try? await Task.sleep(nanoseconds: delayNanoseconds)
         }
@@ -38,9 +38,9 @@ final class MockInferenceProvider: ActionInferenceProvider {
         }
 
         guard index < actions.count else {
-            return AgentAction(type: .done, reasoning: "No more scripted actions", summary: "Auto-completed")
+            return (action: AgentAction(type: .done, reasoning: "No more scripted actions", summary: "Auto-completed"), usage: nil)
         }
-        return actions[index]
+        return (action: actions[index], usage: nil)
     }
 }
 

@@ -188,8 +188,9 @@ final class ComputerUseSession: ObservableObject {
 
             // 2. INFER
             let action: AgentAction
+            let tokenUsage: TokenUsage?
             do {
-                action = try await provider.infer(
+                let result = try await provider.infer(
                     axTree: axTreeText,
                     previousAXTree: previousAXTreeText,
                     axDiff: axDiffText,
@@ -200,6 +201,8 @@ final class ComputerUseSession: ObservableObject {
                     history: actionHistory,
                     elements: elements.flatMap { AccessibilityTreeEnumerator.flattenElements($0) }
                 )
+                action = result.action
+                tokenUsage = result.usage
             } catch {
                 log.error("[\(stepNumber)] Inference error: \(error.localizedDescription)")
                 state = .failed(reason: "Inference failed: \(error.localizedDescription)")
@@ -208,7 +211,10 @@ final class ComputerUseSession: ObservableObject {
             }
 
             log.info("[\(stepNumber)] Model action: \(action.displayDescription) — reasoning: \(action.reasoning)")
-            logger.logTurn(step: stepNumber, axTree: axTreeText, screenshot: screenshot, action: action, usedVision: usedVision)
+            if let usage = tokenUsage {
+                log.info("[\(stepNumber)] Tokens — input: \(usage.inputTokens), output: \(usage.outputTokens)")
+            }
+            logger.logTurn(step: stepNumber, axTree: axTreeText, screenshot: screenshot, action: action, usedVision: usedVision, usage: tokenUsage)
 
             // 3. CHECK COMPLETION
             if action.type == .done {
