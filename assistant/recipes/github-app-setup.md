@@ -104,14 +104,18 @@ STEP 8: Navigate to Private Key Section
   ACTION: scroll(down) to "Private keys" section
   LOCATE: "Generate a private key" button (green)
 
-STEP 9: Generate and Download Key
+STEP 9: Generate, Download, and Import Key
   ACTION: click([generate_button_id])
   WAIT: .pem file downloads (browser download notification or file appears)
   VERIFY: download completes — look for .pem in ~/Downloads/
   CAPTURE: path to downloaded .pem file
-  NOTE: The key is a multi-line PEM string starting with
-        "-----BEGIN RSA PRIVATE KEY-----" and ending with
-        "-----END RSA PRIVATE KEY-----"
+  ACTION: Read the .pem file contents and pass them to the credential store
+  VERIFY: PEM content starts with "-----BEGIN RSA PRIVATE KEY-----"
+  STORE: PEM content directly into assistant's secure credential store (Keychain)
+  ACTION: Securely delete the .pem file from ~/Downloads/ after import
+  NOTE: The private key MUST be read and stored immediately — ~/Downloads/ is
+        ephemeral and the file may be moved or cleaned up at any time. Never
+        rely on the filesystem path for long-term credential access.
 ```
 
 ### Phase 6: Install the App
@@ -124,8 +128,24 @@ STEP 10: Click "Install App" in Sidebar
 
 STEP 11: Select Target Account/Org
   LOCATE: the target organization or personal account
-  ACTION: click "Install" button next to it
-  NOTE: If org requires admin approval, this may show "Request" instead.
+  LOCATE: the button next to it — check if it says "Install" or "Request"
+
+  IF button says "Install":
+    ACTION: click "Install" button
+    → continue to Step 12
+
+  IF button says "Request":
+    NOTE: This org has third-party app restrictions requiring admin approval.
+    ACTION: click "Request" button to submit the request
+    WAIT: confirmation that the request was submitted
+    VERIFY: page shows "Request submitted" or similar confirmation
+    DONE (partial): "I've requested installation of {assistant-name} on {org}.
+          An org admin needs to approve the request before I can access
+          your repos. I'll check back — or you can let me know once
+          it's approved so I can finish setup."
+    → ABORT remaining steps (12-15). Recipe is incomplete — mark as
+      "pending_approval" in credential store. The orchestration agent
+      should schedule a follow-up check or prompt the user later.
 
 STEP 12: Choose Repository Access
   LOCATE: "Only select repositories" radio button
@@ -148,10 +168,12 @@ STEP 13: Confirm Installation
 ```
 STEP 14: Record App ID and Installation Details
   CAPTURE: App ID (from app settings page, numeric)
-  CAPTURE: Private key file path (from Step 9)
-  STORE: Both values in assistant's secure credential store
-  NOTE: These two pieces — App ID + Private Key — are all the assistant
-        needs to authenticate as the GitHub App via JWT.
+  CAPTURE: Installation ID (from installation confirmation page)
+  VERIFY: Private key content was already stored in Keychain during Step 9
+  STORE: App ID and Installation ID in assistant's secure credential store
+  NOTE: The private key was imported directly into the Keychain in Step 9.
+        These three pieces — App ID + Private Key + Installation ID — are
+        all the assistant needs to authenticate as the GitHub App via JWT.
 
 STEP 15: Report Success
   DONE: "I've set up {assistant-name} as a GitHub App and installed it
@@ -168,7 +190,8 @@ STEP 15: Report Success
 | App name taken | Append `-{random-4-digits}` and retry Step 2 |
 | Not signed into GitHub | Navigate to github.com/login, pause, ask user to sign in |
 | No admin access to org | Fall back to personal account installation |
-| Download blocked by browser | Check ~/Downloads for .pem, or look for browser download bar |
+| Org requires approval (Request instead of Install) | Submit request, mark recipe as pending_approval, notify user, schedule follow-up |
+| Download blocked by browser | Check ~/Downloads for .pem, or look for browser download bar; import to Keychain immediately once found |
 | Permissions dropdown not visible | Scroll down, expand collapsed sections |
 | Page layout changed | Fall back to screenshot-only mode, use visual matching |
 
@@ -178,7 +201,7 @@ STEP 15: Report Success
 {
   "github_app_id": "123456",
   "github_app_name": "{assistant-name}-github-app",
-  "private_key_path": "~/Downloads/{app-name}.{date}.private-key.pem",
+  "private_key": "(stored in Keychain — never persisted to disk or returned to LLM)",
   "installed_on": "{org}/{repo}",
   "installation_id": "78901234"
 }
