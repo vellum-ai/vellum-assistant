@@ -25,9 +25,6 @@ targets:
         NSMicrophoneUsageDescription: "vellum-assistant needs microphone access to transcribe voice commands."
         NSSpeechRecognitionUsageDescription: "vellum-assistant uses speech recognition to convert voice commands into tasks."
         LSApplicationCategoryType: public.app-category.productivity
-    configFiles:
-      Debug: Local.xcconfig
-      Release: Local.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vellum.vellum-assistant
@@ -36,6 +33,8 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         SWIFT_VERSION: "5.9"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
     dependencies:
       - package: HotKey
 
@@ -49,3 +48,4 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vellum.vellum-assistant-tests
+        GENERATE_INFOPLIST_FILE: YES
