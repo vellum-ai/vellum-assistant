@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { authClient } from "@/lib/auth-client";
 import { toast } from "@/components/Toast";
 import { VellumHead } from "@/components/VellumHomepage";
 
@@ -42,7 +41,14 @@ function VerifyEmailContent() {
     }
     verifiedRef.current = true;
 
-    authClient.verifyEmail({ query: { token } }).then(onVerifyResult);
+    fetch(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
+      .then((response) => {
+        if (!response.ok) {
+          return { error: true };
+        }
+        return { error: null };
+      })
+      .then(onVerifyResult);
   }, [token]);
 
   return (

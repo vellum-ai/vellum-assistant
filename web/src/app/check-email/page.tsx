@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useOptimistic, useState } from "react";
 
-import { authClient } from "@/lib/auth-client";
 import { toast } from "@/components/Toast";
 import { VellumHead } from "@/components/VellumHomepage";
 
@@ -23,10 +22,14 @@ function CheckEmailContent() {
     }
     setOptimisticStatus("sending");
     try {
-      await authClient.sendVerificationEmail({
-        email,
-        callbackURL: "/assistant",
+      const response = await fetch("/api/auth/send-verification-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, callbackURL: "/assistant" }),
       });
+      if (!response.ok) {
+        throw new Error("Failed to send verification email");
+      }
       setResendStatus("sent");
       toast.success("Verification email sent!");
     } catch {
