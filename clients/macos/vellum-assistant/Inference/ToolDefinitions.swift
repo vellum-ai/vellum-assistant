@@ -1,85 +1,39 @@
 import Foundation
 
 enum ToolDefinitions {
+    private static func makeClickVariant(name: String, verb: String) -> [String: Any] {
+        [
+            "name": name,
+            "description": "\(verb) on a UI element by its [ID] from the accessibility tree, or at raw screen coordinates as fallback.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "element_id": [
+                        "type": "integer",
+                        "description": "The [ID] number of the element from the accessibility tree (preferred)"
+                    ],
+                    "x": [
+                        "type": "integer",
+                        "description": "X coordinate on screen (fallback when no element_id)"
+                    ],
+                    "y": [
+                        "type": "integer",
+                        "description": "Y coordinate on screen (fallback when no element_id)"
+                    ],
+                    "reasoning": [
+                        "type": "string",
+                        "description": "Explanation of what you see and why you are \(verb.lowercased())ing here"
+                    ]
+                ],
+                "required": ["reasoning"]
+            ] as [String: Any]
+        ]
+    }
+
     static let tools: [[String: Any]] = [
-        [
-            "name": "click",
-            "description": "Click on a UI element by its [ID] from the accessibility tree, or at raw screen coordinates as fallback.",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "element_id": [
-                        "type": "integer",
-                        "description": "The [ID] number of the element from the accessibility tree (preferred)"
-                    ],
-                    "x": [
-                        "type": "integer",
-                        "description": "X coordinate on screen (fallback when no element_id)"
-                    ],
-                    "y": [
-                        "type": "integer",
-                        "description": "Y coordinate on screen (fallback when no element_id)"
-                    ],
-                    "reasoning": [
-                        "type": "string",
-                        "description": "Explanation of what you see and why you are clicking here"
-                    ]
-                ],
-                "required": ["reasoning"]
-            ] as [String: Any]
-        ],
-        [
-            "name": "double_click",
-            "description": "Double-click on a UI element by its [ID] from the accessibility tree, or at raw screen coordinates as fallback.",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "element_id": [
-                        "type": "integer",
-                        "description": "The [ID] number of the element from the accessibility tree (preferred)"
-                    ],
-                    "x": [
-                        "type": "integer",
-                        "description": "X coordinate on screen (fallback when no element_id)"
-                    ],
-                    "y": [
-                        "type": "integer",
-                        "description": "Y coordinate on screen (fallback when no element_id)"
-                    ],
-                    "reasoning": [
-                        "type": "string",
-                        "description": "Explanation of what you see and why you are double-clicking here"
-                    ]
-                ],
-                "required": ["reasoning"]
-            ] as [String: Any]
-        ],
-        [
-            "name": "right_click",
-            "description": "Right-click on a UI element by its [ID] from the accessibility tree, or at raw screen coordinates as fallback.",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "element_id": [
-                        "type": "integer",
-                        "description": "The [ID] number of the element from the accessibility tree (preferred)"
-                    ],
-                    "x": [
-                        "type": "integer",
-                        "description": "X coordinate on screen (fallback when no element_id)"
-                    ],
-                    "y": [
-                        "type": "integer",
-                        "description": "Y coordinate on screen (fallback when no element_id)"
-                    ],
-                    "reasoning": [
-                        "type": "string",
-                        "description": "Explanation of what you see and why you are right-clicking here"
-                    ]
-                ],
-                "required": ["reasoning"]
-            ] as [String: Any]
-        ],
+        makeClickVariant(name: "click", verb: "Click"),
+        makeClickVariant(name: "double_click", verb: "Double-click"),
+        makeClickVariant(name: "right_click", verb: "Right-click"),
         [
             "name": "type_text",
             "description": "Type text at the current cursor position. The target field must already be focused (click it first).",

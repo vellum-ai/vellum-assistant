@@ -7,6 +7,9 @@ struct TurnLog: Codable {
     let hadScreenshot: Bool
     let usedVision: Bool
     let action: AgentAction
+    let requestBytes: Int?
+    let inputTokens: Int?
+    let outputTokens: Int?
 }
 
 struct SessionLog: Codable {
@@ -27,14 +30,17 @@ final class SessionLogger {
         self.startTime = Date()
     }
 
-    func logTurn(step: Int, axTree: String?, screenshot: Data?, action: AgentAction, usedVision: Bool) {
+    func logTurn(step: Int, axTree: String?, screenshot: Data?, action: AgentAction, usedVision: Bool, usage: TokenUsage? = nil) {
         let turn = TurnLog(
             step: step,
             timestamp: Date(),
             axTree: axTree,
             hadScreenshot: screenshot != nil,
             usedVision: usedVision,
-            action: action
+            action: action,
+            requestBytes: nil,
+            inputTokens: usage?.inputTokens,
+            outputTokens: usage?.outputTokens
         )
         turns.append(turn)
     }

@@ -114,6 +114,13 @@ enum AXTreeDiff {
 
         guard !changes.isEmpty else { return nil }
 
+        // If more than half the elements changed on a non-trivial page, it likely navigated —
+        // the diff is noise, so drop it and let the model just read the current tree.
+        let totalElements = max(prevFlat.count, currFlat.count)
+        if totalElements >= 10 && changes.count > totalElements / 2 {
+            return nil
+        }
+
         return "CHANGES SINCE LAST ACTION:\n" + changes.joined(separator: "\n")
     }
 

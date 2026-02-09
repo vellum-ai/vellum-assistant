@@ -12,5 +12,5 @@ protocol ActionInferenceProvider {
         task: String,
         history: [ActionRecord],
         elements: [AXElement]?
-    ) async throws -> AgentAction
+    ) async throws -> (action: AgentAction, usage: TokenUsage?)
 }

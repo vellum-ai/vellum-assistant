@@ -85,7 +85,7 @@ final class AmbientAnalyzer {
             ]
         ]
 
-        let (_, input) = try await client.sendToolUseRequest(
+        let inferenceResult = try await client.sendToolUseRequest(
             model: model,
             maxTokens: 512,
             system: systemPrompt,
@@ -97,6 +97,7 @@ final class AmbientAnalyzer {
             timeout: 15
         )
 
+        let input = inferenceResult.input
         guard let decisionStr = input["decision"] as? String,
               let decision = AmbientDecision(rawValue: decisionStr),
               let confidence = input["confidence"] as? Double,
