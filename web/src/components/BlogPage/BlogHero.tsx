@@ -24,7 +24,7 @@ export function BlogHero() {
           <h1 style={{ 
             fontSize: "clamp(2rem, 5vw, 3rem)", 
             fontWeight: "700", 
-            color: "#101828",
+            color: "#ffffff",
             marginBottom: "1rem",
             lineHeight: "1.2",
           }}>
@@ -32,7 +32,7 @@ export function BlogHero() {
           </h1>
           <p style={{ 
             fontSize: "1.125rem", 
-            color: "#667085",
+            color: "#94969c",
             lineHeight: "1.6",
           }}>
             Drowning in AI information? Experts at Vellum distill the latest and greatest into

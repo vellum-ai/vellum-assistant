@@ -6,7 +6,7 @@ import { NavBar } from "@/components/VellumHomepage/NavBar";
 
 export function BlogBody() {
   return (
-    <div className="vellum-blog-page">
+    <div style={{ backgroundColor: "#0d0d0d", minHeight: "100vh" }}>
       <NavBar />
       <BlogHero />
       <BlogNewsletter />
