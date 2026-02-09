@@ -12,10 +12,10 @@ import {
   stopDaemon,
   getDaemonStatus,
 } from './daemon/lifecycle.js';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { startCli } from './cli.js';
-import { getSocketPath, getDataDir, getDbPath } from './util/platform.js';
+import { getSocketPath, getDataDir, getDbPath, getLogPath } from './util/platform.js';
 import {
   serialize,
   createMessageParser,
@@ -534,6 +534,148 @@ program
       pass('Directory structure exists');
     } else {
       fail('Directory structure exists', `missing: ${missing.join(', ')}`);
+    }
+
+    // 6. Disk space
+    try {
+      const output = execSync(`df -k "${dataDir}"`, { stdio: 'pipe', encoding: 'utf-8' });
+      const lines = output.trim().split('\n');
+      if (lines.length >= 2) {
+        const cols = lines[1].trim().split(/\s+/);
+        // df -k output: Filesystem 1K-blocks Used Available ...
+        const availKB = parseInt(cols[3], 10);
+        if (isNaN(availKB)) {
+          fail('Disk space', 'could not parse available space');
+        } else if (availKB < 100 * 1024) {
+          fail('Disk space', `only ${Math.round(availKB / 1024)}MB free (< 100MB)`);
+        } else {
+          pass(`Disk space (${Math.round(availKB / 1024)}MB free)`);
+        }
+      } else {
+        fail('Disk space', 'unexpected df output');
+      }
+    } catch {
+      fail('Disk space', 'could not check disk space');
+    }
+
+    // 7. Log file size
+    const logPath = getLogPath();
+    if (existsSync(logPath)) {
+      try {
+        const logStat = statSync(logPath);
+        const logSizeMB = logStat.size / (1024 * 1024);
+        if (logSizeMB > 50) {
+          fail('Log file size', `${logSizeMB.toFixed(1)}MB (> 50MB)`);
+        } else {
+          pass(`Log file size (${logSizeMB.toFixed(1)}MB)`);
+        }
+      } catch {
+        fail('Log file size', 'could not stat log file');
+      }
+    } else {
+      pass('Log file size (no log file yet)');
+    }
+
+    // 8. DB integrity check
+    if (existsSync(dbPath)) {
+      try {
+        const { Database } = await import('bun:sqlite');
+        const db = new Database(dbPath, { readonly: true });
+        const result = db.query('PRAGMA integrity_check').get() as { integrity_check: string } | null;
+        db.close();
+        if (result?.integrity_check === 'ok') {
+          pass('Database integrity check');
+        } else {
+          fail('Database integrity check', result?.integrity_check ?? 'unknown result');
+        }
+      } catch (err) {
+        fail('Database integrity check', err instanceof Error ? err.message : 'unknown error');
+      }
+    } else {
+      fail('Database integrity check', 'database file not found');
+    }
+
+    // 9. Socket permissions
+    const sockPath = getSocketPath();
+    if (existsSync(sockPath)) {
+      try {
+        const sockStat = statSync(sockPath);
+        const mode = sockStat.mode & 0o777;
+        if (mode === 0o600 || mode === 0o755) {
+          pass(`Socket permissions (${mode.toString(8).padStart(4, '0')})`);
+        } else {
+          fail('Socket permissions', `expected 0600, got 0${mode.toString(8)}`);
+        }
+      } catch {
+        fail('Socket permissions', 'could not stat socket');
+      }
+    } else {
+      pass('Socket permissions (socket not present — daemon not running)');
+    }
+
+    // 10. Trust rule syntax
+    const trustPath = `${dataDir}/trust.json`;
+    if (existsSync(trustPath)) {
+      try {
+        const raw = readFileSync(trustPath, 'utf-8');
+        const data = JSON.parse(raw);
+        if (typeof data !== 'object' || data === null) {
+          fail('Trust rule syntax', 'trust.json is not a JSON object');
+        } else if (typeof data.version !== 'number') {
+          fail('Trust rule syntax', 'missing or invalid "version" field');
+        } else if (!Array.isArray(data.rules)) {
+          fail('Trust rule syntax', 'missing or invalid "rules" array');
+        } else {
+          const invalid = data.rules.filter(
+            (r: unknown) =>
+              typeof r !== 'object' || r === null ||
+              typeof (r as Record<string, unknown>).tool !== 'string' ||
+              typeof (r as Record<string, unknown>).pattern !== 'string' ||
+              typeof (r as Record<string, unknown>).scope !== 'string',
+          );
+          if (invalid.length > 0) {
+            fail('Trust rule syntax', `${invalid.length} rule(s) have invalid structure`);
+          } else {
+            pass(`Trust rule syntax (${data.rules.length} rule(s))`);
+          }
+        }
+      } catch (err) {
+        fail('Trust rule syntax', err instanceof Error ? err.message : 'could not parse');
+      }
+    } else {
+      pass('Trust rule syntax (no trust.json yet)');
+    }
+
+    // 11. WASM files
+    const wasmFiles = [
+      'node_modules/web-tree-sitter/tree-sitter.wasm',
+      'node_modules/tree-sitter-bash/tree-sitter-bash.wasm',
+    ];
+    let wasmOk = true;
+    const missingWasm: string[] = [];
+    for (const wasm of wasmFiles) {
+      // Resolve relative to the assistant package directory
+      const fullPath = `${import.meta.dirname}/../${wasm}`;
+      if (!existsSync(fullPath)) {
+        missingWasm.push(wasm);
+        wasmOk = false;
+      } else {
+        try {
+          const wasmStat = statSync(fullPath);
+          if (wasmStat.size === 0) {
+            missingWasm.push(`${wasm} (empty)`);
+            wasmOk = false;
+          }
+        } catch {
+          missingWasm.push(`${wasm} (unreadable)`);
+          wasmOk = false;
+        }
+      }
+    }
+    if (wasmOk) {
+      pass('WASM files present and non-empty');
+    } else {
+      fail('WASM files', missingWasm.join(', '));
     }
   });
 
