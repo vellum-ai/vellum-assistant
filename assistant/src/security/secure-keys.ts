@@ -110,10 +110,13 @@ export function deleteSecureKey(account: string): boolean {
   }
   if (backend !== 'keychain') return false;
 
-  // Use the same fallback pattern as setSecureKey: if deleteKey returns
-  // false, downgrade. keychain.deleteKey returns false for both "not found"
-  // and "runtime error", but downgrading on "not found" is harmless — the
-  // encrypted store also returns false for a missing key.
+  // keychain.deleteKey returns false for both "not found" and "runtime error".
+  // Check existence first so a missing key doesn't spuriously downgrade the
+  // backend — saveConfig routinely deletes keys for unset providers.
+  if (keychain.getKey(account) === undefined) {
+    return false;
+  }
+
   return withKeychainFallback(
     () => keychain.deleteKey(account),
     () => encryptedStore.deleteKey(account),

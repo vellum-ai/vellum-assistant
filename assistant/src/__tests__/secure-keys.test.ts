@@ -223,6 +223,16 @@ describe('secure-keys', () => {
       expect(getSecureKey('anthropic')).toBe('sk-test-fallback');
     });
 
+    test('deleteSecureKey for nonexistent key does not downgrade backend', () => {
+      // Deleting a key that doesn't exist should NOT trigger a downgrade
+      const result = deleteSecureKey('nonexistent');
+      expect(result).toBe(false);
+      // Backend should still be keychain — verify by storing a new key
+      setSecureKey('anthropic', 'sk-still-keychain');
+      expect(keychainStore.get('anthropic')).toBe('sk-still-keychain');
+      expect(existsSync(STORE_PATH)).toBe(false);
+    });
+
     test('deleteSecureKey falls back to encrypted store when keychain fails at runtime', () => {
       // First store successfully in encrypted store via fallback
       keychainFailAtRuntime = true;
