@@ -1,6 +1,7 @@
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { join } from 'node:path';
-import { isMacOS } from '../../util/platform.js';
+import { isMacOS, isLinux } from '../../util/platform.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('sandbox');
@@ -71,6 +72,48 @@ function getProfilePath(workingDir: string): string {
   return path;
 }
 
+/** Cache bwrap availability check so we only shell out once. */
+let bwrapAvailable: boolean | null = null;
+
+function isBwrapAvailable(): boolean {
+  if (bwrapAvailable !== null) return bwrapAvailable;
+  try {
+    execSync('bwrap --version', { stdio: 'ignore' });
+    bwrapAvailable = true;
+  } catch {
+    bwrapAvailable = false;
+  }
+  return bwrapAvailable;
+}
+
+/**
+ * Build bwrap arguments for Linux sandboxing.
+ *
+ * Strategy mirrors the macOS sandbox-exec profile:
+ * - Read-only bind-mount of the root filesystem (toolchains, libs, etc.)
+ * - Read-write bind-mount of the working directory
+ * - Read-write tmpfs for /tmp
+ * - /proc mounted for basic process operation
+ * - /dev bind-mounted for device access (needed by many tools)
+ * - Network access blocked (--unshare-net)
+ * - PID namespace isolated (--unshare-pid)
+ */
+function buildBwrapArgs(workingDir: string, command: string): string[] {
+  return [
+    // Filesystem: read-only root, writable working dir and temp
+    '--ro-bind', '/', '/',
+    '--bind', workingDir, workingDir,
+    '--bind', '/tmp', '/tmp',
+    '--dev', '/dev',
+    '--proc', '/proc',
+    // Isolation
+    '--unshare-net',
+    '--unshare-pid',
+    // Run bash inside the sandbox
+    'bash', '-c', '--', command,
+  ];
+}
+
 export interface SandboxResult {
   /** The command/args to use for spawning. */
   command: string;
@@ -82,8 +125,10 @@ export interface SandboxResult {
 /**
  * Wrap a shell command for sandboxed execution.
  *
- * On macOS with sandbox enabled, wraps the command with sandbox-exec.
- * On unsupported platforms, returns the command unchanged with a warning.
+ * On macOS, wraps with sandbox-exec using an SBPL profile.
+ * On Linux, wraps with bwrap (bubblewrap) if available.
+ * On unsupported platforms or when bwrap is missing, returns the
+ * command unchanged with a warning.
  */
 export function wrapCommand(
   command: string,
@@ -98,19 +143,35 @@ export function wrapCommand(
     };
   }
 
-  if (!isMacOS()) {
-    log.warn('Sandbox is enabled but not supported on this platform. Running unsandboxed.');
+  if (isMacOS()) {
+    const profile = getProfilePath(workingDir);
     return {
-      command: 'bash',
-      args: ['-c', '--', command],
-      sandboxed: false,
+      command: 'sandbox-exec',
+      args: ['-f', profile, 'bash', '-c', '--', command],
+      sandboxed: true,
     };
   }
 
-  const profile = getProfilePath(workingDir);
+  if (isLinux()) {
+    if (!isBwrapAvailable()) {
+      log.warn('Sandbox is enabled but bwrap is not installed. Running unsandboxed. Install bubblewrap: apt install bubblewrap');
+      return {
+        command: 'bash',
+        args: ['-c', '--', command],
+        sandboxed: false,
+      };
+    }
+    return {
+      command: 'bwrap',
+      args: buildBwrapArgs(workingDir, command),
+      sandboxed: true,
+    };
+  }
+
+  log.warn('Sandbox is enabled but not supported on this platform. Running unsandboxed.');
   return {
-    command: 'sandbox-exec',
-    args: ['-f', profile, 'bash', '-c', '--', command],
-    sandboxed: true,
+    command: 'bash',
+    args: ['-c', '--', command],
+    sandboxed: false,
   };
 }
