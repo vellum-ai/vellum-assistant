@@ -1,14 +1,27 @@
 import Image from "next/image";
 
 const logos = [
-  { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68cb1408ea000f101ee4ad31_logo-rentgrata%20(1).avif", alt: "RentGrata" },
-  { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68598cd9be9527709d12f725_logo-drata.avif", alt: "Drata" },
-  { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/681a3329205dec65325445ab_deep.avif", alt: "DeepScribe" },
-  { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68598d3ccdd0c82f41c84eed_logo-redfin.avif", alt: "Redfin" },
-  { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/685aedfc332b150e2f36290f_logo-lavender.avif", alt: "Lavender" },
-  { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/685a0f40aa663e0596d22066_logo-health.avif", alt: "Rely Health" },
-  { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68598cfe64b89ea54689217a_logo-gstack.avif", alt: "GravityStack" },
-  { src: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68c9ae606fadce878f8d7956_logo-coursemojo%20(1).avif", alt: "CourseMojo" },
+  { src: "/logos/marquee/ash.png", alt: "Ash" },
+  { src: "/logos/marquee/brailliant.svg", alt: "Brailliant" },
+  { src: "/logos/marquee/conver.avif", alt: "Conver" },
+  { src: "/logos/marquee/coursemojo.avif", alt: "CourseMojo" },
+  { src: "/logos/marquee/crowe.avif", alt: "Crowe" },
+  { src: "/logos/marquee/deepscribe.avif", alt: "DeepScribe" },
+  { src: "/logos/marquee/drata.png", alt: "Drata" },
+  { src: "/logos/marquee/fastweb.png", alt: "Fastweb" },
+  { src: "/logos/marquee/gns.png", alt: "GNS" },
+  { src: "/logos/marquee/gravitystack.png", alt: "GravityStack" },
+  { src: "/logos/marquee/headspace.png", alt: "Headspace" },
+  { src: "/logos/marquee/invisible.png", alt: "Invisible" },
+  { src: "/logos/marquee/lavender.png", alt: "Lavender" },
+  { src: "/logos/marquee/left-field-labs.png", alt: "Left Field Labs" },
+  { src: "/logos/marquee/ogilvy.avif", alt: "Ogilvy" },
+  { src: "/logos/marquee/redfin.png", alt: "Redfin" },
+  { src: "/logos/marquee/rely-health.png", alt: "Rely Health" },
+  { src: "/logos/marquee/rentgrata.avif", alt: "RentGrata" },
+  { src: "/logos/marquee/ro.avif", alt: "Ro" },
+  { src: "/logos/marquee/seeking-alpha.png", alt: "Seeking Alpha" },
+  { src: "/logos/marquee/swisscom.png", alt: "Swisscom" },
 ];
 
 export function LogoMarquee() {
@@ -33,7 +46,7 @@ export function LogoMarquee() {
                     <div className="trusted_header align-center">Trusted by companies of all sizes</div>
                   </div>
                   <div className="fs-logo-marquee_list-wrapper alt w-dyn-list" style={{ overflow: "hidden", maskImage: "linear-gradient(to right, transparent, black 10%, black 90%, transparent)", WebkitMaskImage: "linear-gradient(to right, transparent, black 10%, black 90%, transparent)" }}>
-                    <div role="list" className="fs-logo-marquee_list w-dyn-items" style={{ display: "flex", alignItems: "center", gap: "3rem", flexWrap: "nowrap", padding: "1.5rem 0", width: "max-content", animation: "logo-marquee-scroll 20s linear infinite" }}>
+                    <div role="list" className="fs-logo-marquee_list w-dyn-items" style={{ display: "flex", alignItems: "center", gap: "3rem", flexWrap: "nowrap", padding: "1.5rem 0", width: "max-content", animation: "logo-marquee-scroll 30s linear infinite" }}>
                       {[...logos, ...logos].map((logo, index) => (
                         <div key={index} role="listitem" className="logo_item pill w-dyn-item" style={{ flexShrink: 0 }}>
                           <Image loading="lazy" src={logo.src} alt={logo.alt} className="marquee_logo smaller" width={150} height={40} unoptimized style={{ height: "28px", width: "auto", objectFit: "contain", opacity: 0.8 }} />
