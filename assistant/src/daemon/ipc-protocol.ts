@@ -224,8 +224,9 @@ export function serialize(msg: ClientMessage | ServerMessage): string {
   return JSON.stringify(msg) + '\n';
 }
 
-export function createMessageParser() {
+export function createMessageParser(options?: { maxLineSize?: number }) {
   let buffer = '';
+  const maxLineSize = options?.maxLineSize;
 
   return {
     feed(data: string): Array<ClientMessage | ServerMessage> {
@@ -244,10 +245,10 @@ export function createMessageParser() {
           }
         }
       }
-      if (buffer.length > MAX_LINE_SIZE) {
+      if (maxLineSize != null && buffer.length > maxLineSize) {
         buffer = '';
         throw new Error(
-          `IPC message exceeds maximum line size of ${MAX_LINE_SIZE} bytes. Message discarded.`,
+          `IPC message exceeds maximum line size of ${maxLineSize} bytes. Message discarded.`,
         );
       }
       return messages;

@@ -13,6 +13,7 @@ import { Session } from './session.js';
 import {
   serialize,
   createMessageParser,
+  MAX_LINE_SIZE,
   type ClientMessage,
   type ServerMessage,
 } from './ipc-protocol.js';
@@ -181,7 +182,7 @@ export class DaemonServer {
   private handleConnection(socket: net.Socket): void {
     log.info('Client connected');
     this.connectedSockets.add(socket);
-    const parser = createMessageParser();
+    const parser = createMessageParser({ maxLineSize: MAX_LINE_SIZE });
 
     // Send initial session info
     this.sendInitialSession(socket).catch((err) => {
