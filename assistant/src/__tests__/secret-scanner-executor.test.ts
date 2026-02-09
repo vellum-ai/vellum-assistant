@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import type { SecretDetectionEvent, ToolExecutionResult } from '../tools/types.js';
+import type { SecretDetectionEvent, ToolExecutionResult, ToolLifecycleEventHandler } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
 // Mocks — MUST be declared before importing executor
@@ -79,16 +79,21 @@ mock.module('../tools/terminal/sandbox.js', () => ({
 // Now import the module under test — mocks are already in place
 import { ToolExecutor } from '../tools/executor.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
+import { createToolAuditListener } from '../events/tool-audit-listener.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeContext(overrides?: Partial<{ onSecretDetected: (e: SecretDetectionEvent) => void }>) {
+function makeContext(overrides?: Partial<{
+  onSecretDetected: (e: SecretDetectionEvent) => void;
+  onToolLifecycleEvent: ToolLifecycleEventHandler;
+}>) {
   return {
     workingDir: '/tmp',
     sessionId: 'test-session',
     conversationId: 'test-conversation',
+    onToolLifecycleEvent: createToolAuditListener(),
     ...overrides,
   };
 }

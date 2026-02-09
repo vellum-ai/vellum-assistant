@@ -12,6 +12,7 @@ import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
 import { estimateCost } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
+import { createToolAuditListener } from '../events/tool-audit-listener.js';
 
 const log = getLogger('session');
 
@@ -42,6 +43,7 @@ export class Session {
     this.sendToClient = sendToClient;
     this.prompter = new PermissionPrompter(sendToClient);
     this.executor = new ToolExecutor(this.prompter);
+    const auditToolLifecycleEvent = createToolAuditListener();
 
     const toolDefs = getAllToolDefinitions();
     const toolExecutor = async (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => {
@@ -59,6 +61,7 @@ export class Session {
             action: event.action,
           });
         },
+        onToolLifecycleEvent: auditToolLifecycleEvent,
       });
     };
 
