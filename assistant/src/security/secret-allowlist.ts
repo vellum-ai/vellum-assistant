@@ -105,7 +105,9 @@ export function isAllowlisted(value: string): boolean {
 }
 
 /**
- * Reset cached state. Used in tests.
+ * Reset cached state so the allowlist is reloaded on next check.
+ * Called by the daemon file watcher when secret-allowlist.json changes,
+ * and by tests.
  */
 export function resetAllowlist(): void {
   loaded = false;
