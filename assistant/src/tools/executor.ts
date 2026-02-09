@@ -29,11 +29,6 @@ export class ToolExecutor {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const tool = getTool(name);
-    if (!tool) {
-      return { content: `Unknown tool: ${name}`, isError: true };
-    }
-
     const startTime = Date.now();
     let decision = 'allow';
     let riskLevel: string = RiskLevel.Low;
@@ -46,7 +41,7 @@ export class ToolExecutor {
       }, 'Tool execute start');
     }
 
-    await emitLifecycleEvent(context, {
+    emitLifecycleEvent(context, {
       type: 'start',
       toolName: name,
       input,
@@ -55,6 +50,25 @@ export class ToolExecutor {
       conversationId: context.conversationId,
       startedAtMs: startTime,
     });
+
+    const tool = getTool(name);
+    if (!tool) {
+      const msg = `Unknown tool: ${name}`;
+      const durationMs = Date.now() - startTime;
+      emitLifecycleEvent(context, {
+        type: 'error',
+        toolName: name,
+        input,
+        workingDir: context.workingDir,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        riskLevel,
+        decision: 'error',
+        durationMs,
+        errorMessage: msg,
+      });
+      return { content: msg, isError: true };
+    }
 
     try {
       // Check permissions
@@ -65,7 +79,7 @@ export class ToolExecutor {
       if (result.decision === 'deny') {
         decision = 'denied';
         const durationMs = Date.now() - startTime;
-        await emitLifecycleEvent(context, {
+        emitLifecycleEvent(context, {
           type: 'permission_denied',
           toolName: name,
           input,
@@ -105,7 +119,7 @@ export class ToolExecutor {
           sandboxed = wrapped.sandboxed;
         }
 
-        await emitLifecycleEvent(context, {
+        emitLifecycleEvent(context, {
           type: 'permission_prompt',
           toolName: name,
           input,
@@ -134,7 +148,7 @@ export class ToolExecutor {
 
         if (response.decision === 'deny') {
           const durationMs = Date.now() - startTime;
-          await emitLifecycleEvent(context, {
+          emitLifecycleEvent(context, {
             type: 'permission_denied',
             toolName: name,
             input,
@@ -164,7 +178,7 @@ export class ToolExecutor {
             addRule(name, response.selectedPattern!, response.selectedScope!, 'deny');
           }
           const durationMs = Date.now() - startTime;
-          await emitLifecycleEvent(context, {
+          emitLifecycleEvent(context, {
             type: 'permission_denied',
             toolName: name,
             input,
@@ -239,7 +253,7 @@ export class ToolExecutor {
               content: blockedContent,
               isError: true,
             };
-            await emitLifecycleEvent(context, {
+            emitLifecycleEvent(context, {
               type: 'executed',
               toolName: name,
               input,
@@ -278,7 +292,7 @@ export class ToolExecutor {
       }
 
       const durationMs = Date.now() - startTime;
-      await emitLifecycleEvent(context, {
+      emitLifecycleEvent(context, {
         type: 'executed',
         toolName: name,
         input,
@@ -314,7 +328,7 @@ export class ToolExecutor {
         riskLevel,
         durationMs,
       });
-      await emitLifecycleEvent(context, {
+      emitLifecycleEvent(context, {
         type: 'error',
         toolName: name,
         input,
@@ -337,9 +351,20 @@ export class ToolExecutor {
   }
 }
 
-async function emitLifecycleEvent(context: ToolContext, event: ToolLifecycleEvent): Promise<void> {
+function emitLifecycleEvent(context: ToolContext, event: ToolLifecycleEvent): void {
+  const handler = context.onToolLifecycleEvent;
+  if (!handler) return;
+
   try {
-    await context.onToolLifecycleEvent?.(event);
+    const maybePromise = handler(event);
+    if (maybePromise) {
+      void maybePromise.catch((err) => {
+        log.warn(
+          { err, eventType: event.type, toolName: event.toolName },
+          'Tool lifecycle event handler failed',
+        );
+      });
+    }
   } catch (err) {
     log.warn(
       { err, eventType: event.type, toolName: event.toolName },

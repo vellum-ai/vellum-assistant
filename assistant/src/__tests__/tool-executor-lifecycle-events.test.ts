@@ -200,4 +200,39 @@ describe('ToolExecutor lifecycle events', () => {
     if (errorEvent.type !== 'error') throw new Error('Expected error event');
     expect(errorEvent.errorMessage).toBe('boom');
   });
+
+  test('emits start and error for unknown tools', async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute('unknown_tool', { test: true }, makeContext(events));
+
+    expect(result).toEqual({ content: 'Unknown tool: unknown_tool', isError: true });
+    expect(events.map((event) => event.type)).toEqual(['start', 'error']);
+    const errorEvent = events[1];
+    if (errorEvent.type !== 'error') throw new Error('Expected error event');
+    expect(errorEvent.errorMessage).toBe('Unknown tool: unknown_tool');
+    expect(errorEvent.decision).toBe('error');
+  });
+
+  test('does not block tool execution on unresolved lifecycle callbacks', async () => {
+    const executor = new ToolExecutor(makePrompter());
+    const timeoutMs = 100;
+
+    const resultPromise = executor.execute('file_read', {}, {
+      workingDir: '/tmp/project',
+      sessionId: 'session-1',
+      conversationId: 'conversation-1',
+      onToolLifecycleEvent: () => new Promise<void>(() => {}),
+    });
+
+    const raced = Promise.race([
+      resultPromise,
+      new Promise<ToolExecutionResult>((_, reject) => {
+        setTimeout(() => reject(new Error('execute timed out')), timeoutMs);
+      }),
+    ]);
+
+    await expect(raced).resolves.toEqual({ content: 'ok', isError: false });
+  });
 });
