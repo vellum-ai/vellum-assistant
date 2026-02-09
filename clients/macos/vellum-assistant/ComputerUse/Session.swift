@@ -45,7 +45,7 @@ final class ComputerUseSession: ObservableObject {
     private let adaptiveDelayEnabled: Bool
     private let minDelayMs: UInt64 = 100
     private let maxDelayMs: UInt64 = 2000
-    private let pollIntervalMs: UInt64 = 50
+    private let pollIntervalMs: UInt64 = 100
 
     init(
         task: String,
@@ -334,7 +334,8 @@ final class ComputerUseSession: ObservableObject {
 
             // 7. WAIT — adaptive delay: poll for AX tree changes instead of fixed sleep
             if adaptiveDelayEnabled && axTreeText != nil {
-                await waitForUISettle(previousTree: axTreeText)
+                let prevCount = flatElements?.count ?? 0
+                await waitForUISettle(previousTree: axTreeText, previousElementCount: prevCount)
             } else {
                 try? await Task.sleep(nanoseconds: stepDelayMs * 1_000_000)
             }
@@ -347,54 +348,39 @@ final class ComputerUseSession: ObservableObject {
 
     // MARK: - Adaptive Delay
 
-    /// Poll the AX tree until it changes or stabilizes.
-    /// Returns early when:
-    /// 1. The tree differs from `previousTree` (action took effect)
-    /// 2. The tree has been identical for `stableExitThreshold` consecutive polls (UI is stable)
-    /// 3. `maxPollCount` polls are exhausted
-    /// 4. `maxDelayMs` timeout is reached
-    private func waitForUISettle(previousTree: String?) async {
+    /// Poll the AX tree until it changes or max polls are exhausted.
+    /// Uses a fast path (element count comparison) for most polls and only
+    /// does a full tree format+compare on the first and last poll.
+    private func waitForUISettle(previousTree: String?, previousElementCount: Int) async {
         // Always wait the minimum delay to let CGEvents propagate
         try? await Task.sleep(nanoseconds: minDelayMs * 1_000_000)
 
         var elapsed = minDelayMs
-        var consecutiveStablePolls = 0
-        var lastPollTree: String? = previousTree
         var pollCount = 0
-        let maxPollCount = 10
-        let stableExitThreshold = 3
-        var hasChangedFromPrevious = false
+        let maxPollCount = 6
 
         while elapsed < maxDelayMs && !isCancelled && pollCount < maxPollCount {
-            // Quick check if the AX tree has changed
             if let result = enumerator.enumerateCurrentWindow() {
-                let currentTree = AccessibilityTreeEnumerator.formatAXTree(
-                    elements: result.elements,
-                    windowTitle: result.windowTitle,
-                    appName: result.appName
-                )
+                let isFirstOrLastPoll = pollCount == 0 || pollCount == maxPollCount - 1
 
-                // Exit: tree changed from pre-action state (action took effect)
-                if currentTree != previousTree {
-                    hasChangedFromPrevious = true
-                    log.debug("UI settled after \(elapsed)ms (tree changed)")
-                    return
-                }
-
-                // Track consecutive identical polls for early stability exit,
-                // but ONLY use this shortcut after we've seen the tree change
-                // at least once. Otherwise slow UI updates (app launches,
-                // delayed renders) get declared "stable" prematurely.
-                if currentTree == lastPollTree {
-                    consecutiveStablePolls += 1
+                if isFirstOrLastPoll {
+                    // Full comparison on first and last poll
+                    let currentTree = AccessibilityTreeEnumerator.formatAXTree(
+                        elements: result.elements,
+                        windowTitle: result.windowTitle,
+                        appName: result.appName
+                    )
+                    if currentTree != previousTree {
+                        log.debug("UI settled after \(elapsed)ms (tree changed)")
+                        return
+                    }
                 } else {
-                    consecutiveStablePolls = 0
-                }
-                lastPollTree = currentTree
-
-                if hasChangedFromPrevious && consecutiveStablePolls >= stableExitThreshold {
-                    log.debug("UI stable after \(elapsed)ms (\(consecutiveStablePolls) identical polls after change)")
-                    return
+                    // Fast path: just compare element count (O(1) vs full tree format)
+                    let currentCount = AccessibilityTreeEnumerator.flattenElements(result.elements).count
+                    if currentCount != previousElementCount {
+                        log.debug("UI settled after \(elapsed)ms (element count changed: \(previousElementCount) → \(currentCount))")
+                        return
+                    }
                 }
             }
 
