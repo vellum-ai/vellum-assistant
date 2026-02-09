@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import matter from 'gray-matter';
 
 export interface BlogPost {
   title: string;
@@ -17,6 +16,48 @@ export interface BlogPost {
 
 const BLOG_CONTENT_DIR = path.join(process.cwd(), '..', 'sanity-content', 'blog');
 
+// Simple YAML frontmatter parser (no external dependency needed)
+function parseFrontmatter(content: string): { data: Record<string, unknown>; content: string } {
+  const frontmatterRegex = /^---\r?\n([\s\S]*?)\r?\n---/;
+  const match = content.match(frontmatterRegex);
+  
+  if (!match) {
+    return { data: {}, content };
+  }
+  
+  const frontmatter = match[1];
+  const body = content.slice(match[0].length).trim();
+  const data: Record<string, unknown> = {};
+  
+  // Parse YAML key-value pairs
+  const lines = frontmatter.split('\n');
+  for (const line of lines) {
+    const colonIndex = line.indexOf(':');
+    if (colonIndex === -1) continue;
+    
+    const key = line.slice(0, colonIndex).trim();
+    let value: unknown = line.slice(colonIndex + 1).trim();
+    
+    // Remove quotes
+    if (typeof value === 'string' && value.startsWith('"') && value.endsWith('"')) {
+      value = value.slice(1, -1);
+    }
+    
+    // Parse arrays
+    if (typeof value === 'string' && value.startsWith('[') && value.endsWith(']')) {
+      value = value.slice(1, -1).split(',').map(s => s.trim().replace(/^["']|["']$/g, ''));
+    }
+    
+    // Parse booleans
+    if (value === 'true') value = true;
+    if (value === 'false') value = false;
+    
+    data[key] = value;
+  }
+  
+  return { data, content: body };
+}
+
 export function getAllBlogPosts(): BlogPost[] {
   try {
     const files = fs.readdirSync(BLOG_CONTENT_DIR);
@@ -26,19 +67,19 @@ export function getAllBlogPosts(): BlogPost[] {
       .map(file => {
         const filePath = path.join(BLOG_CONTENT_DIR, file);
         const fileContent = fs.readFileSync(filePath, 'utf-8');
-        const { data } = matter(fileContent);
+        const { data } = parseFrontmatter(fileContent);
         
         return {
-          title: data.title || '',
-          slug: data.slug || file.replace('.md', ''),
-          href: `/blog/${data.slug || file.replace('.md', '')}`,
-          excerpt: data.excerpt || data.metaDescription || '',
-          category: data.category || 'Uncategorized',
-          publishedAt: data.publishedAt || '',
-          readTime: data.readTime || '5 min',
-          featuredImage: data.featuredImage || 'https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68f62df5488ea1fb9508c764_Vellum%20Standard%20Blog%20Cover%20Small.png',
-          authors: data.authors || [],
-          isFeatured: data.isFeatured || false,
+          title: (data.title as string) || '',
+          slug: (data.slug as string) || file.replace('.md', ''),
+          href: `/blog/${(data.slug as string) || file.replace('.md', '')}`,
+          excerpt: (data.excerpt as string) || (data.metaDescription as string) || '',
+          category: (data.category as string) || 'Uncategorized',
+          publishedAt: (data.publishedAt as string) || '',
+          readTime: (data.readTime as string) || '5 min',
+          featuredImage: (data.featuredImage as string) || 'https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68f62df5488ea1fb9508c764_Vellum%20Standard%20Blog%20Cover%20Small.png',
+          authors: (data.authors as string[]) || [],
+          isFeatured: (data.isFeatured as boolean) || false,
         } as BlogPost;
       })
       .filter(post => post.title && post.publishedAt)
@@ -67,7 +108,7 @@ export function formatDate(dateString: string): string {
       day: 'numeric',
       year: 'numeric',
     });
-  } catch (_) {
+  } catch {
     return dateString;
   }
 }
