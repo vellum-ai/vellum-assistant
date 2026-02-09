@@ -73,7 +73,7 @@ export async function GET() {
   try {
     const sql = getDb();
     const assistants = await sql`SELECT * FROM assistants ORDER BY created_at DESC`;
-    return NextResponse.json(assistants as unknown as Agent[]);
+    return NextResponse.json(assistants as unknown as Assistant[]);
   } catch (error: unknown) {
     console.error("Error fetching assistants:", error);
     return NextResponse.json(
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
     return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   }
 
-  const body: CreateAgentInput = await request.json();
+  const body: CreateAssistantInput = await request.json();
   const createdBy = request.headers.get("x-username") || null;
 
   const stream = new ReadableStream({
@@ -116,7 +116,7 @@ export async function POST(request: Request) {
           VALUES (${body.name}, ${body.description || null}, ${JSON.stringify(initialConfig)}, ${createdBy})
           RETURNING *
         `;
-        const assistant = result[0] as Agent;
+        const assistant = result[0] as Assistant;
 
         controller.enqueue(sseEvent("progress", { step: "editor", message: "Setting up editor..." }));
         try {

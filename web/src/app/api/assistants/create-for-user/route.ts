@@ -26,7 +26,7 @@ const APP_URL = process.env.APP_URL || "http://localhost:3000";
  * }
  * 
  * Returns: {
- *   agent: Agent,
+ *   assistant: Assistant,
  *   link: string,          // Link to the new assistant's page
  * }
  */
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const callingAssistant = callingAssistantResult[0] as Agent;
+    const callingAssistant = callingAssistantResult[0] as Assistant;
     console.log(`[Create For User] Request from assistant ${callingAssistant.id} (${callingAssistant.name})`);
 
     const body = await request.json();
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
       RETURNING *
     `;
 
-    const newAssistant = newAssistantResult[0] as Agent;
+    const newAssistant = newAssistantResult[0] as Assistant;
     console.log(`[Create For User] Created assistant ${newAssistant.id} (${newAssistant.name}) for user ${user_id}`);
 
     // Provision the assistant infrastructure
