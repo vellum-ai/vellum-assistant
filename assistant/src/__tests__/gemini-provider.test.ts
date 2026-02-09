@@ -238,12 +238,40 @@ describe('GeminiProvider', () => {
     );
 
     expect(result.content).toHaveLength(1);
-    expect(result.content[0]).toEqual({
-      type: 'tool_use',
-      id: 'call_0',
-      name: 'test',
-      input: { x: 1 },
-    });
+    const block = result.content[0] as { type: string; id: string; name: string; input: unknown };
+    expect(block.type).toBe('tool_use');
+    expect(block.id).toStartWith('call_');
+    expect(block.id.length).toBeGreaterThan(5); // call_ + UUID
+    expect(block.name).toBe('test');
+    expect(block.input).toEqual({ x: 1 });
+  });
+
+  test('generates unique fallback ids across multiple calls', async () => {
+    fakeChunks = [
+      functionCallChunk([
+        { name: 'tool_a', args: {} },
+      ]),
+      finishChunk('STOP', 10, 5),
+    ];
+
+    const result1 = await provider.sendMessage(
+      [{ role: 'user', content: [{ type: 'text', text: 'call 1' }] }],
+    );
+
+    fakeChunks = [
+      functionCallChunk([
+        { name: 'tool_b', args: {} },
+      ]),
+      finishChunk('STOP', 10, 5),
+    ];
+
+    const result2 = await provider.sendMessage(
+      [{ role: 'user', content: [{ type: 'text', text: 'call 2' }] }],
+    );
+
+    const id1 = (result1.content[0] as { id: string }).id;
+    const id2 = (result2.content[0] as { id: string }).id;
+    expect(id1).not.toBe(id2);
   });
 
   // -----------------------------------------------------------------------
