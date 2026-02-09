@@ -76,6 +76,10 @@ function Editor({ assistantId, username }: EditorProps) {
   const [name, setName] = useState("");
 
   const isOwner = !assistant?.created_by || assistant.created_by === username;
+  const uiConfig = (assistant?.configuration as Record<string, unknown>)?.ui as
+    | { backgroundColor?: string }
+    | undefined;
+  const backgroundColor = uiConfig?.backgroundColor ?? null;
 
   const hasUnsavedChanges = useMemo(() => {
     if (!assistant) {
@@ -102,6 +106,9 @@ function Editor({ assistantId, username }: EditorProps) {
 
   useEffect(() => {
     fetchAssistant();
+    // Poll for config changes (e.g. background color updates)
+    const interval = setInterval(fetchAssistant, 3000);
+    return () => clearInterval(interval);
   }, [fetchAssistant]);
 
   const handleSave = useCallback(async () => {
@@ -231,8 +238,8 @@ function Editor({ assistantId, username }: EditorProps) {
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="h-full w-full bg-white dark:bg-zinc-900">
+      <div className="flex flex-1 overflow-hidden" style={backgroundColor ? { backgroundColor, transition: "background-color 1s ease" } : undefined}>
+        <div className="h-full w-full" style={backgroundColor ? { backgroundColor: "transparent" } : undefined}>
           {activeTab === "interaction" && (
             <InteractionView
               assistantId={assistantId}
@@ -413,9 +420,20 @@ function InteractionView({
           throw new Error("Failed to send message");
         }
 
-        // Don't call fetchMessages() here - it causes UI flicker by replacing
-        // the optimistic message before the server has stored it.
-        // The polling interval will sync messages automatically.
+        const data = await response.json();
+
+        // If the server returned an assistant message, add it immediately
+        if (data.assistantMessage) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: data.assistantMessage.id,
+              role: data.assistantMessage.role,
+              content: data.assistantMessage.content,
+              timestamp: data.assistantMessage.timestamp,
+            },
+          ]);
+        }
       } catch (sendErr) {
         console.error("Failed to send message:", sendErr);
       } finally {
@@ -587,9 +605,28 @@ function InteractionView({
                           : "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white"
                       }`}
                     >
-                      <p className="whitespace-pre-wrap text-sm">
-                        {message.content}
-                      </p>
+                      {message.content.includes("<div") ? (
+                        (() => {
+                          const parts = message.content.split(/(<div[\s\S]*<\/div>)/);
+                          return parts.map((part: string, i: number) =>
+                            part.startsWith("<div") ? (
+                              <div
+                                key={i}
+                                className="my-2"
+                                dangerouslySetInnerHTML={{ __html: part }}
+                              />
+                            ) : (
+                              <p key={i} className="whitespace-pre-wrap text-sm">
+                                {part}
+                              </p>
+                            )
+                          );
+                        })()
+                      ) : (
+                        <p className="whitespace-pre-wrap text-sm">
+                          {message.content}
+                        </p>
+                      )}
                     </div>
                     {message.role === "user" && (
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700">

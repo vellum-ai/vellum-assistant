@@ -11,7 +11,6 @@ interface Stage {
 }
 
 const STAGES: Stage[] = [
-  { step: 'naming', label: 'Generating assistant name...', capability: '✨ Identity' },
   { step: 'database', label: 'Creating assistant record...', capability: '💾 Memory' },
   { step: 'editor', label: 'Setting up editor...', capability: '📝 Editor' },
   { step: 'upload', label: 'Uploading assistant files...', capability: '📦 Knowledge' },

@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 
@@ -8,61 +7,8 @@ import {
   uploadEditorPage,
 } from "@/lib/gcp";
 
-const ADJECTIVES = [
-  "Brave", "Clever", "Cosmic", "Crystal", "Dapper", "Fizzy", "Gentle",
-  "Golden", "Happy", "Iron", "Jolly", "Lunar", "Mighty", "Noble", "Pixel",
-  "Quantum", "Rusty", "Silver", "Sunny", "Turbo", "Velvet", "Witty", "Zesty",
-];
-
-const NOUNS = [
-  "Badger", "Comet", "Dragon", "Falcon", "Gizmo", "Heron", "Jester",
-  "Kitten", "Lemur", "Mango", "Nimbus", "Otter", "Pebble", "Quokka",
-  "Raven", "Spark", "Tiger", "Unicorn", "Vortex", "Waffle", "Ziggy",
-];
-
-function generateRandomName(): string {
-  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
-  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
-  return `${adj} ${noun}`;
-}
-
-/**
- * Generate a secure API key for assistant authentication
- */
 function generateApiKey(): string {
   return `vellum_${randomBytes(32).toString("hex")}`;
-}
-
-async function generateAssistantName(): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return generateRandomName();
-  }
-
-  try {
-    const anthropic = new Anthropic({ apiKey });
-    const response = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 30,
-      messages: [
-        {
-          role: "user",
-          content:
-            "Generate a single cute, caricature-y name for an AI assistant (like 'Sparky', 'Professor Wobble', 'Captain Crunch', 'Pixel Pete'). Reply with ONLY the name, nothing else.",
-        },
-      ],
-    });
-
-    const content = response.content[0];
-    if (content.type === "text") {
-      return content.text.trim().replace(/^["']|["']$/g, "");
-    }
-  } catch (error: unknown) {
-    console.error("Failed to generate assistant name:", error);
-    throw error;
-  }
-
-  return generateRandomName();
 }
 
 export async function GET() {
@@ -94,9 +40,8 @@ export async function POST(request: Request) {
       try {
         const sql = getDb();
 
-        controller.enqueue(sseEvent("progress", { step: "naming", message: "Generating assistant name..." }));
         if (!body.name) {
-          body.name = await generateAssistantName();
+          body.name = "New Assistant";
         }
 
         const apiKey = generateApiKey();
