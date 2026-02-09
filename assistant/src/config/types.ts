@@ -12,6 +12,13 @@ export interface SandboxConfig {
   enabled: boolean;
 }
 
+export interface RateLimitConfig {
+  /** Maximum API requests per minute. 0 = unlimited. */
+  maxRequestsPerMinute: number;
+  /** Maximum total tokens (input + output) per session. 0 = unlimited. */
+  maxTokensPerSession: number;
+}
+
 export interface AssistantConfig {
   provider: string;
   model: string;
@@ -21,4 +28,5 @@ export interface AssistantConfig {
   dataDir: string;
   timeouts: TimeoutConfig;
   sandbox: SandboxConfig;
+  rateLimit: RateLimitConfig;
 }

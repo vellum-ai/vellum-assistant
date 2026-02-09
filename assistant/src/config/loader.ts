@@ -61,6 +61,7 @@ export function loadConfig(): AssistantConfig {
       apiKeys: { ...DEFAULT_CONFIG.apiKeys, ...fileConfig.apiKeys },
       timeouts: { ...DEFAULT_CONFIG.timeouts, ...(fileConfig as Record<string, unknown>).timeouts as Partial<AssistantConfig['timeouts']> },
       sandbox: { ...DEFAULT_CONFIG.sandbox, ...(fileConfig as Record<string, unknown>).sandbox as Partial<AssistantConfig['sandbox']> },
+      rateLimit: { ...DEFAULT_CONFIG.rateLimit, ...(fileConfig as Record<string, unknown>).rateLimit as Partial<AssistantConfig['rateLimit']> },
     };
 
     // Set cached before validation so re-entrant calls (e.g. validateConfig
@@ -132,6 +133,16 @@ function validateConfig(config: AssistantConfig): void {
   if (typeof config.sandbox.enabled !== 'boolean') {
     log.warn(`Invalid sandbox.enabled "${config.sandbox.enabled}". Must be a boolean. Falling back to ${DEFAULT_CONFIG.sandbox.enabled}.`);
     config.sandbox.enabled = DEFAULT_CONFIG.sandbox.enabled;
+  }
+
+  for (const field of ['maxRequestsPerMinute', 'maxTokensPerSession'] as const) {
+    const val = config.rateLimit[field];
+    if (typeof val !== 'number' || !Number.isFinite(val) || val < 0 || !Number.isInteger(val)) {
+      log.warn(
+        `Invalid rateLimit.${field} "${val}". Must be a non-negative integer. Falling back to ${DEFAULT_CONFIG.rateLimit[field]}.`,
+      );
+      config.rateLimit[field] = DEFAULT_CONFIG.rateLimit[field];
+    }
   }
 }
 
