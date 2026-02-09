@@ -18,6 +18,8 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<string | null>;
   signup: (username: string, email: string, password: string) => Promise<string | null>;
   logout: () => void;
+  requestPasswordReset: (email: string, redirectTo: string) => Promise<string | null>;
+  resetPassword: (newPassword: string, token: string) => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -83,9 +85,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setEmail(null);
   }, []);
 
+  const requestPasswordReset = useCallback(async (resetEmail: string, redirectTo: string): Promise<string | null> => {
+    const { error } = await authClient.requestPasswordReset({
+      email: resetEmail,
+      redirectTo,
+    });
+    if (error) {
+      return error.message ?? "Failed to send password reset email. Please try again.";
+    }
+    return null;
+  }, []);
+
+  const resetPassword = useCallback(async (newPassword: string, token: string): Promise<string | null> => {
+    const { error } = await authClient.resetPassword({
+      newPassword,
+      token,
+    });
+    if (error) {
+      return error.message ?? "Failed to reset password. Please try again.";
+    }
+    return null;
+  }, []);
+
   return (
     <AuthContext.Provider
-      value={{ isLoggedIn, isLoading, username, email, login, signup, logout }}
+      value={{ isLoggedIn, isLoading, username, email, login, signup, logout, requestPasswordReset, resetPassword }}
     >
       {children}
     </AuthContext.Provider>
