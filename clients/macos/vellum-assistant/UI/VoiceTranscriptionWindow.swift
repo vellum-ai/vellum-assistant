@@ -7,9 +7,7 @@ final class VoiceTranscriptionViewModel: ObservableObject {
     @Published var contentHeight: CGFloat = 0
     @Published var isOverflowing: Bool = false
 
-    var wordCount: Int {
-        transcriptionText.split(separator: " ").count
-    }
+
 }
 
 private struct TextHeightPreferenceKey: PreferenceKey {
@@ -70,11 +68,6 @@ struct VoiceTranscriptionView: View {
                 }
             }
 
-            if !viewModel.transcriptionText.isEmpty {
-                Text("Recording\u{2026} \(viewModel.wordCount) words")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -114,7 +107,7 @@ final class VoiceTranscriptionWindow {
 
     private let panelWidth: CGFloat = 320
     private let basePadding: CGFloat = 24 // vertical padding (12 top + 12 bottom)
-    private let wordCountLineHeight: CGFloat = 19 // 11pt font + spacing
+    private var bottomY: CGFloat = 0 // fixed bottom edge for upward growth
 
     func show() {
         let hostingController = NSHostingController(rootView: VoiceTranscriptionView(viewModel: viewModel))
@@ -136,12 +129,13 @@ final class VoiceTranscriptionWindow {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
-        // Position center-bottom of screen (above dock)
+        // Position center-bottom of screen (above dock), anchored at bottom edge
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
             let x = screenFrame.midX - panelWidth / 2
-            let y = screenFrame.minY + 20
-            panel.setFrameOrigin(NSPoint(x: x, y: y))
+            bottomY = screenFrame.minY + 20
+            let frame = NSRect(x: x, y: bottomY, width: panelWidth, height: initialHeight)
+            panel.setFrame(frame, display: false)
         }
 
         panel.orderFront(nil)
@@ -179,17 +173,10 @@ final class VoiceTranscriptionWindow {
             contentAreaHeight = 22 // mic icon height only
         }
 
-        var totalHeight = basePadding + contentAreaHeight
+        let totalHeight = basePadding + contentAreaHeight
 
-        if hasText {
-            totalHeight += 4 + wordCountLineHeight // spacing + word count line
-        }
-
-        let currentFrame = panel.frame
-        // Grow upward: keep bottom edge fixed (macOS y is bottom-up)
-        let newY = currentFrame.origin.y + currentFrame.height - totalHeight
-        let newFrame = NSRect(x: currentFrame.origin.x, y: newY, width: panelWidth, height: totalHeight)
-
+        // Grow upward from fixed bottom edge
+        let newFrame = NSRect(x: panel.frame.origin.x, y: bottomY, width: panelWidth, height: totalHeight)
         panel.setFrame(newFrame, display: true, animate: true)
     }
 }
