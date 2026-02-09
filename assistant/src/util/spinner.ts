@@ -15,6 +15,10 @@ export class Spinner {
   private timer: ReturnType<typeof setInterval> | null = null;
   private active = false;
 
+  get isSpinning(): boolean {
+    return this.active;
+  }
+
   start(message: string): void {
     if (!process.stderr.isTTY) return;
     this.stop();

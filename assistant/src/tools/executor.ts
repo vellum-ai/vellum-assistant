@@ -12,6 +12,7 @@ import { findAllMatches, adjustIndentation } from './filesystem/fuzzy-match.js';
 import { validateFilePath } from './filesystem/path-guard.js';
 import { wrapCommand } from './terminal/sandbox.js';
 import { getConfig } from '../config/loader.js';
+import { scanText, redactSecrets } from '../security/secret-scanner.js';
 
 const log = getLogger('tool-executor');
 
@@ -124,6 +125,51 @@ export class ToolExecutor {
 
       // Execute the tool
       const execResult = await tool.execute(input, context);
+
+      // Secret detection on tool output
+      const sdConfig = getConfig().secretDetection;
+      if (sdConfig.enabled && !execResult.isError) {
+        const entropyConfig = { enabled: true, base64Threshold: sdConfig.entropyThreshold };
+        const contentMatches = scanText(execResult.content, entropyConfig);
+        const diffMatches = execResult.diff
+          ? scanText(execResult.diff.newContent, entropyConfig)
+          : [];
+        const allMatches = [...contentMatches, ...diffMatches];
+
+        if (allMatches.length > 0) {
+          const matchSummary = allMatches.map((m) => ({
+            type: m.type,
+            redactedValue: m.redactedValue,
+          }));
+
+          log.warn(
+            { toolName: name, matchCount: allMatches.length, types: [...new Set(allMatches.map((m) => m.type))] },
+            'Secrets detected in tool output',
+          );
+
+          context.onSecretDetected?.({
+            toolName: name,
+            matches: matchSummary,
+            action: sdConfig.action,
+          });
+
+          if (sdConfig.action === 'redact') {
+            execResult.content = redactSecrets(execResult.content, entropyConfig);
+            if (execResult.diff) {
+              execResult.diff = {
+                ...execResult.diff,
+                newContent: redactSecrets(execResult.diff.newContent, entropyConfig),
+              };
+            }
+          } else if (sdConfig.action === 'block') {
+            const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
+            return {
+              content: `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Configure secretDetection.action to "redact" or "warn" to allow output.`,
+              isError: true,
+            };
+          }
+        }
+      }
 
       const durationMs = Date.now() - startTime;
       recordToolInvocation({

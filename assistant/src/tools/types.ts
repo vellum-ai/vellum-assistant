@@ -1,6 +1,12 @@
 import type { RiskLevel } from '../permissions/types.js';
 import type { ToolDefinition } from '../providers/types.js';
 
+export interface SecretDetectionEvent {
+  toolName: string;
+  matches: Array<{ type: string; redactedValue: string }>;
+  action: 'redact' | 'warn' | 'block';
+}
+
 export interface ToolContext {
   workingDir: string;
   sessionId: string;
@@ -9,6 +15,8 @@ export interface ToolContext {
   onOutput?: (chunk: string) => void;
   /** Per-session sandbox override. When set, takes precedence over the global config. */
   sandboxOverride?: boolean;
+  /** Optional callback when secrets are detected in tool output. */
+  onSecretDetected?: (event: SecretDetectionEvent) => void;
 }
 
 export interface DiffInfo {

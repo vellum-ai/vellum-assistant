@@ -19,6 +19,15 @@ export interface RateLimitConfig {
   maxTokensPerSession: number;
 }
 
+export interface SecretDetectionConfig {
+  /** Whether secret detection is enabled. Default: true. */
+  enabled: boolean;
+  /** What to do when a secret is detected: redact, warn, or block. Default: 'warn'. */
+  action: 'redact' | 'warn' | 'block';
+  /** Shannon entropy threshold for entropy-based detection. Default: 4.0. */
+  entropyThreshold: number;
+}
+
 export interface AssistantConfig {
   provider: string;
   model: string;
@@ -29,4 +38,5 @@ export interface AssistantConfig {
   timeouts: TimeoutConfig;
   sandbox: SandboxConfig;
   rateLimit: RateLimitConfig;
+  secretDetection: SecretDetectionConfig;
 }

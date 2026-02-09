@@ -352,6 +352,20 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         prompt();
         break;
 
+      case 'secret_detected': {
+        const wasSpinning = spinner.isSpinning;
+        spinner.stop();
+        const types = msg.matches.map((m) => m.type).join(', ');
+        const actionLabel = msg.action === 'redact' ? 'redacted' : msg.action === 'block' ? 'blocked' : 'detected';
+        process.stdout.write(`\n  ⚠ Secret ${actionLabel} in ${msg.toolName} output: ${types}\n`);
+        for (const match of msg.matches) {
+          process.stdout.write(`    • ${match.type}: ${match.redactedValue}\n`);
+        }
+        process.stdout.write('\n');
+        if (wasSpinning) spinner.start('Thinking...');
+        break;
+      }
+
       case 'session_list_response':
         if (pendingSessionPick) {
           renderSessionPicker(msg.sessions);

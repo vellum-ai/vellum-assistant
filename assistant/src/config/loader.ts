@@ -23,7 +23,7 @@ export function loadConfig(): AssistantConfig {
   // Re-entrancy guard: log calls during loading (e.g. file-mode warning,
   // invalid apiKeys) can trigger loadConfig again. Return defaults to
   // break the cycle instead of recursing to stack overflow.
-  if (loading) return { ...DEFAULT_CONFIG, apiKeys: { ...DEFAULT_CONFIG.apiKeys }, timeouts: { ...DEFAULT_CONFIG.timeouts }, sandbox: { ...DEFAULT_CONFIG.sandbox }, rateLimit: { ...DEFAULT_CONFIG.rateLimit } };
+  if (loading) return { ...DEFAULT_CONFIG, apiKeys: { ...DEFAULT_CONFIG.apiKeys }, timeouts: { ...DEFAULT_CONFIG.timeouts }, sandbox: { ...DEFAULT_CONFIG.sandbox }, rateLimit: { ...DEFAULT_CONFIG.rateLimit }, secretDetection: { ...DEFAULT_CONFIG.secretDetection } };
   loading = true;
 
   try {
@@ -62,6 +62,7 @@ export function loadConfig(): AssistantConfig {
       timeouts: { ...DEFAULT_CONFIG.timeouts, ...(fileConfig as Record<string, unknown>).timeouts as Partial<AssistantConfig['timeouts']> },
       sandbox: { ...DEFAULT_CONFIG.sandbox, ...(fileConfig as Record<string, unknown>).sandbox as Partial<AssistantConfig['sandbox']> },
       rateLimit: { ...DEFAULT_CONFIG.rateLimit, ...(fileConfig as Record<string, unknown>).rateLimit as Partial<AssistantConfig['rateLimit']> },
+      secretDetection: { ...DEFAULT_CONFIG.secretDetection, ...(fileConfig as Record<string, unknown>).secretDetection as Partial<AssistantConfig['secretDetection']> },
     };
 
     // Set cached before validation so re-entrant calls (e.g. validateConfig
@@ -143,6 +144,22 @@ function validateConfig(config: AssistantConfig): void {
       );
       config.rateLimit[field] = DEFAULT_CONFIG.rateLimit[field];
     }
+  }
+
+  if (typeof config.secretDetection.enabled !== 'boolean') {
+    log.warn(`Invalid secretDetection.enabled "${config.secretDetection.enabled}". Must be a boolean. Falling back to ${DEFAULT_CONFIG.secretDetection.enabled}.`);
+    config.secretDetection.enabled = DEFAULT_CONFIG.secretDetection.enabled;
+  }
+
+  const validActions = ['redact', 'warn', 'block'] as const;
+  if (!validActions.includes(config.secretDetection.action as (typeof validActions)[number])) {
+    log.warn(`Invalid secretDetection.action "${config.secretDetection.action}". Must be one of: ${validActions.join(', ')}. Falling back to "${DEFAULT_CONFIG.secretDetection.action}".`);
+    config.secretDetection.action = DEFAULT_CONFIG.secretDetection.action;
+  }
+
+  if (typeof config.secretDetection.entropyThreshold !== 'number' || !Number.isFinite(config.secretDetection.entropyThreshold) || config.secretDetection.entropyThreshold <= 0) {
+    log.warn(`Invalid secretDetection.entropyThreshold "${config.secretDetection.entropyThreshold}". Must be a positive number. Falling back to ${DEFAULT_CONFIG.secretDetection.entropyThreshold}.`);
+    config.secretDetection.entropyThreshold = DEFAULT_CONFIG.secretDetection.entropyThreshold;
   }
 }
 

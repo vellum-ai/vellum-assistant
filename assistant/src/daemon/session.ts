@@ -24,6 +24,7 @@ export class Session {
   private abortController: AbortController | null = null;
   private prompter: PermissionPrompter;
   private executor: ToolExecutor;
+  private sendToClient: (msg: ServerMessage) => void;
   private workingDir: string;
   private sandboxOverride?: boolean;
   private totalInputTokens = 0;
@@ -40,6 +41,7 @@ export class Session {
   ) {
     this.conversationId = conversationId;
     this.workingDir = workingDir;
+    this.sendToClient = sendToClient;
     this.prompter = new PermissionPrompter(sendToClient);
     this.executor = new ToolExecutor(this.prompter);
 
@@ -51,6 +53,14 @@ export class Session {
         conversationId: this.conversationId,
         onOutput,
         sandboxOverride: this.sandboxOverride,
+        onSecretDetected: (event) => {
+          this.sendToClient({
+            type: 'secret_detected',
+            toolName: event.toolName,
+            matches: event.matches,
+            action: event.action,
+          });
+        },
       });
     };
 
@@ -81,6 +91,7 @@ export class Session {
   }
 
   updateClient(sendToClient: (msg: ServerMessage) => void): void {
+    this.sendToClient = sendToClient;
     this.prompter.updateSender(sendToClient);
   }
 

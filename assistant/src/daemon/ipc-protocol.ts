@@ -181,6 +181,13 @@ export interface UsageResponse {
   model: string;
 }
 
+export interface SecretDetected {
+  type: 'secret_detected';
+  toolName: string;
+  matches: Array<{ type: string; redactedValue: string }>;
+  action: 'redact' | 'warn' | 'block';
+}
+
 export type ServerMessage =
   | AssistantTextDelta
   | ToolUseStart
@@ -197,7 +204,8 @@ export type ServerMessage =
   | HistoryResponse
   | UndoComplete
   | UsageUpdate
-  | UsageResponse;
+  | UsageResponse
+  | SecretDetected;
 
 // === Serialization ===
 
