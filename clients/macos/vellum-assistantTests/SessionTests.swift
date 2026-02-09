@@ -47,6 +47,7 @@ final class MockInferenceProvider: ActionInferenceProvider {
 
 final class MockAccessibilityTreeEnumerator: AccessibilityTreeProviding {
     var result: (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
+    var secondaryWindowCallCount = 0
 
     init(result: (elements: [AXElement], windowTitle: String, appName: String)? = nil) {
         if let r = result {
@@ -61,12 +62,16 @@ final class MockAccessibilityTreeEnumerator: AccessibilityTreeProviding {
     }
 
     func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int) -> [WindowInfo] {
+        secondaryWindowCallCount += 1
         return []
     }
 }
 
 final class MockScreenCapture: ScreenCaptureProviding {
+    var captureCallCount = 0
+
     func captureScreen(maxWidth: Int, maxHeight: Int) async throws -> Data {
+        captureCallCount += 1
         return Data([0xFF, 0xD8, 0xFF]) // Minimal JPEG-like stub
     }
 
@@ -160,6 +165,7 @@ private func makeDefaultEnumerator() -> MockAccessibilityTreeEnumerator {
     task: String = "test task",
     provider: ActionInferenceProvider,
     enumerator: AccessibilityTreeProviding? = nil,
+    screenCapture: MockScreenCapture? = nil,
     executor: MockActionExecutor? = nil,
     maxSteps: Int = 50
 ) -> ComputerUseSession {
@@ -167,7 +173,7 @@ private func makeDefaultEnumerator() -> MockAccessibilityTreeEnumerator {
         task: task,
         provider: provider,
         enumerator: enumerator ?? makeDefaultEnumerator(),
-        screenCapture: MockScreenCapture(),
+        screenCapture: screenCapture ?? MockScreenCapture(),
         executor: executor ?? MockActionExecutor(),
         maxSteps: maxSteps,
         stepDelayMs: 0,
@@ -781,4 +787,164 @@ final class SessionTests: XCTestCase {
             XCTFail("Expected completed state (AppleScript errors are non-fatal), got \(session.state)")
         }
     }
+
+    // MARK: - Performance Optimization Tests
+
+    @MainActor
+    func testScreenshot_skippedOnMiddleSteps() async {
+        // 3-step session with enough interactive elements — screenshot should only be captured on step 1
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .click, reasoning: "Click button", x: 140, y: 215),
+            AgentAction(type: .click, reasoning: "Click another", x: 200, y: 215),
+            AgentAction(type: .done, reasoning: "Task complete", summary: "Done")
+        ])
+        let screenCapture = MockScreenCapture()
+        let enumerator = MockAccessibilityTreeEnumerator(
+            result: (elements: makeInteractiveTestElements(), windowTitle: "Test Window", appName: "TestApp")
+        )
+        let session = makeSession(provider: provider, enumerator: enumerator, screenCapture: screenCapture)
+
+        await session.run()
+
+        if case .completed(_, let steps) = session.state {
+            XCTAssertEqual(steps, 3)
+        } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+
+        // Step 1: captured (first step). Step 2: skipped (AX tree sufficient).
+        // Step 3: captured (consecutiveUnchangedSteps reaches 2 since mock returns identical elements).
+        XCTAssertEqual(screenCapture.captureCallCount, 2, "Screenshot should be captured on step 1 and when stuck")
+    }
+
+    @MainActor
+    func testScreenshot_capturedAfterOpenApp() async {
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .openApp, reasoning: "Switch app", appName: "Safari"),
+            AgentAction(type: .click, reasoning: "Click link", x: 200, y: 300),
+            AgentAction(type: .done, reasoning: "done", summary: "Done")
+        ])
+        let screenCapture = MockScreenCapture()
+        let enumerator = MockAccessibilityTreeEnumerator(
+            result: (elements: makeInteractiveTestElements(), windowTitle: "Test Window", appName: "TestApp")
+        )
+        let session = makeSession(provider: provider, enumerator: enumerator, screenCapture: screenCapture)
+
+        await session.run()
+
+        if case .completed(_, _) = session.state { } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+
+        // Step 1: captured (first step). Step 2: captured (after openApp).
+        // Step 3: captured (consecutiveUnchangedSteps reaches 2 since mock returns identical elements).
+        XCTAssertEqual(screenCapture.captureCallCount, 3, "Screenshot should be captured on step 1, after openApp, and when stuck")
+    }
+
+    @MainActor
+    func testSecondaryWindows_skippedForSingleAppTask() async {
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .click, reasoning: "Click button", x: 140, y: 215),
+            AgentAction(type: .click, reasoning: "Click another", x: 200, y: 215),
+            AgentAction(type: .done, reasoning: "done", summary: "Done")
+        ])
+        let enumerator = MockAccessibilityTreeEnumerator(
+            result: (elements: makeTestElements(), windowTitle: "Test Window", appName: "TestApp")
+        )
+        let session = makeSession(task: "click the submit button", provider: provider, enumerator: enumerator)
+
+        await session.run()
+
+        if case .completed(_, _) = session.state { } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+
+        // Single-app task: secondary windows only enumerated on step 1
+        XCTAssertEqual(enumerator.secondaryWindowCallCount, 1, "Secondary windows should only be enumerated on step 1 for single-app tasks")
+    }
+
+    @MainActor
+    func testSecondaryWindows_enumeratedForCrossAppTask() async {
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .click, reasoning: "Click button", x: 140, y: 215),
+            AgentAction(type: .click, reasoning: "Click another", x: 200, y: 215),
+            AgentAction(type: .done, reasoning: "done", summary: "Done")
+        ])
+        let enumerator = MockAccessibilityTreeEnumerator(
+            result: (elements: makeTestElements(), windowTitle: "Test Window", appName: "TestApp")
+        )
+        // Task mentions two apps — should enumerate secondary windows on every step
+        let session = makeSession(task: "copy from Safari and paste into Notes", provider: provider, enumerator: enumerator)
+
+        await session.run()
+
+        if case .completed(_, _) = session.state { } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+
+        // Cross-app task: secondary windows enumerated on all 3 steps
+        XCTAssertEqual(enumerator.secondaryWindowCallCount, 3, "Secondary windows should be enumerated on every step for cross-app tasks")
+    }
+}
+
+/// Test elements with 3+ interactive elements (enough for screenshot skip)
+private func makeInteractiveTestElements() -> [AXElement] {
+    [
+        AXElement(
+            id: 1,
+            role: "AXButton",
+            title: "Submit",
+            value: nil,
+            frame: CGRect(x: 100, y: 200, width: 80, height: 30),
+            isEnabled: true,
+            isFocused: false,
+            children: [],
+            roleDescription: "button",
+            identifier: nil,
+            url: nil,
+            placeholderValue: nil
+        ),
+        AXElement(
+            id: 2,
+            role: "AXTextField",
+            title: nil,
+            value: "",
+            frame: CGRect(x: 100, y: 150, width: 200, height: 30),
+            isEnabled: true,
+            isFocused: true,
+            children: [],
+            roleDescription: "text field",
+            identifier: nil,
+            url: nil,
+            placeholderValue: "Enter name"
+        ),
+        AXElement(
+            id: 3,
+            role: "AXButton",
+            title: "Cancel",
+            value: nil,
+            frame: CGRect(x: 200, y: 200, width: 80, height: 30),
+            isEnabled: true,
+            isFocused: false,
+            children: [],
+            roleDescription: "button",
+            identifier: nil,
+            url: nil,
+            placeholderValue: nil
+        ),
+        AXElement(
+            id: 4,
+            role: "AXCheckBox",
+            title: "Remember me",
+            value: "0",
+            frame: CGRect(x: 100, y: 250, width: 120, height: 20),
+            isEnabled: true,
+            isFocused: false,
+            children: [],
+            roleDescription: "checkbox",
+            identifier: nil,
+            url: nil,
+            placeholderValue: nil
+        ),
+    ]
 }

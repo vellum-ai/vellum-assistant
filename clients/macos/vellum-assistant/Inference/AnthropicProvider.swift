@@ -314,10 +314,10 @@ final class AnthropicProvider: ActionInferenceProvider {
         }
     }
 
+    /// Resolve an element ID to screen coordinates. `elements` is expected to be pre-flattened.
     private func resolvePosition(elementId: Int?, inputX: Int?, inputY: Int?, elements: [AXElement]?) -> (x: Int?, y: Int?, resolvedId: Int?, desc: String?) {
         if let elementId = elementId, let elements = elements {
-            let flat = AccessibilityTreeEnumerator.flattenElements(elements)
-            if let element = flat.first(where: { $0.id == elementId }) {
+            if let element = elements.first(where: { $0.id == elementId }) {
                 let x = Int(element.frame.midX)
                 let y = Int(element.frame.midY)
                 let desc = element.title ?? element.roleDescription ?? element.role
