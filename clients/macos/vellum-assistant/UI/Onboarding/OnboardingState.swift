@@ -9,12 +9,11 @@ enum OrbMood {
 
 enum ActivationKey: String {
     case fn
-    case globe
     case ctrl
 
     var displayName: String {
         switch self {
-        case .fn, .globe: return "fn"
+        case .fn: return "fn"
         case .ctrl: return "ctrl"
         }
     }
