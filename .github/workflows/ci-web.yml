@@ -50,7 +50,6 @@ jobs:
         id: secrets
         run: |
           echo "DATABASE_URL=$(gcloud secrets versions access latest --secret=database-url --project=vellum-ai-prod)" >> "$GITHUB_OUTPUT"
-          echo "STRIPE_SECRET_KEY=$(gcloud secrets versions access latest --secret=STRIPE_SECRET_KEY --project=vellum-ai-prod)" >> "$GITHUB_OUTPUT"
           echo "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$(gcloud secrets versions access latest --secret=NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY --project=vellum-ai-prod)" >> "$GITHUB_OUTPUT"
 
       - name: Build
