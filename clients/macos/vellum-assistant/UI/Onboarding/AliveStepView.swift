@@ -20,10 +20,10 @@ struct AliveStepView: View {
 
     private var abilities: [(String, String)] {
         [
-            ("Voice conversations", "mic.fill"),
-            ("Context-aware help", "sparkles"),
+            ("Talk to me", "mic.fill"),
+            ("I'll help you", "sparkles"),
             ("Hold \(state.chosenKey.displayName) to activate", "keyboard"),
-            ("Learns as you work", "brain.head.profile"),
+            ("I learn as you work", "brain.head.profile"),
         ]
     }
 
