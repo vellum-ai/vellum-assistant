@@ -25,6 +25,7 @@ dist
 .DS_Store
 *.pem
 .claude/
+.private/
 temp.sh
 
 # debug
