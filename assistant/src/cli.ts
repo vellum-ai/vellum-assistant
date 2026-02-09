@@ -348,9 +348,10 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
       case 'error':
         spinner.stop();
         generating = false;
-        if (pendingConfirmation || pendingSessionPick) {
+        if (pendingConfirmation || pendingSessionPick || pendingCopySession) {
           pendingConfirmation = false;
           pendingSessionPick = false;
+          pendingCopySession = false;
           rl.removeAllListeners('line');
           rl.on('line', handleLine);
         }
@@ -605,8 +606,12 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
 
     if (content === '/copy-session') {
+      if (!send({ type: 'history_request', sessionId })) {
+        process.stdout.write('[Not connected — command not sent]\n');
+        prompt();
+        return;
+      }
       pendingCopySession = true;
-      send({ type: 'history_request', sessionId });
       return;
     }
 
