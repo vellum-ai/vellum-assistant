@@ -24,7 +24,7 @@ export function loadConfig(): AssistantConfig {
   // Re-entrancy guard: log calls during loading (e.g. file-mode warning,
   // invalid apiKeys) can trigger loadConfig again. Return defaults to
   // break the cycle instead of recursing to stack overflow.
-  if (loading) return { ...DEFAULT_CONFIG, apiKeys: { ...DEFAULT_CONFIG.apiKeys }, timeouts: { ...DEFAULT_CONFIG.timeouts }, sandbox: { ...DEFAULT_CONFIG.sandbox }, rateLimit: { ...DEFAULT_CONFIG.rateLimit }, secretDetection: { ...DEFAULT_CONFIG.secretDetection } };
+  if (loading) return { ...DEFAULT_CONFIG, apiKeys: { ...DEFAULT_CONFIG.apiKeys }, timeouts: { ...DEFAULT_CONFIG.timeouts }, sandbox: { ...DEFAULT_CONFIG.sandbox }, rateLimit: { ...DEFAULT_CONFIG.rateLimit }, secretDetection: { ...DEFAULT_CONFIG.secretDetection }, auditLog: { ...DEFAULT_CONFIG.auditLog } };
   loading = true;
 
   try {
@@ -94,6 +94,7 @@ export function loadConfig(): AssistantConfig {
       sandbox: { ...DEFAULT_CONFIG.sandbox, ...(fileConfig as Record<string, unknown>).sandbox as Partial<AssistantConfig['sandbox']> },
       rateLimit: { ...DEFAULT_CONFIG.rateLimit, ...(fileConfig as Record<string, unknown>).rateLimit as Partial<AssistantConfig['rateLimit']> },
       secretDetection: { ...DEFAULT_CONFIG.secretDetection, ...(fileConfig as Record<string, unknown>).secretDetection as Partial<AssistantConfig['secretDetection']> },
+      auditLog: { ...DEFAULT_CONFIG.auditLog, ...(fileConfig as Record<string, unknown>).auditLog as Partial<AssistantConfig['auditLog']> },
     };
 
     // Set cached before validation so re-entrant calls (e.g. validateConfig
@@ -203,6 +204,11 @@ function validateConfig(config: AssistantConfig): void {
   if (typeof config.secretDetection.entropyThreshold !== 'number' || !Number.isFinite(config.secretDetection.entropyThreshold) || config.secretDetection.entropyThreshold <= 0) {
     log.warn(`Invalid secretDetection.entropyThreshold "${config.secretDetection.entropyThreshold}". Must be a positive number. Falling back to ${DEFAULT_CONFIG.secretDetection.entropyThreshold}.`);
     config.secretDetection.entropyThreshold = DEFAULT_CONFIG.secretDetection.entropyThreshold;
+  }
+
+  if (typeof config.auditLog.retentionDays !== 'number' || !Number.isFinite(config.auditLog.retentionDays) || config.auditLog.retentionDays < 0 || !Number.isInteger(config.auditLog.retentionDays)) {
+    log.warn(`Invalid auditLog.retentionDays "${config.auditLog.retentionDays}". Must be a non-negative integer. Falling back to ${DEFAULT_CONFIG.auditLog.retentionDays}.`);
+    config.auditLog.retentionDays = DEFAULT_CONFIG.auditLog.retentionDays;
   }
 }
 

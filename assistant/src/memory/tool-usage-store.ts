@@ -1,7 +1,8 @@
 import { v4 as uuid } from 'uuid';
-import { desc } from 'drizzle-orm';
+import { desc, lt, count } from 'drizzle-orm';
 import { getDb } from './db.js';
 import { toolInvocations } from './schema.js';
+import { getLogger } from '../util/logger.js';
 
 export interface ToolInvocationRecord {
   conversationId: string;
@@ -36,4 +37,26 @@ export function getRecentInvocations(limit: number) {
     .orderBy(desc(toolInvocations.createdAt))
     .limit(limit)
     .all();
+}
+
+const log = getLogger('audit-log');
+
+/**
+ * Delete tool invocation records older than the specified number of days.
+ * Returns the number of deleted records. Does nothing if retentionDays is 0.
+ */
+export function rotateToolInvocations(retentionDays: number): number {
+  if (retentionDays <= 0) return 0;
+
+  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  const db = getDb();
+
+  // Count before delete (Drizzle's .run() returns void on bun-sqlite)
+  const [countRow] = db.select({ value: count() }).from(toolInvocations).where(lt(toolInvocations.createdAt, cutoff)).all();
+  const toDelete = countRow?.value ?? 0;
+  if (toDelete === 0) return 0;
+
+  db.delete(toolInvocations).where(lt(toolInvocations.createdAt, cutoff)).run();
+  log.info(`Rotated ${toDelete} audit log entries older than ${retentionDays} day(s)`);
+  return toDelete;
 }

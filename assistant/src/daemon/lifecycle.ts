@@ -7,6 +7,7 @@ import {
   ensureDataDir,
 } from '../util/platform.js';
 import { initializeDb } from '../memory/db.js';
+import { rotateToolInvocations } from '../memory/tool-usage-store.js';
 import { initializeProviders } from '../providers/registry.js';
 import { initializeTools } from '../tools/registry.js';
 import { loadConfig } from '../config/loader.js';
@@ -166,6 +167,12 @@ export async function runDaemon(): Promise<void> {
   initializeDb();
 
   const config = loadConfig();
+
+  // Rotate old audit log entries if retention is configured
+  if (config.auditLog.retentionDays > 0) {
+    rotateToolInvocations(config.auditLog.retentionDays);
+  }
+
   initializeProviders(config);
   await initializeTools();
 
