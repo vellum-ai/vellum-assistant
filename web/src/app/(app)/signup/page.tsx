@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
+import { GoogleSignInButton } from "@/components/domains/GoogleSignInButton/GoogleSignInButton";
 
 export default function SignupPage() {
   const [username, setUsername] = useState("");
@@ -151,6 +152,14 @@ export default function SignupPage() {
                 </svg>
               </button>
             </form>
+
+            <div className="my-6 flex items-center gap-4">
+              <div className="flex-1 h-px bg-white/10" />
+              <span className="text-xs text-zinc-400">OR</span>
+              <div className="flex-1 h-px bg-white/10" />
+            </div>
+
+            <GoogleSignInButton onError={setError} />
 
             <div className="mt-8 text-center">
               <Link

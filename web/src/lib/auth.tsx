@@ -3,7 +3,6 @@
 import {
   createContext,
   ReactNode,
-  useCallback,
   useContext,
   useEffect,
   useState,
@@ -17,6 +16,7 @@ interface AuthContextType {
   email: string | null;
   login: (username: string, password: string) => Promise<string | null>;
   signup: (username: string, email: string, password: string) => Promise<string | null>;
+  signInWithGoogle: () => Promise<string | null>;
   logout: () => void;
 }
 
@@ -43,7 +43,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
   }, []);
 
-  const login = useCallback(async (user: string, password: string): Promise<string | null> => {
+  const login = async (user: string, password: string): Promise<string | null> => {
     const { error } = await authClient.signIn.username({
       username: user,
       password,
@@ -58,9 +58,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setEmail(sessionData.user.email);
     }
     return null;
-  }, []);
+  };
 
-  const signup = useCallback(async (user: string, signupEmail: string, password: string): Promise<string | null> => {
+  const signup = async (user: string, signupEmail: string, password: string): Promise<string | null> => {
     const { error } = await authClient.signUp.email({
       name: user,
       username: user,
@@ -74,19 +74,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUsername(user);
     setEmail(signupEmail);
     return null;
-  }, []);
+  };
 
-  const logout = useCallback(async () => {
+  const signInWithGoogle = async (): Promise<string | null> => {
+    const { error } = await authClient.signIn.social({
+      provider: "google",
+      callbackURL: "/assistant",
+    });
+    if (error) {
+      return error.message ?? "Google sign-in failed. Please try again.";
+    }
+    return null;
+  };
+
+  const logout = async () => {
     await authClient.signOut();
     setIsLoggedIn(false);
     setUsername(null);
     setEmail(null);
     window.location.href = "/";
-  }, []);
+  };
 
   return (
     <AuthContext.Provider
-      value={{ isLoggedIn, isLoading, username, email, login, signup, logout }}
+      value={{ isLoggedIn, isLoading, username, email, login, signup, signInWithGoogle, logout }}
     >
       {children}
     </AuthContext.Provider>
