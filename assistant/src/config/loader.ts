@@ -4,6 +4,7 @@ import { getDataDir, ensureDataDir } from '../util/platform.js';
 import { ConfigError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { DEFAULT_CONFIG } from './defaults.js';
+import { getSecureKey, setSecureKey, deleteSecureKey } from '../security/secure-keys.js';
 import type { AssistantConfig } from './types.js';
 
 const log = getLogger('config');
@@ -73,7 +74,19 @@ export function loadConfig(): AssistantConfig {
 
     validateConfig(config);
 
-    // Environment variables override config file (after validation so apiKeys is a valid object)
+    // Secure storage keys override plaintext config file
+    try {
+      for (const provider of ['anthropic', 'openai', 'gemini', 'ollama']) {
+        const secureKey = getSecureKey(provider);
+        if (secureKey) {
+          config.apiKeys[provider] = secureKey;
+        }
+      }
+    } catch (err) {
+      log.debug({ err }, 'Failed to load keys from secure storage');
+    }
+
+    // Environment variables override everything (after validation so apiKeys is a valid object)
     if (process.env.ANTHROPIC_API_KEY) {
       config.apiKeys.anthropic = process.env.ANTHROPIC_API_KEY;
     }
@@ -166,7 +179,16 @@ function validateConfig(config: AssistantConfig): void {
 export function saveConfig(config: AssistantConfig): void {
   ensureDataDir();
   const configPath = getConfigPath();
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+
+  // Route apiKeys to secure storage, write config without them
+  for (const [provider, value] of Object.entries(config.apiKeys)) {
+    if (typeof value === 'string' && value.length > 0) {
+      setSecureKey(provider, value);
+    }
+  }
+  const { apiKeys: _, ...rest } = config;
+  writeFileSync(configPath, JSON.stringify(rest, null, 2) + '\n');
+
   cached = config;
 }
 
@@ -180,24 +202,61 @@ export function invalidateConfigCache(): void {
 }
 
 /**
- * Load the raw config from disk (without env var overrides).
+ * Load the raw config from disk, merging API keys from secure storage.
  * Used by CLI config commands to read/write the file directly.
  */
 export function loadRawConfig(): Record<string, unknown> {
   ensureDataDir();
   const configPath = getConfigPath();
-  if (!existsSync(configPath)) return {};
-  try {
-    return JSON.parse(readFileSync(configPath, 'utf-8'));
-  } catch (err) {
-    throw new ConfigError(`Failed to parse config at ${configPath}: ${err}`);
+  let raw: Record<string, unknown> = {};
+  if (existsSync(configPath)) {
+    try {
+      raw = JSON.parse(readFileSync(configPath, 'utf-8'));
+    } catch (err) {
+      throw new ConfigError(`Failed to parse config at ${configPath}: ${err}`);
+    }
   }
+
+  // Merge secure keys into apiKeys so `config get apiKeys.*` works
+  try {
+    const apiKeys = (raw.apiKeys && typeof raw.apiKeys === 'object' && !Array.isArray(raw.apiKeys))
+      ? { ...raw.apiKeys as Record<string, unknown> }
+      : {};
+    for (const provider of VALID_PROVIDERS) {
+      const value = getSecureKey(provider);
+      if (value) apiKeys[provider] = value;
+    }
+    if (Object.keys(apiKeys).length > 0) {
+      raw.apiKeys = apiKeys;
+    }
+  } catch (err) {
+    log.debug({ err }, 'Failed to merge secure keys into raw config');
+  }
+
+  return raw;
 }
 
 export function saveRawConfig(config: Record<string, unknown>): void {
   ensureDataDir();
   const configPath = getConfigPath();
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+
+  // Route apiKeys to secure storage and strip from plaintext file
+  const apiKeys = config.apiKeys;
+  if (apiKeys && typeof apiKeys === 'object' && !Array.isArray(apiKeys)) {
+    for (const [provider, value] of Object.entries(apiKeys as Record<string, unknown>)) {
+      if (typeof value === 'string' && value.length > 0) {
+        setSecureKey(provider, value);
+      } else if (value === undefined || value === null || value === '') {
+        deleteSecureKey(provider);
+      }
+    }
+    // Remove apiKeys from plaintext config
+    const { apiKeys: _, ...rest } = config;
+    writeFileSync(configPath, JSON.stringify(rest, null, 2) + '\n');
+  } else {
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  }
+
   cached = null; // invalidate cache
 }
 
