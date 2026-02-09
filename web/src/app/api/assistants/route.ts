@@ -126,61 +126,64 @@ export async function POST(request: Request) {
           console.error("Editor page upload failed (continuing anyway):", editorError);
         }
 
-        try {
-          // Check if a prequeued instance is available first
-          const prequeued = await getAvailablePrequeuedInstance();
-          
-          let bucket: string;
-          let prefix: string;
-          
-          if (prequeued) {
-            controller.enqueue(sseEvent("progress", { step: "upload", message: "Uploading assistant config..." }));
-            ({ bucket, prefix } = await uploadAssistantConfigToGCS(assistant.id, assistant.name, { apiKey }));
-          } else {
-            controller.enqueue(sseEvent("progress", { step: "upload", message: "Uploading assistant files..." }));
-            ({ bucket, prefix } = await uploadAssistantToGCS(assistant.id, assistant.name, { apiKey }));
-          }
+        // Skip GCP provisioning in local dev - no compute instances or agent-templates available
+        if (process.env.NODE_ENV === "production") {
+          try {
+            // Check if a prequeued instance is available first
+            const prequeued = await getAvailablePrequeuedInstance();
 
-          controller.enqueue(sseEvent("progress", { 
-            step: "compute", 
-            message: prequeued ? "Activating prequeued instance... ⚡" : "Provisioning compute instance..." 
-          }));
+            let bucket: string;
+            let prefix: string;
 
-          const { instanceName, zone, machineType, fromPrequeue } = await createAssistantComputeInstance(
-            assistant.id,
-            assistant.name,
-            bucket,
-            prefix
-          );
+            if (prequeued) {
+              controller.enqueue(sseEvent("progress", { step: "upload", message: "Uploading assistant config..." }));
+              ({ bucket, prefix } = await uploadAssistantConfigToGCS(assistant.id, assistant.name, { apiKey }));
+            } else {
+              controller.enqueue(sseEvent("progress", { step: "upload", message: "Uploading assistant files..." }));
+              ({ bucket, prefix } = await uploadAssistantToGCS(assistant.id, assistant.name, { apiKey }));
+            }
 
-          // Report whether we used a prequeued instance
-          if (fromPrequeue) {
-            controller.enqueue(sseEvent("progress", { 
-              step: "compute", 
-              message: "Activated prequeued instance (fast path! ⚡)" 
+            controller.enqueue(sseEvent("progress", {
+              step: "compute",
+              message: prequeued ? "Activating prequeued instance... ⚡" : "Provisioning compute instance..."
             }));
-          }
 
-          await sql`
-            UPDATE assistants
-            SET configuration = ${JSON.stringify({
-              ...(assistant.configuration as Record<string, unknown> || {}),
-              gcs: { bucket, prefix },
-              compute: { instanceName, zone, machineType, fromPrequeue },
-            })}
-            WHERE id = ${assistant.id}
-          `;
-        } catch (gcpError) {
-          console.error("GCP operations failed (continuing anyway):", gcpError);
-          const errorMessage = gcpError instanceof Error ? gcpError.message : "Unknown GCP error";
-          await sql`
-            UPDATE assistants
-            SET configuration = ${JSON.stringify({
-              ...(assistant.configuration as Record<string, unknown> || {}),
-              provisioningError: errorMessage,
-            })}
-            WHERE id = ${assistant.id}
-          `;
+            const { instanceName, zone, machineType, fromPrequeue } = await createAssistantComputeInstance(
+              assistant.id,
+              assistant.name,
+              bucket,
+              prefix
+            );
+
+            // Report whether we used a prequeued instance
+            if (fromPrequeue) {
+              controller.enqueue(sseEvent("progress", {
+                step: "compute",
+                message: "Activated prequeued instance (fast path! ⚡)"
+              }));
+            }
+
+            await sql`
+              UPDATE assistants
+              SET configuration = ${JSON.stringify({
+                ...(assistant.configuration as Record<string, unknown> || {}),
+                gcs: { bucket, prefix },
+                compute: { instanceName, zone, machineType, fromPrequeue },
+              })}
+              WHERE id = ${assistant.id}
+            `;
+          } catch (gcpError) {
+            console.error("GCP operations failed (continuing anyway):", gcpError);
+            const errorMessage = gcpError instanceof Error ? gcpError.message : "Unknown GCP error";
+            await sql`
+              UPDATE assistants
+              SET configuration = ${JSON.stringify({
+                ...(assistant.configuration as Record<string, unknown> || {}),
+                provisioningError: errorMessage,
+              })}
+              WHERE id = ${assistant.id}
+            `;
+          }
         }
 
         // Note: Email setup is now delayed - assistant can call POST /api/assistants/{id}/setup-email

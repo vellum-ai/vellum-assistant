@@ -23,6 +23,15 @@ export async function GET(request: Request, { params }: RouteParams) {
       | { instanceName?: string; zone?: string }
       | undefined;
 
+    // In local dev, there's no compute instance - report as healthy so the UI is usable
+    // TODO: Remove this once we have a way to reproduce our production environment kubernetes locally
+    if (process.env.NODE_ENV !== "production") {
+      return NextResponse.json({
+        status: "healthy",
+        message: "Running in local development mode",
+      });
+    }
+
     const provisioningError = (assistant.configuration as Record<string, unknown>)?.provisioningError as string | undefined;
     if (provisioningError) {
       return NextResponse.json({
