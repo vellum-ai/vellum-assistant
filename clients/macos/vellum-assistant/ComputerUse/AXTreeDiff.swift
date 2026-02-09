@@ -40,7 +40,15 @@ enum AXTreeDiff {
     static func diff(previous: [AXElement], current: [AXElement]) -> String? {
         let prevFlat = AccessibilityTreeEnumerator.flattenElements(previous)
         let currFlat = AccessibilityTreeEnumerator.flattenElements(current)
+        return computeDiff(prevFlat: prevFlat, currFlat: currFlat)
+    }
 
+    /// Diff overload accepting pre-flattened element arrays to avoid redundant traversals.
+    static func diff(previousFlat: [AXElement], currentFlat: [AXElement]) -> String? {
+        return computeDiff(prevFlat: previousFlat, currFlat: currentFlat)
+    }
+
+    private static func computeDiff(prevFlat: [AXElement], currFlat: [AXElement]) -> String? {
         // Build multimaps so duplicate structural keys are preserved
         var prevByKey: [StableKey: [ElementSnapshot]] = [:]
         for el in prevFlat {

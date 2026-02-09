@@ -38,6 +38,7 @@ final class ComputerUseSession: ObservableObject {
     private var didChromeAccessibilityCheck = false
     private var previousAXTreeText: String?
     private var previousElements: [AXElement]?
+    private var previousFlatElements: [AXElement]?
     private var consecutiveUnchangedSteps = 0
 
     /// Adaptive delay configuration
@@ -77,6 +78,7 @@ final class ComputerUseSession: ObservableObject {
         isPaused = false
         previousAXTreeText = nil
         previousElements = nil
+        previousFlatElements = nil
         consecutiveUnchangedSteps = 0
         state = .running(step: 0, maxSteps: maxSteps, lastAction: "Starting...", reasoning: "")
 
@@ -100,6 +102,7 @@ final class ComputerUseSession: ObservableObject {
             // 1. PERCEIVE — always prefer accessibility tree
             var axTreeText: String?
             var elements: [AXElement]?
+            var flatElements: [AXElement]?
             var screenshot: Data?
             var usedVision = false
             var axDiffText: String?
@@ -138,13 +141,14 @@ final class ComputerUseSession: ObservableObject {
                 elements = result.elements
                 currentAppName = result.appName
                 let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
+                flatElements = flat
                 let interactiveCount = flat.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
                 log.info("[\(stepNumber)] AX tree: \(result.appName) — \"\(result.windowTitle)\" — \(flat.count) elements (\(interactiveCount) interactive)")
                 log.debug("[\(stepNumber)] AX tree text:\n\(axTreeText ?? "(empty)")")
 
-                // Compute AX tree diff if we have a previous snapshot
-                if let prevElements = previousElements {
-                    axDiffText = AXTreeDiff.diff(previous: prevElements, current: result.elements)
+                // Compute AX tree diff if we have a previous snapshot (using pre-flattened arrays)
+                if let prevFlat = previousFlatElements {
+                    axDiffText = AXTreeDiff.diff(previousFlat: prevFlat, currentFlat: flat)
                     if let diff = axDiffText {
                         log.info("[\(stepNumber)] AX diff:\n\(diff)")
                         consecutiveUnchangedSteps = 0
@@ -205,7 +209,7 @@ final class ComputerUseSession: ObservableObject {
                     screenSize: screenCapture.screenSize(),
                     task: task,
                     history: actionHistory,
-                    elements: elements.flatMap { AccessibilityTreeEnumerator.flattenElements($0) },
+                    elements: flatElements,
                     consecutiveUnchangedSteps: consecutiveUnchangedSteps
                 )
                 action = result.action
@@ -275,6 +279,7 @@ final class ComputerUseSession: ObservableObject {
                 state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: "\(action.displayDescription) (skipped)", reasoning: action.reasoning)
                 previousAXTreeText = axTreeText
                 previousElements = elements
+                previousFlatElements = flatElements
                 continue
             }
 
@@ -293,6 +298,7 @@ final class ComputerUseSession: ObservableObject {
                     state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: "\(action.displayDescription) (error)", reasoning: action.reasoning)
                     previousAXTreeText = axTreeText
                     previousElements = elements
+                    previousFlatElements = flatElements
                     continue
                 }
 
@@ -319,6 +325,7 @@ final class ComputerUseSession: ObservableObject {
             // Save current AX tree for next step's context
             previousAXTreeText = axTreeText
             previousElements = elements
+            previousFlatElements = flatElements
 
             // 7. WAIT — adaptive delay: poll for AX tree changes instead of fixed sleep
             if adaptiveDelayEnabled && axTreeText != nil {
