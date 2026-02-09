@@ -100,6 +100,47 @@ export function getFeaturedBlogPosts(limit: number = 6): BlogPost[] {
   return [...featured, ...nonFeatured].slice(0, limit);
 }
 
+export function getBlogPostBySlug(slug: string): (BlogPost & { content: string }) | null {
+  try {
+    const filePath = path.join(BLOG_CONTENT_DIR, `${slug}.md`);
+    
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+    
+    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    const { data, content } = parseFrontmatter(fileContent);
+    
+    return {
+      title: (data.title as string) || '',
+      slug: (data.slug as string) || slug,
+      href: `/blog/${slug}`,
+      excerpt: (data.excerpt as string) || (data.metaDescription as string) || '',
+      category: (data.category as string) || 'Uncategorized',
+      publishedAt: (data.publishedAt as string) || '',
+      readTime: (data.readTime as string) || '5 min',
+      featuredImage: (data.featuredImage as string) || 'https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68f62df5488ea1fb9508c764_Vellum%20Standard%20Blog%20Cover%20Small.png',
+      authors: (data.authors as string[]) || [],
+      isFeatured: (data.isFeatured as boolean) || false,
+      content,
+    };
+  } catch (error) {
+    console.error('Error reading blog post:', error);
+    return null;
+  }
+}
+
+export function getAllBlogSlugs(): string[] {
+  try {
+    const files = fs.readdirSync(BLOG_CONTENT_DIR);
+    return files
+      .filter(file => file.endsWith('.md'))
+      .map(file => file.replace('.md', ''));
+  } catch {
+    return [];
+  }
+}
+
 export function formatDate(dateString: string): string {
   try {
     const date = new Date(dateString);

@@ -31,7 +31,7 @@ export function NavBar() {
               <a aria-label="Go to Use Cases" href="/use-cases" className="nav_list_link newlink new">Use Cases</a>
             </li>
             <li className="nav_list_item new">
-              <a aria-label="Go to Blog" href="/blog" className="nav_list_link newlink new">Blog</a>
+              <Link aria-label="Go to Blog" href="/blog" className="nav_list_link newlink new">Blog</Link>
             </li>
             <li className="nav_list_item new">
               <a aria-label="Go to Careers" href="https://jobs.ashbyhq.com/vellum" target="_blank" className="nav_list_link newlink new">Careers</a>

@@ -261,7 +261,7 @@ export function FullNavBar() {
                                   unoptimized
                                 />
                               </div>
-                              <a aria-label="Go to blog post" href="/blog/coursemojo-case-study" className="u-cover-absolute is-nav w-inline-block"></a>
+                              <Link aria-label="Go to blog post" href="/blog/coursemojo-case-study" className="u-cover-absolute is-nav w-inline-block"></Link>
                               <div className="blog_tag-wrap">
                                 <div data-wf--header-tag-new--variant="light" className="header_tag w-variant-11e7aa17-1e01-9a94-54a5-db6a960b027a">
                                   <div>latest case study</div>

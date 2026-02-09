@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 
 const ARROW_ICON = (
   <svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 24 24" fill="none" className="button_icon">
@@ -63,7 +64,7 @@ export function BlogNewsletter() {
                   <div className="info_small_text">5 min</div>
                 </div>
               </div>
-              <a
+              <Link
                 aria-label="Go to Updates page"
                 href="/blog/vellum-product-update-january-2026"
                 className="u-cover-absolute w-inline-block"
