@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { getFeaturedBlogPosts, formatDate, type BlogPost } from "@/lib/blog-content";
 
 const FILTER_CATEGORIES = [
   {
@@ -19,7 +20,16 @@ const FILTER_CATEGORIES = [
   },
 ];
 
-interface BlogPost {
+// Category styling based on category name
+const CATEGORY_STYLES: Record<string, { color: string; bgColor: string; icon?: string }> = {
+  "Product Updates": {
+    color: "#12b76a",
+    bgColor: "#ecfdf5",
+    icon: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/66f51fbc4ccaf48d43a691b6_Icon.svg",
+  },
+};
+
+interface DisplayBlogPost {
   title: string;
   href: string;
   category: string;
@@ -29,63 +39,22 @@ interface BlogPost {
   date: string;
   readTime: string;
   image: string;
-  srcSet?: string;
 }
 
-const BLOG_POSTS: BlogPost[] = [
-  {
-    title: "Claude Opus 4.6 Benchmarks",
-    href: "/blog/claude-opus-4-6-benchmarks",
-    category: "Model Comparisons",
-    date: "Feb 6, 2026",
-    readTime: "10 min",
-    image: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68f62df5488ea1fb9508c764_Vellum%20Standard%20Blog%20Cover%20Small.png",
-  },
-  {
-    title: "AI Voice Agent Platforms Guide",
-    href: "/blog/ai-voice-agent-platforms-guide",
-    category: "LLM basics",
-    date: "Feb 6, 2026",
-    readTime: "12 min",
-    image: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68f62df5488ea1fb9508c764_Vellum%20Standard%20Blog%20Cover%20Small.png",
-  },
-  {
-    title: "15 Best Make Alternatives: Reviewed & Compared",
-    href: "/blog/best-make-alternatives",
-    category: "LLM basics",
-    date: "Feb 5, 2026",
-    readTime: "12 min",
-    image: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68d58786dddc5a4b566f7b96_Vellum%20Standard%20Blog%20Cover.jpg",
-    srcSet: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68d58786dddc5a4b566f7b96_Vellum%20Standard%20Blog%20Cover-p-500.jpg 500w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68d58786dddc5a4b566f7b96_Vellum%20Standard%20Blog%20Cover-p-800.jpg 800w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68d58786dddc5a4b566f7b96_Vellum%20Standard%20Blog%20Cover-p-1080.jpg 1080w, https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68d58786dddc5a4b566f7b96_Vellum%20Standard%20Blog%20Cover.jpg 1280w",
-  },
-  {
-    title: "Vellum Product Update | January",
-    href: "/blog/vellum-product-update-january-2026",
-    category: "Product Updates",
-    categoryColor: "#12b76a",
-    categoryBgColor: "#ecfdf5",
-    categoryIcon: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/66f51fbc4ccaf48d43a691b6_Icon.svg",
-    date: "Feb 3, 2026",
-    readTime: "5 min",
-    image: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68f62df5488ea1fb9508c764_Vellum%20Standard%20Blog%20Cover%20Small.png",
-  },
-  {
-    title: "15 Best Zapier Alternatives: Reviewed & Compared",
-    href: "/blog/best-zapier-alternatives",
-    category: "LLM basics",
-    date: "Jan 30, 2026",
-    readTime: "20 min",
-    image: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68f62df5488ea1fb9508c764_Vellum%20Standard%20Blog%20Cover%20Small.png",
-  },
-  {
-    title: "2026 Marketer's Guide to AI Agents for Marketing Operations",
-    href: "/blog/complete-ai-agents-guide-for-marketing",
-    category: "LLM basics",
-    date: "Jan 28, 2026",
-    readTime: "20 min",
-    image: "https://cdn.prod.website-files.com/63f416b32254e8679cd8af88/68f62df5488ea1fb9508c764_Vellum%20Standard%20Blog%20Cover%20Small.png",
-  },
-];
+function transformBlogPost(post: BlogPost): DisplayBlogPost {
+  const categoryStyle = CATEGORY_STYLES[post.category];
+  return {
+    title: post.title,
+    href: post.href,
+    category: post.category,
+    categoryColor: categoryStyle?.color,
+    categoryBgColor: categoryStyle?.bgColor,
+    categoryIcon: categoryStyle?.icon,
+    date: formatDate(post.publishedAt),
+    readTime: post.readTime,
+    image: post.featuredImage,
+  };
+}
 
 const LOADER_ICON = (
   <svg width="100%" viewBox="0 0 24 24" fill="none" className="lottie-loader is--static">
@@ -118,7 +87,7 @@ const PAGINATION_ARROW = (
   </svg>
 );
 
-function BlogPostCard({ post }: { post: BlogPost }) {
+function BlogPostCard({ post }: { post: DisplayBlogPost }) {
   const hasCustomCategory = post.categoryColor && post.categoryBgColor;
   const categoryStyle = hasCustomCategory
     ? { color: post.categoryColor, backgroundColor: post.categoryBgColor }
@@ -171,6 +140,11 @@ function BlogPostCard({ post }: { post: BlogPost }) {
 }
 
 export function BlogHero() {
+  // Fetch blog posts from markdown files at build/render time
+  const blogPosts = getFeaturedBlogPosts(6);
+  const displayPosts = blogPosts.map(transformBlogPost);
+  const totalPosts = blogPosts.length;
+
   return (
     <section className="overflow-hidden">
       <div className="u-container is--hero-blog">
@@ -215,9 +189,9 @@ export function BlogHero() {
                 </div>
                 <div className="u-hflex-between-center gap-main">
                   <div className="status_text">
-                    <span className="status_active">6</span>
+                    <span className="status_active">{displayPosts.length}</span>
                     {" / "}
-                    <span className="status_total">{BLOG_POSTS.length}</span>
+                    <span className="status_total">{totalPosts}</span>
                     {" posts"}
                   </div>
                   <input
@@ -237,7 +211,7 @@ export function BlogHero() {
 
         <div className="w-dyn-list">
           <div className="blog_coll_list w-dyn-items" role="list">
-            {BLOG_POSTS.map((post) => (
+            {displayPosts.map((post) => (
               <BlogPostCard key={post.href} post={post} />
             ))}
           </div>
