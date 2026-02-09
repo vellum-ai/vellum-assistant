@@ -84,7 +84,7 @@ export class Session {
     this.prompter.updateSender(sendToClient);
   }
 
-  setSandboxOverride(enabled: boolean): void {
+  setSandboxOverride(enabled: boolean | undefined): void {
     this.sandboxOverride = enabled;
   }
 

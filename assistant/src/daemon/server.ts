@@ -264,10 +264,7 @@ export class DaemonServer {
           workingDir,
         );
         await newSession.loadFromDb();
-        const override = this.socketSandboxOverride.get(socket);
-        if (override !== undefined) {
-          newSession.setSandboxOverride(override);
-        }
+        newSession.setSandboxOverride(this.socketSandboxOverride.get(socket));
         this.sessions.set(conversationId, newSession);
         return newSession;
       })();
@@ -281,10 +278,7 @@ export class DaemonServer {
     } else {
       // Rebind to the new socket so IPC goes to the current client
       session.updateClient(sendToClient);
-      const override = this.socketSandboxOverride.get(socket);
-      if (override !== undefined) {
-        session.setSandboxOverride(override);
-      }
+      session.setSandboxOverride(this.socketSandboxOverride.get(socket));
     }
     return session;
   }
