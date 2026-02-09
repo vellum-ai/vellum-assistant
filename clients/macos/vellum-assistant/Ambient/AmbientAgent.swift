@@ -46,6 +46,7 @@ final class AmbientAgent: ObservableObject {
     private var analyzer: AmbientAnalyzer?
     private var watchTask: Task<Void, Never>?
     private(set) var knowledgeCron: KnowledgeCron?
+    private var syncClient: AmbientSyncClient?
     private var activeSuggestionWindow: AmbientSuggestionWindow?
     private var insightNotificationWindow: InsightNotificationWindow?
     private var previousOCRText: String = ""
@@ -81,6 +82,30 @@ final class AmbientAgent: ObservableObject {
         cron.start(apiKey: apiKey)
         knowledgeCron = cron
 
+        // Remote sync
+        let sync = AmbientSyncClient()
+        syncClient = sync
+
+        knowledgeStore.onEntryAdded = { [weak sync] entry in
+            sync?.sendObservation(entry)
+        }
+        cron.onInsightsAdded = { [weak sync] insights in
+            sync?.sendInsights(insights)
+        }
+
+        Task.detached {
+            let healthy = await sync.checkHealth()
+            if healthy {
+                log.info("Remote sync: healthy, uploading existing data")
+            } else {
+                log.warning("Remote sync: health check failed, will queue")
+            }
+            sync.syncExisting(
+                observations: await self.knowledgeStore.entries,
+                insights: await self.knowledgeCron?.insightStore.insights ?? []
+            )
+        }
+
         watchTask = Task { @MainActor [weak self] in
             await self?.watchLoop()
         }
@@ -91,6 +116,8 @@ final class AmbientAgent: ObservableObject {
         watchTask = nil
         knowledgeCron?.stop()
         knowledgeCron = nil
+        syncClient = nil
+        knowledgeStore.onEntryAdded = nil
         analyzer = nil
         state = .disabled
         log.info("Ambient agent stopped")
@@ -202,6 +229,12 @@ final class AmbientAgent: ObservableObject {
                 log.debug("[\(cycle)] Suggestion below confidence threshold (\(String(format: "%.2f", result.confidence)))")
             }
         }
+
+        // Sync non-ignore analysis results and flush retry queue
+        if result.decision != .ignore {
+            syncClient?.sendAnalysis(result)
+        }
+        syncClient?.flushQueue()
 
         state = .watching
     }
