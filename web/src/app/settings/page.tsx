@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Database, Eye, EyeOff, Key, Loader2, Lock, Plus, Trash2, User } from "lucide-react";
+import { Copy, Database, DollarSign, Eye, EyeOff, Key, Loader2, Lock, Plus, Trash2, User } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -590,6 +590,67 @@ export default function SettingsPage() {
                 </code>{" "}
                 environment variable in Vercel.
               </p>
+            </div>
+          </div>
+
+          {/* Cost Tracking Section */}
+          <div className="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-rose-100 dark:bg-rose-950">
+                <DollarSign className="h-5 w-5 text-rose-600 dark:text-rose-400" />
+              </div>
+              <div>
+                <h2 className="font-medium text-zinc-900 dark:text-white">
+                  Cost Tracking
+                </h2>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                  Monitor usage costs across categories
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800/50">
+                <div>
+                  <h3 className="text-sm font-medium text-zinc-900 dark:text-white">
+                    Compute
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Infrastructure and processing costs
+                  </p>
+                </div>
+                <span className="text-sm font-medium text-zinc-900 dark:text-white">
+                  $0.00
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800/50">
+                <div>
+                  <h3 className="text-sm font-medium text-zinc-900 dark:text-white">
+                    Tokens
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    LLM token usage costs
+                  </p>
+                </div>
+                <span className="text-sm font-medium text-zinc-900 dark:text-white">
+                  $0.00
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800/50">
+                <div>
+                  <h3 className="text-sm font-medium text-zinc-900 dark:text-white">
+                    Medical
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Medical service and compliance costs
+                  </p>
+                </div>
+                <span className="text-sm font-medium text-zinc-900 dark:text-white">
+                  $0.00
+                </span>
+              </div>
             </div>
           </div>
         </div>
