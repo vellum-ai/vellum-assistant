@@ -11,6 +11,7 @@ const log = getLogger('config');
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama'] as const;
 
 let cached: AssistantConfig | null = null;
+let loading = false;
 
 function getConfigPath(): string {
   return join(getDataDir(), 'config.json');
@@ -18,6 +19,12 @@ function getConfigPath(): string {
 
 export function loadConfig(): AssistantConfig {
   if (cached) return cached;
+
+  // Re-entrancy guard: log calls during loading (e.g. file-mode warning,
+  // invalid apiKeys) can trigger loadConfig again. Return defaults to
+  // break the cycle instead of recursing to stack overflow.
+  if (loading) return DEFAULT_CONFIG;
+  loading = true;
 
   try {
     ensureDataDir();
@@ -74,10 +81,12 @@ export function loadConfig(): AssistantConfig {
       config.apiKeys.gemini = process.env.GEMINI_API_KEY;
     }
 
+    loading = false;
     return config;
   } catch (err) {
     // Loading failed — clear cached so the next call retries
     cached = null;
+    loading = false;
     throw err;
   }
 }
@@ -133,6 +142,7 @@ export function getConfig(): AssistantConfig {
 
 export function invalidateConfigCache(): void {
   cached = null;
+  loading = false;
 }
 
 /**
