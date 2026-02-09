@@ -23,12 +23,12 @@ export async function GET(request: Request, { params }: RouteParams) {
       | { instanceName?: string; zone?: string }
       | undefined;
 
-    // In local dev, there's no compute instance - report as healthy so the UI is usable
+    // If no compute instance is configured, report as healthy so the chat UI is usable
     // TODO: Remove this once we have a way to reproduce our production environment kubernetes locally
-    if (process.env.NODE_ENV !== "production") {
+    if (!computeConfig?.instanceName || !computeConfig?.zone) {
       return NextResponse.json({
         status: "healthy",
-        message: "Running in local development mode",
+        message: "Running in demo mode",
       });
     }
 
@@ -37,13 +37,6 @@ export async function GET(request: Request, { params }: RouteParams) {
       return NextResponse.json({
         status: "provisioning_failed",
         message: provisioningError,
-      });
-    }
-
-    if (!computeConfig?.instanceName || !computeConfig?.zone) {
-      return NextResponse.json({
-        status: "unknown",
-        message: "No compute instance configured",
       });
     }
 
