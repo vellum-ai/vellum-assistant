@@ -116,7 +116,7 @@ export function deleteLastExchange(conversationId: string): number {
     .select({ id: messages.id })
     .from(messages)
     .where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
-    .orderBy(desc(messages.createdAt))
+    .orderBy(sql`rowid DESC`)
     .limit(1)
     .get();
 
