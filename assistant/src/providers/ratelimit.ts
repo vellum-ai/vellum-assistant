@@ -27,9 +27,12 @@ export class RateLimitProvider implements Provider {
     this.enforceRequestRate();
     this.enforceTokenBudget();
 
+    // Record the request timestamp before the await to prevent concurrent
+    // calls from bypassing the rate limit during the async gap.
+    this.recordRequest();
+
     const response = await this.inner.sendMessage(messages, tools, systemPrompt, options);
 
-    this.recordRequest();
     this.recordTokens(response.usage.inputTokens + response.usage.outputTokens);
 
     return response;

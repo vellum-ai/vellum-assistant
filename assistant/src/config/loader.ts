@@ -23,7 +23,7 @@ export function loadConfig(): AssistantConfig {
   // Re-entrancy guard: log calls during loading (e.g. file-mode warning,
   // invalid apiKeys) can trigger loadConfig again. Return defaults to
   // break the cycle instead of recursing to stack overflow.
-  if (loading) return { ...DEFAULT_CONFIG, apiKeys: { ...DEFAULT_CONFIG.apiKeys }, timeouts: { ...DEFAULT_CONFIG.timeouts }, sandbox: { ...DEFAULT_CONFIG.sandbox } };
+  if (loading) return { ...DEFAULT_CONFIG, apiKeys: { ...DEFAULT_CONFIG.apiKeys }, timeouts: { ...DEFAULT_CONFIG.timeouts }, sandbox: { ...DEFAULT_CONFIG.sandbox }, rateLimit: { ...DEFAULT_CONFIG.rateLimit } };
   loading = true;
 
   try {
