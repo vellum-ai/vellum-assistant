@@ -30,6 +30,7 @@
     "@types/uuid": "^10.0.0",
     "drizzle-kit": "^0.30.4",
     "eslint": "^10.0.0",
+    "fast-check": "^4.5.3",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.54.0"
   }
