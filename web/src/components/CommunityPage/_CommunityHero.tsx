@@ -1,3 +1,5 @@
+import Script from "next/script";
+
 export function CommunityHero() {
   return (
     <main className="main-wrapper">
@@ -68,6 +70,7 @@ export function CommunityHero() {
               <div className="div-block-249">
                 <div className="w-embed w-script">
                   <div data-tf-live="01KEVP9R9AR28MDHZS6CMK608S"></div>
+                  <Script src="https://embed.typeform.com/next/embed.js" strategy="afterInteractive" />
                 </div>
               </div>
             </div>
