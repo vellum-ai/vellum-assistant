@@ -168,6 +168,24 @@ describe('RateLimitProvider', () => {
       await expect(provider2.sendMessage(messages)).rejects.toThrow(RateLimitError);
     });
 
+    test('out-of-order timestamps are pruned correctly (clock skew)', async () => {
+      const config: RateLimitConfig = { maxRequestsPerMinute: 3, maxTokensPerSession: 0 };
+      const shared: number[] = [];
+      const provider = new RateLimitProvider(makeProvider(), config, shared);
+
+      // Simulate clock skew: insert an old timestamp between newer ones
+      const now = Date.now();
+      shared.push(now);                   // current
+      shared.push(now - 120_000);         // 2 minutes ago (expired)
+      shared.push(now);                   // current
+
+      // enforceRequestRate should prune the expired entry regardless of position
+      await provider.sendMessage(messages);
+
+      // 2 fresh timestamps from before + 1 from the new call = 3 (the expired one was removed)
+      expect(shared.length).toBe(3);
+    });
+
     test('shared array reference survives pruning', async () => {
       const config: RateLimitConfig = { maxRequestsPerMinute: 100, maxTokensPerSession: 0 };
       const shared: number[] = [];

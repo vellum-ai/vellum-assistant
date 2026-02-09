@@ -47,13 +47,13 @@ export class RateLimitProvider implements Provider {
     const now = Date.now();
     const windowStart = now - 60_000;
     // Prune expired timestamps in-place to preserve the shared array
-    // reference. Using .filter() would create a new array, breaking the
-    // cross-session sharing established by DaemonServer.
-    const cutoff = this.requestTimestamps.findIndex((t) => t > windowStart);
-    if (cutoff > 0) {
-      this.requestTimestamps.splice(0, cutoff);
-    } else if (cutoff === -1) {
-      this.requestTimestamps.length = 0;
+    // reference. We walk backward so each splice doesn't shift later
+    // indices, and we handle out-of-order entries (e.g. clock rollback)
+    // correctly — unlike a sorted-prefix approach.
+    for (let i = this.requestTimestamps.length - 1; i >= 0; i--) {
+      if (this.requestTimestamps[i] <= windowStart) {
+        this.requestTimestamps.splice(i, 1);
+      }
     }
 
     if (this.requestTimestamps.length >= limit) {
