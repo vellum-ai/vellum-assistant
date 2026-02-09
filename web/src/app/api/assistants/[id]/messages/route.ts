@@ -39,6 +39,29 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     const assistant = result[0] as Assistant;
+
+    // In local dev, return a hardcoded greeting if no messages exist yet
+    if (process.env.NODE_ENV !== "production") {
+      const localMessages = await getChatMessages(assistantId);
+      const formattedMessages = localMessages.map((msg: ChatMessage) => ({
+        id: msg.id,
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.createdAt,
+      }));
+
+      if (formattedMessages.length === 0) {
+        formattedMessages.push({
+          id: "local-greeting",
+          role: "assistant" as const,
+          content: `Hey there! I just hatched 🐣\n\nWhat's your name? And while we're at it — what should I call myself?`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      return NextResponse.json({ messages: formattedMessages, errors: [] });
+    }
+
     const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
