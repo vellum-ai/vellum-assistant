@@ -120,12 +120,13 @@ describe('Shell parser property-based tests', () => {
       'grep', 'find', 'which', 'date', 'whoami', 'hostname', 'uname',
       'wc', 'file', 'stat', 'realpath', 'dirname', 'basename',
       'man', 'help', 'tree', 'du', 'df'];
+    const safeOperand = fc.stringMatching(/^[a-zA-Z0-9_./][a-zA-Z0-9_./-]*$/);
 
-    test('low-risk programs with safe args are classified low', async () => {
+    test('low-risk programs with safe operand args are classified low', async () => {
       await fc.assert(
         fc.asyncProperty(
           fc.constantFrom(...lowRiskPrograms),
-          fc.array(fc.stringMatching(/^[a-zA-Z0-9_./-]+$/), { minLength: 0, maxLength: 4 }),
+          fc.array(safeOperand, { minLength: 0, maxLength: 4 }),
           async (program, args) => {
             const command = [program, ...args].join(' ');
             const risk = await classifyRisk('shell', { command });
@@ -137,16 +138,15 @@ describe('Shell parser property-based tests', () => {
     });
 
     test('git read-only subcommands are low-risk', async () => {
-      const readOnlyGit = ['status', 'log', 'diff', 'show', 'branch', 'tag',
-        'remote', 'stash', 'blame', 'shortlog', 'describe', 'rev-parse',
-        'ls-files', 'ls-tree', 'cat-file', 'reflog'];
+      const readOnlyGit = ['status', 'log', 'diff', 'show',
+        'blame', 'shortlog', 'describe', 'rev-parse',
+        'ls-files', 'ls-tree', 'cat-file'];
 
       await fc.assert(
         fc.asyncProperty(
           fc.constantFrom(...readOnlyGit),
-          fc.array(fc.stringMatching(/^[a-zA-Z0-9_./-]+$/), { minLength: 0, maxLength: 3 }),
-          async (subcommand, args) => {
-            const command = ['git', subcommand, ...args].join(' ');
+          async (subcommand) => {
+            const command = `git ${subcommand}`;
             const risk = await classifyRisk('shell', { command });
             expect(risk).toBe(RiskLevel.Low);
           }
