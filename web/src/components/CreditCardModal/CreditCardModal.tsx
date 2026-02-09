@@ -8,7 +8,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { loadStripe, Stripe as StripeJs } from "@stripe/stripe-js";
 import { CreditCard, Loader2, X } from "lucide-react";
-import { MouseEvent, useCallback, useEffect, useRef, useState } from "react";
+import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface CreditCardModalProps {
   username: string;
@@ -40,6 +40,29 @@ function CardForm({ username, onSuccess, onClose }: CardFormProps) {
   const elements = useElements();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [foreground, setForeground] = useState("");
+
+  useEffect(() => {
+    const readForeground = () =>
+      getComputedStyle(document.documentElement).getPropertyValue("--foreground").trim();
+    setForeground(readForeground());
+
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => setForeground(readForeground());
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  const cardStyle = useMemo(
+    () => ({
+      base: {
+        fontSize: "16px",
+        color: foreground,
+        "::placeholder": { color: foreground, opacity: "0.5" },
+      },
+    }),
+    [foreground]
+  );
 
   const handleSubmit = useCallback(async () => {
     if (!stripe || !elements) {
@@ -89,13 +112,7 @@ function CardForm({ username, onSuccess, onClose }: CardFormProps) {
       <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800">
         <CardElement
           options={{
-            style: {
-              base: {
-                fontSize: "16px",
-                color: "#18181b",
-                "::placeholder": { color: "#a1a1aa" },
-              },
-            },
+            style: cardStyle,
           }}
         />
       </div>
