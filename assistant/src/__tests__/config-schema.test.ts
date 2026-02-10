@@ -10,6 +10,9 @@ import { AssistantConfigSchema } from '../config/schema.js';
 // ---------------------------------------------------------------------------
 
 const TEST_DIR = join(tmpdir(), `vellum-schema-test-${randomBytes(4).toString('hex')}`);
+const CONFIG_PATH = join(TEST_DIR, 'config.json');
+const STORE_PATH = join(TEST_DIR, 'keys.enc');
+const LOGS_DIR = join(TEST_DIR, 'logs');
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
@@ -36,7 +39,7 @@ import { loadConfig, invalidateConfigCache } from '../config/loader.js';
 // ---------------------------------------------------------------------------
 
 function writeConfig(obj: unknown): void {
-  writeFileSync(join(TEST_DIR, 'config.json'), JSON.stringify(obj));
+  writeFileSync(CONFIG_PATH, JSON.stringify(obj));
 }
 
 // ---------------------------------------------------------------------------
@@ -263,11 +266,11 @@ describe('AssistantConfigSchema', () => {
 
 describe('loadConfig with schema validation', () => {
   beforeEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true });
-    }
     mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(join(TEST_DIR, 'keys.enc'));
+    mkdirSync(LOGS_DIR, { recursive: true });
+    rmSync(CONFIG_PATH, { force: true });
+    rmSync(STORE_PATH, { force: true });
+    _setStorePath(STORE_PATH);
     _setBackend('encrypted');
     invalidateConfigCache();
   });
