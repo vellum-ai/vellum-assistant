@@ -13,6 +13,8 @@ type ResendStatus = "idle" | "sending" | "sent";
 function CheckEmailContent() {
   const searchParams = useSearchParams();
   const email = searchParams.get("email");
+  const reason = searchParams.get("reason");
+  const isUnverifiedLogin = reason === "unverified";
   const [resendStatus, setResendStatus] = useState<ResendStatus>("idle");
   const [optimisticStatus, setOptimisticStatus] = useOptimistic<ResendStatus>(resendStatus);
 
@@ -57,16 +59,22 @@ function CheckEmailContent() {
           <div className="w-full">
             <div className="mb-8 text-center">
               <h1 className="mb-2 font-serif text-[2rem] font-bold italic text-white">
-                Check your email
+                {isUnverifiedLogin ? "Verify your email" : "Check your email"}
               </h1>
               <p className="text-sm leading-relaxed text-zinc-400">
-                {"Account created successfully! We've sent a verification link to "}
-                {email ? (
-                  <span className="font-medium text-white">{email}</span>
-                ) : (
-                  "your email"
-                )}
-                {". Please check your inbox and click the link to verify your email address."}
+                {isUnverifiedLogin
+                  ? "Your email address has not been verified yet. Please check your inbox and click the verification link to continue."
+                  : (
+                    <>
+                      {"Account created successfully! We've sent a verification link to "}
+                      {email ? (
+                        <span className="font-medium text-white">{email}</span>
+                      ) : (
+                        "your email"
+                      )}
+                      {". Please check your inbox and click the link to verify your email address."}
+                    </>
+                  )}
               </p>
             </div>
 

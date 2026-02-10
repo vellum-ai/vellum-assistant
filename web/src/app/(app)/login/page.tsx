@@ -21,7 +21,7 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginFormValues) => {
     const result = await login(data.username, data.password);
     if (result.emailNotVerified) {
-      router.push("/check-email");
+      router.push("/check-email?reason=unverified");
       return;
     }
     if (result.error) {
