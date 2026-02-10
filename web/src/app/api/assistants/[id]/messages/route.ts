@@ -602,6 +602,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         );
 
         const localResponse = await daemon.sendUserMessage(sessionId, forwardedContent);
+        const userMessage = await createChatMessage({
+          assistantId,
+          role: "user",
+          content,
+          status: "sent",
+        });
+        if (attachmentIds.length > 0) {
+          await linkAttachmentsToMessage(userMessage.id, attachmentIds);
+        }
+
         const timestamp = new Date().toISOString();
         const assistantMessage =
           localResponse.assistantText.length > 0
@@ -617,6 +627,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           success: true,
           connectionMode: "local",
           sessionId,
+          messageId: userMessage.id,
           ...(assistantMessage ? { assistantMessage } : {}),
           message: "Message processed by local daemon",
         });

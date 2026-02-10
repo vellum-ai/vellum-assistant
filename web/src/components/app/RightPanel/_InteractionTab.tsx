@@ -97,6 +97,8 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadedPendingAttachmentIdsRef = useRef<string[]>([]);
+  const isSendingRef = useRef(false);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -191,6 +193,55 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
     [pendingAttachments],
   );
   const hasUploadingAttachments = pendingAttachments.some((attachment) => attachment.status === "uploading");
+
+  useEffect(() => {
+    uploadedPendingAttachmentIdsRef.current = uploadedAttachmentIds;
+  }, [uploadedAttachmentIds]);
+
+  useEffect(() => {
+    isSendingRef.current = isLoading;
+  }, [isLoading]);
+
+  const deleteUploadedAttachments = useCallback(async (attachmentIds: string[]) => {
+    if (attachmentIds.length === 0) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/assistants/${assistantId}/attachments`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attachment_ids: attachmentIds }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        console.warn("Failed to delete pending attachments:", data.error || "Unknown error");
+      }
+    } catch (error) {
+      console.warn("Failed to delete pending attachments:", error);
+    }
+  }, [assistantId]);
+
+  useEffect(() => {
+    return () => {
+      if (isSendingRef.current) {
+        return;
+      }
+
+      const pendingIds = uploadedPendingAttachmentIdsRef.current;
+      if (pendingIds.length === 0) {
+        return;
+      }
+
+      void fetch(`/api/assistants/${assistantId}/attachments`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attachment_ids: pendingIds }),
+        keepalive: true,
+      });
+    };
+  }, [assistantId]);
 
   const uploadFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) {
@@ -308,8 +359,13 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   }, [uploadFiles]);
 
   const removePendingAttachment = useCallback((localId: string) => {
+    const selected = pendingAttachments.find((attachment) => attachment.localId === localId);
     setPendingAttachments((prev) => prev.filter((attachment) => attachment.localId !== localId));
-  }, []);
+
+    if (selected?.status === "uploaded" && selected.attachmentId) {
+      void deleteUploadedAttachments([selected.attachmentId]);
+    }
+  }, [deleteUploadedAttachments, pendingAttachments]);
 
   const handleStart = useCallback(async () => {
     setIsToggling(true);

@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { and, eq, inArray } from "drizzle-orm";
 
 import {
   db,
   getDb,
 } from "@/lib/db";
-import { chatAttachmentsTable } from "@/lib/schema";
+import {
+  chatAttachmentsTable,
+  chatMessageAttachmentsTable,
+} from "@/lib/schema";
 import {
   processAttachmentUpload,
   sanitizeFilename,
@@ -48,6 +52,14 @@ function getFilesFromFormData(formData: FormData): File[] {
     return directFiles;
   }
   return [...formData.values()].filter((value): value is File => value instanceof File);
+}
+
+function normalizeAttachmentIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const ids = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  return [...new Set(ids)];
 }
 
 async function cleanupUploadedObjects(bucket: StorageBucket, storageKeys: string[]): Promise<void> {
@@ -197,6 +209,93 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to upload attachments" },
       { status },
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  try {
+    const { id: assistantId } = await params;
+    const sql = getDb();
+    const assistants = await sql`SELECT id FROM assistants WHERE id = ${assistantId}`;
+    if (assistants.length === 0) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+
+    const body = await request.json().catch(() => ({})) as { attachment_ids?: unknown };
+    const attachmentIds = normalizeAttachmentIds(body.attachment_ids);
+    if (attachmentIds.length === 0) {
+      return NextResponse.json(
+        { error: "attachment_ids must contain at least one attachment id" },
+        { status: 400 },
+      );
+    }
+
+    const attachments = await db
+      .select({
+        id: chatAttachmentsTable.id,
+        storageKey: chatAttachmentsTable.storageKey,
+      })
+      .from(chatAttachmentsTable)
+      .where(and(
+        eq(chatAttachmentsTable.assistantId, assistantId),
+        inArray(chatAttachmentsTable.id, attachmentIds),
+      ));
+
+    if (attachments.length !== attachmentIds.length) {
+      return NextResponse.json(
+        { error: "One or more attachment_ids are invalid for this assistant" },
+        { status: 400 },
+      );
+    }
+
+    const linkedRows = await db
+      .selectDistinct({
+        attachmentId: chatMessageAttachmentsTable.attachmentId,
+      })
+      .from(chatMessageAttachmentsTable)
+      .where(inArray(chatMessageAttachmentsTable.attachmentId, attachmentIds));
+
+    if (linkedRows.length > 0) {
+      return NextResponse.json(
+        { error: "Cannot delete attachments that are already linked to messages" },
+        { status: 409 },
+      );
+    }
+
+    const storage = getStorage();
+    const bucket = storage.bucket(ATTACHMENTS_BUCKET_NAME);
+    const deletionResults = await Promise.allSettled(
+      attachments.map((attachment) => bucket.file(attachment.storageKey).delete()),
+    );
+
+    const failedKeys = deletionResults
+      .map((result, index) => ({ result, storageKey: attachments[index]?.storageKey }))
+      .filter((entry) => entry.result.status === "rejected" && typeof entry.storageKey === "string")
+      .map((entry) => entry.storageKey as string);
+
+    if (failedKeys.length > 0) {
+      const preview = failedKeys.slice(0, 3).join(", ");
+      const suffix = failedKeys.length > 3 ? ", ..." : "";
+      return NextResponse.json(
+        { error: `Failed to delete ${failedKeys.length} attachment object(s): ${preview}${suffix}` },
+        { status: 500 },
+      );
+    }
+
+    await db
+      .delete(chatAttachmentsTable)
+      .where(and(
+        eq(chatAttachmentsTable.assistantId, assistantId),
+        inArray(chatAttachmentsTable.id, attachmentIds),
+      ));
+
+    return NextResponse.json({ deleted_ids: attachmentIds });
+  } catch (error) {
+    console.error("Error deleting attachments:", error);
+    return NextResponse.json(
+      { error: "Failed to delete attachments" },
+      { status: 500 },
     );
   }
 }
