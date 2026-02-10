@@ -14,7 +14,12 @@ interface LoginFormValues {
 }
 
 export default function LoginPage() {
-  const { control, handleSubmit, formState: { isSubmitting, errors } } = useForm<LoginFormValues>();
+  const { control, handleSubmit, formState: { isSubmitting, errors } } = useForm<LoginFormValues>({
+    defaultValues: {
+      username: "",
+      password: "",
+    },
+  });
   const { login } = useAuth();
   const router = useRouter();
 
