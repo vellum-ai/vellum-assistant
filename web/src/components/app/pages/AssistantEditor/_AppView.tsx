@@ -57,7 +57,7 @@ export function AppView({ assistantId }: AppViewProps) {
 
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-cloud-200 px-4 dark:border-sky-700">
+      <div className="flex items-center justify-between border-b border-app-border px-4">
         <TabsList variant="underline" className="border-b-0">
           <TabsTrigger value="chat" variant="underline">
             Chat

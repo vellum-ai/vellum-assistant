@@ -13,16 +13,15 @@ const iconSizeMap = {
 } as const;
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap font-display font-semibold rounded-meadow transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dino-400/30 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap font-display font-semibold rounded-meadow transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
-        primary: "bg-poppy-400 text-white hover:bg-poppy-500",
-        secondary: "bg-meadow-500 text-white hover:bg-meadow-600",
-        ghost: "hover:bg-cloud-100 dark:hover:bg-sky-700",
-        outline:
-          "border border-cloud-300 hover:bg-cloud-50 dark:border-sky-600 dark:hover:bg-sky-700",
-        danger: "bg-red-600 text-white hover:bg-red-700",
+        primary: "bg-app-primary text-white hover:bg-app-primary-hover",
+        secondary: "bg-app-secondary text-white hover:bg-app-secondary-hover",
+        ghost: "hover:bg-app-muted",
+        outline: "border border-app-border hover:bg-app-muted",
+        danger: "bg-app-danger text-white hover:bg-app-danger-hover",
       },
       size: {
         sm: "h-8 px-3 text-sm",

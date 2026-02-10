@@ -15,8 +15,8 @@ const Tabs = TabsPrimitive.Root;
 const tabsListVariants = cva("flex items-center", {
   variants: {
     variant: {
-      underline: "border-b border-cloud-200 dark:border-sky-700",
-      pill: "rounded-meadow bg-cloud-100 p-1 dark:bg-sky-800",
+      underline: "border-b border-app-border",
+      pill: "rounded-meadow bg-app-muted p-1",
     },
   },
   defaultVariants: {
@@ -44,13 +44,13 @@ TabsList.displayName = TabsPrimitive.List.displayName;
 /* ───────────── TabsTrigger ───────────── */
 
 const tabsTriggerVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap font-display text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dino-400/30 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center whitespace-nowrap font-display text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
         underline:
-          "border-b-2 border-transparent px-4 py-2 text-cloud-500 hover:text-sky-900 dark:text-sky-400 dark:hover:text-white data-[state=active]:border-poppy-400 data-[state=active]:text-poppy-500",
-        pill: "rounded-meadow px-3 py-1.5 text-cloud-500 dark:text-sky-400 data-[state=active]:bg-white data-[state=active]:text-sky-900 data-[state=active]:shadow-sm dark:data-[state=active]:bg-sky-700 dark:data-[state=active]:text-white",
+          "border-b-2 border-transparent px-4 py-2 text-app-muted-foreground hover:text-app-text-primary data-[state=active]:border-app-accent data-[state=active]:text-app-accent-text",
+        pill: "rounded-meadow px-3 py-1.5 text-app-muted-foreground data-[state=active]:bg-app-surface data-[state=active]:text-app-text-primary data-[state=active]:shadow-sm",
       },
     },
     defaultVariants: {

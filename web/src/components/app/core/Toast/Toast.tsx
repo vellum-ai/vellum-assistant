@@ -26,8 +26,8 @@ const VARIANT_STYLES: Record<
 > = {
   default: {
     container:
-      "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-white",
-    icon: "text-zinc-500 dark:text-zinc-400",
+      "bg-app-surface border-app-border text-app-text-primary",
+    icon: "text-app-text-muted",
     iconElement: null,
   },
   info: {

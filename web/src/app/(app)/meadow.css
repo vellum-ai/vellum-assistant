@@ -13,17 +13,17 @@
   --color-sky-800: #0f2b36;
   --color-sky-900: #0a1d24;
 
-  /* Meadow Green (Secondary) */
-  --color-meadow-50: #edf7ed;
-  --color-meadow-100: #d1ecd1;
-  --color-meadow-200: #b1dfb1;
-  --color-meadow-300: #8ed28e;
-  --color-meadow-400: #6ec46e;
-  --color-meadow-500: #5cb85c;
-  --color-meadow-600: #3a7a3a;
-  --color-meadow-700: #2d602d;
-  --color-meadow-800: #1f451f;
-  --color-meadow-900: #142d14;
+  /* Meadow Green (Secondary — sage/teal-green, ~155° hue) */
+  --color-meadow-50:  #ecf5f2;
+  --color-meadow-100: #d0e8e1;
+  --color-meadow-200: #afd8cc;
+  --color-meadow-300: #88c4b3;
+  --color-meadow-400: #63b09c;
+  --color-meadow-500: #4a9a85;
+  --color-meadow-600: #377a69;
+  --color-meadow-700: #2b6053;
+  --color-meadow-800: #1f453c;
+  --color-meadow-900: #142d27;
 
   /* Poppy Orange (Accent / CTA) */
   --color-poppy-50: #fef3ec;
@@ -82,6 +82,28 @@
   --radius-meadow: 14px;
   --radius-meadow-lg: 20px;
 
+  /* Semantic color utilities */
+  --color-app-bg: var(--app-bg);
+  --color-app-surface: var(--app-surface);
+  --color-app-surface-elevated: var(--app-surface-elevated);
+  --color-app-text-primary: var(--app-text-primary);
+  --color-app-text-secondary: var(--app-text-secondary);
+  --color-app-text-muted: var(--app-text-muted);
+  --color-app-border: var(--app-border);
+  --color-app-primary: var(--app-primary);
+  --color-app-primary-hover: var(--app-primary-hover);
+  --color-app-secondary: var(--app-secondary);
+  --color-app-secondary-hover: var(--app-secondary-hover);
+  --color-app-accent: var(--app-accent);
+  --color-app-accent-text: var(--app-accent-text);
+  --color-app-muted: var(--app-muted);
+  --color-app-muted-foreground: var(--app-muted-foreground);
+  --color-app-success: var(--app-success);
+  --color-app-info: var(--app-info);
+  --color-app-danger: var(--app-danger);
+  --color-app-danger-hover: var(--app-danger-hover);
+  --color-app-ring: var(--app-ring);
+
   /* Animation tokens */
   --animate-wobble: wobble 0.3s ease-in-out;
   --animate-bob: bob 3s ease-in-out infinite;
@@ -119,6 +141,14 @@
   --app-success: #6abf5e;       /* dino-400 */
   --app-info: #8da0ce;          /* lavender-400 */
   --app-ring: rgba(106, 191, 94, 0.3); /* dino-400/30% */
+  --app-secondary: #4a9a85;          /* meadow-500 */
+  --app-secondary-hover: #377a69;    /* meadow-600 */
+  --app-accent: #f0913f;             /* poppy-400 */
+  --app-accent-text: #e8834a;        /* poppy-500 */
+  --app-muted: #f5f0ea;              /* cloud-100 — ghost/pill bg */
+  --app-muted-foreground: #c4b894;   /* cloud-500 */
+  --app-danger: #dc2626;             /* red-600 */
+  --app-danger-hover: #b91c1c;       /* red-700 */
 }
 
 /* Dark mode semantic colors */
@@ -135,4 +165,12 @@
   --app-success: #8ed883;       /* dino-300 */
   --app-info: #a3b4d8;          /* lavender-300 */
   --app-ring: rgba(106, 191, 94, 0.3); /* dino-400/30% */
+  --app-secondary: #63b09c;          /* meadow-400 */
+  --app-secondary-hover: #4a9a85;    /* meadow-500 */
+  --app-accent: #f0913f;             /* poppy-400 */
+  --app-accent-text: #f4a261;        /* poppy-300 */
+  --app-muted: #153d4e;              /* sky-700 */
+  --app-muted-foreground: #9ac5d2;   /* sky-200 */
+  --app-danger: #ef4444;             /* red-500 */
+  --app-danger-hover: #dc2626;       /* red-600 */
 }

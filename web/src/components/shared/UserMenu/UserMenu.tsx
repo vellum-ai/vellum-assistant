@@ -1,14 +1,20 @@
 "use client";
 
-import { Home, LogOut, Settings, User } from "lucide-react";
+import { Home, LogOut, Monitor, Moon, Settings, Sun, User } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useTheme } from "next-themes";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { Button } from "@/components/app/core/Button";
 import { useAuth } from "@/lib/auth";
+
+const emptySubscribe = () => () => {};
 
 export function UserMenu() {
   const { isLoggedIn, username, logout } = useAuth();
+  const { setTheme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,6 +73,38 @@ export function UserMenu() {
             <Settings className="h-4 w-4" />
             Settings
           </Link>
+
+          {mounted && (
+            <div className="flex items-center justify-between border-t border-zinc-200 px-4 py-2 dark:border-zinc-700">
+              <span className="text-sm text-zinc-600 dark:text-zinc-400">Theme</span>
+              <div className="flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={Sun}
+                  onClick={() => setTheme("light")}
+                  aria-label="Light mode"
+                  className="h-8 w-8 px-0"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={Moon}
+                  onClick={() => setTheme("dark")}
+                  aria-label="Dark mode"
+                  className="h-8 w-8 px-0"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={Monitor}
+                  onClick={() => setTheme("system")}
+                  aria-label="System theme"
+                  className="h-8 w-8 px-0"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="border-t border-zinc-200 dark:border-zinc-700">
             <button
