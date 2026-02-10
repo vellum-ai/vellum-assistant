@@ -61,3 +61,9 @@ next-env.d.ts
 *.tfstate
 *.tfstate.*
 .terraform.lock.hcl
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/

@@ -1,0 +1,6 @@
+#!/bin/bash
+set -o errexit
+set -o pipefail
+set -o nounset
+
+exec uvicorn vembda_assistant_server.app:app --host 0.0.0.0 --port "${PORT:-8000}"
