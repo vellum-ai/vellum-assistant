@@ -263,8 +263,10 @@ final class AmbientAgent: ObservableObject {
             return
         }
         guard let syncClient else { return }
-        cachedRejections = await syncClient.fetchRejections()
-        lastRejectionFetchDate = Date()
+        if let fetched = await syncClient.fetchRejections() {
+            cachedRejections = fetched
+            lastRejectionFetchDate = Date()
+        }
     }
 
     private func isSimilarToRejection(_ suggestion: String) -> Bool {
@@ -301,6 +303,14 @@ final class AmbientAgent: ObservableObject {
                     source: "alexs-macbook-pro-2"
                 )
                 Task { await self?.syncClient?.sendDecision(decision) }
+                self?.cachedRejections.append(RejectionEntry(
+                    insightId: "",
+                    title: suggestion,
+                    description: suggestion,
+                    reason: nil,
+                    source: "alexs-macbook-pro-2",
+                    receivedAt: ISO8601DateFormatter().string(from: Date())
+                ))
             }
         )
         activeSuggestionWindow = window
