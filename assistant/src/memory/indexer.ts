@@ -64,7 +64,6 @@ export function indexMessageNow(
         updatedAt: now,
       },
     }).run();
-    enqueueMemoryJob('embed_segment', { segmentId });
   }
 
   enqueueMemoryJob('extract_items', { messageId: input.messageId });
@@ -73,7 +72,7 @@ export function indexMessageNow(
 
   return {
     indexedSegments: segments.length,
-    enqueuedJobs: segments.length + 2,
+    enqueuedJobs: 2,
   };
 }
 

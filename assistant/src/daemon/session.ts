@@ -185,7 +185,7 @@ export class Session {
       // Add user message
       const userMessage = createUserMessage(content);
       this.messages.push(userMessage);
-      conversationStore.addMessage(
+      const persistedUserMessage = conversationStore.addMessage(
         this.conversationId,
         'user',
         JSON.stringify(userMessage.content),
@@ -225,7 +225,9 @@ export class Session {
       let runMessages = this.messages;
       const runtimeConfig = getConfig();
       const recallQuery = buildMemoryQuery(content, this.messages);
-      const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig);
+      const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig, {
+        excludeMessageIds: [persistedUserMessage.id],
+      });
 
       onEvent({
         type: 'memory_status',

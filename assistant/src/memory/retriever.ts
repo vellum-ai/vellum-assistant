@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
 import type { AssistantConfig } from '../config/types.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
@@ -38,12 +38,18 @@ export interface MemoryRecallResult {
   latencyMs: number;
 }
 
+interface MemoryRecallOptions {
+  excludeMessageIds?: string[];
+}
+
 export async function buildMemoryRecall(
   query: string,
   conversationId: string,
   config: AssistantConfig,
+  options?: MemoryRecallOptions,
 ): Promise<MemoryRecallResult> {
   const start = Date.now();
+  const excludeMessageIds = options?.excludeMessageIds?.filter((id) => id.length > 0) ?? [];
   if (!config.memory.enabled) {
     return emptyResult({ enabled: false, degraded: false, reason: 'memory.disabled', latencyMs: Date.now() - start });
   }
@@ -91,8 +97,12 @@ export async function buildMemoryRecall(
   let recencyCandidates: Candidate[] = [];
   let semanticCandidates: Candidate[] = [];
   try {
-    lexicalCandidates = lexicalSearch(query, config.memory.retrieval.lexicalTopK);
-    recencyCandidates = recencySearch(conversationId, Math.max(10, Math.floor(config.memory.retrieval.semanticTopK / 2)));
+    lexicalCandidates = lexicalSearch(query, config.memory.retrieval.lexicalTopK, excludeMessageIds);
+    recencyCandidates = recencySearch(
+      conversationId,
+      Math.max(10, Math.floor(config.memory.retrieval.semanticTopK / 2)),
+      excludeMessageIds,
+    );
     semanticCandidates = queryVector
       ? await semanticSearch(queryVector, provider!, model!, config.memory.retrieval.semanticTopK)
       : [];
@@ -183,23 +193,29 @@ export function queryMemoryForCli(
   return buildMemoryRecall(query, conversationId, config);
 }
 
-function lexicalSearch(query: string, limit: number): Candidate[] {
+function lexicalSearch(query: string, limit: number, excludedMessageIds: string[] = []): Candidate[] {
   const trimmed = query.trim();
   if (trimmed.length === 0 || limit <= 0) return [];
   const matchQuery = buildFtsMatchQuery(trimmed);
   if (!matchQuery) return [];
+  const excluded = new Set(excludedMessageIds);
   const db = getDb();
   const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
   let rows: Array<{
     segment_id: string;
+    message_id: string;
     text: string;
     created_at: number;
     rank: number;
   }> = [];
+  const queryLimit = excluded.size > 0
+    ? Math.max(limit + 24, limit * 2)
+    : limit;
   try {
     rows = raw.query(`
       SELECT
         f.segment_id AS segment_id,
+        s.message_id AS message_id,
         s.text AS text,
         s.created_at AS created_at,
         bm25(memory_segment_fts) AS rank
@@ -208,8 +224,9 @@ function lexicalSearch(query: string, limit: number): Candidate[] {
       WHERE memory_segment_fts MATCH ?
       ORDER BY rank
       LIMIT ?
-    `).all(matchQuery, limit) as Array<{
+    `).all(matchQuery, queryLimit) as Array<{
       segment_id: string;
+      message_id: string;
       text: string;
       created_at: number;
       rank: number;
@@ -219,13 +236,17 @@ function lexicalSearch(query: string, limit: number): Candidate[] {
     return [];
   }
 
-  const finiteRanks = rows
+  const visibleRows = excluded.size > 0
+    ? rows.filter((row) => !excluded.has(row.message_id)).slice(0, limit)
+    : rows;
+
+  const finiteRanks = visibleRows
     .map((row) => row.rank)
     .filter((rank) => Number.isFinite(rank));
   const minRank = finiteRanks.length > 0 ? Math.min(...finiteRanks) : 0;
   const maxRank = finiteRanks.length > 0 ? Math.max(...finiteRanks) : 0;
 
-  return rows.map((row) => {
+  return visibleRows.map((row) => {
     const lexical = lexicalRankToScore(row.rank, minRank, maxRank);
     return {
       key: `segment:${row.segment_id}`,
@@ -327,13 +348,19 @@ async function semanticSearch(
   return candidates;
 }
 
-function recencySearch(conversationId: string, limit: number): Candidate[] {
+function recencySearch(conversationId: string, limit: number, excludedMessageIds: string[] = []): Candidate[] {
   if (!conversationId || limit <= 0) return [];
   const db = getDb();
+  const whereClause = excludedMessageIds.length > 0
+    ? and(
+      eq(memorySegments.conversationId, conversationId),
+      notInArray(memorySegments.messageId, excludedMessageIds),
+    )
+    : eq(memorySegments.conversationId, conversationId);
   const rows = db
     .select()
     .from(memorySegments)
-    .where(eq(memorySegments.conversationId, conversationId))
+    .where(whereClause)
     .orderBy(desc(memorySegments.createdAt))
     .limit(limit)
     .all();

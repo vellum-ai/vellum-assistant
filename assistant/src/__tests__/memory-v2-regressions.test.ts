@@ -26,13 +26,16 @@ mock.module('../util/logger.js', () => ({
 import { and, eq } from 'drizzle-orm';
 import { DEFAULT_CONFIG } from '../config/defaults.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { indexMessageNow } from '../memory/indexer.js';
 import { extractAndUpsertMemoryItemsForMessage } from '../memory/items-extractor.js';
+import { enqueueMemoryJob } from '../memory/jobs-store.js';
+import { currentWeekWindow, runMemoryJobsOnce } from '../memory/jobs-worker.js';
 import {
   buildMemoryRecall,
   injectMemoryRecallIntoUserMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
-import { conversations, memoryItems, messages } from '../memory/schema.js';
+import { conversations, memoryItems, memoryJobs, messages } from '../memory/schema.js';
 
 describe('Memory V2 regressions', () => {
   beforeAll(() => {
@@ -108,6 +111,64 @@ describe('Memory V2 regressions', () => {
     expect(recall.lexicalHits).toBeGreaterThan(0);
   });
 
+  test('recall excludes current-turn message ids from injected candidates', async () => {
+    const db = getDb();
+    const now = 1_700_000_100_000;
+    db.insert(conversations).values({
+      id: 'conv-exclude',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-old',
+      conversationId: 'conv-exclude',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Remember my timezone is PST.' }]),
+      createdAt: now - 10_000,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-current',
+      conversationId: 'conv-exclude',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'What is my timezone again?' }]),
+      createdAt: now,
+    }).run();
+    db.run(`
+      INSERT INTO memory_segments (
+        id, message_id, conversation_id, role, segment_index, text, token_estimate, created_at, updated_at
+      ) VALUES
+      ('seg-old', 'msg-old', 'conv-exclude', 'user', 0, 'Remember my timezone is PST.', 7, ${now - 10_000}, ${now - 10_000}),
+      ('seg-current', 'msg-current', 'conv-exclude', 'user', 0, 'What is my timezone again?', 7, ${now}, ${now})
+    `);
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: {
+          ...DEFAULT_CONFIG.memory.embeddings,
+          required: false,
+        },
+      },
+    };
+
+    const recall = await buildMemoryRecall(
+      'timezone',
+      'conv-exclude',
+      config,
+      { excludeMessageIds: ['msg-current'] },
+    );
+    expect(recall.injectedText).toContain('[segment:seg-old]');
+    expect(recall.injectedText).not.toContain('[segment:seg-current]');
+  });
+
   test('memory recall injection remains user-role and is stripped from runtime history', () => {
     const originalUserMessage = {
       role: 'user' as const,
@@ -170,5 +231,80 @@ describe('Memory V2 regressions', () => {
 
     expect(row).not.toBeNull();
     expect(row?.lastSeenAt).toBe(1_000);
+  });
+
+  test('indexing no longer enqueues segment embedding jobs', () => {
+    const db = getDb();
+    const createdAt = 2_000;
+    db.insert(conversations).values({
+      id: 'conv-index',
+      title: null,
+      createdAt,
+      updatedAt: createdAt,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-index',
+      conversationId: 'conv-index',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Please remember this implementation detail.' }]),
+      createdAt,
+    }).run();
+
+    const result = indexMessageNow({
+      messageId: 'msg-index',
+      conversationId: 'conv-index',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Please remember this implementation detail.' }]),
+      createdAt,
+    }, DEFAULT_CONFIG.memory);
+    expect(result.enqueuedJobs).toBe(2);
+
+    const embedSegmentJobs = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, 'embed_segment'))
+      .all();
+    expect(embedSegmentJobs).toHaveLength(0);
+  });
+
+  test('embed jobs are skipped (not failed) when no embedding backend is configured', async () => {
+    const db = getDb();
+    const now = 3_000;
+    db.insert(memoryItems).values({
+      id: 'item-no-backend',
+      kind: 'fact',
+      subject: 'backend',
+      statement: 'No embedding backend configured in test',
+      status: 'active',
+      confidence: 0.8,
+      fingerprint: 'item-no-backend-fingerprint',
+      firstSeenAt: now,
+      lastSeenAt: now,
+      lastUsedAt: null,
+    }).run();
+    const jobId = enqueueMemoryJob('embed_item', { itemId: 'item-no-backend' });
+
+    const processed = await runMemoryJobsOnce();
+    expect(processed).toBe(1);
+
+    const row = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.id, jobId))
+      .get();
+    expect(row?.status).toBe('completed');
+  });
+
+  test('weekly window uses UTC boundaries for stable scope keys', () => {
+    const window = currentWeekWindow(new Date('2025-01-06T00:30:00.000Z'));
+    expect(window.scopeKey).toBe('2025-W02');
+    expect(window.startMs).toBe(Date.parse('2025-01-06T00:00:00.000Z'));
+    expect(window.endMs).toBe(Date.parse('2025-01-13T00:00:00.000Z'));
   });
 });

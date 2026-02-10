@@ -120,17 +120,12 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
   }
 }
 
-async function embedSegmentJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
+async function embedSegmentJob(job: MemoryJob, _config: AssistantConfig): Promise<void> {
   const segmentId = asString(job.payload.segmentId);
   if (!segmentId) return;
-  const db = getDb();
-  const segment = db
-    .select({ id: memorySegments.id, text: memorySegments.text })
-    .from(memorySegments)
-    .where(eq(memorySegments.id, segmentId))
-    .get();
-  if (!segment) return;
-  await embedAndUpsert(config, 'segment', segment.id, segment.text);
+  // Segment embeddings are intentionally disabled: retrieval only consumes
+  // semantic vectors for items and summaries.
+  log.debug({ segmentId }, 'Skipping segment embedding job');
 }
 
 async function embedItemJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
@@ -335,11 +330,6 @@ function rebuildIndexJob(): void {
   `);
   db.delete(memoryEmbeddings).run();
 
-  const segments = db.select({ id: memorySegments.id }).from(memorySegments).all();
-  for (const segment of segments) {
-    enqueueMemoryJob('embed_segment', { segmentId: segment.id });
-  }
-
   const items = db
     .select({ id: memoryItems.id })
     .from(memoryItems)
@@ -363,9 +353,10 @@ async function embedAndUpsert(
 ): Promise<void> {
   const status = getMemoryBackendStatus(config);
   if (!status.provider) {
-    if (config.memory.embeddings.required) {
-      throw new Error(status.reason ?? 'Memory embeddings backend unavailable');
-    }
+    log.debug(
+      { targetType, targetId, reason: status.reason ?? 'backend unavailable' },
+      'Skipping embedding job because no backend is configured',
+    );
     return;
   }
 
@@ -420,13 +411,19 @@ function truncate(text: string, max: number): string {
   return `${text.slice(0, max - 3)}...`;
 }
 
-function currentWeekWindow(now: Date): { scopeKey: string; startMs: number; endMs: number } {
-  const start = new Date(now);
-  const day = (start.getDay() + 6) % 7;
-  start.setDate(start.getDate() - day);
-  start.setHours(0, 0, 0, 0);
+export function currentWeekWindow(now: Date): { scopeKey: string; startMs: number; endMs: number } {
+  const day = (now.getUTCDay() + 6) % 7;
+  const start = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() - day,
+    0,
+    0,
+    0,
+    0,
+  ));
   const end = new Date(start);
-  end.setDate(end.getDate() + 7);
+  end.setUTCDate(end.getUTCDate() + 7);
   const scopeKey = `${start.getUTCFullYear()}-W${weekNumber(start).toString().padStart(2, '0')}`;
   return { scopeKey, startMs: start.getTime(), endMs: end.getTime() };
 }
