@@ -12,18 +12,18 @@ struct OnboardingFlowView: View {
             VStack(spacing: 0) {
                 // Orb area — egg hatch on step 0, dino after hatch, fallback orb
                 Group {
-                    if state.currentStep == 0 && !state.hasHatched {
+                    if state.currentStep == 0 {
                         OnboardingHatchView(state: state)
                     } else if state.hasHatched {
-                        CreatureView(visible: true)
+                        CreatureView(visible: true, animated: false)
                             .scaleEffect(creatureScale)
-                            .frame(width: 160, height: 150)
+                            .frame(width: 200, height: 180)
                             .clipped()
                     } else {
                         SoulOrbView(mood: state.orbMood, size: orbSize)
                     }
                 }
-                    .animation(.easeOut(duration: 0.8), value: state.currentStep)
+                    .animation(nil, value: state.currentStep)
                     .padding(.top, 40)
                     .padding(.bottom, 20)
 

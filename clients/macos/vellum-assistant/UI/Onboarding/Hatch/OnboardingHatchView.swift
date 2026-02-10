@@ -34,7 +34,7 @@ struct OnboardingHatchView: View {
             }
         }
         .scaleEffect(scale)
-        .frame(width: 160, height: 150)
+        .frame(width: 200, height: 180)
         .clipped()
         .onAppear {
             // Wire the hatch trigger so WakeUpStepView can start the animation
@@ -44,7 +44,11 @@ struct OnboardingHatchView: View {
             // Wire completion to advance onboarding
             viewModel.onComplete = {
                 state.hasHatched = true
-                state.advance()
+                // Delay advance so the creature is visible in OnboardingHatchView
+                // before SwiftUI swaps to the standalone CreatureView at step 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    state.advance()
+                }
             }
         }
     }

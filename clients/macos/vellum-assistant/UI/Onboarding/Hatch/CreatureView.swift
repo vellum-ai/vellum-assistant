@@ -3,6 +3,7 @@ import SwiftUI
 /// The revealed creature (purple dino) with spring entrance and breathing animation.
 struct CreatureView: View {
     let visible: Bool
+    var animated: Bool = true
 
     @State private var appeared = false
     @State private var bounceOffset: CGFloat = 0
@@ -17,23 +18,28 @@ struct CreatureView: View {
                 .scaleEffect(appeared ? 1.0 : 0.0)
                 .opacity(appeared ? 1.0 : 0.0)
                 .onAppear {
-                    // Spring entrance
-                    withAnimation(.spring(response: 0.6, dampingFraction: 0.5, blendDuration: 0)) {
-                        appeared = true
-                    }
-                    // Bounce
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        withAnimation(.easeOut(duration: 0.6)) {
-                            bounceOffset = -15
+                    if animated {
+                        // Spring entrance
+                        withAnimation(.spring(response: 0.6, dampingFraction: 0.5, blendDuration: 0)) {
+                            appeared = true
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                            withAnimation(.easeIn(duration: 0.3)) {
-                                bounceOffset = 0
+                        // Bounce
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation(.easeOut(duration: 0.6)) {
+                                bounceOffset = -15
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                withAnimation(.easeIn(duration: 0.3)) {
+                                    bounceOffset = 0
+                                }
                             }
                         }
+                    } else {
+                        appeared = true
                     }
-                    // Breathing idle (after 1s delay)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    // Breathing idle
+                    let breatheDelay: Double = animated ? 1.0 : 0.0
+                    DispatchQueue.main.asyncAfter(deadline: .now() + breatheDelay) {
                         withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
                             breatheScaleY = 1.03
                             breatheScaleX = 0.98

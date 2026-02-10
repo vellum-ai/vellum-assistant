@@ -338,8 +338,10 @@ struct WhiteFlash: View {
                     withAnimation(.easeOut(duration: 0.3)) {
                         opacity = 0.85
                     }
-                    withAnimation(.easeOut(duration: 0.6).delay(0.3)) {
-                        opacity = 0
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        withAnimation(.easeOut(duration: 0.6)) {
+                            opacity = 0
+                        }
                     }
                 }
         }
