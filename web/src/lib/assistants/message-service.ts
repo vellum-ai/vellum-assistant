@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import {
   ChatMessage,
+  getAssistantReplyByUserMessageId,
   createChatMessage,
   getAssistantById,
   getMessageByExternalId,
@@ -113,10 +114,29 @@ export async function handleInboundAssistantMessage(
       input.externalMessageId
     );
     if (existing) {
+      const existingAssistantReply = await getAssistantReplyByUserMessageId({
+        assistantId: input.assistantId,
+        sourceChannel,
+        externalChatId: input.externalChatId,
+        userMessageId: existing.id,
+      });
+
       return {
         duplicate: true,
-        userMessage: null,
-        assistantMessage: null,
+        userMessage: {
+          id: existing.id,
+          role: "user",
+          content: existing.content,
+          timestamp: existing.createdAt,
+        },
+        assistantMessage: existingAssistantReply
+          ? {
+              id: existingAssistantReply.id,
+              role: "assistant",
+              content: existingAssistantReply.content,
+              timestamp: existingAssistantReply.createdAt,
+            }
+          : null,
       };
     }
   }

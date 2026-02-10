@@ -133,6 +133,23 @@ export async function connectTelegramChannel(params: {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to connect Telegram";
+
+    if (existing && existing.enabled && existing.status === "active") {
+      await upsertAssistantChannelAccount({
+        assistantId: params.assistantId,
+        channel: "telegram",
+        accountKey: existing.account_key,
+        enabled: true,
+        status: "active",
+        config: (existing.config || {}) as Record<string, unknown>,
+        lastError: message,
+      });
+
+      throw new Error(
+        `Telegram connection failed: ${message} (kept existing active channel)`
+      );
+    }
+
     const failed = await upsertAssistantChannelAccount({
       assistantId: params.assistantId,
       channel: "telegram",
@@ -326,6 +343,15 @@ export async function handleTelegramWebhook(params: {
   });
 
   if (result.duplicate) {
+    if (result.assistantMessage?.content) {
+      await plugin.outbound.sendText({
+        botToken: config.botToken,
+        chatId: normalized.externalChatId,
+        text: result.assistantMessage.content,
+      });
+      return { status: "ok" as const, duplicate: true as const };
+    }
+
     return { status: "ignored", reason: "duplicate_message" as const };
   }
 

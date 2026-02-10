@@ -149,6 +149,7 @@ async function main() {
   let anthropicCalls = 0;
   let anthropicFirstRoleViolations = 0;
   let failNextTelegramDeleteWebhook = false;
+  let failNextTelegramAssistantReplySend = false;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.toString();
     const parsedUrl = new URL(url);
@@ -214,6 +215,12 @@ async function main() {
 
     switch (parsed.method) {
       case "getMe":
+        if (parsed.token === "bad-bot-token") {
+          return Response.json({
+            ok: false,
+            description: "invalid bot token",
+          });
+        }
         return Response.json({
           ok: true,
           result: {
@@ -227,6 +234,17 @@ async function main() {
           result: true,
         });
       case "sendMessage":
+        if (
+          failNextTelegramAssistantReplySend &&
+          typeof body.text === "string" &&
+          body.text.includes("Harness AI response")
+        ) {
+          failNextTelegramAssistantReplySend = false;
+          return Response.json({
+            ok: false,
+            description: "sendMessage failed in harness",
+          });
+        }
         return Response.json({
           ok: true,
           result: {
@@ -270,8 +288,28 @@ async function main() {
     assert.equal(connectResult.status, "active");
     assert.equal(connectResult.enabled, true);
 
-    const account = await getTelegramChannelAccountForAssistant(assistantId);
+    let account = await getTelegramChannelAccountForAssistant(assistantId);
     assert(account, "Expected Telegram channel account to exist after connect");
+
+    let badRotateFailed = false;
+    try {
+      await connectTelegramChannel({
+        assistantId,
+        botToken: "bad-bot-token",
+        enabled: true,
+      });
+    } catch {
+      badRotateFailed = true;
+    }
+    assert.equal(badRotateFailed, true, "Expected token rotation failure for bad token");
+
+    account = await getTelegramChannelAccountForAssistant(assistantId);
+    assert(account, "Expected account to remain configured after failed rotation");
+    assert.equal(account.enabled, true);
+    assert.equal(account.status, "active");
+    const restoredConfig = (account.config ?? {}) as Record<string, unknown>;
+    assert.equal(restoredConfig.botToken, HARNESS_BOT_TOKEN);
+    assert.equal(typeof account.last_error, "string");
 
     const accountConfig = (account.config ?? {}) as Record<string, unknown>;
     const webhookSecret =
@@ -410,14 +448,78 @@ async function main() {
         chatId: 9001,
       }),
     });
-    assert.equal(duplicateResult.status, "ignored");
-    assert.equal(
-      (duplicateResult as { reason?: string }).reason,
-      "duplicate_message"
-    );
+    assert.equal(duplicateResult.status, "ok");
+    assert.equal((duplicateResult as { duplicate?: boolean }).duplicate, true);
 
     const afterDuplicateMessages = await getChatMessages(assistantId);
     assert.equal(afterDuplicateMessages.length, 5);
+
+    const thirdPendingResult = await handleTelegramWebhook({
+      channelAccountId: account.id,
+      headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
+      payload: buildTelegramDmPayload({
+        messageId: 1001,
+        text: "I am a third Telegram user.",
+        chatId: 9003,
+        firstName: "Third",
+      }),
+    });
+    assert.equal(thirdPendingResult.status, "pending_approval");
+
+    const thirdPendingContacts = await listTelegramContacts({
+      assistantId,
+      status: "pending",
+    });
+    assert.equal(thirdPendingContacts.length, 1);
+    const thirdContact = thirdPendingContacts[0];
+
+    await approveTelegramContact(assistantId, thirdContact.id);
+    await notifyApprovedTelegramContact({
+      assistantId,
+      contactId: thirdContact.id,
+    });
+
+    const messageCountBeforeFailedSend = (await getChatMessages(assistantId)).length;
+    failNextTelegramAssistantReplySend = true;
+    let failedSendThrew = false;
+    const failedSendPayload = buildTelegramDmPayload({
+      messageId: 1002,
+      text: "Force a transient Telegram send failure.",
+      chatId: 9003,
+      firstName: "Third",
+    });
+    try {
+      await handleTelegramWebhook({
+        channelAccountId: account.id,
+        headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
+        payload: failedSendPayload,
+      });
+    } catch {
+      failedSendThrew = true;
+    }
+    assert.equal(failedSendThrew, true, "Expected webhook handler to throw on send failure");
+
+    const messageCountAfterFailedSend = (await getChatMessages(assistantId)).length;
+    assert.equal(
+      messageCountAfterFailedSend,
+      messageCountBeforeFailedSend + 2,
+      "Expected user+assistant messages to persist before Telegram delivery succeeds"
+    );
+
+    const retryAfterFailedSend = await handleTelegramWebhook({
+      channelAccountId: account.id,
+      headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
+      payload: failedSendPayload,
+    });
+    assert.equal(retryAfterFailedSend.status, "ok");
+    assert.equal((retryAfterFailedSend as { duplicate?: boolean }).duplicate, true);
+
+    const messageCountAfterRetry = (await getChatMessages(assistantId)).length;
+    assert.equal(
+      messageCountAfterRetry,
+      messageCountAfterFailedSend,
+      "Expected retry resend without creating duplicate persisted messages"
+    );
 
     await blockTelegramContact(assistantId, firstContact.id);
     const blockedResult = await handleTelegramWebhook({

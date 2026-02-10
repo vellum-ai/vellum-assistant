@@ -2,6 +2,7 @@ import { Assistant, getDb } from "@/lib/db";
 import { auth } from "@/lib/auth/better-auth";
 
 export interface RequestUser {
+  id: string | null;
   username: string | null;
   email: string | null;
   isAdmin: boolean;
@@ -15,6 +16,7 @@ function normalizeEmail(email: string | null): string | null {
 }
 
 export async function getRequestUser(request: Request): Promise<RequestUser> {
+  let id: string | null = null;
   let username: string | null = null;
   let email: string | null = null;
 
@@ -25,11 +27,12 @@ export async function getRequestUser(request: Request): Promise<RequestUser> {
       headers: request.headers,
     });
 
-    const session = (sessionResult as { user?: { username?: string; name?: string; email?: string } })?.user
-      ? (sessionResult as { user?: { username?: string; name?: string; email?: string } })
-      : ((sessionResult as { data?: { user?: { username?: string; name?: string; email?: string } } })?.data ??
+    const session = (sessionResult as { user?: { id?: string; username?: string; name?: string; email?: string } })?.user
+      ? (sessionResult as { user?: { id?: string; username?: string; name?: string; email?: string } })
+      : ((sessionResult as { data?: { user?: { id?: string; username?: string; name?: string; email?: string } } })?.data ??
         null);
 
+    id = session?.user?.id ?? null;
     username = session?.user?.username ?? session?.user?.name ?? null;
     email = session?.user?.email ?? null;
   } catch {
@@ -38,6 +41,7 @@ export async function getRequestUser(request: Request): Promise<RequestUser> {
 
   const normalizedEmail = normalizeEmail(email);
   return {
+    id,
     username,
     email: normalizedEmail,
     // Admin privileges are granted only for authenticated-session emails.
@@ -57,7 +61,7 @@ export async function requireAssistantOwner(
 
   const assistant = result[0] as Assistant;
   const user = await getRequestUser(request);
-  if (!user.username && !user.isAdmin) {
+  if (!user.id && !user.username && !user.isAdmin) {
     throw new Error("UNAUTHORIZED");
   }
 
@@ -66,12 +70,16 @@ export async function requireAssistantOwner(
     return { assistant, user };
   }
 
-  if (createdBy && user.username && createdBy === user.username) {
+  if (
+    createdBy &&
+    ((user.username && createdBy === user.username) ||
+      (user.id && createdBy === user.id))
+  ) {
     return { assistant, user };
   }
 
   // Pre-launch assistants can have null created_by.
-  if (!createdBy && user.username) {
+  if (!createdBy && (user.username || user.id)) {
     return { assistant, user };
   }
 

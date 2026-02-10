@@ -193,6 +193,40 @@ export async function getMessageByExternalId(
   return result[0] || null;
 }
 
+export async function getAssistantReplyByUserMessageId(params: {
+  assistantId: string;
+  sourceChannel: string;
+  externalChatId: string | null | undefined;
+  userMessageId: string;
+}) {
+  const chatMatch = params.externalChatId
+    ? eq(schema.chatMessagesTable.externalChatId, params.externalChatId)
+    : isNull(schema.chatMessagesTable.externalChatId);
+
+  const candidates = await db
+    .select()
+    .from(schema.chatMessagesTable)
+    .where(
+      and(
+        eq(schema.chatMessagesTable.assistantId, params.assistantId),
+        eq(schema.chatMessagesTable.sourceChannel, params.sourceChannel),
+        eq(schema.chatMessagesTable.role, "assistant"),
+        chatMatch
+      )
+    )
+    .orderBy(desc(schema.chatMessagesTable.createdAt))
+    .limit(200);
+
+  for (const message of candidates) {
+    const metadata = (message.metadata || {}) as Record<string, unknown>;
+    if (metadata.replyToUserMessageId === params.userMessageId) {
+      return message;
+    }
+  }
+
+  return null;
+}
+
 // User queries
 export async function getUserByUsername(username: string) {
   const result = await db.select().from(schema.user).where(eq(schema.user.username, username));
