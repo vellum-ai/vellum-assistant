@@ -189,12 +189,12 @@ async function safeUpdateUserMessageStatus(
   }
 }
 
-async function withReplyRecoveryInsertLock<T>(params: {
+async function withReplyRecoveryInsertLock(params: {
   assistantId: string;
   sourceChannel: string;
   externalChatId?: string;
   userMessageId: string;
-}, fn: () => Promise<T>): Promise<T> {
+}, fn: () => Promise<AssistantMessageResult>): Promise<AssistantMessageResult> {
   const lockKey = [
     params.assistantId,
     params.sourceChannel,
@@ -203,7 +203,7 @@ async function withReplyRecoveryInsertLock<T>(params: {
   ].join(":");
   const sql = getDb();
   return sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    await tx.unsafe("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
     return fn();
   });
 }
