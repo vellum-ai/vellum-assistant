@@ -631,9 +631,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           content,
           status: "sending",
         });
-        if (attachmentIds.length > 0) {
-          await linkAttachmentsToMessage(userMessage.id, attachmentIds);
-        }
 
         try {
           const daemonAttachments = await buildLocalDaemonAttachments(attachments);
@@ -654,6 +651,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               "Failed to mark local-mode message as sent after daemon success:",
               statusError
             );
+          }
+          if (attachmentIds.length > 0) {
+            try {
+              await linkAttachmentsToMessage(userMessage.id, attachmentIds);
+            } catch (linkError: unknown) {
+              console.warn(
+                "Failed to link local-mode attachments after daemon success:",
+                linkError
+              );
+            }
           }
 
           const timestamp = new Date().toISOString();
@@ -687,19 +694,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               "Failed to mark local-mode message as failed after daemon error:",
               statusError
             );
-          }
-          if (attachmentIds.length > 0) {
-            try {
-              await sql`
-                DELETE FROM chat_message_attachments
-                WHERE message_id = ${userMessage.id}
-              `;
-            } catch (unlinkError: unknown) {
-              console.warn(
-                "Failed to unlink local-mode attachments after daemon failure:",
-                unlinkError
-              );
-            }
           }
           throw daemonError;
         }

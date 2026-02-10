@@ -36,7 +36,7 @@ export async function deleteAssistantAttachmentObjects(assistantId: string): Pro
   if (failedKeys.length > 0) {
     const preview = failedKeys.slice(0, 3).join(", ");
     const suffix = failedKeys.length > 3 ? ", ..." : "";
-    throw new Error(
+    console.warn(
       `Failed to delete ${failedKeys.length} attachment object(s): ${preview}${suffix}`,
     );
   }
