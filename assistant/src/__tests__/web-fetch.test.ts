@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { executeWebFetch } from '../tools/network/web-fetch.js';
+import { PassThrough } from 'node:stream';
+import type { IncomingHttpHeaders } from 'node:http';
+import { buildFetchResponseFromNodeResponse, executeWebFetch } from '../tools/network/web-fetch.js';
 
 describe('web_fetch tool', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -39,6 +41,23 @@ describe('web_fetch tool', () => {
             headers: requestOptions.headers,
           }) as Promise<Response>),
     });
+
+  test('buildFetchResponseFromNodeResponse handles null-body statuses without throwing', async () => {
+    const stream = new PassThrough() as PassThrough & {
+      statusCode?: number;
+      statusMessage?: string;
+      headers: IncomingHttpHeaders;
+    };
+    stream.statusCode = 204;
+    stream.statusMessage = 'No Content';
+    stream.headers = { 'content-type': 'text/plain; charset=utf-8' };
+    stream.end('ignored body');
+
+    const response = buildFetchResponseFromNodeResponse(stream);
+    expect(response.status).toBe(204);
+    expect(response.statusText).toBe('No Content');
+    expect(await response.text()).toBe('');
+  });
 
   test('rejects missing url', async () => {
     const result = await executeWithMockFetch({});

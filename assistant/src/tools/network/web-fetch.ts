@@ -53,6 +53,13 @@ type ExecuteWebFetchOptions = {
   requestExecutor?: WebFetchRequestExecutor;
 };
 
+type NodeHttpResponseLike = {
+  statusCode?: number;
+  statusMessage?: string;
+  headers: IncomingHttpHeaders;
+  resume: () => void;
+} & Readable;
+
 function clampInteger(value: unknown, defaultValue: number, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return defaultValue;
   return Math.min(max, Math.max(min, Math.round(value)));
@@ -313,6 +320,25 @@ function buildResponseHeaders(headers: IncomingHttpHeaders): Headers {
   return responseHeaders;
 }
 
+function isNullBodyStatus(status: number): boolean {
+  return status === 204 || status === 205 || status === 304;
+}
+
+export function buildFetchResponseFromNodeResponse(res: NodeHttpResponseLike): Response {
+  const status = res.statusCode ?? 502;
+  const responseHeaders = buildResponseHeaders(res.headers);
+  const statusText = res.statusMessage ?? '';
+
+  if (isNullBodyStatus(status)) {
+    // Drain any unexpected bytes and produce a valid null-body fetch Response.
+    res.resume();
+    return new Response(null, { status, statusText, headers: responseHeaders });
+  }
+
+  const body = Readable.toWeb(res);
+  return new Response(body as unknown as BodyInit, { status, statusText, headers: responseHeaders });
+}
+
 function createAbortError(): Error {
   const err = new Error('The operation was aborted');
   err.name = 'AbortError';
@@ -384,10 +410,7 @@ const defaultRequestExecutor: WebFetchRequestExecutor = async (url, options) => 
 
   return await new Promise<Response>((resolve, reject) => {
     const req = requestFn(requestOptions, (res) => {
-      const status = res.statusCode ?? 502;
-      const responseHeaders = buildResponseHeaders(res.headers);
-      const body = Readable.toWeb(res);
-      resolve(new Response(body as unknown as BodyInit, { status, statusText: res.statusMessage ?? '', headers: responseHeaders }));
+      resolve(buildFetchResponseFromNodeResponse(res));
     });
     req.once('error', reject);
     req.end();
