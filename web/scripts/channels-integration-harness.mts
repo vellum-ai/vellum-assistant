@@ -19,6 +19,7 @@ const TELEGRAM_SECRET_HEADER = ["x", "telegram", "bot", "api", "sec", "ret", "to
   "-"
 );
 const TELEGRAM_API_HOST = "api.telegram.org";
+const ANTHROPIC_API_HOST = "api.anthropic.com";
 const HARNESS_BOT_TOKEN = "harness-bot-token";
 
 type TelegramMethod = "getMe" | "setWebhook" | "sendMessage" | "deleteWebhook";
@@ -59,6 +60,12 @@ function parseBody(body: BodyInit | null | undefined): Record<string, unknown> {
   }
   if (typeof body === "string") {
     return JSON.parse(body) as Record<string, unknown>;
+  }
+  if (body instanceof Uint8Array) {
+    return JSON.parse(new TextDecoder().decode(body)) as Record<string, unknown>;
+  }
+  if (body instanceof ArrayBuffer) {
+    return JSON.parse(new TextDecoder().decode(new Uint8Array(body))) as Record<string, unknown>;
   }
   throw new Error("Expected JSON string request body in Telegram API mock");
 }
@@ -136,11 +143,63 @@ async function main() {
 
   const originalFetch = globalThis.fetch;
   const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
-  delete process.env.ANTHROPIC_API_KEY;
+  process.env.ANTHROPIC_API_KEY = `harness-${randomUUID()}`;
 
   const telegramCalls: TelegramCall[] = [];
+  let anthropicCalls = 0;
+  let anthropicFirstRoleViolations = 0;
+  let failNextTelegramDeleteWebhook = false;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.toString();
+    const parsedUrl = new URL(url);
+
+    if (
+      parsedUrl.hostname === ANTHROPIC_API_HOST &&
+      parsedUrl.pathname === "/v1/messages"
+    ) {
+      const body = parseBody(init?.body);
+      anthropicCalls += 1;
+
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const firstRole =
+        messages.length > 0 && typeof messages[0] === "object" && messages[0]
+          ? (messages[0] as { role?: unknown }).role
+          : null;
+
+      if (firstRole !== "user") {
+        anthropicFirstRoleViolations += 1;
+        return Response.json(
+          {
+            type: "error",
+            error: {
+              type: "invalid_request_error",
+              message: "messages: first message must use the \"user\" role",
+            },
+          },
+          { status: 400 }
+        );
+      }
+
+      return Response.json({
+        id: `msg_harness_${anthropicCalls}`,
+        type: "message",
+        role: "assistant",
+        model: typeof body.model === "string" ? body.model : "claude-opus-4-6",
+        content: [
+          {
+            type: "text",
+            text: "Harness AI response",
+          },
+        ],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: {
+          input_tokens: 64,
+          output_tokens: 16,
+        },
+      });
+    }
+
     const parsed = parseTelegramApiRequest(url);
     if (!parsed) {
       return originalFetch(input, init);
@@ -175,6 +234,13 @@ async function main() {
           },
         });
       case "deleteWebhook":
+        if (failNextTelegramDeleteWebhook) {
+          failNextTelegramDeleteWebhook = false;
+          return Response.json({
+            ok: false,
+            description: "deleteWebhook failed in harness",
+          });
+        }
         return Response.json({
           ok: true,
           result: true,
@@ -250,6 +316,24 @@ async function main() {
     });
     assert.equal(approvedContacts.length, 1);
 
+    // Seed with an assistant-first message to validate Anthropic first-user handling.
+    await sql`
+      INSERT INTO chat_messages (
+        assistant_id,
+        role,
+        content,
+        status,
+        source_channel
+      )
+      VALUES (
+        ${assistantId},
+        'assistant',
+        ${"Seed greeting from harness"},
+        'delivered',
+        'web'
+      )
+    `;
+
     const okResult = await handleTelegramWebhook({
       channelAccountId: account.id,
       headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
@@ -262,12 +346,15 @@ async function main() {
     assert.equal(okResult.status, "ok");
 
     const afterReplyMessages = await getChatMessages(assistantId);
-    assert.equal(afterReplyMessages.length, 2);
+    assert.equal(afterReplyMessages.length, 3);
     const userTelegramMessage = afterReplyMessages.find(
       (message) => message.role === "user" && message.externalMessageId === "1002"
     );
     const assistantTelegramMessage = afterReplyMessages.find(
-      (message) => message.role === "assistant"
+      (message) =>
+        message.role === "assistant" &&
+        message.sourceChannel === "telegram" &&
+        message.content === "Harness AI response"
     );
     assert(userTelegramMessage, "Expected persisted user telegram message");
     assert(assistantTelegramMessage, "Expected persisted assistant telegram response");
@@ -312,7 +399,7 @@ async function main() {
     assert.equal(sameMessageIdOtherChatResult.status, "ok");
 
     const afterSecondChatMessages = await getChatMessages(assistantId);
-    assert.equal(afterSecondChatMessages.length, 4);
+    assert.equal(afterSecondChatMessages.length, 5);
 
     const duplicateResult = await handleTelegramWebhook({
       channelAccountId: account.id,
@@ -330,7 +417,7 @@ async function main() {
     );
 
     const afterDuplicateMessages = await getChatMessages(assistantId);
-    assert.equal(afterDuplicateMessages.length, 4);
+    assert.equal(afterDuplicateMessages.length, 5);
 
     await blockTelegramContact(assistantId, firstContact.id);
     const blockedResult = await handleTelegramWebhook({
@@ -357,11 +444,19 @@ async function main() {
     assert.equal(wrongSecretResult.status, "ignored");
     assert.equal((wrongSecretResult as { reason?: string }).reason, "invalid_secret");
 
-    await disconnectTelegramChannel(assistantId);
+    failNextTelegramDeleteWebhook = true;
+    const disconnectResult = await disconnectTelegramChannel(assistantId);
+    assert.equal(disconnectResult.success, true);
+    assert(
+      "warning" in disconnectResult && typeof disconnectResult.warning === "string",
+      "Expected disconnect warning when webhook deletion fails"
+    );
+
     const disconnectedAccount = await getTelegramChannelAccountForAssistant(assistantId);
     assert(disconnectedAccount, "Expected account to remain after disconnect");
     assert.equal(disconnectedAccount.enabled, false);
     assert.equal(disconnectedAccount.status, "inactive");
+    assert.equal(typeof disconnectedAccount.last_error, "string");
 
     const disconnectedConfig = (disconnectedAccount.config ?? {}) as Record<string, unknown>;
     assert.equal(disconnectedConfig.botToken ?? null, null);
@@ -373,12 +468,19 @@ async function main() {
     assert((methodCounts.get("setWebhook") ?? 0) >= 1, "Expected setWebhook call");
     assert((methodCounts.get("sendMessage") ?? 0) >= 3, "Expected sendMessage calls");
     assert((methodCounts.get("deleteWebhook") ?? 0) >= 1, "Expected deleteWebhook call");
+    assert(anthropicCalls >= 2, "Expected Anthropic API calls for approved messages");
+    assert.equal(
+      anthropicFirstRoleViolations,
+      0,
+      "Expected no Anthropic first-role violations"
+    );
 
     console.log("Telegram integration harness passed.");
     console.log("Telegram API call counts:");
     for (const method of ["getMe", "setWebhook", "sendMessage", "deleteWebhook"] as const) {
       console.log(`- ${method}: ${methodCounts.get(method) ?? 0}`);
     }
+    console.log(`- anthropic calls: ${anthropicCalls}`);
   } finally {
     globalThis.fetch = originalFetch;
 

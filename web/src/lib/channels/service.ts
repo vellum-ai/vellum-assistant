@@ -159,8 +159,20 @@ export async function disconnectTelegramChannel(assistantId: string) {
   const telegramConfig = getTelegramConfig(
     (account.config || {}) as Record<string, unknown>
   );
+  let disconnectWarning: string | null = null;
   if (telegramConfig.botToken) {
-    await plugin.setup.disconnect({ botToken: telegramConfig.botToken });
+    try {
+      await plugin.setup.disconnect({ botToken: telegramConfig.botToken });
+    } catch (error) {
+      disconnectWarning =
+        error instanceof Error
+          ? error.message
+          : "Failed to disconnect Telegram webhook";
+      console.warn(
+        "Failed to disconnect Telegram webhook remotely; proceeding with local disconnect:",
+        error
+      );
+    }
   }
 
   await upsertAssistantChannelAccount({
@@ -175,10 +187,12 @@ export async function disconnectTelegramChannel(assistantId: string) {
       webhookSecret: null,
       webhookUrl: null,
     } as Record<string, unknown>,
-    lastError: null,
+    lastError: disconnectWarning,
   });
 
-  return { success: true };
+  return disconnectWarning
+    ? { success: true, warning: disconnectWarning }
+    : { success: true };
 }
 
 export async function listTelegramContacts(params: {

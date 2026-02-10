@@ -50,12 +50,18 @@ function buildSystemPrompt(assistantName: string) {
 }
 
 function toAnthropicMessages(messages: ChatMessage[]): Anthropic.MessageParam[] {
-  return messages
-    .filter((msg) => msg.role === "user" || msg.role === "assistant")
-    .map((msg) => ({
-      role: msg.role as "user" | "assistant",
-      content: msg.content,
-    }));
+  const filtered = messages.filter(
+    (msg) => msg.role === "user" || msg.role === "assistant"
+  );
+
+  // Anthropic requires the first message to be from the user.
+  const firstUserIndex = filtered.findIndex((msg) => msg.role === "user");
+  const trimmed = firstUserIndex >= 0 ? filtered.slice(firstUserIndex) : filtered;
+
+  return trimmed.map((msg) => ({
+    role: msg.role as "user" | "assistant",
+    content: msg.content,
+  }));
 }
 
 async function generateAssistantReply(params: {
