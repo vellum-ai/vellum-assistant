@@ -269,13 +269,13 @@ export type ServerMessage =
 // === Serialization ===
 
 /**
- * Maximum size of a single line in the IPC buffer (64MB).
+ * Maximum size of a single line in the IPC buffer (96MB).
  *
  * Attachment payloads are sent inline as base64 in `user_message`, so the
  * parser must tolerate large partial frames before the terminating newline
  * arrives.
  */
-export const MAX_LINE_SIZE = 64 * 1024 * 1024;
+export const MAX_LINE_SIZE = 96 * 1024 * 1024;
 
 export function serialize(msg: ClientMessage | ServerMessage): string {
   return JSON.stringify(msg) + '\n';

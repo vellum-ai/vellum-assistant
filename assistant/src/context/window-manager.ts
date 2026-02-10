@@ -357,7 +357,7 @@ function serializeBlock(block: ContentBlock): string {
     case 'tool_result':
       return `tool_result ${block.tool_use_id}${block.is_error ? ' (error)' : ''}: ${clampText(block.content)}`;
     case 'image':
-      return `image: ${block.source.media_type}, ${Math.ceil(block.source.data.length / 4)} bytes(base64)`;
+      return `image: ${block.source.media_type}, ${Math.ceil(block.source.data.length / 4) * 3} bytes(base64)`;
     case 'file': {
       const sizeBytes = Math.ceil(block.source.data.length / 4) * 3;
       const parts = [

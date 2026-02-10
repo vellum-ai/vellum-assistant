@@ -36,7 +36,6 @@ struct TaskAttachment: Identifiable {
     ]
 
     static func fromFileURL(_ url: URL) throws -> TaskAttachment {
-        let data = try Data(contentsOf: url)
         let fileName = url.lastPathComponent
         let mimeType = Self.mimeType(for: url.pathExtension)
         if unsupportedOfficeMimeTypes.contains(mimeType) {
@@ -51,6 +50,16 @@ struct TaskAttachment: Identifiable {
         }
         let kind: TaskAttachmentKind = mimeType.hasPrefix("image/") ? .image : .document
         let maxBytes = kind == .image ? maxImageBytes : maxDocumentBytes
+
+        if let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey]),
+           let declaredSize = resourceValues.fileSize,
+           declaredSize > maxBytes {
+            throw NSError(domain: "TaskAttachment", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "\(fileName) exceeds size limit for \(kind.rawValue) attachments."
+            ])
+        }
+
+        let data = try Data(contentsOf: url)
 
         guard data.count <= maxBytes else {
             throw NSError(domain: "TaskAttachment", code: 1, userInfo: [
