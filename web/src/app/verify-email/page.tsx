@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { toast } from "@/components/Toast";
+import { toast } from "@/components/core/Toast";
 import { VellumHead } from "@/components/VellumHomepage";
 
 type VerifyStatus = "verifying" | "success" | "error";

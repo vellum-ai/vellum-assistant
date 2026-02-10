@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 
 import { useAuth } from "@/lib/auth";
-import { toast } from "@/components/Toast";
+import { toast } from "@/components/core/Toast";
 import { VellumHead } from "@/components/VellumHomepage";
 
 interface SignupFormValues {
