@@ -9,7 +9,6 @@ import { CreditCardModal } from "@/components/CreditCardModal";
 import { DynamicEditor } from "@/components/DynamicEditor";
 import { HatchingModal } from "@/components/HatchingModal";
 import { Layout } from "@/components/Layout";
-import { UserMenu } from "@/components/UserMenu";
 import { useAuth } from "@/lib/auth";
 import { Assistant } from "@/lib/db";
 
@@ -236,9 +235,6 @@ export default function AssistantPage() {
   if (assistants.length === 1) {
     return (
       <div className="flex h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
-        <div className="absolute right-4 top-3 z-40">
-          <UserMenu />
-        </div>
         <DynamicEditor assistantId={oldestAssistant.id} username={username} />
       </div>
     );
@@ -251,16 +247,13 @@ export default function AssistantPage() {
         <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
           <span>Showing oldest assistant</span>
         </div>
-        <div className="flex items-center gap-3">
-          <Link
-            href="/assistant"
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
-          >
-            View All Assistants
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-          <UserMenu />
-        </div>
+        <Link
+          href="/assistant"
+          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
+        >
+          View All Assistants
+          <ArrowRight className="h-4 w-4" />
+        </Link>
       </div>
       <DynamicEditor assistantId={oldestAssistant.id} username={username} />
     </div>
