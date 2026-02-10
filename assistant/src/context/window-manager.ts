@@ -11,6 +11,7 @@ const CHUNK_MIN_TOKENS = 1000;
 const MAX_BLOCK_PREVIEW_CHARS = 3000;
 const MAX_FALLBACK_SUMMARY_CHARS = 12000;
 const MAX_CONTEXT_SUMMARY_CHARS = 16000;
+const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
 const SUMMARY_SYSTEM_PROMPT = [
   'You compress long assistant conversations into durable working memory.',
@@ -302,14 +303,23 @@ export function getSummaryFromContextMessage(message: Message | undefined): stri
   if (!message) return null;
   const text = extractText(message.content).trim();
   if (!text.startsWith(CONTEXT_SUMMARY_MARKER)) return null;
-  return text.slice(CONTEXT_SUMMARY_MARKER.length).trim();
+  if (INTERNAL_CONTEXT_SUMMARY_MESSAGES.has(message)) {
+    return text.slice(CONTEXT_SUMMARY_MARKER.length).trim();
+  }
+  // Backward compatibility for older in-memory sessions that used assistant-role summaries.
+  if (message.role === 'assistant') {
+    return text.slice(CONTEXT_SUMMARY_MARKER.length).trim();
+  }
+  return null;
 }
 
 export function createContextSummaryMessage(summary: string): Message {
-  return {
+  const message: Message = {
     role: 'user',
     content: [{ type: 'text', text: `${CONTEXT_SUMMARY_MARKER}\n${clampSummary(summary)}` }],
   };
+  INTERNAL_CONTEXT_SUMMARY_MESSAGES.add(message);
+  return message;
 }
 
 function buildSummaryPrompt(currentSummary: string, chunk: string): string {

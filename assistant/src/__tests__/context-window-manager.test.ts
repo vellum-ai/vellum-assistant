@@ -237,4 +237,12 @@ describe('ContextWindowManager', () => {
     };
     expect(getSummaryFromContextMessage(legacySummary)).toContain('legacy');
   });
+
+  test('does not parse user-authored summary marker text as internal summary', () => {
+    const userMessage: Message = {
+      role: 'user',
+      content: [{ type: 'text', text: `${CONTEXT_SUMMARY_MARKER}\nI typed this prefix myself` }],
+    };
+    expect(getSummaryFromContextMessage(userMessage)).toBeNull();
+  });
 });
