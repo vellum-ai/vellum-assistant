@@ -266,6 +266,15 @@ final class ComputerUseSession: ObservableObject {
                 verifier.recordConfirmedAction(action)
                 state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: action.displayDescription, reasoning: action.reasoning)
 
+                // Re-activate the target app after the confirmation panel interaction,
+                // which may have briefly taken key window focus. Without this, key events
+                // (like Enter to send a message) get delivered to the panel instead.
+                if let pid = primaryPID,
+                   let app = NSRunningApplication(processIdentifier: pid) {
+                    app.activate()
+                    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms for focus to settle
+                }
+
             case .blocked(let reason):
                 log.warning("[\(stepNumber)] BLOCKED: \(reason)")
                 let record = ActionRecord(step: stepNumber, action: action, result: "BLOCKED: \(reason)", timestamp: Date())
