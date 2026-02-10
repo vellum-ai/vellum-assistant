@@ -6,7 +6,7 @@
     "pull": "scripts/pull.mjs"
   },
   "scripts": {
-    "dev": "bunx --bun next dev",
+    "dev": "bunx --bun next dev --webpack",
     "build": "bunx --bun next build",
     "db:push": "bun run scripts/migrate.mts",
     "db:push:preview": "bun run scripts/migrate.mts --preview",
