@@ -1,5 +1,6 @@
 .build/
 build/
+dist/
 .swiftpm/
 *.xcuserdata
 xcuserdata/
