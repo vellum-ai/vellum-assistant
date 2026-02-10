@@ -63,6 +63,7 @@ export default function SignupPage() {
             </div>
 
             <form
+              method="post"
               onSubmit={handleSubmit(onSubmit)}
               className="flex flex-col gap-4"
             >

@@ -64,6 +64,7 @@ export default function LoginPage() {
             </div>
 
             <form
+              method="post"
               onSubmit={handleSubmit(onSubmit)}
               className="flex flex-col gap-4"
             >
