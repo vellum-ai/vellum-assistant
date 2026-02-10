@@ -139,15 +139,15 @@ function unwrapBracketedHostname(hostname: string): string {
   return hostname;
 }
 
-function extractMappedIPv4FromIPv6(hostname: string): string | null {
+function extractEmbeddedIPv4FromIPv6(hostname: string): string | null {
   const normalized = unwrapBracketedHostname(hostname).split('%')[0].toLowerCase();
 
-  const dottedMatch = normalized.match(/^(?:(?:0:){5}|::)ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  const dottedMatch = normalized.match(/^(?:(?:(?:0:){5}|::)ffff:|(?:(?:0:){6}|::))(\d{1,3}(?:\.\d{1,3}){3})$/);
   if (dottedMatch) {
     return isIPv4(dottedMatch[1]) ? dottedMatch[1] : null;
   }
 
-  const hexMatch = normalized.match(/^(?:(?:0:){5}|::)ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  const hexMatch = normalized.match(/^(?:(?:(?:0:){5}|::)ffff:|(?:(?:0:){6}|::))([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
   if (!hexMatch) return null;
 
   const hi = Number.parseInt(hexMatch[1], 16);
@@ -158,7 +158,7 @@ function extractMappedIPv4FromIPv6(hostname: string): string | null {
 }
 
 function isIPv6(hostname: string): boolean {
-  if (extractMappedIPv4FromIPv6(hostname)) return true;
+  if (extractEmbeddedIPv4FromIPv6(hostname)) return true;
 
   const unwrapped = unwrapBracketedHostname(hostname);
   if (!unwrapped.includes(':')) return false;
@@ -175,7 +175,7 @@ function isPrivateIPv6(hostname: string): boolean {
     return true;
   }
 
-  const mappedIPv4 = extractMappedIPv4FromIPv6(hostname);
+  const mappedIPv4 = extractEmbeddedIPv4FromIPv6(hostname);
   if (mappedIPv4) {
     return isPrivateIPv4(mappedIPv4);
   }
