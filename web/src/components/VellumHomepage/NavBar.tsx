@@ -14,7 +14,22 @@ export function NavBar() {
   const { isLoggedIn } = useAuth();
 
   return (
-    <div data-collapse="medium" data-animation="default" data-duration="400" data-fs-scrolldisable-element="smart-nav" data-easing="ease" data-easing2="ease" role="banner" className="navbar_component new w-nav">
+    <div 
+      data-collapse="medium" 
+      data-animation="default" 
+      data-duration="400" 
+      data-fs-scrolldisable-element="smart-nav" 
+      data-easing="ease" 
+      data-easing2="ease" 
+      role="banner" 
+      className="navbar_component new w-nav"
+      style={{
+        background: "rgba(255, 255, 255, 0.1)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        borderBottom: "1px solid rgba(255, 255, 255, 0.15)",
+      }}
+    >
       <div className="navbar2_container">
         <Link href="/" className="navbar2_logo-link w-nav-brand">
           <Image loading="lazy" src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6853f41167390a6658f3fd68_Vellum%20Wordmark%20Logo.svg" alt="" className="navbar2_logo" width={120} height={30} unoptimized />

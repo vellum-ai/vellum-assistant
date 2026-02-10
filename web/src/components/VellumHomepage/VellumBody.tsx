@@ -14,9 +14,20 @@ import { WorkflowCTA } from "./WorkflowCTA";
 export function VellumBody() {
   return (
     <>
-      <NavBar />
-      <HeroSection />
-      <LogoMarquee />
+      {/* Hero wrapper with background spanning navbar, hero, and logo marquee */}
+      <div
+        style={{
+          backgroundImage: "url('/hero-bg.jpg')",
+          backgroundSize: "cover",
+          backgroundPosition: "center top",
+          backgroundRepeat: "no-repeat",
+          position: "relative",
+        }}
+      >
+        <NavBar />
+        <HeroSection />
+        <LogoMarquee />
+      </div>
       <AutomateSection />
       <TriggerCards />
       <VideoIntro />
