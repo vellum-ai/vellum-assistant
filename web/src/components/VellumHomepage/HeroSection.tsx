@@ -29,7 +29,7 @@ export function HeroSection() {
           fontFamily: "Playfair Display, serif",
           fontStyle: "italic",
           fontWeight: 400,
-          fontSize: "3rem",
+          fontSize: "4.5rem",
           lineHeight: 1.2,
           margin: 0,
         }}>
