@@ -6,6 +6,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 struct ElementSummary {
     let role: String
+    let originalRole: String
     let label: String?
     let value: String?
     let depth: Int
@@ -40,9 +41,17 @@ enum AmbientAXCapture {
 
     // MARK: - Public API
 
+    private static let ownBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+
     static func capture() async -> AmbientSnapshot? {
         guard let frontApp = NSWorkspace.shared.frontmostApplication else {
             log.debug("No frontmost app")
+            return nil
+        }
+
+        // Skip capturing our own app to avoid self-referential observations
+        if frontApp.bundleIdentifier == ownBundleId {
+            log.debug("Frontmost app is self — skipping AX capture")
             return nil
         }
 
@@ -91,8 +100,9 @@ enum AmbientAXCapture {
 
     static func isUseful(_ snapshot: AmbientSnapshot) -> Bool {
         let meaningful = snapshot.visibleElements.filter { element in
-            !labelRequiredRoles.contains("AX" + capitalizeFirst(element.role))
+            !labelRequiredRoles.contains(element.originalRole)
             || element.label != nil
+            || element.value != nil
         }
         return meaningful.count >= 3
     }
@@ -152,6 +162,7 @@ enum AmbientAXCapture {
             let cleanedRole = cleanRole(role)
             elements.append(ElementSummary(
                 role: cleanedRole,
+                originalRole: role,
                 label: title,
                 value: value,
                 depth: depth
@@ -200,8 +211,4 @@ enum AmbientAXCapture {
         return result
     }
 
-    private static func capitalizeFirst(_ str: String) -> String {
-        guard let first = str.first else { return str }
-        return String(first).uppercased() + str.dropFirst()
-    }
 }
