@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -19,7 +19,7 @@ export default function ResetPasswordPage() {
   const token = searchParams.get("token");
   const tokenError = searchParams.get("error");
   const {
-    register,
+    control,
     handleSubmit,
     formState: { isSubmitting },
   } = useForm<ResetPasswordFormValues>();
@@ -139,21 +139,35 @@ export default function ResetPasswordPage() {
                 </div>
               )}
               <div className="flex flex-col gap-3">
-                <input
-                  id="newPassword"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="New password (min 8 characters)"
-                  className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-indigo-500/50"
-                  {...register("newPassword", { required: true })}
+                <Controller
+                  name="newPassword"
+                  control={control}
+                  rules={{ required: true }}
+                  render={({ field }) => (
+                    <input
+                      id="newPassword"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="New password (min 8 characters)"
+                      className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-indigo-500/50"
+                      {...field}
+                    />
+                  )}
                 />
-                <input
-                  id="confirmPassword"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="Confirm new password"
-                  className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-indigo-500/50"
-                  {...register("confirmPassword", { required: true })}
+                <Controller
+                  name="confirmPassword"
+                  control={control}
+                  rules={{ required: true }}
+                  render={({ field }) => (
+                    <input
+                      id="confirmPassword"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="Confirm new password"
+                      className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-indigo-500/50"
+                      {...field}
+                    />
+                  )}
                 />
               </div>
 
