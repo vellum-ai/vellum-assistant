@@ -122,6 +122,17 @@ mock.module('../daemon/session.js', () => ({
 
 import { DaemonServer } from '../daemon/server.js';
 
+type DaemonServerTestAccess = {
+  sendInitialSession: (socket: net.Socket) => Promise<void>;
+  handleUndo: (sessionId: string, socket: net.Socket) => void;
+  sessions: Map<string, MockSession>;
+  socketToSession: Map<net.Socket, string>;
+};
+
+function asDaemonServerTestAccess(server: DaemonServer): DaemonServerTestAccess {
+  return server as unknown as DaemonServerTestAccess;
+}
+
 function createFakeSocket() {
   const writes: string[] = [];
   const socket = {
@@ -149,10 +160,11 @@ describe('DaemonServer initial session hydration', () => {
 
   test('hydrates latest session before session_info so undo works after reconnect', async () => {
     const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
     const { socket, writes } = createFakeSocket();
 
-    await (server as any).sendInitialSession(socket);
-    (server as any).handleUndo(conversation.id, socket);
+    await internal.sendInitialSession(socket);
+    internal.handleUndo(conversation.id, socket);
 
     const messages = decodeMessages(writes);
     const sessionInfo = messages.find((msg) => msg.type === 'session_info');
@@ -166,13 +178,14 @@ describe('DaemonServer initial session hydration', () => {
 
   test('does not rebind existing session client during initial handshake', async () => {
     const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
     const existingSession = new MockSession(conversation.id);
-    (server as any).sessions.set(conversation.id, existingSession);
+    internal.sessions.set(conversation.id, existingSession);
 
     const { socket } = createFakeSocket();
-    await (server as any).sendInitialSession(socket);
+    await internal.sendInitialSession(socket);
 
     expect(existingSession.updateClientCalls).toBe(0);
-    expect((server as any).socketToSession.size).toBe(0);
+    expect(internal.socketToSession.size).toBe(0);
   });
 });
