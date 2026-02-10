@@ -62,10 +62,11 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
 
   const claimed: MemoryJob[] = [];
   for (const row of candidates) {
-    db.update(memoryJobs)
+    const result = db.update(memoryJobs)
       .set({ status: 'running', updatedAt: now })
       .where(and(eq(memoryJobs.id, row.id), eq(memoryJobs.status, 'pending')))
-      .run();
+      .run() as unknown as { changes?: number };
+    if ((result.changes ?? 0) === 0) continue;
     claimed.push(parseRow({
       ...row,
       status: 'running',

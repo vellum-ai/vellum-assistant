@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { MemoryConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { getMemoryCheckpoint, setMemoryCheckpoint } from './checkpoints.js';
@@ -66,13 +66,16 @@ export function indexMessageNow(
     }).run();
   }
 
-  enqueueMemoryJob('extract_items', { messageId: input.messageId });
+  if (input.role === 'user') {
+    enqueueMemoryJob('extract_items', { messageId: input.messageId });
+  }
   enqueueMemoryJob('build_conversation_summary', { conversationId: input.conversationId });
   enqueueSummaryRollupJobsIfDue();
 
+  const enqueuedJobs = input.role === 'user' ? 2 : 1;
   return {
     indexedSegments: segments.length,
-    enqueuedJobs: 2,
+    enqueuedJobs,
   };
 }
 
@@ -93,7 +96,7 @@ export function getRecentSegmentsForConversation(
     .select()
     .from(memorySegments)
     .where(eq(memorySegments.conversationId, conversationId))
-    .orderBy(memorySegments.createdAt)
+    .orderBy(desc(memorySegments.createdAt))
     .limit(limit)
     .all();
 }

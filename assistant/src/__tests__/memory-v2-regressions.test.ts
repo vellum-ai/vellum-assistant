@@ -29,9 +29,9 @@ import { estimateTextTokens } from '../context/token-estimator.js';
 import { requestMemoryBackfill } from '../memory/admin.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { selectEmbeddingBackend } from '../memory/embedding-backend.js';
-import { indexMessageNow } from '../memory/indexer.js';
+import { getRecentSegmentsForConversation, indexMessageNow } from '../memory/indexer.js';
 import { extractAndUpsertMemoryItemsForMessage } from '../memory/items-extractor.js';
-import { enqueueMemoryJob } from '../memory/jobs-store.js';
+import { claimMemoryJobs, enqueueMemoryJob } from '../memory/jobs-store.js';
 import { currentWeekWindow, runMemoryJobsOnce } from '../memory/jobs-worker.js';
 import {
   buildMemoryRecall,
@@ -276,6 +276,98 @@ describe('Memory V2 regressions', () => {
     expect(embedSegmentJobs).toHaveLength(0);
   });
 
+  test('indexing skips durable item extraction for non-user messages', () => {
+    const db = getDb();
+    const createdAt = 2_100;
+    db.insert(conversations).values({
+      id: 'conv-assistant-index',
+      title: null,
+      createdAt,
+      updatedAt: createdAt,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-assistant-index',
+      conversationId: 'conv-assistant-index',
+      role: 'assistant',
+      content: JSON.stringify([{ type: 'text', text: 'I think your timezone is PST.' }]),
+      createdAt,
+    }).run();
+
+    const result = indexMessageNow({
+      messageId: 'msg-assistant-index',
+      conversationId: 'conv-assistant-index',
+      role: 'assistant',
+      content: JSON.stringify([{ type: 'text', text: 'I think your timezone is PST.' }]),
+      createdAt,
+    }, DEFAULT_CONFIG.memory);
+    expect(result.enqueuedJobs).toBe(1);
+
+    const extractionJobs = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, 'extract_items'))
+      .all();
+    expect(extractionJobs).toHaveLength(0);
+  });
+
+  test('recent segment helper returns newest segments first', () => {
+    const db = getDb();
+    db.insert(conversations).values({
+      id: 'conv-recent',
+      title: null,
+      createdAt: 2_200,
+      updatedAt: 2_200,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values([
+      {
+        id: 'msg-recent-1',
+        conversationId: 'conv-recent',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'old' }]),
+        createdAt: 2_201,
+      },
+      {
+        id: 'msg-recent-2',
+        conversationId: 'conv-recent',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'newer' }]),
+        createdAt: 2_202,
+      },
+      {
+        id: 'msg-recent-3',
+        conversationId: 'conv-recent',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'newest' }]),
+        createdAt: 2_203,
+      },
+    ]).run();
+    db.run(`
+      INSERT INTO memory_segments (
+        id, message_id, conversation_id, role, segment_index, text, token_estimate, created_at, updated_at
+      ) VALUES
+      ('seg-recent-1', 'msg-recent-1', 'conv-recent', 'user', 0, 'old', 1, 2201, 2201),
+      ('seg-recent-2', 'msg-recent-2', 'conv-recent', 'user', 0, 'newer', 1, 2202, 2202),
+      ('seg-recent-3', 'msg-recent-3', 'conv-recent', 'user', 0, 'newest', 1, 2203, 2203)
+    `);
+
+    const recent = getRecentSegmentsForConversation('conv-recent', 2);
+    expect(recent).toHaveLength(2);
+    expect(recent[0]?.id).toBe('seg-recent-3');
+    expect(recent[1]?.id).toBe('seg-recent-2');
+  });
+
   test('embed jobs are skipped (not failed) when no embedding backend is configured', async () => {
     const db = getDb();
     const now = 3_000;
@@ -405,5 +497,31 @@ describe('Memory V2 regressions', () => {
     const recall = await buildMemoryRecall('budget sentinel', 'conv-budget', config);
     expect(recall.injectedText).toBe('');
     expect(recall.injectedTokens).toBe(0);
+  });
+
+  test('claimMemoryJobs only returns rows it actually claimed', () => {
+    const db = getDb();
+    const jobId = enqueueMemoryJob('build_conversation_summary', { conversationId: 'conv-lock' });
+    db.run(`
+      CREATE TEMP TRIGGER memory_jobs_claim_ignore
+      BEFORE UPDATE ON memory_jobs
+      WHEN NEW.status = 'running' AND OLD.id = '${jobId}'
+      BEGIN
+        SELECT RAISE(IGNORE);
+      END;
+    `);
+
+    try {
+      const claimed = claimMemoryJobs(10);
+      expect(claimed).toHaveLength(0);
+      const row = db
+        .select()
+        .from(memoryJobs)
+        .where(eq(memoryJobs.id, jobId))
+        .get();
+      expect(row?.status).toBe('pending');
+    } finally {
+      db.run('DROP TRIGGER IF EXISTS memory_jobs_claim_ignore');
+    }
   });
 });
