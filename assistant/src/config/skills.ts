@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { getDataDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
@@ -138,13 +138,21 @@ function resolveIndexEntryToDirectory(skillsDir: string, entry: string): string 
     ? dirname(resolvedEntryPath)
     : resolvedEntryPath;
 
-  const relativePath = relative(skillsDir, resolvedDirectory);
+  const boundaryRoot = existsSync(skillsDir) ? realpathSync(skillsDir) : resolve(skillsDir);
+  const boundaryCandidate = existsSync(resolvedDirectory)
+    ? realpathSync(resolvedDirectory)
+    : resolvedDirectory;
+
+  const relativePath = relative(boundaryRoot, boundaryCandidate);
   if (relativePath.length === 0) {
     log.warn({ entry }, 'Skipping SKILLS.md entry that resolves to the skills root');
     return null;
   }
   if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
-    log.warn({ entry, resolvedDirectory }, 'Skipping SKILLS.md entry that resolves outside ~/.vellum/skills');
+    log.warn(
+      { entry, resolvedDirectory: boundaryCandidate },
+      'Skipping SKILLS.md entry that resolves outside ~/.vellum/skills',
+    );
     return null;
   }
 

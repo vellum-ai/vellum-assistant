@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -78,6 +78,21 @@ describe('skills catalog loading', () => {
 
     const catalog = loadSkillCatalog();
     expect(catalog.map((skill) => skill.id)).toEqual(['safe']);
+  });
+
+  test('rejects symlinked SKILLS.md entries that point outside ~/.vellum/skills', () => {
+    const externalSkillDir = join(TEST_DIR, 'outside', 'external-skill');
+    mkdirSync(externalSkillDir, { recursive: true });
+    writeFileSync(
+      join(externalSkillDir, 'SKILL.md'),
+      '---\nname: "External Skill"\ndescription: "Outside skills root."\n---\n\nDo not load.\n',
+    );
+
+    symlinkSync(externalSkillDir, join(TEST_DIR, 'skills', 'linked-skill'));
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- linked-skill\n');
+
+    const catalog = loadSkillCatalog();
+    expect(catalog).toHaveLength(0);
   });
 
   test('uses SKILLS.md ordering when index exists', () => {
