@@ -14,14 +14,19 @@ import { WorkflowCTA } from "./WorkflowCTA";
 export function VellumBody() {
   return (
     <>
-      {/* Hero wrapper with background spanning navbar, hero, and logo marquee */}
+      {/* Hero wrapper - always 100vh */}
       <div
         style={{
+          height: "100vh",
+          minHeight: "100vh",
           backgroundImage: "url('/hero-bg.jpg')",
-          backgroundSize: "cover",
+          backgroundSize: "auto 100%",
           backgroundPosition: "center bottom",
           backgroundRepeat: "no-repeat",
+          backgroundColor: "#3a8bc2",
           position: "relative",
+          display: "flex",
+          flexDirection: "column",
         }}
       >
         <NavBar />
