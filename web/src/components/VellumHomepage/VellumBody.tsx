@@ -29,6 +29,15 @@ export function VellumBody() {
           flexDirection: "column",
         }}
       >
+        {/* Dark overlay for text readability */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.35)",
+            pointerEvents: "none",
+          }}
+        />
         <NavBar />
         <HeroSection />
         <LogoMarquee />
