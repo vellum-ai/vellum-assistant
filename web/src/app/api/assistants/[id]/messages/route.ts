@@ -19,11 +19,13 @@ import {
 import { buildAttachmentFallbackText } from "@/lib/attachments";
 import { getInstanceExternalIp } from "@/lib/gcp";
 import {
+  type DaemonUserMessageAttachment,
   LocalDaemonClient,
   LocalDaemonError,
   describeLocalDaemonError,
   isLocalDaemonErrorWithCode,
 } from "@/lib/local-daemon-ipc";
+import { getStorage } from "@/lib/storage";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -61,6 +63,7 @@ interface MessagePayload {
 }
 
 const GREETING_MESSAGE = "Hey there! I just hatched 🐣\n\nWhat's your name? And while we're at it — what should I call myself?";
+const ATTACHMENTS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || "vellum-ai-prod-vellum-assistant";
 
 const GITHUB_APP_HTML = `<div style="border:1px solid #d0d7de;border-radius:12px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;max-width:600px;background:#fff">
   <div style="background:#24292f;padding:16px 24px;display:flex;align-items:center;gap:12px">
@@ -373,6 +376,28 @@ async function buildMessagePayloads(messages: ChatMessage[]): Promise<MessagePay
   }));
 }
 
+async function buildLocalDaemonAttachments(
+  attachments: ChatAttachment[]
+): Promise<DaemonUserMessageAttachment[]> {
+  if (attachments.length === 0) {
+    return [];
+  }
+
+  const bucket = getStorage().bucket(ATTACHMENTS_BUCKET_NAME);
+  return Promise.all(
+    attachments.map(async (attachment) => {
+      const [buffer] = await bucket.file(attachment.storageKey).download();
+      return {
+        id: attachment.id,
+        filename: attachment.originalFilename,
+        mimeType: attachment.mimeType,
+        data: buffer.toString("base64"),
+        extractedText: attachment.extractedText ?? undefined,
+      };
+    })
+  );
+}
+
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
@@ -584,7 +609,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const forwardedContent = buildForwardedContent(content, attachments);
     const connectionMode = getAssistantConnectionMode();
 
     if (connectionMode === "local") {
@@ -601,7 +625,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           assistantConfig
         );
 
-        const localResponse = await daemon.sendUserMessage(sessionId, forwardedContent);
+        const daemonAttachments = await buildLocalDaemonAttachments(attachments);
+        const localResponse = await daemon.sendUserMessage(
+          sessionId,
+          content,
+          daemonAttachments
+        );
         const userMessage = await createChatMessage({
           assistantId,
           role: "user",
@@ -641,6 +670,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         daemon?.close();
       }
     }
+
+    const forwardedContent = buildForwardedContent(content, attachments);
     const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
