@@ -69,6 +69,13 @@ describe('Permission Checker', () => {
       });
     });
 
+    describe('skill_load', () => {
+      test('skill_load is always low risk', async () => {
+        const risk = await classifyRisk('skill_load', { skill: 'release-checklist' });
+        expect(risk).toBe(RiskLevel.Low);
+      });
+    });
+
     // shell commands - low risk
     describe('shell — low risk', () => {
       test('ls is low risk', async () => {

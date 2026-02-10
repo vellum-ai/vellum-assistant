@@ -544,7 +544,7 @@ program
 
     // 5. ~/.vellum/ directory structure
     const dataDir = getDataDir();
-    const requiredDirs = [dataDir, `${dataDir}/data`, `${dataDir}/logs`];
+    const requiredDirs = [dataDir, `${dataDir}/data`, `${dataDir}/logs`, `${dataDir}/skills`];
     const missing = requiredDirs.filter((d) => !existsSync(d));
     if (missing.length === 0) {
       pass('Directory structure exists');
