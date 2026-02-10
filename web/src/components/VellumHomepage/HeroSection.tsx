@@ -45,7 +45,7 @@ export function HeroSection() {
           marginTop: "1.5rem",
           maxWidth: "700px",
         }}>
-          An assistant that has its own identity and has context of your life. It can clear your inbox, book your flights, submit PRs, becomes indispensable, and stays yours forever.
+          An assistant with its own identity and context about your life. It clears your inbox, books flights, submits PRs, and stays yours forever.
         </p>
 
         {/* Waitlist Button */}
