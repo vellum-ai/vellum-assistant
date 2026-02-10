@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -47,10 +47,9 @@ describe('Trust Store', () => {
     try { rmSync(trustPath); } catch { /* may not exist */ }
   });
 
-  afterAll(() => {
-    // Clean up temp directory
-    try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
-  });
+  // Intentionally do not remove `testDir` in afterAll.
+  // A late async log flush can still attempt to open `test.log` under this dir,
+  // which intermittently causes an unhandled ENOENT in CI if the dir is removed.
 
   // ── addRule ─────────────────────────────────────────────────────
 
