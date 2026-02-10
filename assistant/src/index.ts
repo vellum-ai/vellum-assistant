@@ -44,6 +44,12 @@ import {
 } from './memory/conversation-store.js';
 import { initializeDb } from './memory/db.js';
 import { formatMarkdown, formatJson } from './export/formatter.js';
+import {
+  getMemorySystemStatus,
+  queryMemory,
+  requestMemoryBackfill,
+  requestMemoryRebuildIndex,
+} from './memory/admin.js';
 
 function sendOneMessage(
   msg: ClientMessage,
@@ -409,6 +415,79 @@ trust
     }
   });
 
+// --- Memory commands ---
+const memory = program.command('memory').description('Manage long-term memory indexing/retrieval');
+
+memory
+  .command('status')
+  .description('Show memory subsystem status')
+  .action(() => {
+    initializeDb();
+    const status = getMemorySystemStatus();
+    console.log(`Memory enabled: ${status.enabled ? 'yes' : 'no'}`);
+    console.log(`Memory degraded: ${status.degraded ? 'yes' : 'no'}`);
+    if (status.reason) console.log(`Reason: ${status.reason}`);
+    if (status.provider && status.model) {
+      console.log(`Embedding backend: ${status.provider}/${status.model}`);
+    } else {
+      console.log('Embedding backend: none');
+    }
+    console.log(`Segments: ${status.counts.segments.toLocaleString()}`);
+    console.log(`Items: ${status.counts.items.toLocaleString()}`);
+    console.log(`Summaries: ${status.counts.summaries.toLocaleString()}`);
+    console.log(`Embeddings: ${status.counts.embeddings.toLocaleString()}`);
+    console.log('Jobs:');
+    for (const [key, value] of Object.entries(status.jobs)) {
+      console.log(`  ${key}: ${value}`);
+    }
+  });
+
+memory
+  .command('backfill')
+  .description('Queue a memory backfill job')
+  .action(() => {
+    initializeDb();
+    const jobId = requestMemoryBackfill();
+    console.log(`Queued backfill job: ${jobId}`);
+  });
+
+memory
+  .command('query <text>')
+  .description('Run a memory recall query and print the injected memory payload')
+  .option('-s, --session <id>', 'Optional conversation/session ID')
+  .action(async (text: string, opts?: { session?: string }) => {
+    initializeDb();
+    let sessionId = opts?.session;
+    if (!sessionId) {
+      const latest = listConversations(1)[0];
+      sessionId = latest?.id ?? '';
+    }
+    const result = await queryMemory(text, sessionId ?? '');
+    if (result.degraded) {
+      console.log(`Memory degraded: ${result.reason ?? 'unknown reason'}`);
+    }
+    console.log(`Lexical hits: ${result.lexicalHits}`);
+    console.log(`Semantic hits: ${result.semanticHits}`);
+    console.log(`Recency hits: ${result.recencyHits}`);
+    console.log(`Injected tokens: ${result.injectedTokens}`);
+    console.log(`Latency: ${result.latencyMs}ms`);
+    if (result.injectedText.length > 0) {
+      console.log('');
+      console.log(result.injectedText);
+    } else {
+      console.log('No memory injected.');
+    }
+  });
+
+memory
+  .command('rebuild-index')
+  .description('Queue a memory FTS+embedding index rebuild job')
+  .action(() => {
+    initializeDb();
+    const jobId = requestMemoryRebuildIndex();
+    console.log(`Queued rebuild-index job: ${jobId}`);
+  });
+
 // --- Audit command ---
 program
   .command('audit')
@@ -707,9 +786,10 @@ program
       config: ['set', 'get', 'list'],
       keys: ['list', 'set', 'delete'],
       trust: ['list', 'remove', 'clear'],
+      memory: ['status', 'backfill', 'query', 'rebuild-index'],
     };
     const topLevel = [
-      'daemon', 'sessions', 'config', 'keys', 'trust',
+      'daemon', 'sessions', 'config', 'keys', 'trust', 'memory',
       'audit', 'doctor', 'completions', 'help',
     ];
 
@@ -777,6 +857,7 @@ _vellum() {
         'config:Manage configuration'
         'keys:Manage API keys in secure storage'
         'trust:Manage trust rules'
+        'memory:Manage long-term memory'
         'audit:Show recent tool invocations'
         'doctor:Run diagnostic checks'
         'completions:Generate shell completion script'
@@ -817,6 +898,7 @@ function generateFishCompletion(
     config: 'Manage configuration',
     keys: 'Manage API keys in secure storage',
     trust: 'Manage trust rules',
+    memory: 'Manage long-term memory',
     audit: 'Show recent tool invocations',
     doctor: 'Run diagnostic checks',
     completions: 'Generate shell completion script',

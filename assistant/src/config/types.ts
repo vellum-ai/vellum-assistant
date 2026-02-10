@@ -7,4 +7,10 @@ export type {
   AuditLogConfig,
   ThinkingConfig,
   ContextWindowConfig,
+  MemoryEmbeddingsConfig,
+  MemoryRetrievalConfig,
+  MemorySegmentationConfig,
+  MemoryJobsConfig,
+  MemoryRetentionConfig,
+  MemoryConfig,
 } from './schema.js';

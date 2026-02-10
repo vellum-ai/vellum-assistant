@@ -23,6 +23,11 @@ import {
   ContextWindowManager,
   createContextSummaryMessage,
 } from '../context/window-manager.js';
+import {
+  buildMemoryRecall,
+  createMemoryRecallMessage,
+  stripMemoryRecallMessages,
+} from '../memory/retriever.js';
 
 const log = getLogger('session');
 
@@ -217,8 +222,43 @@ export class Session {
       let exchangeInputTokens = 0;
       let exchangeOutputTokens = 0;
       let model = '';
+      let runMessages = this.messages;
+      const runtimeConfig = getConfig();
+      const recallQuery = buildMemoryQuery(content, this.messages);
+      const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig);
+
+      onEvent({
+        type: 'memory_status',
+        enabled: recall.enabled,
+        degraded: recall.degraded,
+        reason: recall.reason,
+        provider: recall.provider,
+        model: recall.model,
+      });
+
+      if (recall.injectedText.length > 0) {
+        const userTail = this.messages[this.messages.length - 1];
+        if (userTail) {
+          runMessages = [
+            ...this.messages.slice(0, -1),
+            createMemoryRecallMessage(recall.injectedText),
+            userTail,
+          ];
+          onEvent({
+            type: 'memory_recalled',
+            provider: recall.provider ?? 'unknown',
+            model: recall.model ?? 'unknown',
+            lexicalHits: recall.lexicalHits,
+            semanticHits: recall.semanticHits,
+            recencyHits: recall.recencyHits,
+            injectedTokens: recall.injectedTokens,
+            latencyMs: recall.latencyMs,
+          });
+        }
+      }
+
       const updatedHistory = await this.agentLoop.run(
-        this.messages,
+        runMessages,
         (event) => {
           switch (event.type) {
             case 'text_delta':
@@ -258,7 +298,7 @@ export class Session {
         this.abortController.signal,
       );
 
-      this.messages = updatedHistory;
+      this.messages = stripMemoryRecallMessages(updatedHistory);
 
       // Update cumulative token usage
       if (exchangeInputTokens > 0 || exchangeOutputTokens > 0) {
@@ -365,4 +405,21 @@ export class Session {
       log.info({ conversationId: this.conversationId, title }, 'Auto-generated conversation title');
     }
   }
+}
+
+function buildMemoryQuery(content: string, messages: Message[]): string {
+  const summaryMessage = messages.find((message) =>
+    message.role === 'assistant'
+    && message.content.some((block) => block.type === 'text' && block.text.includes('[Context Summary v1]')),
+  );
+  const summaryText = summaryMessage
+    ? summaryMessage.content
+      .filter((block): block is Extract<typeof summaryMessage.content[number], { type: 'text' }> => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+    : '';
+  const compactSummary = summaryText.slice(0, 1200);
+  return compactSummary.length > 0
+    ? `${content}\n\nContext summary:\n${compactSummary}`
+    : content;
 }
