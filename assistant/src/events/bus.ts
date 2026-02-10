@@ -1,8 +1,9 @@
 export type EventMap = Record<string, object>;
+type EventShape<TEvents> = Record<keyof TEvents & string, object>;
 
 export type EventListener<TPayload extends object> = (payload: TPayload) => void | Promise<void>;
 
-export type AnyEventEnvelope<TEvents extends EventMap> = {
+export type AnyEventEnvelope<TEvents extends EventShape<TEvents>> = {
   [K in keyof TEvents & string]: {
     type: K;
     payload: TEvents[K];
@@ -10,7 +11,7 @@ export type AnyEventEnvelope<TEvents extends EventMap> = {
   };
 }[keyof TEvents & string];
 
-export type AnyEventListener<TEvents extends EventMap> = (event: AnyEventEnvelope<TEvents>) => void | Promise<void>;
+export type AnyEventListener<TEvents extends EventShape<TEvents>> = (event: AnyEventEnvelope<TEvents>) => void | Promise<void>;
 
 export interface Subscription {
   readonly active: boolean;
@@ -21,7 +22,7 @@ interface DirectListenerEntry {
   listener: EventListener<object>;
 }
 
-interface AnyListenerEntry<TEvents extends EventMap> {
+interface AnyListenerEntry<TEvents extends EventShape<TEvents>> {
   listener: AnyEventListener<TEvents>;
 }
 
@@ -51,7 +52,7 @@ export class EventBusDisposedError extends Error {
   }
 }
 
-export class EventBus<TEvents extends EventMap> {
+export class EventBus<TEvents extends EventShape<TEvents>> {
   private readonly listeners = new Map<keyof TEvents & string, Set<DirectListenerEntry>>();
   private readonly anyListeners = new Set<AnyListenerEntry<TEvents>>();
   private readonly subscriptions = new Set<BasicSubscription>();
