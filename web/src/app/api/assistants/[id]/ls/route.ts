@@ -52,6 +52,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       | undefined;
 
     if (!computeConfig?.instanceName || !computeConfig?.zone) {
+      if (process.env.NODE_ENV !== "production") {
+        return NextResponse.json({
+          files: [],
+          path,
+          demoMode: true,
+          message: "File system browsing is unavailable in local demo mode (no compute instance configured).",
+        });
+      }
       return NextResponse.json(
         { error: "No compute instance configured" },
         { status: 400 }
