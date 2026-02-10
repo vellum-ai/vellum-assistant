@@ -28,6 +28,8 @@ dist
 .private/
 temp.sh
 context.md
+.codex
+
 
 # debug
 npm-debug.log*
