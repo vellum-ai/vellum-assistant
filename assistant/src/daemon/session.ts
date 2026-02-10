@@ -22,6 +22,7 @@ import { createToolAuditListener } from '../events/tool-audit-listener.js';
 import {
   ContextWindowManager,
   createContextSummaryMessage,
+  getSummaryFromContextMessage,
 } from '../context/window-manager.js';
 import {
   buildMemoryRecall,
@@ -360,14 +361,7 @@ export class Session {
   undo(): number {
     if (this.processing) return 0;
 
-    // Find last user message in memory
-    let lastUserIdx = -1;
-    for (let i = this.messages.length - 1; i >= 0; i--) {
-      if (this.messages[i].role === 'user') {
-        lastUserIdx = i;
-        break;
-      }
-    }
+    const lastUserIdx = findLastUndoableUserMessageIndex(this.messages);
     if (lastUserIdx === -1) return 0;
 
     const removed = this.messages.length - lastUserIdx;
@@ -434,17 +428,26 @@ export class Session {
   }
 }
 
+function isUndoableUserMessage(message: Message): boolean {
+  if (message.role !== 'user') return false;
+  if (getSummaryFromContextMessage(message) !== null) return false;
+  if (message.content.some((block) => block.type === 'tool_result')) return false;
+  return true;
+}
+
+export function findLastUndoableUserMessageIndex(messages: Message[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (isUndoableUserMessage(messages[i])) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 function buildMemoryQuery(content: string, messages: Message[]): string {
-  const summaryMessage = messages.find((message) =>
-    message.role === 'assistant'
-    && message.content.some((block) => block.type === 'text' && block.text.includes('[Context Summary v1]')),
-  );
-  const summaryText = summaryMessage
-    ? summaryMessage.content
-      .filter((block): block is Extract<typeof summaryMessage.content[number], { type: 'text' }> => block.type === 'text')
-      .map((block) => block.text)
-      .join('\n')
-    : '';
+  const summaryText = messages
+    .map((message) => getSummaryFromContextMessage(message))
+    .find((summary): summary is string => summary !== null) ?? '';
   const compactSummary = summaryText.slice(0, 1200);
   return compactSummary.length > 0
     ? `${content}\n\nContext summary:\n${compactSummary}`
