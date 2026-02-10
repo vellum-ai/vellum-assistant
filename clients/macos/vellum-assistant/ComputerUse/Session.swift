@@ -337,8 +337,8 @@ final class ComputerUseSession: ObservableObject {
 
             // 7. WAIT — adaptive delay: poll for AX tree changes instead of fixed sleep
             if adaptiveDelayEnabled && axTreeText != nil {
-                let prevCount = flatElements?.count ?? 0
-                await waitForUISettle(previousTree: axTreeText, previousElementCount: prevCount)
+                let prevHash = flatElements.map { Self.fastElementHash($0) } ?? 0
+                await waitForUISettle(previousTree: axTreeText, previousHash: prevHash)
             } else {
                 try? await Task.sleep(nanoseconds: stepDelayMs * 1_000_000)
             }
@@ -352,9 +352,9 @@ final class ComputerUseSession: ObservableObject {
     // MARK: - Adaptive Delay
 
     /// Poll the AX tree until it changes or max polls are exhausted.
-    /// Uses a fast path (element count comparison) for most polls and only
-    /// does a full tree format+compare on the first and last poll.
-    private func waitForUISettle(previousTree: String?, previousElementCount: Int) async {
+    /// Uses a fast path (lightweight hash of element properties) for most polls
+    /// and only does a full tree format+compare on the first and last poll.
+    private func waitForUISettle(previousTree: String?, previousHash: Int) async {
         // Always wait the minimum delay to let CGEvents propagate
         try? await Task.sleep(nanoseconds: minDelayMs * 1_000_000)
 
@@ -378,10 +378,12 @@ final class ComputerUseSession: ObservableObject {
                         return
                     }
                 } else {
-                    // Fast path: just compare element count (O(1) vs full tree format)
-                    let currentCount = AccessibilityTreeEnumerator.flattenElements(result.elements).count
-                    if currentCount != previousElementCount {
-                        log.debug("UI settled after \(elapsed)ms (element count changed: \(previousElementCount) → \(currentCount))")
+                    // Fast path: compare a lightweight hash that captures count,
+                    // values, and focus state without full tree formatting.
+                    let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
+                    let currentHash = Self.fastElementHash(flat)
+                    if currentHash != previousHash {
+                        log.debug("UI settled after \(elapsed)ms (element hash changed)")
                         return
                     }
                 }
@@ -393,6 +395,20 @@ final class ComputerUseSession: ObservableObject {
         }
 
         log.debug("UI settle timeout after \(elapsed)ms (polls: \(pollCount))")
+    }
+
+    /// Compute a lightweight hash of flattened elements that captures count,
+    /// values, titles, and focus state — enough to detect text edits, checkbox
+    /// toggles, and focus changes without full tree formatting.
+    private static func fastElementHash(_ elements: [AXElement]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(elements.count)
+        for el in elements {
+            hasher.combine(el.value)
+            hasher.combine(el.title)
+            hasher.combine(el.isFocused)
+        }
+        return hasher.finalize()
     }
 
     // MARK: - Conditional Secondary Windows
@@ -414,15 +430,21 @@ final class ComputerUseSession: ObservableObject {
 
     private static let appKeywords: Set<String> = [
         "safari", "chrome", "firefox", "slack", "finder", "notes", "mail",
-        "messages", "terminal", "vscode", "code", "xcode", "spotify",
+        "messages", "terminal", "vscode", "xcode", "spotify",
         "discord", "notion", "figma", "teams", "zoom", "preview",
         "textedit", "pages", "numbers", "keynote", "calendar"
     ]
 
+    /// Cross-app phrases that strongly indicate a multi-app task.
+    /// Each phrase must be specific enough to avoid matching single-app commands
+    /// like "switch to dark mode" or "copy from the first column".
     private static let crossAppPhrases = [
-        "copy from", "paste into", "switch to", "drag from", "move to",
-        "from safari", "from chrome", "from slack", "to safari", "to chrome",
-        "to slack", "between"
+        "paste into", "drag from",
+        "from safari", "from chrome", "from slack", "from finder",
+        "from notes", "from mail", "from terminal", "from xcode",
+        "to safari", "to chrome", "to slack", "to finder",
+        "to notes", "to mail", "to terminal", "to xcode",
+        "between apps", "between windows"
     ]
 
     private func taskMentionsMultipleApps() -> Bool {
@@ -433,16 +455,23 @@ final class ComputerUseSession: ObservableObject {
             if lower.contains(phrase) { return true }
         }
 
-        // Check if 2+ app names appear in the task
+        // Check if 2+ distinct app names appear in the task (word-boundary matching)
         var appCount = 0
         for keyword in Self.appKeywords {
-            if lower.contains(keyword) {
+            if Self.matchesWholeWord(keyword, in: lower) {
                 appCount += 1
                 if appCount >= 2 { return true }
             }
         }
 
         return false
+    }
+
+    /// Match a keyword as a whole word in the text, preventing substring overlaps
+    /// (e.g., "code" should not match inside "xcode" or "vscode").
+    private static func matchesWholeWord(_ keyword: String, in text: String) -> Bool {
+        let pattern = "\\b\(NSRegularExpression.escapedPattern(for: keyword))\\b"
+        return text.range(of: pattern, options: .regularExpression) != nil
     }
 
     // MARK: - Conditional Screenshot
