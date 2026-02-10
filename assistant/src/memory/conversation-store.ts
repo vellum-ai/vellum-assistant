@@ -14,6 +14,9 @@ export function createConversation(title?: string) {
     totalInputTokens: 0,
     totalOutputTokens: 0,
     totalEstimatedCost: 0,
+    contextSummary: null as string | null,
+    contextCompactedMessageCount: 0,
+    contextCompactedAt: null as number | null,
   };
   db.insert(conversations).values(conversation).run();
   return conversation;
@@ -102,6 +105,23 @@ export function updateConversationUsage(
     .run();
 }
 
+export function updateConversationContextWindow(
+  id: string,
+  contextSummary: string,
+  contextCompactedMessageCount: number,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      contextSummary,
+      contextCompactedMessageCount,
+      contextCompactedAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, id))
+    .run();
+}
+
 /**
  * Delete the last user message and any subsequent assistant messages.
  * Uses rowid comparison instead of timestamps to avoid deleting messages
@@ -145,4 +165,3 @@ export function deleteLastExchange(conversationId: string): number {
 
   return deleted;
 }
-

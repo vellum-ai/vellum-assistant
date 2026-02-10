@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import HotKey
+import UserNotifications
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -35,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupVoiceInput()
         setupAmbientAgent()
         setupWindowObserver()
+        setupNotifications()
     }
 
     private func setupWindowObserver() {
@@ -211,6 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.setupVoiceInput()
             self?.setupAmbientAgent()
             self?.setupWindowObserver()
+            self?.setupNotifications()
 
             NSApp.setActivationPolicy(.accessory)
         }
@@ -259,12 +262,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task { @MainActor in
             await session.run()
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s for undo opportunity
             overlay.close()
             self.overlayWindow = nil
             self.currentSession = nil
             self.ambientAgent.resume()
         }
+    }
+
+    // MARK: - Notifications
+
+    private func setupNotifications() {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error {
+                print("Notification authorization error: \(error.localizedDescription)")
+            }
+        }
+
+        let approveAction = UNNotificationAction(identifier: "APPROVE_ACTION", title: "Approve", options: [])
+        let dismissAction = UNNotificationAction(identifier: "DISMISS_ACTION", title: "Dismiss", options: [])
+        let automationCategory = UNNotificationCategory(
+            identifier: "AUTOMATION_INSIGHT",
+            actions: [approveAction, dismissAction],
+            intentIdentifiers: []
+        )
+        center.setNotificationCategories([automationCategory])
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -273,5 +300,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         voiceInput?.stop()
         ambientAgent.stop()
+    }
+}
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        let userInfo = response.notification.request.content.userInfo
+        guard response.notification.request.content.categoryIdentifier == "AUTOMATION_INSIGHT",
+              let insightId = userInfo["insightId"] as? String,
+              let insightTitle = userInfo["insightTitle"] as? String,
+              let description = userInfo["insightDescription"] as? String else {
+            return
+        }
+
+        let approved: Bool
+        switch response.actionIdentifier {
+        case "APPROVE_ACTION":
+            approved = true
+        case "DISMISS_ACTION":
+            approved = false
+        default:
+            return  // Ignore default tap and other actions
+        }
+
+        let schedule = ScheduleParser.parse(from: description)
+
+        let decision = AutomationDecision(
+            insightId: insightId,
+            insightTitle: insightTitle,
+            description: description,
+            schedule: schedule,
+            approved: approved,
+            source: "alexs-macbook-pro-2"
+        )
+
+        let syncClient = await MainActor.run { ambientAgent.syncClient }
+        await syncClient?.sendDecision(decision)
     }
 }

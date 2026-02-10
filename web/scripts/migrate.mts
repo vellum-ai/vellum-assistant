@@ -16,14 +16,14 @@ if (preview) {
     writeFileSync(join(diffDir, "base-schema.ts"), baseSchema);
 
     execSync(
-      `bunx drizzle-kit generate --schema "${join(diffDir, "base-schema.ts")}" --out "${diffDir}" --dialect postgresql`,
+      `bunx --bun drizzle-kit generate --schema "${join(diffDir, "base-schema.ts")}" --out "${diffDir}" --dialect postgresql`,
       { stdio: "pipe" }
     );
     const baseline = readdirSync(diffDir).filter((f) => f.endsWith(".sql"));
 
     // Generate diff migration from current PR schema
     execSync(
-      `bunx drizzle-kit generate --schema ./src/lib/schema.ts --out "${diffDir}" --dialect postgresql`,
+      `bunx --bun drizzle-kit generate --schema ./src/lib/schema.ts --out "${diffDir}" --dialect postgresql`,
       { stdio: "pipe" }
     );
     const total = readdirSync(diffDir).filter((f) => f.endsWith(".sql"));
@@ -44,6 +44,6 @@ if (preview) {
   console.log("Ensuring database exists...\n");
   execSync("bun run scripts/ensure-db.mts", { stdio: "inherit" });
   console.log("\nPushing schema changes to database...\n");
-  execSync("bunx drizzle-kit push --force", { stdio: "inherit" });
+  execSync("bunx --bun drizzle-kit push --force", { stdio: "inherit" });
   console.log("\nSchema push completed successfully.");
 }

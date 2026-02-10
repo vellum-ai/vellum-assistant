@@ -10,17 +10,50 @@ import { PromptsGrid } from "./PromptsGrid";
 import { TriggerCards } from "./TriggerCards";
 import { VideoIntro } from "./VideoIntro";
 import { WorkflowCTA } from "./WorkflowCTA";
-import { getTemplatesForHomepage } from "@/lib/template-content";
 
 export function VellumBody() {
-  // Fetch templates for each category
-  const templatesByCategory = getTemplatesForHomepage();
-
   return (
     <>
-      <NavBar />
-      <HeroSection templatesByCategory={templatesByCategory} />
-      <LogoMarquee />
+      {/* Hero wrapper - always 100vh */}
+      <div
+        style={{
+          height: "100vh",
+          minHeight: "100vh",
+          backgroundImage: "url('/hero-bg.jpg')",
+          backgroundSize: "cover",
+          backgroundPosition: "center 30%",
+          backgroundRepeat: "no-repeat",
+          backgroundColor: "#3a8bc2",
+          position: "relative",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        {/* Dark overlay for text readability - z-index 1 */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.35)",
+            zIndex: 1,
+            pointerEvents: "none",
+          }}
+        />
+        {/* Content wrapper - z-index 2, above overlay */}
+        <div
+          style={{
+            position: "relative",
+            zIndex: 2,
+            display: "flex",
+            flexDirection: "column",
+            flex: 1,
+          }}
+        >
+          <NavBar />
+          <HeroSection />
+          <LogoMarquee />
+        </div>
+      </div>
       <AutomateSection />
       <TriggerCards />
       <VideoIntro />

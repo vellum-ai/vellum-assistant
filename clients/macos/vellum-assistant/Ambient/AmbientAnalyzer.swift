@@ -9,7 +9,7 @@ enum AmbientDecision: String, Codable {
     case suggest
 }
 
-struct AmbientAnalysisResult {
+struct AmbientAnalysisResult: Codable {
     let decision: AmbientDecision
     let observation: String?
     let suggestion: String?

@@ -6,4 +6,5 @@ export type {
   SecretDetectionConfig,
   AuditLogConfig,
   ThinkingConfig,
+  ContextWindowConfig,
 } from './schema.js';

@@ -1,11 +1,72 @@
-import type { RiskLevel } from '../permissions/types.js';
+import type { RiskLevel, AllowlistOption, ScopeOption } from '../permissions/types.js';
 import type { ToolDefinition } from '../providers/types.js';
 
-export interface SecretDetectionEvent {
+interface ToolLifecycleEventBase {
   toolName: string;
+  input: Record<string, unknown>;
+  workingDir: string;
+  sessionId: string;
+  conversationId: string;
+}
+
+export interface ToolExecutionStartEvent extends ToolLifecycleEventBase {
+  type: 'start';
+  startedAtMs: number;
+}
+
+export interface ToolPermissionPromptEvent extends ToolLifecycleEventBase {
+  type: 'permission_prompt';
+  riskLevel: string;
+  reason: string;
+  allowlistOptions: AllowlistOption[];
+  scopeOptions: ScopeOption[];
+  diff?: DiffInfo;
+  sandboxed?: boolean;
+}
+
+export interface ToolPermissionDeniedEvent extends ToolLifecycleEventBase {
+  type: 'permission_denied';
+  riskLevel: string;
+  decision: 'deny' | 'always_deny';
+  reason: string;
+  durationMs: number;
+}
+
+export interface ToolExecutedEvent extends ToolLifecycleEventBase {
+  type: 'executed';
+  riskLevel: string;
+  decision: string;
+  durationMs: number;
+  result: ToolExecutionResult;
+}
+
+export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
+  type: 'error';
+  riskLevel: string;
+  decision: string;
+  durationMs: number;
+  errorMessage: string;
+  isExpected: boolean;
+  errorName?: string;
+  errorStack?: string;
+}
+
+export interface ToolSecretDetectedEvent extends ToolLifecycleEventBase {
+  type: 'secret_detected';
   matches: Array<{ type: string; redactedValue: string }>;
   action: 'redact' | 'warn' | 'block';
+  detectedAtMs: number;
 }
+
+export type ToolLifecycleEvent =
+  | ToolExecutionStartEvent
+  | ToolPermissionPromptEvent
+  | ToolPermissionDeniedEvent
+  | ToolExecutedEvent
+  | ToolExecutionErrorEvent
+  | ToolSecretDetectedEvent;
+
+export type ToolLifecycleEventHandler = (event: ToolLifecycleEvent) => void | Promise<void>;
 
 export interface ToolContext {
   workingDir: string;
@@ -15,8 +76,8 @@ export interface ToolContext {
   onOutput?: (chunk: string) => void;
   /** Per-session sandbox override. When set, takes precedence over the global config. */
   sandboxOverride?: boolean;
-  /** Optional callback when secrets are detected in tool output. */
-  onSecretDetected?: (event: SecretDetectionEvent) => void;
+  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error/secret_detected). */
+  onToolLifecycleEvent?: ToolLifecycleEventHandler;
 }
 
 export interface DiffInfo {
