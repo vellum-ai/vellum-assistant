@@ -240,7 +240,7 @@ final class ComputerUseSession: ObservableObject {
             logger.logTurn(step: stepNumber, axTree: axTreeText, screenshot: screenshot, action: action, usedVision: usedVision, usage: tokenUsage)
 
             // 3. CHECK COMPLETION
-            if action.type == .done {
+            if action.type == .done || action.type == .respond {
                 let summary = action.summary ?? "Task completed"
                 let record = ActionRecord(step: stepNumber, action: action, result: "executed", timestamp: Date())
                 actionHistory.append(record)

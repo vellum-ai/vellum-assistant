@@ -415,6 +415,27 @@ function InteractionView({
     .filter((attachment) => attachment.status === "uploaded" && attachment.attachmentId)
     .map((attachment) => attachment.attachmentId as string);
 
+  const deleteUploadedAttachments = useCallback(async (attachmentIds: string[]) => {
+    if (attachmentIds.length === 0) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/assistants/${assistantId}/attachments`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attachment_ids: attachmentIds }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.warn("Failed to delete pending attachments:", errorData.error || "Unknown error");
+      }
+    } catch (deleteErr) {
+      console.warn("Failed to delete pending attachments:", deleteErr);
+    }
+  }, [assistantId]);
+
   const uploadFiles = useCallback(
     async (files: File[]) => {
       if (files.length === 0) {
@@ -460,8 +481,20 @@ function InteractionView({
           throw new Error("Upload response mismatch");
         }
 
+        const orphanedAttachmentIds: string[] = [];
         setPendingAttachments((prev) => {
           const localIndexById = new Map(localEntries.map((entry, index) => [entry.localId, index]));
+          const activeLocalIds = new Set(prev.map((entry) => entry.localId));
+
+          for (const [idx, localEntry] of localEntries.entries()) {
+            if (!activeLocalIds.has(localEntry.localId)) {
+              const orphanedId = uploaded[idx]?.id;
+              if (typeof orphanedId === "string") {
+                orphanedAttachmentIds.push(orphanedId);
+              }
+            }
+          }
+
           return prev.map((entry) => {
             const idx = localIndexById.get(entry.localId);
             if (idx === undefined) {
@@ -480,6 +513,10 @@ function InteractionView({
             };
           });
         });
+
+        if (orphanedAttachmentIds.length > 0) {
+          void deleteUploadedAttachments(orphanedAttachmentIds);
+        }
       } catch (uploadErr) {
         const message = uploadErr instanceof Error ? uploadErr.message : "Attachment upload failed";
         const localIds = new Set(localEntries.map((entry) => entry.localId));
@@ -492,12 +529,17 @@ function InteractionView({
         );
       }
     },
-    [assistantId]
+    [assistantId, deleteUploadedAttachments]
   );
 
   const removePendingAttachment = useCallback((localId: string) => {
+    const selected = pendingAttachments.find((entry) => entry.localId === localId);
     setPendingAttachments((prev) => prev.filter((entry) => entry.localId !== localId));
-  }, []);
+
+    if (selected?.status === "uploaded" && selected.attachmentId) {
+      void deleteUploadedAttachments([selected.attachmentId]);
+    }
+  }, [deleteUploadedAttachments, pendingAttachments]);
 
   const handleStart = useCallback(async () => {
     setIsToggling(true);

@@ -6,9 +6,9 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { CreditCardModal } from "@/components/app/CreditCardModal";
-import { DynamicEditor } from "@/components/app/DynamicEditor";
+import { AssistantEditor } from "@/components/app/pages/AssistantEditor";
 import { HatchingModal } from "@/components/app/HatchingModal";
-import { Layout } from "@/components/app/Layout";
+import { Layout } from "@/components/app/pages/Layout";
 import { useAuth } from "@/lib/auth";
 import { Assistant } from "@/lib/db";
 
@@ -27,7 +27,7 @@ export default function AssistantPage() {
     if (isAuthLoading) {
       return;
     }
-    
+
     if (!isLoggedIn) {
       router.push("/login");
       return;
@@ -60,7 +60,9 @@ export default function AssistantPage() {
     setHatchError(null);
 
     try {
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
       headers["x-username"] = username;
 
       const response = await fetch("/api/assistants", {
@@ -113,7 +115,9 @@ export default function AssistantPage() {
       await fetchAssistants();
       setHatchState("idle");
     } catch (err) {
-      setHatchError(err instanceof Error ? err.message : "Failed to hatch assistant");
+      setHatchError(
+        err instanceof Error ? err.message : "Failed to hatch assistant",
+      );
     }
   }, [username, fetchAssistants]);
 
@@ -133,7 +137,7 @@ export default function AssistantPage() {
 
     try {
       const response = await fetch(
-        `/api/billing?username=${encodeURIComponent(username)}`
+        `/api/billing?username=${encodeURIComponent(username)}`,
       );
 
       if (!response.ok) {
@@ -148,7 +152,9 @@ export default function AssistantPage() {
         setHatchState("collecting_card");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to check payment method");
+      setError(
+        err instanceof Error ? err.message : "Failed to check payment method",
+      );
       setHatchState("idle");
     }
   }, [username, email, startHatching]);
@@ -216,7 +222,10 @@ export default function AssistantPage() {
         )}
 
         {hatchState === "hatching" && (
-          <HatchingModal error={hatchError} onDismissError={handleDismissHatchError} />
+          <HatchingModal
+            error={hatchError}
+            onDismissError={handleDismissHatchError}
+          />
         )}
       </Layout>
     );
@@ -235,7 +244,7 @@ export default function AssistantPage() {
   if (assistants.length === 1) {
     return (
       <div className="flex h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
-        <DynamicEditor assistantId={oldestAssistant.id} username={username} />
+        <AssistantEditor assistantId={oldestAssistant.id} username={username} />
       </div>
     );
   }
@@ -255,7 +264,7 @@ export default function AssistantPage() {
           <ArrowRight className="h-4 w-4" />
         </Link>
       </div>
-      <DynamicEditor assistantId={oldestAssistant.id} username={username} />
+      <AssistantEditor assistantId={oldestAssistant.id} username={username} />
     </div>
   );
 }

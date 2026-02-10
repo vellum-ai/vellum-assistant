@@ -38,13 +38,7 @@ export function NavBar() {
         <nav role="navigation" className="navbar2_menu is-page-height-tablet w-nav-menu">
           <ul data-fs-scrolldisable-element="preserve" role="list" className="nav_list u-hflex-between-center list-new new w-list-unstyled">
             <li className="nav_list_item new">
-              <a aria-label="Go to Pricing" href="/pricing" className="nav_list_link newlink new">Pricing</a>
-            </li>
-            <li className="nav_list_item new">
               <a aria-label="Go to Community" href="/community" className="nav_list_link newlink new">Community</a>
-            </li>
-            <li className="nav_list_item new">
-              <a aria-label="Go to Use Cases" href="/use-cases" className="nav_list_link newlink new">Use Cases</a>
             </li>
             <li className="nav_list_item new">
               <Link aria-label="Go to Blog" href="/blog" className="nav_list_link newlink new">Blog</Link>

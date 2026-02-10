@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-import { Layout } from "@/components/app/Layout";
+import { Layout } from "@/components/app/pages/Layout";
 import { useAuth } from "@/lib/auth";
 
 // API Key types

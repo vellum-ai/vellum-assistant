@@ -2,6 +2,8 @@
 
 import { Trash2 } from "lucide-react";
 import Link from "next/link";
+
+import { Button } from "@/components/app/core/Button";
 import { useRouter } from "next/navigation";
 import {
   ComponentType,
@@ -161,24 +163,23 @@ export function DynamicEditor({
             Failed to load editor: {error}
           </p>
           <div className="mt-4 flex gap-3">
-            <button
+            <Button
               onClick={() => {
                 fetchedRef.current = false;
                 setError(null);
                 setIsLoading(true);
                 setCompiled(null);
               }}
-              className="cursor-pointer rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
             >
               Retry
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => setShowDeleteModal(true)}
-              className="flex cursor-pointer items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
+              variant="danger"
+              icon={Trash2}
             >
-              <Trash2 className="h-4 w-4" />
               Delete Assistant
-            </button>
+            </Button>
           </div>
         </div>
         {showDeleteModal && (

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./(app)/meadow.css";
 
 :root {
   --background: #ffffff;

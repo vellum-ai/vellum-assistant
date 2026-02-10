@@ -58,6 +58,12 @@ final class AnthropicProvider: ActionInferenceProvider {
 
     // MARK: - System Prompt
 
+    private static func currentDateString() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMMM d, yyyy h:mm a"
+        return formatter.string(from: Date())
+    }
+
     private func buildSystemPrompt(screenSize: CGSize) -> String {
         """
         You are vellum-assistant's computer use agent. You control the user's Mac to accomplish tasks by interacting with UI elements one action at a time.
@@ -66,7 +72,7 @@ final class AnthropicProvider: ActionInferenceProvider {
 
         You will receive the current screen state as an accessibility tree. Each interactive element has an [ID] number like [3] or [17]. Use these IDs with element_id to target elements — this is much more reliable than pixel coordinates.
 
-        YOUR ONLY AVAILABLE TOOLS ARE: click, double_click, right_click, type_text, key, scroll, drag, wait, open_app, run_applescript, done.
+        YOUR ONLY AVAILABLE TOOLS ARE: click, double_click, right_click, type_text, key, scroll, drag, wait, open_app, run_applescript, done, respond.
         You MUST only call one of these tools each turn. Do NOT attempt to call any other tool.
 
         RULES:
@@ -103,6 +109,15 @@ final class AnthropicProvider: ActionInferenceProvider {
         - NEVER use "do shell script" inside AppleScript — it is blocked for security.
         - Keep scripts short and focused on a single operation.
         - Examples of good use: `tell application "Safari" to set URL of current tab of front window to "https://example.com"`, `tell application "Finder" to open POSIX file "/Users/me/Documents"`.
+
+        CALENDAR / SCHEDULE DATA:
+        Today is \(Self.currentDateString()).
+        Here are the user's upcoming meetings for today:
+        - 10:00 AM — Team Standup (30 min, Google Meet)
+        - 2:00 PM — 1:1 with Sarah (30 min, Zoom)
+        - 4:00 PM — Sprint Planning (1 hour, Conference Room B)
+
+        If the user is asking a question about their schedule or meetings, use the `respond` tool to answer directly. Do NOT use computer-control tools to open the Calendar app.
         """
     }
 
@@ -424,6 +439,10 @@ final class AnthropicProvider: ActionInferenceProvider {
         case "done":
             let summary = input["summary"] as? String ?? "Task completed"
             return AgentAction(type: .done, reasoning: reasoning, summary: summary)
+
+        case "respond":
+            let answer = input["answer"] as? String ?? "No answer provided"
+            return AgentAction(type: .respond, reasoning: reasoning, summary: answer)
 
         default:
             throw InferenceError.parseError("Unknown tool: \(name)")
