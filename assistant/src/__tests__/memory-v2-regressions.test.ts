@@ -25,7 +25,10 @@ mock.module('../util/logger.js', () => ({
 
 import { and, eq } from 'drizzle-orm';
 import { DEFAULT_CONFIG } from '../config/defaults.js';
+import { estimateTextTokens } from '../context/token-estimator.js';
+import { requestMemoryBackfill } from '../memory/admin.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { selectEmbeddingBackend } from '../memory/embedding-backend.js';
 import { indexMessageNow } from '../memory/indexer.js';
 import { extractAndUpsertMemoryItemsForMessage } from '../memory/items-extractor.js';
 import { enqueueMemoryJob } from '../memory/jobs-store.js';
@@ -306,5 +309,101 @@ describe('Memory V2 regressions', () => {
     expect(window.scopeKey).toBe('2025-W02');
     expect(window.startMs).toBe(Date.parse('2025-01-06T00:00:00.000Z'));
     expect(window.endMs).toBe(Date.parse('2025-01-13T00:00:00.000Z'));
+  });
+
+  test('explicit ollama memory embedding provider is honored without extra ollama config', () => {
+    const config = {
+      ...DEFAULT_CONFIG,
+      provider: 'anthropic' as const,
+      apiKeys: {},
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: {
+          ...DEFAULT_CONFIG.memory.embeddings,
+          provider: 'ollama' as const,
+        },
+      },
+    };
+
+    const selection = selectEmbeddingBackend(config);
+    expect(selection.backend?.provider).toBe('ollama');
+    expect(selection.reason).toBeNull();
+  });
+
+  test('memory backfill request resumes by default and only restarts when forced', () => {
+    const db = getDb();
+    const resumeJobId = requestMemoryBackfill();
+    const forceJobId = requestMemoryBackfill(true);
+
+    const resumeRow = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.id, resumeJobId))
+      .get();
+    const forceRow = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.id, forceJobId))
+      .get();
+
+    expect(resumeRow).not.toBeNull();
+    expect(forceRow).not.toBeNull();
+    expect(JSON.parse(resumeRow?.payload ?? '{}')).toMatchObject({ force: false });
+    expect(JSON.parse(forceRow?.payload ?? '{}')).toMatchObject({ force: true });
+  });
+
+  test('memory recall token budgeting includes recall marker overhead', async () => {
+    const db = getDb();
+    const createdAt = 1_700_000_300_000;
+    db.insert(conversations).values({
+      id: 'conv-budget',
+      title: null,
+      createdAt,
+      updatedAt: createdAt,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-budget',
+      conversationId: 'conv-budget',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'remember budget token sentinel' }]),
+      createdAt,
+    }).run();
+    db.run(`
+      INSERT INTO memory_segments (
+        id, message_id, conversation_id, role, segment_index, text, token_estimate, created_at, updated_at
+      ) VALUES (
+        'seg-budget', 'msg-budget', 'conv-budget', 'user', 0, 'remember budget token sentinel', 6, ${createdAt}, ${createdAt}
+      )
+    `);
+
+    const candidateLine = '- [segment:seg-budget] remember budget token sentinel';
+    const lineOnlyTokens = estimateTextTokens(candidateLine);
+    const fullRecallTokens = estimateTextTokens(`[Memory Recall v1]\n${candidateLine}`);
+    expect(fullRecallTokens).toBeGreaterThan(lineOnlyTokens);
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: {
+          ...DEFAULT_CONFIG.memory.embeddings,
+          required: false,
+        },
+        retrieval: {
+          ...DEFAULT_CONFIG.memory.retrieval,
+          maxInjectTokens: lineOnlyTokens,
+        },
+      },
+    };
+
+    const recall = await buildMemoryRecall('budget sentinel', 'conv-budget', config);
+    expect(recall.injectedText).toBe('');
+    expect(recall.injectedTokens).toBe(0);
   });
 });

@@ -50,8 +50,8 @@ export function getMemorySystemStatus(): MemorySystemStatus {
   }
 }
 
-export function requestMemoryBackfill(): string {
-  const id = enqueueBackfillJob(true);
+export function requestMemoryBackfill(force = false): string {
+  const id = enqueueBackfillJob(force);
   log.info({ jobId: id }, 'Queued memory backfill job');
   return id;
 }

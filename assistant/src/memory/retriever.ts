@@ -119,13 +119,10 @@ export async function buildMemoryRecall(
   }
 
   const merged = mergeCandidates(lexicalCandidates, semanticCandidates, recencyCandidates);
-  const selected = trimToTokenBudget(merged, config.memory.retrieval.maxInjectTokens);
+  const selected = trimToTokenBudget(merged, config.memory.retrieval.maxInjectTokens, MEMORY_RECALL_MARKER);
   markItemUsage(selected);
 
-  const lines = selected.map((candidate) => `- [${candidate.type}:${candidate.id}] ${truncate(candidate.text, 320)}`);
-  const injectedText = lines.length > 0
-    ? `${MEMORY_RECALL_MARKER}\n${lines.join('\n')}`
-    : '';
+  const injectedText = buildInjectedText(selected, MEMORY_RECALL_MARKER);
 
   const latencyMs = Date.now() - start;
   log.debug({
@@ -419,20 +416,26 @@ function mergeCandidates(
   return rows;
 }
 
-function trimToTokenBudget(candidates: Candidate[], maxTokens: number): Candidate[] {
+function trimToTokenBudget(candidates: Candidate[], maxTokens: number, marker: string): Candidate[] {
   if (maxTokens <= 0) return [];
   const selected: Candidate[] = [];
-  let used = 0;
   for (const candidate of candidates) {
-    const line = `- [${candidate.type}:${candidate.id}] ${truncate(candidate.text, 320)}`;
-    const cost = estimateTextTokens(line);
+    const tentativeText = buildInjectedText([...selected, candidate], marker);
+    const cost = estimateTextTokens(tentativeText);
     if (cost > maxTokens) continue;
-    if (used + cost > maxTokens) continue;
     selected.push(candidate);
-    used += cost;
-    if (used >= maxTokens) break;
+    if (cost >= maxTokens) break;
   }
   return selected;
+}
+
+function buildInjectedText(candidates: Candidate[], marker: string): string {
+  if (candidates.length === 0) return '';
+  return `${marker}\n${candidates.map(formatCandidateLine).join('\n')}`;
+}
+
+function formatCandidateLine(candidate: Candidate): string {
+  return `- [${candidate.type}:${candidate.id}] ${truncate(candidate.text, 320)}`;
 }
 
 function markItemUsage(candidates: Candidate[]): void {

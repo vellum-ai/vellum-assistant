@@ -21,6 +21,14 @@ export interface EmbeddingBackendSelection {
 
 export function selectEmbeddingBackend(config: AssistantConfig): EmbeddingBackendSelection {
   const requested = config.memory.embeddings.provider;
+  if (requested === 'ollama') {
+    return {
+      backend: new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
+        apiKey: config.apiKeys.ollama,
+      }),
+      reason: null,
+    };
+  }
   const order: EmbeddingProviderName[] = requested === 'auto'
     ? ['openai', 'gemini', 'ollama']
     : [requested];

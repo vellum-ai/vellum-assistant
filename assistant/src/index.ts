@@ -445,9 +445,10 @@ memory
 memory
   .command('backfill')
   .description('Queue a memory backfill job')
-  .action(() => {
+  .option('-f, --force', 'Restart backfill from the beginning')
+  .action((opts: { force?: boolean }) => {
     initializeDb();
-    const jobId = requestMemoryBackfill();
+    const jobId = requestMemoryBackfill(Boolean(opts?.force));
     console.log(`Queued backfill job: ${jobId}`);
   });
 
