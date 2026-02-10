@@ -2,50 +2,106 @@
 
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { toast } from "@/components/app/core/Toast";
 
-interface ForgotPasswordFormValues {
-  email: string;
+interface ResetPasswordFormValues {
+  newPassword: string;
+  confirmPassword: string;
 }
 
-export default function ForgotPasswordPage() {
+export default function ResetPasswordPage() {
   const [error, setError] = useState("");
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const token = searchParams.get("token");
+  const tokenError = searchParams.get("error");
   const {
     register,
     handleSubmit,
     formState: { isSubmitting },
-  } = useForm<ForgotPasswordFormValues>();
+  } = useForm<ResetPasswordFormValues>();
 
-  const onSubmit = async (data: ForgotPasswordFormValues) => {
+  const onSubmit = async (data: ResetPasswordFormValues) => {
     setError("");
+
+    if (data.newPassword !== data.confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
+    if (data.newPassword.length < 8) {
+      setError("Password must be at least 8 characters");
+      return;
+    }
+
     try {
-      const response = await fetch("/api/auth/request-password-reset", {
+      const response = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: data.email,
-          redirectTo: "/reset-password",
+          token,
+          newPassword: data.newPassword,
         }),
       });
       if (!response.ok) {
         const body = await response.json();
         setError(
-          body.message ?? "Failed to send reset email. Please try again."
+          body.message ?? "Failed to reset password. Please try again."
         );
         return;
       }
-      toast.success(
-        "If an account exists with that email, you will receive a password reset link. Please check your email."
-      );
+      toast.success("Your password has been reset. Please sign in.");
       router.push("/login");
     } catch {
       setError("Something went wrong. Please try again.");
     }
   };
+
+  if (tokenError || !token) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0d0d0d]">
+        <div className="w-full max-w-[480px] px-6">
+          <div className="flex flex-col items-center gap-10">
+            <Link href="/" aria-label="Back to home">
+              <Image
+                loading="lazy"
+                src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6853f41167390a6658f3fd68_Vellum%20Wordmark%20Logo.svg"
+                alt="Vellum"
+                className="h-auto w-[120px]"
+                width={120}
+                height={30}
+                unoptimized
+              />
+            </Link>
+
+            <div className="w-full">
+              <div className="mb-8 text-center">
+                <h1 className="mb-2 font-serif text-[2rem] font-bold italic text-white">
+                  Invalid or expired link
+                </h1>
+                <p className="text-sm text-zinc-400">
+                  This password reset link is invalid or has expired. Please
+                  request a new one.
+                </p>
+              </div>
+
+              <div className="mt-8 text-center">
+                <Link
+                  href="/forgot-password"
+                  className="text-sm text-indigo-400 hover:text-indigo-300"
+                >
+                  Request a new reset link
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#0d0d0d]">
@@ -66,10 +122,10 @@ export default function ForgotPasswordPage() {
           <div className="w-full">
             <div className="mb-8 text-center">
               <h1 className="mb-2 font-serif text-[2rem] font-bold italic text-white">
-                Reset your password
+                Set a new password
               </h1>
               <p className="text-sm text-zinc-400">
-                Enter your email to receive a reset link
+                Enter your new password below
               </p>
             </div>
 
@@ -84,12 +140,20 @@ export default function ForgotPasswordPage() {
               )}
               <div className="flex flex-col gap-3">
                 <input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="Email"
+                  id="newPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="New password (min 8 characters)"
                   className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-indigo-500/50"
-                  {...register("email", { required: true })}
+                  {...register("newPassword", { required: true })}
+                />
+                <input
+                  id="confirmPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="Confirm new password"
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-indigo-500/50"
+                  {...register("confirmPassword", { required: true })}
                 />
               </div>
 
@@ -98,7 +162,7 @@ export default function ForgotPasswordPage() {
                 disabled={isSubmitting}
                 className="mt-2 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-50"
               >
-                {isSubmitting ? "Sending..." : "Send reset link"}
+                {isSubmitting ? "Resetting..." : "Reset password"}
                 <svg
                   width="20"
                   height="20"
