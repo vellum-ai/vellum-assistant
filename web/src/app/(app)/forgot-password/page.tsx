@@ -32,10 +32,7 @@ export default function ForgotPasswordPage() {
         }),
       });
       if (!response.ok) {
-        const body = await response.json();
-        setError(
-          body.message ?? "Failed to send reset email. Please try again."
-        );
+        setError("Failed to send reset email. Please try again.");
         return;
       }
       toast.success(
