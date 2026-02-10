@@ -250,8 +250,6 @@ export class DaemonServer {
       conversation = conversationStore.createConversation('New Conversation');
     }
 
-    await this.getOrCreateSession(conversation.id, socket);
-    this.socketToSession.set(socket, conversation.id);
     this.send(socket, {
       type: 'session_info',
       sessionId: conversation.id,

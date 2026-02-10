@@ -210,23 +210,22 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     if (connectionMode === "local") {
       const socketPath = getLocalDaemonSocketPath();
-      const assistantConfig = getAssistantConfig(assistant);
-      const storedSessionId = getStoredLocalDaemonSessionId(assistantConfig);
+      const storedSessionId = getStoredLocalDaemonSessionId(
+        getAssistantConfig(assistant)
+      );
+
+      if (!storedSessionId) {
+        return NextResponse.json({
+          messages: [],
+          errors: [],
+          connectionMode: "local",
+        });
+      }
 
       let daemon: LocalDaemonClient | null = null;
       try {
         daemon = await LocalDaemonClient.connect(socketPath);
-        const sessionId = await ensureLocalDaemonSession(daemon, storedSessionId);
-        if (sessionId !== storedSessionId) {
-          await persistLocalDaemonSessionId(
-            sql,
-            assistantId,
-            assistantConfig,
-            sessionId
-          );
-        }
-
-        const history = await daemon.getHistory(sessionId);
+        const history = await daemon.getHistory(storedSessionId);
         const formattedMessages = history.map((msg, index) => ({
           id: `local-${msg.timestamp}-${index}`,
           role: msg.role,

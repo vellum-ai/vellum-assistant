@@ -153,20 +153,24 @@ export class LocalDaemonClient {
     const socket = net.createConnection(socketPath);
     const client = new LocalDaemonClient(socket, socketPath);
 
-    await waitForSocketConnect(socket, socketPath, connectTimeoutMs);
+    try {
+      await waitForSocketConnect(socket, socketPath, connectTimeoutMs);
 
-    const handshakeMessage = await client.waitFor(
-      (msg) => msg.type === "session_info" || msg.type === "error",
-      handshakeTimeoutMs
-    );
+      const handshakeMessage = await client.waitFor(
+        (msg) => msg.type === "session_info" || msg.type === "error",
+        handshakeTimeoutMs
+      );
 
-    if (handshakeMessage.type === "error") {
-      const daemonMessage =
-        typeof handshakeMessage.message === "string"
-          ? handshakeMessage.message
-          : "Daemon handshake failed";
+      if (handshakeMessage.type === "error") {
+        const daemonMessage =
+          typeof handshakeMessage.message === "string"
+            ? handshakeMessage.message
+            : "Daemon handshake failed";
+        throw classifyDaemonError(daemonMessage);
+      }
+    } catch (error: unknown) {
       client.close();
-      throw classifyDaemonError(daemonMessage);
+      throw error;
     }
 
     return client;
