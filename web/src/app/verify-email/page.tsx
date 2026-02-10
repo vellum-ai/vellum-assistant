@@ -3,52 +3,22 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
+import { Suspense, useEffect } from "react";
 
-import { toast } from "@/components/app/core/Toast";
-
-type VerifyStatus = "verifying" | "success" | "error";
+type VerifyStatus = "success" | "error";
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
-  const token = searchParams.get("token");
-  const [status, setStatus] = useState<VerifyStatus>(() => {
-    if (!token) {
-      return "error";
-    }
-    return "verifying";
-  });
-  const verifiedRef = useRef<boolean>(false);
-
-  const onVerifyResult = useEffectEvent(({ error }: { error: unknown }) => {
-    if (error) {
-      setStatus("error");
-      toast.error("Verification failed. The link may be invalid or expired.");
-    } else {
-      setStatus("success");
-      toast.success("Email verified! Redirecting...");
-      setTimeout(() => {
-        window.location.href = "/assistant";
-      }, 2000);
-    }
-  });
+  const status: VerifyStatus = searchParams.get("status") === "success" ? "success" : "error";
 
   useEffect(() => {
-    if (!token || verifiedRef.current) {
-      return;
+    if (status === "success") {
+      const timeout = setTimeout(() => {
+        window.location.href = "/assistant";
+      }, 2000);
+      return () => clearTimeout(timeout);
     }
-    verifiedRef.current = true;
-
-    fetch(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
-      .then((response) => {
-        if (!response.ok) {
-          return { error: true };
-        }
-        return { error: null };
-      })
-      .then(onVerifyResult)
-      .catch(() => onVerifyResult({ error: true }));
-  }, [token]);
+  }, [status]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#0d0d0d]">
@@ -68,17 +38,6 @@ function VerifyEmailContent() {
 
           <div className="w-full">
             <div className="mb-8 text-center">
-              {status === "verifying" && (
-                <>
-                  <h1 className="mb-2 font-serif text-[2rem] font-bold italic text-white">
-                    Verifying your email...
-                  </h1>
-                  <p className="text-sm text-zinc-400">
-                    Please wait while we verify your email address.
-                  </p>
-                </>
-              )}
-
               {status === "success" && (
                 <>
                   <h1 className="mb-2 font-serif text-[2rem] font-bold italic text-white">
