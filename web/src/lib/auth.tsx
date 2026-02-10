@@ -11,12 +11,13 @@ import {
 import { authClient } from "@/lib/auth-client";
 
 type SessionUser = {
+  id?: string | null;
   username?: string | null;
   email?: string | null;
 };
 
 function getSessionUsername(user: SessionUser): string | null {
-  return user.username?.trim() || null;
+  return user.username?.trim() || user.id?.trim() || null;
 }
 
 interface AuthContextType {

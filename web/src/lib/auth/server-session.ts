@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/better-auth";
 export interface RequestUser {
   id: string | null;
   username: string | null;
+  name: string | null;
   email: string | null;
   isAdmin: boolean;
 }
@@ -18,6 +19,7 @@ function normalizeEmail(email: string | null): string | null {
 export async function getRequestUser(request: Request): Promise<RequestUser> {
   let id: string | null = null;
   let username: string | null = null;
+  let name: string | null = null;
   let email: string | null = null;
   let emailVerified = false;
 
@@ -35,6 +37,7 @@ export async function getRequestUser(request: Request): Promise<RequestUser> {
 
     id = session?.user?.id ?? null;
     username = session?.user?.username ?? null;
+    name = session?.user?.name?.trim() || null;
     email = session?.user?.email ?? null;
     emailVerified = Boolean(session?.user?.emailVerified);
   } catch {
@@ -45,6 +48,7 @@ export async function getRequestUser(request: Request): Promise<RequestUser> {
   return {
     id,
     username,
+    name,
     email: normalizedEmail,
     // Admin privileges require authenticated + verified internal email.
     isAdmin: Boolean(normalizedEmail?.endsWith("@vellum.ai") && emailVerified),
@@ -79,6 +83,29 @@ export async function requireAssistantOwner(
       (user.id && createdBy === user.id))
   ) {
     return { assistant, user };
+  }
+
+  // Backward compatibility: legacy assistants may store display name in created_by.
+  // Only allow this path when the display name uniquely maps to the current user id.
+  if (createdBy && user.name && user.id && createdBy === user.name) {
+    const nameMatches = await sql`
+      SELECT id
+      FROM "user"
+      WHERE name = ${createdBy}
+      LIMIT 2
+    `;
+    if (nameMatches.length === 1 && nameMatches[0]?.id === user.id) {
+      const canonicalOwner = user.username || user.id;
+      if (canonicalOwner && canonicalOwner !== createdBy) {
+        await sql`
+          UPDATE assistants
+          SET created_by = ${canonicalOwner}
+          WHERE id = ${assistantId}
+            AND created_by = ${createdBy}
+        `;
+      }
+      return { assistant, user };
+    }
   }
 
   throw new Error("FORBIDDEN");
