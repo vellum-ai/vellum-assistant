@@ -19,9 +19,16 @@ actor AmbientSyncClient {
     init(baseURL: URL? = nil) {
         if let baseURL {
             self.baseURL = baseURL
-        } else if let envURL = ProcessInfo.processInfo.environment["AMBIENT_SYNC_URL"],
-                  let parsed = URL(string: envURL) {
-            self.baseURL = parsed
+        } else if let envURL = ProcessInfo.processInfo.environment["AMBIENT_SYNC_URL"] {
+            if let parsed = URL(string: envURL),
+               let scheme = parsed.scheme?.lowercased(),
+               (scheme == "http" || scheme == "https"),
+               parsed.host != nil {
+                self.baseURL = parsed
+            } else {
+                log.error("AMBIENT_SYNC_URL is set but contains an invalid URL: '\(envURL)' — sync client disabled")
+                self.baseURL = URL(string: "http://localhost:0")!
+            }
         } else {
             log.warning("AMBIENT_SYNC_URL not set — sync client disabled")
             self.baseURL = URL(string: "http://localhost:0")!
