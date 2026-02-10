@@ -454,6 +454,61 @@ async function main() {
     const afterDuplicateMessages = await getChatMessages(assistantId);
     assert.equal(afterDuplicateMessages.length, 5);
 
+    const orphanUserRows = await sql<{ id: string }[]>`
+      INSERT INTO chat_messages (
+        assistant_id,
+        role,
+        content,
+        status,
+        source_channel,
+        external_chat_id,
+        external_message_id
+      )
+      VALUES (
+        ${assistantId},
+        'user',
+        ${"Orphaned duplicate retry seed"},
+        'sent',
+        'telegram',
+        ${"9001"},
+        ${"1005"}
+      )
+      RETURNING id
+    `;
+    const orphanUserMessageId = orphanUserRows[0]?.id;
+    assert(orphanUserMessageId, "Expected orphan user message seed id");
+
+    const countBeforeOrphanRecovery = (await getChatMessages(assistantId)).length;
+    const orphanRecoveryResult = await handleTelegramWebhook({
+      channelAccountId: account.id,
+      headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
+      payload: buildTelegramDmPayload({
+        messageId: 1005,
+        text: "Orphaned duplicate retry seed",
+        chatId: 9001,
+      }),
+    });
+    assert.equal(orphanRecoveryResult.status, "ok");
+    assert.equal((orphanRecoveryResult as { duplicate?: boolean }).duplicate, true);
+
+    const afterOrphanRecoveryMessages = await getChatMessages(assistantId);
+    assert.equal(
+      afterOrphanRecoveryMessages.length,
+      countBeforeOrphanRecovery + 1,
+      "Expected orphan duplicate retry to create exactly one assistant reply"
+    );
+    const recoveredAssistantReply = afterOrphanRecoveryMessages.find((message) => {
+      if (message.role !== "assistant" || message.sourceChannel !== "telegram") {
+        return false;
+      }
+      const metadata = (message.metadata || {}) as Record<string, unknown>;
+      return metadata.replyToUserMessageId === orphanUserMessageId;
+    });
+    assert(
+      recoveredAssistantReply,
+      "Expected duplicate webhook retry to recover missing assistant reply"
+    );
+
     const thirdPendingResult = await handleTelegramWebhook({
       channelAccountId: account.id,
       headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),

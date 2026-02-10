@@ -1,6 +1,9 @@
 import { randomBytes } from "crypto";
 
-import { handleInboundAssistantMessage } from "@/lib/assistants/message-service";
+import {
+  handleInboundAssistantMessage,
+  recoverMissingAssistantReplyForInbound,
+} from "@/lib/assistants/message-service";
 import {
   AssistantChannelContactRecord,
   AssistantChannelContactStatus,
@@ -85,17 +88,19 @@ export async function connectTelegramChannel(params: {
   }
 
   const existing = await getAssistantChannelAccount(params.assistantId, "telegram");
+  const isActiveRotation =
+    Boolean(existing && existing.enabled && existing.status === "active");
   const provisionalConfig = {
     ...(existing?.config || {}),
-    botToken: params.botToken,
+    ...(isActiveRotation ? {} : { botToken: params.botToken }),
   };
 
   const provisional = await upsertAssistantChannelAccount({
     assistantId: params.assistantId,
     channel: "telegram",
     accountKey: "default",
-    // Keep channel disabled until Telegram webhook setup succeeds.
-    enabled: false,
+    // Keep an already-active channel live during token rotation.
+    enabled: isActiveRotation,
     status: "connecting",
     config: provisionalConfig,
     lastError: null,
@@ -353,7 +358,24 @@ export async function handleTelegramWebhook(params: {
       return { status: "ok" as const, duplicate: true as const };
     }
 
-    return { status: "ignored", reason: "duplicate_message" as const };
+    if (!result.userMessage?.id) {
+      throw new Error("Duplicate message missing user message context");
+    }
+
+    const recoveredAssistantMessage = await recoverMissingAssistantReplyForInbound({
+      assistantId: account.assistant_id,
+      sourceChannel: "telegram",
+      externalChatId: normalized.externalChatId,
+      userMessageId: result.userMessage.id,
+    });
+
+    await plugin.outbound.sendText({
+      botToken: config.botToken,
+      chatId: normalized.externalChatId,
+      text: recoveredAssistantMessage.content,
+    });
+
+    return { status: "ok" as const, duplicate: true as const };
   }
 
   if (result.assistantMessage?.content) {

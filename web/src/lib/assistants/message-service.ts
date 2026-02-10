@@ -5,6 +5,7 @@ import {
   getAssistantReplyByUserMessageId,
   createChatMessage,
   getAssistantById,
+  getChatMessageById,
   getMessageByExternalId,
   getRecentConversationMessages,
   getRecentChatMessages,
@@ -42,6 +43,10 @@ export interface HandleInboundAssistantMessageResult {
 }
 
 const DEFAULT_ASSISTANT_MODEL = process.env.ANTHROPIC_ASSISTANT_MODEL || "claude-opus-4-6";
+
+type AssistantMessageResult = NonNullable<
+  HandleInboundAssistantMessageResult["assistantMessage"]
+>;
 
 function buildSystemPrompt(assistantName: string) {
   return [
@@ -90,6 +95,99 @@ async function generateAssistantReply(params: {
     .trim();
 
   return text || "I couldn't generate a response yet. Please try again.";
+}
+
+function toAssistantMessageResult(message: ChatMessage): AssistantMessageResult {
+  return {
+    id: message.id,
+    role: "assistant",
+    content: message.content,
+    timestamp: message.createdAt,
+  };
+}
+
+async function getReplyContext(params: {
+  assistantId: string;
+  sourceChannel: string;
+  externalChatId?: string;
+}) {
+  if (params.externalChatId && params.sourceChannel !== "web") {
+    return getRecentConversationMessages({
+      assistantId: params.assistantId,
+      sourceChannel: params.sourceChannel,
+      externalChatId: params.externalChatId,
+      limit: 40,
+    });
+  }
+
+  return getRecentChatMessages(params.assistantId, 40);
+}
+
+async function safeGenerateAssistantReply(params: {
+  assistantName: string;
+  messages: ChatMessage[];
+}) {
+  try {
+    return await generateAssistantReply(params);
+  } catch (error) {
+    console.error("Failed to generate assistant reply:", error);
+    return "I ran into an issue while thinking through that. Please try again in a moment.";
+  }
+}
+
+export async function recoverMissingAssistantReplyForInbound(params: {
+  assistantId: string;
+  sourceChannel: string;
+  externalChatId?: string;
+  userMessageId: string;
+}): Promise<AssistantMessageResult> {
+  const assistant = await getAssistantById(params.assistantId);
+  if (!assistant) {
+    throw new Error("Assistant not found");
+  }
+
+  const userMessage = await getChatMessageById(params.userMessageId);
+  if (
+    !userMessage ||
+    userMessage.assistantId !== params.assistantId ||
+    userMessage.role !== "user"
+  ) {
+    throw new Error("User message not found for reply recovery");
+  }
+
+  const existingAssistantReply = await getAssistantReplyByUserMessageId({
+    assistantId: params.assistantId,
+    sourceChannel: params.sourceChannel,
+    externalChatId: params.externalChatId,
+    userMessageId: params.userMessageId,
+  });
+  if (existingAssistantReply) {
+    return toAssistantMessageResult(existingAssistantReply);
+  }
+
+  const contextMessages = await getReplyContext({
+    assistantId: params.assistantId,
+    sourceChannel: params.sourceChannel,
+    externalChatId: params.externalChatId,
+  });
+  const assistantReply = await safeGenerateAssistantReply({
+    assistantName: assistant.name,
+    messages: contextMessages,
+  });
+
+  const assistantMessage = await createChatMessage({
+    assistantId: params.assistantId,
+    role: "assistant",
+    content: assistantReply,
+    status: "delivered",
+    sourceChannel: params.sourceChannel,
+    externalChatId: params.externalChatId,
+    metadata: {
+      replyToUserMessageId: params.userMessageId,
+    },
+  });
+
+  return toAssistantMessageResult(assistantMessage);
 }
 
 export async function handleInboundAssistantMessage(
@@ -158,26 +256,15 @@ export async function handleInboundAssistantMessage(
     },
   });
 
-  const contextMessages =
-    input.externalChatId && sourceChannel !== "web"
-      ? await getRecentConversationMessages({
-          assistantId: input.assistantId,
-          sourceChannel,
-          externalChatId: input.externalChatId,
-          limit: 40,
-        })
-      : await getRecentChatMessages(input.assistantId, 40);
-  let assistantReply: string;
-  try {
-    assistantReply = await generateAssistantReply({
-      assistantName: assistant.name,
-      messages: contextMessages,
-    });
-  } catch (error) {
-    console.error("Failed to generate assistant reply:", error);
-    assistantReply =
-      "I ran into an issue while thinking through that. Please try again in a moment.";
-  }
+  const contextMessages = await getReplyContext({
+    assistantId: input.assistantId,
+    sourceChannel,
+    externalChatId: input.externalChatId,
+  });
+  const assistantReply = await safeGenerateAssistantReply({
+    assistantName: assistant.name,
+    messages: contextMessages,
+  });
 
   const assistantMessage = await createChatMessage({
     assistantId: input.assistantId,
@@ -199,11 +286,6 @@ export async function handleInboundAssistantMessage(
       content: userMessage.content,
       timestamp: userMessage.createdAt,
     },
-    assistantMessage: {
-      id: assistantMessage.id,
-      role: "assistant",
-      content: assistantMessage.content,
-      timestamp: assistantMessage.createdAt,
-    },
+    assistantMessage: toAssistantMessageResult(assistantMessage),
   };
 }

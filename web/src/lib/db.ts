@@ -154,6 +154,14 @@ export async function createChatMessage(data: NewChatMessage) {
   return result[0];
 }
 
+export async function getChatMessageById(id: string) {
+  const result = await db
+    .select()
+    .from(schema.chatMessagesTable)
+    .where(eq(schema.chatMessagesTable.id, id));
+  return result[0] || null;
+}
+
 export async function updateChatMessageStatus(id: string, status: string) {
   await db
     .update(schema.chatMessagesTable)
