@@ -1,5 +1,3 @@
-import "./meadow.css";
-
 export default function AppLayout({
   children,
 }: Readonly<{

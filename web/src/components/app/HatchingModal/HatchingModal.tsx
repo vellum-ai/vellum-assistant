@@ -2,6 +2,8 @@
 
 import { Loader2 } from "lucide-react";
 
+import { Button } from "@/components/app/core/Button";
+
 interface HatchingModalProps {
   error: string | null;
   onDismissError: () => void;
@@ -22,12 +24,9 @@ export function HatchingModal({ error, onDismissError }: HatchingModalProps) {
             <p className="mb-4 text-sm text-red-600 dark:text-red-400">
               {error}
             </p>
-            <button
-              onClick={onDismissError}
-              className="cursor-pointer rounded-lg bg-indigo-600 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
-            >
+            <Button onClick={onDismissError}>
               Try Again
-            </button>
+            </Button>
           </>
         ) : (
           <>

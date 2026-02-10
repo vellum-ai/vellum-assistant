@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Nunito, Quicksand } from "next/font/google";
 
 import { Providers } from "@/components/shared/Providers";
-import { Toaster } from "@/components/shared/core/Toast";
+import { Toaster } from "@/components/app/core/Toast";
 
 import "./globals.css";
 

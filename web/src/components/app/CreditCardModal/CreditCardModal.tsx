@@ -10,6 +10,8 @@ import { loadStripe, Stripe as StripeJs } from "@stripe/stripe-js";
 import { CreditCard, Loader2, X } from "lucide-react";
 import { MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/app/core/Button";
+
 interface CreditCardModalProps {
   username: string;
   onSuccess: () => void;
@@ -107,27 +109,22 @@ function CardForm({ username, onSuccess, onClose }: CardFormProps) {
       )}
 
       <div className="flex gap-3">
-        <button
+        <Button
           onClick={onClose}
           disabled={isSubmitting}
-          className="flex-1 rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          variant="outline"
+          className="flex-1"
         >
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
           onClick={handleSubmit}
           disabled={isSubmitting || !stripe}
-          className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+          icon={isSubmitting ? Loader2 : undefined}
+          className="flex-1"
         >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            "Save Card"
-          )}
-        </button>
+          {isSubmitting ? "Saving..." : "Save Card"}
+        </Button>
       </div>
     </div>
   );
@@ -175,12 +172,13 @@ export function CreditCardModal({ username, onSuccess, onClose }: CreditCardModa
               </p>
             </div>
           </div>
-          <button
+          <Button
             onClick={onClose}
-            className="cursor-pointer rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
-          >
-            <X className="h-5 w-5" />
-          </button>
+            variant="ghost"
+            size="icon"
+            icon={X}
+            className="h-8 w-8 text-zinc-400 hover:text-zinc-600"
+          />
         </div>
 
         {!stripeLoaded ? (
