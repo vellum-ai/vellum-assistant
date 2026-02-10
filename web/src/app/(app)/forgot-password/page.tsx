@@ -1,32 +1,46 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { useState } from "react";
+import { Controller, useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { useAuth } from "@/lib/auth";
+import { toast } from "@/components/app/core/Toast";
 
-export default function LoginPage() {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+interface ForgotPasswordFormValues {
+  email: string;
+}
+
+export default function ForgotPasswordPage() {
   const [error, setError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login } = useAuth();
   const router = useRouter();
+  const {
+    control,
+    handleSubmit,
+    formState: { isSubmitting },
+  } = useForm<ForgotPasswordFormValues>();
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const onSubmit = async (data: ForgotPasswordFormValues) => {
     setError("");
-    setIsSubmitting(true);
     try {
-      const errorMessage = await login(username, password);
-      if (!errorMessage) {
-        router.push("/assistant");
-      } else {
-        setError(errorMessage);
+      const response = await fetch("/api/auth/request-password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: data.email,
+          redirectTo: "/reset-password",
+        }),
+      });
+      if (!response.ok) {
+        setError("Failed to send reset email. Please try again.");
+        return;
       }
-    } finally {
-      setIsSubmitting(false);
+      toast.success(
+        "If an account exists with that email, you will receive a password reset link. Please check your email."
+      );
+      router.push("/login");
+    } catch {
+      setError("Something went wrong. Please try again.");
     }
   };
 
@@ -49,57 +63,38 @@ export default function LoginPage() {
           <div className="w-full">
             <div className="mb-8 text-center">
               <h1 className="mb-2 font-serif text-[2rem] font-bold italic text-white">
-                Sign in to Vellum
+                Reset your password
               </h1>
               <p className="text-sm text-zinc-400">
-                {"Don't have an account? "}
-                <Link
-                  href="/signup"
-                  className="text-indigo-400 hover:text-indigo-300"
-                >
-                  Sign up
-                </Link>
+                Enter your email to receive a reset link
               </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <form
+              onSubmit={handleSubmit(onSubmit)}
+              className="flex flex-col gap-4"
+            >
               {error && (
                 <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                   {error}
                 </div>
               )}
               <div className="flex flex-col gap-3">
-                <input
-                  id="username"
-                  name="username"
-                  type="text"
-                  autoComplete="username"
-                  required
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Username"
-                  className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-indigo-500/50"
+                <Controller
+                  name="email"
+                  control={control}
+                  rules={{ required: true }}
+                  render={({ field }) => (
+                    <input
+                      id="email"
+                      type="email"
+                      autoComplete="email"
+                      placeholder="Email"
+                      className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-indigo-500/50"
+                      {...field}
+                    />
+                  )}
                 />
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Password"
-                  className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-indigo-500/50"
-                />
-              </div>
-
-              <div className="text-right">
-                <Link
-                  href="/forgot-password"
-                  className="text-[0.8125rem] text-zinc-400 hover:text-zinc-300"
-                >
-                  Forgot password?
-                </Link>
               </div>
 
               <button
@@ -107,7 +102,7 @@ export default function LoginPage() {
                 disabled={isSubmitting}
                 className="mt-2 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-50"
               >
-                {isSubmitting ? "Signing in..." : "Sign in"}
+                {isSubmitting ? "Sending..." : "Send reset link"}
                 <svg
                   width="20"
                   height="20"
@@ -128,10 +123,10 @@ export default function LoginPage() {
 
             <div className="mt-8 text-center">
               <Link
-                href="/"
+                href="/login"
                 className="text-sm text-zinc-400 hover:text-zinc-300"
               >
-                &larr; Back to home
+                &larr; Back to sign in
               </Link>
             </div>
           </div>
