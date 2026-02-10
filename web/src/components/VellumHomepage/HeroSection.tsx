@@ -27,7 +27,7 @@ export function HeroSection() {
                     marginLeft: "auto",
                     marginRight: "auto",
                   }}>
-                    An assistant that has it's own identity and has context of your life. It can clear your inbox, book your flights, submit PRs, becomes indispensable, and stays yours forever.
+                    An assistant that has its own identity and has context of your life. It can clear your inbox, book your flights, submit PRs, becomes indispensable, and stays yours forever.
                   </p>
                 </div>
               </div>
