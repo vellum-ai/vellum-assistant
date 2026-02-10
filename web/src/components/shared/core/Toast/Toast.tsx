@@ -78,7 +78,7 @@ function showToast(
             {styles.iconElement}
           </span>
         )}
-        <div className="flex-1 space-y-1">
+        <div className="min-w-0 flex-1 space-y-1">
           <p className="text-sm font-medium leading-tight">{message}</p>
           {options?.description && (
             <p className="text-xs opacity-70">{options.description}</p>
@@ -129,7 +129,7 @@ function Toaster() {
       position="bottom-right"
       toastOptions={{
         unstyled: true,
-        style: { width: "var(--width)" },
+        style: { width: "356px" },
       }}
     />
   );
