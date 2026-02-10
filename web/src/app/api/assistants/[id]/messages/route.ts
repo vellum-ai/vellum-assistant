@@ -87,33 +87,6 @@ function getStoredLocalDaemonSessionId(config: AssistantConfig): string | null {
   return sessionId;
 }
 
-async function persistLocalDaemonSessionId(
-  sql: ReturnType<typeof getDb>,
-  assistantId: string,
-  config: AssistantConfig,
-  sessionId: string
-): Promise<void> {
-  const existingLocalDaemon =
-    config.localDaemon && typeof config.localDaemon === "object"
-      ? (config.localDaemon as Record<string, unknown>)
-      : {};
-
-  const nextConfig: AssistantConfig = {
-    ...config,
-    localDaemon: {
-      ...existingLocalDaemon,
-      sessionId,
-    },
-  };
-
-  await sql`
-    UPDATE assistants
-    SET configuration = ${JSON.stringify(nextConfig)}::jsonb,
-        updated_at = NOW()
-    WHERE id = ${assistantId}
-  `;
-}
-
 async function ensureLocalDaemonSession(
   daemon: LocalDaemonClient,
   storedSessionId: string | null
@@ -131,6 +104,70 @@ async function ensureLocalDaemonSession(
 
   const createdSession = await daemon.createSession("Web Assistant Session");
   return createdSession.sessionId;
+}
+
+function withLocalDaemonSessionId(
+  config: AssistantConfig,
+  sessionId: string
+): AssistantConfig {
+  const existingLocalDaemon =
+    config.localDaemon && typeof config.localDaemon === "object"
+      ? (config.localDaemon as Record<string, unknown>)
+      : {};
+
+  return {
+    ...config,
+    localDaemon: {
+      ...existingLocalDaemon,
+      sessionId,
+    },
+  };
+}
+
+async function ensurePersistedLocalDaemonSessionId(
+  sql: ReturnType<typeof getDb>,
+  daemon: LocalDaemonClient,
+  assistantId: string
+): Promise<string> {
+  return sql.begin(async (tx) => {
+    const rows = await tx.unsafe<{ configuration: unknown }[]>(
+      `
+        SELECT configuration
+        FROM assistants
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [assistantId]
+    );
+
+    if (rows.length === 0) {
+      throw new Error("Agent not found");
+    }
+
+    const rawConfig = rows[0]?.configuration;
+    const lockedConfig =
+      rawConfig && typeof rawConfig === "object"
+        ? (rawConfig as AssistantConfig)
+        : {};
+
+    const storedSessionId = getStoredLocalDaemonSessionId(lockedConfig);
+    const sessionId = await ensureLocalDaemonSession(daemon, storedSessionId);
+
+    if (sessionId !== storedSessionId) {
+      const nextConfig = withLocalDaemonSessionId(lockedConfig, sessionId);
+      await tx.unsafe(
+        `
+          UPDATE assistants
+          SET configuration = $1::jsonb,
+              updated_at = NOW()
+          WHERE id = $2
+        `,
+        [JSON.stringify(nextConfig), assistantId]
+      );
+    }
+
+    return sessionId;
+  });
 }
 
 function localDaemonErrorStatus(error: unknown): number {
@@ -399,21 +436,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (connectionMode === "local") {
       const socketPath = getLocalDaemonSocketPath();
-      const assistantConfig = getAssistantConfig(assistant);
-      const storedSessionId = getStoredLocalDaemonSessionId(assistantConfig);
 
       let daemon: LocalDaemonClient | null = null;
       try {
         daemon = await LocalDaemonClient.connect(socketPath);
-        const sessionId = await ensureLocalDaemonSession(daemon, storedSessionId);
-        if (sessionId !== storedSessionId) {
-          await persistLocalDaemonSessionId(
-            sql,
-            assistantId,
-            assistantConfig,
-            sessionId
-          );
-        }
+        const sessionId = await ensurePersistedLocalDaemonSessionId(
+          sql,
+          daemon,
+          assistantId
+        );
 
         const localResponse = await daemon.sendUserMessage(sessionId, content);
         const timestamp = new Date().toISOString();
