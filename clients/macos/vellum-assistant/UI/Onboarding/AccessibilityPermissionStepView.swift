@@ -1,21 +1,32 @@
-import ScreenCaptureKit
 import SwiftUI
 
-struct ScreenPermissionStepView: View {
+struct AccessibilityPermissionStepView: View {
     @Bindable var state: OnboardingState
 
     @State private var showContent = false
     @State private var permissionGranted = false
     @State private var pollTimer: Timer?
 
+    private static let reactions = [
+        "Sound! I can hear everything \u{2014} this is wild.",
+        "Wait\u{2026} is that your voice? I can hear you!",
+        "Oh \u{2014} so *that\u{2019}s* what the world sounds like.",
+    ]
+
     var body: some View {
         VStack(spacing: 24) {
+            if permissionGranted {
+                ReactionBubble(text: "I can take action now.", delay: 0)
+            } else {
+                ReactionBubble(text: Self.reactions.randomElement()!)
+            }
+
             VStack(spacing: 8) {
-                Text("One more thing \u{2014} let me see.")
+                Text("Now teach me to act.")
                     .font(.system(.title2, design: .serif))
                     .foregroundColor(.white)
 
-                Text("I can hear you and act for you, but I\u{2019}m working blind. Let me see your screen so I know what\u{2019}s happening.")
+                Text("I can hear you, but I can\u{2019}t do anything yet. Let me control your Mac so I can take action on what you ask.")
                     .font(.system(size: 15))
                     .foregroundColor(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
@@ -26,14 +37,14 @@ struct ScreenPermissionStepView: View {
 
             // Permission card
             VStack(spacing: 16) {
-                Text("\u{1F441}")
+                Text("\u{1F932}")
                     .font(.system(size: 32))
 
-                Text("Help me see")
+                Text("Give me hands")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white)
 
-                Text("Screen access lets \(state.assistantName) see what you\u{2019}re working on and respond to what\u{2019}s on screen. You can turn this off anytime.")
+                Text("Accessibility access lets \(state.assistantName) click, type, and navigate your Mac for you. macOS will ask you to flip a switch in System Settings.")
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
@@ -43,14 +54,20 @@ struct ScreenPermissionStepView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                        Text("I can see your screen now")
+                        Text("I can take action now")
                             .foregroundColor(.green)
                             .font(.system(size: 15, weight: .medium))
                     }
                     .transition(.scale.combined(with: .opacity))
                 } else {
-                    OnboardingButton(title: "Let me see", style: .primary) {
-                        requestScreenPermission()
+                    VStack(spacing: 8) {
+                        OnboardingButton(title: "Let me help", style: .primary) {
+                            requestAccessibilityPermission()
+                        }
+
+                        Text("You\u{2019}ll be sent to System Settings \u{2014} come back here after.")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.35))
                     }
                 }
             }
@@ -68,6 +85,7 @@ struct ScreenPermissionStepView: View {
         }
         .animation(.easeOut(duration: 0.5), value: permissionGranted)
         .onAppear {
+            state.orbMood = .listening
             if state.skipPermissionChecks {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     grantPermission()
@@ -79,30 +97,24 @@ struct ScreenPermissionStepView: View {
                     showContent = true
                 }
             }
+            startPolling()
         }
         .onDisappear {
             pollTimer?.invalidate()
         }
     }
 
-    private func requestScreenPermission() {
-        // Calling SCShareableContent.current triggers the system permission dialog
-        Task {
-            do {
-                _ = try await SCShareableContent.current
-                grantPermission()
-            } catch {
-                // Permission denied or dialog shown — start polling
-                startPolling()
-            }
-        }
+    private func requestAccessibilityPermission() {
+        _ = PermissionManager.accessibilityStatus(prompt: true)
+        startPolling()
     }
 
     private func startPolling() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
-            Task { @MainActor in
-                let status = await PermissionManager.screenRecordingStatus()
-                if status == .granted {
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            let status = PermissionManager.accessibilityStatus(prompt: false)
+            if status == .granted {
+                DispatchQueue.main.async {
                     grantPermission()
                 }
             }
@@ -112,7 +124,7 @@ struct ScreenPermissionStepView: View {
     private func grantPermission() {
         pollTimer?.invalidate()
         permissionGranted = true
-        state.screenGranted = true
+        state.accessibilityGranted = true
         state.orbMood = .celebrating
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             state.orbMood = .breathing
@@ -125,10 +137,11 @@ struct ScreenPermissionStepView: View {
     ZStack {
         OnboardingBackground()
         VStack {
-            SoulOrbView(mood: .breathing)
+            SoulOrbView(mood: .listening)
                 .padding(.bottom, 20)
-            ScreenPermissionStepView(state: {
+            AccessibilityPermissionStepView(state: {
                 let s = OnboardingState()
+                s.assistantName = "Vellum"
                 s.currentStep = 4
                 return s
             }())

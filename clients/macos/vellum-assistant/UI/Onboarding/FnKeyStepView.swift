@@ -64,6 +64,11 @@ struct FnKeyStepView: View {
             let format = Self.nameReactions.randomElement()!
             nameReaction = String(format: format, state.assistantName)
 
+            state.orbMood = .celebrating
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                state.orbMood = .breathing
+            }
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showButtons = true

@@ -20,10 +20,10 @@ struct AliveStepView: View {
 
     private var abilities: [(String, String)] {
         [
-            ("Talk to me", "mic.fill"),
-            ("I'll help you", "sparkles"),
+            ("Voice conversations", "mic.fill"),
+            ("Takes action for you", "hand.tap.fill"),
+            ("Context-aware help", "brain.head.profile"),
             ("Hold \(state.chosenKey.displayName) to activate", "keyboard"),
-            ("I learn as you work", "brain.head.profile"),
         ]
     }
 
@@ -92,6 +92,14 @@ struct AliveStepView: View {
                 }
             }
             .opacity(showButtons ? 1 : 0)
+
+            if state.anyPermissionDenied {
+                Text("Some abilities are limited \u{2014} you can enable them in Settings anytime.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.35))
+                    .multilineTextAlignment(.center)
+                    .opacity(showButtons ? 1 : 0)
+            }
 
             Spacer()
                 .frame(height: 24)
