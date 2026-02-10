@@ -16,7 +16,14 @@ interface SignupFormValues {
 }
 
 export default function SignupPage() {
-  const { control, handleSubmit, getValues, formState: { isSubmitting, errors } } = useForm<SignupFormValues>();
+  const { control, handleSubmit, getValues, formState: { isSubmitting, errors } } = useForm<SignupFormValues>({
+    defaultValues: {
+      username: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+    },
+  });
   const { signup } = useAuth();
   const router = useRouter();
 
