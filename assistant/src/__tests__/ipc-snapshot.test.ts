@@ -184,6 +184,18 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     estimatedCost: 0.025,
     model: 'claude-sonnet-4-5-20250929',
   },
+  context_compacted: {
+    type: 'context_compacted',
+    previousEstimatedInputTokens: 220000,
+    estimatedInputTokens: 108000,
+    maxInputTokens: 180000,
+    thresholdTokens: 144000,
+    compactedMessages: 56,
+    summaryCalls: 3,
+    summaryInputTokens: 4200,
+    summaryOutputTokens: 900,
+    summaryModel: 'claude-sonnet-4-5-20250929',
+  },
   secret_detected: {
     type: 'secret_detected',
     toolName: 'bash',

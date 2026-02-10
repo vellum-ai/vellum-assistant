@@ -8,6 +8,9 @@ export const conversations = sqliteTable('conversations', {
   totalInputTokens: integer('total_input_tokens').notNull().default(0),
   totalOutputTokens: integer('total_output_tokens').notNull().default(0),
   totalEstimatedCost: real('total_estimated_cost').notNull().default(0),
+  contextSummary: text('context_summary'),
+  contextCompactedMessageCount: integer('context_compacted_message_count').notNull().default(0),
+  contextCompactedAt: integer('context_compacted_at'),
 });
 
 export const messages = sqliteTable('messages', {

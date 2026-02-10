@@ -9,13 +9,25 @@ import type {
 } from '../types.js';
 import { ProviderError } from '../../util/errors.js';
 
+export interface OpenAICompatibleProviderOptions {
+  baseURL?: string;
+  providerName?: string;
+  providerLabel?: string;
+}
+
 export class OpenAIProvider implements Provider {
-  public readonly name = 'openai';
+  public readonly name: string;
+  private readonly providerLabel: string;
   private client: OpenAI;
   private model: string;
 
-  constructor(apiKey: string, model: string) {
-    this.client = new OpenAI({ apiKey });
+  constructor(apiKey: string, model: string, options: OpenAICompatibleProviderOptions = {}) {
+    this.name = options.providerName ?? 'openai';
+    this.providerLabel = options.providerLabel ?? 'OpenAI';
+    this.client = new OpenAI({
+      apiKey,
+      baseURL: options.baseURL,
+    });
     this.model = model;
   }
 
@@ -125,14 +137,14 @@ export class OpenAIProvider implements Provider {
     } catch (error) {
       if (error instanceof OpenAI.APIError) {
         throw new ProviderError(
-          `OpenAI API error (${error.status}): ${error.message}`,
-          'openai',
+          `${this.providerLabel} API error (${error.status}): ${error.message}`,
+          this.name,
           error.status,
         );
       }
       throw new ProviderError(
-        `OpenAI request failed: ${error instanceof Error ? error.message : String(error)}`,
-        'openai',
+        `${this.providerLabel} request failed: ${error instanceof Error ? error.message : String(error)}`,
+        this.name,
         undefined,
         { cause: error },
       );

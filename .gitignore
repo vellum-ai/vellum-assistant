@@ -28,6 +28,8 @@ dist
 .private/
 temp.sh
 context.md
+.codex
+
 
 # debug
 npm-debug.log*
@@ -40,6 +42,12 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# xcode / spm build artifacts
+.derivedData/
+*.xcactivitylog
+DerivedData/
+**/Library/Logs/CoreSimulator/
 
 # drizzle
 web/drizzle/

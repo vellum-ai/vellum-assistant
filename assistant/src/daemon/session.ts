@@ -7,11 +7,22 @@ import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { ToolExecutor } from '../tools/executor.js';
+import type { ToolLifecycleEventHandler } from '../tools/types.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
 import { estimateCost } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
+import { EventBus } from '../events/bus.js';
+import type { AssistantDomainEvents } from '../events/domain-events.js';
+import { createToolDomainEventPublisher } from '../events/tool-domain-event-publisher.js';
+import { registerToolMetricsLoggingListener } from '../events/tool-metrics-listener.js';
+import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
+import { createToolAuditListener } from '../events/tool-audit-listener.js';
+import {
+  ContextWindowManager,
+  createContextSummaryMessage,
+} from '../context/window-manager.js';
 
 const log = getLogger('session');
 
@@ -25,9 +36,12 @@ export class Session {
   private prompter: PermissionPrompter;
   private executor: ToolExecutor;
   private sendToClient: (msg: ServerMessage) => void;
+  private eventBus = new EventBus<AssistantDomainEvents>();
   private workingDir: string;
   private sandboxOverride?: boolean;
   private usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+  private contextWindowManager: ContextWindowManager;
+  private contextCompactedMessageCount = 0;
 
   constructor(
     conversationId: string,
@@ -42,6 +56,14 @@ export class Session {
     this.sendToClient = sendToClient;
     this.prompter = new PermissionPrompter(sendToClient);
     this.executor = new ToolExecutor(this.prompter);
+    registerToolMetricsLoggingListener(this.eventBus);
+    registerToolNotificationListener(this.eventBus, (msg) => this.sendToClient(msg));
+    const auditToolLifecycleEvent = createToolAuditListener();
+    const publishToolDomainEvent = createToolDomainEventPublisher(this.eventBus);
+    const handleToolLifecycleEvent: ToolLifecycleEventHandler = (event) => {
+      auditToolLifecycleEvent(event);
+      return publishToolDomainEvent(event);
+    };
 
     const toolDefs = getAllToolDefinitions();
     const toolExecutor = async (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => {
@@ -51,14 +73,7 @@ export class Session {
         conversationId: this.conversationId,
         onOutput,
         sandboxOverride: this.sandboxOverride,
-        onSecretDetected: (event) => {
-          this.sendToClient({
-            type: 'secret_detected',
-            toolName: event.toolName,
-            matches: event.matches,
-            action: event.action,
-          });
-        },
+        onToolLifecycleEvent: handleToolLifecycleEvent,
       });
     };
 
@@ -70,16 +85,34 @@ export class Session {
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
     );
+    this.contextWindowManager = new ContextWindowManager(
+      provider,
+      systemPrompt,
+      config.contextWindow,
+    );
   }
 
   async loadFromDb(): Promise<void> {
     const dbMessages = conversationStore.getMessages(this.conversationId);
-    this.messages = dbMessages.map((m) => ({
-      role: m.role as 'user' | 'assistant',
-      content: JSON.parse(m.content),
-    }));
 
     const conv = conversationStore.getConversation(this.conversationId);
+    const contextSummary = conv?.contextSummary?.trim() || null;
+    this.contextCompactedMessageCount = Math.max(
+      0,
+      Math.min(conv?.contextCompactedMessageCount ?? 0, dbMessages.length),
+    );
+
+    this.messages = dbMessages
+      .slice(this.contextCompactedMessageCount)
+      .map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: JSON.parse(m.content),
+      }));
+
+    if (contextSummary) {
+      this.messages.unshift(createContextSummaryMessage(contextSummary));
+    }
+
     if (conv) {
       this.usageStats = {
         inputTokens: conv.totalInputTokens,
@@ -152,6 +185,32 @@ export class Session {
         'user',
         JSON.stringify(userMessage.content),
       );
+
+      const compacted = await this.contextWindowManager.maybeCompact(
+        this.messages,
+        this.abortController.signal,
+      );
+      if (compacted.compacted) {
+        this.messages = compacted.messages;
+        this.contextCompactedMessageCount += compacted.compactedMessages;
+        conversationStore.updateConversationContextWindow(
+          this.conversationId,
+          compacted.summaryText,
+          this.contextCompactedMessageCount,
+        );
+        onEvent({
+          type: 'context_compacted',
+          previousEstimatedInputTokens: compacted.previousEstimatedInputTokens,
+          estimatedInputTokens: compacted.estimatedInputTokens,
+          maxInputTokens: compacted.maxInputTokens,
+          thresholdTokens: compacted.thresholdTokens,
+          compactedMessages: compacted.compactedMessages,
+          summaryCalls: compacted.summaryCalls,
+          summaryInputTokens: compacted.summaryInputTokens,
+          summaryOutputTokens: compacted.summaryOutputTokens,
+          summaryModel: compacted.summaryModel,
+        });
+      }
 
       // Run agent loop
       let firstAssistantText = '';

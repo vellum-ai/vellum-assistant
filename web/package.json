@@ -6,13 +6,13 @@
     "pull": "scripts/pull.mjs"
   },
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "bunx --bun next dev",
+    "build": "bunx --bun next build",
     "db:push": "bun run scripts/migrate.mts",
     "db:push:preview": "bun run scripts/migrate.mts --preview",
     "lint": "eslint",
     "pull": "node scripts/pull.mjs",
-    "start": "next start"
+    "start": "bunx --bun next start"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.72.1",

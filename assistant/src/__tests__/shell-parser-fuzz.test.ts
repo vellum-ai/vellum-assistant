@@ -534,9 +534,7 @@ describe('Shell Parser Fuzz Tests', () => {
           async (input) => {
             const result1 = await parse(input);
             const result2 = await parse(input);
-            expect(result1.segments.length).toBe(result2.segments.length);
-            expect(result1.dangerousPatterns.length).toBe(result2.dangerousPatterns.length);
-            expect(result1.hasOpaqueConstructs).toBe(result2.hasOpaqueConstructs);
+            expect(result1).toEqual(result2);
           },
         ),
         { numRuns: 200 },

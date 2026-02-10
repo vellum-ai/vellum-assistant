@@ -78,7 +78,7 @@ final class RecipeExecutor {
         let session = ComputerUseSession(
             task: taskPrompt,
             provider: provider,
-            maxSteps: recipe.totalSteps * 4, // generous headroom for retries
+            maxSteps: max(recipe.totalSteps * 4, 40), // generous headroom; floor of 40 for high-level recipes
             initialDelayMs: 500
         )
 
@@ -135,13 +135,15 @@ final class RecipeExecutor {
     // MARK: - Recipe Loading
 
     private func loadRecipeMarkdown(_ name: String) -> String? {
-        // SPM builds: recipes are copied into Bundle.module via .copy("Resources/Recipes")
-        if let url = Bundle.module.url(forResource: name, withExtension: "md", subdirectory: "Recipes") {
-            return try? String(contentsOf: url, encoding: .utf8)
-        }
+        #if SWIFT_PACKAGE
+            // SPM builds: recipes are copied into Bundle.module via .copy("Resources/Recipes")
+            if let url = Bundle.module.url(forResource: name, withExtension: "md", subdirectory: "Recipes") {
+                return try? String(contentsOf: url, encoding: .utf8)
+            }
+        #endif
 
-        // Xcode builds: recipes bundled via xcassets or copy phase
-        if let url = Bundle.main.url(forResource: name, withExtension: "md", subdirectory: "Recipes") {
+        // Xcode builds: individual files are copied flat into the bundle (no subdirectory)
+        if let url = Bundle.main.url(forResource: name, withExtension: "md") {
             return try? String(contentsOf: url, encoding: .utf8)
         }
 
@@ -261,8 +263,9 @@ final class RecipeExecutor {
 
     func buildTaskPrompt(recipe: ParsedRecipe, context: RecipeContext) -> String {
         var prompt = """
-        You are executing a pre-planned recipe to set up an integration. Follow each step precisely.
-        Do NOT deviate from the plan. Execute the steps in order.
+        You are setting up an integration for the user. Follow the outline below as a guide,
+        adapting to what you see on screen. The steps describe what to accomplish, not exact
+        clicks — use your judgement to navigate the UI.
 
         RECIPE: \(recipe.name)
 
@@ -283,10 +286,10 @@ final class RecipeExecutor {
         prompt += """
 
         IMPORTANT INSTRUCTIONS:
-        - Execute each step one action at a time
-        - After each action, verify the expected result before moving on
-        - If a step fails, consult the error recovery section
-        - When all steps are complete, call done() with a summary including any captured values (App ID, file paths, etc.)
+        - Work through each step, taking one action at a time
+        - After each action, check the screen to see what changed before continuing
+        - If something doesn't look right, consult the error recovery section
+        - When all steps are complete, call done() with a summary that includes labeled fields: Username: <github-username>, Repository: <repo-name>, Path: <local-clone-path>
         """
 
         // Interpolate context variables
@@ -306,19 +309,19 @@ final class RecipeExecutor {
     private func extractCredentials(from summary: String) -> [String: String] {
         var credentials: [String: String] = [:]
 
-        // Look for App ID pattern
-        if let match = firstCaptureGroup(in: summary, pattern: #"App\s*ID[\s:]+(\d+)"#) {
-            credentials["github_app_id"] = match
+        // Look for GitHub username
+        if let match = firstCaptureGroup(in: summary, pattern: #"[Uu]sername[\s:]+([^\s,]+)"#) {
+            credentials["github_username"] = match
         }
 
-        // Look for .pem file path
-        if let match = firstCaptureGroup(in: summary, pattern: #"([~/][^\s]+\.pem)"#) {
-            credentials["private_key_path"] = match
+        // Look for cloned repo
+        if let match = firstCaptureGroup(in: summary, pattern: #"[Rr]epository[\s:]+([^\s,]+)"#) {
+            credentials["cloned_repo"] = match
         }
 
-        // Look for installation ID
-        if let match = firstCaptureGroup(in: summary, pattern: #"[Ii]nstallation\s*ID[\s:]+(\d+)"#) {
-            credentials["installation_id"] = match
+        // Look for local path
+        if let match = firstCaptureGroup(in: summary, pattern: #"[Pp]ath[\s:]+([~/][^\s,]+)"#) {
+            credentials["local_path"] = match
         }
 
         return credentials

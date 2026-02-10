@@ -39,20 +39,41 @@ struct SessionOverlayView: View {
             Text("Initializing...")
                 .foregroundStyle(.secondary)
 
+        case .thinking(let step, let maxSteps):
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Step \(step) of \(maxSteps)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Thinking...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
         case .running(let step, let maxSteps, let lastAction, let reasoning):
             VStack(alignment: .leading, spacing: 4) {
                 Text("Step \(step) of \(maxSteps)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if !reasoning.isEmpty {
+                    HStack(spacing: 0) {
+                        Rectangle()
+                            .fill(.blue.opacity(0.4))
+                            .frame(width: 3)
+                        Text(reasoning)
+                            .font(.caption)
+                            .foregroundStyle(.primary)
+                            .lineLimit(3)
+                            .padding(.leading, 6)
+                    }
+                }
                 Text(lastAction)
                     .font(.caption)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
-                if !reasoning.isEmpty {
-                    Text(reasoning)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(2)
-                }
             }
 
         case .paused(let step, let maxSteps):
@@ -128,8 +149,9 @@ struct SessionOverlayView: View {
     @ViewBuilder
     private var controlButtons: some View {
         switch session.state {
-        case .running:
+        case .running, .thinking:
             HStack(spacing: 8) {
+                undoButton
                 Spacer()
                 Button("Pause") {
                     session.pause()
@@ -145,7 +167,8 @@ struct SessionOverlayView: View {
             }
 
         case .paused:
-            HStack {
+            HStack(spacing: 8) {
+                undoButton
                 Spacer()
                 Button("Resume") {
                     session.resume()
@@ -161,8 +184,28 @@ struct SessionOverlayView: View {
                 .controlSize(.small)
             }
 
+        case .completed, .failed, .cancelled:
+            HStack(spacing: 8) {
+                undoButton
+                Spacer()
+            }
+
         default:
             EmptyView()
         }
+    }
+
+    private var undoButton: some View {
+        Button {
+            session.undo()
+        } label: {
+            Label(undoLabel, systemImage: "arrow.uturn.backward")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
+    private var undoLabel: String {
+        session.undoCount > 0 ? "Undo (\(session.undoCount))" : "Undo"
     }
 }

@@ -24,6 +24,37 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build -c release
 ```
 
+## Stable Dev Run (Persist Permissions)
+
+`swift run` rebuilds and runs an unsigned binary, which can trigger macOS Privacy & Security prompts repeatedly.
+Use the signed app launcher instead:
+
+```bash
+# One-time: set your Apple team ID (or set this in Local.xcconfig)
+export DEVELOPMENT_TEAM=YOUR_TEAM_ID
+
+# Build + launch from a stable .app path
+scripts/run-dev.sh
+```
+
+What this does:
+- Builds `vellum-assistant.app` with `xcodebuild` and automatic signing
+- Uses a fixed DerivedData location: `.dev/DerivedData`
+- Launches the same app bundle path each run, so TCC permissions stick across rebuilds
+
+Useful options:
+
+```bash
+# Build without launching
+scripts/run-dev.sh --build-only
+
+# Clean build
+scripts/run-dev.sh --clean
+
+# Override team ID
+scripts/run-dev.sh --team YOUR_TEAM_ID
+```
+
 ## Permissions
 
 The app requires three macOS permissions:
@@ -81,4 +112,3 @@ Logging/              Session recording to JSON
 - Step limit enforced (default 50, configurable)
 - System menu bar (top 25px) is off-limits
 - Escape key or Stop button instantly cancels
-

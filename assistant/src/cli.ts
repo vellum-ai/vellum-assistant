@@ -279,6 +279,18 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         lastUsage = msg;
         break;
 
+      case 'context_compacted': {
+        spinner.stop();
+        const summaryOverhead = msg.summaryCalls > 0
+          ? ` | summary: ${msg.summaryCalls} call${msg.summaryCalls === 1 ? '' : 's'}`
+          : '';
+        process.stdout.write(
+          `\n\x1B[2m[Context compacted: ${msg.previousEstimatedInputTokens.toLocaleString()} -> ${msg.estimatedInputTokens.toLocaleString()} est input tokens, ${msg.compactedMessages} messages${summaryOverhead}]\x1B[0m\n`,
+        );
+        spinner.start('Thinking...');
+        break;
+      }
+
       case 'message_complete': {
         spinner.stop();
         generating = false;

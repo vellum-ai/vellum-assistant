@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import type { SecretDetectionEvent, ToolExecutionResult } from '../tools/types.js';
+import type { ToolExecutionResult, ToolLifecycleEvent, ToolLifecycleEventHandler } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
 // Mocks — MUST be declared before importing executor
@@ -79,18 +79,31 @@ mock.module('../tools/terminal/sandbox.js', () => ({
 // Now import the module under test — mocks are already in place
 import { ToolExecutor } from '../tools/executor.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
+import { createToolAuditListener } from '../events/tool-audit-listener.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeContext(overrides?: Partial<{ onSecretDetected: (e: SecretDetectionEvent) => void }>) {
+function makeContext(overrides?: Partial<{
+  onToolLifecycleEvent: ToolLifecycleEventHandler;
+}>) {
+  const auditListener = createToolAuditListener();
   return {
     workingDir: '/tmp',
     sessionId: 'test-session',
     conversationId: 'test-conversation',
-    ...overrides,
+    onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
+      auditListener(event);
+      return overrides?.onToolLifecycleEvent?.(event);
+    },
   };
+}
+
+function getSecretEvents(events: ToolLifecycleEvent[]) {
+  return events.filter(
+    (event): event is Extract<ToolLifecycleEvent, { type: 'secret_detected' }> => event.type === 'secret_detected',
+  );
 }
 
 function makeMockPrompter() {
@@ -114,13 +127,17 @@ describe('Secret scanner executor integration', () => {
   // -----------------------------------------------------------------------
   // warn mode
   // -----------------------------------------------------------------------
-  test('warn mode: passes through content unchanged and fires callback', async () => {
+  test('warn mode: passes through content unchanged and emits secret_detected lifecycle event', async () => {
     mockConfig.secretDetection.action = 'warn';
     const secret = 'AKIAIOSFODNN7REALKEY'; // 20-char AWS key
     fakeToolResult = { content: `Found key: ${secret}`, isError: false };
 
-    const events: SecretDetectionEvent[] = [];
-    const ctx = makeContext({ onSecretDetected: (e) => events.push(e) });
+    const lifecycleEvents: ToolLifecycleEvent[] = [];
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_read', {}, ctx);
 
@@ -128,12 +145,12 @@ describe('Secret scanner executor integration', () => {
     expect(result.content).toContain(secret);
     expect(result.isError).toBe(false);
 
-    // Callback should have fired
-    expect(events).toHaveLength(1);
-    expect(events[0].toolName).toBe('file_read');
-    expect(events[0].action).toBe('warn');
-    expect(events[0].matches.length).toBeGreaterThan(0);
-    expect(events[0].matches[0].type).toBe('AWS Access Key');
+    const secretEvents = getSecretEvents(lifecycleEvents);
+    expect(secretEvents).toHaveLength(1);
+    expect(secretEvents[0].toolName).toBe('file_read');
+    expect(secretEvents[0].action).toBe('warn');
+    expect(secretEvents[0].matches.length).toBeGreaterThan(0);
+    expect(secretEvents[0].matches[0].type).toBe('AWS Access Key');
   });
 
   // -----------------------------------------------------------------------
@@ -144,15 +161,19 @@ describe('Secret scanner executor integration', () => {
     const secret = 'AKIAIOSFODNN7REALKEY';
     fakeToolResult = { content: `Found key: ${secret}`, isError: false };
 
-    const events: SecretDetectionEvent[] = [];
-    const ctx = makeContext({ onSecretDetected: (e) => events.push(e) });
+    const lifecycleEvents: ToolLifecycleEvent[] = [];
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_read', {}, ctx);
 
     expect(result.content).not.toContain(secret);
     expect(result.content).toContain('[REDACTED:AWS Access Key]');
     expect(result.isError).toBe(false);
-    expect(events).toHaveLength(1);
+    expect(getSecretEvents(lifecycleEvents)).toHaveLength(1);
   });
 
   // -----------------------------------------------------------------------
@@ -163,16 +184,20 @@ describe('Secret scanner executor integration', () => {
     const secret = 'AKIAIOSFODNN7REALKEY';
     fakeToolResult = { content: `Found key: ${secret}`, isError: false };
 
-    const events: SecretDetectionEvent[] = [];
-    const ctx = makeContext({ onSecretDetected: (e) => events.push(e) });
+    const lifecycleEvents: ToolLifecycleEvent[] = [];
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_read', {}, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('blocked');
     expect(result.content).toContain('AWS Access Key');
-    // Callback should still fire so the client gets notified
-    expect(events).toHaveLength(1);
+    // Lifecycle notification should still fire so session listeners can notify the user
+    expect(getSecretEvents(lifecycleEvents)).toHaveLength(1);
     // Invocation should be recorded for audit trail
     expect(recordedInvocations).toHaveLength(1);
     const inv = recordedInvocations[0] as Record<string, unknown>;
@@ -184,17 +209,21 @@ describe('Secret scanner executor integration', () => {
   // -----------------------------------------------------------------------
   // disabled
   // -----------------------------------------------------------------------
-  test('disabled: does not scan or fire callback', async () => {
+  test('disabled: does not scan or emit secret_detected event', async () => {
     mockConfig.secretDetection.enabled = false;
     fakeToolResult = { content: 'Found key: AKIAIOSFODNN7REALKEY', isError: false };
 
-    const events: SecretDetectionEvent[] = [];
-    const ctx = makeContext({ onSecretDetected: (e) => events.push(e) });
+    const lifecycleEvents: ToolLifecycleEvent[] = [];
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_read', {}, ctx);
 
     expect(result.content).toContain('AKIAIOSFODNN7REALKEY');
-    expect(events).toHaveLength(0);
+    expect(getSecretEvents(lifecycleEvents)).toHaveLength(0);
   });
 
   // -----------------------------------------------------------------------
@@ -204,14 +233,18 @@ describe('Secret scanner executor integration', () => {
     mockConfig.secretDetection.action = 'redact';
     fakeToolResult = { content: 'Error: AKIAIOSFODNN7REALKEY', isError: true };
 
-    const events: SecretDetectionEvent[] = [];
-    const ctx = makeContext({ onSecretDetected: (e) => events.push(e) });
+    const lifecycleEvents: ToolLifecycleEvent[] = [];
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_read', {}, ctx);
 
     // Error results should pass through without scanning
     expect(result.content).toContain('AKIAIOSFODNN7REALKEY');
-    expect(events).toHaveLength(0);
+    expect(getSecretEvents(lifecycleEvents)).toHaveLength(0);
   });
 
   // -----------------------------------------------------------------------
@@ -231,40 +264,52 @@ describe('Secret scanner executor integration', () => {
       },
     };
 
-    const events: SecretDetectionEvent[] = [];
-    const ctx = makeContext({ onSecretDetected: (e) => events.push(e) });
+    const lifecycleEvents: ToolLifecycleEvent[] = [];
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_write', {}, ctx);
 
     expect(result.diff).toBeDefined();
     expect(result.diff!.newContent).not.toContain(secret);
     expect(result.diff!.newContent).toContain('[REDACTED:AWS Access Key]');
-    expect(events).toHaveLength(1);
+    expect(getSecretEvents(lifecycleEvents)).toHaveLength(1);
   });
 
   // -----------------------------------------------------------------------
-  // no secrets: no callback fired
+  // no secrets: no secret-detected event emitted
   // -----------------------------------------------------------------------
-  test('no secrets: does not fire callback', async () => {
+  test('no secrets: does not emit secret_detected event', async () => {
     fakeToolResult = { content: 'Hello, world!', isError: false };
 
-    const events: SecretDetectionEvent[] = [];
-    const ctx = makeContext({ onSecretDetected: (e) => events.push(e) });
+    const lifecycleEvents: ToolLifecycleEvent[] = [];
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_read', {}, ctx);
 
     expect(result.content).toBe('Hello, world!');
-    expect(events).toHaveLength(0);
+    expect(getSecretEvents(lifecycleEvents)).toHaveLength(0);
   });
 
   // -----------------------------------------------------------------------
-  // no callback: does not throw
+  // no lifecycle handler: does not throw
   // -----------------------------------------------------------------------
-  test('works without onSecretDetected callback', async () => {
+  test('works without onToolLifecycleEvent handler', async () => {
     mockConfig.secretDetection.action = 'warn';
     fakeToolResult = { content: 'Found key: AKIAIOSFODNN7REALKEY', isError: false };
 
-    const ctx = makeContext(); // no onSecretDetected
+    const ctx = {
+      workingDir: '/tmp',
+      sessionId: 'test-session',
+      conversationId: 'test-conversation',
+    };
 
     const result = await executor.execute('file_read', {}, ctx);
 
@@ -281,14 +326,19 @@ describe('Secret scanner executor integration', () => {
     const ghToken = 'ghp_ABCDEFghijklMN0123456789abcdefghijkl';
     fakeToolResult = { content: `AWS: ${aws}\nGitHub: ${ghToken}`, isError: false };
 
-    const events: SecretDetectionEvent[] = [];
-    const ctx = makeContext({ onSecretDetected: (e) => events.push(e) });
+    const lifecycleEvents: ToolLifecycleEvent[] = [];
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     await executor.execute('file_read', {}, ctx);
 
-    expect(events).toHaveLength(1);
-    expect(events[0].matches.length).toBe(2);
-    const types = events[0].matches.map((m) => m.type);
+    const secretEvents = getSecretEvents(lifecycleEvents);
+    expect(secretEvents).toHaveLength(1);
+    expect(secretEvents[0].matches.length).toBe(2);
+    const types = secretEvents[0].matches.map((m) => m.type);
     expect(types).toContain('AWS Access Key');
     expect(types).toContain('GitHub Token');
   });

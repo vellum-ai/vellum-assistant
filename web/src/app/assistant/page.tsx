@@ -16,7 +16,7 @@ type HatchState = "idle" | "checking_card" | "collecting_card" | "hatching";
 
 export default function AssistantPage() {
   const router = useRouter();
-  const { isLoggedIn, isLoading: isAuthLoading, username } = useAuth();
+  const { isLoggedIn, isLoading: isAuthLoading, username, email } = useAuth();
   const [assistants, setAssistants] = useState<Assistant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +123,12 @@ export default function AssistantPage() {
     }
 
     setError(null);
+
+    if (email?.endsWith("@vellum.ai")) {
+      startHatching();
+      return;
+    }
+
     setHatchState("checking_card");
 
     try {
@@ -145,7 +151,7 @@ export default function AssistantPage() {
       setError(err instanceof Error ? err.message : "Failed to check payment method");
       setHatchState("idle");
     }
-  }, [username, startHatching]);
+  }, [username, email, startHatching]);
 
   const handleCardSuccess = useCallback(() => {
     setHatchState("idle");
