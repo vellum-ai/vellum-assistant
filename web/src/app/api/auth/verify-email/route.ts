@@ -15,6 +15,9 @@ export async function GET(request: Request) {
       query: { token },
       asResponse: true,
     });
+    if (!verifyResponse.ok) {
+      return NextResponse.redirect(new URL("/verify-email?status=error", origin));
+    }
     const redirect = NextResponse.redirect(new URL("/verify-email?status=success", origin));
     const setCookie = verifyResponse.headers.getSetCookie();
     for (const cookie of setCookie) {
