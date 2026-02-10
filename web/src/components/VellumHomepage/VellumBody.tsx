@@ -19,7 +19,7 @@ export function VellumBody() {
         style={{
           backgroundImage: "url('/hero-bg.jpg')",
           backgroundSize: "cover",
-          backgroundPosition: "center top",
+          backgroundPosition: "center bottom",
           backgroundRepeat: "no-repeat",
           position: "relative",
         }}
