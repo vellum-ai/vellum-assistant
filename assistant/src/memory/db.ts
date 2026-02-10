@@ -33,7 +33,13 @@ export function initializeDb(): void {
       id TEXT PRIMARY KEY,
       title TEXT,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      total_input_tokens INTEGER NOT NULL DEFAULT 0,
+      total_output_tokens INTEGER NOT NULL DEFAULT 0,
+      total_estimated_cost REAL NOT NULL DEFAULT 0,
+      context_summary TEXT,
+      context_compacted_message_count INTEGER NOT NULL DEFAULT 0,
+      context_compacted_at INTEGER
     )
   `);
 
@@ -65,6 +71,9 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN total_input_tokens INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN total_output_tokens INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN total_estimated_cost REAL NOT NULL DEFAULT 0`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN context_summary TEXT`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN context_compacted_message_count INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN context_compacted_at INTEGER`); } catch { /* already exists */ }
 
   migrateToolInvocationsFk(database);
 

@@ -292,3 +292,18 @@ exports[`IPC message snapshots ServerMessage types secret_detected serializes to
   "type": "secret_detected",
 }
 `;
+
+exports[`IPC message snapshots ServerMessage types context_compacted serializes to expected JSON 1`] = `
+{
+  "compactedMessages": 56,
+  "estimatedInputTokens": 108000,
+  "maxInputTokens": 180000,
+  "previousEstimatedInputTokens": 220000,
+  "summaryCalls": 3,
+  "summaryInputTokens": 4200,
+  "summaryModel": "claude-sonnet-4-5-20250929",
+  "summaryOutputTokens": 900,
+  "thresholdTokens": 144000,
+  "type": "context_compacted",
+}
+`;

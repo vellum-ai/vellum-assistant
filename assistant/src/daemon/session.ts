@@ -19,6 +19,10 @@ import { createToolDomainEventPublisher } from '../events/tool-domain-event-publ
 import { registerToolMetricsLoggingListener } from '../events/tool-metrics-listener.js';
 import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
 import { createToolAuditListener } from '../events/tool-audit-listener.js';
+import {
+  ContextWindowManager,
+  createContextSummaryMessage,
+} from '../context/window-manager.js';
 
 const log = getLogger('session');
 
@@ -36,6 +40,8 @@ export class Session {
   private workingDir: string;
   private sandboxOverride?: boolean;
   private usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+  private contextWindowManager: ContextWindowManager;
+  private contextCompactedMessageCount = 0;
 
   constructor(
     conversationId: string,
@@ -79,16 +85,34 @@ export class Session {
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
     );
+    this.contextWindowManager = new ContextWindowManager(
+      provider,
+      systemPrompt,
+      config.contextWindow,
+    );
   }
 
   async loadFromDb(): Promise<void> {
     const dbMessages = conversationStore.getMessages(this.conversationId);
-    this.messages = dbMessages.map((m) => ({
-      role: m.role as 'user' | 'assistant',
-      content: JSON.parse(m.content),
-    }));
 
     const conv = conversationStore.getConversation(this.conversationId);
+    const contextSummary = conv?.contextSummary?.trim() || null;
+    this.contextCompactedMessageCount = Math.max(
+      0,
+      Math.min(conv?.contextCompactedMessageCount ?? 0, dbMessages.length),
+    );
+
+    this.messages = dbMessages
+      .slice(this.contextCompactedMessageCount)
+      .map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: JSON.parse(m.content),
+      }));
+
+    if (contextSummary) {
+      this.messages.unshift(createContextSummaryMessage(contextSummary));
+    }
+
     if (conv) {
       this.usageStats = {
         inputTokens: conv.totalInputTokens,
@@ -161,6 +185,32 @@ export class Session {
         'user',
         JSON.stringify(userMessage.content),
       );
+
+      const compacted = await this.contextWindowManager.maybeCompact(
+        this.messages,
+        this.abortController.signal,
+      );
+      if (compacted.compacted) {
+        this.messages = compacted.messages;
+        this.contextCompactedMessageCount += compacted.compactedMessages;
+        conversationStore.updateConversationContextWindow(
+          this.conversationId,
+          compacted.summaryText,
+          this.contextCompactedMessageCount,
+        );
+        onEvent({
+          type: 'context_compacted',
+          previousEstimatedInputTokens: compacted.previousEstimatedInputTokens,
+          estimatedInputTokens: compacted.estimatedInputTokens,
+          maxInputTokens: compacted.maxInputTokens,
+          thresholdTokens: compacted.thresholdTokens,
+          compactedMessages: compacted.compactedMessages,
+          summaryCalls: compacted.summaryCalls,
+          summaryInputTokens: compacted.summaryInputTokens,
+          summaryOutputTokens: compacted.summaryOutputTokens,
+          summaryModel: compacted.summaryModel,
+        });
+      }
 
       // Run agent loop
       let firstAssistantText = '';
