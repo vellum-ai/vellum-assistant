@@ -120,6 +120,10 @@ function normalizeWebFetchUrl(rawUrl: string): URL | null {
   }
 }
 
+function escapeMinimatchLiteral(value: string): string {
+  return value.replace(/([\\*?[\]{}()!+@|])/g, '\\$1');
+}
+
 function buildCommandCandidates(toolName: string, input: Record<string, unknown>): string[] {
   if (toolName === 'shell') {
     return [getStringField(input, 'command')];
@@ -332,10 +336,13 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
 
     const options: AllowlistOption[] = [];
     if (exact) {
-      options.push({ label: exact, pattern: `${toolName}:${exact}` });
+      options.push({ label: exact, pattern: `${toolName}:${escapeMinimatchLiteral(exact)}` });
     }
     if (normalized) {
-      options.push({ label: `${normalized.origin}/*`, pattern: `${toolName}:${normalized.origin}/*` });
+      options.push({
+        label: `${normalized.origin}/*`,
+        pattern: `${toolName}:${escapeMinimatchLiteral(normalized.origin)}/*`,
+      });
     }
     options.push({ label: `${toolName}:*`, pattern: `${toolName}:*` });
 

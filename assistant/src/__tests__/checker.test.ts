@@ -384,6 +384,25 @@ describe('Permission Checker', () => {
       expect(result.decision).toBe('allow');
     });
 
+    test('web_fetch exact allowlist pattern matches query urls literally', async () => {
+      const options = generateAllowlistOptions('web_fetch', { url: 'https://example.com/search?q=test' });
+      addRule('web_fetch', options[0].pattern, '/tmp');
+
+      const allowed = await check(
+        'web_fetch',
+        { url: 'https://example.com/search?q=test', allow_private_network: true },
+        '/tmp',
+      );
+      expect(allowed.decision).toBe('allow');
+
+      const nonExact = await check(
+        'web_fetch',
+        { url: 'https://example.com/searchXq=test', allow_private_network: true },
+        '/tmp',
+      );
+      expect(nonExact.decision).toBe('prompt');
+    });
+
     test('web_fetch deny rule blocks matching urls', async () => {
       addRule('web_fetch', 'web_fetch:https://example.com/private/*', 'everywhere', 'deny');
       const result = await check('web_fetch', { url: 'https://example.com/private/doc' }, '/tmp');
@@ -527,6 +546,15 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(2);
       expect(options[0].pattern).toBe('web_fetch:/docs/getting-started');
       expect(options[1].pattern).toBe('web_fetch:*');
+    });
+
+    test('web_fetch: escapes minimatch metacharacters in generated exact and origin patterns', () => {
+      const options = generateAllowlistOptions('web_fetch', { url: 'https://[2001:db8::1]/search?q=test' });
+      expect(options).toHaveLength(3);
+      expect(options[0].label).toBe('https://[2001:db8::1]/search?q=test');
+      expect(options[0].pattern).toBe('web_fetch:https://\\[2001:db8::1\\]/search\\?q=test');
+      expect(options[1].pattern).toBe('web_fetch:https://\\[2001:db8::1\\]/*');
+      expect(options[2].pattern).toBe('web_fetch:*');
     });
   });
 

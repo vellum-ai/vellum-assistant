@@ -249,10 +249,15 @@ function buildHostHeader(url: URL): string {
   return url.port ? `${url.hostname}:${url.port}` : url.hostname;
 }
 
-function sanitizeUrlForOutput(url: URL): string {
+function stripUrlUserinfo(url: URL): URL {
   const sanitized = new URL(url.href);
   sanitized.username = '';
   sanitized.password = '';
+  return sanitized;
+}
+
+function sanitizeUrlForOutput(url: URL): string {
+  const sanitized = stripUrlUserinfo(url);
   return sanitized.href;
 }
 
@@ -312,7 +317,8 @@ const defaultRequestExecutor: WebFetchRequestExecutor = async (url, options) => 
   const resolvedAddress = options.resolvedAddress ? unwrapBracketedHostname(options.resolvedAddress) : undefined;
 
   if (!resolvedAddress) {
-    return fetch(url.href, {
+    const requestUrl = stripUrlUserinfo(url);
+    return fetch(requestUrl.href, {
       method: 'GET',
       redirect: 'manual',
       signal: options.signal,

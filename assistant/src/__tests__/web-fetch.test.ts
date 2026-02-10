@@ -208,6 +208,28 @@ describe('web_fetch tool', () => {
     expect(authorizationHeader).toBe(`Basic ${Buffer.from('user name:p@ss', 'utf8').toString('base64')}`);
   });
 
+  test('strips URL userinfo before default fetch execution while preserving authorization header', async () => {
+    let requestedUrl = '';
+    let authorizationHeader = '';
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      requestedUrl = url;
+      authorizationHeader = new Headers(init?.headers).get('authorization') ?? '';
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWebFetch({
+      url: 'https://user%20name:p%40ss@example.com/protected',
+      allow_private_network: true,
+    });
+
+    expect(result.isError).toBe(false);
+    expect(requestedUrl).toBe('https://example.com/protected');
+    expect(authorizationHeader).toBe(`Basic ${Buffer.from('user name:p@ss', 'utf8').toString('base64')}`);
+  });
+
   test('redacts URL userinfo in output metadata', async () => {
     const username = 'demo';
     const credential = ['c', 'r', 'e', 'd', '1', '2', '3'].join('');
