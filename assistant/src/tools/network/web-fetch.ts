@@ -11,6 +11,7 @@ const MAX_TIMEOUT_SECONDS = 60;
 const DEFAULT_MAX_CHARS = 12_000;
 const MAX_MAX_CHARS = 40_000;
 const MAX_DOWNLOAD_BYTES = 2_000_000;
+const MAX_REDIRECTS = 10;
 
 const TEXT_LIKE_CONTENT_TYPES = [
   'text/',
@@ -88,14 +89,22 @@ function isPrivateIPv4(hostname: string): boolean {
   return false;
 }
 
+function unwrapBracketedHostname(hostname: string): string {
+  if (hostname.startsWith('[') && hostname.endsWith(']')) {
+    return hostname.slice(1, -1);
+  }
+  return hostname;
+}
+
 function isIPv6(hostname: string): boolean {
-  if (!hostname.includes(':')) return false;
-  const stripped = hostname.split('%')[0];
+  const unwrapped = unwrapBracketedHostname(hostname);
+  if (!unwrapped.includes(':')) return false;
+  const stripped = unwrapped.split('%')[0];
   return /^[0-9a-fA-F:]+$/.test(stripped);
 }
 
 function isPrivateIPv6(hostname: string): boolean {
-  const normalized = hostname.split('%')[0].toLowerCase();
+  const normalized = unwrapBracketedHostname(hostname).split('%')[0].toLowerCase();
 
   if (normalized === '::' || normalized === '::1') return true;
   if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
@@ -107,7 +116,7 @@ function isPrivateIPv6(hostname: string): boolean {
 }
 
 function isPrivateOrLocalHost(hostname: string): boolean {
-  const host = hostname.toLowerCase();
+  const host = unwrapBracketedHostname(hostname).toLowerCase();
 
   if (host === 'localhost' || host === 'localhost.localdomain' || host === '0.0.0.0') {
     return true;
@@ -331,15 +340,65 @@ export async function executeWebFetch(input: Record<string, unknown>): Promise<T
   try {
     log.debug({ url: requestedUrl, timeoutSeconds, maxChars, startIndex, rawMode }, 'Fetching webpage');
 
-    const response = await fetch(requestedUrl, {
-      method: 'GET',
-      redirect: 'follow',
-      signal: controller.signal,
-      headers: {
-        'Accept': 'text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.8',
-        'User-Agent': 'VellumAssistant/1.0 (+https://vellum.ai)',
-      },
-    });
+    const requestHeaders = {
+      'Accept': 'text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.8',
+      'User-Agent': 'VellumAssistant/1.0 (+https://vellum.ai)',
+    };
+
+    let currentUrl = new URL(requestedUrl);
+    let redirectCount = 0;
+    let response: Response | null = null;
+
+    while (true) {
+      response = await fetch(currentUrl.href, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: controller.signal,
+        headers: requestHeaders,
+      });
+
+      const location = response.headers.get('location');
+      const isRedirect = response.status >= 300 && response.status < 400 && !!location;
+      if (!isRedirect) break;
+
+      if (redirectCount >= MAX_REDIRECTS) {
+        return {
+          content: `Error: Too many redirects (>${MAX_REDIRECTS}) while fetching ${requestedUrl}`,
+          isError: true,
+        };
+      }
+
+      let nextUrl: URL;
+      try {
+        nextUrl = new URL(location!, currentUrl);
+      } catch {
+        return {
+          content: `Error: Invalid redirect location "${location}" received from ${currentUrl.href}`,
+          isError: true,
+        };
+      }
+
+      if (nextUrl.protocol !== 'http:' && nextUrl.protocol !== 'https:') {
+        return {
+          content: `Error: Refusing redirect to unsupported protocol "${nextUrl.protocol}"`,
+          isError: true,
+        };
+      }
+
+      if (!allowPrivateNetwork && isPrivateOrLocalHost(nextUrl.hostname)) {
+        return {
+          content: `Error: Refusing redirect to local/private network target (${nextUrl.hostname}). Set allow_private_network=true if you explicitly need it.`,
+          isError: true,
+        };
+      }
+
+      currentUrl = nextUrl;
+      redirectCount++;
+    }
+
+    if (!response) {
+      return { content: 'Error: Web fetch failed: no response returned', isError: true };
+    }
 
     const contentType = response.headers.get('content-type') ?? '';
     if (!isTextLikeContentType(contentType)) {
@@ -368,6 +427,9 @@ export async function executeWebFetch(input: Record<string, unknown>): Promise<T
     if (body.truncated) {
       notices.push(`Response body exceeded ${MAX_DOWNLOAD_BYTES} bytes and was truncated.`);
     }
+    if (redirectCount > 0) {
+      notices.push(`Followed ${redirectCount} redirect(s).`);
+    }
     if (safeEnd < processed.length) {
       notices.push(`Output truncated by max_chars=${maxChars}.`);
     }
@@ -377,7 +439,7 @@ export async function executeWebFetch(input: Record<string, unknown>): Promise<T
 
     const content = formatWebFetchOutput({
       requestedUrl,
-      finalUrl: response.url || requestedUrl,
+      finalUrl: currentUrl.href,
       status: response.status,
       statusText: response.statusText,
       contentType,
