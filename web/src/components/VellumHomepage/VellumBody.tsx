@@ -29,18 +29,30 @@ export function VellumBody() {
           flexDirection: "column",
         }}
       >
-        {/* Dark overlay for text readability */}
+        {/* Dark overlay for text readability - z-index 1 */}
         <div
           style={{
             position: "absolute",
             inset: 0,
             backgroundColor: "rgba(0, 0, 0, 0.35)",
+            zIndex: 1,
             pointerEvents: "none",
           }}
         />
-        <NavBar />
-        <HeroSection />
-        <LogoMarquee />
+        {/* Content wrapper - z-index 2, above overlay */}
+        <div
+          style={{
+            position: "relative",
+            zIndex: 2,
+            display: "flex",
+            flexDirection: "column",
+            flex: 1,
+          }}
+        >
+          <NavBar />
+          <HeroSection />
+          <LogoMarquee />
+        </div>
       </div>
       <AutomateSection />
       <TriggerCards />
