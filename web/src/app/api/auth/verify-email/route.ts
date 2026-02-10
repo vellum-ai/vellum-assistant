@@ -11,10 +11,16 @@ export async function GET(request: Request) {
   }
 
   try {
-    await auth.api.verifyEmail({
+    const verifyResponse = await auth.api.verifyEmail({
       query: { token },
+      asResponse: true,
     });
-    return NextResponse.redirect(new URL("/verify-email?status=success", origin));
+    const redirect = NextResponse.redirect(new URL("/verify-email?status=success", origin));
+    const setCookie = verifyResponse.headers.getSetCookie();
+    for (const cookie of setCookie) {
+      redirect.headers.append("Set-Cookie", cookie);
+    }
+    return redirect;
   } catch (error) {
     console.error("Error verifying email:", error);
     return NextResponse.redirect(new URL("/verify-email?status=error", origin));
