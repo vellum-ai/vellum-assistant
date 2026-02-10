@@ -3,7 +3,6 @@ import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { AssistantConfigSchema } from '../config/schema.js';
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports that depend on platform/logger
@@ -19,8 +18,18 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../util/platform.js', () => ({
   getDataDir: () => TEST_DIR,
+  getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
   ensureDataDir: () => {
-    if (!existsSync(TEST_DIR)) mkdirSync(TEST_DIR, { recursive: true });
+    const dirs = [
+      TEST_DIR,
+      join(TEST_DIR, 'data'),
+      join(TEST_DIR, 'memory'),
+      join(TEST_DIR, 'memory', 'knowledge'),
+      join(TEST_DIR, 'logs'),
+    ];
+    for (const dir of dirs) {
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    }
   },
   isMacOS: () => false,
   isLinux: () => false,
@@ -30,6 +39,7 @@ mock.module('../util/platform.js', () => ({
 import { _setStorePath } from '../security/encrypted-store.js';
 import { _setBackend } from '../security/secure-keys.js';
 import { loadConfig, invalidateConfigCache } from '../config/loader.js';
+import { AssistantConfigSchema } from '../config/schema.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
