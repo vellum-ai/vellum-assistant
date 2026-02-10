@@ -291,6 +291,22 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         break;
       }
 
+      case 'memory_status':
+        if (msg.degraded) {
+          spinner.stop();
+          process.stdout.write(`\n\x1B[2m[Memory degraded: ${msg.reason ?? 'unknown'}]\x1B[0m\n`);
+          spinner.start('Thinking...');
+        }
+        break;
+
+      case 'memory_recalled':
+        spinner.stop();
+        process.stdout.write(
+          `\n\x1B[2m[Memory recalled: ${msg.injectedTokens} tokens | lexical ${msg.lexicalHits} | semantic ${msg.semanticHits} | recency ${msg.recencyHits} | ${msg.provider}/${msg.model} | ${msg.latencyMs}ms]\x1B[0m\n`,
+        );
+        spinner.start('Thinking...');
+        break;
+
       case 'message_complete': {
         spinner.stop();
         generating = false;

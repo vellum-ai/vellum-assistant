@@ -14,6 +14,7 @@ import { loadConfig } from '../config/loader.js';
 import { DaemonServer } from './server.js';
 import { getLogger } from '../util/logger.js';
 import { DaemonError } from '../util/errors.js';
+import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
 
 const log = getLogger('lifecycle');
 
@@ -173,6 +174,7 @@ export async function runDaemon(): Promise<void> {
 
   const server = new DaemonServer();
   await server.start();
+  const memoryWorker = startMemoryJobsWorker();
 
   writePid(process.pid);
   log.info({ pid: process.pid }, 'Daemon started');
@@ -204,6 +206,7 @@ export async function runDaemon(): Promise<void> {
     forceTimer.unref();
 
     await server.stop();
+    memoryWorker.stop();
     cleanupPidFile();
     process.exit(0);
   };

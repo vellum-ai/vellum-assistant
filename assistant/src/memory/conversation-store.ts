@@ -2,6 +2,11 @@ import { eq, desc, asc, and, count, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { conversations, messages } from './schema.js';
+import { getConfig } from '../config/loader.js';
+import { indexMessageNow } from './indexer.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('conversation-store');
 
 export function createConversation(title?: string) {
   const db = getDb();
@@ -71,6 +76,20 @@ export function addMessage(conversationId: string, role: string, content: string
       .where(eq(conversations.id, conversationId))
       .run();
   });
+
+  try {
+    const config = getConfig();
+    indexMessageNow({
+      messageId: message.id,
+      conversationId: message.conversationId,
+      role: message.role,
+      content: message.content,
+      createdAt: message.createdAt,
+    }, config.memory);
+  } catch (err) {
+    log.warn({ err, conversationId, messageId: message.id }, 'Failed to index message for memory');
+  }
+
   return message;
 }
 
