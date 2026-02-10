@@ -8,6 +8,7 @@ const GS_PROJECT_ID = 'vellum-nonprod';
 
 const SECRET_NAMES = [
   'ANTHROPIC_API_KEY',
+  'MAILGUN_API_KEY',
   'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
   'STRIPE_SECRET_KEY',
 ] as const;
