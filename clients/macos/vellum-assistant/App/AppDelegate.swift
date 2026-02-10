@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var voiceInput: VoiceInputManager?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     let ambientAgent = AmbientAgent()
+    let auth0Manager = Auth0Manager()
 
     private var onboardingWindow: OnboardingWindow?
     private var windowObserver: Any?

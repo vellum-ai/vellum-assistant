@@ -6,7 +6,7 @@ struct VellumAssistantApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView(ambientAgent: appDelegate.ambientAgent)
+            SettingsView(ambientAgent: appDelegate.ambientAgent, auth0Manager: appDelegate.auth0Manager)
         }
     }
 }
