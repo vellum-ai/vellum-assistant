@@ -69,7 +69,7 @@ function showToast(
       <div
         role="alert"
         className={clsx(
-          "flex w-full max-h-[300px] items-start gap-3 rounded-lg border p-3 shadow-lg",
+          "flex w-full max-h-[300px] items-start gap-3 rounded-meadow border p-3 shadow-lg",
           styles.container
         )}
       >

@@ -218,6 +218,24 @@ enum ToolDefinitions {
                 ],
                 "required": ["summary"]
             ] as [String: Any]
+        ],
+        [
+            "name": "respond",
+            "description": "Respond directly to the user with a text answer. Use this when the user is asking a question (about their schedule, meetings, calendar, etc.) rather than asking you to control the computer.",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "answer": [
+                        "type": "string",
+                        "description": "The text answer to display to the user"
+                    ],
+                    "reasoning": [
+                        "type": "string",
+                        "description": "Explanation of how you determined the answer"
+                    ]
+                ],
+                "required": ["answer", "reasoning"]
+            ] as [String: Any]
         ]
     ]
 }

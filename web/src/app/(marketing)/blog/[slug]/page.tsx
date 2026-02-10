@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import Image from "next/image";
 import { getBlogPostBySlug, getAllBlogSlugs, formatDate } from "@/lib/blog-content";
-import { VellumHead } from "@/components/marketing/VellumHomepage/VellumHead";
 import { VellumScripts } from "@/components/marketing/VellumHomepage/VellumScripts";
 import { BlogPostContent } from "@/components/marketing/BlogPage/BlogPostContent";
 
@@ -38,7 +37,6 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
   
   return (
     <>
-      <VellumHead />
       <article className="blog-article" style={{ backgroundColor: "#0d0d0d", minHeight: "100vh" }}>
         <div className="u-container" style={{ maxWidth: "800px", margin: "0 auto", padding: "4rem 2rem" }}>
           {/* Header */}

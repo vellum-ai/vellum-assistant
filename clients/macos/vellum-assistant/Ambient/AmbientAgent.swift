@@ -162,49 +162,81 @@ final class AmbientAgent: ObservableObject {
         cycleCount += 1
         let cycle = cycleCount
 
-        // Tier 0: Capture + OCR + diff
-        let screenshot: Data
-        do {
-            screenshot = try await screenCapture.captureScreen()
-        } catch {
-            log.warning("[\(cycle)] Screenshot failed: \(error.localizedDescription)")
-            return
+        state = .analyzing
+
+        // Try AX capture first
+        let axStart = CFAbsoluteTimeGetCurrent()
+        let snapshot = await AmbientAXCapture.capture()
+        let axElapsed = CFAbsoluteTimeGetCurrent() - axStart
+
+        var screenContent: String
+        var captureMethod: String
+        var appName: String
+        var windowTitle: String
+        var bundleIdentifier: String?
+        var focusedElementDesc: String?
+
+        if let snapshot, AmbientAXCapture.isUseful(snapshot), axElapsed < 0.5 {
+            screenContent = AmbientAXCapture.format(snapshot)
+            captureMethod = "ax-tree"
+            appName = snapshot.focusedAppName
+            windowTitle = snapshot.focusedWindowTitle
+            bundleIdentifier = snapshot.focusedApp
+            if let focused = snapshot.focusedElement {
+                focusedElementDesc = focused.label.map { "\(focused.role) \"\($0)\"" } ?? focused.role
+            }
+        } else {
+            // Fall back to screenshot + OCR
+            if axElapsed >= 0.5 {
+                log.warning("[\(cycle)] AX capture took \(String(format: "%.2f", axElapsed))s, using OCR fallback")
+            } else if snapshot == nil {
+                log.debug("[\(cycle)] AX capture returned nil, using OCR fallback")
+            } else {
+                log.debug("[\(cycle)] AX tree not useful (<3 elements), using OCR fallback")
+            }
+
+            let screenshot: Data
+            do {
+                screenshot = try await screenCapture.captureScreen()
+            } catch {
+                log.warning("[\(cycle)] Screenshot failed: \(error.localizedDescription)")
+                state = .watching
+                return
+            }
+            screenContent = await ocr.recognizeText(from: screenshot)
+            captureMethod = "ocr"
+            appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Unknown"
+            windowTitle = currentWindowTitle() ?? "Unknown"
         }
 
-        state = .analyzing
-        let ocrText = await ocr.recognizeText(from: screenshot)
-
-        guard !ocrText.isEmpty else {
-            log.debug("[\(cycle)] OCR returned empty text — skipping")
+        guard !screenContent.isEmpty else {
+            log.debug("[\(cycle)] Screen content empty — skipping")
             state = .watching
             return
         }
 
         // Check similarity with previous capture
-        let similarity = ScreenOCR.similarity(previousOCRText, ocrText)
+        let similarity = ScreenOCR.similarity(previousOCRText, screenContent)
         if similarity > 0.85 {
             log.debug("[\(cycle)] Screen unchanged (similarity: \(String(format: "%.2f", similarity))) — skipping")
             state = .watching
             return
         }
-        previousOCRText = ocrText
+        previousOCRText = screenContent
 
-        // Get active app info
-        let appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Unknown"
-        let windowTitle = currentWindowTitle() ?? "Unknown"
+        log.info("[\(cycle)] Analyzing \(appName) — \"\(windowTitle)\" (\(screenContent.count) chars, \(captureMethod))")
 
-        log.info("[\(cycle)] Tier 1: Analyzing \(appName) — \"\(windowTitle)\" (\(ocrText.count) chars OCR)")
-
-        // Tier 1: Send to Haiku
+        // Send to Haiku
         guard let analyzer = analyzer else { return }
 
         let result: AmbientAnalysisResult
         do {
             result = try await analyzer.analyze(
-                ocrText: ocrText,
+                screenContent: screenContent,
                 appName: appName,
                 windowTitle: windowTitle,
-                knowledgeContext: knowledgeStore.formattedContext()
+                knowledgeContext: knowledgeStore.formattedContext(),
+                captureMethod: captureMethod
             )
         } catch {
             log.warning("[\(cycle)] Analysis failed: \(error.localizedDescription)")
@@ -222,7 +254,11 @@ final class AmbientAgent: ObservableObject {
                     category: "observation",
                     observation: observation,
                     sourceApp: appName,
-                    confidence: result.confidence
+                    confidence: result.confidence,
+                    windowTitle: windowTitle,
+                    focusedElement: focusedElementDesc,
+                    captureMethod: captureMethod,
+                    bundleIdentifier: bundleIdentifier
                 )
                 knowledgeCron?.observationAdded()
             }

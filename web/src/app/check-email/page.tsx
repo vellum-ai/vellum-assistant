@@ -6,8 +6,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useOptimistic, useState } from "react";
 
-import { toast } from "@/components/shared/core/Toast";
-import { VellumHead } from "@/components/marketing/VellumHomepage";
+import { toast } from "@/components/app/core/Toast";
 
 type ResendStatus = "idle" | "sending" | "sent";
 
@@ -40,78 +39,72 @@ function CheckEmailContent() {
   };
 
   return (
-    <>
-      <VellumHead />
-      <div className="section_home home min-h-screen flex items-center justify-center">
-        <div className="padding-global home z-index-2 w-full max-w-[480px]">
-          <div className="flex flex-col items-center gap-10">
-            <Link href="/" aria-label="Back to home">
-              <Image
-                loading="lazy"
-                src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6853f41167390a6658f3fd68_Vellum%20Wordmark%20Logo.svg"
-                alt="Vellum"
-                className="navbar2_logo"
-                width={0}
-                height={0}
-                unoptimized
-              />
-            </Link>
+    <div className="flex min-h-screen items-center justify-center bg-[#0d0d0d]">
+      <div className="w-full max-w-[480px] px-6">
+        <div className="flex flex-col items-center gap-10">
+          <Link href="/" aria-label="Back to home">
+            <Image
+              loading="lazy"
+              src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6853f41167390a6658f3fd68_Vellum%20Wordmark%20Logo.svg"
+              alt="Vellum"
+              className="h-auto w-[120px]"
+              width={120}
+              height={30}
+              unoptimized
+            />
+          </Link>
 
-            <div className="w-full">
-              <div className="text-align-center mb-8">
-                <h1 className="heading-2-new font-playfair text-[2rem] mb-2">
-                  <em>Check your email</em>
-                </h1>
-                <div className="text-size-medium font-inter text-[#a1a1aa] leading-relaxed">
-                  {"Account created successfully! We've sent a verification link to "}
-                  {email ? (
-                    <span className="text-white font-medium">{email}</span>
-                  ) : (
-                    "your email"
-                  )}
-                  {". Please check your inbox and click the link to verify your email address."}
-                </div>
-              </div>
+          <div className="w-full">
+            <div className="mb-8 text-center">
+              <h1 className="mb-2 font-serif text-[2rem] font-bold italic text-white">
+                Check your email
+              </h1>
+              <p className="text-sm leading-relaxed text-zinc-400">
+                {"Account created successfully! We've sent a verification link to "}
+                {email ? (
+                  <span className="font-medium text-white">{email}</span>
+                ) : (
+                  "your email"
+                )}
+                {". Please check your inbox and click the link to verify your email address."}
+              </p>
+            </div>
 
-              <div className="rounded-lg bg-white/5 border border-white/10 p-4 mb-6">
-                <div className="font-inter text-[#a1a1aa] text-sm leading-normal">
-                  {"Didn't receive the email? Check your spam folder or click below to resend."}
-                </div>
-              </div>
+            <div className="mb-6 rounded-lg border border-white/10 bg-white/5 p-4">
+              <p className="text-sm leading-normal text-zinc-400">
+                {"Didn't receive the email? Check your spam folder or click below to resend."}
+              </p>
+            </div>
 
-              {email && (
-                <button
-                  onClick={handleResend}
-                  disabled={optimisticStatus !== "idle"}
-                  className={clsx(
-                    "d-button nav-button-5 cta-get-started new w-full inline-flex items-center justify-center gap-2 border-none",
-                    optimisticStatus !== "idle" ? "cursor-default opacity-50" : "cursor-pointer"
-                  )}
-                >
-                  <div className="btn-text nav-button-6 new">
-                    {optimisticStatus === "sent"
-                      ? "Verification email sent!"
-                      : optimisticStatus === "sending"
-                        ? "Sending..."
-                        : "Resend verification email"}
-                  </div>
-                  <div className="d-button_bg-overlay nav-button-8"></div>
-                </button>
-              )}
+            {email && (
+              <button
+                onClick={handleResend}
+                disabled={optimisticStatus !== "idle"}
+                className={clsx(
+                  "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-indigo-700",
+                  optimisticStatus !== "idle" ? "cursor-default opacity-50" : "cursor-pointer"
+                )}
+              >
+                {optimisticStatus === "sent"
+                  ? "Verification email sent!"
+                  : optimisticStatus === "sending"
+                    ? "Sending..."
+                    : "Resend verification email"}
+              </button>
+            )}
 
-              <div className="text-align-center mt-8">
-                <Link
-                  href="/login"
-                  className="text-block-130 font-inter no-underline text-sm"
-                >
-                  &larr; Back to sign in
-                </Link>
-              </div>
+            <div className="mt-8 text-center">
+              <Link
+                href="/login"
+                className="text-sm text-zinc-400 hover:text-zinc-300"
+              >
+                &larr; Back to sign in
+              </Link>
             </div>
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
