@@ -2,8 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { UserMenu } from "@/components/UserMenu";
 
 const NAV_ARROW = (
   <svg width="100%" height="100%" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -12,19 +12,7 @@ const NAV_ARROW = (
 );
 
 export function NavBar() {
-  const { isLoggedIn, username, logout } = useAuth();
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setIsMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  const { isLoggedIn } = useAuth();
 
   return (
     <div 
@@ -78,33 +66,7 @@ export function NavBar() {
                 <div className="btn_arrow nav-button-7 w-embed">{NAV_ARROW}</div>
                 <div className="d-button_bg-overlay nav-button-8"></div>
               </Link>
-              <div ref={menuRef} className="relative">
-                <button
-                  onClick={() => setIsMenuOpen(!isMenuOpen)}
-                  aria-label="User menu"
-                  className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-white/20 bg-white/15 text-sm font-semibold text-white"
-                >
-                  {username ? username.charAt(0).toUpperCase() : "U"}
-                </button>
-                {isMenuOpen && (
-                  <div className="absolute right-0 top-full z-50 mt-2 min-w-40 rounded-lg border border-white/15 bg-zinc-900/95 py-1 backdrop-blur-xl">
-                    {username && (
-                      <div className="border-b border-white/10 px-4 py-2 text-[13px] font-medium text-white">
-                        {username}
-                      </div>
-                    )}
-                    <button
-                      onClick={() => {
-                        logout();
-                        setIsMenuOpen(false);
-                      }}
-                      className="flex w-full cursor-pointer items-center gap-2 border-none bg-transparent px-4 py-2 text-left text-[13px] text-white/70 hover:bg-white/10 hover:text-white"
-                    >
-                      Log out
-                    </button>
-                  </div>
-                )}
-              </div>
+              <UserMenu />
             </>
           ) : (
             <>
