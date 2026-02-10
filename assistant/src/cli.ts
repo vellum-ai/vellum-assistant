@@ -42,7 +42,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
 
   function formatToolProgress(toolName: string, input: Record<string, unknown>): string {
     switch (toolName) {
-      case 'shell':
+      case 'bash':
         return `Running \`${String(input.command ?? '').slice(0, 60)}\`...`;
       case 'file_read':
         return `Reading ${input.path ?? ''}...`;
@@ -74,7 +74,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
   }
 
   function formatCommandPreview(req: ConfirmationRequest): string {
-    if (req.toolName === 'shell') {
+    if (req.toolName === 'bash') {
       return String(req.input.command ?? '');
     }
     if (req.toolName === 'file_read') {
