@@ -9,6 +9,17 @@ import {
 } from "react";
 import { authClient } from "@/lib/auth-client";
 
+type SessionUser = {
+  id?: string | null;
+  username?: string | null;
+  name?: string | null;
+  email?: string | null;
+};
+
+function getSessionUsername(user: SessionUser): string | null {
+  return user.username?.trim() || user.name?.trim() || null;
+}
+
 interface LoginResult {
   error: string | null;
   emailNotVerified?: boolean;
@@ -40,8 +51,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     authClient.getSession().then(({ data }) => {
       if (data?.user) {
         setIsLoggedIn(true);
-        setUsername(data.user.name);
-        setEmail(data.user.email);
+        const sessionUser = data.user as SessionUser;
+        setUsername(getSessionUsername(sessionUser));
+        setEmail(sessionUser.email ?? null);
       }
       setIsLoading(false);
     });
@@ -56,14 +68,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (error.code === "EMAIL_NOT_VERIFIED") {
         return { error: null, emailNotVerified: true };
       }
-      return { error: "Invalid username or password." };
+      return { error: error.message ?? "Invalid username or password." };
     }
     setIsLoggedIn(true);
-    setUsername(user);
     const { data: sessionData } = await authClient.getSession();
-    if (sessionData?.user?.email) {
-      setEmail(sessionData.user.email);
-    }
+    const sessionUser = (sessionData?.user as SessionUser | undefined) ?? null;
+    setUsername(sessionUser ? getSessionUsername(sessionUser) : user);
+    setEmail(sessionUser?.email ?? null);
     return { error: null };
   };
 

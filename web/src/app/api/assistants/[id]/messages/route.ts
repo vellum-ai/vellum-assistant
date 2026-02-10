@@ -46,6 +46,12 @@ interface AssistantError {
   message: string;
 }
 
+interface PostMessageBody {
+  content?: unknown;
+  attachment_ids?: unknown;
+  sourceChannel?: unknown;
+}
+
 interface LinkedAttachmentRow {
   attachment_id: string;
 }
@@ -655,10 +661,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
-    const body = await request.json() as { content?: unknown; attachment_ids?: unknown };
+    const body = await request.json() as PostMessageBody;
+    const sourceChannel =
+      typeof body.sourceChannel === "string" ? body.sourceChannel : "web";
     const content = typeof body.content === "string" ? body.content : "";
     const trimmedContent = content.trim();
     const attachmentIds = normalizeAttachmentIds(body.attachment_ids);
+
+    if (sourceChannel !== "web") {
+      return NextResponse.json({
+        error: "Unsupported source channel for this endpoint",
+      }, { status: 400 });
+    }
 
     const sql = getDb();
     const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
@@ -902,6 +916,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       role: "user",
       content,
       status: "sent",
+      sourceChannel,
       gcsMessageId: assistantData.messageId,
     });
     if (attachmentIds.length > 0) {
@@ -914,7 +929,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       message: "Message sent to assistant inbox",
     });
   } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to send message";
     console.error("Error sending message:", error);
+
+    if (message === "Assistant not found" || message === "Agent not found") {
+      return NextResponse.json({ error: message }, { status: 404 });
+    }
+    if (message === "Message content is required") {
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
     return NextResponse.json(
       { error: "Failed to send message" },
       { status: 500 }

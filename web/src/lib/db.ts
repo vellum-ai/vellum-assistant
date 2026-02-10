@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, and, inArray, asc } from "drizzle-orm";
+import { eq, and, inArray, asc, desc, isNull, sql } from "drizzle-orm";
 import postgres from "postgres";
 
 import * as schema from "./schema";
@@ -53,6 +53,10 @@ export type Assistant = typeof schema.assistantsTable.$inferSelect;
 export type NewAssistant = typeof schema.assistantsTable.$inferInsert;
 export type ChatMessage = typeof schema.chatMessagesTable.$inferSelect;
 export type NewChatMessage = typeof schema.chatMessagesTable.$inferInsert;
+export type AssistantChannelAccount = typeof schema.assistantChannelAccountsTable.$inferSelect;
+export type NewAssistantChannelAccount = typeof schema.assistantChannelAccountsTable.$inferInsert;
+export type AssistantChannelContact = typeof schema.assistantChannelContactsTable.$inferSelect;
+export type NewAssistantChannelContact = typeof schema.assistantChannelContactsTable.$inferInsert;
 export type ChatAttachment = typeof schema.chatAttachmentsTable.$inferSelect;
 export type NewChatAttachment = typeof schema.chatAttachmentsTable.$inferInsert;
 export type ChatMessageAttachment = typeof schema.chatMessageAttachmentsTable.$inferSelect;
@@ -116,9 +120,50 @@ export async function getChatMessages(assistantId: string) {
     .orderBy(schema.chatMessagesTable.createdAt);
 }
 
+export async function getRecentChatMessages(assistantId: string, limit = 40) {
+  const messages = await db
+    .select()
+    .from(schema.chatMessagesTable)
+    .where(eq(schema.chatMessagesTable.assistantId, assistantId))
+    .orderBy(desc(schema.chatMessagesTable.createdAt))
+    .limit(limit);
+  return [...messages].reverse();
+}
+
+export async function getRecentConversationMessages(params: {
+  assistantId: string;
+  sourceChannel: string;
+  externalChatId: string;
+  limit?: number;
+}) {
+  const limit = params.limit ?? 40;
+  const messages = await db
+    .select()
+    .from(schema.chatMessagesTable)
+    .where(
+      and(
+        eq(schema.chatMessagesTable.assistantId, params.assistantId),
+        eq(schema.chatMessagesTable.sourceChannel, params.sourceChannel),
+        eq(schema.chatMessagesTable.externalChatId, params.externalChatId)
+      )
+    )
+    .orderBy(desc(schema.chatMessagesTable.createdAt))
+    .limit(limit);
+
+  return [...messages].reverse();
+}
+
 export async function createChatMessage(data: NewChatMessage) {
   const result = await db.insert(schema.chatMessagesTable).values(data).returning();
   return result[0];
+}
+
+export async function getChatMessageById(id: string) {
+  const result = await db
+    .select()
+    .from(schema.chatMessagesTable)
+    .where(eq(schema.chatMessagesTable.id, id));
+  return result[0] || null;
 }
 
 export async function createChatAttachment(data: NewChatAttachment) {
@@ -205,6 +250,58 @@ export async function getMessageByGcsId(gcsMessageId: string) {
     .select()
     .from(schema.chatMessagesTable)
     .where(eq(schema.chatMessagesTable.gcsMessageId, gcsMessageId));
+  return result[0] || null;
+}
+
+export async function getMessageByExternalId(
+  assistantId: string,
+  sourceChannel: string,
+  externalChatId: string | null | undefined,
+  externalMessageId: string
+) {
+  const chatMatch = externalChatId
+    ? eq(schema.chatMessagesTable.externalChatId, externalChatId)
+    : isNull(schema.chatMessagesTable.externalChatId);
+
+  const result = await db
+    .select()
+    .from(schema.chatMessagesTable)
+    .where(
+      and(
+        eq(schema.chatMessagesTable.assistantId, assistantId),
+        eq(schema.chatMessagesTable.sourceChannel, sourceChannel),
+        chatMatch,
+        eq(schema.chatMessagesTable.externalMessageId, externalMessageId)
+      )
+    );
+  return result[0] || null;
+}
+
+export async function getAssistantReplyByUserMessageId(params: {
+  assistantId: string;
+  sourceChannel: string;
+  externalChatId: string | null | undefined;
+  userMessageId: string;
+}) {
+  const chatMatch = params.externalChatId
+    ? eq(schema.chatMessagesTable.externalChatId, params.externalChatId)
+    : isNull(schema.chatMessagesTable.externalChatId);
+
+  const result = await db
+    .select()
+    .from(schema.chatMessagesTable)
+    .where(
+      and(
+        eq(schema.chatMessagesTable.assistantId, params.assistantId),
+        eq(schema.chatMessagesTable.sourceChannel, params.sourceChannel),
+        eq(schema.chatMessagesTable.role, "assistant"),
+        chatMatch,
+        sql`${schema.chatMessagesTable.metadata} ->> 'replyToUserMessageId' = ${params.userMessageId}`
+      )
+    )
+    .orderBy(desc(schema.chatMessagesTable.createdAt))
+    .limit(1);
+
   return result[0] || null;
 }
 
