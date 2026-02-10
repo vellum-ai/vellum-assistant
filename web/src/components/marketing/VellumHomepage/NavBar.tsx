@@ -2,8 +2,6 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useAuth } from "@/lib/auth";
-import { UserMenu } from "@/components/shared/UserMenu";
 
 const NAV_ARROW = (
   <svg width="100%" height="100%" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -12,8 +10,6 @@ const NAV_ARROW = (
 );
 
 export function NavBar() {
-  const { isLoggedIn } = useAuth();
-
   return (
     <div 
       data-collapse="medium" 
@@ -49,29 +45,11 @@ export function NavBar() {
           </ul>
         </nav>
         <div className="navbar2_button-wrapper hide-tablet new">
-          {isLoggedIn ? (
-            <>
-              <Link
-                href="/assistant"
-                className="d-button nav-button-5 cta-get-started new w-inline-block"
-                style={{ textDecoration: "none" }}
-              >
-                <div className="btn-text nav-button-6 new">Meet your assistant</div>
-                <div className="btn_arrow nav-button-7 w-embed">{NAV_ARROW}</div>
-                <div className="d-button_bg-overlay nav-button-8"></div>
-              </Link>
-              <UserMenu />
-            </>
-          ) : (
-            <>
-              <Link href="/login" className="text-block-130" style={{ textDecoration: "none" }}>Log in</Link>
-              <Link href="/signup" className="d-button nav-button-5 cta-get-started new w-inline-block" style={{ textDecoration: "none" }}>
-                <div className="btn-text nav-button-6 new">Get Started</div>
-                <div className="btn_arrow nav-button-7 w-embed">{NAV_ARROW}</div>
-                <div className="d-button_bg-overlay nav-button-8"></div>
-              </Link>
-            </>
-          )}
+          <Link href="/login" className="d-button nav-button-5 cta-get-started new w-inline-block" style={{ textDecoration: "none" }}>
+            <div className="btn-text nav-button-6 new">Login</div>
+            <div className="btn_arrow nav-button-7 w-embed">{NAV_ARROW}</div>
+            <div className="d-button_bg-overlay nav-button-8"></div>
+          </Link>
         </div>
       </div>
     </div>
