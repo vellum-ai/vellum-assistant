@@ -5,6 +5,7 @@ import {
   createChatMessage,
   getAssistantById,
   getMessageByExternalId,
+  getRecentConversationMessages,
   getRecentChatMessages,
 } from "@/lib/db";
 
@@ -137,7 +138,15 @@ export async function handleInboundAssistantMessage(
     },
   });
 
-  const contextMessages = await getRecentChatMessages(input.assistantId, 40);
+  const contextMessages =
+    input.externalChatId && sourceChannel !== "web"
+      ? await getRecentConversationMessages({
+          assistantId: input.assistantId,
+          sourceChannel,
+          externalChatId: input.externalChatId,
+          limit: 40,
+        })
+      : await getRecentChatMessages(input.assistantId, 40);
   let assistantReply: string;
   try {
     assistantReply = await generateAssistantReply({

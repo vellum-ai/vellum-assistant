@@ -126,6 +126,29 @@ export async function getRecentChatMessages(assistantId: string, limit = 40) {
   return [...messages].reverse();
 }
 
+export async function getRecentConversationMessages(params: {
+  assistantId: string;
+  sourceChannel: string;
+  externalChatId: string;
+  limit?: number;
+}) {
+  const limit = params.limit ?? 40;
+  const messages = await db
+    .select()
+    .from(schema.chatMessagesTable)
+    .where(
+      and(
+        eq(schema.chatMessagesTable.assistantId, params.assistantId),
+        eq(schema.chatMessagesTable.sourceChannel, params.sourceChannel),
+        eq(schema.chatMessagesTable.externalChatId, params.externalChatId)
+      )
+    )
+    .orderBy(desc(schema.chatMessagesTable.createdAt))
+    .limit(limit);
+
+  return [...messages].reverse();
+}
+
 export async function createChatMessage(data: NewChatMessage) {
   const result = await db.insert(schema.chatMessagesTable).values(data).returning();
   return result[0];

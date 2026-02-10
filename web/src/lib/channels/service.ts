@@ -49,6 +49,9 @@ function redactAccountConfig(config: Record<string, unknown>): Record<string, un
   if ("botToken" in next) {
     delete next.botToken;
   }
+  if ("webhookSecret" in next) {
+    delete next.webhookSecret;
+  }
   return next;
 }
 

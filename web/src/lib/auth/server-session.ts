@@ -17,7 +17,6 @@ function normalizeEmail(email: string | null): string | null {
 export async function getRequestUser(request: Request): Promise<RequestUser> {
   let username: string | null = null;
   let email: string | null = null;
-  let sessionEmail: string | null = null;
 
   try {
     const sessionResult = await (auth.api as unknown as {
@@ -32,26 +31,17 @@ export async function getRequestUser(request: Request): Promise<RequestUser> {
         null);
 
     username = session?.user?.username ?? session?.user?.name ?? null;
-    sessionEmail = session?.user?.email ?? null;
-    email = sessionEmail;
+    email = session?.user?.email ?? null;
   } catch {
-    // Fallback to headers below.
+    // Fall through to unauthorized checks below.
   }
 
-  if (!username) {
-    username = request.headers.get("x-username");
-  }
-  if (!email) {
-    email = request.headers.get("x-email");
-  }
-
-  const normalizedSessionEmail = normalizeEmail(sessionEmail);
   const normalizedEmail = normalizeEmail(email);
   return {
     username,
     email: normalizedEmail,
     // Admin privileges are granted only for authenticated-session emails.
-    isAdmin: normalizedSessionEmail?.endsWith("@vellum.ai") ?? false,
+    isAdmin: normalizedEmail?.endsWith("@vellum.ai") ?? false,
   };
 }
 

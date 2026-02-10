@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { useAuth } from "@/lib/auth";
 import { Assistant } from "@/lib/db";
 
 interface DetailsTabProps {
@@ -64,7 +63,6 @@ interface AssistantDetails {
 }
 
 export function DetailsTab({ assistantId }: DetailsTabProps) {
-  const { username, email } = useAuth();
   const [details, setDetails] = useState<AssistantDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [telegramToken, setTelegramToken] = useState("");
@@ -72,17 +70,6 @@ export function DetailsTab({ assistantId }: DetailsTabProps) {
   const [contactActionId, setContactActionId] = useState<string | null>(null);
   const [telegramError, setTelegramError] = useState<string | null>(null);
   const [telegramSuccess, setTelegramSuccess] = useState<string | null>(null);
-
-  const authHeaders = useMemo(() => {
-    const headers: Record<string, string> = {};
-    if (username) {
-      headers["x-username"] = username;
-    }
-    if (email) {
-      headers["x-email"] = email;
-    }
-    return headers;
-  }, [username, email]);
 
   const fetchDetails = useCallback(async () => {
     try {
@@ -123,8 +110,7 @@ export function DetailsTab({ assistantId }: DetailsTabProps) {
 
       try {
         const telegramResponse = await fetch(
-          `/api/assistants/${assistantId}/channels/telegram`,
-          { headers: authHeaders }
+          `/api/assistants/${assistantId}/channels/telegram`
         );
         if (telegramResponse.ok) {
           const telegramData = (await telegramResponse.json()) as {
@@ -136,8 +122,7 @@ export function DetailsTab({ assistantId }: DetailsTabProps) {
 
           if (telegramConfigured) {
             const contactsResponse = await fetch(
-              `/api/assistants/${assistantId}/channels/telegram/contacts`,
-              { headers: authHeaders }
+              `/api/assistants/${assistantId}/channels/telegram/contacts`
             );
             if (contactsResponse.ok) {
               const contactsData = (await contactsResponse.json()) as {
@@ -167,7 +152,7 @@ export function DetailsTab({ assistantId }: DetailsTabProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [assistantId, authHeaders]);
+  }, [assistantId]);
 
   useEffect(() => {
     fetchDetails();
@@ -199,7 +184,7 @@ export function DetailsTab({ assistantId }: DetailsTabProps) {
     try {
       const response = await fetch(`/api/assistants/${assistantId}/channels/telegram`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", ...authHeaders },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ botToken: token, enabled: true }),
       });
 
@@ -218,7 +203,7 @@ export function DetailsTab({ assistantId }: DetailsTabProps) {
     } finally {
       setTelegramLoading(false);
     }
-  }, [assistantId, authHeaders, fetchDetails, telegramToken]);
+  }, [assistantId, fetchDetails, telegramToken]);
 
   const handleDisconnectTelegram = useCallback(async () => {
     setTelegramError(null);
@@ -227,7 +212,6 @@ export function DetailsTab({ assistantId }: DetailsTabProps) {
     try {
       const response = await fetch(`/api/assistants/${assistantId}/channels/telegram`, {
         method: "DELETE",
-        headers: authHeaders,
       });
       const data = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) {
@@ -243,7 +227,7 @@ export function DetailsTab({ assistantId }: DetailsTabProps) {
     } finally {
       setTelegramLoading(false);
     }
-  }, [assistantId, authHeaders, fetchDetails]);
+  }, [assistantId, fetchDetails]);
 
   const handleContactAction = useCallback(
     async (contactId: string, action: "approve" | "block") => {
@@ -253,7 +237,7 @@ export function DetailsTab({ assistantId }: DetailsTabProps) {
       try {
         const response = await fetch(
           `/api/assistants/${assistantId}/channels/telegram/contacts/${contactId}/${action}`,
-          { method: "POST", headers: authHeaders }
+          { method: "POST" }
         );
         const data = (await response.json().catch(() => ({}))) as { error?: string };
         if (!response.ok) {
@@ -272,7 +256,7 @@ export function DetailsTab({ assistantId }: DetailsTabProps) {
         setContactActionId(null);
       }
     },
-    [assistantId, authHeaders, fetchDetails]
+    [assistantId, fetchDetails]
   );
 
   if (isLoading) {

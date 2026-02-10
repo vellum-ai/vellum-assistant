@@ -37,6 +37,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const config = { ...((account.config || {}) as Record<string, unknown>) };
     delete config.botToken;
+    delete config.webhookSecret;
     return NextResponse.json({
       configured: true,
       channel: {
