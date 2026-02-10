@@ -9,12 +9,17 @@ import {
 } from "react";
 import { authClient } from "@/lib/auth-client";
 
+interface LoginResult {
+  error: string | null;
+  emailNotVerified?: boolean;
+}
+
 interface AuthContextType {
   isLoggedIn: boolean;
   isLoading: boolean;
   username: string | null;
   email: string | null;
-  login: (username: string, password: string) => Promise<string | null>;
+  login: (username: string, password: string) => Promise<LoginResult>;
   signup: (username: string, email: string, password: string) => Promise<string | null>;
   logout: () => void;
 }
@@ -42,13 +47,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
   }, []);
 
-  const login = async (user: string, password: string): Promise<string | null> => {
+  const login = async (user: string, password: string): Promise<LoginResult> => {
     const { error } = await authClient.signIn.username({
       username: user,
       password,
     });
     if (error) {
-      return "Invalid username or password.";
+      if (error.code === "EMAIL_NOT_VERIFIED") {
+        return { error: null, emailNotVerified: true };
+      }
+      return { error: "Invalid username or password." };
     }
     setIsLoggedIn(true);
     setUsername(user);
@@ -56,7 +64,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (sessionData?.user?.email) {
       setEmail(sessionData.user.email);
     }
-    return null;
+    return { error: null };
   };
 
   const signup = async (user: string, signupEmail: string, password: string): Promise<string | null> => {

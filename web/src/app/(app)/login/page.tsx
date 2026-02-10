@@ -19,12 +19,16 @@ export default function LoginPage() {
   const router = useRouter();
 
   const onSubmit = async (data: LoginFormValues) => {
-    const errorMessage = await login(data.username, data.password);
-    if (!errorMessage) {
-      router.push("/assistant");
-    } else {
-      toast.error(errorMessage);
+    const result = await login(data.username, data.password);
+    if (result.emailNotVerified) {
+      router.push("/check-email");
+      return;
     }
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    router.push("/assistant");
   };
 
   return (
