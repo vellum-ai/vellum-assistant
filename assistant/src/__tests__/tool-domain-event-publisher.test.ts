@@ -107,6 +107,43 @@ describe('createToolDomainEventPublisher', () => {
     });
   });
 
+  test('maps timeout-like executed lifecycle event to permission.decided + execution.finished', async () => {
+    const { bus, events } = makeEventsCollector();
+    const publish = createToolDomainEventPublisher(bus);
+
+    await publish({
+      type: 'executed',
+      toolName: 'shell',
+      input: { command: 'sleep 30' },
+      workingDir: '/tmp/project',
+      sessionId: 'session-1',
+      conversationId: 'conversation-1',
+      riskLevel: 'high',
+      decision: 'always_allow',
+      durationMs: 5000,
+      result: {
+        content: '[Command timed out after 5s]',
+        isError: true,
+        status: 'timeout',
+      },
+    });
+
+    expect(events.map((event) => event.type)).toEqual([
+      'tool.permission.decided',
+      'tool.execution.finished',
+    ]);
+    expect(events[0].payload).toMatchObject({
+      decision: 'always_allow',
+      riskLevel: 'high',
+    });
+    expect(events[1].payload).toMatchObject({
+      toolName: 'shell',
+      decision: 'always_allow',
+      isError: true,
+      durationMs: 5000,
+    });
+  });
+
   test('maps secret_detected lifecycle event to tool.secret.detected domain event', async () => {
     const { bus, events } = makeEventsCollector();
     const publish = createToolDomainEventPublisher(bus);
@@ -132,6 +169,45 @@ describe('createToolDomainEventPublisher', () => {
       action: 'redact',
       matches: [{ type: 'AWS Access Key', redactedValue: '[REDACTED:AWS Access Key]' }],
       detectedAtMs: 55,
+    });
+  });
+
+  test('maps allow-decision error lifecycle event to permission.decided + execution.failed', async () => {
+    const { bus, events } = makeEventsCollector();
+    const publish = createToolDomainEventPublisher(bus);
+
+    await publish({
+      type: 'error',
+      toolName: 'shell',
+      input: { command: 'cat /missing' },
+      workingDir: '/tmp/project',
+      sessionId: 'session-1',
+      conversationId: 'conversation-1',
+      riskLevel: 'high',
+      decision: 'allow',
+      durationMs: 12,
+      errorMessage: 'cat: /missing: No such file or directory',
+      isExpected: false,
+      errorName: 'Error',
+      errorStack: 'Error: cat: /missing: No such file or directory',
+    });
+
+    expect(events.map((event) => event.type)).toEqual([
+      'tool.permission.decided',
+      'tool.execution.failed',
+    ]);
+    expect(events[0].payload).toMatchObject({
+      decision: 'allow',
+      riskLevel: 'high',
+    });
+    expect(events[1].payload).toMatchObject({
+      toolName: 'shell',
+      decision: 'allow',
+      durationMs: 12,
+      error: 'cat: /missing: No such file or directory',
+      isExpected: false,
+      errorName: 'Error',
+      errorStack: 'Error: cat: /missing: No such file or directory',
     });
   });
 

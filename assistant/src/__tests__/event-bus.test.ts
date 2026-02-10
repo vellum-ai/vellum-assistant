@@ -46,6 +46,35 @@ describe('EventBus', () => {
     expect(seenConversationId).toBe('conv-2');
   });
 
+  test('invokes direct listeners before onAny listeners for each emission', async () => {
+    const bus = new EventBus<AssistantDomainEvents>();
+    const seen: string[] = [];
+
+    bus.on('tool.permission.decided', async () => {
+      await Promise.resolve();
+      seen.push('direct-1');
+    });
+    bus.on('tool.permission.decided', () => {
+      seen.push('direct-2');
+    });
+    bus.onAny((event) => {
+      if (event.type === 'tool.permission.decided') {
+        seen.push('any');
+      }
+    });
+
+    await bus.emit('tool.permission.decided', {
+      conversationId: 'conv-2',
+      sessionId: 'sess-2',
+      toolName: 'shell',
+      decision: 'allow',
+      riskLevel: 'medium',
+      decidedAtMs: Date.now(),
+    });
+
+    expect(seen).toEqual(['direct-1', 'direct-2', 'any']);
+  });
+
   test('subscription disposal is idempotent and prevents future callbacks', async () => {
     const bus = new EventBus<AssistantDomainEvents>();
     let calls = 0;
@@ -140,5 +169,52 @@ describe('EventBus', () => {
     ).rejects.toBeInstanceOf(AggregateError);
 
     expect(ranAfterFailure).toBe(true);
+  });
+
+  test('emit aggregates direct and onAny listener failures while still invoking remaining listeners', async () => {
+    const bus = new EventBus<AssistantDomainEvents>();
+    let directRanAfterFailure = false;
+    let anyRanAfterFailure = false;
+
+    bus.on('tool.execution.failed', () => {
+      throw new Error('direct listener failed');
+    });
+    bus.on('tool.execution.failed', () => {
+      directRanAfterFailure = true;
+    });
+    bus.onAny((event) => {
+      if (event.type === 'tool.execution.failed') {
+        throw new Error('any listener failed');
+      }
+    });
+    bus.onAny((event) => {
+      if (event.type === 'tool.execution.failed') {
+        anyRanAfterFailure = true;
+      }
+    });
+
+    let caught: unknown;
+    try {
+      await bus.emit('tool.execution.failed', {
+        conversationId: 'conv-4',
+        sessionId: 'sess-4',
+        toolName: 'shell',
+        decision: 'error',
+        riskLevel: 'high',
+        durationMs: 31,
+        error: 'boom',
+        isExpected: false,
+        failedAtMs: Date.now(),
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(AggregateError);
+    const aggregate = caught as AggregateError;
+    const messages = aggregate.errors.map((err) => (err instanceof Error ? err.message : String(err)));
+    expect(messages).toEqual(['direct listener failed', 'any listener failed']);
+    expect(directRanAfterFailure).toBe(true);
+    expect(anyRanAfterFailure).toBe(true);
   });
 });
