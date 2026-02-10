@@ -60,9 +60,24 @@ function getStringField(input: Record<string, unknown>, ...keys: string[]): stri
   return '';
 }
 
+function looksLikeHostPortShorthand(value: string): boolean {
+  if (/^\[[0-9a-fA-F:.%]+\]:\d+(?:[/?#]|$)/.test(value)) {
+    return true;
+  }
+  return /^[^/?#@\s:]+:\d+(?:[/?#]|$)/.test(value);
+}
+
 function normalizeWebFetchUrl(rawUrl: string): URL | null {
   const trimmed = rawUrl.trim();
   if (!trimmed) return null;
+
+  if (looksLikeHostPortShorthand(trimmed)) {
+    try {
+      return new URL(`https://${trimmed}`);
+    } catch {
+      return null;
+    }
+  }
 
   try {
     const parsed = new URL(trimmed);
