@@ -16,6 +16,39 @@ function normalizeEmail(email: string | null): string | null {
   return email.trim().toLowerCase();
 }
 
+type UserIdLookupRow = {
+  id: string;
+};
+
+async function resolveOwnerUserId(
+  sql: ReturnType<typeof getDb>,
+  createdBy: string
+): Promise<string | null> {
+  // Canonical namespace: treat created_by as user.id when possible.
+  const byId = await sql<UserIdLookupRow[]>`
+    SELECT id
+    FROM "user"
+    WHERE id = ${createdBy}
+    LIMIT 1
+  `;
+  if (byId.length > 0 && typeof byId[0]?.id === "string") {
+    return byId[0].id;
+  }
+
+  // Backward compatibility for assistants that still store username values.
+  const byUsername = await sql<UserIdLookupRow[]>`
+    SELECT id
+    FROM "user"
+    WHERE username = ${createdBy}
+    LIMIT 1
+  `;
+  if (byUsername.length > 0 && typeof byUsername[0]?.id === "string") {
+    return byUsername[0].id;
+  }
+
+  return null;
+}
+
 export async function getRequestUser(request: Request): Promise<RequestUser> {
   let id: string | null = null;
   let username: string | null = null;
@@ -67,7 +100,7 @@ export async function requireAssistantOwner(
 
   const assistant = result[0] as Assistant & { created_by?: string | null };
   const user = await getRequestUser(request);
-  if (!user.id && !user.username && !user.isAdmin) {
+  if (!user.id && !user.isAdmin) {
     throw new Error("UNAUTHORIZED");
   }
 
@@ -77,12 +110,19 @@ export async function requireAssistantOwner(
     return { assistant, user };
   }
 
-  if (
-    createdBy &&
-    ((user.username && createdBy === user.username) ||
-      (user.id && createdBy === user.id))
-  ) {
-    return { assistant, user };
+  if (createdBy && user.id) {
+    const ownerUserId = await resolveOwnerUserId(sql, createdBy);
+    if (ownerUserId === user.id) {
+      if (createdBy !== user.id) {
+        await sql`
+          UPDATE assistants
+          SET created_by = ${user.id}
+          WHERE id = ${assistantId}
+            AND created_by = ${createdBy}
+        `;
+      }
+      return { assistant, user };
+    }
   }
 
   // Backward compatibility: legacy assistants may store display name in created_by.
@@ -95,11 +135,10 @@ export async function requireAssistantOwner(
       LIMIT 2
     `;
     if (nameMatches.length === 1 && nameMatches[0]?.id === user.id) {
-      const canonicalOwner = user.username || user.id;
-      if (canonicalOwner && canonicalOwner !== createdBy) {
+      if (createdBy !== user.id) {
         await sql`
           UPDATE assistants
-          SET created_by = ${canonicalOwner}
+          SET created_by = ${user.id}
           WHERE id = ${assistantId}
             AND created_by = ${createdBy}
         `;
