@@ -165,6 +165,14 @@ final class AmbientAgent: ObservableObject {
 
         state = .analyzing
 
+        // Skip if frontmost app is Vellum itself to avoid self-referential observations
+        let ownBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == ownBundleId {
+            log.debug("[\(cycle)] Frontmost app is self — skipping cycle")
+            state = .watching
+            return
+        }
+
         // Try AX capture first
         let axStart = CFAbsoluteTimeGetCurrent()
         let snapshot = await AmbientAXCapture.capture()
