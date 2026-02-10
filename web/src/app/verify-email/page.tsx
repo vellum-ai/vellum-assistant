@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { toast } from "@/components/app/core/Toast";
@@ -11,7 +11,6 @@ type VerifyStatus = "verifying" | "success" | "error";
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const token = searchParams.get("token");
   const [status, setStatus] = useState<VerifyStatus>(() => {
     if (!token) {
@@ -29,7 +28,7 @@ function VerifyEmailContent() {
       setStatus("success");
       toast.success("Email verified! Redirecting...");
       setTimeout(() => {
-        router.push("/assistant");
+        window.location.href = "/assistant";
       }, 2000);
     }
   });
@@ -47,7 +46,8 @@ function VerifyEmailContent() {
         }
         return { error: null };
       })
-      .then(onVerifyResult);
+      .then(onVerifyResult)
+      .catch(() => onVerifyResult({ error: true }));
   }, [token]);
 
   return (
