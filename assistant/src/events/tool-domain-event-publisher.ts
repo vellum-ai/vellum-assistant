@@ -82,6 +82,9 @@ export function createToolDomainEventPublisher(
           riskLevel: event.riskLevel,
           durationMs: event.durationMs,
           error: event.errorMessage,
+          isExpected: event.isExpected,
+          errorName: event.errorName,
+          errorStack: event.errorStack,
           failedAtMs: Date.now(),
         });
         break;

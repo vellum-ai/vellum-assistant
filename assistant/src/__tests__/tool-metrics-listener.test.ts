@@ -176,14 +176,50 @@ describe('registerToolMetricsLoggingListener', () => {
       riskLevel: 'high',
       durationMs: 42,
       error: 'boom',
+      isExpected: false,
+      errorName: 'Error',
+      errorStack: 'Error: boom\n    at test',
       failedAtMs: 142,
     });
 
     expect(errorCalls).toHaveLength(1);
+    expect(warnCalls).toHaveLength(0);
     expect(errorCalls[0][1]).toBe('Tool execution error');
     const payload = errorCalls[0][0] as Record<string, unknown>;
     expect(payload.tool).toBe('shell');
     expect(payload.error).toBe('boom');
+    expect(payload.errorStack).toBe('Error: boom\n    at test');
     expect(payload.execDurationMs).toBe(42);
+  });
+
+  test('logs expected execution failures as warnings', async () => {
+    const bus = new EventBus<AssistantDomainEvents>();
+    registerToolMetricsLoggingListener(bus, {
+      logger: testLogger,
+      debugEnabled: () => debugEnabled,
+      truncate,
+    });
+
+    await bus.emit('tool.execution.failed', {
+      conversationId: 'conversation-1',
+      sessionId: 'session-1',
+      toolName: 'shell',
+      decision: 'error',
+      riskLevel: 'medium',
+      durationMs: 14,
+      error: 'Permission denied by user',
+      isExpected: true,
+      errorName: 'PermissionDeniedError',
+      errorStack: 'PermissionDeniedError: Permission denied by user\n    at test',
+      failedAtMs: 201,
+    });
+
+    expect(warnCalls).toHaveLength(1);
+    expect(errorCalls).toHaveLength(0);
+    expect(warnCalls[0][1]).toBe('Tool execution failed (expected)');
+    const payload = warnCalls[0][0] as Record<string, unknown>;
+    expect(payload.tool).toBe('shell');
+    expect(payload.isExpected).toBe(true);
+    expect(payload.errorName).toBe('PermissionDeniedError');
   });
 });

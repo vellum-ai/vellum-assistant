@@ -46,6 +46,9 @@ export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
   decision: string;
   durationMs: number;
   errorMessage: string;
+  isExpected: boolean;
+  errorName?: string;
+  errorStack?: string;
 }
 
 export interface ToolSecretDetectedEvent extends ToolLifecycleEventBase {
