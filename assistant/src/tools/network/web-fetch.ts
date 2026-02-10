@@ -65,6 +65,10 @@ function looksLikeHostPortShorthand(value: string): boolean {
   return /^[^/?#@\s:]+:\d+(?:[/?#]|$)/.test(value);
 }
 
+function looksLikePathOnlyInput(value: string): boolean {
+  return value.startsWith('/') || value.startsWith('./') || value.startsWith('../') || value.startsWith('?') || value.startsWith('#');
+}
+
 function parseUrl(input: unknown): URL | null {
   if (typeof input !== 'string') return null;
   const value = input.trim();
@@ -82,6 +86,10 @@ function parseUrl(input: unknown): URL | null {
     return new URL(value);
   } catch {
     // Allow shorthand like "example.com/docs".
+  }
+
+  if (looksLikePathOnlyInput(value)) {
+    return null;
   }
 
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value)) {

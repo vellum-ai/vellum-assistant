@@ -406,7 +406,9 @@ describe('Permission Checker', () => {
       addRule('web_fetch', 'web_fetch:https://example.com/private/*', 'everywhere', 'deny');
       const username = 'demo';
       const credential = ['c', 'r', 'e', 'd', '1', '2', '3'].join('');
-      const credentialedUrl = new URL(`https://${username}:${credential}@example.com/private/doc`);
+      const credentialedUrl = new URL('https://example.com/private/doc');
+      credentialedUrl.username = username;
+      credentialedUrl.password = credential;
       const result = await check('web_fetch', { url: credentialedUrl.href }, '/tmp');
       expect(result.decision).toBe('deny');
     });
@@ -501,7 +503,9 @@ describe('Permission Checker', () => {
     test('web_fetch: strips userinfo when generating allowlist options', () => {
       const username = 'demo';
       const credential = ['c', 'r', 'e', 'd', '1', '2', '3'].join('');
-      const credentialedUrl = new URL(`https://${username}:${credential}@example.com/docs/page`);
+      const credentialedUrl = new URL('https://example.com/docs/page');
+      credentialedUrl.username = username;
+      credentialedUrl.password = credential;
       const options = generateAllowlistOptions('web_fetch', { url: credentialedUrl.href });
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
@@ -516,6 +520,13 @@ describe('Permission Checker', () => {
       expect(options[0].pattern).toBe('web_fetch:https://example.com:8443/docs/page');
       expect(options[1].pattern).toBe('web_fetch:https://example.com:8443/*');
       expect(options[2].pattern).toBe('web_fetch:*');
+    });
+
+    test('web_fetch: does not coerce path-only urls to https hostnames in allowlist options', () => {
+      const options = generateAllowlistOptions('web_fetch', { url: '/docs/getting-started' });
+      expect(options).toHaveLength(2);
+      expect(options[0].pattern).toBe('web_fetch:/docs/getting-started');
+      expect(options[1].pattern).toBe('web_fetch:*');
     });
   });
 

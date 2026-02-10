@@ -67,6 +67,10 @@ function looksLikeHostPortShorthand(value: string): boolean {
   return /^[^/?#@\s:]+:\d+(?:[/?#]|$)/.test(value);
 }
 
+function looksLikePathOnlyInput(value: string): boolean {
+  return value.startsWith('/') || value.startsWith('./') || value.startsWith('../') || value.startsWith('?') || value.startsWith('#');
+}
+
 function canonicalizeWebFetchUrl(parsed: URL): URL {
   parsed.hash = '';
   parsed.username = '';
@@ -99,6 +103,10 @@ function normalizeWebFetchUrl(rawUrl: string): URL | null {
     return null;
   } catch {
     // Fall through.
+  }
+
+  if (looksLikePathOnlyInput(trimmed)) {
+    return null;
   }
 
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {

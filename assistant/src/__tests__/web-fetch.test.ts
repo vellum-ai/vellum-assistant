@@ -52,6 +52,12 @@ describe('web_fetch tool', () => {
     expect(result.content).toContain('url must use http or https');
   });
 
+  test('rejects path-only urls', async () => {
+    const result = await executeWithMockFetch({ url: '/docs/getting-started' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('url is required');
+  });
+
   test('adds https:// for bare hostnames', async () => {
     let requestedUrl = '';
     globalThis.fetch = (async (url: string) => {
@@ -189,7 +195,9 @@ describe('web_fetch tool', () => {
   test('redacts URL userinfo in output metadata', async () => {
     const username = 'demo';
     const credential = ['c', 'r', 'e', 'd', '1', '2', '3'].join('');
-    const credentialedUrl = new URL(`https://${username}:${credential}@example.com/protected`);
+    const credentialedUrl = new URL('https://example.com/protected');
+    credentialedUrl.username = username;
+    credentialedUrl.password = credential;
 
     const result = await executeWithMockFetch(
       { url: credentialedUrl.href },
@@ -212,7 +220,9 @@ describe('web_fetch tool', () => {
   test('redacts URL userinfo in resolution error messages', async () => {
     const username = 'demo';
     const credential = ['c', 'r', 'e', 'd', '1', '2', '3'].join('');
-    const credentialedUrl = new URL(`https://${username}:${credential}@example.com/protected`);
+    const credentialedUrl = new URL('https://example.com/protected');
+    credentialedUrl.username = username;
+    credentialedUrl.password = credential;
 
     const result = await executeWithMockFetch(
       { url: credentialedUrl.href },
