@@ -14,13 +14,12 @@ export async function GET(request: Request) {
       );
     }
 
-    const response = await auth.api.verifyEmail({
+    return await auth.api.verifyEmail({
       query: {
         token,
       },
+      asResponse: true,
     });
-
-    return NextResponse.json(response);
   } catch (error) {
     console.error("Error verifying email:", error);
     return NextResponse.json(
