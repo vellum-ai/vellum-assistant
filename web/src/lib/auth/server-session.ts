@@ -65,13 +65,14 @@ export async function requireAssistantOwner(
     throw new Error("NOT_FOUND");
   }
 
-  const assistant = result[0] as Assistant;
+  const assistant = result[0] as Assistant & { created_by?: string | null };
   const user = await getRequestUser(request);
   if (!user.id && !user.username && !user.name && !user.isAdmin) {
     throw new Error("UNAUTHORIZED");
   }
 
-  const createdBy = assistant.createdBy?.trim() || null;
+  const createdBy =
+    assistant.created_by?.trim() || assistant.createdBy?.trim() || null;
   if (user.isAdmin) {
     return { assistant, user };
   }
