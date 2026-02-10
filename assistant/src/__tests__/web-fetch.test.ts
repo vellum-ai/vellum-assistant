@@ -155,6 +155,22 @@ describe('web_fetch tool', () => {
     expect(called).toBe(false);
   });
 
+  test('blocks IPv4 benchmarking targets unless explicitly enabled', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://198.18.0.10/' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
   test('blocks hostnames that resolve to private addresses unless explicitly enabled', async () => {
     let called = false;
     globalThis.fetch = (async () => {
@@ -622,6 +638,28 @@ describe('web_fetch tool', () => {
         return new Response('', {
           status: 302,
           headers: { location: 'http://localhost:3000/internal' },
+        });
+      }
+      return new Response('should-not-be-fetched', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'https://example.com/start' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing redirect to local/private network target');
+    expect(callCount).toBe(1);
+  });
+
+  test('blocks redirects to IPv4 benchmarking targets when allow_private_network is false', async () => {
+    let callCount = 0;
+    globalThis.fetch = (async (_url: string) => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response('', {
+          status: 302,
+          headers: { location: 'http://198.18.0.10/internal' },
         });
       }
       return new Response('should-not-be-fetched', {
