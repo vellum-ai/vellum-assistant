@@ -28,6 +28,7 @@ export function FileSystemTab({ assistantId }: FileSystemTabProps) {
   const [currentPath, setCurrentPath] = useState("/opt/vellum-agent");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
 
   const fetchFilesForPath = useCallback(
@@ -35,11 +36,34 @@ export function FileSystemTab({ assistantId }: FileSystemTabProps) {
       const response = await fetch(
         `/api/assistants/${assistantId}/ls?path=${encodeURIComponent(path)}`
       );
-      if (!response.ok) {
-        throw new Error("Failed to fetch files");
+
+      let data: unknown = null;
+      try {
+        data = await response.json();
+      } catch {
+        data = null;
       }
-      const data = await response.json();
-      return (data.files || []).map((f: Omit<FileEntry, "path">) => ({
+
+      if (!response.ok) {
+        const message =
+          data && typeof data === "object" && "error" in data && typeof data.error === "string"
+            ? data.error
+            : "Failed to fetch files";
+        throw new Error(message);
+      }
+
+      const message =
+        data && typeof data === "object" && "message" in data && typeof data.message === "string"
+          ? data.message
+          : null;
+      setInfoMessage(message);
+
+      const filesData =
+        data && typeof data === "object" && "files" in data && Array.isArray(data.files)
+          ? data.files
+          : [];
+
+      return filesData.map((f: Omit<FileEntry, "path">) => ({
         ...f,
         path: `${path}/${f.name}`,
       }));
@@ -50,6 +74,7 @@ export function FileSystemTab({ assistantId }: FileSystemTabProps) {
   const fetchFiles = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    setInfoMessage(null);
 
     try {
       const fetchedFiles = await fetchFilesForPath(currentPath);
@@ -234,6 +259,12 @@ export function FileSystemTab({ assistantId }: FileSystemTabProps) {
           />
         </button>
       </div>
+
+      {infoMessage && (
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300">
+          {infoMessage}
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto">
         {isLoading && files.length === 0 ? (
