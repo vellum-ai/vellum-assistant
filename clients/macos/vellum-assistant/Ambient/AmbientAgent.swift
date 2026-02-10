@@ -58,6 +58,7 @@ final class AmbientAgent: ObservableObject {
     private var cachedRejections: [RejectionEntry] = []
     private var lastRejectionFetchDate: Date?
     private let rejectionRefreshInterval: TimeInterval = 600
+    private let rejectionFailureRetryInterval: TimeInterval = 60
 
     weak var appDelegate: AppDelegate?
 
@@ -316,6 +317,10 @@ final class AmbientAgent: ObservableObject {
         if let fetched = await syncClient.fetchRejections() {
             cachedRejections = fetched
             lastRejectionFetchDate = Date()
+        } else {
+            // Back off on failure to avoid hammering a flapping endpoint.
+            // Use a shorter interval than the normal TTL so recovery is still prompt.
+            lastRejectionFetchDate = Date().addingTimeInterval(-(rejectionRefreshInterval - rejectionFailureRetryInterval))
         }
     }
 

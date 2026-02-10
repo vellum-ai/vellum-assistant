@@ -354,7 +354,7 @@ private struct PrivacyDetailView: View {
                         title: "What Data Leaves Your Mac",
                         items: [
                             "When you run a task: screenshots (compressed, max 1280x720) and UI element data (window titles, button labels, text field values) are sent to the Anthropic API over HTTPS.",
-                            "When ambient mode is on: extracted on-screen text (via on-device OCR) and the active app name are sent to Anthropic for analysis.",
+                            "When ambient mode is on: extracted on-screen text (via on-device OCR) and the active app name are sent to Anthropic for analysis. If sync is enabled, ambient observations and insights are also sent to the Velly backend.",
                             "Voice input: speech is transcribed on-device using Apple Speech Recognition. Only the final text is sent to Anthropic as part of the task.",
                         ]
                     )
