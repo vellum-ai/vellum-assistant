@@ -6,7 +6,9 @@ import { createToolDomainEventPublisher } from '../events/tool-domain-event-publ
 function makeEventsCollector() {
   const bus = new EventBus<AssistantDomainEvents>();
   const events: AnyEventEnvelope<AssistantDomainEvents>[] = [];
-  bus.onAny((event) => events.push(event));
+  bus.onAny((event) => {
+    events.push(event);
+  });
   return { bus, events };
 }
 

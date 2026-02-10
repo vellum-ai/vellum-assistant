@@ -133,7 +133,11 @@ describe('Secret scanner executor integration', () => {
     fakeToolResult = { content: `Found key: ${secret}`, isError: false };
 
     const lifecycleEvents: ToolLifecycleEvent[] = [];
-    const ctx = makeContext({ onToolLifecycleEvent: (event) => lifecycleEvents.push(event) });
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_read', {}, ctx);
 
@@ -158,7 +162,11 @@ describe('Secret scanner executor integration', () => {
     fakeToolResult = { content: `Found key: ${secret}`, isError: false };
 
     const lifecycleEvents: ToolLifecycleEvent[] = [];
-    const ctx = makeContext({ onToolLifecycleEvent: (event) => lifecycleEvents.push(event) });
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_read', {}, ctx);
 
@@ -177,7 +185,11 @@ describe('Secret scanner executor integration', () => {
     fakeToolResult = { content: `Found key: ${secret}`, isError: false };
 
     const lifecycleEvents: ToolLifecycleEvent[] = [];
-    const ctx = makeContext({ onToolLifecycleEvent: (event) => lifecycleEvents.push(event) });
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_read', {}, ctx);
 
@@ -202,7 +214,11 @@ describe('Secret scanner executor integration', () => {
     fakeToolResult = { content: 'Found key: AKIAIOSFODNN7REALKEY', isError: false };
 
     const lifecycleEvents: ToolLifecycleEvent[] = [];
-    const ctx = makeContext({ onToolLifecycleEvent: (event) => lifecycleEvents.push(event) });
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_read', {}, ctx);
 
@@ -218,7 +234,11 @@ describe('Secret scanner executor integration', () => {
     fakeToolResult = { content: 'Error: AKIAIOSFODNN7REALKEY', isError: true };
 
     const lifecycleEvents: ToolLifecycleEvent[] = [];
-    const ctx = makeContext({ onToolLifecycleEvent: (event) => lifecycleEvents.push(event) });
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_read', {}, ctx);
 
@@ -245,7 +265,11 @@ describe('Secret scanner executor integration', () => {
     };
 
     const lifecycleEvents: ToolLifecycleEvent[] = [];
-    const ctx = makeContext({ onToolLifecycleEvent: (event) => lifecycleEvents.push(event) });
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_write', {}, ctx);
 
@@ -262,7 +286,11 @@ describe('Secret scanner executor integration', () => {
     fakeToolResult = { content: 'Hello, world!', isError: false };
 
     const lifecycleEvents: ToolLifecycleEvent[] = [];
-    const ctx = makeContext({ onToolLifecycleEvent: (event) => lifecycleEvents.push(event) });
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     const result = await executor.execute('file_read', {}, ctx);
 
@@ -299,7 +327,11 @@ describe('Secret scanner executor integration', () => {
     fakeToolResult = { content: `AWS: ${aws}\nGitHub: ${ghToken}`, isError: false };
 
     const lifecycleEvents: ToolLifecycleEvent[] = [];
-    const ctx = makeContext({ onToolLifecycleEvent: (event) => lifecycleEvents.push(event) });
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
 
     await executor.execute('file_read', {}, ctx);
 

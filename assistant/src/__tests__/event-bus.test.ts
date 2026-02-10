@@ -33,7 +33,9 @@ describe('EventBus', () => {
 
     bus.onAny((event) => {
       seenType = event.type;
-      seenConversationId = event.payload.conversationId;
+      if (event.type === 'daemon.session.created') {
+        seenConversationId = event.payload.conversationId;
+      }
       expect(typeof event.emittedAtMs).toBe('number');
     });
 
