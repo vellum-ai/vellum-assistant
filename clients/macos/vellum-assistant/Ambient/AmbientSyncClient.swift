@@ -4,8 +4,6 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AmbientSync")
 
 actor AmbientSyncClient {
-    private static let defaultBaseURL = URL(string: "http://100.77.178.101:3457")!
-
     private let baseURL: URL
     private let session: URLSession
     private let encoder: JSONEncoder
@@ -25,7 +23,8 @@ actor AmbientSyncClient {
                   let parsed = URL(string: envURL) {
             self.baseURL = parsed
         } else {
-            self.baseURL = Self.defaultBaseURL
+            log.warning("AMBIENT_SYNC_URL not set — sync client disabled")
+            self.baseURL = URL(string: "http://localhost:0")!
         }
 
         let config = URLSessionConfiguration.default
