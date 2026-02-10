@@ -352,7 +352,8 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             description: description,
             schedule: schedule,
             approved: approved,
-            source: "alexs-macbook-pro-2"
+            reason: nil,
+            source: ProcessInfo.processInfo.hostName
         )
 
         let syncClient = await MainActor.run { ambientAgent.syncClient }

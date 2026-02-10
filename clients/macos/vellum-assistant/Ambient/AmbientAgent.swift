@@ -55,6 +55,9 @@ final class AmbientAgent: ObservableObject {
     private var previousOCRText: String = ""
     private var knowledgeCancellable: AnyCancellable?
     private var suggestionWindow: AmbientSuggestionWindow?
+    private var cachedRejections: [RejectionEntry] = []
+    private var lastRejectionFetchDate: Date?
+    private let rejectionRefreshInterval: TimeInterval = 600
 
     weak var appDelegate: AppDelegate?
 
@@ -94,6 +97,10 @@ final class AmbientAgent: ObservableObject {
         }
         cron.onInsightsAdded = { [weak sync] insights in
             Task { await sync?.sendInsights(insights) }
+        }
+
+        Task { [weak self] in
+            await self?.refreshRejectionsIfNeeded()
         }
 
         syncTask = Task.detached { [weak self] in
@@ -279,9 +286,14 @@ final class AmbientAgent: ObservableObject {
 
         case .suggest:
             if let suggestion = result.suggestion, result.confidence > 0.8 {
-                log.info("[\(cycle)] Suggestion: \(suggestion)")
-                lastSuggestion = suggestion
-                showSuggestion(suggestion)
+                await refreshRejectionsIfNeeded()
+                if isSimilarToRejection(suggestion) {
+                    log.info("[\(cycle)] Suggestion suppressed (similar to previous rejection): \(suggestion)")
+                } else {
+                    log.info("[\(cycle)] Suggestion: \(suggestion)")
+                    lastSuggestion = suggestion
+                    showSuggestion(suggestion)
+                }
             } else {
                 log.debug("[\(cycle)] Suggestion below confidence threshold (\(String(format: "%.2f", result.confidence)))")
             }
@@ -294,6 +306,27 @@ final class AmbientAgent: ObservableObject {
         await syncClient?.flushQueue()
 
         state = .watching
+    }
+
+    private func refreshRejectionsIfNeeded() async {
+        if let lastFetch = lastRejectionFetchDate, Date().timeIntervalSince(lastFetch) < rejectionRefreshInterval {
+            return
+        }
+        guard let syncClient else { return }
+        if let fetched = await syncClient.fetchRejections() {
+            cachedRejections = fetched
+            lastRejectionFetchDate = Date()
+        }
+    }
+
+    private func isSimilarToRejection(_ suggestion: String) -> Bool {
+        for rejection in cachedRejections {
+            let rejectionText = "\(rejection.title) \(rejection.description)"
+            if ScreenOCR.similarity(suggestion, rejectionText) > 0.5 {
+                return true
+            }
+        }
+        return false
     }
 
     private func showSuggestion(_ suggestion: String) {
@@ -310,6 +343,24 @@ final class AmbientAgent: ObservableObject {
                 self?.activeSuggestionWindow = nil
                 self?.lastSuggestion = nil
                 self?.suggestionWindow = nil
+                let decision = AutomationDecision(
+                    insightId: "",
+                    insightTitle: suggestion,
+                    description: suggestion,
+                    schedule: "",
+                    approved: false,
+                    reason: nil,
+                    source: ProcessInfo.processInfo.hostName
+                )
+                Task { await self?.syncClient?.sendDecision(decision) }
+                self?.cachedRejections.append(RejectionEntry(
+                    insightId: "",
+                    title: suggestion,
+                    description: suggestion,
+                    reason: nil,
+                    source: ProcessInfo.processInfo.hostName,
+                    receivedAt: ISO8601DateFormatter().string(from: Date())
+                ))
             }
         )
         activeSuggestionWindow = window
