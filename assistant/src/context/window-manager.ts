@@ -34,6 +34,7 @@ export interface ContextWindowResult {
   maxInputTokens: number;
   thresholdTokens: number;
   compactedMessages: number;
+  compactedPersistedMessages: number;
   summaryCalls: number;
   summaryInputTokens: number;
   summaryOutputTokens: number;
@@ -63,6 +64,7 @@ export class ContextWindowManager {
         maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
+        compactedPersistedMessages: 0,
         summaryCalls: 0,
         summaryInputTokens: 0,
         summaryOutputTokens: 0,
@@ -81,6 +83,7 @@ export class ContextWindowManager {
         maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
+        compactedPersistedMessages: 0,
         summaryCalls: 0,
         summaryInputTokens: 0,
         summaryOutputTokens: 0,
@@ -101,6 +104,7 @@ export class ContextWindowManager {
         maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
+        compactedPersistedMessages: 0,
         summaryCalls: 0,
         summaryInputTokens: 0,
         summaryOutputTokens: 0,
@@ -120,6 +124,7 @@ export class ContextWindowManager {
         maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
+        compactedPersistedMessages: 0,
         summaryCalls: 0,
         summaryInputTokens: 0,
         summaryOutputTokens: 0,
@@ -139,6 +144,7 @@ export class ContextWindowManager {
         maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
+        compactedPersistedMessages: 0,
         summaryCalls: 0,
         summaryInputTokens: 0,
         summaryOutputTokens: 0,
@@ -148,6 +154,7 @@ export class ContextWindowManager {
       };
     }
 
+    const compactedPersistedMessages = countPersistedMessages(compactableMessages);
     const chunks = chunkMessages(compactableMessages, Math.max(this.config.chunkTokens, CHUNK_MIN_TOKENS));
     let summary = existingSummary ?? 'No previous summary.';
     let summaryInputTokens = 0;
@@ -174,6 +181,7 @@ export class ContextWindowManager {
         previousEstimatedInputTokens,
         estimatedInputTokens,
         compactedMessages: compactableMessages.length,
+        compactedPersistedMessages,
         keepTurns: keepPlan.keepTurns,
         summaryCalls,
       },
@@ -188,6 +196,7 @@ export class ContextWindowManager {
       maxInputTokens: this.config.maxInputTokens,
       thresholdTokens,
       compactedMessages: compactableMessages.length,
+      compactedPersistedMessages,
       summaryCalls,
       summaryInputTokens,
       summaryOutputTokens,
@@ -262,14 +271,23 @@ function collectUserTurnStartIndexes(messages: Message[]): number[] {
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i];
     if (message.role !== 'user') continue;
+    if (getSummaryFromContextMessage(message) !== null) continue;
     if (message.content.some((block) => block.type === 'tool_result')) continue;
     starts.push(i);
   }
   return starts;
 }
 
+function countPersistedMessages(messages: Message[]): number {
+  return messages.filter((message) => {
+    if (message.role === 'assistant') return true;
+    if (getSummaryFromContextMessage(message) !== null) return false;
+    return !message.content.some((block) => block.type === 'tool_result');
+  }).length;
+}
+
 export function getSummaryFromContextMessage(message: Message | undefined): string | null {
-  if (!message || message.role !== 'assistant') return null;
+  if (!message) return null;
   const text = extractText(message.content).trim();
   if (!text.startsWith(CONTEXT_SUMMARY_MARKER)) return null;
   return text.slice(CONTEXT_SUMMARY_MARKER.length).trim();
@@ -277,7 +295,7 @@ export function getSummaryFromContextMessage(message: Message | undefined): stri
 
 export function createContextSummaryMessage(summary: string): Message {
   return {
-    role: 'assistant',
+    role: 'user',
     content: [{ type: 'text', text: `${CONTEXT_SUMMARY_MARKER}\n${clampSummary(summary)}` }],
   };
 }
