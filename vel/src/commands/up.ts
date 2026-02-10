@@ -60,7 +60,7 @@ export async function up(): Promise<void> {
 
     // Step 5: Push schema to database
     console.log('🔄 Pushing database schema...');
-    const push = spawn('bunx', ['drizzle-kit', 'push', '--force'], {
+    const push = spawn('bunx', ['--bun', 'drizzle-kit', 'push', '--force'], {
       cwd: webDir,
       stdio: ['inherit', 'pipe', 'pipe'],
       env: {
