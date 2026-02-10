@@ -20,7 +20,7 @@ export function VellumBody() {
           height: "100vh",
           minHeight: "100vh",
           backgroundImage: "url('/hero-bg.jpg')",
-          backgroundSize: "auto 100%",
+          backgroundSize: "cover",
           backgroundPosition: "center bottom",
           backgroundRepeat: "no-repeat",
           backgroundColor: "#3a8bc2",
