@@ -149,5 +149,7 @@ if [ "$CMD" = "run" ]; then
     # Kill existing instance if running
     pkill -x "$APP_NAME" 2>/dev/null || true
     sleep 0.3
-    open "$APP_DIR"
+    # Use absolute path to avoid Launch Services opening a stale copy
+    "$MACOS_DIR/$APP_NAME" &
+    disown
 fi
