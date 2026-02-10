@@ -1,10 +1,27 @@
 import { NextResponse } from "next/server";
 
+import {
+  getAssistantConnectionMode,
+  getLocalDaemonSocketPath,
+} from "@/lib/assistant-connection";
 import { Assistant, getDb } from "@/lib/db";
 import { getInstanceExternalIp, getInstanceStatus } from "@/lib/gcp";
+import {
+  LocalDaemonClient,
+  describeLocalDaemonError,
+} from "@/lib/local-daemon-ipc";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
+}
+
+export const runtime = "nodejs";
+
+function cloudResponse(payload: Record<string, unknown>) {
+  return NextResponse.json({
+    connectionMode: "cloud",
+    ...payload,
+  });
 }
 
 export async function GET(request: Request, { params }: RouteParams) {
@@ -18,6 +35,38 @@ export async function GET(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
 
+    const connectionMode = getAssistantConnectionMode();
+    if (connectionMode === "local") {
+      const socketPath = getLocalDaemonSocketPath();
+      let daemon: LocalDaemonClient | null = null;
+      let reachable = false;
+      let errorDetail: string | null = null;
+
+      try {
+        daemon = await LocalDaemonClient.connect(socketPath);
+        await daemon.ping(3000);
+        reachable = true;
+      } catch (error: unknown) {
+        reachable = false;
+        errorDetail = describeLocalDaemonError(error);
+      } finally {
+        daemon?.close();
+      }
+
+      return NextResponse.json({
+        status: reachable ? "healthy" : "unreachable",
+        message: reachable
+          ? "Connected to local daemon"
+          : "Local daemon is not reachable",
+        connectionMode: "local",
+        daemon: {
+          socketPath,
+          reachable,
+          ...(errorDetail ? { error: errorDetail } : {}),
+        },
+      });
+    }
+
     const assistant = result[0] as Assistant;
     const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
@@ -26,7 +75,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     // If no compute instance is configured, report as healthy so the chat UI is usable
     // TODO: Remove this once we have a way to reproduce our production environment kubernetes locally
     if (!computeConfig?.instanceName || !computeConfig?.zone) {
-      return NextResponse.json({
+      return cloudResponse({
         status: "healthy",
         message: "Running in demo mode",
       });
@@ -34,7 +83,7 @@ export async function GET(request: Request, { params }: RouteParams) {
 
     const provisioningError = (assistant.configuration as Record<string, unknown>)?.provisioningError as string | undefined;
     if (provisioningError) {
-      return NextResponse.json({
+      return cloudResponse({
         status: "provisioning_failed",
         message: provisioningError,
       });
@@ -56,13 +105,13 @@ export async function GET(request: Request, { params }: RouteParams) {
         instanceStatus === "PROVISIONING" ||
         instanceStatus === "RUNNING"
       ) {
-        return NextResponse.json({
+        return cloudResponse({
           status: "starting",
           message: "Agent instance is starting up",
         });
       }
 
-      return NextResponse.json({
+      return cloudResponse({
         status: "stopped",
         message: "Instance has no external IP (likely stopped)",
       });
@@ -77,7 +126,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       });
 
       if (!response.ok) {
-        return NextResponse.json({
+        return cloudResponse({
           status: "unhealthy",
           message: `Health check returned ${response.status}`,
           ip: externalIp,
@@ -87,7 +136,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       const healthData = await response.json();
 
       if (healthData.status === "setting_up") {
-        return NextResponse.json({
+        return cloudResponse({
           status: "setting_up",
           progress: healthData.progress || null,
           ip: externalIp,
@@ -95,7 +144,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       }
 
       if (healthData.status === "error") {
-        return NextResponse.json({
+        return cloudResponse({
           status: "provisioning_failed",
           message: healthData.error || healthData.progress || "Setup failed",
           ip: externalIp,
@@ -118,7 +167,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         // Stats fetch failed, continue without them
       }
 
-      return NextResponse.json({
+      return cloudResponse({
         status: "healthy",
         data: healthData,
         ip: externalIp,
@@ -127,7 +176,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     } catch (fetchError: unknown) {
       console.log("Health check failed:", fetchError);
       const errorDetail = fetchError instanceof Error ? fetchError.message : "Unknown error";
-      return NextResponse.json({
+      return cloudResponse({
         status: "unreachable",
         message: `Health check failed: ${errorDetail}`,
         ip: externalIp,

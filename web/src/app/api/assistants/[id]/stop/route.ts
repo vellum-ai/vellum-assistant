@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 
+import { getAssistantConnectionMode } from "@/lib/assistant-connection";
 import { Assistant, getDb } from "@/lib/db";
 import { stopInstance } from "@/lib/gcp";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
+
+export const runtime = "nodejs";
 
 export async function POST(request: Request, { params }: RouteParams) {
   try {
@@ -16,6 +19,17 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     if (result.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+
+    if (getAssistantConnectionMode() === "local") {
+      return NextResponse.json(
+        {
+          error:
+            "Stop is not supported in local-daemon mode. Manage daemon lifecycle outside the web UI.",
+          connectionMode: "local",
+        },
+        { status: 501 }
+      );
     }
 
     const assistant = result[0] as Assistant;
