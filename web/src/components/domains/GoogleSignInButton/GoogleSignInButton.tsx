@@ -21,7 +21,7 @@ export function GoogleSignInButton({ onError }: GoogleSignInButtonProps) {
     <button
       type="button"
       onClick={handleClick}
-      className="font-inter mt-6 w-full inline-flex items-center justify-center gap-3 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white cursor-pointer hover:bg-white/10 transition-colors"
+      className="font-inter w-full inline-flex items-center justify-center gap-3 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white cursor-pointer hover:bg-white/10 transition-colors"
     >
       <svg width="18" height="18" viewBox="0 0 18 18">
         <path
