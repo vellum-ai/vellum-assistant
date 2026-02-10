@@ -96,7 +96,27 @@ function unwrapBracketedHostname(hostname: string): string {
   return hostname;
 }
 
+function extractMappedIPv4FromIPv6(hostname: string): string | null {
+  const normalized = unwrapBracketedHostname(hostname).split('%')[0].toLowerCase();
+
+  const dottedMatch = normalized.match(/^(?:(?:0:){5}|::)ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (dottedMatch) {
+    return isIPv4(dottedMatch[1]) ? dottedMatch[1] : null;
+  }
+
+  const hexMatch = normalized.match(/^(?:(?:0:){5}|::)ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (!hexMatch) return null;
+
+  const hi = Number.parseInt(hexMatch[1], 16);
+  const lo = Number.parseInt(hexMatch[2], 16);
+  if (Number.isNaN(hi) || Number.isNaN(lo)) return null;
+
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+}
+
 function isIPv6(hostname: string): boolean {
+  if (extractMappedIPv4FromIPv6(hostname)) return true;
+
   const unwrapped = unwrapBracketedHostname(hostname);
   if (!unwrapped.includes(':')) return false;
   const stripped = unwrapped.split('%')[0];
@@ -110,6 +130,11 @@ function isPrivateIPv6(hostname: string): boolean {
   if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
   if (normalized.startsWith('fe8') || normalized.startsWith('fe9') || normalized.startsWith('fea') || normalized.startsWith('feb')) {
     return true;
+  }
+
+  const mappedIPv4 = extractMappedIPv4FromIPv6(hostname);
+  if (mappedIPv4) {
+    return isPrivateIPv4(mappedIPv4);
   }
 
   return false;

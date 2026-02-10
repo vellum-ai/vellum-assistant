@@ -72,6 +72,22 @@ describe('web_fetch tool', () => {
     expect(called).toBe(false);
   });
 
+  test('blocks IPv4-mapped IPv6 localhost targets unless explicitly enabled', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWebFetch({ url: 'http://[::ffff:127.0.0.1]:3000/health' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
   test('allows localhost when allow_private_network=true', async () => {
     let called = false;
     globalThis.fetch = (async () => {
@@ -174,6 +190,28 @@ describe('web_fetch tool', () => {
         return new Response('', {
           status: 302,
           headers: { location: 'http://localhost:3000/internal' },
+        });
+      }
+      return new Response('should-not-be-fetched', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWebFetch({ url: 'https://example.com/start' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing redirect to local/private network target');
+    expect(callCount).toBe(1);
+  });
+
+  test('blocks redirects to IPv4-mapped IPv6 private targets when allow_private_network is false', async () => {
+    let callCount = 0;
+    globalThis.fetch = (async (_url: string) => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response('', {
+          status: 302,
+          headers: { location: 'http://[::ffff:7f00:1]:3000/internal' },
         });
       }
       return new Response('should-not-be-fetched', {
