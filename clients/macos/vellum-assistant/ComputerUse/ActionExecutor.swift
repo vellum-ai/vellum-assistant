@@ -171,12 +171,6 @@ final class ActionExecutor: ActionExecuting {
         keyUp.post(tap: .cghidEventTap)
     }
 
-    // MARK: - Undo
-
-    func undo() throws {
-        try pressKey("cmd+z")
-    }
-
     // MARK: - Scroll
 
     func scroll(at point: CGPoint, direction: String, amount: Int) throws {

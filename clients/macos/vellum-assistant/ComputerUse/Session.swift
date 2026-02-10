@@ -522,13 +522,15 @@ final class ComputerUseSession: ObservableObject {
     }
 
     func undo() {
-        let undoExecutor = ActionExecutor()
-        do {
-            try undoExecutor.pressKey("cmd+z")
-            undoCount += 1
-            log.info("Undo #\(self.undoCount) sent")
-        } catch {
-            log.error("Undo failed: \(error.localizedDescription)")
+        let undoAction = AgentAction(type: .key, reasoning: "User-initiated undo", key: "cmd+z")
+        Task { @MainActor in
+            do {
+                _ = try await executor.execute(undoAction)
+                undoCount += 1
+                log.info("Undo #\(self.undoCount) sent")
+            } catch {
+                log.error("Undo failed: \(error.localizedDescription)")
+            }
         }
     }
 }

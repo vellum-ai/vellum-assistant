@@ -774,13 +774,21 @@ final class SessionTests: XCTestCase {
         let provider = MockInferenceProvider(actions: [
             AgentAction(type: .done, reasoning: "done", summary: "Done")
         ])
-        let session = makeSession(provider: provider)
+        let executor = MockActionExecutor()
+        let session = makeSession(provider: provider, executor: executor)
 
         XCTAssertEqual(session.undoCount, 0)
         session.undo()
+        try? await Task.sleep(nanoseconds: 10_000_000) // let async undo complete
         XCTAssertEqual(session.undoCount, 1)
         session.undo()
+        try? await Task.sleep(nanoseconds: 10_000_000)
         XCTAssertEqual(session.undoCount, 2)
+
+        // Verify undo went through the injected executor
+        XCTAssertEqual(executor.executedActions.count, 2)
+        XCTAssertEqual(executor.executedActions[0].type, .key)
+        XCTAssertEqual(executor.executedActions[0].key, "cmd+z")
     }
 
     @MainActor
@@ -788,7 +796,8 @@ final class SessionTests: XCTestCase {
         let provider = MockInferenceProvider(actions: [
             AgentAction(type: .done, reasoning: "done", summary: "Done")
         ])
-        let session = makeSession(provider: provider)
+        let executor = MockActionExecutor()
+        let session = makeSession(provider: provider, executor: executor)
 
         await session.run()
 
@@ -800,9 +809,15 @@ final class SessionTests: XCTestCase {
 
         // Undo should work even after session is completed
         session.undo()
+        try? await Task.sleep(nanoseconds: 10_000_000)
         XCTAssertEqual(session.undoCount, 1)
         session.undo()
+        try? await Task.sleep(nanoseconds: 10_000_000)
         XCTAssertEqual(session.undoCount, 2)
+
+        // Verify undo actions went through the mock executor (not a real ActionExecutor)
+        let undoActions = executor.executedActions.filter { $0.type == .key && $0.key == "cmd+z" }
+        XCTAssertEqual(undoActions.count, 2)
     }
 
     // MARK: - Thinking State
