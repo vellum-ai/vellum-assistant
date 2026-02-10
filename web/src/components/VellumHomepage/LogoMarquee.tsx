@@ -51,7 +51,7 @@ export function LogoMarquee() {
                 </div>
                 <div className="fs-logo-marquee_instance">
                   <div className="div-block-238">
-                    <div className="trusted_header align-center" style={{ color: "rgba(255, 255, 255, 0.9)" }}>Trusted by companies of all sizes</div>
+                    <div className="trusted_header align-center" style={{ color: "rgba(255, 255, 255, 0.9)" }}>Used by people who value their time</div>
                   </div>
                   <div className="fs-logo-marquee_list-wrapper alt w-dyn-list" style={{ overflow: "hidden", maskImage: "linear-gradient(to right, transparent, black 10%, black 90%, transparent)", WebkitMaskImage: "linear-gradient(to right, transparent, black 10%, black 90%, transparent)" }}>
                     <div role="list" className="fs-logo-marquee_list w-dyn-items" style={{ display: "flex", alignItems: "center", gap: "3rem", flexWrap: "nowrap", padding: "1.5rem 0", width: "max-content", animation: "logo-marquee-scroll 30s linear infinite" }}>
