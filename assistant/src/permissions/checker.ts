@@ -51,6 +51,14 @@ function isHighRiskRm(args: string[]): boolean {
   return false;
 }
 
+function getStringField(input: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === 'string') return value;
+  }
+  return '';
+}
+
 export async function classifyRisk(toolName: string, input: Record<string, unknown>): Promise<RiskLevel> {
   if (toolName === 'file_read') return RiskLevel.Low;
   if (toolName === 'file_write') return RiskLevel.Medium;
@@ -128,9 +136,12 @@ export async function check(
   const risk = await classifyRisk(toolName, input);
 
   // Build command string for rule matching
-  const commandStr = toolName === 'shell'
-    ? (input.command as string) ?? ''
-    : `${toolName}:${(input.path as string) ?? (input.file_path as string) ?? ''}`;
+  const commandTarget = toolName === 'shell'
+    ? getStringField(input, 'command')
+    : toolName === 'skill_load'
+      ? getStringField(input, 'skill')
+      : getStringField(input, 'path', 'file_path');
+  const commandStr = toolName === 'shell' ? commandTarget : `${toolName}:${commandTarget}`;
 
   // Deny rules take precedence at ALL risk levels
   const denyRule = findDenyRule(toolName, commandStr, workingDir);

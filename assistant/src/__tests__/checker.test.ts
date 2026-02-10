@@ -275,6 +275,19 @@ describe('Permission Checker', () => {
       expect(result.matchedRule).toBeDefined();
     });
 
+    test('deny rule for skill_load matches specific skill selectors', async () => {
+      addRule('skill_load', 'skill_load:dangerous-skill', 'everywhere', 'deny');
+      const result = await check('skill_load', { skill: 'dangerous-skill' }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+    });
+
+    test('non-matching skill_load deny rule does not block other skills', async () => {
+      addRule('skill_load', 'skill_load:dangerous-skill', 'everywhere', 'deny');
+      const result = await check('skill_load', { skill: 'safe-skill' }, '/tmp');
+      expect(result.decision).toBe('allow');
+    });
+
     test('high risk ignores allow rules', async () => {
       addRule('shell', 'sudo *', 'everywhere');
       const result = await check('shell', { command: 'sudo rm -rf /' }, '/tmp');

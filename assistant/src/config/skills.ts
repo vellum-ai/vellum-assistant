@@ -78,7 +78,20 @@ function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontma
   };
 }
 
-function readSkillFromDirectory(directoryPath: string): SkillDefinition | null {
+function getCanonicalPath(path: string): string {
+  return existsSync(path) ? realpathSync(path) : resolve(path);
+}
+
+function getRelativeToSkillsRoot(skillsDir: string, candidatePath: string): string {
+  return relative(getCanonicalPath(skillsDir), getCanonicalPath(candidatePath));
+}
+
+function isOutsideSkillsRoot(skillsDir: string, candidatePath: string): boolean {
+  const relativePath = getRelativeToSkillsRoot(skillsDir, candidatePath);
+  return relativePath.startsWith('..') || isAbsolute(relativePath);
+}
+
+function readSkillFromDirectory(directoryPath: string, skillsDir: string): SkillDefinition | null {
   const skillFilePath = join(directoryPath, 'SKILL.md');
   if (!existsSync(skillFilePath)) {
     log.warn({ directoryPath }, 'Skipping skill directory without SKILL.md');
@@ -86,9 +99,19 @@ function readSkillFromDirectory(directoryPath: string): SkillDefinition | null {
   }
 
   try {
+    if (isOutsideSkillsRoot(skillsDir, directoryPath)) {
+      log.warn({ directoryPath }, 'Skipping skill directory that resolves outside ~/.vellum/skills');
+      return null;
+    }
+
     const stat = statSync(skillFilePath);
     if (!stat.isFile()) {
       log.warn({ skillFilePath }, 'Skipping skill path because SKILL.md is not a file');
+      return null;
+    }
+
+    if (isOutsideSkillsRoot(skillsDir, skillFilePath)) {
+      log.warn({ skillFilePath }, 'Skipping SKILL.md that resolves outside ~/.vellum/skills');
       return null;
     }
 
@@ -138,19 +161,14 @@ function resolveIndexEntryToDirectory(skillsDir: string, entry: string): string 
     ? dirname(resolvedEntryPath)
     : resolvedEntryPath;
 
-  const boundaryRoot = existsSync(skillsDir) ? realpathSync(skillsDir) : resolve(skillsDir);
-  const boundaryCandidate = existsSync(resolvedDirectory)
-    ? realpathSync(resolvedDirectory)
-    : resolvedDirectory;
-
-  const relativePath = relative(boundaryRoot, boundaryCandidate);
+  const relativePath = getRelativeToSkillsRoot(skillsDir, resolvedDirectory);
   if (relativePath.length === 0) {
     log.warn({ entry }, 'Skipping SKILLS.md entry that resolves to the skills root');
     return null;
   }
-  if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+  if (isOutsideSkillsRoot(skillsDir, resolvedDirectory)) {
     log.warn(
-      { entry, resolvedDirectory: boundaryCandidate },
+      { entry, resolvedDirectory: getCanonicalPath(resolvedDirectory) },
       'Skipping SKILLS.md entry that resolves outside ~/.vellum/skills',
     );
     return null;
@@ -218,7 +236,7 @@ export function loadSkillCatalog(): SkillSummary[] {
   const seenIds = new Set<string>();
 
   for (const directory of directories) {
-    const skill = readSkillFromDirectory(directory);
+    const skill = readSkillFromDirectory(directory, skillsDir);
     if (!skill) continue;
 
     if (seenIds.has(skill.id)) {
@@ -240,7 +258,7 @@ export function loadSkillCatalog(): SkillSummary[] {
 }
 
 function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
-  const loaded = readSkillFromDirectory(skill.directoryPath);
+  const loaded = readSkillFromDirectory(skill.directoryPath, getSkillsDir());
   if (!loaded) {
     return { error: `Failed to load SKILL.md for "${skill.id}"` };
   }

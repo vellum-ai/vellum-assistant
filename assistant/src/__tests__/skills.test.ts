@@ -95,6 +95,25 @@ describe('skills catalog loading', () => {
     expect(catalog).toHaveLength(0);
   });
 
+  test('rejects symlinked SKILL.md files that point outside ~/.vellum/skills', () => {
+    const linkedSkillDir = join(TEST_DIR, 'skills', 'linked-file-skill');
+    mkdirSync(linkedSkillDir, { recursive: true });
+
+    const outsideDir = join(TEST_DIR, 'outside');
+    mkdirSync(outsideDir, { recursive: true });
+    const externalSkillFile = join(outsideDir, 'external-skill.md');
+    writeFileSync(
+      externalSkillFile,
+      '---\nname: "External File Skill"\ndescription: "Outside skills root."\n---\n\nDo not load.\n',
+    );
+
+    symlinkSync(externalSkillFile, join(linkedSkillDir, 'SKILL.md'));
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- linked-file-skill\n');
+
+    const catalog = loadSkillCatalog();
+    expect(catalog).toHaveLength(0);
+  });
+
   test('uses SKILLS.md ordering when index exists', () => {
     writeSkill('first', 'First Skill', 'First');
     writeSkill('second', 'Second Skill', 'Second');
