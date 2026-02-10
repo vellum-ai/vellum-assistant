@@ -9,6 +9,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // Assistants table (formerly agents)
 export const assistantsTable = pgTable("assistants", {
@@ -53,6 +54,8 @@ export const chatMessagesTable = pgTable(
       table.sourceChannel,
       table.externalChatId,
       table.externalMessageId
+    ).where(
+      sql`${table.externalChatId} IS NOT NULL AND ${table.externalMessageId} IS NOT NULL`
     ),
   ]
 );

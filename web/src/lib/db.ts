@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, and, desc, isNull } from "drizzle-orm";
+import { eq, and, desc, isNull, sql } from "drizzle-orm";
 import postgres from "postgres";
 
 import * as schema from "./schema";
@@ -211,7 +211,7 @@ export async function getAssistantReplyByUserMessageId(params: {
     ? eq(schema.chatMessagesTable.externalChatId, params.externalChatId)
     : isNull(schema.chatMessagesTable.externalChatId);
 
-  const candidates = await db
+  const result = await db
     .select()
     .from(schema.chatMessagesTable)
     .where(
@@ -219,20 +219,14 @@ export async function getAssistantReplyByUserMessageId(params: {
         eq(schema.chatMessagesTable.assistantId, params.assistantId),
         eq(schema.chatMessagesTable.sourceChannel, params.sourceChannel),
         eq(schema.chatMessagesTable.role, "assistant"),
-        chatMatch
+        chatMatch,
+        sql`${schema.chatMessagesTable.metadata} ->> 'replyToUserMessageId' = ${params.userMessageId}`
       )
     )
     .orderBy(desc(schema.chatMessagesTable.createdAt))
-    .limit(200);
+    .limit(1);
 
-  for (const message of candidates) {
-    const metadata = (message.metadata || {}) as Record<string, unknown>;
-    if (metadata.replyToUserMessageId === params.userMessageId) {
-      return message;
-    }
-  }
-
-  return null;
+  return result[0] || null;
 }
 
 // User queries

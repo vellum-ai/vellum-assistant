@@ -109,6 +109,7 @@ export async function connectTelegramChannel(params: {
 
   const webhookSecret = randomBytes(24).toString("hex");
   const webhookUrl = `${getAppBaseUrl()}/api/webhooks/channels/telegram/${provisional.id}`;
+  let didConfigureRemoteWebhook = false;
 
   try {
     const result = await plugin.setup.connect({
@@ -117,6 +118,7 @@ export async function connectTelegramChannel(params: {
       webhookUrl,
       webhookSecret,
     });
+    didConfigureRemoteWebhook = true;
 
     const updated = await upsertAssistantChannelAccount({
       assistantId: params.assistantId,
@@ -142,6 +144,57 @@ export async function connectTelegramChannel(params: {
     const message = error instanceof Error ? error.message : "Failed to connect Telegram";
 
     if (existing && existing.enabled && existing.status === "active") {
+      const existingConfig = getTelegramConfig((existing.config || {}) as Record<string, unknown>);
+      if (didConfigureRemoteWebhook) {
+        const rollbackBotToken = existingConfig.botToken;
+        const rollbackWebhookSecret = existingConfig.webhookSecret;
+        const rollbackWebhookUrl =
+          typeof existingConfig.webhookUrl === "string" && existingConfig.webhookUrl
+            ? existingConfig.webhookUrl
+            : webhookUrl;
+
+        if (!rollbackBotToken || !rollbackWebhookSecret) {
+          const disabled = await upsertAssistantChannelAccount({
+            assistantId: params.assistantId,
+            channel: "telegram",
+            accountKey: existing.account_key,
+            enabled: false,
+            status: "error",
+            config: (existing.config || {}) as Record<string, unknown>,
+            lastError: `${message} (rollback unavailable; channel disabled)`,
+          });
+          throw new Error(
+            `Telegram connection failed: ${message} (rollback unavailable; disabled account ${disabled.id})`
+          );
+        }
+
+        try {
+          await plugin.setup.connect({
+            channelAccountId: existing.id,
+            botToken: rollbackBotToken,
+            webhookUrl: rollbackWebhookUrl,
+            webhookSecret: rollbackWebhookSecret,
+          });
+        } catch (rollbackError) {
+          const rollbackMessage =
+            rollbackError instanceof Error
+              ? rollbackError.message
+              : "Failed to restore previous Telegram webhook configuration";
+          const disabled = await upsertAssistantChannelAccount({
+            assistantId: params.assistantId,
+            channel: "telegram",
+            accountKey: existing.account_key,
+            enabled: false,
+            status: "error",
+            config: (existing.config || {}) as Record<string, unknown>,
+            lastError: `${message} (rollback failed: ${rollbackMessage})`,
+          });
+          throw new Error(
+            `Telegram connection failed: ${message} (rollback failed: ${rollbackMessage}; disabled account ${disabled.id})`
+          );
+        }
+      }
+
       await upsertAssistantChannelAccount({
         assistantId: params.assistantId,
         channel: "telegram",
@@ -287,9 +340,9 @@ function shouldSendPairingPrompt(contact: AssistantChannelContactRecord): boolea
   return Date.now() - lastPromptMs > 5 * 60 * 1000;
 }
 
-const DUPLICATE_REPLY_POLL_ATTEMPTS = 6;
-const DUPLICATE_REPLY_POLL_INTERVAL_MS = 300;
-const DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS = 10_000;
+const DUPLICATE_REPLY_POLL_ATTEMPTS = 20;
+const DUPLICATE_REPLY_POLL_INTERVAL_MS = 500;
+const DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS = 120_000;
 
 async function waitForAssistantReplyForDuplicate(params: {
   assistantId: string;

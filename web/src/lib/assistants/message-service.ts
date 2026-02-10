@@ -65,10 +65,20 @@ function toAnthropicMessages(messages: ChatMessage[]): Anthropic.MessageParam[] 
   const firstUserIndex = filtered.findIndex((msg) => msg.role === "user");
   const trimmed = firstUserIndex >= 0 ? filtered.slice(firstUserIndex) : [];
 
-  return trimmed.map((msg) => ({
-    role: msg.role as "user" | "assistant",
-    content: msg.content,
-  }));
+  // Anthropic expects role alternation; merge consecutive same-role messages.
+  const merged: Array<{ role: "user" | "assistant"; content: string }> = [];
+  for (const msg of trimmed) {
+    const role = msg.role as "user" | "assistant";
+    const last = merged[merged.length - 1];
+    if (last && last.role === role) {
+      last.content = `${last.content}\n\n${msg.content}`;
+      continue;
+    }
+
+    merged.push({ role, content: msg.content });
+  }
+
+  return merged;
 }
 
 async function generateAssistantReply(params: {
