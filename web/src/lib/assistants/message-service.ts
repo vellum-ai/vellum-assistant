@@ -63,7 +63,7 @@ function toAnthropicMessages(messages: ChatMessage[]): Anthropic.MessageParam[] 
 
   // Anthropic requires the first message to be from the user.
   const firstUserIndex = filtered.findIndex((msg) => msg.role === "user");
-  const trimmed = firstUserIndex >= 0 ? filtered.slice(firstUserIndex) : filtered;
+  const trimmed = firstUserIndex >= 0 ? filtered.slice(firstUserIndex) : [];
 
   return trimmed.map((msg) => ({
     role: msg.role as "user" | "assistant",
@@ -80,12 +80,17 @@ async function generateAssistantReply(params: {
     return "I got your message, but my AI provider is not configured yet.";
   }
 
+  const anthropicMessages = toAnthropicMessages(params.messages);
+  if (anthropicMessages.length === 0) {
+    return "I couldn't generate a response yet. Please try again.";
+  }
+
   const anthropic = new Anthropic({ apiKey });
   const response = await anthropic.messages.create({
     model: DEFAULT_ASSISTANT_MODEL,
     max_tokens: 1200,
     system: buildSystemPrompt(params.assistantName),
-    messages: toAnthropicMessages(params.messages),
+    messages: anthropicMessages,
   });
 
   const text = response.content

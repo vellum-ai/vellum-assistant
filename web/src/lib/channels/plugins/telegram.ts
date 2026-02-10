@@ -145,7 +145,7 @@ export const telegramPlugin: ChannelPlugin = {
   inbound: {
     verifyWebhook(input) {
       if (!input.secret) {
-        return true;
+        return false;
       }
       const provided = input.headers.get("x-telegram-bot-api-secret-token");
       return provided === input.secret;

@@ -19,6 +19,7 @@ import {
   upsertAssistantChannelContact,
 } from "@/lib/channels/db";
 import { getChannelPlugin } from "@/lib/channels/plugins";
+import { getAssistantReplyByUserMessageId } from "@/lib/db";
 
 type TelegramAccountConfig = {
   botToken?: string | null;
@@ -286,6 +287,34 @@ function shouldSendPairingPrompt(contact: AssistantChannelContactRecord): boolea
   return Date.now() - lastPromptMs > 5 * 60 * 1000;
 }
 
+const DUPLICATE_REPLY_POLL_ATTEMPTS = 6;
+const DUPLICATE_REPLY_POLL_INTERVAL_MS = 300;
+const DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS = 10_000;
+
+async function waitForAssistantReplyForDuplicate(params: {
+  assistantId: string;
+  sourceChannel: string;
+  externalChatId?: string;
+  userMessageId: string;
+}) {
+  for (let attempt = 0; attempt < DUPLICATE_REPLY_POLL_ATTEMPTS; attempt += 1) {
+    const reply = await getAssistantReplyByUserMessageId({
+      assistantId: params.assistantId,
+      sourceChannel: params.sourceChannel,
+      externalChatId: params.externalChatId,
+      userMessageId: params.userMessageId,
+    });
+    if (reply) {
+      return reply;
+    }
+    if (attempt < DUPLICATE_REPLY_POLL_ATTEMPTS - 1) {
+      await new Promise((resolve) => setTimeout(resolve, DUPLICATE_REPLY_POLL_INTERVAL_MS));
+    }
+  }
+
+  return null;
+}
+
 export async function handleTelegramWebhook(params: {
   channelAccountId: string;
   headers: Headers;
@@ -360,6 +389,30 @@ export async function handleTelegramWebhook(params: {
 
     if (!result.userMessage?.id) {
       throw new Error("Duplicate message missing user message context");
+    }
+
+    const awaitedReply = await waitForAssistantReplyForDuplicate({
+      assistantId: account.assistant_id,
+      sourceChannel: "telegram",
+      externalChatId: normalized.externalChatId,
+      userMessageId: result.userMessage.id,
+    });
+
+    if (awaitedReply?.content) {
+      await plugin.outbound.sendText({
+        botToken: config.botToken,
+        chatId: normalized.externalChatId,
+        text: awaitedReply.content,
+      });
+      return { status: "ok" as const, duplicate: true as const };
+    }
+
+    const userMessageAgeMs = result.userMessage.timestamp
+      ? Date.now() - new Date(result.userMessage.timestamp).getTime()
+      : Number.POSITIVE_INFINITY;
+    if (userMessageAgeMs < DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS) {
+      // Let Telegram retry instead of racing the original in-flight reply generation.
+      throw new Error("Assistant reply generation still in progress");
     }
 
     const recoveredAssistantMessage = await recoverMissingAssistantReplyForInbound({
