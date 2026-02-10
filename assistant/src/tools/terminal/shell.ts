@@ -48,7 +48,7 @@ function buildSanitizedEnv(): Record<string, string> {
 }
 
 class ShellTool implements Tool {
-  name = 'shell';
+  name = 'bash';
   description = 'Execute a shell command on the local machine';
   category = 'terminal';
   defaultRiskLevel = RiskLevel.Medium;

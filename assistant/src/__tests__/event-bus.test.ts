@@ -18,12 +18,12 @@ describe('EventBus', () => {
     await bus.emit('tool.execution.started', {
       conversationId: 'conv-1',
       sessionId: 'sess-1',
-      toolName: 'shell',
+      toolName: 'bash',
       input: { command: 'ls' },
       startedAtMs: Date.now(),
     });
 
-    expect(seen).toEqual(['first:shell', 'second:sess-1']);
+    expect(seen).toEqual(['first:bash', 'second:sess-1']);
   });
 
   test('supports onAny listeners with event envelopes', async () => {
@@ -68,7 +68,7 @@ describe('EventBus', () => {
     await bus.emit('tool.permission.decided', {
       conversationId: 'conv-2',
       sessionId: 'sess-2',
-      toolName: 'shell',
+      toolName: 'bash',
       decision: 'allow',
       riskLevel: 'medium',
       decidedAtMs: Date.now(),
@@ -200,7 +200,7 @@ describe('EventBus', () => {
       await bus.emit('tool.execution.failed', {
         conversationId: 'conv-4',
         sessionId: 'sess-4',
-        toolName: 'shell',
+        toolName: 'bash',
         decision: 'error',
         riskLevel: 'high',
         durationMs: 31,
