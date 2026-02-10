@@ -3,6 +3,8 @@ import AppKit
 import UniformTypeIdentifiers
 
 struct TaskInputView: View {
+    private static let maxAttachmentCount = 10
+    private static let maxTotalAttachmentBytes = 50 * 1024 * 1024
     let onSubmit: (TaskSubmission) -> Void
     @State private var taskText = ""
     @State private var attachments: [TaskAttachment] = []
@@ -238,9 +240,24 @@ struct TaskInputView: View {
         DispatchQueue.main.async {
             var newAttachments: [TaskAttachment] = []
             var errors: [String] = []
+            var projectedCount = attachments.count
+            var projectedBytes = attachments.reduce(0) { $0 + $1.sizeBytes }
+
             for url in urls {
+                if projectedCount >= Self.maxAttachmentCount {
+                    errors.append("You can attach up to \(Self.maxAttachmentCount) files per message.")
+                    break
+                }
+
                 do {
-                    newAttachments.append(try TaskAttachment.fromFileURL(url))
+                    let attachment = try TaskAttachment.fromFileURL(url)
+                    if projectedBytes + attachment.sizeBytes > Self.maxTotalAttachmentBytes {
+                        errors.append("Total attachment size cannot exceed 50MB per message.")
+                        continue
+                    }
+                    newAttachments.append(attachment)
+                    projectedCount += 1
+                    projectedBytes += attachment.sizeBytes
                 } catch {
                     errors.append(error.localizedDescription)
                 }
@@ -257,6 +274,17 @@ struct TaskInputView: View {
 
     private func addPastedImage(_ data: Data) {
         DispatchQueue.main.async {
+            if attachments.count >= Self.maxAttachmentCount {
+                attachmentError = "You can attach up to \(Self.maxAttachmentCount) files per message."
+                return
+            }
+
+            let projectedBytes = attachments.reduce(0) { $0 + $1.sizeBytes } + data.count
+            if projectedBytes > Self.maxTotalAttachmentBytes {
+                attachmentError = "Total attachment size cannot exceed 50MB per message."
+                return
+            }
+
             do {
                 let attachment = try TaskAttachment.fromPastedImage(data)
                 attachments.append(attachment)

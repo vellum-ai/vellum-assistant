@@ -100,7 +100,6 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadedPendingAttachmentIdsRef = useRef<string[]>([]);
-  const isSendingRef = useRef(false);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -200,10 +199,6 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
     uploadedPendingAttachmentIdsRef.current = uploadedAttachmentIds;
   }, [uploadedAttachmentIds]);
 
-  useEffect(() => {
-    isSendingRef.current = isLoading;
-  }, [isLoading]);
-
   const deleteUploadedAttachments = useCallback(async (attachmentIds: string[]) => {
     if (attachmentIds.length === 0) {
       return;
@@ -231,10 +226,6 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
 
   useEffect(() => {
     return () => {
-      if (isSendingRef.current) {
-        return;
-      }
-
       const pendingIds = uploadedPendingAttachmentIdsRef.current;
       if (pendingIds.length === 0) {
         return;
