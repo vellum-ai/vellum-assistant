@@ -139,6 +139,22 @@ describe('web_fetch tool', () => {
     expect(called).toBe(false);
   });
 
+  test('blocks IPv4 multicast targets unless explicitly enabled', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://224.0.0.1/' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
   test('blocks hostnames that resolve to private addresses unless explicitly enabled', async () => {
     let called = false;
     globalThis.fetch = (async () => {
@@ -246,6 +262,27 @@ describe('web_fetch tool', () => {
 
     expect(result.isError).toBe(false);
     expect(authorizationHeader).toBe(`Basic ${Buffer.from('user name:p@ss', 'utf8').toString('base64')}`);
+  });
+
+  test('requests identity encoding for pinned requests', async () => {
+    let acceptEncodingHeader = '';
+
+    const result = await executeWithMockFetch(
+      { url: 'https://example.com/protected' },
+      {
+        resolveHostAddresses: async () => ['93.184.216.34'],
+        requestExecutor: async (_url, requestOptions) => {
+          acceptEncodingHeader = requestOptions.headers['Accept-Encoding'] ?? '';
+          return new Response('ok', {
+            status: 200,
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
+          });
+        },
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(acceptEncodingHeader).toBe('identity');
   });
 
   test('strips URL userinfo before default fetch execution while preserving authorization header', async () => {
@@ -393,6 +430,38 @@ describe('web_fetch tool', () => {
     }) as any;
 
     const result = await executeWithMockFetch({ url: 'http://[::7f00:1]:3000/health' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
+  test('blocks IPv6 multicast localhost targets unless explicitly enabled', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://[ff02::1]:3000/health' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
+  test('blocks IPv6 site-local targets unless explicitly enabled', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://[fec0::1]:3000/health' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Refusing to fetch local/private network target');
     expect(called).toBe(false);

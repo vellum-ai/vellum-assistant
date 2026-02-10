@@ -134,7 +134,7 @@ function isPrivateIPv4(hostname: string): boolean {
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
   if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 255) return true;
+  if (a >= 224) return true;
 
   return false;
 }
@@ -178,7 +178,17 @@ function isPrivateIPv6(hostname: string): boolean {
 
   if (normalized === '::' || normalized === '::1') return true;
   if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
-  if (normalized.startsWith('fe8') || normalized.startsWith('fe9') || normalized.startsWith('fea') || normalized.startsWith('feb')) {
+  if (normalized.startsWith('ff')) return true;
+  if (
+    normalized.startsWith('fe8')
+    || normalized.startsWith('fe9')
+    || normalized.startsWith('fea')
+    || normalized.startsWith('feb')
+    || normalized.startsWith('fec')
+    || normalized.startsWith('fed')
+    || normalized.startsWith('fee')
+    || normalized.startsWith('fef')
+  ) {
     return true;
   }
 
@@ -634,6 +644,7 @@ export async function executeWebFetch(
 
     const requestHeaders = {
       'Accept': 'text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.8',
+      'Accept-Encoding': 'identity',
       'User-Agent': 'VellumAssistant/1.0 (+https://vellum.ai)',
     };
 
