@@ -42,6 +42,7 @@ export function extractAndUpsertMemoryItemsForMessage(messageId: string): number
   let upserted = 0;
   for (const item of extracted) {
     const now = Date.now();
+    const seenAt = message.createdAt;
     const existing = db
       .select()
       .from(memoryItems)
@@ -55,7 +56,7 @@ export function extractAndUpsertMemoryItemsForMessage(messageId: string): number
         .set({
           status: 'active',
           confidence: Math.max(existing.confidence, item.confidence),
-          lastSeenAt: now,
+          lastSeenAt: Math.max(existing.lastSeenAt, seenAt),
         })
         .where(eq(memoryItems.id, existing.id))
         .run();
@@ -70,7 +71,7 @@ export function extractAndUpsertMemoryItemsForMessage(messageId: string): number
         confidence: item.confidence,
         fingerprint: item.fingerprint,
         firstSeenAt: message.createdAt,
-        lastSeenAt: now,
+        lastSeenAt: seenAt,
         lastUsedAt: null,
       }).run();
       upserted += 1;

@@ -25,7 +25,7 @@ import {
 } from '../context/window-manager.js';
 import {
   buildMemoryRecall,
-  createMemoryRecallMessage,
+  injectMemoryRecallIntoUserMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
 
@@ -238,11 +238,10 @@ export class Session {
 
       if (recall.injectedText.length > 0) {
         const userTail = this.messages[this.messages.length - 1];
-        if (userTail) {
+        if (userTail && userTail.role === 'user') {
           runMessages = [
             ...this.messages.slice(0, -1),
-            createMemoryRecallMessage(recall.injectedText),
-            userTail,
+            injectMemoryRecallIntoUserMessage(userTail, recall.injectedText),
           ];
           onEvent({
             type: 'memory_recalled',

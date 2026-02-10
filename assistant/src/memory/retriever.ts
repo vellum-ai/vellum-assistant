@@ -146,25 +146,33 @@ export async function buildMemoryRecall(
 export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'; content: Array<{ type: string; text?: string }> }>(
   messages: T[],
 ): T[] {
-  return messages.filter((message) => {
-    if (message.role !== 'assistant') return true;
-    const text = message.content
-      .filter((block) => block.type === 'text')
-      .map((block) => block.text ?? '')
-      .join('\n')
-      .trim();
-    return !text.startsWith(MEMORY_RECALL_MARKER);
-  });
+  const cleaned: T[] = [];
+  for (const message of messages) {
+    const filteredContent = message.content.filter((block) => {
+      if (block.type !== 'text') return true;
+      return !(block.text ?? '').trim().startsWith(MEMORY_RECALL_MARKER);
+    });
+    if (filteredContent.length === 0) continue;
+    if (filteredContent.length === message.content.length) {
+      cleaned.push(message);
+      continue;
+    }
+    cleaned.push({ ...message, content: filteredContent } as T);
+  }
+  return cleaned;
 }
 
-export function createMemoryRecallMessage(text: string): {
-  role: 'assistant';
-  content: Array<{ type: 'text'; text: string }>;
-} {
+export function injectMemoryRecallIntoUserMessage<T extends { role: 'user' | 'assistant'; content: Array<{ type: string; text?: string }> }>(
+  message: T,
+  memoryRecallText: string,
+): T {
+  if (message.role !== 'user') return message;
+  if (memoryRecallText.trim().length === 0) return message;
+  const memoryBlock = { type: 'text', text: memoryRecallText } as const;
   return {
-    role: 'assistant',
-    content: [{ type: 'text', text }],
-  };
+    ...message,
+    content: [memoryBlock, ...message.content] as T['content'],
+  } as T;
 }
 
 export function queryMemoryForCli(
@@ -178,28 +186,47 @@ export function queryMemoryForCli(
 function lexicalSearch(query: string, limit: number): Candidate[] {
   const trimmed = query.trim();
   if (trimmed.length === 0 || limit <= 0) return [];
+  const matchQuery = buildFtsMatchQuery(trimmed);
+  if (!matchQuery) return [];
   const db = getDb();
   const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
-  const rows = raw.query(`
-    SELECT
-      f.segment_id AS segment_id,
-      s.text AS text,
-      s.created_at AS created_at,
-      bm25(memory_segment_fts) AS rank
-    FROM memory_segment_fts f
-    JOIN memory_segments s ON s.id = f.segment_id
-    WHERE memory_segment_fts MATCH ?
-    ORDER BY rank
-    LIMIT ?
-  `).all(trimmed, limit) as Array<{
+  let rows: Array<{
     segment_id: string;
     text: string;
     created_at: number;
     rank: number;
-  }>;
+  }> = [];
+  try {
+    rows = raw.query(`
+      SELECT
+        f.segment_id AS segment_id,
+        s.text AS text,
+        s.created_at AS created_at,
+        bm25(memory_segment_fts) AS rank
+      FROM memory_segment_fts f
+      JOIN memory_segments s ON s.id = f.segment_id
+      WHERE memory_segment_fts MATCH ?
+      ORDER BY rank
+      LIMIT ?
+    `).all(matchQuery, limit) as Array<{
+      segment_id: string;
+      text: string;
+      created_at: number;
+      rank: number;
+    }>;
+  } catch (err) {
+    log.warn({ err, query: truncate(trimmed, 80) }, 'Memory lexical search query parse failed');
+    return [];
+  }
+
+  const finiteRanks = rows
+    .map((row) => row.rank)
+    .filter((rank) => Number.isFinite(rank));
+  const minRank = finiteRanks.length > 0 ? Math.min(...finiteRanks) : 0;
+  const maxRank = finiteRanks.length > 0 ? Math.max(...finiteRanks) : 0;
 
   return rows.map((row) => {
-    const lexical = lexicalRankToScore(row.rank);
+    const lexical = lexicalRankToScore(row.rank, minRank, maxRank);
     return {
       key: `segment:${row.segment_id}`,
       type: 'segment',
@@ -392,10 +419,13 @@ function markItemUsage(candidates: Candidate[]): void {
     .run();
 }
 
-function lexicalRankToScore(rank: number): number {
-  const safe = Number.isFinite(rank) ? rank : 0;
-  if (safe <= 0) return 1;
-  return 1 / (1 + safe);
+function lexicalRankToScore(rank: number, minRank: number, maxRank: number): number {
+  if (!Number.isFinite(rank)) return 0;
+  if (!Number.isFinite(minRank) || !Number.isFinite(maxRank)) return 0;
+  const span = maxRank - minRank;
+  if (span <= 0) return 1;
+  // Lower BM25 rank is better in FTS5; normalize to [0,1] where 1 is best.
+  return (maxRank - rank) / span;
 }
 
 function computeRecencyScore(createdAt: number): number {
@@ -455,4 +485,17 @@ function emptyResult(
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max - 3)}...`;
+}
+
+function buildFtsMatchQuery(text: string): string | null {
+  const tokens = text
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+  if (tokens.length === 0) return null;
+  const unique = [...new Set(tokens)].slice(0, 24);
+  return unique
+    .map((token) => `"${token.replace(/"/g, '""')}"`)
+    .join(' OR ');
 }
