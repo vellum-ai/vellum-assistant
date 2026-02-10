@@ -10,15 +10,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { channelAccountId } = await params;
     const payload = (await request.json()) as Record<string, unknown>;
+    const headers = new Headers(request.headers);
 
-    const result = await handleTelegramWebhook({
+    // Telegram retries aggressively when webhook responses are slow, so we
+    // acknowledge first and complete assistant work asynchronously.
+    void handleTelegramWebhook({
       channelAccountId,
-      headers: request.headers,
+      headers,
       payload,
+    }).catch((error) => {
+      console.error("Async Telegram channel webhook processing failed:", error);
     });
 
-    // Telegram expects a fast 200 response for accepted webhooks.
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({ ok: true, accepted: true });
   } catch (error) {
     console.error("Error processing Telegram channel webhook:", error);
     return NextResponse.json(

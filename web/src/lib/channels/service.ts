@@ -19,7 +19,7 @@ import {
   upsertAssistantChannelContact,
 } from "@/lib/channels/db";
 import { getChannelPlugin } from "@/lib/channels/plugins";
-import { getAssistantReplyByUserMessageId } from "@/lib/db";
+import { getAssistantReplyByUserMessageId, updateChatMessageStatus } from "@/lib/db";
 
 type TelegramAccountConfig = {
   botToken?: string | null;
@@ -343,6 +343,8 @@ function shouldSendPairingPrompt(contact: AssistantChannelContactRecord): boolea
 const DUPLICATE_REPLY_POLL_ATTEMPTS = 20;
 const DUPLICATE_REPLY_POLL_INTERVAL_MS = 500;
 const DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS = 120_000;
+const ASSISTANT_REPLY_STATUS_DELIVERED = "delivered";
+const ASSISTANT_REPLY_STATUS_DELIVERY_FAILED = "delivery_failed";
 
 async function waitForAssistantReplyForDuplicate(params: {
   assistantId: string;
@@ -366,6 +368,34 @@ async function waitForAssistantReplyForDuplicate(params: {
   }
 
   return null;
+}
+
+function getUserMessageAgeMs(timestamp: Date | null): number {
+  if (!timestamp) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Date.now() - new Date(timestamp).getTime();
+}
+
+function shouldDeferDuplicateReplyDelivery(
+  status: string | null | undefined,
+  userMessageAgeMs: number
+) {
+  return (
+    status !== ASSISTANT_REPLY_STATUS_DELIVERY_FAILED &&
+    userMessageAgeMs < DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS
+  );
+}
+
+async function persistAssistantReplyStatus(
+  messageId: string,
+  status: string
+): Promise<void> {
+  try {
+    await updateChatMessageStatus(messageId, status);
+  } catch (error) {
+    console.warn(`Failed to update assistant message status to ${status}:`, error);
+  }
 }
 
 export async function handleTelegramWebhook(params: {
@@ -421,6 +451,29 @@ export async function handleTelegramWebhook(params: {
     return { status: "ignored", reason: "missing_bot_token" as const };
   }
 
+  const sendAssistantReply = async (assistantMessage: {
+    id: string;
+    content: string;
+  }) => {
+    try {
+      await plugin.outbound.sendText({
+        botToken: config.botToken as string,
+        chatId: normalized.externalChatId,
+        text: assistantMessage.content,
+      });
+      await persistAssistantReplyStatus(
+        assistantMessage.id,
+        ASSISTANT_REPLY_STATUS_DELIVERED
+      );
+    } catch (error) {
+      await persistAssistantReplyStatus(
+        assistantMessage.id,
+        ASSISTANT_REPLY_STATUS_DELIVERY_FAILED
+      );
+      throw error;
+    }
+  };
+
   const result = await handleInboundAssistantMessage({
     assistantId: account.assistant_id,
     content: normalized.text,
@@ -431,17 +484,32 @@ export async function handleTelegramWebhook(params: {
   });
 
   if (result.duplicate) {
-    if (result.assistantMessage?.content) {
-      await plugin.outbound.sendText({
-        botToken: config.botToken,
-        chatId: normalized.externalChatId,
-        text: result.assistantMessage.content,
-      });
-      return { status: "ok" as const, duplicate: true as const };
-    }
-
     if (!result.userMessage?.id) {
       throw new Error("Duplicate message missing user message context");
+    }
+
+    const userMessageAgeMs = getUserMessageAgeMs(result.userMessage.timestamp);
+
+    if (result.assistantMessage?.content) {
+      if (result.assistantMessage.status === ASSISTANT_REPLY_STATUS_DELIVERED) {
+        return { status: "ok" as const, duplicate: true as const };
+      }
+
+      if (
+        shouldDeferDuplicateReplyDelivery(
+          result.assistantMessage.status,
+          userMessageAgeMs
+        )
+      ) {
+        // Let Telegram retry instead of racing the original in-flight send.
+        throw new Error("Assistant reply delivery still in progress");
+      }
+
+      await sendAssistantReply({
+        id: result.assistantMessage.id,
+        content: result.assistantMessage.content,
+      });
+      return { status: "ok" as const, duplicate: true as const };
     }
 
     const awaitedReply = await waitForAssistantReplyForDuplicate({
@@ -452,17 +520,24 @@ export async function handleTelegramWebhook(params: {
     });
 
     if (awaitedReply?.content) {
-      await plugin.outbound.sendText({
-        botToken: config.botToken,
-        chatId: normalized.externalChatId,
-        text: awaitedReply.content,
+      if (awaitedReply.status === ASSISTANT_REPLY_STATUS_DELIVERED) {
+        return { status: "ok" as const, duplicate: true as const };
+      }
+
+      if (
+        shouldDeferDuplicateReplyDelivery(awaitedReply.status, userMessageAgeMs)
+      ) {
+        // Let Telegram retry instead of racing the original in-flight send.
+        throw new Error("Assistant reply delivery still in progress");
+      }
+
+      await sendAssistantReply({
+        id: awaitedReply.id,
+        content: awaitedReply.content,
       });
       return { status: "ok" as const, duplicate: true as const };
     }
 
-    const userMessageAgeMs = result.userMessage.timestamp
-      ? Date.now() - new Date(result.userMessage.timestamp).getTime()
-      : Number.POSITIVE_INFINITY;
     if (userMessageAgeMs < DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS) {
       // Let Telegram retry instead of racing the original in-flight reply generation.
       throw new Error("Assistant reply generation still in progress");
@@ -475,20 +550,18 @@ export async function handleTelegramWebhook(params: {
       userMessageId: result.userMessage.id,
     });
 
-    await plugin.outbound.sendText({
-      botToken: config.botToken,
-      chatId: normalized.externalChatId,
-      text: recoveredAssistantMessage.content,
+    await sendAssistantReply({
+      id: recoveredAssistantMessage.id,
+      content: recoveredAssistantMessage.content,
     });
 
     return { status: "ok" as const, duplicate: true as const };
   }
 
   if (result.assistantMessage?.content) {
-    await plugin.outbound.sendText({
-      botToken: config.botToken,
-      chatId: normalized.externalChatId,
-      text: result.assistantMessage.content,
+    await sendAssistantReply({
+      id: result.assistantMessage.id,
+      content: result.assistantMessage.content,
     });
   }
 

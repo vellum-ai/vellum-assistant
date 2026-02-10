@@ -39,6 +39,7 @@ export interface HandleInboundAssistantMessageResult {
     role: "assistant";
     content: string;
     timestamp: Date | null;
+    status: string | null;
   } | null;
 }
 
@@ -118,6 +119,7 @@ function toAssistantMessageResult(message: ChatMessage): AssistantMessageResult 
     role: "assistant",
     content: message.content,
     timestamp: message.createdAt,
+    status: message.status,
   };
 }
 
@@ -217,7 +219,7 @@ export async function recoverMissingAssistantReplyForInbound(params: {
     assistantId: params.assistantId,
     role: "assistant",
     content: assistantReply,
-    status: "delivered",
+    status: "pending_delivery",
     sourceChannel: params.sourceChannel,
     externalChatId: params.externalChatId,
     metadata: {
@@ -271,6 +273,7 @@ export async function handleInboundAssistantMessage(
               role: "assistant",
               content: existingAssistantReply.content,
               timestamp: existingAssistantReply.createdAt,
+              status: existingAssistantReply.status,
             }
           : null,
       };
@@ -325,6 +328,7 @@ export async function handleInboundAssistantMessage(
                 role: "assistant",
                 content: existingAssistantReply.content,
                 timestamp: existingAssistantReply.createdAt,
+                status: existingAssistantReply.status,
               }
             : null,
         };
@@ -348,7 +352,7 @@ export async function handleInboundAssistantMessage(
     assistantId: input.assistantId,
     role: "assistant",
     content: assistantReply,
-    status: "delivered",
+    status: "pending_delivery",
     sourceChannel,
     externalChatId: input.externalChatId,
     metadata: {
