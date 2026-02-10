@@ -10,8 +10,6 @@ import { randomBytes } from 'node:crypto';
 
 const TEST_DIR = join(tmpdir(), `vellum-schema-test-${randomBytes(4).toString('hex')}`);
 const CONFIG_PATH = join(TEST_DIR, 'config.json');
-const STORE_PATH = join(TEST_DIR, 'keys.enc');
-const LOGS_DIR = join(TEST_DIR, 'logs');
 
 function ensureTestDir(): void {
   const dirs = [
