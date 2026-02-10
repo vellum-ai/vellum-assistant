@@ -143,7 +143,12 @@ function isPrivateIPv6(hostname: string): boolean {
 function isPrivateOrLocalHost(hostname: string): boolean {
   const host = unwrapBracketedHostname(hostname).toLowerCase();
 
-  if (host === 'localhost' || host === 'localhost.localdomain' || host === '0.0.0.0') {
+  if (
+    host === 'localhost' ||
+    host === 'localhost.localdomain' ||
+    host === '0.0.0.0' ||
+    host.endsWith('.localhost')
+  ) {
     return true;
   }
   if (host === 'metadata.google.internal') {
