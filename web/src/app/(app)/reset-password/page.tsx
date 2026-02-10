@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
@@ -12,7 +12,7 @@ interface ResetPasswordFormValues {
   confirmPassword: string;
 }
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const [error, setError] = useState("");
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -207,5 +207,13 @@ export default function ResetPasswordPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense>
+      <ResetPasswordContent />
+    </Suspense>
   );
 }
