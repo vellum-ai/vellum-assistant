@@ -24,6 +24,11 @@ export interface SkillLookupResult {
   error?: string;
 }
 
+export interface SkillSelectorResult {
+  skill?: SkillSummary;
+  error?: string;
+}
+
 export function getSkillsDir(): string {
   return join(getDataDir(), 'skills');
 }
@@ -265,7 +270,7 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   return { skill: loaded };
 }
 
-export function loadSkillBySelector(selector: string): SkillLookupResult {
+export function resolveSkillSelector(selector: string): SkillSelectorResult {
   const needle = selector.trim();
   if (!needle) {
     return { error: 'Skill selector is required and must be a non-empty string.' };
@@ -278,14 +283,14 @@ export function loadSkillBySelector(selector: string): SkillLookupResult {
 
   const exactIdMatch = catalog.find((skill) => skill.id === needle);
   if (exactIdMatch) {
-    return loadSkillDefinition(exactIdMatch);
+    return { skill: exactIdMatch };
   }
 
   const exactNameMatches = catalog.filter(
     (skill) => skill.name.toLowerCase() === needle.toLowerCase(),
   );
   if (exactNameMatches.length === 1) {
-    return loadSkillDefinition(exactNameMatches[0]);
+    return { skill: exactNameMatches[0] };
   }
   if (exactNameMatches.length > 1) {
     const ids = exactNameMatches.map((skill) => skill.id).join(', ');
@@ -294,7 +299,7 @@ export function loadSkillBySelector(selector: string): SkillLookupResult {
 
   const idPrefixMatches = catalog.filter((skill) => skill.id.startsWith(needle));
   if (idPrefixMatches.length === 1) {
-    return loadSkillDefinition(idPrefixMatches[0]);
+    return { skill: idPrefixMatches[0] };
   }
   if (idPrefixMatches.length > 1) {
     const ids = idPrefixMatches.map((skill) => skill.id).join(', ');
@@ -303,4 +308,12 @@ export function loadSkillBySelector(selector: string): SkillLookupResult {
 
   const knownSkills = catalog.map((skill) => skill.id).join(', ');
   return { error: `No skill matched "${needle}". Available skills: ${knownSkills}` };
+}
+
+export function loadSkillBySelector(selector: string): SkillLookupResult {
+  const resolved = resolveSkillSelector(selector);
+  if (!resolved.skill) {
+    return { error: resolved.error ?? 'Failed to resolve skill selector.' };
+  }
+  return loadSkillDefinition(resolved.skill);
 }

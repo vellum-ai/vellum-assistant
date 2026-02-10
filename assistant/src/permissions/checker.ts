@@ -1,6 +1,7 @@
 import { RiskLevel, type PermissionCheckResult, type AllowlistOption, type ScopeOption } from './types.js';
 import { findMatchingRule, findDenyRule } from './trust-store.js';
 import { parse } from '../tools/terminal/parser.js';
+import { resolveSkillSelector } from '../config/skills.js';
 import { dirname } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -57,6 +58,30 @@ function getStringField(input: Record<string, unknown>, ...keys: string[]): stri
     if (typeof value === 'string') return value;
   }
   return '';
+}
+
+function buildCommandCandidates(toolName: string, input: Record<string, unknown>): string[] {
+  if (toolName === 'shell') {
+    return [getStringField(input, 'command')];
+  }
+
+  if (toolName === 'skill_load') {
+    const rawSelector = getStringField(input, 'skill').trim();
+    const targets: string[] = [];
+    if (!rawSelector) {
+      targets.push('');
+    } else {
+      const resolved = resolveSkillSelector(rawSelector);
+      if (resolved.skill) {
+        targets.push(resolved.skill.id);
+      }
+      targets.push(rawSelector);
+    }
+    return [...new Set(targets)].map((target) => `${toolName}:${target}`);
+  }
+
+  const fileTarget = getStringField(input, 'path', 'file_path');
+  return [`${toolName}:${fileTarget}`];
 }
 
 export async function classifyRisk(toolName: string, input: Record<string, unknown>): Promise<RiskLevel> {
@@ -135,18 +160,15 @@ export async function check(
 ): Promise<PermissionCheckResult> {
   const risk = await classifyRisk(toolName, input);
 
-  // Build command string for rule matching
-  const commandTarget = toolName === 'shell'
-    ? getStringField(input, 'command')
-    : toolName === 'skill_load'
-      ? getStringField(input, 'skill')
-      : getStringField(input, 'path', 'file_path');
-  const commandStr = toolName === 'shell' ? commandTarget : `${toolName}:${commandTarget}`;
+  // Build command string candidates for rule matching
+  const commandCandidates = buildCommandCandidates(toolName, input);
 
   // Deny rules take precedence at ALL risk levels
-  const denyRule = findDenyRule(toolName, commandStr, workingDir);
-  if (denyRule) {
-    return { decision: 'deny', reason: `Blocked by deny rule: ${denyRule.pattern}`, matchedRule: denyRule };
+  for (const command of commandCandidates) {
+    const denyRule = findDenyRule(toolName, command, workingDir);
+    if (denyRule) {
+      return { decision: 'deny', reason: `Blocked by deny rule: ${denyRule.pattern}`, matchedRule: denyRule };
+    }
   }
 
   // High risk → always prompt, allow rules ignored
@@ -160,9 +182,11 @@ export async function check(
   }
 
   // Medium risk → check allow rules
-  const matchedRule = findMatchingRule(toolName, commandStr, workingDir);
-  if (matchedRule) {
-    return { decision: 'allow', reason: `Matched trust rule: ${matchedRule.pattern}`, matchedRule };
+  for (const command of commandCandidates) {
+    const matchedRule = findMatchingRule(toolName, command, workingDir);
+    if (matchedRule) {
+      return { decision: 'allow', reason: `Matched trust rule: ${matchedRule.pattern}`, matchedRule };
+    }
   }
 
   return { decision: 'prompt', reason: `${risk} risk: requires approval` };
