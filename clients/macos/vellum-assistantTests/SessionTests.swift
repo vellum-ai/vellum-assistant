@@ -1005,6 +1005,51 @@ final class SessionTests: XCTestCase {
         // Cross-app task: secondary windows enumerated on all 3 steps
         XCTAssertEqual(enumerator.secondaryWindowCallCount, 3, "Secondary windows should be enumerated on every step for cross-app tasks")
     }
+
+    @MainActor
+    func testSecondaryWindows_skippedForXcodeTask() async {
+        // Regression test: "open xcode" should NOT match both "xcode" and "code"
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .click, reasoning: "Click button", x: 140, y: 215),
+            AgentAction(type: .click, reasoning: "Click another", x: 200, y: 215),
+            AgentAction(type: .done, reasoning: "done", summary: "Done")
+        ])
+        let enumerator = MockAccessibilityTreeEnumerator(
+            result: (elements: makeTestElements(), windowTitle: "Test Window", appName: "TestApp")
+        )
+        let session = makeSession(task: "open xcode and build the project", provider: provider, enumerator: enumerator)
+
+        await session.run()
+
+        if case .completed(_, _) = session.state { } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+
+        // Single-app task mentioning xcode — should NOT trigger multi-app detection
+        XCTAssertEqual(enumerator.secondaryWindowCallCount, 1, "Task mentioning only xcode should not trigger multi-app detection")
+    }
+
+    @MainActor
+    func testSecondaryWindows_skippedForGenericPhrase() async {
+        // Regression test: "switch to dark mode" should NOT trigger multi-app detection
+        let provider = MockInferenceProvider(actions: [
+            AgentAction(type: .click, reasoning: "Click button", x: 140, y: 215),
+            AgentAction(type: .done, reasoning: "done", summary: "Done")
+        ])
+        let enumerator = MockAccessibilityTreeEnumerator(
+            result: (elements: makeTestElements(), windowTitle: "Test Window", appName: "TestApp")
+        )
+        let session = makeSession(task: "switch to dark mode in the settings", provider: provider, enumerator: enumerator)
+
+        await session.run()
+
+        if case .completed(_, _) = session.state { } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+
+        // Generic phrase: should NOT trigger multi-app detection
+        XCTAssertEqual(enumerator.secondaryWindowCallCount, 1, "Generic phrase 'switch to' should not trigger multi-app detection")
+    }
 }
 
 /// Test elements with 3+ interactive elements (enough for screenshot skip)
