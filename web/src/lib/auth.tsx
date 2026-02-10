@@ -81,6 +81,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setIsLoggedIn(false);
     setUsername(null);
     setEmail(null);
+    window.location.href = "/";
   }, []);
 
   return (
