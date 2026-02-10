@@ -19,7 +19,11 @@ import {
   upsertAssistantChannelContact,
 } from "@/lib/channels/db";
 import { getChannelPlugin } from "@/lib/channels/plugins";
-import { getAssistantReplyByUserMessageId, updateChatMessageStatus } from "@/lib/db";
+import {
+  getAssistantReplyByUserMessageId,
+  getDb,
+  updateChatMessageStatus,
+} from "@/lib/db";
 
 type TelegramAccountConfig = {
   botToken?: string | null;
@@ -347,6 +351,8 @@ function shouldSendPairingPrompt(contact: AssistantChannelContactRecord): boolea
 const DUPLICATE_REPLY_POLL_ATTEMPTS = 20;
 const DUPLICATE_REPLY_POLL_INTERVAL_MS = 500;
 const DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS = 120_000;
+const ASSISTANT_REPLY_STATUS_PENDING = "pending_delivery";
+const ASSISTANT_REPLY_STATUS_DELIVERY_IN_PROGRESS = "delivery_in_progress";
 const ASSISTANT_REPLY_STATUS_DELIVERED = "delivered";
 const ASSISTANT_REPLY_STATUS_DELIVERY_FAILED = "delivery_failed";
 const USER_REPLY_STATUS_PROCESSING = "processing";
@@ -407,6 +413,31 @@ async function persistAssistantReplyStatus(
   }
 }
 
+async function claimAssistantReplyDelivery(messageId: string) {
+  const sql = getDb();
+  const claimed = await sql`
+    UPDATE chat_messages
+    SET status = ${ASSISTANT_REPLY_STATUS_DELIVERY_IN_PROGRESS},
+        updated_at = NOW()
+    WHERE id = ${messageId}
+      AND status IN (${ASSISTANT_REPLY_STATUS_PENDING}, ${ASSISTANT_REPLY_STATUS_DELIVERY_FAILED})
+    RETURNING id
+  `;
+  if (claimed.length > 0) {
+    return { claimed: true, status: ASSISTANT_REPLY_STATUS_DELIVERY_IN_PROGRESS };
+  }
+
+  const existing = await sql`
+    SELECT status
+    FROM chat_messages
+    WHERE id = ${messageId}
+    LIMIT 1
+  `;
+  const status =
+    typeof existing[0]?.status === "string" ? existing[0].status : null;
+  return { claimed: false, status };
+}
+
 export async function handleTelegramWebhook(params: {
   channelAccountId: string;
   headers: Headers;
@@ -464,6 +495,14 @@ export async function handleTelegramWebhook(params: {
     id: string;
     content: string;
   }) => {
+    const claim = await claimAssistantReplyDelivery(assistantMessage.id);
+    if (!claim.claimed) {
+      if (claim.status === ASSISTANT_REPLY_STATUS_DELIVERED) {
+        return;
+      }
+      throw new Error("Assistant reply delivery still in progress");
+    }
+
     try {
       await plugin.outbound.sendText({
         botToken: config.botToken as string,

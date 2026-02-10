@@ -6,6 +6,7 @@ import {
   createChatMessage,
   getAssistantById,
   getChatMessageById,
+  getDb,
   getMessageByExternalId,
   getRecentConversationMessages,
   getRecentChatMessages,
@@ -188,6 +189,25 @@ async function safeUpdateUserMessageStatus(
   }
 }
 
+async function withReplyRecoveryInsertLock<T>(params: {
+  assistantId: string;
+  sourceChannel: string;
+  externalChatId?: string;
+  userMessageId: string;
+}, fn: () => Promise<T>): Promise<T> {
+  const lockKey = [
+    params.assistantId,
+    params.sourceChannel,
+    params.externalChatId ?? "",
+    params.userMessageId,
+  ].join(":");
+  const sql = getDb();
+  return sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    return fn();
+  });
+}
+
 export async function recoverMissingAssistantReplyForInbound(params: {
   assistantId: string;
   sourceChannel: string;
@@ -228,20 +248,32 @@ export async function recoverMissingAssistantReplyForInbound(params: {
     messages: contextMessages,
   });
 
-  const assistantMessage = await createChatMessage({
-    assistantId: params.assistantId,
-    role: "assistant",
-    content: assistantReply,
-    status: "pending_delivery",
-    sourceChannel: params.sourceChannel,
-    externalChatId: params.externalChatId,
-    metadata: {
-      replyToUserMessageId: params.userMessageId,
-    },
-  });
-  await safeUpdateUserMessageStatus(params.userMessageId, "processed");
+  return withReplyRecoveryInsertLock(params, async () => {
+    const lockedExistingAssistantReply = await getAssistantReplyByUserMessageId({
+      assistantId: params.assistantId,
+      sourceChannel: params.sourceChannel,
+      externalChatId: params.externalChatId,
+      userMessageId: params.userMessageId,
+    });
+    if (lockedExistingAssistantReply) {
+      return toAssistantMessageResult(lockedExistingAssistantReply);
+    }
 
-  return toAssistantMessageResult(assistantMessage);
+    const assistantMessage = await createChatMessage({
+      assistantId: params.assistantId,
+      role: "assistant",
+      content: assistantReply,
+      status: "pending_delivery",
+      sourceChannel: params.sourceChannel,
+      externalChatId: params.externalChatId,
+      metadata: {
+        replyToUserMessageId: params.userMessageId,
+      },
+    });
+    await safeUpdateUserMessageStatus(params.userMessageId, "processed");
+
+    return toAssistantMessageResult(assistantMessage);
+  });
 }
 
 export async function handleInboundAssistantMessage(
