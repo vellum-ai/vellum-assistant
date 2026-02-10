@@ -576,6 +576,165 @@ async function main() {
       "Expected retry resend without creating duplicate persisted messages"
     );
 
+    const staleDeliveryPayload = buildTelegramDmPayload({
+      messageId: 1010,
+      text: "Simulate stale delivery-in-progress reclaim.",
+      chatId: 9003,
+      firstName: "Third",
+    });
+    const staleDeliveryFirstResult = await handleTelegramWebhook({
+      channelAccountId: account.id,
+      headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
+      payload: staleDeliveryPayload,
+    });
+    assert.equal(staleDeliveryFirstResult.status, "ok");
+
+    const staleDeliveryUserRows = await sql<{ id: string }[]>`
+      SELECT id
+      FROM chat_messages
+      WHERE assistant_id = ${assistantId}
+        AND role = 'user'
+        AND source_channel = 'telegram'
+        AND external_chat_id = ${"9003"}
+        AND external_message_id = ${"1010"}
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    assert.equal(staleDeliveryUserRows.length, 1, "Expected stale delivery user message");
+    const staleDeliveryUserMessageId = staleDeliveryUserRows[0].id;
+
+    const staleDeliveryReplyRows = await sql<{ id: string }[]>`
+      SELECT id
+      FROM chat_messages
+      WHERE assistant_id = ${assistantId}
+        AND role = 'assistant'
+        AND source_channel = 'telegram'
+        AND metadata->>'replyToUserMessageId' = ${staleDeliveryUserMessageId}
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    assert.equal(staleDeliveryReplyRows.length, 1, "Expected stale delivery assistant reply");
+    const staleDeliveryReplyId = staleDeliveryReplyRows[0].id;
+
+    await sql`
+      UPDATE chat_messages
+      SET status = 'delivery_in_progress',
+          updated_at = NOW() - INTERVAL '10 minutes'
+      WHERE id = ${staleDeliveryReplyId}
+    `;
+    await sql`
+      UPDATE chat_messages
+      SET created_at = NOW() - INTERVAL '10 minutes',
+          updated_at = NOW() - INTERVAL '10 minutes'
+      WHERE id = ${staleDeliveryUserMessageId}
+    `;
+
+    const staleDeliveryCountBeforeRetry = (await getChatMessages(assistantId)).length;
+    const staleDeliveryRetryResult = await handleTelegramWebhook({
+      channelAccountId: account.id,
+      headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
+      payload: staleDeliveryPayload,
+    });
+    assert.equal(staleDeliveryRetryResult.status, "ok");
+    assert.equal(
+      (staleDeliveryRetryResult as { duplicate?: boolean }).duplicate,
+      true,
+      "Expected stale delivery retry to be treated as duplicate"
+    );
+
+    const staleDeliveryCountAfterRetry = (await getChatMessages(assistantId)).length;
+    assert.equal(
+      staleDeliveryCountAfterRetry,
+      staleDeliveryCountBeforeRetry,
+      "Expected stale delivery retry to resend without creating duplicate persisted messages"
+    );
+
+    const staleDeliveryStatusRows = await sql<{ status: string }[]>`
+      SELECT status
+      FROM chat_messages
+      WHERE id = ${staleDeliveryReplyId}
+      LIMIT 1
+    `;
+    assert.equal(
+      staleDeliveryStatusRows[0]?.status,
+      "delivered",
+      "Expected stale delivery retry to reclaim and mark reply delivered"
+    );
+
+    const staleProcessingSeedRows = await sql<{ id: string }[]>`
+      INSERT INTO chat_messages (
+        assistant_id,
+        role,
+        content,
+        status,
+        source_channel,
+        external_chat_id,
+        external_message_id,
+        metadata,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${assistantId},
+        'user',
+        ${"Stale processing duplicate retry seed"},
+        'processing',
+        'telegram',
+        ${"9001"},
+        ${"1011"},
+        ${JSON.stringify({
+          sender: {
+            externalUserId: "9001",
+            username: "harness-user-9001",
+            displayName: "Harness User",
+          },
+        })}::jsonb,
+        NOW() - INTERVAL '10 minutes',
+        NOW() - INTERVAL '10 minutes'
+      )
+      RETURNING id
+    `;
+    assert.equal(staleProcessingSeedRows.length, 1, "Expected stale processing seed message");
+    const staleProcessingUserMessageId = staleProcessingSeedRows[0].id;
+
+    const staleProcessingCountBeforeRetry = (await getChatMessages(assistantId)).length;
+    const staleProcessingRetryResult = await handleTelegramWebhook({
+      channelAccountId: account.id,
+      headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
+      payload: buildTelegramDmPayload({
+        messageId: 1011,
+        text: "Stale processing duplicate retry seed",
+        chatId: 9001,
+      }),
+    });
+    assert.equal(staleProcessingRetryResult.status, "ok");
+    assert.equal(
+      (staleProcessingRetryResult as { duplicate?: boolean }).duplicate,
+      true,
+      "Expected stale processing retry to be treated as duplicate"
+    );
+
+    const staleProcessingCountAfterRetry = (await getChatMessages(assistantId)).length;
+    assert.equal(
+      staleProcessingCountAfterRetry,
+      staleProcessingCountBeforeRetry + 1,
+      "Expected stale processing retry to recover exactly one assistant reply"
+    );
+
+    const staleProcessingReplyRows = await sql<{ id: string }[]>`
+      SELECT id
+      FROM chat_messages
+      WHERE assistant_id = ${assistantId}
+        AND role = 'assistant'
+        AND source_channel = 'telegram'
+        AND metadata->>'replyToUserMessageId' = ${staleProcessingUserMessageId}
+    `;
+    assert.equal(
+      staleProcessingReplyRows.length,
+      1,
+      "Expected stale processing retry to recover a persisted assistant reply"
+    );
+
     await blockTelegramContact(assistantId, firstContact.id);
     const blockedResult = await handleTelegramWebhook({
       channelAccountId: account.id,

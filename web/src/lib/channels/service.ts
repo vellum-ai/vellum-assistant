@@ -351,6 +351,7 @@ function shouldSendPairingPrompt(contact: AssistantChannelContactRecord): boolea
 const DUPLICATE_REPLY_POLL_ATTEMPTS = 20;
 const DUPLICATE_REPLY_POLL_INTERVAL_MS = 500;
 const DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS = 120_000;
+const DELIVERY_IN_PROGRESS_STALE_MS = DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS;
 const ASSISTANT_REPLY_STATUS_PENDING = "pending_delivery";
 const ASSISTANT_REPLY_STATUS_DELIVERY_IN_PROGRESS = "delivery_in_progress";
 const ASSISTANT_REPLY_STATUS_DELIVERED = "delivered";
@@ -402,6 +403,14 @@ function isReplyGenerationInProgress(status: string | null | undefined) {
   return status === USER_REPLY_STATUS_PROCESSING;
 }
 
+function shouldDeferDuplicateReplyGeneration(
+  status: string | null | undefined,
+  userMessageAgeMs: number
+) {
+  return isReplyGenerationInProgress(status) &&
+    userMessageAgeMs < DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS;
+}
+
 async function persistAssistantReplyStatus(
   messageId: string,
   status: string
@@ -415,12 +424,19 @@ async function persistAssistantReplyStatus(
 
 async function claimAssistantReplyDelivery(messageId: string) {
   const sql = getDb();
+  const staleDeliveryCutoff = new Date(Date.now() - DELIVERY_IN_PROGRESS_STALE_MS);
   const claimed = await sql`
     UPDATE chat_messages
     SET status = ${ASSISTANT_REPLY_STATUS_DELIVERY_IN_PROGRESS},
         updated_at = NOW()
     WHERE id = ${messageId}
-      AND status IN (${ASSISTANT_REPLY_STATUS_PENDING}, ${ASSISTANT_REPLY_STATUS_DELIVERY_FAILED})
+      AND (
+        status IN (${ASSISTANT_REPLY_STATUS_PENDING}, ${ASSISTANT_REPLY_STATUS_DELIVERY_FAILED})
+        OR (
+          status = ${ASSISTANT_REPLY_STATUS_DELIVERY_IN_PROGRESS}
+          AND (updated_at IS NULL OR updated_at < ${staleDeliveryCutoff})
+        )
+      )
     RETURNING id
   `;
   if (claimed.length > 0) {
@@ -586,7 +602,12 @@ export async function handleTelegramWebhook(params: {
       return { status: "ok" as const, duplicate: true as const };
     }
 
-    if (isReplyGenerationInProgress(result.userMessage.status)) {
+    if (
+      shouldDeferDuplicateReplyGeneration(
+        result.userMessage.status,
+        userMessageAgeMs
+      )
+    ) {
       // Let Telegram retry instead of racing the original in-flight reply generation.
       throw new Error("Assistant reply generation still in progress");
     }
