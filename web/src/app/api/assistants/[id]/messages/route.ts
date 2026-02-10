@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { handleInboundAssistantMessage } from "@/lib/assistants/message-service";
 import {
   getAssistantConnectionMode,
   getLocalDaemonSocketPath,
@@ -496,7 +495,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
     const body = (await request.json()) as PostMessageBody;
-    const sourceChannel = body.sourceChannel || "web";
+    const sourceChannel =
+      typeof body.sourceChannel === "string" ? body.sourceChannel : "web";
     const content = body.content;
 
     if (!content || typeof content !== "string") {
@@ -507,21 +507,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     if (sourceChannel !== "web") {
-      const inbound = await handleInboundAssistantMessage({
-        assistantId,
-        content,
-        sourceChannel,
-        externalChatId: body.externalChatId,
-        externalMessageId: body.externalMessageId,
-        sender: body.sender,
-      });
-
       return NextResponse.json({
-        success: true,
-        duplicate: inbound.duplicate,
-        messageId: inbound.userMessage?.id ?? null,
-        assistantMessage: inbound.assistantMessage,
-      });
+        error: "Unsupported source channel for this endpoint",
+      }, { status: 400 });
     }
 
     const sql = getDb();
