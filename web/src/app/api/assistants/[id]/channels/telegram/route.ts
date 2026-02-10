@@ -87,8 +87,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const { id: assistantId } = await params;
     await requireAssistantOwner(request, assistantId);
 
-    await disconnectTelegramChannel(assistantId);
-    return NextResponse.json({ success: true });
+    const result = await disconnectTelegramChannel(assistantId);
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Error disconnecting Telegram channel:", error);
     return toErrorResponse(error);
