@@ -1,13 +1,31 @@
 /**
  * HeroSection Component
  * 
- * Simplified to just the waitlist button.
+ * Hero with pixel art background and waitlist button.
  */
 
 export function HeroSection() {
   return (
-    <div className="section_home home">
-      <div className="padding-global home z-index-2">
+    <div 
+      className="section_home home"
+      style={{
+        backgroundImage: "url('/hero-bg.jpg')",
+        backgroundSize: "cover",
+        backgroundPosition: "center top",
+        backgroundRepeat: "no-repeat",
+        position: "relative",
+      }}
+    >
+      {/* Dark overlay for text readability */}
+      <div 
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.5)",
+          zIndex: 1,
+        }}
+      />
+      <div className="padding-global home z-index-2" style={{ position: "relative", zIndex: 2 }}>
         <div className="container-new alt home">
           <div className="padding-section-medium">
             <div className="content-hero home">
