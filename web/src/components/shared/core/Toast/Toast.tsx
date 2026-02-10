@@ -129,6 +129,7 @@ function Toaster() {
       position="bottom-right"
       toastOptions={{
         unstyled: true,
+        style: { width: "var(--width)" },
       }}
     />
   );
