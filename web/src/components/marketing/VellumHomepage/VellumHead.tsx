@@ -1,13 +1,25 @@
 "use client";
 
+import { useEffect } from "react";
 import Script from "next/script";
 
+const WEBFLOW_CSS_HREF =
+  "https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/css/vellum-v2.webflow.shared.8974b486a.min.css";
+
 export function VellumHead() {
+  useEffect(() => {
+    return () => {
+      document
+        .querySelector(`link[href="${WEBFLOW_CSS_HREF}"]`)
+        ?.remove();
+    };
+  }, []);
+
   return (
     <>
       <link
         rel="stylesheet"
-        href="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/css/vellum-v2.webflow.shared.8974b486a.min.css"
+        href={WEBFLOW_CSS_HREF}
         precedence="webflow"
         integrity="sha384-iXS0hqh2XhV4cggyxfyByEBXc6zfb+ifhTIGKjaf4dzNqrxjku3vwiVZ925Mf7Ef"
         crossOrigin="anonymous"
