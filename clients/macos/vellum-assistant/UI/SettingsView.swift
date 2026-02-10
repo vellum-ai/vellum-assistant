@@ -14,6 +14,7 @@ struct SettingsView: View {
         let val = UserDefaults.standard.double(forKey: "ambientCaptureInterval")
         return val == 0 ? 30 : val
     }()
+    @State private var showingPrivacy = false
     var ambientAgent: AmbientAgent
 
     // Re-check permissions every 2 seconds while the window is open
@@ -126,9 +127,24 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            Section("Privacy & Security") {
+                PrivacyBullet(icon: "eye.slash", text: "AI only runs when you trigger it or enable ambient mode")
+                PrivacyBullet(icon: "lock.shield", text: "API key stored in macOS Keychain")
+                PrivacyBullet(icon: "xmark.shield", text: "Your data is not used to train AI models")
+                PrivacyBullet(icon: "internaldrive", text: "Session logs and knowledge stored locally on your Mac")
+
+                Button("Learn More") {
+                    showingPrivacy = true
+                }
+                .font(.caption)
+                .sheet(isPresented: $showingPrivacy) {
+                    PrivacyDetailView()
+                }
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 450, height: 550)
+        .frame(width: 450, height: 700)
         .onAppear {
             checkPermissions()
         }
@@ -287,6 +303,134 @@ private struct InsightsListView: View {
         case .pattern: return .blue
         case .automation: return .green
         case .insight: return .orange
+        }
+    }
+}
+
+// MARK: - Privacy & Security
+
+private struct PrivacyBullet: View {
+    let icon: String
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct PrivacyDetailView: View {
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Privacy & Security")
+                    .font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+            }
+            .padding()
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    privacySection(
+                        title: "How Velly Works",
+                        items: [
+                            "Velly only activates AI when you explicitly trigger a task, use voice input, or enable the ambient agent. It does not run in the background unless you opt in.",
+                            "You are always in control. You can disable the ambient agent, revoke permissions, or clear stored data at any time from Settings.",
+                        ]
+                    )
+
+                    privacySection(
+                        title: "What Data Leaves Your Mac",
+                        items: [
+                            "When you run a task: screenshots (compressed, max 1280x720) and UI element data (window titles, button labels, text field values) are sent to the Anthropic API over HTTPS.",
+                            "When ambient mode is on: extracted on-screen text (via on-device OCR) and the active app name are sent to Anthropic for analysis.",
+                            "Voice input: speech is transcribed on-device using Apple Speech Recognition. Only the final text is sent to Anthropic as part of the task.",
+                        ]
+                    )
+
+                    privacySection(
+                        title: "What Stays on Your Mac",
+                        items: [
+                            "Session logs (task descriptions, action history, UI element data) are stored in ~/Library/Application Support/vellum-assistant/logs/.",
+                            "Knowledge entries and insights from the ambient agent are stored locally as JSON files.",
+                            "Your API key is stored in the macOS Keychain, encrypted and accessible only when your Mac is unlocked.",
+                            "Screenshots are sent to Anthropic for inference but are never saved to disk.",
+                        ]
+                    )
+
+                    privacySection(
+                        title: "AI Model Usage",
+                        items: [
+                            "Velly uses Anthropic's Claude models (Sonnet for tasks, Haiku for ambient analysis). All requests go through Anthropic's API.",
+                            "Your data is not used to train AI models. Anthropic's commercial API terms prohibit using customer inputs for model training.",
+                            "The AI is instructed to never type passwords, credit card numbers, SSNs, or other sensitive data during computer use sessions.",
+                        ]
+                    )
+
+                    privacySection(
+                        title: "Permissions",
+                        items: [
+                            "Accessibility: required to read UI elements (button labels, text fields) and to control your Mac (clicking, typing) during tasks.",
+                            "Screen Recording: required to capture screenshots so the AI can see what's on screen.",
+                            "Microphone (optional): only used for voice input. Speech recognition runs on-device via Apple's API.",
+                        ]
+                    )
+
+                    privacySection(
+                        title: "Security Measures",
+                        items: [
+                            "All API communication uses HTTPS with TLS encryption.",
+                            "A safety layer verifies every AI action before execution, blocking destructive key combinations and detecting action loops.",
+                            "Text input uses a temporary clipboard swap (save, paste, restore) rather than keystroke injection, preventing keylogging exposure.",
+                            "You can press Escape at any time to immediately cancel a running session.",
+                        ]
+                    )
+
+                    privacySection(
+                        title: "Data You Can Clear",
+                        items: [
+                            "API key: Settings > Anthropic API Key > Clear",
+                            "Knowledge entries: Settings > Ambient Agent > Clear All",
+                            "Insights: Settings > Ambient Agent > Clear All",
+                            "Session logs: delete files in ~/Library/Application Support/vellum-assistant/logs/",
+                        ]
+                    )
+
+                    Text("If you have questions or concerns, contact us at privacy@vellum.ai")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding()
+            }
+        }
+        .frame(width: 520, height: 500)
+    }
+
+    private func privacySection(title: String, items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            ForEach(items, id: \.self) { item in
+                HStack(alignment: .top, spacing: 6) {
+                    Text("\u{2022}")
+                        .foregroundStyle(.tertiary)
+                    Text(item)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 }
