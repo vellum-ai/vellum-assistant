@@ -102,6 +102,7 @@ describe('tool audit listener', () => {
       decision: 'error',
       durationMs: 9,
       errorMessage: 'boom',
+      isExpected: false,
     });
 
     expect(records).toHaveLength(1);

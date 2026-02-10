@@ -57,6 +57,7 @@ export class ToolExecutor {
         decision: 'error',
         durationMs,
         errorMessage: msg,
+        isExpected: true,
       });
       return { content: msg, isError: true };
     }
@@ -253,6 +254,7 @@ export class ToolExecutor {
     } catch (err) {
       const durationMs = Date.now() - startTime;
       const msg = err instanceof Error ? err.message : String(err);
+      const isExpected = err instanceof PermissionDeniedError || err instanceof ToolError;
 
       emitLifecycleEvent(context, {
         type: 'error',
@@ -265,9 +267,12 @@ export class ToolExecutor {
         decision: 'error',
         durationMs,
         errorMessage: msg,
+        isExpected,
+        errorName: err instanceof Error ? err.name : undefined,
+        errorStack: err instanceof Error ? err.stack : undefined,
       });
 
-      if (err instanceof PermissionDeniedError || err instanceof ToolError) {
+      if (isExpected) {
         return { content: msg, isError: true };
       }
       return { content: `Tool error: ${msg}`, isError: true };

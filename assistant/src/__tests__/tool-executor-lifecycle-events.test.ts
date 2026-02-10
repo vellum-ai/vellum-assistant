@@ -78,6 +78,7 @@ mock.module('../tools/terminal/sandbox.js', () => ({
 
 import { ToolExecutor } from '../tools/executor.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
+import { ToolError } from '../util/errors.js';
 
 function makeContext(events: ToolLifecycleEvent[]) {
   return {
@@ -199,6 +200,25 @@ describe('ToolExecutor lifecycle events', () => {
     const errorEvent = events[1];
     if (errorEvent.type !== 'error') throw new Error('Expected error event');
     expect(errorEvent.errorMessage).toBe('boom');
+    expect(errorEvent.isExpected).toBe(false);
+    expect(errorEvent.errorName).toBe('Error');
+    expect(errorEvent.errorStack).toContain('Error: boom');
+  });
+
+  test('marks ToolError failures as expected', async () => {
+    toolThrow = new ToolError('tool failed', 'file_read');
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute('file_read', {}, makeContext(events));
+
+    expect(result).toEqual({ content: 'tool failed', isError: true });
+    expect(events.map((event) => event.type)).toEqual(['start', 'error']);
+    const errorEvent = events[1];
+    if (errorEvent.type !== 'error') throw new Error('Expected error event');
+    expect(errorEvent.isExpected).toBe(true);
+    expect(errorEvent.errorName).toBe('ToolError');
   });
 
   test('emits start and error for unknown tools', async () => {
@@ -213,6 +233,7 @@ describe('ToolExecutor lifecycle events', () => {
     if (errorEvent.type !== 'error') throw new Error('Expected error event');
     expect(errorEvent.errorMessage).toBe('Unknown tool: unknown_tool');
     expect(errorEvent.decision).toBe('error');
+    expect(errorEvent.isExpected).toBe(true);
   });
 
   test('does not block tool execution on unresolved lifecycle callbacks', async () => {

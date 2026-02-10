@@ -100,6 +100,24 @@ export function registerToolMetricsLoggingListener(
         );
         return;
       case 'tool.execution.failed':
+        if (event.payload.isExpected) {
+          logger.warn(
+            {
+              tool: event.payload.toolName,
+              execDurationMs: event.payload.durationMs,
+              riskLevel: event.payload.riskLevel,
+              decision: event.payload.decision,
+              error: event.payload.error,
+              errorName: event.payload.errorName,
+              errorStack: event.payload.errorStack,
+              isExpected: event.payload.isExpected,
+              sessionId: event.payload.sessionId,
+              conversationId: event.payload.conversationId,
+            },
+            'Tool execution failed (expected)',
+          );
+          return;
+        }
         logger.error(
           {
             tool: event.payload.toolName,
@@ -107,6 +125,9 @@ export function registerToolMetricsLoggingListener(
             riskLevel: event.payload.riskLevel,
             decision: event.payload.decision,
             error: event.payload.error,
+            errorName: event.payload.errorName,
+            errorStack: event.payload.errorStack,
+            isExpected: event.payload.isExpected,
             sessionId: event.payload.sessionId,
             conversationId: event.payload.conversationId,
           },

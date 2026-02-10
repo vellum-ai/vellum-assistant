@@ -47,6 +47,9 @@ export interface ToolDomainEvents {
     riskLevel: string;
     durationMs: number;
     error: string;
+    isExpected: boolean;
+    errorName?: string;
+    errorStack?: string;
     failedAtMs: number;
   };
 }

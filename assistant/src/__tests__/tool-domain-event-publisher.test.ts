@@ -134,4 +134,40 @@ describe('createToolDomainEventPublisher', () => {
       detectedAtMs: 55,
     });
   });
+
+  test('maps error lifecycle event to execution.failed with diagnostics', async () => {
+    const { bus, events } = makeEventsCollector();
+    const publish = createToolDomainEventPublisher(bus);
+
+    await publish({
+      type: 'error',
+      toolName: 'shell',
+      input: { command: 'cat /missing' },
+      workingDir: '/tmp/project',
+      sessionId: 'session-1',
+      conversationId: 'conversation-1',
+      riskLevel: 'medium',
+      decision: 'error',
+      durationMs: 9,
+      errorMessage: 'ENOENT',
+      isExpected: false,
+      errorName: 'Error',
+      errorStack: 'Error: ENOENT\n    at test',
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('tool.execution.failed');
+    expect(events[0].payload).toMatchObject({
+      conversationId: 'conversation-1',
+      sessionId: 'session-1',
+      toolName: 'shell',
+      riskLevel: 'medium',
+      decision: 'error',
+      durationMs: 9,
+      error: 'ENOENT',
+      isExpected: false,
+      errorName: 'Error',
+      errorStack: 'Error: ENOENT\n    at test',
+    });
+  });
 });
