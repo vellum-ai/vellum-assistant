@@ -8,17 +8,20 @@ A native macOS menu bar app that controls your Mac via accessibility APIs and CG
 
 ## Build & Test
 
-Dual build systems: SwiftPM `Package.swift` (fast iteration) and XcodeGen `project.yml` → Xcode project (app bundle). **MUST set `DEVELOPER_DIR`** — the CommandLineTools toolchain fails with linker errors.
+Single build script: `./build.sh` wraps SwiftPM → `.app` bundle → codesign. No Xcode project needed.
 
 ```bash
-# Build (debug, via SPM)
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build
+# Build debug .app bundle (→ dist/vellum-assistant.app)
+./build.sh
 
-# Build (release, via xcodebuild)
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme vellum-assistant -configuration Release -derivedDataPath build build
+# Build + launch
+./build.sh run
+
+# Build release
+./build.sh release
 
 # Run all tests
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+./build.sh test
 
 # Run a single test
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter SessionTests/testHappyPath_completesInThreeSteps
@@ -79,8 +82,7 @@ A background screen-watching system that runs alongside the manual session loop:
 
 - **LSUIElement app** — no dock icon; uses `.accessory` activation policy. Must temporarily switch to `.regular` when showing Settings window.
 - **`Bundle.main.bundleIdentifier` is nil** in SPM builds. All `os.Logger` instances use hardcoded fallback `"com.vellum.vellum-assistant"`.
-- **Two plists**: `Info.plist` (SPM) and `Info-generated.plist` (XcodeGen). When adding plist keys, update both.
-- **Adding .swift files**: Auto-picked up by SPM. Must be **manually added to `project.pbxproj`** for Xcode (PBXFileReference + PBXSourcesBuildPhase).
+- **Adding .swift files**: Auto-picked up by SPM. No manual project file edits needed.
 - **Chrome special handling** — `ChromeAccessibilityHelper` detects when Chrome's AX tree lacks web content and auto-restarts Chrome with `--force-renderer-accessibility`.
 - **Popover close delay** — 300ms initial delay before session starts to let the popover close and target app regain focus.
 - **SessionState enum** must stay in sync with `SessionOverlayView` pattern matching.
