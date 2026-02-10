@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { renderHistoryContent } from '../daemon/server.js';
+import { renderHistoryContent } from '../daemon/handlers.js';
 
 describe('renderHistoryContent', () => {
   test('renders text-only content unchanged', () => {

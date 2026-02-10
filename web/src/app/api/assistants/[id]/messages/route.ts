@@ -46,6 +46,15 @@ interface AssistantError {
   message: string;
 }
 
+interface LinkedAttachmentRow {
+  attachment_id: string;
+}
+
+interface AttachmentStorageRow {
+  id: string;
+  storage_key: string | null;
+}
+
 interface MessageAttachmentPayload {
   id: string;
   original_filename: string;
@@ -398,6 +407,79 @@ async function buildLocalDaemonAttachments(
   );
 }
 
+async function cleanupUnlinkedLocalAttachments(
+  sql: ReturnType<typeof getDb>,
+  assistantId: string,
+  attachmentIds: string[],
+): Promise<{ deletedIds: string[]; failedIds: string[] }> {
+  if (attachmentIds.length === 0) {
+    return { deletedIds: [], failedIds: [] };
+  }
+
+  const linkedRows = await sql.unsafe<LinkedAttachmentRow[]>(
+    `
+      SELECT DISTINCT attachment_id
+      FROM chat_message_attachments
+      WHERE attachment_id = ANY($1::uuid[])
+    `,
+    [attachmentIds],
+  );
+
+  const linkedIds = new Set(linkedRows.map((row) => row.attachment_id));
+  const candidateIds = attachmentIds.filter((attachmentId) => !linkedIds.has(attachmentId));
+  if (candidateIds.length === 0) {
+    return { deletedIds: [], failedIds: [] };
+  }
+
+  const rows = await sql.unsafe<AttachmentStorageRow[]>(
+    `
+      SELECT id, storage_key
+      FROM chat_attachments
+      WHERE assistant_id = $1
+        AND id = ANY($2::uuid[])
+    `,
+    [assistantId, candidateIds],
+  );
+
+  if (rows.length === 0) {
+    return { deletedIds: [], failedIds: [] };
+  }
+
+  const bucket = getStorage().bucket(ATTACHMENTS_BUCKET_NAME);
+  const deletedIds: string[] = [];
+  const failedIds: string[] = [];
+
+  for (const row of rows) {
+    const storageKey = row.storage_key;
+    if (typeof storageKey === "string" && storageKey.length > 0) {
+      try {
+        await bucket.file(storageKey).delete();
+      } catch (error: unknown) {
+        failedIds.push(row.id);
+        console.warn(
+          "Failed to delete unlinked local-mode attachment object:",
+          { attachmentId: row.id, storageKey, error },
+        );
+        continue;
+      }
+    }
+    deletedIds.push(row.id);
+  }
+
+  if (deletedIds.length > 0) {
+    await sql.unsafe(
+      `
+        DELETE FROM chat_attachments
+        WHERE assistant_id = $1
+          AND id = ANY($2::uuid[])
+      `,
+      [assistantId, deletedIds],
+    );
+  }
+
+  return { deletedIds, failedIds };
+}
+
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
@@ -652,14 +734,33 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               statusError
             );
           }
+          let attachmentWarning: string | null = null;
           if (attachmentIds.length > 0) {
             try {
               await linkAttachmentsToMessage(userMessage.id, attachmentIds);
             } catch (linkError: unknown) {
-              console.warn(
-                "Failed to link local-mode attachments after daemon success:",
-                linkError
+              console.error(
+                "Failed to link local-mode attachments after daemon success. Attempting cleanup.",
+                linkError,
               );
+              try {
+                const cleanup = await cleanupUnlinkedLocalAttachments(
+                  sql,
+                  assistantId,
+                  attachmentIds,
+                );
+                if (cleanup.failedIds.length > 0) {
+                  attachmentWarning = "Message was processed, but some attachment metadata could not be persisted.";
+                } else {
+                  attachmentWarning = "Message was processed, but attachments could not be linked and were removed.";
+                }
+              } catch (cleanupError: unknown) {
+                console.error(
+                  "Failed to clean up unlinked local-mode attachments:",
+                  cleanupError,
+                );
+                attachmentWarning = "Message was processed, but attachment metadata could not be persisted.";
+              }
             }
           }
 
@@ -680,6 +781,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             sessionId,
             messageId: userMessage.id,
             ...(assistantMessage ? { assistantMessage } : {}),
+            ...(attachmentWarning ? { attachmentWarning } : {}),
             message: "Message processed by local daemon",
           });
         } catch (daemonError: unknown) {

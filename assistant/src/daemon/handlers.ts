@@ -56,7 +56,7 @@ function renderFileBlockForHistory(block: Record<string, unknown>): string {
   return `${summaryParts.join(', ')}\nAttachment text: ${clampAttachmentText(extractedText)}`;
 }
 
-function renderHistoryContent(content: unknown): string {
+export function renderHistoryContent(content: unknown): string {
   if (!Array.isArray(content)) {
     return String(content ?? '');
   }

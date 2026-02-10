@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { TextDecoder } from "node:util";
 
 export type AttachmentKind = "image" | "document";
 
@@ -296,7 +297,12 @@ async function extractPptxText(buffer: Buffer): Promise<string | null> {
 }
 
 function extractTextFromUtf8(buffer: Buffer): string | null {
-  const decoded = buffer.toString("utf8");
+  let decoded = "";
+  try {
+    decoded = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    return null;
+  }
   const normalized = normalizeExtractedText(decoded);
   return normalized.length > 0 ? normalized : null;
 }
