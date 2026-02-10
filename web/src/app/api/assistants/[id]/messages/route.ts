@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
+  getAssistantConnectionMode,
+  getLocalDaemonSocketPath,
+} from "@/lib/assistant-connection";
+import {
   Assistant,
   ChatAttachment,
   ChatMessage,
@@ -14,10 +18,18 @@ import {
 } from "@/lib/db";
 import { buildAttachmentFallbackText } from "@/lib/attachments";
 import { getInstanceExternalIp } from "@/lib/gcp";
+import {
+  LocalDaemonClient,
+  LocalDaemonError,
+  describeLocalDaemonError,
+  isLocalDaemonErrorWithCode,
+} from "@/lib/local-daemon-ipc";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
+
+export const runtime = "nodejs";
 
 interface OutboxMessage {
   id: string;
@@ -74,6 +86,217 @@ const GITHUB_APP_HTML = `<div style="border:1px solid #d0d7de;border-radius:12px
     </div>
   </div>
 </div>`;
+
+type AssistantConfig = Record<string, unknown>;
+
+function getAssistantConfig(assistant: Assistant): AssistantConfig {
+  const config = assistant.configuration as Record<string, unknown> | null;
+  return config ?? {};
+}
+
+function toAssistantConfig(rawConfig: unknown): AssistantConfig {
+  if (!rawConfig || typeof rawConfig !== "object") {
+    return {};
+  }
+  return rawConfig as AssistantConfig;
+}
+
+function getStoredLocalDaemonSessionId(config: AssistantConfig): string | null {
+  const localDaemonConfig = config.localDaemon;
+  if (!localDaemonConfig || typeof localDaemonConfig !== "object") {
+    return null;
+  }
+
+  const sessionId = (localDaemonConfig as { sessionId?: unknown }).sessionId;
+  if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
+    return null;
+  }
+
+  return sessionId;
+}
+
+async function ensureLocalDaemonSession(
+  daemon: LocalDaemonClient,
+  storedSessionId: string | null
+): Promise<string> {
+  if (storedSessionId) {
+    try {
+      await daemon.switchSession(storedSessionId);
+      return storedSessionId;
+    } catch (error: unknown) {
+      if (!isLocalDaemonErrorWithCode(error, "SESSION_NOT_FOUND")) {
+        throw error;
+      }
+    }
+  }
+
+  const createdSession = await daemon.createSession("Web Assistant Session");
+  return createdSession.sessionId;
+}
+
+function withLocalDaemonSessionId(
+  config: AssistantConfig,
+  sessionId: string
+): AssistantConfig {
+  const existingLocalDaemon =
+    config.localDaemon && typeof config.localDaemon === "object"
+      ? (config.localDaemon as Record<string, unknown>)
+      : {};
+
+  return {
+    ...config,
+    localDaemon: {
+      ...existingLocalDaemon,
+      sessionId,
+    },
+  };
+}
+
+async function loadAssistantConfig(
+  sql: ReturnType<typeof getDb>,
+  assistantId: string
+): Promise<AssistantConfig> {
+  const rows = await sql.unsafe<{ configuration: unknown }[]>(
+    `
+      SELECT configuration
+      FROM assistants
+      WHERE id = $1
+    `,
+    [assistantId]
+  );
+
+  if (rows.length === 0) {
+    throw new Error("Agent not found");
+  }
+
+  return toAssistantConfig(rows[0]?.configuration);
+}
+
+async function tryPersistLocalDaemonSessionId(
+  sql: ReturnType<typeof getDb>,
+  assistantId: string,
+  expectedSessionId: string | null,
+  nextSessionId: string
+): Promise<boolean> {
+  return sql.begin(async (tx) => {
+    const rows = await tx.unsafe<{ configuration: unknown }[]>(
+      `
+        SELECT configuration
+        FROM assistants
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [assistantId]
+    );
+
+    if (rows.length === 0) {
+      throw new Error("Agent not found");
+    }
+
+    const lockedConfig = toAssistantConfig(rows[0]?.configuration);
+    const lockedSessionId = getStoredLocalDaemonSessionId(lockedConfig);
+
+    if (lockedSessionId !== expectedSessionId) {
+      return false;
+    }
+
+    if (lockedSessionId === nextSessionId) {
+      return true;
+    }
+
+    const nextConfig = withLocalDaemonSessionId(lockedConfig, nextSessionId);
+    await tx.unsafe(
+      `
+        UPDATE assistants
+        SET configuration = $1::jsonb,
+            updated_at = NOW()
+        WHERE id = $2
+      `,
+      [JSON.stringify(nextConfig), assistantId]
+    );
+
+    return true;
+  });
+}
+
+const MAX_LOCAL_DAEMON_SESSION_ATTEMPTS = 5;
+
+async function ensurePersistedLocalDaemonSessionId(
+  sql: ReturnType<typeof getDb>,
+  daemon: LocalDaemonClient,
+  assistantId: string,
+  initialConfig?: AssistantConfig
+): Promise<string> {
+  let expectedSessionId = getStoredLocalDaemonSessionId(
+    initialConfig ?? (await loadAssistantConfig(sql, assistantId))
+  );
+
+  for (let attempt = 0; attempt < MAX_LOCAL_DAEMON_SESSION_ATTEMPTS; attempt += 1) {
+    const sessionId = await ensureLocalDaemonSession(daemon, expectedSessionId);
+
+    if (sessionId === expectedSessionId) {
+      return sessionId;
+    }
+
+    const didPersist = await tryPersistLocalDaemonSessionId(
+      sql,
+      assistantId,
+      expectedSessionId,
+      sessionId
+    );
+
+    if (didPersist) {
+      return sessionId;
+    }
+
+    const latestConfig = await loadAssistantConfig(sql, assistantId);
+    expectedSessionId = getStoredLocalDaemonSessionId(latestConfig);
+  }
+
+  throw new LocalDaemonError(
+    "DAEMON_ERROR",
+    "Failed to establish a stable local daemon session"
+  );
+}
+
+function localDaemonErrorStatus(error: unknown): number {
+  if (!(error instanceof LocalDaemonError)) {
+    return 500;
+  }
+
+  switch (error.code) {
+    case "UNREACHABLE":
+      return 503;
+    case "TIMEOUT":
+      return 504;
+    case "BUSY":
+      return 409;
+    case "SESSION_NOT_FOUND":
+      return 409;
+    case "DAEMON_ERROR":
+      return 502;
+    case "PROTOCOL_ERROR":
+      return 502;
+    default:
+      return 500;
+  }
+}
+
+function localDaemonErrorResponse(
+  error: unknown,
+  fallbackMessage: string
+): NextResponse {
+  const status = localDaemonErrorStatus(error);
+  const detail = describeLocalDaemonError(error);
+
+  return NextResponse.json(
+    {
+      error: detail || fallbackMessage,
+      connectionMode: "local",
+    },
+    { status }
+  );
+}
 
 function getCannedResponse(assistantMessageCount: number): { content: string; action?: string } {
   switch (assistantMessageCount) {
@@ -162,6 +385,48 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     const assistant = result[0] as Assistant;
+    const connectionMode = getAssistantConnectionMode();
+
+    if (connectionMode === "local") {
+      const socketPath = getLocalDaemonSocketPath();
+      const storedSessionId = getStoredLocalDaemonSessionId(
+        getAssistantConfig(assistant)
+      );
+
+      if (!storedSessionId) {
+        return NextResponse.json({
+          messages: [],
+          errors: [],
+          connectionMode: "local",
+        });
+      }
+
+      let daemon: LocalDaemonClient | null = null;
+      try {
+        daemon = await LocalDaemonClient.connect(socketPath);
+        const history = await daemon.getHistory(storedSessionId);
+        const formattedMessages = history.map((msg, index) => ({
+          id: `local-${msg.timestamp}-${index}`,
+          role: msg.role,
+          content: msg.text,
+          timestamp: new Date(msg.timestamp).toISOString(),
+        }));
+
+        return NextResponse.json({
+          messages: formattedMessages,
+          errors: [],
+          connectionMode: "local",
+        });
+      } catch (error: unknown) {
+        console.error("Error fetching local daemon messages:", error);
+        return localDaemonErrorResponse(
+          error,
+          "Failed to fetch messages from local daemon"
+        );
+      } finally {
+        daemon?.close();
+      }
+    }
 
     // In local dev, return a hardcoded greeting if no messages exist yet
     if (process.env.NODE_ENV !== "production") {
@@ -320,6 +585,51 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const forwardedContent = buildForwardedContent(content, attachments);
+    const connectionMode = getAssistantConnectionMode();
+
+    if (connectionMode === "local") {
+      const socketPath = getLocalDaemonSocketPath();
+      const assistantConfig = getAssistantConfig(assistant);
+
+      let daemon: LocalDaemonClient | null = null;
+      try {
+        daemon = await LocalDaemonClient.connect(socketPath);
+        const sessionId = await ensurePersistedLocalDaemonSessionId(
+          sql,
+          daemon,
+          assistantId,
+          assistantConfig
+        );
+
+        const localResponse = await daemon.sendUserMessage(sessionId, forwardedContent);
+        const timestamp = new Date().toISOString();
+        const assistantMessage =
+          localResponse.assistantText.length > 0
+            ? {
+                id: `local-${sessionId}-${Date.now()}`,
+                role: "assistant" as const,
+                content: localResponse.assistantText,
+                timestamp,
+              }
+            : null;
+
+        return NextResponse.json({
+          success: true,
+          connectionMode: "local",
+          sessionId,
+          ...(assistantMessage ? { assistantMessage } : {}),
+          message: "Message processed by local daemon",
+        });
+      } catch (error: unknown) {
+        console.error("Error sending local daemon message:", error);
+        return localDaemonErrorResponse(
+          error,
+          "Failed to send message to local daemon"
+        );
+      } finally {
+        daemon?.close();
+      }
+    }
     const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
@@ -338,7 +648,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       // Count user messages to determine which canned response to give
       const existingMessages = await getChatMessages(assistantId);
-      const userMessageCount = existingMessages.filter(m => m.role === "user").length;
+      const userMessageCount = existingMessages.filter(
+        (m: ChatMessage) => m.role === "user"
+      ).length;
 
       const { content: responseContent, action } = getCannedResponse(userMessageCount - 1);
 

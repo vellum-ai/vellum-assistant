@@ -6,18 +6,36 @@ let rootLogger: pino.Logger | null = null;
 
 function getRootLogger(): pino.Logger {
   if (!rootLogger) {
-    ensureDataDir();
-    const fileStream = pino.destination({ dest: getLogPath(), sync: false, mkdir: true });
+    const forceStderr =
+      process.env.BUN_TEST === '1'
+      || process.env.NODE_ENV === 'test'
+      || process.env.VELLUM_LOG_STDERR === '1';
+    if (forceStderr) {
+      rootLogger = pino(
+        { level: process.env.VELLUM_DEBUG === '1' ? 'debug' : 'info' },
+        pino.destination(2),
+      );
+      return rootLogger;
+    }
 
-    if (process.env.VELLUM_DEBUG === '1') {
-      const prettyStream = pinoPretty({ destination: 2 });
-      const multi = pino.multistream([
-        { stream: fileStream, level: 'info' as const },
-        { stream: prettyStream, level: 'debug' as const },
-      ]);
-      rootLogger = pino({ level: 'debug' }, multi);
-    } else {
-      rootLogger = pino({ level: 'info' }, fileStream);
+    try {
+      ensureDataDir();
+      const fileStream = pino.destination({ dest: getLogPath(), sync: false, mkdir: true });
+
+      if (process.env.VELLUM_DEBUG === '1') {
+        const prettyStream = pinoPretty({ destination: 2 });
+        const multi = pino.multistream([
+          { stream: fileStream, level: 'info' as const },
+          { stream: prettyStream, level: 'debug' as const },
+        ]);
+        rootLogger = pino({ level: 'debug' }, multi);
+      } else {
+        rootLogger = pino({ level: 'info' }, fileStream);
+      }
+    } catch {
+      // In restricted environments (tests/sandbox), writing under ~/.vellum
+      // can fail. Fall back to stderr so logging remains non-fatal.
+      rootLogger = pino({ level: process.env.VELLUM_DEBUG === '1' ? 'debug' : 'info' }, pino.destination(2));
     }
   }
   return rootLogger;

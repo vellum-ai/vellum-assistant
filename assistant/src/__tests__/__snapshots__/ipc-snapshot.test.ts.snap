@@ -307,3 +307,26 @@ exports[`IPC message snapshots ServerMessage types context_compacted serializes 
   "type": "context_compacted",
 }
 `;
+
+exports[`IPC message snapshots ServerMessage types memory_recalled serializes to expected JSON 1`] = `
+{
+  "injectedTokens": 480,
+  "latencyMs": 55,
+  "lexicalHits": 12,
+  "model": "text-embedding-3-small",
+  "provider": "openai",
+  "recencyHits": 6,
+  "semanticHits": 8,
+  "type": "memory_recalled",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types memory_status serializes to expected JSON 1`] = `
+{
+  "degraded": false,
+  "enabled": true,
+  "model": "text-embedding-3-small",
+  "provider": "openai",
+  "type": "memory_status",
+}
+`;

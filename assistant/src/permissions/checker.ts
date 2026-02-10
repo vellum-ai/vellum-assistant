@@ -61,7 +61,7 @@ function getStringField(input: Record<string, unknown>, ...keys: string[]): stri
 }
 
 function buildCommandCandidates(toolName: string, input: Record<string, unknown>): string[] {
-  if (toolName === 'shell') {
+  if (toolName === 'bash') {
     return [getStringField(input, 'command')];
   }
 
@@ -91,7 +91,7 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   if (toolName === 'web_search') return RiskLevel.Low;
   if (toolName === 'skill_load') return RiskLevel.Low;
 
-  if (toolName === 'shell') {
+  if (toolName === 'bash') {
     const command = (input.command as string) ?? '';
     if (!command.trim()) return RiskLevel.Low;
 
@@ -193,7 +193,7 @@ export async function check(
 }
 
 export function generateAllowlistOptions(toolName: string, input: Record<string, unknown>): AllowlistOption[] {
-  if (toolName === 'shell') {
+  if (toolName === 'bash') {
     const command = ((input.command as string) ?? '').trim();
     const parts = command.split(/\s+/);
     const options: AllowlistOption[] = [];

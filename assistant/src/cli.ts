@@ -42,7 +42,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
 
   function formatToolProgress(toolName: string, input: Record<string, unknown>): string {
     switch (toolName) {
-      case 'shell':
+      case 'bash':
         return `Running \`${String(input.command ?? '').slice(0, 60)}\`...`;
       case 'file_read':
         return `Reading ${input.path ?? ''}...`;
@@ -74,7 +74,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
   }
 
   function formatCommandPreview(req: ConfirmationRequest): string {
-    if (req.toolName === 'shell') {
+    if (req.toolName === 'bash') {
       return String(req.input.command ?? '');
     }
     if (req.toolName === 'file_read') {
@@ -290,6 +290,22 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         spinner.start('Thinking...');
         break;
       }
+
+      case 'memory_status':
+        if (msg.degraded) {
+          spinner.stop();
+          process.stdout.write(`\n\x1B[2m[Memory degraded: ${msg.reason ?? 'unknown'}]\x1B[0m\n`);
+          spinner.start('Thinking...');
+        }
+        break;
+
+      case 'memory_recalled':
+        spinner.stop();
+        process.stdout.write(
+          `\n\x1B[2m[Memory recalled: ${msg.injectedTokens} tokens | lexical ${msg.lexicalHits} | semantic ${msg.semanticHits} | recency ${msg.recencyHits} | ${msg.provider}/${msg.model} | ${msg.latencyMs}ms]\x1B[0m\n`,
+        );
+        spinner.start('Thinking...');
+        break;
 
       case 'message_complete': {
         spinner.stop();
