@@ -10,6 +10,15 @@ import {
 } from "react";
 import { authClient } from "@/lib/auth-client";
 
+type SessionUser = {
+  username?: string | null;
+  email?: string | null;
+};
+
+function getSessionUsername(user: SessionUser): string | null {
+  return user.username?.trim() || null;
+}
+
 interface AuthContextType {
   isLoggedIn: boolean;
   isLoading: boolean;
@@ -36,8 +45,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     authClient.getSession().then(({ data }) => {
       if (data?.user) {
         setIsLoggedIn(true);
-        setUsername(data.user.name);
-        setEmail(data.user.email);
+        const sessionUser = data.user as SessionUser;
+        setUsername(getSessionUsername(sessionUser));
+        setEmail(sessionUser.email ?? null);
       }
       setIsLoading(false);
     });
@@ -52,11 +62,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return error.message ?? "Login failed. Please try again.";
     }
     setIsLoggedIn(true);
-    setUsername(user);
     const { data: sessionData } = await authClient.getSession();
-    if (sessionData?.user?.email) {
-      setEmail(sessionData.user.email);
-    }
+    const sessionUser = (sessionData?.user as SessionUser | undefined) ?? null;
+    setUsername(sessionUser ? getSessionUsername(sessionUser) : user);
+    setEmail(sessionUser?.email ?? null);
     return null;
   }, []);
 

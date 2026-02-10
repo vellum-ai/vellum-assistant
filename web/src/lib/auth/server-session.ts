@@ -4,7 +4,6 @@ import { auth } from "@/lib/auth/better-auth";
 export interface RequestUser {
   id: string | null;
   username: string | null;
-  name: string | null;
   email: string | null;
   isAdmin: boolean;
 }
@@ -19,7 +18,6 @@ function normalizeEmail(email: string | null): string | null {
 export async function getRequestUser(request: Request): Promise<RequestUser> {
   let id: string | null = null;
   let username: string | null = null;
-  let name: string | null = null;
   let email: string | null = null;
   let emailVerified = false;
 
@@ -37,7 +35,6 @@ export async function getRequestUser(request: Request): Promise<RequestUser> {
 
     id = session?.user?.id ?? null;
     username = session?.user?.username ?? null;
-    name = session?.user?.name?.trim() || null;
     email = session?.user?.email ?? null;
     emailVerified = Boolean(session?.user?.emailVerified);
   } catch {
@@ -48,7 +45,6 @@ export async function getRequestUser(request: Request): Promise<RequestUser> {
   return {
     id,
     username,
-    name,
     email: normalizedEmail,
     // Admin privileges require authenticated + verified internal email.
     isAdmin: Boolean(normalizedEmail?.endsWith("@vellum.ai") && emailVerified),
@@ -67,7 +63,7 @@ export async function requireAssistantOwner(
 
   const assistant = result[0] as Assistant & { created_by?: string | null };
   const user = await getRequestUser(request);
-  if (!user.id && !user.username && !user.name && !user.isAdmin) {
+  if (!user.id && !user.username && !user.isAdmin) {
     throw new Error("UNAUTHORIZED");
   }
 
@@ -80,9 +76,7 @@ export async function requireAssistantOwner(
   if (
     createdBy &&
     ((user.username && createdBy === user.username) ||
-      (user.id && createdBy === user.id) ||
-      // Backward compatibility for assistants created with display-name owners.
-      (user.name && createdBy === user.name))
+      (user.id && createdBy === user.id))
   ) {
     return { assistant, user };
   }
