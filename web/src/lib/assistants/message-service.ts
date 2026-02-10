@@ -102,6 +102,7 @@ export async function handleInboundAssistantMessage(
     const existing = await getMessageByExternalId(
       input.assistantId,
       sourceChannel,
+      input.externalChatId,
       input.externalMessageId
     );
     if (existing) {

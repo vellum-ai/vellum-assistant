@@ -63,21 +63,33 @@ function parseBody(body: BodyInit | null | undefined): Record<string, unknown> {
   throw new Error("Expected JSON string request body in Telegram API mock");
 }
 
-function buildTelegramDmPayload(messageId: number, text: string): Record<string, unknown> {
+function buildTelegramDmPayload(params: {
+  messageId: number;
+  text: string;
+  chatId?: number;
+  fromId?: number;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+}): Record<string, unknown> {
+  const chatId = params.chatId ?? 9001;
+  const fromId = params.fromId ?? chatId;
+  const username = params.username ?? `harness-user-${chatId}`;
+
   return {
-    update_id: messageId,
+    update_id: chatId * 10000 + params.messageId,
     message: {
-      message_id: messageId,
-      text,
+      message_id: params.messageId,
+      text: params.text,
       chat: {
-        id: 9001,
+        id: chatId,
         type: "private",
       },
       from: {
-        id: 9001,
-        username: "harness-user",
-        first_name: "Harness",
-        last_name: "User",
+        id: fromId,
+        username,
+        first_name: params.firstName ?? "Harness",
+        last_name: params.lastName ?? "User",
       },
     },
   };
@@ -203,7 +215,11 @@ async function main() {
     const pendingResult = await handleTelegramWebhook({
       channelAccountId: account.id,
       headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
-      payload: buildTelegramDmPayload(1001, "Hello from Telegram"),
+      payload: buildTelegramDmPayload({
+        messageId: 1001,
+        text: "Hello from Telegram",
+        chatId: 9001,
+      }),
     });
     assert.equal(pendingResult.status, "pending_approval");
 
@@ -212,7 +228,7 @@ async function main() {
       status: "pending",
     });
     assert.equal(pendingContacts.length, 1);
-    const contact = pendingContacts[0];
+    const firstContact = pendingContacts[0];
 
     const pairingPromptCall = telegramCalls.find(
       (call) =>
@@ -222,10 +238,10 @@ async function main() {
     );
     assert(pairingPromptCall, "Expected pairing prompt to be sent for pending contact");
 
-    await approveTelegramContact(assistantId, contact.id);
+    await approveTelegramContact(assistantId, firstContact.id);
     await notifyApprovedTelegramContact({
       assistantId,
-      contactId: contact.id,
+      contactId: firstContact.id,
     });
 
     const approvedContacts = await listTelegramContacts({
@@ -237,7 +253,11 @@ async function main() {
     const okResult = await handleTelegramWebhook({
       channelAccountId: account.id,
       headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
-      payload: buildTelegramDmPayload(1002, "Can you help me with a task list?"),
+      payload: buildTelegramDmPayload({
+        messageId: 1002,
+        text: "Can you help me with a task list?",
+        chatId: 9001,
+      }),
     });
     assert.equal(okResult.status, "ok");
 
@@ -254,10 +274,54 @@ async function main() {
     assert.equal(userTelegramMessage.sourceChannel, "telegram");
     assert.equal(assistantTelegramMessage.sourceChannel, "telegram");
 
+    const secondPendingResult = await handleTelegramWebhook({
+      channelAccountId: account.id,
+      headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
+      payload: buildTelegramDmPayload({
+        messageId: 1001,
+        text: "I am another Telegram user.",
+        chatId: 9002,
+        firstName: "Second",
+      }),
+    });
+    assert.equal(secondPendingResult.status, "pending_approval");
+
+    const secondPendingContacts = await listTelegramContacts({
+      assistantId,
+      status: "pending",
+    });
+    assert.equal(secondPendingContacts.length, 1);
+    const secondContact = secondPendingContacts[0];
+
+    await approveTelegramContact(assistantId, secondContact.id);
+    await notifyApprovedTelegramContact({
+      assistantId,
+      contactId: secondContact.id,
+    });
+
+    const sameMessageIdOtherChatResult = await handleTelegramWebhook({
+      channelAccountId: account.id,
+      headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
+      payload: buildTelegramDmPayload({
+        messageId: 1002,
+        text: "Same message id as first chat, but different chat.",
+        chatId: 9002,
+        firstName: "Second",
+      }),
+    });
+    assert.equal(sameMessageIdOtherChatResult.status, "ok");
+
+    const afterSecondChatMessages = await getChatMessages(assistantId);
+    assert.equal(afterSecondChatMessages.length, 4);
+
     const duplicateResult = await handleTelegramWebhook({
       channelAccountId: account.id,
       headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
-      payload: buildTelegramDmPayload(1002, "duplicate message id should dedupe"),
+      payload: buildTelegramDmPayload({
+        messageId: 1002,
+        text: "duplicate message id should dedupe",
+        chatId: 9001,
+      }),
     });
     assert.equal(duplicateResult.status, "ignored");
     assert.equal(
@@ -266,13 +330,17 @@ async function main() {
     );
 
     const afterDuplicateMessages = await getChatMessages(assistantId);
-    assert.equal(afterDuplicateMessages.length, 2);
+    assert.equal(afterDuplicateMessages.length, 4);
 
-    await blockTelegramContact(assistantId, contact.id);
+    await blockTelegramContact(assistantId, firstContact.id);
     const blockedResult = await handleTelegramWebhook({
       channelAccountId: account.id,
       headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
-      payload: buildTelegramDmPayload(1003, "This should be ignored because contact is blocked"),
+      payload: buildTelegramDmPayload({
+        messageId: 1003,
+        text: "This should be ignored because contact is blocked",
+        chatId: 9001,
+      }),
     });
     assert.equal(blockedResult.status, "ignored");
     assert.equal((blockedResult as { reason?: string }).reason, "blocked_contact");
@@ -280,7 +348,11 @@ async function main() {
     const wrongSecretResult = await handleTelegramWebhook({
       channelAccountId: account.id,
       headers: new Headers({ [TELEGRAM_SECRET_HEADER]: "incorrect-secret" }),
-      payload: buildTelegramDmPayload(1004, "This should fail webhook verification"),
+      payload: buildTelegramDmPayload({
+        messageId: 1004,
+        text: "This should fail webhook verification",
+        chatId: 9001,
+      }),
     });
     assert.equal(wrongSecretResult.status, "ignored");
     assert.equal((wrongSecretResult as { reason?: string }).reason, "invalid_secret");

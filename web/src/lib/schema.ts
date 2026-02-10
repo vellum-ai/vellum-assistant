@@ -45,11 +45,13 @@ export const chatMessagesTable = pgTable(
     index("idx_chat_messages_external_lookup").on(
       table.assistantId,
       table.sourceChannel,
+      table.externalChatId,
       table.externalMessageId
     ),
     uniqueIndex("uniq_chat_messages_external").on(
       table.assistantId,
       table.sourceChannel,
+      table.externalChatId,
       table.externalMessageId
     ),
   ]

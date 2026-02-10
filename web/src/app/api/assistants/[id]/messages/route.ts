@@ -175,6 +175,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
     const body = (await request.json()) as PostMessageBody;
+    const sourceChannel = body.sourceChannel || "web";
 
     if (!body.content || typeof body.content !== "string") {
       return NextResponse.json(
@@ -183,10 +184,67 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    if (sourceChannel === "web") {
+      const sql = getDb();
+      const assistantResult = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
+      if (assistantResult.length === 0) {
+        return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+      }
+
+      const assistant = assistantResult[0] as Assistant;
+      const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
+        | { instanceName?: string; zone?: string }
+        | undefined;
+
+      if (computeConfig?.instanceName && computeConfig?.zone) {
+        const externalIp = await getInstanceExternalIp(
+          computeConfig.instanceName,
+          computeConfig.zone
+        );
+
+        if (!externalIp) {
+          return NextResponse.json(
+            { error: "Agent instance not reachable - no external IP" },
+            { status: 503 }
+          );
+        }
+
+        const assistantResponse = await fetch(`http://${externalIp}:8080/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: body.content }),
+        });
+
+        if (!assistantResponse.ok) {
+          const errorData = await assistantResponse.json().catch(() => ({}));
+          return NextResponse.json(
+            { error: errorData.error || "Failed to send message to assistant" },
+            { status: assistantResponse.status }
+          );
+        }
+
+        const assistantData = await assistantResponse.json();
+        const dbMessage = await createChatMessage({
+          assistantId,
+          role: "user",
+          content: body.content,
+          status: "sent",
+          sourceChannel,
+          gcsMessageId: assistantData.messageId,
+        });
+
+        return NextResponse.json({
+          success: true,
+          messageId: dbMessage.id,
+          message: "Message sent to assistant inbox",
+        });
+      }
+    }
+
     const result = await handleInboundAssistantMessage({
       assistantId,
       content: body.content,
-      sourceChannel: body.sourceChannel || "web",
+      sourceChannel,
       externalChatId: body.externalChatId,
       externalMessageId: body.externalMessageId,
       sender: body.sender,

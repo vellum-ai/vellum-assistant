@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, isNull } from "drizzle-orm";
 import postgres from "postgres";
 
 import * as schema from "./schema";
@@ -149,8 +149,13 @@ export async function getMessageByGcsId(gcsMessageId: string) {
 export async function getMessageByExternalId(
   assistantId: string,
   sourceChannel: string,
+  externalChatId: string | null | undefined,
   externalMessageId: string
 ) {
+  const chatMatch = externalChatId
+    ? eq(schema.chatMessagesTable.externalChatId, externalChatId)
+    : isNull(schema.chatMessagesTable.externalChatId);
+
   const result = await db
     .select()
     .from(schema.chatMessagesTable)
@@ -158,6 +163,7 @@ export async function getMessageByExternalId(
       and(
         eq(schema.chatMessagesTable.assistantId, assistantId),
         eq(schema.chatMessagesTable.sourceChannel, sourceChannel),
+        chatMatch,
         eq(schema.chatMessagesTable.externalMessageId, externalMessageId)
       )
     );

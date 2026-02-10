@@ -59,7 +59,7 @@ function splitText(text: string): string[] {
 }
 
 function parseTelegramInbound(payload: Record<string, unknown>): NormalizedInboundMessage | null {
-  const message = (payload.message ?? payload.edited_message) as
+  const message = payload.message as
     | {
         message_id?: number;
         text?: string;
@@ -116,12 +116,12 @@ export const telegramPlugin: ChannelPlugin = {
       await callTelegramApi(
         input.botToken,
         "setWebhook",
-        {
-          url: input.webhookUrl,
-          secret_token: input.webhookSecret,
-          allowed_updates: ["message", "edited_message"],
-        }
-      );
+      {
+        url: input.webhookUrl,
+        secret_token: input.webhookSecret,
+        allowed_updates: ["message"],
+      }
+    );
 
       return {
         externalAccountId: String(me.id),
