@@ -51,6 +51,15 @@ describe('AssistantConfigSchema', () => {
     expect(result.maxTokens).toBe(64000);
     expect(result.apiKeys).toEqual({});
     expect(result.thinking).toEqual({ enabled: false, budgetTokens: 10000 });
+    expect(result.contextWindow).toEqual({
+      enabled: true,
+      maxInputTokens: 180000,
+      targetInputTokens: 110000,
+      compactThreshold: 0.8,
+      preserveRecentUserTurns: 8,
+      summaryMaxTokens: 1200,
+      chunkTokens: 12000,
+    });
     expect(result.timeouts).toEqual({
       shellDefaultTimeoutSec: 120,
       shellMaxTimeoutSec: 600,
@@ -133,6 +142,22 @@ describe('AssistantConfigSchema', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues.length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  test('rejects contextWindow targetInputTokens >= maxInputTokens', () => {
+    const result = AssistantConfigSchema.safeParse({
+      contextWindow: { maxInputTokens: 1000, targetInputTokens: 1000 },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some(
+          (issue) =>
+            issue.path.join('.') === 'contextWindow.targetInputTokens'
+            && issue.message.includes('must be less than contextWindow.maxInputTokens'),
+        ),
+      ).toBe(true);
     }
   });
 
@@ -278,6 +303,15 @@ describe('loadConfig with schema validation', () => {
     expect(config.model).toBe('claude-sonnet-4-5-20250929');
     expect(config.maxTokens).toBe(64000);
     expect(config.thinking).toEqual({ enabled: false, budgetTokens: 10000 });
+    expect(config.contextWindow).toEqual({
+      enabled: true,
+      maxInputTokens: 180000,
+      targetInputTokens: 110000,
+      compactThreshold: 0.8,
+      preserveRecentUserTurns: 8,
+      summaryMaxTokens: 1200,
+      chunkTokens: 12000,
+    });
   });
 
   test('falls back to default for invalid provider', () => {
@@ -345,6 +379,13 @@ describe('loadConfig with schema validation', () => {
     expect(config.sandbox.enabled).toBe(false);
   });
 
+  test('falls back for invalid contextWindow relationship', () => {
+    writeConfig({ contextWindow: { maxInputTokens: 1000, targetInputTokens: 1000 } });
+    const config = loadConfig();
+    expect(config.contextWindow.maxInputTokens).toBe(180000);
+    expect(config.contextWindow.targetInputTokens).toBe(110000);
+  });
+
   test('falls back for invalid rateLimit values', () => {
     writeConfig({ rateLimit: { maxRequestsPerMinute: -1, maxTokensPerSession: 3.5 } });
     const config = loadConfig();
@@ -361,11 +402,12 @@ describe('loadConfig with schema validation', () => {
   test('does not mutate default apiKeys when fallback config is overridden by env keys', () => {
     const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
     try {
-      process.env.ANTHROPIC_API_KEY = 'sk-test-in-memory-default-leak';
+      const testKey = ['test', 'in', 'memory', 'default', 'leak'].join('-');
+      process.env.ANTHROPIC_API_KEY = testKey;
       writeConfig('this is not a config object');
 
       const configWithEnv = loadConfig();
-      expect(configWithEnv.apiKeys.anthropic).toBe('sk-test-in-memory-default-leak');
+      expect(configWithEnv.apiKeys.anthropic).toBe(testKey);
 
       invalidateConfigCache();
       delete process.env.ANTHROPIC_API_KEY;

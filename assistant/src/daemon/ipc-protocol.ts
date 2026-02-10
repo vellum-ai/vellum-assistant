@@ -194,6 +194,19 @@ export interface UsageResponse {
   model: string;
 }
 
+export interface ContextCompacted {
+  type: 'context_compacted';
+  previousEstimatedInputTokens: number;
+  estimatedInputTokens: number;
+  maxInputTokens: number;
+  thresholdTokens: number;
+  compactedMessages: number;
+  summaryCalls: number;
+  summaryInputTokens: number;
+  summaryOutputTokens: number;
+  summaryModel: string;
+}
+
 export interface SecretDetected {
   type: 'secret_detected';
   toolName: string;
@@ -219,6 +232,7 @@ export type ServerMessage =
   | UndoComplete
   | UsageUpdate
   | UsageResponse
+  | ContextCompacted
   | SecretDetected;
 
 // === Serialization ===

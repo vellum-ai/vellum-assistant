@@ -76,6 +76,43 @@ export const ThinkingConfigSchema = z.object({
     .default(10000),
 });
 
+export const ContextWindowConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'contextWindow.enabled must be a boolean' })
+    .default(true),
+  maxInputTokens: z
+    .number({ error: 'contextWindow.maxInputTokens must be a number' })
+    .int('contextWindow.maxInputTokens must be an integer')
+    .positive('contextWindow.maxInputTokens must be a positive integer')
+    .default(180000),
+  targetInputTokens: z
+    .number({ error: 'contextWindow.targetInputTokens must be a number' })
+    .int('contextWindow.targetInputTokens must be an integer')
+    .positive('contextWindow.targetInputTokens must be a positive integer')
+    .default(110000),
+  compactThreshold: z
+    .number({ error: 'contextWindow.compactThreshold must be a number' })
+    .finite('contextWindow.compactThreshold must be finite')
+    .gt(0, 'contextWindow.compactThreshold must be greater than 0')
+    .lte(1, 'contextWindow.compactThreshold must be less than or equal to 1')
+    .default(0.8),
+  preserveRecentUserTurns: z
+    .number({ error: 'contextWindow.preserveRecentUserTurns must be a number' })
+    .int('contextWindow.preserveRecentUserTurns must be an integer')
+    .positive('contextWindow.preserveRecentUserTurns must be a positive integer')
+    .default(8),
+  summaryMaxTokens: z
+    .number({ error: 'contextWindow.summaryMaxTokens must be a number' })
+    .int('contextWindow.summaryMaxTokens must be an integer')
+    .positive('contextWindow.summaryMaxTokens must be a positive integer')
+    .default(1200),
+  chunkTokens: z
+    .number({ error: 'contextWindow.chunkTokens must be a number' })
+    .int('contextWindow.chunkTokens must be an integer')
+    .positive('contextWindow.chunkTokens must be a positive integer')
+    .default(12000),
+});
+
 export const AssistantConfigSchema = z.object({
   provider: z
     .enum(VALID_PROVIDERS, {
@@ -100,6 +137,15 @@ export const AssistantConfigSchema = z.object({
     enabled: false,
     budgetTokens: 10000,
   }),
+  contextWindow: ContextWindowConfigSchema.default({
+    enabled: true,
+    maxInputTokens: 180000,
+    targetInputTokens: 110000,
+    compactThreshold: 0.8,
+    preserveRecentUserTurns: 8,
+    summaryMaxTokens: 1200,
+    chunkTokens: 12000,
+  }),
   dataDir: z
     .string({ error: 'dataDir must be a string' })
     .default(getDataDir()),
@@ -123,6 +169,14 @@ export const AssistantConfigSchema = z.object({
   auditLog: AuditLogConfigSchema.default({
     retentionDays: 0,
   }),
+}).superRefine((config, ctx) => {
+  if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['contextWindow', 'targetInputTokens'],
+      message: 'contextWindow.targetInputTokens must be less than contextWindow.maxInputTokens',
+    });
+  }
 });
 
 export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;
@@ -132,3 +186,4 @@ export type RateLimitConfig = z.infer<typeof RateLimitConfigSchema>;
 export type SecretDetectionConfig = z.infer<typeof SecretDetectionConfigSchema>;
 export type AuditLogConfig = z.infer<typeof AuditLogConfigSchema>;
 export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
+export type ContextWindowConfig = z.infer<typeof ContextWindowConfigSchema>;
