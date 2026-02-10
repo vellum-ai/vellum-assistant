@@ -135,10 +135,12 @@ final class RecipeExecutor {
     // MARK: - Recipe Loading
 
     private func loadRecipeMarkdown(_ name: String) -> String? {
-        // SPM builds: recipes are copied into Bundle.module via .copy("Resources/Recipes")
-        if let url = Bundle.module.url(forResource: name, withExtension: "md", subdirectory: "Recipes") {
-            return try? String(contentsOf: url, encoding: .utf8)
-        }
+        #if SWIFT_PACKAGE
+            // SPM builds: recipes are copied into Bundle.module via .copy("Resources/Recipes")
+            if let url = Bundle.module.url(forResource: name, withExtension: "md", subdirectory: "Recipes") {
+                return try? String(contentsOf: url, encoding: .utf8)
+            }
+        #endif
 
         // Xcode builds: recipes bundled via xcassets or copy phase
         if let url = Bundle.main.url(forResource: name, withExtension: "md", subdirectory: "Recipes") {
