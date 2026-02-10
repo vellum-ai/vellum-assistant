@@ -250,6 +250,10 @@ export class DaemonServer {
       conversation = conversationStore.createConversation('New Conversation');
     }
 
+    // Warm session state for commands like undo/usage after reconnect without
+    // rebinding the active IPC output client to this passive socket.
+    await this.getOrCreateSession(conversation.id, undefined, false);
+
     this.send(socket, {
       type: 'session_info',
       sessionId: conversation.id,
@@ -257,9 +261,20 @@ export class DaemonServer {
     });
   }
 
-  private async getOrCreateSession(conversationId: string, socket: net.Socket): Promise<Session> {
+  private async getOrCreateSession(
+    conversationId: string,
+    socket?: net.Socket,
+    rebindClient = true,
+  ): Promise<Session> {
     let session = this.sessions.get(conversationId);
-    const sendToClient = (msg: ServerMessage) => this.send(socket, msg);
+    const sendToClient = socket
+      ? (msg: ServerMessage) => this.send(socket, msg)
+      : () => {};
+    const maybeBindClient = (target: Session): void => {
+      if (!rebindClient || !socket) return;
+      target.updateClient(sendToClient);
+      target.setSandboxOverride(this.socketSandboxOverride.get(socket));
+    };
 
     if (!session || (session.isStale() && !session.isProcessing())) {
       // Check if another caller is already creating this session.
@@ -269,8 +284,7 @@ export class DaemonServer {
       const pending = this.sessionCreating.get(conversationId);
       if (pending) {
         session = await pending;
-        session.updateClient(sendToClient);
-        session.setSandboxOverride(this.socketSandboxOverride.get(socket));
+        maybeBindClient(session);
         return session;
       }
 
@@ -288,11 +302,13 @@ export class DaemonServer {
           provider,
           buildSystemPrompt(config.systemPrompt),
           config.maxTokens,
-          sendToClient,
+          rebindClient ? sendToClient : () => {},
           workingDir,
         );
         await newSession.loadFromDb();
-        newSession.setSandboxOverride(this.socketSandboxOverride.get(socket));
+        if (rebindClient && socket) {
+          newSession.setSandboxOverride(this.socketSandboxOverride.get(socket));
+        }
         this.sessions.set(conversationId, newSession);
         return newSession;
       })();
@@ -304,9 +320,8 @@ export class DaemonServer {
         this.sessionCreating.delete(conversationId);
       }
     } else {
-      // Rebind to the new socket so IPC goes to the current client
-      session.updateClient(sendToClient);
-      session.setSandboxOverride(this.socketSandboxOverride.get(socket));
+      // Rebind to the new socket so IPC goes to the current client.
+      maybeBindClient(session);
     }
     return session;
   }
@@ -381,7 +396,7 @@ export class DaemonServer {
   ): Promise<void> {
     try {
       this.socketToSession.set(socket, sessionId);
-      const session = await this.getOrCreateSession(sessionId, socket);
+      const session = await this.getOrCreateSession(sessionId, socket, true);
       await session.processMessage(content, (event) => {
         this.send(socket, event);
       });
@@ -411,7 +426,7 @@ export class DaemonServer {
     const conversation = conversationStore.createConversation(
       title ?? 'New Conversation',
     );
-    await this.getOrCreateSession(conversation.id, socket);
+    await this.getOrCreateSession(conversation.id, socket, true);
     this.send(socket, {
       type: 'session_info',
       sessionId: conversation.id,
@@ -429,7 +444,7 @@ export class DaemonServer {
       return;
     }
     this.socketToSession.set(socket, sessionId);
-    await this.getOrCreateSession(sessionId, socket);
+    await this.getOrCreateSession(sessionId, socket, true);
     this.send(socket, {
       type: 'session_info',
       sessionId: conversation.id,
