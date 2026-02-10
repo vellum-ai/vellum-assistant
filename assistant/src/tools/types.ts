@@ -1,12 +1,6 @@
 import type { RiskLevel, AllowlistOption, ScopeOption } from '../permissions/types.js';
 import type { ToolDefinition } from '../providers/types.js';
 
-export interface SecretDetectionEvent {
-  toolName: string;
-  matches: Array<{ type: string; redactedValue: string }>;
-  action: 'redact' | 'warn' | 'block';
-}
-
 interface ToolLifecycleEventBase {
   toolName: string;
   input: Record<string, unknown>;
@@ -54,12 +48,20 @@ export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
   errorMessage: string;
 }
 
+export interface ToolSecretDetectedEvent extends ToolLifecycleEventBase {
+  type: 'secret_detected';
+  matches: Array<{ type: string; redactedValue: string }>;
+  action: 'redact' | 'warn' | 'block';
+  detectedAtMs: number;
+}
+
 export type ToolLifecycleEvent =
   | ToolExecutionStartEvent
   | ToolPermissionPromptEvent
   | ToolPermissionDeniedEvent
   | ToolExecutedEvent
-  | ToolExecutionErrorEvent;
+  | ToolExecutionErrorEvent
+  | ToolSecretDetectedEvent;
 
 export type ToolLifecycleEventHandler = (event: ToolLifecycleEvent) => void | Promise<void>;
 
@@ -71,9 +73,7 @@ export interface ToolContext {
   onOutput?: (chunk: string) => void;
   /** Per-session sandbox override. When set, takes precedence over the global config. */
   sandboxOverride?: boolean;
-  /** Optional callback when secrets are detected in tool output. */
-  onSecretDetected?: (event: SecretDetectionEvent) => void;
-  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error). */
+  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error/secret_detected). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
 }
 

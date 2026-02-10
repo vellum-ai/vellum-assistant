@@ -56,6 +56,7 @@ function toInvocationRecord(event: ToolLifecycleEvent): ToolInvocationRecord | n
       };
     case 'start':
     case 'permission_prompt':
+    case 'secret_detected':
       return null;
   }
 }
