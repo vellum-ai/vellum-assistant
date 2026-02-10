@@ -208,6 +208,46 @@ describe('web_fetch tool', () => {
     expect(result.content).not.toContain('window.evil');
   });
 
+  test('extracts full meta descriptions that contain apostrophes', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        [
+          '<html><head>',
+          `<meta name="description" content="We've updated our privacy policy">`,
+          '</head><body>Body</body></html>',
+        ].join(''),
+        {
+          status: 200,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        },
+      )
+    ) as any;
+
+    const result = await executeWebFetch({ url: 'https://example.com' });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain(`Description: We've updated our privacy policy`);
+  });
+
+  test('extracts full og:description when quoted value contains double quotes', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        [
+          '<html><head>',
+          `<meta content='She said "hello" today' property='og:description'>`,
+          '</head><body>Body</body></html>',
+        ].join(''),
+        {
+          status: 200,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        },
+      )
+    ) as any;
+
+    const result = await executeWebFetch({ url: 'https://example.com' });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Description: She said "hello" today');
+  });
+
   test('supports character windowing with start_index and max_chars', async () => {
     globalThis.fetch = (async () =>
       new Response('ABCDEFGHIJKLMNOPQRSTUVWXYZ', {

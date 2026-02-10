@@ -271,20 +271,22 @@ function htmlToText(html: string): string {
   return normalizeText(text);
 }
 
-function extractFirstMatch(text: string, regex: RegExp): string | undefined {
+function extractFirstMatch(text: string, regex: RegExp, captureGroup = 1): string | undefined {
   const match = regex.exec(text);
   if (!match) return undefined;
-  const value = normalizeText(decodeHtmlEntities(match[1]));
+  const captured = match[captureGroup];
+  if (typeof captured !== 'string') return undefined;
+  const value = normalizeText(decodeHtmlEntities(captured));
   return value || undefined;
 }
 
 function extractHtmlMetadata(html: string): { title?: string; description?: string } {
   const title = extractFirstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i);
   const description =
-    extractFirstMatch(html, /<meta\s+[^>]*name=['"]description['"][^>]*content=['"]([\s\S]*?)['"][^>]*>/i)
-    ?? extractFirstMatch(html, /<meta\s+[^>]*content=['"]([\s\S]*?)['"][^>]*name=['"]description['"][^>]*>/i)
-    ?? extractFirstMatch(html, /<meta\s+[^>]*property=['"]og:description['"][^>]*content=['"]([\s\S]*?)['"][^>]*>/i)
-    ?? extractFirstMatch(html, /<meta\s+[^>]*content=['"]([\s\S]*?)['"][^>]*property=['"]og:description['"][^>]*>/i);
+    extractFirstMatch(html, /<meta\s+[^>]*name=(['"])description\1[^>]*content=(['"])([\s\S]*?)\2[^>]*>/i, 3)
+    ?? extractFirstMatch(html, /<meta\s+[^>]*content=(['"])([\s\S]*?)\1[^>]*name=(['"])description\3[^>]*>/i, 2)
+    ?? extractFirstMatch(html, /<meta\s+[^>]*property=(['"])og:description\1[^>]*content=(['"])([\s\S]*?)\2[^>]*>/i, 3)
+    ?? extractFirstMatch(html, /<meta\s+[^>]*content=(['"])([\s\S]*?)\1[^>]*property=(['"])og:description\3[^>]*>/i, 2);
 
   return { title, description };
 }

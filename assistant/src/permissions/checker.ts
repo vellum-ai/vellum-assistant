@@ -73,7 +73,9 @@ function normalizeWebFetchUrl(rawUrl: string): URL | null {
 
   if (looksLikeHostPortShorthand(trimmed)) {
     try {
-      return new URL(`https://${trimmed}`);
+      const parsed = new URL(`https://${trimmed}`);
+      parsed.hash = '';
+      return parsed;
     } catch {
       return null;
     }
@@ -81,7 +83,10 @@ function normalizeWebFetchUrl(rawUrl: string): URL | null {
 
   try {
     const parsed = new URL(trimmed);
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed;
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      parsed.hash = '';
+      return parsed;
+    }
     return null;
   } catch {
     // Fall through.
@@ -92,7 +97,9 @@ function normalizeWebFetchUrl(rawUrl: string): URL | null {
   }
 
   try {
-    return new URL(`https://${trimmed}`);
+    const parsed = new URL(`https://${trimmed}`);
+    parsed.hash = '';
+    return parsed;
   } catch {
     return null;
   }
