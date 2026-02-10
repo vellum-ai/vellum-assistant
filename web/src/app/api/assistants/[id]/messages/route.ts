@@ -688,6 +688,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               statusError
             );
           }
+          if (attachmentIds.length > 0) {
+            try {
+              await sql`
+                DELETE FROM chat_message_attachments
+                WHERE message_id = ${userMessage.id}
+              `;
+            } catch (unlinkError: unknown) {
+              console.warn(
+                "Failed to unlink local-mode attachments after daemon failure:",
+                unlinkError
+              );
+            }
+          }
           throw daemonError;
         }
       } catch (error: unknown) {
