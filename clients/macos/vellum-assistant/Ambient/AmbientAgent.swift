@@ -350,7 +350,7 @@ final class AmbientAgent: ObservableObject {
                     schedule: "",
                     approved: false,
                     reason: nil,
-                    source: "alexs-macbook-pro-2"
+                    source: ProcessInfo.processInfo.hostName
                 )
                 Task { await self?.syncClient?.sendDecision(decision) }
                 self?.cachedRejections.append(RejectionEntry(
@@ -358,7 +358,7 @@ final class AmbientAgent: ObservableObject {
                     title: suggestion,
                     description: suggestion,
                     reason: nil,
-                    source: "alexs-macbook-pro-2",
+                    source: ProcessInfo.processInfo.hostName,
                     receivedAt: ISO8601DateFormatter().string(from: Date())
                 ))
             }

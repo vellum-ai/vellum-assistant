@@ -374,7 +374,7 @@ private struct PrivacyDetailView: View {
                         items: [
                             "Velly uses Anthropic's Claude models (Sonnet for tasks, Haiku for ambient analysis). All requests go through Anthropic's API.",
                             "Your data is not used to train AI models. Anthropic's commercial API terms prohibit using customer inputs for model training.",
-                            "The AI is instructed to never type passwords, credit card numbers, SSNs, or other sensitive data during computer use sessions.",
+                            "A safety layer actively detects and blocks sensitive data — passwords, credit card numbers, and SSNs — before any action is executed, in addition to AI-level instructions to never type such data.",
                         ]
                     )
 
