@@ -3,19 +3,21 @@ import { join } from 'node:path';
 import { getDataDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { DEFAULT_SYSTEM_PROMPT } from './defaults.js';
+import { loadSkillCatalog, type SkillSummary } from './skills.js';
 
 const log = getLogger('system-prompt');
 
 /**
- * Build the system prompt by composing optional SOUL.md and IDENTITY.md files
- * from ~/.vellum/. Falls back to the config systemPrompt or DEFAULT_SYSTEM_PROMPT.
+ * Build the system prompt from ~/.vellum prompt files and configured fallback,
+ * then append a generated skills catalog (if any skills are available).
  *
  * Priority:
- *   1. If SOUL.md and/or IDENTITY.md exist, compose from those files
- *   2. If config.systemPrompt is set, use it
- *   3. Otherwise, use DEFAULT_SYSTEM_PROMPT
+ *   1. Base prompt: SOUL.md and/or IDENTITY.md when present
+ *   2. Base prompt fallback: config.systemPrompt
+ *   3. Base prompt fallback: DEFAULT_SYSTEM_PROMPT
+ *   4. Append skills catalog from ~/.vellum/skills
  *
- * When both SOUL.md and IDENTITY.md exist, the prompt is composed as:
+ * When both IDENTITY.md and SOUL.md exist, the base prompt is composed as:
  *   IDENTITY.md content + "\n\n" + SOUL.md content
  */
 export function buildSystemPrompt(configSystemPrompt?: string): string {
@@ -26,14 +28,16 @@ export function buildSystemPrompt(configSystemPrompt?: string): string {
   const soul = readPromptFile(soulPath);
   const identity = readPromptFile(identityPath);
 
+  let basePrompt = configSystemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+
   if (identity || soul) {
     const parts: string[] = [];
     if (identity) parts.push(identity);
     if (soul) parts.push(soul);
-    return parts.join('\n\n');
+    basePrompt = parts.join('\n\n');
   }
 
-  return configSystemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+  return appendSkillsCatalog(basePrompt);
 }
 
 function readPromptFile(path: string): string | null {
@@ -48,4 +52,26 @@ function readPromptFile(path: string): string | null {
     log.warn({ err, path }, 'Failed to read prompt file');
     return null;
   }
+}
+
+function appendSkillsCatalog(basePrompt: string): string {
+  const skills = loadSkillCatalog();
+  if (skills.length === 0) return basePrompt;
+
+  const catalog = formatSkillsCatalog(skills);
+  return `${basePrompt}\n\n${catalog}`;
+}
+
+function formatSkillsCatalog(skills: SkillSummary[]): string {
+  const lines: string[] = [
+    '## Skills Catalog',
+    'The following skills are available. Before executing one, call the `skill_load` tool with its id or name to load the full instructions.',
+    '',
+  ];
+
+  for (const skill of skills) {
+    lines.push(`- \`${skill.id}\` - ${skill.name}: ${skill.description}`);
+  }
+
+  return lines.join('\n');
 }

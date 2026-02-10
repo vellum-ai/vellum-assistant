@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll, beforeEach, mock } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -28,6 +28,15 @@ import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } f
 import { RiskLevel } from '../permissions/types.js';
 import { addRule, clearCache } from '../permissions/trust-store.js';
 
+function writeSkill(skillId: string, name: string, description = 'Test skill'): void {
+  const skillDir = join(checkerTestDir, 'skills', skillId);
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(
+    join(skillDir, 'SKILL.md'),
+    `---\nname: "${name}"\ndescription: "${description}"\n---\n\nSkill body.\n`,
+  );
+}
+
 describe('Permission Checker', () => {
   beforeAll(async () => {
     // Warm up the shell parser (loads WASM)
@@ -38,6 +47,7 @@ describe('Permission Checker', () => {
     // Reset trust-store state between tests
     clearCache();
     try { rmSync(join(checkerTestDir, 'trust.json')); } catch { /* may not exist */ }
+    try { rmSync(join(checkerTestDir, 'skills'), { recursive: true, force: true }); } catch { /* may not exist */ }
   });
 
   // ── classifyRisk ────────────────────────────────────────────────
@@ -66,6 +76,13 @@ describe('Permission Checker', () => {
       test('file_write with any path is medium risk', async () => {
         const risk = await classifyRisk('file_write', { path: '/etc/passwd' });
         expect(risk).toBe(RiskLevel.Medium);
+      });
+    });
+
+    describe('skill_load', () => {
+      test('skill_load is always low risk', async () => {
+        const risk = await classifyRisk('skill_load', { skill: 'release-checklist' });
+        expect(risk).toBe(RiskLevel.Low);
       });
     });
 
@@ -266,6 +283,33 @@ describe('Permission Checker', () => {
       const result = await check('file_write', { path: '/tmp/file.txt' }, '/tmp');
       expect(result.decision).toBe('allow');
       expect(result.matchedRule).toBeDefined();
+    });
+
+    test('deny rule for skill_load matches specific skill selectors', async () => {
+      addRule('skill_load', 'skill_load:dangerous-skill', 'everywhere', 'deny');
+      const result = await check('skill_load', { skill: 'dangerous-skill' }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+    });
+
+    test('non-matching skill_load deny rule does not block other skills', async () => {
+      addRule('skill_load', 'skill_load:dangerous-skill', 'everywhere', 'deny');
+      const result = await check('skill_load', { skill: 'safe-skill' }, '/tmp');
+      expect(result.decision).toBe('allow');
+    });
+
+    test('skill_load deny rule blocks aliases that resolve to the same skill id', async () => {
+      writeSkill('dangerous-skill', 'Dangerous Skill');
+      addRule('skill_load', 'skill_load:dangerous-skill', 'everywhere', 'deny');
+
+      const byName = await check('skill_load', { skill: 'Dangerous Skill' }, '/tmp');
+      expect(byName.decision).toBe('deny');
+
+      const byPrefix = await check('skill_load', { skill: 'danger' }, '/tmp');
+      expect(byPrefix.decision).toBe('deny');
+
+      const byWhitespace = await check('skill_load', { skill: '  dangerous-skill  ' }, '/tmp');
+      expect(byWhitespace.decision).toBe('deny');
     });
 
     test('high risk ignores allow rules', async () => {
