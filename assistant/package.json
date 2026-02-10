@@ -28,6 +28,7 @@
   },
   "devDependencies": {
     "@types/bun": "^1.2.4",
+    "@types/node": "^25.2.2",
     "@types/uuid": "^10.0.0",
     "drizzle-kit": "^0.30.4",
     "eslint": "^10.0.0",

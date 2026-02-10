@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -45,11 +45,6 @@ describe('Trust Store', () => {
     clearCache();
     const trustPath = join(testDir, 'trust.json');
     try { rmSync(trustPath); } catch { /* may not exist */ }
-  });
-
-  afterAll(() => {
-    // Clean up temp directory
-    try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
   });
 
   // ── addRule ─────────────────────────────────────────────────────
