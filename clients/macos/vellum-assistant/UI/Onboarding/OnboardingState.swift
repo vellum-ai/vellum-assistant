@@ -31,6 +31,8 @@ final class OnboardingState {
     var accessibilityGranted: Bool = false
     var screenGranted: Bool = false
     var skipPermissionChecks: Bool = false
+    var hasHatched: Bool = false
+    var hatchTrigger: (() -> Void)?
 
     var anyPermissionDenied: Bool {
         !speechGranted || !accessibilityGranted || !screenGranted

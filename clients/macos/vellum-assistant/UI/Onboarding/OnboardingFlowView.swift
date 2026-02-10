@@ -10,11 +10,22 @@ struct OnboardingFlowView: View {
             OnboardingBackground()
 
             VStack(spacing: 0) {
-                // Orb area — always visible at top, progressively larger
-                SoulOrbView(mood: state.orbMood, size: orbSize)
-                    .animation(.easeOut(duration: 0.8), value: orbSize)
-                    .padding(.top, 60)
-                    .padding(.bottom, 32)
+                // Orb area — egg hatch on step 0, dino after hatch, fallback orb
+                Group {
+                    if state.currentStep == 0 && !state.hasHatched {
+                        OnboardingHatchView(state: state)
+                    } else if state.hasHatched {
+                        CreatureView(visible: true)
+                            .scaleEffect(creatureScale)
+                            .frame(width: 160, height: 150)
+                            .clipped()
+                    } else {
+                        SoulOrbView(mood: state.orbMood, size: orbSize)
+                    }
+                }
+                    .animation(.easeOut(duration: 0.8), value: state.currentStep)
+                    .padding(.top, 40)
+                    .padding(.bottom, 20)
 
                 // Step content — bottom area
                 Group {
@@ -45,7 +56,8 @@ struct OnboardingFlowView: View {
                     .opacity.combined(with: .scale(scale: 0.97))
                 )
                 .id(state.currentStep)
-                .frame(maxHeight: .infinity)
+
+                Spacer()
             }
         }
         .frame(width: 600, height: 500)
@@ -60,6 +72,16 @@ struct OnboardingFlowView: View {
         case 3...5: return 60
         case 6: return 72
         default: return 56
+        }
+    }
+
+    private var creatureScale: CGFloat {
+        switch state.currentStep {
+        case 0...1: return 0.30
+        case 2: return 0.32
+        case 3...5: return 0.34
+        case 6: return 0.38
+        default: return 0.32
         }
     }
 }

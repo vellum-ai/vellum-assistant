@@ -5,6 +5,7 @@ struct WakeUpStepView: View {
 
     @State private var showSubtext = false
     @State private var showButton = false
+    @State private var isHatching = false
 
     var body: some View {
         VStack(spacing: 24) {
@@ -35,11 +36,14 @@ struct WakeUpStepView: View {
                     }
                 }
 
-            OnboardingButton(title: "Crack it open", style: .primary) {
-                state.advance()
+            OnboardingButton(title: "Hatch it!", style: .primary) {
+                guard !isHatching else { return }
+                isHatching = true
+                state.hatchTrigger?()
             }
             .opacity(showButton ? 1 : 0)
             .offset(y: showButton ? 0 : 8)
+            .disabled(isHatching)
         }
         .onAppear {
             state.orbMood = .egg
