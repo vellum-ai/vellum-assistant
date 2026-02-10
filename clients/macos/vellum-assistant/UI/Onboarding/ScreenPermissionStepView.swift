@@ -11,11 +11,11 @@ struct ScreenPermissionStepView: View {
     var body: some View {
         VStack(spacing: 24) {
             VStack(spacing: 8) {
-                Text("Now let me see.")
+                Text("One more thing \u{2014} let me see.")
                     .font(.system(.title2, design: .serif))
                     .foregroundColor(.white)
 
-                Text("I can hear you, but I\u{2019}m still in the dark. Let me see your screen so I can actually help.")
+                Text("I can hear you and act for you, but I\u{2019}m working blind. Let me see your screen so I know what\u{2019}s happening.")
                     .font(.system(size: 15))
                     .foregroundColor(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
@@ -33,7 +33,7 @@ struct ScreenPermissionStepView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white)
 
-                Text("Screen access lets \(state.assistantName) see what you\u{2019}re working on. You can turn this off anytime.")
+                Text("Screen access lets \(state.assistantName) see what you\u{2019}re working on and respond to what\u{2019}s on screen. You can turn this off anytime.")
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
@@ -43,13 +43,13 @@ struct ScreenPermissionStepView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                        Text("Granted!")
+                        Text("I can see your screen now")
                             .foregroundColor(.green)
                             .font(.system(size: 15, weight: .medium))
                     }
                     .transition(.scale.combined(with: .opacity))
                 } else {
-                    OnboardingButton(title: "Enable Screen Recording", style: .primary) {
+                    OnboardingButton(title: "Let me see", style: .primary) {
                         requestScreenPermission()
                     }
                 }

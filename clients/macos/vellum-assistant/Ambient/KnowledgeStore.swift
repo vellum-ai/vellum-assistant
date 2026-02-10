@@ -22,6 +22,8 @@ final class KnowledgeStore: ObservableObject {
     @Published private var knowledge: KnowledgeFile
     private let fileURL: URL
 
+    var onEntryAdded: ((KnowledgeEntry) -> Void)?
+
     init() {
         let fileManager = FileManager.default
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -78,6 +80,7 @@ final class KnowledgeStore: ObservableObject {
 
         save()
         log.info("Added knowledge entry: \(observation.prefix(80))")
+        onEntryAdded?(entry)
     }
 
     func removeEntry(id: UUID) {

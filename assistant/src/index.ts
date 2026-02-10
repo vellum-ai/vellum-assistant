@@ -482,14 +482,30 @@ program
       fail('Bun is installed', 'bun not found in PATH');
     }
 
-    // 2. API key configured
+    // 2. Provider/API key configured
     const raw = loadRawConfig();
-    const envKey = process.env.ANTHROPIC_API_KEY;
-    const configKey = (raw.apiKeys as Record<string, string> | undefined)?.anthropic;
-    if (envKey || configKey) {
+    const provider = typeof raw.provider === 'string' ? raw.provider : 'anthropic';
+    const providerEnvVar: Record<string, string> = {
+      anthropic: 'ANTHROPIC_API_KEY',
+      openai: 'OPENAI_API_KEY',
+      gemini: 'GEMINI_API_KEY',
+      ollama: 'OLLAMA_API_KEY',
+    };
+    const configKey = (raw.apiKeys as Record<string, string> | undefined)?.[provider];
+    const envVar = providerEnvVar[provider];
+    const envKey = envVar ? process.env[envVar] : undefined;
+
+    if (provider === 'ollama') {
+      pass('Provider configured (Ollama; API key optional)');
+    } else if (envKey || configKey) {
       pass('API key configured');
     } else {
-      fail('API key configured', 'set ANTHROPIC_API_KEY or run: vellum config set apiKeys.anthropic <key>');
+      fail(
+        'API key configured',
+        envVar
+          ? `set ${envVar} or run: vellum config set apiKeys.${provider} <key>`
+          : `set API key for provider "${provider}"`,
+      );
     }
 
     // 3. Daemon reachable
@@ -604,7 +620,7 @@ program
         if (mode === 0o600 || mode === 0o700) {
           pass(`Socket permissions (${mode.toString(8).padStart(4, '0')})`);
         } else {
-          fail('Socket permissions', `expected 0600, got 0${mode.toString(8)}`);
+          fail('Socket permissions', `expected 0600 or 0700, got 0${mode.toString(8)}`);
         }
       } catch {
         fail('Socket permissions', 'could not stat socket');

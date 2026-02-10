@@ -45,7 +45,7 @@ struct SoulOrbView: View {
                     )
                 )
                 .frame(width: size, height: size)
-                .shadow(color: Color(hex: 0xD4A843).opacity(mood == .dormant ? 0.2 : 0.4), radius: mood == .dormant ? 6 : 12)
+                .shadow(color: Color(hex: 0xD4A843).opacity(shadowOpacity), radius: shadowRadius)
                 .scaleEffect(scale)
         }
         .onChange(of: mood, initial: true) { _, newMood in
@@ -53,8 +53,28 @@ struct SoulOrbView: View {
         }
     }
 
+    private var shadowOpacity: Double {
+        switch mood {
+        case .egg: return 0.1
+        case .dormant: return 0.2
+        default: return 0.4
+        }
+    }
+
+    private var shadowRadius: CGFloat {
+        switch mood {
+        case .egg: return 4
+        case .dormant: return 6
+        default: return 12
+        }
+    }
+
     private func applyAnimation(for mood: OrbMood) {
         switch mood {
+        case .egg:
+            withAnimation(.easeInOut(duration: 4.0).repeatForever(autoreverses: true)) {
+                scale = 1.01
+            }
         case .dormant:
             withAnimation(.easeInOut(duration: 3.5).repeatForever(autoreverses: true)) {
                 scale = 1.02

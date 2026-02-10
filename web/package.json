@@ -6,13 +6,13 @@
     "pull": "scripts/pull.mjs"
   },
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "bunx --bun next dev",
+    "build": "bunx --bun next build",
     "db:push": "bun run scripts/migrate.mts",
     "db:push:preview": "bun run scripts/migrate.mts --preview",
     "lint": "eslint",
     "pull": "node scripts/pull.mjs",
-    "start": "next start"
+    "start": "bunx --bun next start"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.72.1",
@@ -30,6 +30,7 @@
     "postgres": "^3.4.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-hook-form": "^7.71.1",
     "sonner": "^2.0.7",
     "stripe": "^20.3.1",
     "sucrase": "^3.35.1",

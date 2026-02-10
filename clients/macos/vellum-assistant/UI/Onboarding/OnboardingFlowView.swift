@@ -26,11 +26,11 @@ struct OnboardingFlowView: View {
                     case 2:
                         FnKeyStepView(state: state)
                     case 3:
-                        MicPermissionStepView(state: state)
+                        SpeechPermissionStepView(state: state)
                     case 4:
-                        ScreenPermissionStepView(state: state)
+                        AccessibilityPermissionStepView(state: state)
                     case 5:
-                        IntegrationPickerStepView(state: state)
+                        ScreenPermissionStepView(state: state)
                     case 6:
                         AliveStepView(
                             state: state,
@@ -54,7 +54,10 @@ struct OnboardingFlowView: View {
 
     private var orbSize: CGFloat {
         switch state.currentStep {
-        case 0: return 48
+        case 0: return 44
+        case 1: return 52
+        case 2: return 56
+        case 3...5: return 60
         case 6: return 72
         default: return 56
         }

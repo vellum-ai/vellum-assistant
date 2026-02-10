@@ -45,6 +45,12 @@ final class OnboardingWindow {
         window.isMovableByWindowBackground = true
         window.backgroundColor = NSColor(red: 14/255, green: 14/255, blue: 17/255, alpha: 1)
         window.isReleasedWhenClosed = false
+
+        // Fix the content size so the hosting controller doesn't resize the window after centering
+        let contentSize = NSSize(width: 600, height: 500)
+        window.contentMinSize = contentSize
+        window.contentMaxSize = contentSize
+        window.setContentSize(contentSize)
         window.center()
 
         // Make the app a regular app so the window gets focus

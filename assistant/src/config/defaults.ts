@@ -10,6 +10,15 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     enabled: false,
     budgetTokens: 10000,
   },
+  contextWindow: {
+    enabled: true,
+    maxInputTokens: 180000,
+    targetInputTokens: 110000,
+    compactThreshold: 0.8,
+    preserveRecentUserTurns: 8,
+    summaryMaxTokens: 1200,
+    chunkTokens: 12000,
+  },
   dataDir: getDataDir(),
   timeouts: {
     shellDefaultTimeoutSec: 120,

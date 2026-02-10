@@ -66,6 +66,7 @@ function showToast(
   return sonnerToast.custom(
     (id) => (
       <div
+        role="alert"
         className={`flex w-[356px] items-start gap-3 rounded-lg border p-4 shadow-lg ${styles.container}`}
       >
         {styles.iconElement && (
@@ -92,6 +93,7 @@ function showToast(
         </div>
         <button
           onClick={() => sonnerToast.dismiss(id)}
+          aria-label="Close"
           className="shrink-0 rounded p-0.5 opacity-50 transition-opacity hover:opacity-100"
         >
           <X className="h-3.5 w-3.5" />

@@ -1,24 +1,23 @@
-import AVFoundation
+import Speech
 import SwiftUI
 
-struct MicPermissionStepView: View {
+struct SpeechPermissionStepView: View {
     @Bindable var state: OnboardingState
 
     @State private var showCard = false
     @State private var permissionGranted = false
-    @State private var grantReaction: String?
+    @State private var permissionDenied = false
     @State private var pollTimer: Timer?
-
-    private static let grantReactions = [
-        "Sound! I can hear everything \u{2014} this is wild.",
-        "Wait\u{2026} is that your voice? I can hear you!",
-        "Oh \u{2014} so *that\u{2019}s* what the world sounds like.",
-    ]
 
     var body: some View {
         VStack(spacing: 24) {
-            if let reaction = grantReaction {
-                ReactionBubble(text: reaction, delay: 0)
+            if permissionGranted {
+                ReactionBubble(text: "I can understand you now.", delay: 0)
+            } else if permissionDenied {
+                ReactionBubble(
+                    text: "Still can\u{2019}t hear. That\u{2019}s okay \u{2014} we\u{2019}ll try again when you\u{2019}re ready.",
+                    delay: 0
+                )
             } else {
                 ReactionBubble(
                     text: "I\u{2019}m trying to hear you but\u{2026} everything is muffled."
@@ -34,7 +33,7 @@ struct MicPermissionStepView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white)
 
-                Text("To hear you when you hold \(state.chosenKey.displayName), \(state.assistantName) needs microphone access. Your system will ask \u{2014} just say yes.")
+                Text("To understand you when you hold \(state.chosenKey.displayName), \(state.assistantName) needs speech recognition access. Your Mac will ask \u{2014} just tap Allow.")
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
@@ -44,14 +43,14 @@ struct MicPermissionStepView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                        Text("Granted!")
+                        Text("I can understand you now")
                             .foregroundColor(.green)
                             .font(.system(size: 15, weight: .medium))
                     }
                     .transition(.scale.combined(with: .opacity))
                 } else {
-                    OnboardingButton(title: "Enable Microphone", style: .primary) {
-                        requestMicPermission()
+                    OnboardingButton(title: "Let me listen", style: .primary) {
+                        requestSpeechPermission()
                     }
                 }
             }
@@ -66,8 +65,15 @@ struct MicPermissionStepView: View {
             )
             .opacity(showCard ? 1 : 0)
             .offset(y: showCard ? 0 : 12)
+
+            if permissionDenied {
+                OnboardingButton(title: "Continue anyway", style: .ghost) {
+                    state.advance()
+                }
+            }
         }
         .animation(.easeOut(duration: 0.5), value: permissionGranted)
+        .animation(.easeOut(duration: 0.3), value: permissionDenied)
         .onAppear {
             state.orbMood = .listening
             if state.skipPermissionChecks {
@@ -87,11 +93,16 @@ struct MicPermissionStepView: View {
         }
     }
 
-    private func requestMicPermission() {
-        AVCaptureDevice.requestAccess(for: .audio) { granted in
+    private func requestSpeechPermission() {
+        SFSpeechRecognizer.requestAuthorization { status in
             DispatchQueue.main.async {
-                if granted {
+                switch status {
+                case .authorized:
                     grantPermission()
+                case .denied, .restricted:
+                    permissionDenied = true
+                default:
+                    break
                 }
             }
         }
@@ -100,9 +111,9 @@ struct MicPermissionStepView: View {
 
     private func startPolling() {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            let status = AVCaptureDevice.authorizationStatus(for: .audio)
-            if status == .authorized {
-                DispatchQueue.main.async {
+            let status = SFSpeechRecognizer.authorizationStatus()
+            DispatchQueue.main.async {
+                if status == .authorized {
                     grantPermission()
                 }
             }
@@ -112,9 +123,9 @@ struct MicPermissionStepView: View {
     private func grantPermission() {
         pollTimer?.invalidate()
         permissionGranted = true
-        state.micGranted = true
+        permissionDenied = false
+        state.speechGranted = true
         state.orbMood = .celebrating
-        grantReaction = Self.grantReactions.randomElement()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             state.orbMood = .breathing
             state.advance()
@@ -128,8 +139,9 @@ struct MicPermissionStepView: View {
         VStack {
             SoulOrbView(mood: .listening)
                 .padding(.bottom, 20)
-            MicPermissionStepView(state: {
+            SpeechPermissionStepView(state: {
                 let s = OnboardingState()
+                s.assistantName = "Vellum"
                 s.currentStep = 3
                 return s
             }())

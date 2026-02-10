@@ -4,6 +4,7 @@ struct WakeUpStepView: View {
     @Bindable var state: OnboardingState
 
     @State private var showSubtext = false
+    @State private var showButton = false
 
     var body: some View {
         VStack(spacing: 24) {
@@ -19,18 +20,29 @@ struct WakeUpStepView: View {
                 }
             }
 
-            Text("It's been waiting for you.")
+            Text("All it needs is you.")
                 .font(.system(size: 15))
                 .foregroundColor(.white.opacity(0.5))
                 .opacity(showSubtext ? 1 : 0)
                 .offset(y: showSubtext ? 0 : 8)
                 .onChange(of: showSubtext) { _, visible in
                     if visible {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                            state.advance()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            withAnimation(.easeOut(duration: 0.5)) {
+                                showButton = true
+                            }
                         }
                     }
                 }
+
+            OnboardingButton(title: "Crack it open", style: .primary) {
+                state.advance()
+            }
+            .opacity(showButton ? 1 : 0)
+            .offset(y: showButton ? 0 : 8)
+        }
+        .onAppear {
+            state.orbMood = .egg
         }
     }
 }
