@@ -1,3 +1,5 @@
+import { VellumHead } from "@/components/marketing/VellumHomepage";
+
 import "./marketing.css";
 
 export default function MarketingLayout({
@@ -5,5 +7,10 @@ export default function MarketingLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return <div className="marketing-root">{children}</div>;
+  return (
+    <div className="marketing-root">
+      <VellumHead />
+      {children}
+    </div>
+  );
 }
