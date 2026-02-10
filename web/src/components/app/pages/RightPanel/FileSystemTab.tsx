@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 
+import { Button } from "@/components/app/core/Button";
+
 interface FileEntry {
   name: string;
   type: "file" | "directory";
@@ -249,15 +251,14 @@ export function FileSystemTab({ assistantId }: FileSystemTabProps) {
             {currentPath}
           </span>
         </div>
-        <button
+        <Button
           onClick={fetchFiles}
           disabled={isLoading}
-          className="flex cursor-pointer items-center justify-center rounded p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 disabled:opacity-50 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-        >
-          <RefreshCw
-            className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`}
-          />
-        </button>
+          variant="ghost"
+          size="icon"
+          icon={RefreshCw}
+          className="h-8 w-8 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+        />
       </div>
 
       {infoMessage && (
@@ -280,12 +281,13 @@ export function FileSystemTab({ assistantId }: FileSystemTabProps) {
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
               {error}
             </p>
-            <button
+            <Button
               onClick={fetchFiles}
-              className="mt-4 cursor-pointer rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-700"
+              size="sm"
+              className="mt-4"
             >
               Retry
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="font-mono text-sm">

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { Layout } from "@/components/app/Layout";
+import { Layout } from "@/components/app/pages/Layout";
 import { useAuth } from "@/lib/auth";
 import { Assistant } from "@/lib/db";
 

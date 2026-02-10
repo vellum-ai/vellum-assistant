@@ -77,8 +77,10 @@
   --font-display: var(--font-nunito), "Nunito", system-ui, sans-serif;
   --font-body: var(--font-quicksand), "Quicksand", system-ui, sans-serif;
 
-  /* Signature border radius */
+  /* Border-radius scale */
+  --radius-meadow-sm: 8px;
   --radius-meadow: 14px;
+  --radius-meadow-lg: 20px;
 
   /* Animation tokens */
   --animate-wobble: wobble 0.3s ease-in-out;
