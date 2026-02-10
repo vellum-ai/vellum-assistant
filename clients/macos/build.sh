@@ -164,7 +164,8 @@ if [ "$CMD" = "run" ]; then
     # Kill existing instance if running
     pkill -x "$APP_NAME" 2>/dev/null || true
     sleep 0.3
-    # Use absolute path to avoid Launch Services opening a stale copy
-    "$MACOS_DIR/$APP_NAME" &
-    disown
+    # Launch via `open` so Launch Services registers the bundle —
+    # this is required for macOS TCC to associate the app with its
+    # bundle ID and show it in System Settings > Privacy & Security.
+    open "$APP_DIR"
 fi
