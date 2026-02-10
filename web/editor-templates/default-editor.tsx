@@ -210,6 +210,7 @@ function Editor({ assistantId, username }: EditorProps) {
                 </button>
               </>
             )}
+            <UserMenu />
           </div>
           {error && (
             <span className="text-sm text-red-600 sm:hidden dark:text-red-400">

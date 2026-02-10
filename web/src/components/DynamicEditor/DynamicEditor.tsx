@@ -108,6 +108,7 @@ export function DynamicEditor({
         "useRef",
         "Fragment",
         "createElement",
+        "UserMenu",
         wrappedCode
       );
 
@@ -119,7 +120,8 @@ export function DynamicEditor({
         useMemo,
         useRef,
         Fragment,
-        createElement
+        createElement,
+        UserMenu
       ) as ComponentType<EditorComponentProps>;
 
       return Component;
