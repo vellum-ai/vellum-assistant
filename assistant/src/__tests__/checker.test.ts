@@ -396,6 +396,12 @@ describe('Permission Checker', () => {
       expect(result.decision).toBe('deny');
     });
 
+    test('web_fetch deny rule blocks urls that only differ by trailing-dot hostname', async () => {
+      addRule('web_fetch', 'web_fetch:https://example.com/private/*', 'everywhere', 'deny');
+      const result = await check('web_fetch', { url: 'https://example.com./private/doc' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
     test('web_fetch deny rule blocks scheme-less host:port inputs after normalization', async () => {
       addRule('web_fetch', 'web_fetch:https://example.com:8443/*', 'everywhere', 'deny');
       const result = await check('web_fetch', { url: 'example.com:8443/private/doc' }, '/tmp');
@@ -469,6 +475,14 @@ describe('Permission Checker', () => {
 
     test('web_fetch: strips fragments when generating allowlist options', () => {
       const options = generateAllowlistOptions('web_fetch', { url: 'https://example.com/docs/page#section-1' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
+      expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
+      expect(options[2].pattern).toBe('web_fetch:*');
+    });
+
+    test('web_fetch: strips trailing-dot hostnames when generating allowlist options', () => {
+      const options = generateAllowlistOptions('web_fetch', { url: 'https://example.com./docs/page' });
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
       expect(options[1].pattern).toBe('web_fetch:https://example.com/*');

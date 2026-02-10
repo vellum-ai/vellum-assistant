@@ -67,15 +67,23 @@ function looksLikeHostPortShorthand(value: string): boolean {
   return /^[^/?#@\s:]+:\d+(?:[/?#]|$)/.test(value);
 }
 
+function canonicalizeWebFetchUrl(parsed: URL): URL {
+  parsed.hash = '';
+
+  if (parsed.hostname.endsWith('.')) {
+    parsed.hostname = parsed.hostname.replace(/\.+$/, '');
+  }
+
+  return parsed;
+}
+
 function normalizeWebFetchUrl(rawUrl: string): URL | null {
   const trimmed = rawUrl.trim();
   if (!trimmed) return null;
 
   if (looksLikeHostPortShorthand(trimmed)) {
     try {
-      const parsed = new URL(`https://${trimmed}`);
-      parsed.hash = '';
-      return parsed;
+      return canonicalizeWebFetchUrl(new URL(`https://${trimmed}`));
     } catch {
       return null;
     }
@@ -84,8 +92,7 @@ function normalizeWebFetchUrl(rawUrl: string): URL | null {
   try {
     const parsed = new URL(trimmed);
     if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-      parsed.hash = '';
-      return parsed;
+      return canonicalizeWebFetchUrl(parsed);
     }
     return null;
   } catch {
@@ -97,9 +104,7 @@ function normalizeWebFetchUrl(rawUrl: string): URL | null {
   }
 
   try {
-    const parsed = new URL(`https://${trimmed}`);
-    parsed.hash = '';
-    return parsed;
+    return canonicalizeWebFetchUrl(new URL(`https://${trimmed}`));
   } catch {
     return null;
   }
