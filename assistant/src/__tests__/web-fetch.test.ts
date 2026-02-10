@@ -141,6 +141,51 @@ describe('web_fetch tool', () => {
     expect(resolvedAddresses).toEqual(['93.184.216.34']);
   });
 
+  test('retries pinned requests across resolved addresses when earlier addresses fail', async () => {
+    const resolvedAddresses: string[] = [];
+
+    const result = await executeWithMockFetch(
+      { url: 'https://example.com/health' },
+      {
+        resolveHostAddresses: async () => ['2001:db8::1', '93.184.216.34'],
+        requestExecutor: async (_url, requestOptions) => {
+          resolvedAddresses.push(requestOptions.resolvedAddress ?? '');
+          if (requestOptions.resolvedAddress === '2001:db8::1') {
+            throw new Error('connect ECONNREFUSED');
+          }
+          return new Response('ok', {
+            status: 200,
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
+          });
+        },
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(resolvedAddresses).toEqual(['2001:db8::1', '93.184.216.34']);
+  });
+
+  test('includes URL userinfo credentials in authorization header for pinned requests', async () => {
+    let authorizationHeader = '';
+
+    const result = await executeWithMockFetch(
+      { url: 'https://user%20name:p%40ss@example.com/protected' },
+      {
+        resolveHostAddresses: async () => ['93.184.216.34'],
+        requestExecutor: async (_url, requestOptions) => {
+          authorizationHeader = requestOptions.headers.authorization ?? '';
+          return new Response('ok', {
+            status: 200,
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
+          });
+        },
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(authorizationHeader).toBe(`Basic ${Buffer.from('user name:p@ss', 'utf8').toString('base64')}`);
+  });
+
   test('allows hostnames that resolve to private addresses when allow_private_network=true', async () => {
     let called = false;
     globalThis.fetch = (async () => {

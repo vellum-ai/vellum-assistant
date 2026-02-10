@@ -210,34 +210,61 @@ async function resolveRequestAddress(
   hostname: string,
   resolveHost: ResolveHostAddresses,
   allowPrivateNetwork: boolean,
-): Promise<{ address?: string; blockedAddress?: string }> {
+): Promise<{ addresses: string[]; blockedAddress?: string }> {
   const normalizedHost = unwrapBracketedHostname(hostname);
 
   if (isIPv4(normalizedHost) || isIPv6(normalizedHost)) {
     if (!allowPrivateNetwork && isPrivateOrLocalHost(normalizedHost)) {
-      return { blockedAddress: normalizedHost };
+      return { addresses: [], blockedAddress: normalizedHost };
     }
-    return { address: normalizedHost };
+    return { addresses: [normalizedHost] };
   }
 
-  const addresses = await resolveHost(normalizedHost);
+  const addresses = [...new Set((await resolveHost(normalizedHost)).map((address) => unwrapBracketedHostname(address)))];
   if (addresses.length === 0) {
-    return {};
+    return { addresses: [] };
   }
 
   if (!allowPrivateNetwork) {
     for (const address of addresses) {
       if (isPrivateOrLocalHost(address)) {
-        return { blockedAddress: address };
+        return { addresses: [], blockedAddress: address };
       }
     }
   }
 
-  return { address: addresses[0] };
+  return { addresses };
 }
 
 function buildHostHeader(url: URL): string {
   return url.port ? `${url.hostname}:${url.port}` : url.hostname;
+}
+
+function decodeUrlCredential(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function buildAuthorizationHeader(url: URL): string | undefined {
+  if (!url.username && !url.password) return undefined;
+  const username = decodeUrlCredential(url.username);
+  const password = decodeUrlCredential(url.password);
+  const encoded = Buffer.from(`${username}:${password}`, 'utf8').toString('base64');
+  return `Basic ${encoded}`;
+}
+
+function buildRequestHeaders(baseHeaders: Record<string, string>, url: URL): Record<string, string> {
+  const headers = { ...baseHeaders };
+  const authorization = buildAuthorizationHeader(url);
+  if (authorization) {
+    headers.authorization = authorization;
+  } else {
+    delete headers.authorization;
+  }
+  return headers;
 }
 
 function buildResponseHeaders(headers: IncomingHttpHeaders): Headers {
@@ -526,7 +553,7 @@ export async function executeWebFetch(
     let currentUrl = new URL(requestedUrl);
     let redirectCount = 0;
     let response: Response | null = null;
-    let currentResolvedAddress: string | undefined;
+    let currentResolvedAddresses: string[] | undefined;
 
     if (!allowPrivateNetwork) {
       const resolution = await resolveRequestAddress(currentUrl.hostname, resolveHost, allowPrivateNetwork);
@@ -536,22 +563,46 @@ export async function executeWebFetch(
           isError: true,
         };
       }
-      if (!resolution.address) {
+      if (resolution.addresses.length === 0) {
         return {
           content: `Error: Unable to resolve host "${currentUrl.hostname}" while fetching ${requestedUrl}`,
           isError: true,
         };
       }
-      currentResolvedAddress = resolution.address;
+      currentResolvedAddresses = resolution.addresses;
     }
 
     while (true) {
-      response = await requestExecutor(currentUrl, {
-        signal: controller.signal,
-        headers: requestHeaders,
-        resolvedAddress: currentResolvedAddress,
-      });
-      currentResolvedAddress = undefined;
+      const headers = buildRequestHeaders(requestHeaders, currentUrl);
+      const addressesToTry = currentResolvedAddresses && currentResolvedAddresses.length > 0
+        ? currentResolvedAddresses
+        : [undefined];
+
+      response = null;
+      let lastRequestError: unknown;
+      for (let i = 0; i < addressesToTry.length; i++) {
+        try {
+          response = await requestExecutor(currentUrl, {
+            signal: controller.signal,
+            headers,
+            resolvedAddress: addressesToTry[i],
+          });
+          break;
+        } catch (err) {
+          if (err instanceof Error && err.name === 'AbortError') {
+            throw err;
+          }
+          lastRequestError = err;
+          if (i === addressesToTry.length - 1) {
+            throw lastRequestError;
+          }
+        }
+      }
+      currentResolvedAddresses = undefined;
+
+      if (!response) {
+        return { content: 'Error: Web fetch failed: no response returned', isError: true };
+      }
 
       const location = response.headers.get('location');
       const isRedirect = response.status >= 300 && response.status < 400 && !!location;
@@ -595,13 +646,13 @@ export async function executeWebFetch(
             isError: true,
           };
         }
-        if (!resolution.address) {
+        if (resolution.addresses.length === 0) {
           return {
             content: `Error: Unable to resolve redirect host "${nextUrl.hostname}" from ${currentUrl.href}`,
             isError: true,
           };
         }
-        currentResolvedAddress = resolution.address;
+        currentResolvedAddresses = resolution.addresses;
       }
 
       currentUrl = nextUrl;
