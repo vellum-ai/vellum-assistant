@@ -60,6 +60,10 @@ type NodeHttpResponseLike = {
   resume: () => void;
 } & Readable;
 
+function parseMimeType(contentType: string): string {
+  return contentType.split(';', 1)[0].trim().toLowerCase();
+}
+
 function clampInteger(value: unknown, defaultValue: number, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return defaultValue;
   return Math.min(max, Math.max(min, Math.round(value)));
@@ -430,13 +434,19 @@ const defaultRequestExecutor: WebFetchRequestExecutor = async (url, options) => 
 
 function isTextLikeContentType(contentType: string): boolean {
   if (!contentType) return true;
-  const lower = contentType.toLowerCase();
-  return TEXT_LIKE_CONTENT_TYPES.some((pattern) => lower.includes(pattern));
+  const mimeType = parseMimeType(contentType);
+  if (!mimeType) return true;
+  return TEXT_LIKE_CONTENT_TYPES.some((pattern) => {
+    if (pattern.endsWith('/')) {
+      return mimeType.startsWith(pattern);
+    }
+    return mimeType === pattern;
+  });
 }
 
 function isHtmlContentType(contentType: string): boolean {
-  const lower = contentType.toLowerCase();
-  return lower.includes('text/html') || lower.includes('application/xhtml+xml');
+  const mimeType = parseMimeType(contentType);
+  return mimeType === 'text/html' || mimeType === 'application/xhtml+xml';
 }
 
 function looksLikeHtml(text: string): boolean {

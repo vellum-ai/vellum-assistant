@@ -76,6 +76,14 @@ function canonicalizeWebFetchUrl(parsed: URL): URL {
   parsed.username = '';
   parsed.password = '';
 
+  try {
+    // Normalize equivalent escaped paths (for example, "/%70rivate" -> "/private")
+    // so path-scoped trust rules cannot be bypassed via percent-encoding.
+    parsed.pathname = decodeURI(parsed.pathname);
+  } catch {
+    // Keep URL parser canonical form when decoding fails.
+  }
+
   if (parsed.hostname.endsWith('.')) {
     parsed.hostname = parsed.hostname.replace(/\.+$/, '');
   }

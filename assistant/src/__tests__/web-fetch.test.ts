@@ -615,6 +615,19 @@ describe('web_fetch tool', () => {
     expect(result.content).toContain('Unsupported content type');
   });
 
+  test('rejects binary mime types even when parameters look text-like', async () => {
+    globalThis.fetch = (async () =>
+      new Response('BINARYDATA', {
+        status: 200,
+        headers: { 'content-type': 'application/octet-stream; profile=text/plain' },
+      })
+    ) as any;
+
+    const result = await executeWithMockFetch({ url: 'https://example.com/download' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Unsupported content type');
+  });
+
   test('returns error results for non-2xx responses', async () => {
     globalThis.fetch = (async () =>
       new Response('missing page', {

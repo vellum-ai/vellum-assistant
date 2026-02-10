@@ -437,6 +437,12 @@ describe('Permission Checker', () => {
       const result = await check('web_fetch', { url: 'example.com:8443/private/doc' }, '/tmp');
       expect(result.decision).toBe('deny');
     });
+
+    test('web_fetch deny rule blocks percent-encoded path equivalents after normalization', async () => {
+      addRule('web_fetch', 'web_fetch:https://example.com/private/*', 'everywhere', 'deny');
+      const result = await check('web_fetch', { url: 'https://example.com/%70rivate/doc' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
   });
 
   // ── generateAllowlistOptions ───────────────────────────────────
