@@ -10,6 +10,7 @@
     "build": "node scripts/run-next.mjs build",
     "db:push": "bun run scripts/migrate.mts",
     "db:push:preview": "bun run scripts/migrate.mts --preview",
+    "test:integration:channels": "bun run scripts/channels-integration-harness.mts",
     "lint": "eslint",
     "pull": "node scripts/pull.mjs",
     "start": "node scripts/run-next.mjs start"

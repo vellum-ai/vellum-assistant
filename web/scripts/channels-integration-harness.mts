@@ -1,0 +1,328 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+
+import type { Sql } from "postgres";
+
+import {
+  approveTelegramContact,
+  blockTelegramContact,
+  connectTelegramChannel,
+  disconnectTelegramChannel,
+  getTelegramChannelAccountForAssistant,
+  handleTelegramWebhook,
+  listTelegramContacts,
+  notifyApprovedTelegramContact,
+} from "@/lib/channels/service";
+import { getChatMessages, getDb } from "@/lib/db";
+
+const TELEGRAM_SECRET_HEADER = ["x", "telegram", "bot", "api", "sec", "ret", "token"].join(
+  "-"
+);
+const TELEGRAM_API_HOST = "api.telegram.org";
+const HARNESS_BOT_TOKEN = "harness-bot-token";
+
+type TelegramMethod = "getMe" | "setWebhook" | "sendMessage" | "deleteWebhook";
+
+type TelegramCall = {
+  method: TelegramMethod;
+  token: string;
+  body: Record<string, unknown>;
+};
+
+function parseTelegramApiRequest(urlString: string): {
+  method: TelegramMethod;
+  token: string;
+} | null {
+  try {
+    const url = new URL(urlString);
+    if (url.hostname !== TELEGRAM_API_HOST) {
+      return null;
+    }
+
+    const match = url.pathname.match(/^\/bot([^/]+)\/(getMe|setWebhook|sendMessage|deleteWebhook)$/);
+    if (!match) {
+      return null;
+    }
+
+    return {
+      token: match[1],
+      method: match[2] as TelegramMethod,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseBody(body: BodyInit | null | undefined): Record<string, unknown> {
+  if (!body) {
+    return {};
+  }
+  if (typeof body === "string") {
+    return JSON.parse(body) as Record<string, unknown>;
+  }
+  throw new Error("Expected JSON string request body in Telegram API mock");
+}
+
+function buildTelegramDmPayload(messageId: number, text: string): Record<string, unknown> {
+  return {
+    update_id: messageId,
+    message: {
+      message_id: messageId,
+      text,
+      chat: {
+        id: 9001,
+        type: "private",
+      },
+      from: {
+        id: 9001,
+        username: "harness-user",
+        first_name: "Harness",
+        last_name: "User",
+      },
+    },
+  };
+}
+
+async function assertRequiredTables(sql: Sql) {
+  const required = [
+    "assistants",
+    "chat_messages",
+    "assistant_channel_accounts",
+    "assistant_channel_contacts",
+  ];
+
+  for (const table of required) {
+    const result = await sql`
+      SELECT to_regclass(${`public.${table}`}) AS table_name
+    `;
+    if (!result[0]?.table_name) {
+      throw new Error(
+        `Missing required table "${table}". Run "bun run db:push" in /web first.`
+      );
+    }
+  }
+}
+
+function countTelegramMethods(calls: TelegramCall[]): Map<TelegramMethod, number> {
+  const counts = new Map<TelegramMethod, number>();
+  for (const call of calls) {
+    counts.set(call.method, (counts.get(call.method) ?? 0) + 1);
+  }
+  return counts;
+}
+
+async function main() {
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required to run the integration harness");
+  }
+  if (!process.env.APP_URL) {
+    process.env.APP_URL = "http://localhost:3000";
+  }
+
+  const sql = getDb() as unknown as Sql;
+  await assertRequiredTables(sql);
+
+  const originalFetch = globalThis.fetch;
+  const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+
+  const telegramCalls: TelegramCall[] = [];
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const parsed = parseTelegramApiRequest(url);
+    if (!parsed) {
+      return originalFetch(input, init);
+    }
+
+    const body = parseBody(init?.body);
+    telegramCalls.push({
+      method: parsed.method,
+      token: parsed.token,
+      body,
+    });
+
+    switch (parsed.method) {
+      case "getMe":
+        return Response.json({
+          ok: true,
+          result: {
+            id: 777001,
+            username: "harness_bot",
+          },
+        });
+      case "setWebhook":
+        return Response.json({
+          ok: true,
+          result: true,
+        });
+      case "sendMessage":
+        return Response.json({
+          ok: true,
+          result: {
+            message_id: Number(body.message_id ?? 1),
+          },
+        });
+      case "deleteWebhook":
+        return Response.json({
+          ok: true,
+          result: true,
+        });
+      default:
+        throw new Error(`Unexpected Telegram method ${(parsed as { method: string }).method}`);
+    }
+  };
+
+  const assistantId = randomUUID();
+  try {
+    await sql`
+      INSERT INTO assistants (id, name, description, created_by)
+      VALUES (
+        ${assistantId},
+        ${"Telegram Integration Harness"},
+        ${"Temporary assistant created by channels integration harness"},
+        ${"integration-harness"}
+      )
+    `;
+
+    const connectResult = await connectTelegramChannel({
+      assistantId,
+      botToken: HARNESS_BOT_TOKEN,
+      enabled: true,
+    });
+    assert.equal(connectResult.status, "active");
+    assert.equal(connectResult.enabled, true);
+
+    const account = await getTelegramChannelAccountForAssistant(assistantId);
+    assert(account, "Expected Telegram channel account to exist after connect");
+
+    const accountConfig = (account.config ?? {}) as Record<string, unknown>;
+    const webhookSecret =
+      typeof accountConfig.webhookSecret === "string" ? accountConfig.webhookSecret : null;
+    assert(webhookSecret, "Expected webhook secret to be stored in channel config");
+
+    const pendingResult = await handleTelegramWebhook({
+      channelAccountId: account.id,
+      headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
+      payload: buildTelegramDmPayload(1001, "Hello from Telegram"),
+    });
+    assert.equal(pendingResult.status, "pending_approval");
+
+    const pendingContacts = await listTelegramContacts({
+      assistantId,
+      status: "pending",
+    });
+    assert.equal(pendingContacts.length, 1);
+    const contact = pendingContacts[0];
+
+    const pairingPromptCall = telegramCalls.find(
+      (call) =>
+        call.method === "sendMessage" &&
+        typeof call.body.text === "string" &&
+        call.body.text.includes("private")
+    );
+    assert(pairingPromptCall, "Expected pairing prompt to be sent for pending contact");
+
+    await approveTelegramContact(assistantId, contact.id);
+    await notifyApprovedTelegramContact({
+      assistantId,
+      contactId: contact.id,
+    });
+
+    const approvedContacts = await listTelegramContacts({
+      assistantId,
+      status: "approved",
+    });
+    assert.equal(approvedContacts.length, 1);
+
+    const okResult = await handleTelegramWebhook({
+      channelAccountId: account.id,
+      headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
+      payload: buildTelegramDmPayload(1002, "Can you help me with a task list?"),
+    });
+    assert.equal(okResult.status, "ok");
+
+    const afterReplyMessages = await getChatMessages(assistantId);
+    assert.equal(afterReplyMessages.length, 2);
+    const userTelegramMessage = afterReplyMessages.find(
+      (message) => message.role === "user" && message.externalMessageId === "1002"
+    );
+    const assistantTelegramMessage = afterReplyMessages.find(
+      (message) => message.role === "assistant"
+    );
+    assert(userTelegramMessage, "Expected persisted user telegram message");
+    assert(assistantTelegramMessage, "Expected persisted assistant telegram response");
+    assert.equal(userTelegramMessage.sourceChannel, "telegram");
+    assert.equal(assistantTelegramMessage.sourceChannel, "telegram");
+
+    const duplicateResult = await handleTelegramWebhook({
+      channelAccountId: account.id,
+      headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
+      payload: buildTelegramDmPayload(1002, "duplicate message id should dedupe"),
+    });
+    assert.equal(duplicateResult.status, "ignored");
+    assert.equal(
+      (duplicateResult as { reason?: string }).reason,
+      "duplicate_message"
+    );
+
+    const afterDuplicateMessages = await getChatMessages(assistantId);
+    assert.equal(afterDuplicateMessages.length, 2);
+
+    await blockTelegramContact(assistantId, contact.id);
+    const blockedResult = await handleTelegramWebhook({
+      channelAccountId: account.id,
+      headers: new Headers({ [TELEGRAM_SECRET_HEADER]: webhookSecret }),
+      payload: buildTelegramDmPayload(1003, "This should be ignored because contact is blocked"),
+    });
+    assert.equal(blockedResult.status, "ignored");
+    assert.equal((blockedResult as { reason?: string }).reason, "blocked_contact");
+
+    const wrongSecretResult = await handleTelegramWebhook({
+      channelAccountId: account.id,
+      headers: new Headers({ [TELEGRAM_SECRET_HEADER]: "incorrect-secret" }),
+      payload: buildTelegramDmPayload(1004, "This should fail webhook verification"),
+    });
+    assert.equal(wrongSecretResult.status, "ignored");
+    assert.equal((wrongSecretResult as { reason?: string }).reason, "invalid_secret");
+
+    await disconnectTelegramChannel(assistantId);
+    const disconnectedAccount = await getTelegramChannelAccountForAssistant(assistantId);
+    assert(disconnectedAccount, "Expected account to remain after disconnect");
+    assert.equal(disconnectedAccount.enabled, false);
+    assert.equal(disconnectedAccount.status, "inactive");
+
+    const disconnectedConfig = (disconnectedAccount.config ?? {}) as Record<string, unknown>;
+    assert.equal(disconnectedConfig.botToken ?? null, null);
+    assert.equal(disconnectedConfig.webhookSecret ?? null, null);
+    assert.equal(disconnectedConfig.webhookUrl ?? null, null);
+
+    const methodCounts = countTelegramMethods(telegramCalls);
+    assert((methodCounts.get("getMe") ?? 0) >= 1, "Expected getMe call");
+    assert((methodCounts.get("setWebhook") ?? 0) >= 1, "Expected setWebhook call");
+    assert((methodCounts.get("sendMessage") ?? 0) >= 3, "Expected sendMessage calls");
+    assert((methodCounts.get("deleteWebhook") ?? 0) >= 1, "Expected deleteWebhook call");
+
+    console.log("Telegram integration harness passed.");
+    console.log("Telegram API call counts:");
+    for (const method of ["getMe", "setWebhook", "sendMessage", "deleteWebhook"] as const) {
+      console.log(`- ${method}: ${methodCounts.get(method) ?? 0}`);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+
+    if (originalAnthropicApiKey === undefined) {
+      delete process.env.ANTHROPIC_API_KEY;
+    } else {
+      process.env.ANTHROPIC_API_KEY = originalAnthropicApiKey;
+    }
+
+    await sql`DELETE FROM assistants WHERE id = ${assistantId}`;
+    await sql.end({ timeout: 1 });
+  }
+}
+
+main().catch((error) => {
+  console.error("Telegram integration harness failed.");
+  console.error(error);
+  process.exit(1);
+});

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { deleteAssistantMailInbox, deleteAssistantMailWebhook } from "@/lib/agentmail";
+import { disconnectTelegramChannel } from "@/lib/channels/service";
 import { Assistant, getDb } from "@/lib/db";
 import { deleteInstance } from "@/lib/gcp";
 
@@ -54,6 +55,12 @@ export async function POST(request: Request, { params }: RouteParams) {
       } catch (mailError: unknown) {
         console.warn("Failed to delete AgentMail resources, continuing:", mailError);
       }
+    }
+
+    try {
+      await disconnectTelegramChannel(assistantId);
+    } catch (channelError: unknown) {
+      console.warn("Failed to disconnect Telegram channel, continuing:", channelError);
     }
 
     await sql`DELETE FROM assistants WHERE id = ${assistantId}`;

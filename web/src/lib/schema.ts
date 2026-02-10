@@ -1,4 +1,14 @@
-import { boolean, pgTable, uuid, varchar, text, jsonb, timestamp, index } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  pgTable,
+  uuid,
+  varchar,
+  text,
+  jsonb,
+  timestamp,
+  index,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 
 // Assistants table (formerly agents)
 export const assistantsTable = pgTable("assistants", {
@@ -22,11 +32,85 @@ export const chatMessagesTable = pgTable(
     role: varchar("role", { length: 20 }).notNull(),
     content: text("content").notNull(),
     status: varchar("status", { length: 20 }).default("sent"),
+    sourceChannel: varchar("source_channel", { length: 32 }).default("web"),
+    externalChatId: varchar("external_chat_id", { length: 255 }),
+    externalMessageId: varchar("external_message_id", { length: 255 }),
+    metadata: jsonb("metadata").default({}),
     gcsMessageId: varchar("gcs_message_id", { length: 255 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => [index("idx_chat_messages_assistant_id").on(table.assistantId)]
+  (table) => [
+    index("idx_chat_messages_assistant_id").on(table.assistantId),
+    index("idx_chat_messages_external_lookup").on(
+      table.assistantId,
+      table.sourceChannel,
+      table.externalMessageId
+    ),
+    uniqueIndex("uniq_chat_messages_external").on(
+      table.assistantId,
+      table.sourceChannel,
+      table.externalMessageId
+    ),
+  ]
+);
+
+// Assistant channel accounts (Telegram, future channels)
+export const assistantChannelAccountsTable = pgTable(
+  "assistant_channel_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    assistantId: uuid("assistant_id")
+      .notNull()
+      .references(() => assistantsTable.id, { onDelete: "cascade" }),
+    channel: varchar("channel", { length: 50 }).notNull(),
+    accountKey: varchar("account_key", { length: 100 }).notNull().default("default"),
+    enabled: boolean("enabled").notNull().default(true),
+    status: varchar("status", { length: 30 }).notNull().default("inactive"),
+    config: jsonb("config").notNull().default({}),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("idx_assistant_channel_accounts_assistant_id").on(table.assistantId),
+    index("idx_assistant_channel_accounts_channel").on(table.channel),
+    uniqueIndex("uniq_assistant_channel_accounts").on(
+      table.assistantId,
+      table.channel,
+      table.accountKey
+    ),
+  ]
+);
+
+// Channel contacts for pairing/allowlist policy
+export const assistantChannelContactsTable = pgTable(
+  "assistant_channel_contacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    assistantChannelAccountId: uuid("assistant_channel_account_id")
+      .notNull()
+      .references(() => assistantChannelAccountsTable.id, { onDelete: "cascade" }),
+    externalUserId: varchar("external_user_id", { length: 255 }).notNull(),
+    externalChatId: varchar("external_chat_id", { length: 255 }).notNull(),
+    username: varchar("username", { length: 255 }),
+    displayName: varchar("display_name", { length: 255 }),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    lastPairingPromptAt: timestamp("last_pairing_prompt_at", { withTimezone: true }),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow(),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("idx_assistant_channel_contacts_account_id").on(table.assistantChannelAccountId),
+    index("idx_assistant_channel_contacts_status").on(table.status),
+    uniqueIndex("uniq_assistant_channel_contact_user").on(
+      table.assistantChannelAccountId,
+      table.externalUserId
+    ),
+  ]
 );
 
 // Better Auth: user table

@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import postgres from "postgres";
 
 import * as schema from "./schema";
@@ -53,6 +53,10 @@ export type Assistant = typeof schema.assistantsTable.$inferSelect;
 export type NewAssistant = typeof schema.assistantsTable.$inferInsert;
 export type ChatMessage = typeof schema.chatMessagesTable.$inferSelect;
 export type NewChatMessage = typeof schema.chatMessagesTable.$inferInsert;
+export type AssistantChannelAccount = typeof schema.assistantChannelAccountsTable.$inferSelect;
+export type NewAssistantChannelAccount = typeof schema.assistantChannelAccountsTable.$inferInsert;
+export type AssistantChannelContact = typeof schema.assistantChannelContactsTable.$inferSelect;
+export type NewAssistantChannelContact = typeof schema.assistantChannelContactsTable.$inferInsert;
 export type User = typeof schema.user.$inferSelect;
 export type NewUser = typeof schema.user.$inferInsert;
 export type ApiKey = typeof schema.apiKeysTable.$inferSelect;
@@ -112,6 +116,16 @@ export async function getChatMessages(assistantId: string) {
     .orderBy(schema.chatMessagesTable.createdAt);
 }
 
+export async function getRecentChatMessages(assistantId: string, limit = 40) {
+  const messages = await db
+    .select()
+    .from(schema.chatMessagesTable)
+    .where(eq(schema.chatMessagesTable.assistantId, assistantId))
+    .orderBy(desc(schema.chatMessagesTable.createdAt))
+    .limit(limit);
+  return [...messages].reverse();
+}
+
 export async function createChatMessage(data: NewChatMessage) {
   const result = await db.insert(schema.chatMessagesTable).values(data).returning();
   return result[0];
@@ -129,6 +143,24 @@ export async function getMessageByGcsId(gcsMessageId: string) {
     .select()
     .from(schema.chatMessagesTable)
     .where(eq(schema.chatMessagesTable.gcsMessageId, gcsMessageId));
+  return result[0] || null;
+}
+
+export async function getMessageByExternalId(
+  assistantId: string,
+  sourceChannel: string,
+  externalMessageId: string
+) {
+  const result = await db
+    .select()
+    .from(schema.chatMessagesTable)
+    .where(
+      and(
+        eq(schema.chatMessagesTable.assistantId, assistantId),
+        eq(schema.chatMessagesTable.sourceChannel, sourceChannel),
+        eq(schema.chatMessagesTable.externalMessageId, externalMessageId)
+      )
+    );
   return result[0] || null;
 }
 

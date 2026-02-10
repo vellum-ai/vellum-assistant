@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { handleInboundAssistantMessage } from "@/lib/assistants/message-service";
 import {
   Assistant,
   ChatMessage,
   createChatMessage,
-  getDb,
   getChatMessages,
+  getDb,
   getMessageByGcsId,
 } from "@/lib/db";
 import { getInstanceExternalIp } from "@/lib/gcp";
@@ -27,54 +28,20 @@ interface AssistantError {
   message: string;
 }
 
-const GREETING_MESSAGE = "Hey there! I just hatched 🐣\n\nWhat's your name? And while we're at it — what should I call myself?";
-
-const GITHUB_APP_HTML = `<div style="border:1px solid #d0d7de;border-radius:12px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;max-width:600px;background:#fff">
-  <div style="background:#24292f;padding:16px 24px;display:flex;align-items:center;gap:12px">
-    <svg height="32" viewBox="0 0 16 16" width="32" fill="#fff"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-    <span style="color:#fff;font-size:18px;font-weight:600">GitHub Apps</span>
-  </div>
-  <div style="padding:32px 24px;text-align:center">
-    <div style="width:80px;height:80px;border-radius:16px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);margin:0 auto 16px;display:flex;align-items:center;justify-content:center">
-      <span style="font-size:36px;color:#fff;font-weight:700">VJ</span>
-    </div>
-    <h2 style="margin:0 0 4px;font-size:24px;color:#24292f">Vargas JR</h2>
-    <p style="margin:0 0 20px;color:#57606a;font-size:14px">by vellum-ai</p>
-    <div style="display:inline-block;background:#2da44e;color:#fff;padding:8px 24px;border-radius:6px;font-size:14px;font-weight:600;margin-bottom:20px">✓ Installed</div>
-    <div style="border-top:1px solid #d0d7de;padding-top:20px;margin-top:8px">
-      <div style="display:flex;justify-content:center;gap:32px;color:#57606a;font-size:13px">
-        <div><strong style="color:#24292f;display:block;font-size:18px">1</strong>repository</div>
-        <div><strong style="color:#24292f;display:block;font-size:18px">12</strong>permissions</div>
-        <div><strong style="color:#24292f;display:block;font-size:18px">3</strong>events</div>
-      </div>
-    </div>
-    <div style="margin-top:20px;padding:12px 16px;background:#dafbe1;border-radius:6px;text-align:left;font-size:13px;color:#1a7f37">
-      <strong>Active</strong> — This app is installed on <strong>vellum-ai/vellum-assistant</strong> with read &amp; write access to code, pull requests, and issues.
-    </div>
-  </div>
-</div>`;
-
-function getCannedResponse(assistantMessageCount: number): { content: string; action?: string } {
-  switch (assistantMessageCount) {
-    case 0:
-      return {
-        content: "I love it — Vargas JR it is! Nice to meet you. 😎\n\nSo, what would you like me to do first?",
-        action: "rename",
-      };
-    case 1:
-      return {
-        content: "Done! I just made the background red for you. 🔴\n\nWhat else would you like me to do?",
-        action: "background",
-      };
-    case 2:
-      return {
-        content: `On it! I just registered myself as a GitHub App and installed it on your repo.\n\nHere's the proof:\n\n${GITHUB_APP_HTML}\n\nI now have access to open PRs, review code, and respond to issues on your behalf. What should I work on first?`,
-        action: "github",
-      };
-    default:
-      return { content: "Got it! What's next?" };
-  }
+interface PostMessageBody {
+  content?: string;
+  sourceChannel?: string;
+  externalChatId?: string;
+  externalMessageId?: string;
+  sender?: {
+    externalUserId?: string;
+    username?: string;
+    displayName?: string;
+  };
 }
+
+const GREETING_MESSAGE =
+  "Hey there! I just hatched 🐣\n\nWhat's your name? And while we're at it — what should I call myself?";
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -103,7 +70,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         formattedMessages.push({
           id: "local-greeting",
           role: "assistant" as const,
-          content: `Hey there! I just hatched 🐣\n\nWhat's your name? And while we're at it — what should I call myself?`,
+          content: GREETING_MESSAGE,
           timestamp: new Date(),
         });
       }
@@ -124,23 +91,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         );
 
         if (externalIp) {
-          const outboxResponse = await fetch(
-            `http://${externalIp}:8080/outbox`
-          );
+          const outboxResponse = await fetch(`http://${externalIp}:8080/outbox`);
 
           if (outboxResponse.ok) {
             const outboxData = await outboxResponse.json();
             const outboxMessages: OutboxMessage[] = outboxData.messages || [];
 
             for (const outboxMsg of outboxMessages) {
-              if (
-                outboxMsg.status === "queued" ||
-                outboxMsg.status === "sent"
-              ) {
+              if (outboxMsg.status === "queued" || outboxMsg.status === "sent") {
                 const existingMsg = await getMessageByGcsId(outboxMsg.id);
                 if (!existingMsg) {
                   await createChatMessage({
-                    assistantId: assistantId,
+                    assistantId,
                     role: "assistant",
                     content: outboxMsg.content,
                     status: "delivered",
@@ -190,9 +152,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         );
 
         if (externalIp) {
-          const errorsResponse = await fetch(
-            `http://${externalIp}:8080/errors?limit=5`
-          );
+          const errorsResponse = await fetch(`http://${externalIp}:8080/errors?limit=5`);
 
           if (errorsResponse.ok) {
             const errorsData = await errorsResponse.json();
@@ -207,133 +167,48 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ messages: formattedMessages, errors: recentErrors });
   } catch (error: unknown) {
     console.error("Error fetching messages:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch messages" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch messages" }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
-    const body = await request.json();
-    const { content } = body;
+    const body = (await request.json()) as PostMessageBody;
 
-    if (!content || typeof content !== "string") {
+    if (!body.content || typeof body.content !== "string") {
       return NextResponse.json(
         { error: "Message content is required" },
         { status: 400 }
       );
     }
 
-    const sql = getDb();
-    const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
-
-    if (result.length === 0) {
-      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
-    }
-
-    const assistant = result[0] as Assistant;
-    const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
-      | { instanceName?: string; zone?: string }
-      | undefined;
-
-    // If no compute instance, use canned responses (demo mode)
-    if (!computeConfig?.instanceName) {
-      await createChatMessage({
-        assistantId,
-        role: "user",
-        content,
-        status: "sent",
-      });
-
-      // Count user messages to determine which canned response to give
-      const existingMessages = await getChatMessages(assistantId);
-      const userMessageCount = existingMessages.filter(m => m.role === "user").length;
-
-      const { content: responseContent, action } = getCannedResponse(userMessageCount - 1);
-
-      if (action === "rename") {
-        await sql`UPDATE assistants SET name = 'Vargas JR', updated_at = NOW() WHERE id = ${assistantId}`;
-      } else if (action === "background") {
-        const config = (assistant.configuration as Record<string, unknown>) || {};
-        await sql`
-          UPDATE assistants
-          SET configuration = ${JSON.stringify({ ...config, ui: { backgroundColor: "#dc2626" } })},
-              updated_at = NOW()
-          WHERE id = ${assistantId}
-        `;
-      }
-
-      // Simulate a slight delay before the assistant "responds"
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      const assistantMsg = await createChatMessage({
-        assistantId,
-        role: "assistant",
-        content: responseContent,
-        status: "delivered",
-      });
-
-      return NextResponse.json({
-        success: true,
-        assistantMessage: {
-          id: assistantMsg.id,
-          role: "assistant",
-          content: responseContent,
-          timestamp: assistantMsg.createdAt,
-        },
-      });
-    }
-
-    // Forward to compute instance
-    const externalIp = await getInstanceExternalIp(
-      computeConfig.instanceName,
-      computeConfig.zone!
-    );
-
-    if (!externalIp) {
-      return NextResponse.json(
-        { error: "Agent instance not reachable - no external IP" },
-        { status: 503 }
-      );
-    }
-
-    const assistantResponse = await fetch(`http://${externalIp}:8080/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
-    });
-
-    if (!assistantResponse.ok) {
-      const errorData = await assistantResponse.json().catch(() => ({}));
-      return NextResponse.json(
-        { error: errorData.error || "Failed to send message to assistant" },
-        { status: assistantResponse.status }
-      );
-    }
-
-    const assistantData = await assistantResponse.json();
-
-    const dbMessage = await createChatMessage({
-      assistantId: assistantId,
-      role: "user",
-      content,
-      status: "sent",
-      gcsMessageId: assistantData.messageId,
+    const result = await handleInboundAssistantMessage({
+      assistantId,
+      content: body.content,
+      sourceChannel: body.sourceChannel || "web",
+      externalChatId: body.externalChatId,
+      externalMessageId: body.externalMessageId,
+      sender: body.sender,
     });
 
     return NextResponse.json({
       success: true,
-      messageId: dbMessage.id,
-      message: "Message sent to assistant inbox",
+      duplicate: result.duplicate,
+      messageId: result.userMessage?.id ?? null,
+      assistantMessage: result.assistantMessage,
     });
   } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to send message";
     console.error("Error sending message:", error);
-    return NextResponse.json(
-      { error: "Failed to send message" },
-      { status: 500 }
-    );
+
+    if (message === "Assistant not found") {
+      return NextResponse.json({ error: message }, { status: 404 });
+    }
+    if (message === "Message content is required") {
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
+    return NextResponse.json({ error: "Failed to send message" }, { status: 500 });
   }
 }
