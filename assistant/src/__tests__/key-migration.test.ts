@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -19,8 +19,11 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../util/platform.js', () => ({
   getDataDir: () => TEST_DIR,
+  getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
   ensureDataDir: () => {
     if (!existsSync(TEST_DIR)) mkdirSync(TEST_DIR, { recursive: true });
+    const logsDir = join(TEST_DIR, 'logs');
+    if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true });
   },
   isMacOS: () => false,
   isLinux: () => false,
@@ -39,9 +42,10 @@ import { getSecureKey } from '../security/secure-keys.js';
 describe('key migration', () => {
   beforeEach(() => {
     if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true });
+      rmSync(TEST_DIR, { recursive: true, force: true });
     }
     mkdirSync(TEST_DIR, { recursive: true });
+    mkdirSync(join(TEST_DIR, 'logs'), { recursive: true });
     _setStorePath(STORE_PATH);
     _setBackend('encrypted');
     invalidateConfigCache();
@@ -51,12 +55,6 @@ describe('key migration', () => {
     _setStorePath(null);
     _setBackend(undefined);
     invalidateConfigCache();
-  });
-
-  afterAll(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true });
-    }
   });
 
   test('migrates plaintext apiKeys from config.json to secure storage', () => {
