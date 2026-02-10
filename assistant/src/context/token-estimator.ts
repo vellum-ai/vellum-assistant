@@ -8,13 +8,25 @@ const IMAGE_BLOCK_TOKENS = 1024;
 const FILE_BLOCK_OVERHEAD_TOKENS = 48;
 const OTHER_BLOCK_TOKENS = 16;
 const SYSTEM_PROMPT_OVERHEAD_TOKENS = 8;
+const GEMINI_INLINE_FILE_MIME_TYPES = new Set(['application/pdf']);
+
+export interface TokenEstimatorOptions {
+  providerName?: string;
+}
 
 export function estimateTextTokens(text: string): number {
   if (text.length === 0) return 0;
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
-export function estimateContentBlockTokens(block: ContentBlock): number {
+function shouldCountFileSourceData(block: Extract<ContentBlock, { type: 'file' }>, options?: TokenEstimatorOptions): boolean {
+  if (options?.providerName !== 'gemini') {
+    return false;
+  }
+  return GEMINI_INLINE_FILE_MIME_TYPES.has(block.source.media_type);
+}
+
+export function estimateContentBlockTokens(block: ContentBlock, options?: TokenEstimatorOptions): number {
   switch (block.type) {
     case 'text':
       return TEXT_BLOCK_OVERHEAD_TOKENS + estimateTextTokens(block.text);
@@ -32,7 +44,7 @@ export function estimateContentBlockTokens(block: ContentBlock): number {
       return FILE_BLOCK_OVERHEAD_TOKENS
         + estimateTextTokens(block.source.filename)
         + estimateTextTokens(block.source.media_type)
-        + estimateTextTokens(block.source.data)
+        + (shouldCountFileSourceData(block, options) ? estimateTextTokens(block.source.data) : 0)
         + estimateTextTokens(block.extracted_text ?? '');
     case 'thinking':
       return TEXT_BLOCK_OVERHEAD_TOKENS + estimateTextTokens(block.thinking);
@@ -43,27 +55,27 @@ export function estimateContentBlockTokens(block: ContentBlock): number {
   }
 }
 
-export function estimateMessageTokens(message: Message): number {
+export function estimateMessageTokens(message: Message, options?: TokenEstimatorOptions): number {
   let total = MESSAGE_OVERHEAD_TOKENS;
   for (const block of message.content) {
-    total += estimateContentBlockTokens(block);
+    total += estimateContentBlockTokens(block, options);
   }
   return total;
 }
 
-export function estimateMessagesTokens(messages: Message[]): number {
+export function estimateMessagesTokens(messages: Message[], options?: TokenEstimatorOptions): number {
   let total = 0;
   for (const message of messages) {
-    total += estimateMessageTokens(message);
+    total += estimateMessageTokens(message, options);
   }
   return total;
 }
 
-export function estimatePromptTokens(messages: Message[], systemPrompt?: string): number {
+export function estimatePromptTokens(messages: Message[], systemPrompt?: string, options?: TokenEstimatorOptions): number {
   const systemTokens = systemPrompt
     ? SYSTEM_PROMPT_OVERHEAD_TOKENS + estimateTextTokens(systemPrompt)
     : 0;
-  return systemTokens + estimateMessagesTokens(messages);
+  return systemTokens + estimateMessagesTokens(messages, options);
 }
 
 function stableJson(value: unknown): string {

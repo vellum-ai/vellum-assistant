@@ -58,7 +58,7 @@ describe('token estimator', () => {
     expect(withSystem).toBeGreaterThan(messagesOnly);
   });
 
-  test('counts file base64 payload when estimating file block tokens', () => {
+  test('counts file base64 payload for Gemini inline PDF estimation', () => {
     const sharedSource = {
       type: 'base64' as const,
       filename: 'report.pdf',
@@ -68,14 +68,54 @@ describe('token estimator', () => {
       type: 'file',
       source: { ...sharedSource, data: 'a'.repeat(64) },
       extracted_text: 'short summary',
-    });
+    }, { providerName: 'gemini' });
     const largeFileTokens = estimateContentBlockTokens({
       type: 'file',
       source: { ...sharedSource, data: 'a'.repeat(6400) },
       extracted_text: 'short summary',
-    });
+    }, { providerName: 'gemini' });
 
     expect(largeFileTokens).toBeGreaterThan(smallFileTokens);
     expect(largeFileTokens - smallFileTokens).toBeGreaterThan(1000);
+  });
+
+  test('does not count file base64 payload for OpenAI/Anthropic-style file fallback', () => {
+    const sharedSource = {
+      type: 'base64' as const,
+      filename: 'report.pdf',
+      media_type: 'application/pdf',
+    };
+    const smallFileTokens = estimateContentBlockTokens({
+      type: 'file',
+      source: { ...sharedSource, data: 'a'.repeat(64) },
+      extracted_text: 'short summary',
+    }, { providerName: 'openai' });
+    const largeFileTokens = estimateContentBlockTokens({
+      type: 'file',
+      source: { ...sharedSource, data: 'a'.repeat(6400) },
+      extracted_text: 'short summary',
+    }, { providerName: 'openai' });
+
+    expect(largeFileTokens).toBe(smallFileTokens);
+  });
+
+  test('does not count non-inline file base64 payload for Gemini', () => {
+    const sharedSource = {
+      type: 'base64' as const,
+      filename: 'report.txt',
+      media_type: 'text/plain',
+    };
+    const smallFileTokens = estimateContentBlockTokens({
+      type: 'file',
+      source: { ...sharedSource, data: 'a'.repeat(64) },
+      extracted_text: 'short summary',
+    }, { providerName: 'gemini' });
+    const largeFileTokens = estimateContentBlockTokens({
+      type: 'file',
+      source: { ...sharedSource, data: 'a'.repeat(6400) },
+      extracted_text: 'short summary',
+    }, { providerName: 'gemini' });
+
+    expect(largeFileTokens).toBe(smallFileTokens);
   });
 });

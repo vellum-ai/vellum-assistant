@@ -51,7 +51,11 @@ export class ContextWindowManager {
   ) {}
 
   async maybeCompact(messages: Message[], signal?: AbortSignal): Promise<ContextWindowResult> {
-    const previousEstimatedInputTokens = estimatePromptTokens(messages, this.systemPrompt);
+    const previousEstimatedInputTokens = estimatePromptTokens(
+      messages,
+      this.systemPrompt,
+      { providerName: this.provider.name },
+    );
     const thresholdTokens = Math.floor(this.config.maxInputTokens * this.config.compactThreshold);
     const existingSummary = getSummaryFromContextMessage(messages[0]);
 
@@ -175,7 +179,11 @@ export class ContextWindowManager {
       createContextSummaryMessage(summary),
       ...messages.slice(keepPlan.keepFromIndex),
     ];
-    const estimatedInputTokens = estimatePromptTokens(compactedMessages, this.systemPrompt);
+    const estimatedInputTokens = estimatePromptTokens(
+      compactedMessages,
+      this.systemPrompt,
+      { providerName: this.provider.name },
+    );
     log.info(
       {
         previousEstimatedInputTokens,
@@ -218,7 +226,11 @@ export class ContextWindowManager {
         createContextSummaryMessage('Projected summary'),
         ...messages.slice(keepFromIndex),
       ];
-      const projectedTokens = estimatePromptTokens(projectedMessages, this.systemPrompt);
+      const projectedTokens = estimatePromptTokens(
+        projectedMessages,
+        this.systemPrompt,
+        { providerName: this.provider.name },
+      );
       if (projectedTokens <= this.config.targetInputTokens) break;
       keepTurns -= 1;
       keepFromIndex = userTurnStarts[userTurnStarts.length - keepTurns] ?? keepFromIndex;
