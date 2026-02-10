@@ -48,7 +48,7 @@ export function UserMenu() {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-medium transition-colors"
-        style={{ backgroundColor: "#e0e7ff", color: "#4f46e5" }}
+        style={{ display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#e0e7ff", color: "#4f46e5", lineHeight: 1 }}
         aria-label="User menu"
       >
         {username ? username.charAt(0).toUpperCase() : <User className="h-4 w-4" />}
@@ -57,7 +57,7 @@ export function UserMenu() {
       {isOpen && (
         <div
           className="absolute right-0 top-full z-50 mt-2 w-56 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-          style={{ color: "#52525b", fontFamily: "inherit", lineHeight: "normal" }}
+          style={{ position: "absolute", top: "100%", color: "#52525b", fontFamily: "inherit", lineHeight: "normal" }}
         >
           <div className="border-b border-zinc-200 px-4 py-2 dark:border-zinc-700">
             <p className="text-sm font-medium" style={usernameStyle}>
