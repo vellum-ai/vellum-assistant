@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { getAssistantConnectionMode } from "@/lib/assistant-connection";
 import { Assistant, getDb } from "@/lib/db";
 import { getInstanceExternalIp } from "@/lib/gcp";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
+
+export const runtime = "nodejs";
 
 interface FileEntry {
   name: string;
@@ -46,12 +49,33 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
 
+    if (getAssistantConnectionMode() === "local") {
+      return NextResponse.json(
+        {
+          error:
+            "File system browsing is not supported in local-daemon mode in this rollout (chat + health only).",
+          connectionMode: "local",
+          files: [],
+          path,
+        },
+        { status: 501 }
+      );
+    }
+
     const assistant = result[0] as Assistant;
     const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
 
     if (!computeConfig?.instanceName || !computeConfig?.zone) {
+      if (process.env.NODE_ENV !== "production") {
+        return NextResponse.json({
+          files: [],
+          path,
+          demoMode: true,
+          message: "File system browsing is unavailable in local demo mode (no compute instance configured).",
+        });
+      }
       return NextResponse.json(
         { error: "No compute instance configured" },
         { status: 400 }

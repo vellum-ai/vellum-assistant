@@ -19,7 +19,7 @@ describe('createToolDomainEventPublisher', () => {
 
     await publish({
       type: 'start',
-      toolName: 'shell',
+      toolName: 'bash',
       input: { command: 'ls' },
       workingDir: '/tmp/project',
       sessionId: 'session-1',
@@ -29,7 +29,7 @@ describe('createToolDomainEventPublisher', () => {
 
     await publish({
       type: 'permission_prompt',
-      toolName: 'shell',
+      toolName: 'bash',
       input: { command: 'ls' },
       workingDir: '/tmp/project',
       sessionId: 'session-1',
@@ -43,7 +43,7 @@ describe('createToolDomainEventPublisher', () => {
 
     await publish({
       type: 'permission_denied',
-      toolName: 'shell',
+      toolName: 'bash',
       input: { command: 'rm -rf /tmp' },
       workingDir: '/tmp/project',
       sessionId: 'session-1',
@@ -60,17 +60,17 @@ describe('createToolDomainEventPublisher', () => {
       'tool.permission.decided',
     ]);
     expect(events[0].payload).toMatchObject({
-      toolName: 'shell',
+      toolName: 'bash',
       sessionId: 'session-1',
       conversationId: 'conversation-1',
       startedAtMs: 100,
     });
     expect(events[1].payload).toMatchObject({
-      toolName: 'shell',
+      toolName: 'bash',
       riskLevel: 'medium',
     });
     expect(events[2].payload).toMatchObject({
-      toolName: 'shell',
+      toolName: 'bash',
       decision: 'deny',
       riskLevel: 'high',
     });
@@ -115,7 +115,7 @@ describe('createToolDomainEventPublisher', () => {
 
     await publish({
       type: 'executed',
-      toolName: 'shell',
+      toolName: 'bash',
       input: { command: 'sleep 30' },
       workingDir: '/tmp/project',
       sessionId: 'session-1',
@@ -139,7 +139,7 @@ describe('createToolDomainEventPublisher', () => {
       riskLevel: 'high',
     });
     expect(events[1].payload).toMatchObject({
-      toolName: 'shell',
+      toolName: 'bash',
       decision: 'always_allow',
       isError: true,
       durationMs: 5000,
@@ -180,7 +180,7 @@ describe('createToolDomainEventPublisher', () => {
 
     await publish({
       type: 'error',
-      toolName: 'shell',
+      toolName: 'bash',
       input: { command: 'cat /missing' },
       workingDir: '/tmp/project',
       sessionId: 'session-1',
@@ -203,7 +203,7 @@ describe('createToolDomainEventPublisher', () => {
       riskLevel: 'high',
     });
     expect(events[1].payload).toMatchObject({
-      toolName: 'shell',
+      toolName: 'bash',
       decision: 'allow',
       durationMs: 12,
       error: 'cat: /missing: No such file or directory',
@@ -219,7 +219,7 @@ describe('createToolDomainEventPublisher', () => {
 
     await publish({
       type: 'error',
-      toolName: 'shell',
+      toolName: 'bash',
       input: { command: 'cat /missing' },
       workingDir: '/tmp/project',
       sessionId: 'session-1',
@@ -238,7 +238,7 @@ describe('createToolDomainEventPublisher', () => {
     expect(events[0].payload).toMatchObject({
       conversationId: 'conversation-1',
       sessionId: 'session-1',
-      toolName: 'shell',
+      toolName: 'bash',
       riskLevel: 'medium',
       decision: 'error',
       durationMs: 9,

@@ -21,7 +21,7 @@ describe('token estimator', () => {
       estimateContentBlockTokens({
         type: 'tool_use',
         id: 't1',
-        name: 'shell',
+        name: 'bash',
         input: { command: 'echo hi' },
       }),
     ).toBeGreaterThan(estimateContentBlockTokens({ type: 'text', text: 'echo hi' }));

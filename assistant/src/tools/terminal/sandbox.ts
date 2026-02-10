@@ -173,7 +173,7 @@ export function wrapCommand(
       throw new ToolError(
         `Sandbox is enabled but the working directory contains characters unsafe for the sandbox profile (SBPL metacharacters). ` +
         `Refusing to execute unsandboxed. Change to a directory without special characters in its path, or disable sandboxing.`,
-        'shell',
+        'bash',
       );
     }
     const profile = getProfilePath(workingDir);

@@ -1,0 +1,43 @@
+/* Marketing Theme — Current marketing styling */
+
+.marketing-root {
+  --marketing-bg: #ffffff;
+  --marketing-fg: #171717;
+}
+
+@media (prefers-color-scheme: dark) {
+  .marketing-root {
+    --marketing-bg: #0a0a0a;
+    --marketing-fg: #ededed;
+  }
+}
+
+/* Blob animation for onboarding screens */
+@keyframes blob {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+.marketing-root .animate-blob {
+  animation: blob 10s infinite;
+}
+
+.marketing-root .animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+/* Blog page styles */
+.marketing-root .vellum-blog-page {
+  background-color: #ffffff;
+  color: #333333;
+}

@@ -3,6 +3,7 @@ import { getDataDir } from '../util/platform.js';
 
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama'] as const;
 const VALID_SECRET_ACTIONS = ['redact', 'warn', 'block'] as const;
+const VALID_MEMORY_EMBEDDING_PROVIDERS = ['auto', 'openai', 'gemini', 'ollama'] as const;
 
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
@@ -113,6 +114,99 @@ export const ContextWindowConfigSchema = z.object({
     .default(12000),
 });
 
+export const MemoryEmbeddingsConfigSchema = z.object({
+  required: z
+    .boolean({ error: 'memory.embeddings.required must be a boolean' })
+    .default(true),
+  provider: z
+    .enum(VALID_MEMORY_EMBEDDING_PROVIDERS, {
+      error: `memory.embeddings.provider must be one of: ${VALID_MEMORY_EMBEDDING_PROVIDERS.join(', ')}`,
+    })
+    .default('auto'),
+  openaiModel: z
+    .string({ error: 'memory.embeddings.openaiModel must be a string' })
+    .default('text-embedding-3-small'),
+  geminiModel: z
+    .string({ error: 'memory.embeddings.geminiModel must be a string' })
+    .default('gemini-embedding-001'),
+  ollamaModel: z
+    .string({ error: 'memory.embeddings.ollamaModel must be a string' })
+    .default('nomic-embed-text'),
+});
+
+export const MemoryRetrievalConfigSchema = z.object({
+  lexicalTopK: z
+    .number({ error: 'memory.retrieval.lexicalTopK must be a number' })
+    .int('memory.retrieval.lexicalTopK must be an integer')
+    .positive('memory.retrieval.lexicalTopK must be a positive integer')
+    .default(80),
+  semanticTopK: z
+    .number({ error: 'memory.retrieval.semanticTopK must be a number' })
+    .int('memory.retrieval.semanticTopK must be an integer')
+    .positive('memory.retrieval.semanticTopK must be a positive integer')
+    .default(40),
+  maxInjectTokens: z
+    .number({ error: 'memory.retrieval.maxInjectTokens must be a number' })
+    .int('memory.retrieval.maxInjectTokens must be an integer')
+    .positive('memory.retrieval.maxInjectTokens must be a positive integer')
+    .default(1800),
+});
+
+export const MemorySegmentationConfigSchema = z.object({
+  targetTokens: z
+    .number({ error: 'memory.segmentation.targetTokens must be a number' })
+    .int('memory.segmentation.targetTokens must be an integer')
+    .positive('memory.segmentation.targetTokens must be a positive integer')
+    .default(450),
+  overlapTokens: z
+    .number({ error: 'memory.segmentation.overlapTokens must be a number' })
+    .int('memory.segmentation.overlapTokens must be an integer')
+    .nonnegative('memory.segmentation.overlapTokens must be a non-negative integer')
+    .default(60),
+});
+
+export const MemoryJobsConfigSchema = z.object({
+  workerConcurrency: z
+    .number({ error: 'memory.jobs.workerConcurrency must be a number' })
+    .int('memory.jobs.workerConcurrency must be an integer')
+    .positive('memory.jobs.workerConcurrency must be a positive integer')
+    .default(2),
+});
+
+export const MemoryRetentionConfigSchema = z.object({
+  keepRawForever: z
+    .boolean({ error: 'memory.retention.keepRawForever must be a boolean' })
+    .default(true),
+});
+
+export const MemoryConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.enabled must be a boolean' })
+    .default(true),
+  embeddings: MemoryEmbeddingsConfigSchema.default({
+    required: true,
+    provider: 'auto',
+    openaiModel: 'text-embedding-3-small',
+    geminiModel: 'gemini-embedding-001',
+    ollamaModel: 'nomic-embed-text',
+  }),
+  retrieval: MemoryRetrievalConfigSchema.default({
+    lexicalTopK: 80,
+    semanticTopK: 40,
+    maxInjectTokens: 1800,
+  }),
+  segmentation: MemorySegmentationConfigSchema.default({
+    targetTokens: 450,
+    overlapTokens: 60,
+  }),
+  jobs: MemoryJobsConfigSchema.default({
+    workerConcurrency: 2,
+  }),
+  retention: MemoryRetentionConfigSchema.default({
+    keepRawForever: true,
+  }),
+});
+
 export const AssistantConfigSchema = z.object({
   provider: z
     .enum(VALID_PROVIDERS, {
@@ -146,6 +240,31 @@ export const AssistantConfigSchema = z.object({
     summaryMaxTokens: 1200,
     chunkTokens: 12000,
   }),
+  memory: MemoryConfigSchema.default({
+    enabled: true,
+    embeddings: {
+      required: true,
+      provider: 'auto',
+      openaiModel: 'text-embedding-3-small',
+      geminiModel: 'gemini-embedding-001',
+      ollamaModel: 'nomic-embed-text',
+    },
+    retrieval: {
+      lexicalTopK: 80,
+      semanticTopK: 40,
+      maxInjectTokens: 1800,
+    },
+    segmentation: {
+      targetTokens: 450,
+      overlapTokens: 60,
+    },
+    jobs: {
+      workerConcurrency: 2,
+    },
+    retention: {
+      keepRawForever: true,
+    },
+  }),
   dataDir: z
     .string({ error: 'dataDir must be a string' })
     .default(getDataDir()),
@@ -177,6 +296,13 @@ export const AssistantConfigSchema = z.object({
       message: 'contextWindow.targetInputTokens must be less than contextWindow.maxInputTokens',
     });
   }
+  if (config.memory.segmentation.overlapTokens >= config.memory.segmentation.targetTokens) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['memory', 'segmentation', 'overlapTokens'],
+      message: 'memory.segmentation.overlapTokens must be less than memory.segmentation.targetTokens',
+    });
+  }
 });
 
 export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;
@@ -187,3 +313,9 @@ export type SecretDetectionConfig = z.infer<typeof SecretDetectionConfigSchema>;
 export type AuditLogConfig = z.infer<typeof AuditLogConfigSchema>;
 export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
 export type ContextWindowConfig = z.infer<typeof ContextWindowConfigSchema>;
+export type MemoryEmbeddingsConfig = z.infer<typeof MemoryEmbeddingsConfigSchema>;
+export type MemoryRetrievalConfig = z.infer<typeof MemoryRetrievalConfigSchema>;
+export type MemorySegmentationConfig = z.infer<typeof MemorySegmentationConfigSchema>;
+export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
+export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
+export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;

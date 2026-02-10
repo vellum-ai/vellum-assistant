@@ -93,16 +93,17 @@ export async function initializeTools(): Promise<void> {
   await import('./filesystem/write.js');
   await import('./filesystem/edit.js');
   await import('./network/web-search.js');
+  await import('./skills/load.js');
 
-  // The shell tool loads web-tree-sitter WASM for command parsing, which is
+  // The bash tool loads web-tree-sitter WASM for command parsing, which is
   // expensive.  Register it lazily so the WASM is only loaded on first use.
   registerLazyTool({
-    name: 'shell',
+    name: 'bash',
     description: 'Execute a shell command on the local machine',
     category: 'terminal',
     defaultRiskLevel: RiskLevel.Medium,
     definition: {
-      name: 'shell',
+      name: 'bash',
       description: 'Execute a shell command on the local machine',
       input_schema: {
         type: 'object',

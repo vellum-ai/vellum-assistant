@@ -1,0 +1,136 @@
+/* Meadow Design System — App Theme */
+
+@theme inline {
+  /* Sky Teal (Primary/Background) */
+  --color-sky-50: #e6f0f4;
+  --color-sky-100: #c2dce4;
+  --color-sky-200: #9ac5d2;
+  --color-sky-300: #6eaabb;
+  --color-sky-400: #4a8fa5;
+  --color-sky-500: #2d6b7a;
+  --color-sky-600: #1a4a5e;
+  --color-sky-700: #153d4e;
+  --color-sky-800: #0f2b36;
+  --color-sky-900: #0a1d24;
+
+  /* Meadow Green (Secondary) */
+  --color-meadow-50: #edf7ed;
+  --color-meadow-100: #d1ecd1;
+  --color-meadow-200: #b1dfb1;
+  --color-meadow-300: #8ed28e;
+  --color-meadow-400: #6ec46e;
+  --color-meadow-500: #5cb85c;
+  --color-meadow-600: #3a7a3a;
+  --color-meadow-700: #2d602d;
+  --color-meadow-800: #1f451f;
+  --color-meadow-900: #142d14;
+
+  /* Poppy Orange (Accent / CTA) */
+  --color-poppy-50: #fef3ec;
+  --color-poppy-100: #fce0cc;
+  --color-poppy-200: #f9cba8;
+  --color-poppy-300: #f4a261;
+  --color-poppy-400: #f0913f;
+  --color-poppy-500: #e8834a;
+  --color-poppy-600: #d06b2f;
+  --color-poppy-700: #b25520;
+  --color-poppy-800: #8a4018;
+  --color-poppy-900: #632e11;
+
+  /* Lavender Blue (Secondary accent) */
+  --color-lavender-50: #f0f2f9;
+  --color-lavender-100: #dde2f1;
+  --color-lavender-200: #c5cde6;
+  --color-lavender-300: #a3b4d8;
+  --color-lavender-400: #8da0ce;
+  --color-lavender-500: #7b8ec4;
+  --color-lavender-600: #5f71a8;
+  --color-lavender-700: #4a5987;
+  --color-lavender-800: #374267;
+  --color-lavender-900: #252d47;
+
+  /* Cloud Cream (Neutrals) */
+  --color-cloud-50: #fdfcfa;
+  --color-cloud-100: #f5f0ea;
+  --color-cloud-200: #ede6db;
+  --color-cloud-300: #e8ddd0;
+  --color-cloud-400: #d4c9a8;
+  --color-cloud-500: #c4b894;
+  --color-cloud-600: #a89a72;
+  --color-cloud-700: #8a7d5b;
+  --color-cloud-800: #6b6047;
+  --color-cloud-900: #4d4533;
+
+  /* Dino Green (Character/Success) */
+  --color-dino-50: #eefaec;
+  --color-dino-100: #d5f2d0;
+  --color-dino-200: #b8e8af;
+  --color-dino-300: #8ed883;
+  --color-dino-400: #6abf5e;
+  --color-dino-500: #52a844;
+  --color-dino-600: #3e8a34;
+  --color-dino-700: #306b28;
+  --color-dino-800: #234d1d;
+  --color-dino-900: #173314;
+
+  /* Font tokens */
+  --font-display: var(--font-nunito), "Nunito", system-ui, sans-serif;
+  --font-body: var(--font-quicksand), "Quicksand", system-ui, sans-serif;
+
+  /* Signature border radius */
+  --radius-meadow: 14px;
+
+  /* Animation tokens */
+  --animate-wobble: wobble 0.3s ease-in-out;
+  --animate-bob: bob 3s ease-in-out infinite;
+  --animate-fade-in-up: fadeInUp 0.5s ease-out forwards;
+}
+
+/* Custom keyframes */
+@keyframes wobble {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-8deg); }
+  75% { transform: rotate(8deg); }
+}
+
+@keyframes bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes fadeInUp {
+  0% { transform: translateY(16px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+/* Light mode semantic colors */
+.app-root {
+  --app-bg: #fdfcfa;            /* cloud-50 */
+  --app-surface: #ffffff;
+  --app-surface-elevated: #f5f0ea; /* cloud-100 */
+  --app-text-primary: #0f2b36;  /* sky-800 */
+  --app-text-secondary: #2d6b7a; /* sky-500 */
+  --app-text-muted: #a89a72;    /* cloud-600 */
+  --app-border: #ede6db;        /* cloud-200 */
+  --app-primary: #f0913f;       /* poppy-400 */
+  --app-primary-hover: #e8834a; /* poppy-500 */
+  --app-success: #6abf5e;       /* dino-400 */
+  --app-info: #8da0ce;          /* lavender-400 */
+  --app-ring: rgba(106, 191, 94, 0.3); /* dino-400/30% */
+}
+
+/* Dark mode semantic colors */
+.dark .app-root {
+  --app-bg: #0f2b36;            /* sky-800 */
+  --app-surface: #153d4e;       /* sky-700 */
+  --app-surface-elevated: #1a4a5e; /* sky-600 */
+  --app-text-primary: #fdfcfa;  /* cloud-50 */
+  --app-text-secondary: #e8ddd0; /* cloud-300 */
+  --app-text-muted: #c4b894;    /* cloud-500 */
+  --app-border: #1a4a5e;        /* sky-600 */
+  --app-primary: #f0913f;       /* poppy-400 */
+  --app-primary-hover: #f4a261; /* poppy-300 */
+  --app-success: #8ed883;       /* dino-300 */
+  --app-info: #a3b4d8;          /* lavender-300 */
+  --app-ring: rgba(106, 191, 94, 0.3); /* dino-400/30% */
+}

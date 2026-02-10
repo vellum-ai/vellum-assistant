@@ -61,6 +61,7 @@ export function ensureDataDir(): void {
     join(base, 'memory'),
     join(base, 'memory', 'knowledge'),
     join(base, 'logs'),
+    join(base, 'skills'),
   ];
   for (const dir of dirs) {
     if (!existsSync(dir)) {

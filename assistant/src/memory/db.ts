@@ -67,6 +67,130 @@ export function initializeDb(): void {
     )
   `);
 
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_segments (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      segment_index INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      token_estimate INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_items (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      statement TEXT NOT NULL,
+      status TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      fingerprint TEXT NOT NULL UNIQUE,
+      first_seen_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL,
+      last_used_at INTEGER
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_item_sources (
+      memory_item_id TEXT NOT NULL REFERENCES memory_items(id) ON DELETE CASCADE,
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      evidence TEXT,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (memory_item_id, message_id)
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_summaries (
+      id TEXT PRIMARY KEY,
+      scope TEXT NOT NULL,
+      scope_key TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      token_estimate INTEGER NOT NULL,
+      start_at INTEGER NOT NULL,
+      end_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (scope, scope_key)
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_embeddings (
+      id TEXT PRIMARY KEY,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      dimensions INTEGER NOT NULL,
+      vector_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (target_type, target_id, provider, model)
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_jobs (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      status TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      run_after INTEGER NOT NULL,
+      last_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_checkpoints (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  // FTS table for lexical retrieval over memory_segments.text.
+  database.run(/*sql*/ `
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_segment_fts USING fts5(
+      segment_id UNINDEXED,
+      text
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TRIGGER IF NOT EXISTS memory_segments_ai
+    AFTER INSERT ON memory_segments
+    BEGIN
+      INSERT INTO memory_segment_fts(segment_id, text) VALUES (new.id, new.text);
+    END
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TRIGGER IF NOT EXISTS memory_segments_ad
+    AFTER DELETE ON memory_segments
+    BEGIN
+      DELETE FROM memory_segment_fts WHERE segment_id = old.id;
+    END
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TRIGGER IF NOT EXISTS memory_segments_au
+    AFTER UPDATE ON memory_segments
+    BEGIN
+      DELETE FROM memory_segment_fts WHERE segment_id = old.id;
+      INSERT INTO memory_segment_fts(segment_id, text) VALUES (new.id, new.text);
+    END
+  `);
+
   // Migrations — ALTER TABLE ADD COLUMN throws if column already exists
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN total_input_tokens INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN total_output_tokens INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
@@ -81,6 +205,16 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_tool_invocations_conversation_id ON tool_invocations(conversation_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at)`);
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_segments_message_segment ON memory_segments(message_id, segment_index)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_segments_conversation_created ON memory_segments(conversation_id, created_at DESC)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_sources_message_id ON memory_item_sources(message_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_kind_status ON memory_items(kind, status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_target ON memory_embeddings(target_type, target_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_provider_model ON memory_embeddings(provider, model)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_jobs_status_run_after ON memory_jobs(status, run_after)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_summaries_scope_time ON memory_summaries(scope, end_at DESC)`);
+
+  migrateMemoryFtsBackfill(database);
 }
 
 /**
@@ -123,4 +257,20 @@ function migrateToolInvocationsFk(database: ReturnType<typeof drizzle<typeof sch
   } finally {
     raw.exec('PRAGMA foreign_keys = ON');
   }
+}
+
+/**
+ * Backfill FTS rows for existing memory_segments records when upgrading from a
+ * version that may not have had trigger-managed FTS.
+ */
+function migrateMemoryFtsBackfill(database: ReturnType<typeof drizzle<typeof schema>>): void {
+  const raw = (database as unknown as { $client: Database }).$client;
+  const ftsCountRow = raw.query(`SELECT COUNT(*) AS c FROM memory_segment_fts`).get() as { c: number } | null;
+  const ftsCount = ftsCountRow?.c ?? 0;
+  if (ftsCount > 0) return;
+
+  raw.exec(/*sql*/ `
+    INSERT INTO memory_segment_fts(segment_id, text)
+    SELECT id, text FROM memory_segments
+  `);
 }
