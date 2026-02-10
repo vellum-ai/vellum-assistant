@@ -26,7 +26,15 @@ const logos = [
 
 export function LogoMarquee() {
   return (
-    <div className="section-logo new">
+    <div 
+      className="section-logo new"
+      style={{
+        background: "rgba(255, 255, 255, 0.1)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        borderTop: "1px solid rgba(255, 255, 255, 0.15)",
+      }}
+    >
       <style>{`
         @keyframes logo-marquee-scroll {
           0% { transform: translateX(0); }
@@ -43,13 +51,13 @@ export function LogoMarquee() {
                 </div>
                 <div className="fs-logo-marquee_instance">
                   <div className="div-block-238">
-                    <div className="trusted_header align-center">Trusted by companies of all sizes</div>
+                    <div className="trusted_header align-center" style={{ color: "rgba(255, 255, 255, 0.9)" }}>Trusted by companies of all sizes</div>
                   </div>
                   <div className="fs-logo-marquee_list-wrapper alt w-dyn-list" style={{ overflow: "hidden", maskImage: "linear-gradient(to right, transparent, black 10%, black 90%, transparent)", WebkitMaskImage: "linear-gradient(to right, transparent, black 10%, black 90%, transparent)" }}>
                     <div role="list" className="fs-logo-marquee_list w-dyn-items" style={{ display: "flex", alignItems: "center", gap: "3rem", flexWrap: "nowrap", padding: "1.5rem 0", width: "max-content", animation: "logo-marquee-scroll 30s linear infinite" }}>
                       {[...logos, ...logos].map((logo, index) => (
                         <div key={index} role="listitem" className="logo_item pill w-dyn-item" style={{ flexShrink: 0 }}>
-                          <Image loading="lazy" src={logo.src} alt={logo.alt} className="marquee_logo smaller" width={150} height={40} unoptimized style={{ height: "28px", width: "auto", objectFit: "contain", opacity: 0.8 }} />
+                          <Image loading="lazy" src={logo.src} alt={logo.alt} className="marquee_logo smaller" width={150} height={40} unoptimized style={{ height: "28px", width: "auto", objectFit: "contain", opacity: 0.9, filter: "brightness(0) invert(1)" }} />
                         </div>
                       ))}
                     </div>
