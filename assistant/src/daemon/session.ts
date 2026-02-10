@@ -23,6 +23,11 @@ import {
   ContextWindowManager,
   createContextSummaryMessage,
 } from '../context/window-manager.js';
+import {
+  buildMemoryRecall,
+  injectMemoryRecallIntoUserMessage,
+  stripMemoryRecallMessages,
+} from '../memory/retriever.js';
 
 const log = getLogger('session');
 
@@ -180,7 +185,7 @@ export class Session {
       // Add user message
       const userMessage = createUserMessage(content);
       this.messages.push(userMessage);
-      conversationStore.addMessage(
+      const persistedUserMessage = conversationStore.addMessage(
         this.conversationId,
         'user',
         JSON.stringify(userMessage.content),
@@ -192,7 +197,7 @@ export class Session {
       );
       if (compacted.compacted) {
         this.messages = compacted.messages;
-        this.contextCompactedMessageCount += compacted.compactedMessages;
+        this.contextCompactedMessageCount += compacted.compactedPersistedMessages;
         conversationStore.updateConversationContextWindow(
           this.conversationId,
           compacted.summaryText,
@@ -210,6 +215,12 @@ export class Session {
           summaryOutputTokens: compacted.summaryOutputTokens,
           summaryModel: compacted.summaryModel,
         });
+        this.recordUsage(
+          compacted.summaryInputTokens,
+          compacted.summaryOutputTokens,
+          compacted.summaryModel,
+          onEvent,
+        );
       }
 
       // Run agent loop
@@ -217,8 +228,45 @@ export class Session {
       let exchangeInputTokens = 0;
       let exchangeOutputTokens = 0;
       let model = '';
+      let runMessages = this.messages;
+      const runtimeConfig = getConfig();
+      const recallQuery = buildMemoryQuery(content, this.messages);
+      const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig, {
+        excludeMessageIds: [persistedUserMessage.id],
+        signal: this.abortController.signal,
+      });
+
+      onEvent({
+        type: 'memory_status',
+        enabled: recall.enabled,
+        degraded: recall.degraded,
+        reason: recall.reason,
+        provider: recall.provider,
+        model: recall.model,
+      });
+
+      if (recall.injectedText.length > 0) {
+        const userTail = this.messages[this.messages.length - 1];
+        if (userTail && userTail.role === 'user') {
+          runMessages = [
+            ...this.messages.slice(0, -1),
+            injectMemoryRecallIntoUserMessage(userTail, recall.injectedText),
+          ];
+          onEvent({
+            type: 'memory_recalled',
+            provider: recall.provider ?? 'unknown',
+            model: recall.model ?? 'unknown',
+            lexicalHits: recall.lexicalHits,
+            semanticHits: recall.semanticHits,
+            recencyHits: recall.recencyHits,
+            injectedTokens: recall.injectedTokens,
+            latencyMs: recall.latencyMs,
+          });
+        }
+      }
+
       const updatedHistory = await this.agentLoop.run(
-        this.messages,
+        runMessages,
         (event) => {
           switch (event.type) {
             case 'text_delta':
@@ -258,32 +306,9 @@ export class Session {
         this.abortController.signal,
       );
 
-      this.messages = updatedHistory;
+      this.messages = stripMemoryRecallMessages(updatedHistory, recall.injectedText);
 
-      // Update cumulative token usage
-      if (exchangeInputTokens > 0 || exchangeOutputTokens > 0) {
-        const exchangeCost = estimateCost(exchangeInputTokens, exchangeOutputTokens, model);
-        this.usageStats = {
-          inputTokens: this.usageStats.inputTokens + exchangeInputTokens,
-          outputTokens: this.usageStats.outputTokens + exchangeOutputTokens,
-          estimatedCost: this.usageStats.estimatedCost + exchangeCost,
-        };
-        conversationStore.updateConversationUsage(
-          this.conversationId,
-          this.usageStats.inputTokens,
-          this.usageStats.outputTokens,
-          this.usageStats.estimatedCost,
-        );
-        onEvent({
-          type: 'usage_update',
-          inputTokens: exchangeInputTokens,
-          outputTokens: exchangeOutputTokens,
-          totalInputTokens: this.usageStats.inputTokens,
-          totalOutputTokens: this.usageStats.outputTokens,
-          estimatedCost: exchangeCost,
-          model,
-        });
-      }
+      this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent);
 
       if (this.abortController?.signal.aborted) {
         onEvent({ type: 'generation_cancelled' });
@@ -343,6 +368,37 @@ export class Session {
     return removed;
   }
 
+  private recordUsage(
+    inputTokens: number,
+    outputTokens: number,
+    model: string,
+    onEvent: (msg: ServerMessage) => void,
+  ): void {
+    if (inputTokens <= 0 && outputTokens <= 0) return;
+
+    const estimatedCost = estimateCost(inputTokens, outputTokens, model);
+    this.usageStats = {
+      inputTokens: this.usageStats.inputTokens + inputTokens,
+      outputTokens: this.usageStats.outputTokens + outputTokens,
+      estimatedCost: this.usageStats.estimatedCost + estimatedCost,
+    };
+    conversationStore.updateConversationUsage(
+      this.conversationId,
+      this.usageStats.inputTokens,
+      this.usageStats.outputTokens,
+      this.usageStats.estimatedCost,
+    );
+    onEvent({
+      type: 'usage_update',
+      inputTokens,
+      outputTokens,
+      totalInputTokens: this.usageStats.inputTokens,
+      totalOutputTokens: this.usageStats.outputTokens,
+      estimatedCost,
+      model,
+    });
+  }
+
   private async generateTitle(userMessage: string, assistantResponse: string): Promise<void> {
     const config = getConfig();
     const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
@@ -365,4 +421,21 @@ export class Session {
       log.info({ conversationId: this.conversationId, title }, 'Auto-generated conversation title');
     }
   }
+}
+
+function buildMemoryQuery(content: string, messages: Message[]): string {
+  const summaryMessage = messages.find((message) =>
+    message.role === 'assistant'
+    && message.content.some((block) => block.type === 'text' && block.text.includes('[Context Summary v1]')),
+  );
+  const summaryText = summaryMessage
+    ? summaryMessage.content
+      .filter((block): block is Extract<typeof summaryMessage.content[number], { type: 'text' }> => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+    : '';
+  const compactSummary = summaryText.slice(0, 1200);
+  return compactSummary.length > 0
+    ? `${content}\n\nContext summary:\n${compactSummary}`
+    : content;
 }

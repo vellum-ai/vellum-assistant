@@ -1,5 +1,6 @@
 import * as net from 'node:net';
-import { unlinkSync, existsSync, chmodSync, watch, type FSWatcher } from 'node:fs';
+import { unlinkSync, existsSync, chmodSync, readdirSync, watch, type FSWatcher } from 'node:fs';
+import { join } from 'node:path';
 import { getSocketPath, getDataDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
@@ -117,6 +118,17 @@ export class DaemonServer {
   private startFileWatchers(): void {
     const dataDir = getDataDir();
 
+    // Prompt/config changes should invalidate existing session prompts.
+    const evictSessions = () => {
+      for (const [id, session] of this.sessions) {
+        if (!session.isProcessing()) {
+          this.sessions.delete(id);
+        } else {
+          session.markStale();
+        }
+      }
+    };
+
     // Watch the data directory instead of individual files so we detect:
     // - Files that don't exist yet at startup (new config/trust creation)
     // - Atomic rename writes (trust-store uses renameSync)
@@ -131,14 +143,7 @@ export class DaemonServer {
           log.error({ err }, 'Failed to reload config');
           return;
         }
-        // Evict idle sessions; mark busy ones as stale
-        for (const [id, session] of this.sessions) {
-          if (!session.isProcessing()) {
-            this.sessions.delete(id);
-          } else {
-            session.markStale();
-          }
-        }
+        evictSessions();
       },
       'trust.json': () => {
         clearTrustCache();
@@ -150,36 +155,31 @@ export class DaemonServer {
 
     // Prompt files (SOUL.md, IDENTITY.md) affect the system prompt.
     // When they change, evict idle sessions so they pick up the new prompt.
-    const evictSessions = () => {
-      for (const [id, session] of this.sessions) {
-        if (!session.isProcessing()) {
-          this.sessions.delete(id);
-        } else {
-          session.markStale();
-        }
-      }
-    };
     handlers['SOUL.md'] = evictSessions;
     handlers['IDENTITY.md'] = evictSessions;
 
     try {
       const watcher = watch(dataDir, (_eventType, filename) => {
-        if (!filename || !handlers[filename]) return;
+        if (!filename) return;
+        const file = String(filename);
+        if (!handlers[file]) return;
         // Debounce: editors often write files in multiple steps
-        const existing = this.debounceTimers.get(filename);
+        const existing = this.debounceTimers.get(file);
         if (existing) clearTimeout(existing);
         const timer = setTimeout(() => {
-          this.debounceTimers.delete(filename);
-          log.info({ file: filename }, 'File changed, reloading');
-          handlers[filename]();
+          this.debounceTimers.delete(file);
+          log.info({ file }, 'File changed, reloading');
+          handlers[file]();
         }, 200);
-        this.debounceTimers.set(filename, timer);
+        this.debounceTimers.set(file, timer);
       });
       this.watchers.push(watcher);
       log.info({ dir: dataDir }, 'Watching data directory for config/trust/prompt changes');
     } catch (err) {
       log.warn({ err }, 'Failed to watch data directory');
     }
+
+    this.startSkillsWatchers(evictSessions);
   }
 
   private stopFileWatchers(): void {
@@ -191,6 +191,99 @@ export class DaemonServer {
       watcher.close();
     }
     this.watchers = [];
+  }
+
+  private startSkillsWatchers(evictSessions: () => void): void {
+    const skillsDir = join(getDataDir(), 'skills');
+    if (!existsSync(skillsDir)) return;
+
+    const scheduleSkillsReload = (file: string): void => {
+      const key = `skills:${file}`;
+      const existing = this.debounceTimers.get(key);
+      if (existing) clearTimeout(existing);
+      const timer = setTimeout(() => {
+        this.debounceTimers.delete(key);
+        log.info({ file }, 'Skill file changed, reloading');
+        evictSessions();
+      }, 200);
+      this.debounceTimers.set(key, timer);
+    };
+
+    try {
+      const recursiveWatcher = watch(skillsDir, { recursive: true }, (_eventType, filename) => {
+        scheduleSkillsReload(filename ? String(filename) : '(unknown)');
+      });
+      this.watchers.push(recursiveWatcher);
+      log.info({ dir: skillsDir }, 'Watching skills directory recursively');
+      return;
+    } catch (err) {
+      log.info({ err, dir: skillsDir }, 'Recursive skills watch unavailable; using per-directory watchers');
+    }
+
+    const childWatchers = new Map<string, FSWatcher>();
+
+    const watchDir = (dirPath: string, onChange: (filename: string) => void): FSWatcher | null => {
+      try {
+        const watcher = watch(dirPath, (_eventType, filename) => {
+          onChange(filename ? String(filename) : '(unknown)');
+        });
+        this.watchers.push(watcher);
+        return watcher;
+      } catch (err) {
+        log.warn({ err, dirPath }, 'Failed to watch skills directory');
+        return null;
+      }
+    };
+
+    const removeWatcher = (watcher: FSWatcher): void => {
+      const idx = this.watchers.indexOf(watcher);
+      if (idx !== -1) {
+        this.watchers.splice(idx, 1);
+      }
+    };
+
+    const refreshChildWatchers = (): void => {
+      const nextChildDirs = new Set<string>();
+
+      try {
+        const entries = readdirSync(skillsDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const childDir = join(skillsDir, entry.name);
+          nextChildDirs.add(childDir);
+
+          if (childWatchers.has(childDir)) continue;
+
+          const watcher = watchDir(childDir, (filename) => {
+            const label = filename === '(unknown)' ? entry.name : `${entry.name}/${filename}`;
+            scheduleSkillsReload(label);
+          });
+          if (watcher) {
+            childWatchers.set(childDir, watcher);
+          }
+        }
+      } catch (err) {
+        log.warn({ err, skillsDir }, 'Failed to enumerate skill directories');
+        return;
+      }
+
+      for (const [childDir, watcher] of childWatchers.entries()) {
+        if (nextChildDirs.has(childDir)) continue;
+        watcher.close();
+        childWatchers.delete(childDir);
+        removeWatcher(watcher);
+      }
+    };
+
+    const rootWatcher = watchDir(skillsDir, (filename) => {
+      scheduleSkillsReload(filename);
+      refreshChildWatchers();
+    });
+
+    if (!rootWatcher) return;
+
+    refreshChildWatchers();
+    log.info({ dir: skillsDir }, 'Watching skills directory with non-recursive fallback');
   }
 
   private handleConnection(socket: net.Socket): void {
@@ -250,8 +343,10 @@ export class DaemonServer {
       conversation = conversationStore.createConversation('New Conversation');
     }
 
-    await this.getOrCreateSession(conversation.id, socket);
-    this.socketToSession.set(socket, conversation.id);
+    // Warm session state for commands like undo/usage after reconnect without
+    // rebinding the active IPC output client to this passive socket.
+    await this.getOrCreateSession(conversation.id, undefined, false);
+
     this.send(socket, {
       type: 'session_info',
       sessionId: conversation.id,
@@ -259,9 +354,20 @@ export class DaemonServer {
     });
   }
 
-  private async getOrCreateSession(conversationId: string, socket: net.Socket): Promise<Session> {
+  private async getOrCreateSession(
+    conversationId: string,
+    socket?: net.Socket,
+    rebindClient = true,
+  ): Promise<Session> {
     let session = this.sessions.get(conversationId);
-    const sendToClient = (msg: ServerMessage) => this.send(socket, msg);
+    const sendToClient = socket
+      ? (msg: ServerMessage) => this.send(socket, msg)
+      : () => {};
+    const maybeBindClient = (target: Session): void => {
+      if (!rebindClient || !socket) return;
+      target.updateClient(sendToClient);
+      target.setSandboxOverride(this.socketSandboxOverride.get(socket));
+    };
 
     if (!session || (session.isStale() && !session.isProcessing())) {
       // Check if another caller is already creating this session.
@@ -271,8 +377,7 @@ export class DaemonServer {
       const pending = this.sessionCreating.get(conversationId);
       if (pending) {
         session = await pending;
-        session.updateClient(sendToClient);
-        session.setSandboxOverride(this.socketSandboxOverride.get(socket));
+        maybeBindClient(session);
         return session;
       }
 
@@ -290,11 +395,13 @@ export class DaemonServer {
           provider,
           buildSystemPrompt(config.systemPrompt),
           config.maxTokens,
-          sendToClient,
+          rebindClient ? sendToClient : () => {},
           workingDir,
         );
         await newSession.loadFromDb();
-        newSession.setSandboxOverride(this.socketSandboxOverride.get(socket));
+        if (rebindClient && socket) {
+          newSession.setSandboxOverride(this.socketSandboxOverride.get(socket));
+        }
         this.sessions.set(conversationId, newSession);
         return newSession;
       })();
@@ -306,9 +413,8 @@ export class DaemonServer {
         this.sessionCreating.delete(conversationId);
       }
     } else {
-      // Rebind to the new socket so IPC goes to the current client
-      session.updateClient(sendToClient);
-      session.setSandboxOverride(this.socketSandboxOverride.get(socket));
+      // Rebind to the new socket so IPC goes to the current client.
+      maybeBindClient(session);
     }
     return session;
   }
@@ -383,7 +489,7 @@ export class DaemonServer {
   ): Promise<void> {
     try {
       this.socketToSession.set(socket, sessionId);
-      const session = await this.getOrCreateSession(sessionId, socket);
+      const session = await this.getOrCreateSession(sessionId, socket, true);
       await session.processMessage(content, (event) => {
         this.send(socket, event);
       });
@@ -413,7 +519,7 @@ export class DaemonServer {
     const conversation = conversationStore.createConversation(
       title ?? 'New Conversation',
     );
-    await this.getOrCreateSession(conversation.id, socket);
+    await this.getOrCreateSession(conversation.id, socket, true);
     this.send(socket, {
       type: 'session_info',
       sessionId: conversation.id,
@@ -431,7 +537,7 @@ export class DaemonServer {
       return;
     }
     this.socketToSession.set(socket, sessionId);
-    await this.getOrCreateSession(sessionId, socket);
+    await this.getOrCreateSession(sessionId, socket, true);
     this.send(socket, {
       type: 'session_info',
       sessionId: conversation.id,

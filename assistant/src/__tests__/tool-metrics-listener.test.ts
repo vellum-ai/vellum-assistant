@@ -115,14 +115,14 @@ describe('registerToolMetricsLoggingListener', () => {
     await bus.emit('tool.permission.requested', {
       conversationId: 'conversation-1',
       sessionId: 'session-1',
-      toolName: 'shell',
+      toolName: 'bash',
       riskLevel: 'high',
       requestedAtMs: 120,
     });
     await bus.emit('tool.permission.decided', {
       conversationId: 'conversation-1',
       sessionId: 'session-1',
-      toolName: 'shell',
+      toolName: 'bash',
       decision: 'deny',
       riskLevel: 'high',
       decidedAtMs: 125,
@@ -171,7 +171,7 @@ describe('registerToolMetricsLoggingListener', () => {
     await bus.emit('tool.execution.failed', {
       conversationId: 'conversation-1',
       sessionId: 'session-1',
-      toolName: 'shell',
+      toolName: 'bash',
       decision: 'error',
       riskLevel: 'high',
       durationMs: 42,
@@ -186,7 +186,7 @@ describe('registerToolMetricsLoggingListener', () => {
     expect(warnCalls).toHaveLength(0);
     expect(errorCalls[0][1]).toBe('Tool execution error');
     const payload = errorCalls[0][0] as Record<string, unknown>;
-    expect(payload.tool).toBe('shell');
+    expect(payload.tool).toBe('bash');
     expect(payload.error).toBe('boom');
     expect(payload.errorStack).toBe('Error: boom\n    at test');
     expect(payload.execDurationMs).toBe(42);
@@ -203,7 +203,7 @@ describe('registerToolMetricsLoggingListener', () => {
     await bus.emit('tool.execution.failed', {
       conversationId: 'conversation-1',
       sessionId: 'session-1',
-      toolName: 'shell',
+      toolName: 'bash',
       decision: 'error',
       riskLevel: 'medium',
       durationMs: 14,
@@ -218,7 +218,7 @@ describe('registerToolMetricsLoggingListener', () => {
     expect(errorCalls).toHaveLength(0);
     expect(warnCalls[0][1]).toBe('Tool execution failed (expected)');
     const payload = warnCalls[0][0] as Record<string, unknown>;
-    expect(payload.tool).toBe('shell');
+    expect(payload.tool).toBe('bash');
     expect(payload.isExpected).toBe(true);
     expect(payload.errorName).toBe('PermissionDeniedError');
   });

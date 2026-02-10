@@ -204,6 +204,23 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     ],
     action: 'redact',
   },
+  memory_recalled: {
+    type: 'memory_recalled',
+    provider: 'openai',
+    model: 'text-embedding-3-small',
+    lexicalHits: 12,
+    semanticHits: 8,
+    recencyHits: 6,
+    injectedTokens: 480,
+    latencyMs: 55,
+  },
+  memory_status: {
+    type: 'memory_status',
+    enabled: true,
+    degraded: false,
+    provider: 'openai',
+    model: 'text-embedding-3-small',
+  },
 };
 
 // ---------------------------------------------------------------------------

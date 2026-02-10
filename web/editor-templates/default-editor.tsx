@@ -39,6 +39,8 @@ type AssistantStatus =
   | "setting_up"
   | "provisioning_failed";
 
+type ConnectionMode = "cloud" | "local";
+
 const SETUP_GRACE_PERIOD_MS = 10 * 60 * 1000;
 
 type TabId =
@@ -264,6 +266,7 @@ function InteractionView({
   assistantCreatedAt: string;
 }) {
   const [assistantStatus, setAssistantStatus] = useState<AssistantStatus>("checking");
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode>("cloud");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -308,9 +311,27 @@ function InteractionView({
       const response = await fetch(`/api/assistants/${assistantId}/health`);
       if (!response.ok) {
         setAssistantStatus("unknown");
+        setConnectionMode("cloud");
         return;
       }
       const data = await response.json();
+      if (data.connectionMode === "local") {
+        setConnectionMode("local");
+        if (data.daemon?.reachable) {
+          setAssistantStatus("healthy");
+          setStatusMessage("Connected to local daemon");
+        } else {
+          setAssistantStatus("unreachable");
+          setStatusMessage(
+            data.daemon?.error ||
+              data.message ||
+              "Local daemon is not reachable"
+          );
+        }
+        return;
+      }
+
+      setConnectionMode("cloud");
       if (
         data.status === "unknown" &&
         data.message === "No compute instance configured"
@@ -437,6 +458,35 @@ function InteractionView({
   );
 
   const getStatusDisplay = () => {
+    if (connectionMode === "local") {
+      switch (assistantStatus) {
+        case "healthy":
+          return {
+            text: "Local daemon connected",
+            color: "bg-green-500",
+            pulse: true,
+          };
+        case "checking":
+          return {
+            text: "Checking local daemon...",
+            color: "bg-yellow-500",
+            pulse: true,
+          };
+        case "unreachable":
+          return {
+            text: "Local daemon disconnected",
+            color: "bg-red-500",
+            pulse: false,
+          };
+        default:
+          return {
+            text: "Local daemon status unknown",
+            color: "bg-zinc-400 dark:bg-zinc-600",
+            pulse: false,
+          };
+      }
+    }
+
     switch (assistantStatus) {
       case "healthy":
         return { text: "Assistant is alive", color: "bg-green-500", pulse: true };
@@ -510,62 +560,73 @@ function InteractionView({
               {statusDisplay.text}
             </span>
           </div>
-          <button
-            onClick={() => (isAlive ? handleStop() : handleStart())}
-            disabled={
-              isToggling ||
-              assistantStatus === "checking" ||
-              assistantStatus === "starting" ||
-              assistantStatus === "getting_set_up" ||
-              assistantStatus === "setting_up" ||
-              assistantStatus === "provisioning_failed" ||
-              assistantStatus === "unreachable"
-            }
-            className={`flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
-              isAlive
-                ? "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:hover:bg-amber-900"
-                : "bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-950 dark:text-green-400 dark:hover:bg-green-900"
-            }`}
-          >
-            {isToggling
-              ? isAlive
-                ? "Stopping..."
-                : "Starting..."
-              : isAlive
-                ? "Pause"
-                : "Start"}
-          </button>
+          {connectionMode !== "local" && (
+            <button
+              onClick={() => (isAlive ? handleStop() : handleStart())}
+              disabled={
+                isToggling ||
+                assistantStatus === "checking" ||
+                assistantStatus === "starting" ||
+                assistantStatus === "getting_set_up" ||
+                assistantStatus === "setting_up" ||
+                assistantStatus === "provisioning_failed" ||
+                assistantStatus === "unreachable"
+              }
+              className={`flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
+                isAlive
+                  ? "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:hover:bg-amber-900"
+                  : "bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-950 dark:text-green-400 dark:hover:bg-green-900"
+              }`}
+            >
+              {isToggling
+                ? isAlive
+                  ? "Stopping..."
+                  : "Starting..."
+                : isAlive
+                  ? "Pause"
+                  : "Start"}
+            </button>
+          )}
         </div>
       </div>
 
       {!isAlive ? (
         <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
           <h3 className="mt-4 text-lg font-medium text-zinc-900 dark:text-white">
-            {assistantStatus === "checking"
-              ? "Checking assistant status..."
-              : assistantStatus === "starting"
-                ? "Assistant is starting up..."
-                : assistantStatus === "getting_set_up"
-                  ? "Getting set up..."
-                  : assistantStatus === "setting_up"
-                    ? "Setting up..."
-                    : assistantStatus === "provisioning_failed"
-                      ? "Setup failed"
-                      : "Assistant is not running"}
+            {connectionMode === "local"
+              ? assistantStatus === "checking"
+                ? "Checking local daemon..."
+                : "Local daemon is not reachable"
+              : assistantStatus === "checking"
+                ? "Checking assistant status..."
+                : assistantStatus === "starting"
+                  ? "Assistant is starting up..."
+                  : assistantStatus === "getting_set_up"
+                    ? "Getting set up..."
+                    : assistantStatus === "setting_up"
+                      ? "Setting up..."
+                      : assistantStatus === "provisioning_failed"
+                        ? "Setup failed"
+                        : "Assistant is not running"}
           </h3>
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            {assistantStatus === "checking"
-              ? "Please wait while we check the assistant status"
-              : assistantStatus === "starting"
-                ? "Your assistant's compute instance is booting up. This may take a minute."
-                : assistantStatus === "getting_set_up"
-                  ? "Your assistant's compute instance is being created."
-                  : assistantStatus === "setting_up"
-                    ? statusMessage ?? "Your assistant is being configured."
-                    : assistantStatus === "provisioning_failed"
-                      ? statusMessage ??
-                        "Failed to create the compute instance for this assistant."
-                      : "Start the assistant to interact with it directly"}
+            {connectionMode === "local"
+              ? assistantStatus === "checking"
+                ? "Please wait while we check local daemon status."
+                : statusMessage ??
+                  "Run 'vellum daemon start' on this machine to connect chat."
+              : assistantStatus === "checking"
+                ? "Please wait while we check the assistant status"
+                : assistantStatus === "starting"
+                  ? "Your assistant's compute instance is booting up. This may take a minute."
+                  : assistantStatus === "getting_set_up"
+                    ? "Your assistant's compute instance is being created."
+                    : assistantStatus === "setting_up"
+                      ? statusMessage ?? "Your assistant is being configured."
+                      : assistantStatus === "provisioning_failed"
+                        ? statusMessage ??
+                          "Failed to create the compute instance for this assistant."
+                        : "Start the assistant to interact with it directly"}
           </p>
         </div>
       ) : (

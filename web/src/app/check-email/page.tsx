@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useOptimistic, useState } from "react";
 
-import { toast } from "@/components/core/Toast";
-import { VellumHead } from "@/components/VellumHomepage";
+import { toast } from "@/components/shared/core/Toast";
+import { VellumHead } from "@/components/marketing/VellumHomepage";
 
 type ResendStatus = "idle" | "sending" | "sent";
 

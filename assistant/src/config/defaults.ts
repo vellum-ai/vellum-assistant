@@ -19,6 +19,31 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     summaryMaxTokens: 1200,
     chunkTokens: 12000,
   },
+  memory: {
+    enabled: true,
+    embeddings: {
+      required: true,
+      provider: 'auto',
+      openaiModel: 'text-embedding-3-small',
+      geminiModel: 'gemini-embedding-001',
+      ollamaModel: 'nomic-embed-text',
+    },
+    retrieval: {
+      lexicalTopK: 80,
+      semanticTopK: 40,
+      maxInjectTokens: 1800,
+    },
+    segmentation: {
+      targetTokens: 450,
+      overlapTokens: 60,
+    },
+    jobs: {
+      workerConcurrency: 2,
+    },
+    retention: {
+      keepRawForever: true,
+    },
+  },
   dataDir: getDataDir(),
   timeouts: {
     shellDefaultTimeoutSec: 120,

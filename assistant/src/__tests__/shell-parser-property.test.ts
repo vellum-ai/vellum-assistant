@@ -39,7 +39,7 @@ describe('Shell parser property-based tests', () => {
           fc.array(fc.stringMatching(/^[a-zA-Z0-9_./-]+$/), { minLength: 0, maxLength: 5 }),
           async (program, args) => {
             const command = [program, ...args].join(' ');
-            const risk = await classifyRisk('shell', { command });
+            const risk = await classifyRisk('bash', { command });
             expect(risk).toBe(RiskLevel.High);
           }
         ),
@@ -54,7 +54,7 @@ describe('Shell parser property-based tests', () => {
           fc.stringMatching(/^[a-zA-Z0-9_./-]+$/),
           async (flag, target) => {
             const command = `rm ${flag} ${target}`;
-            const risk = await classifyRisk('shell', { command });
+            const risk = await classifyRisk('bash', { command });
             expect(risk).toBe(RiskLevel.High);
           }
         ),
@@ -68,7 +68,7 @@ describe('Shell parser property-based tests', () => {
           fc.constantFrom('/', '~', '$HOME'),
           async (target) => {
             const command = `rm ${target}`;
-            const risk = await classifyRisk('shell', { command });
+            const risk = await classifyRisk('bash', { command });
             expect(risk).toBe(RiskLevel.High);
           }
         ),
@@ -83,7 +83,7 @@ describe('Shell parser property-based tests', () => {
           fc.array(fc.stringMatching(/^[a-zA-Z0-9_./-]+$/), { minLength: 0, maxLength: 3 }),
           async (program, args) => {
             const command = ['sudo', program, ...args].join(' ');
-            const risk = await classifyRisk('shell', { command });
+            const risk = await classifyRisk('bash', { command });
             expect(risk).toBe(RiskLevel.High);
           }
         ),
@@ -104,7 +104,7 @@ describe('Shell parser property-based tests', () => {
           async (kvPairs) => {
             const args = kvPairs.map(([k, v]) => `${k}=${v}`);
             const command = ['dd', ...args].join(' ');
-            const risk = await classifyRisk('shell', { command });
+            const risk = await classifyRisk('bash', { command });
             expect(risk).toBe(RiskLevel.High);
           }
         ),
@@ -129,7 +129,7 @@ describe('Shell parser property-based tests', () => {
           fc.array(safeOperand, { minLength: 0, maxLength: 4 }),
           async (program, args) => {
             const command = [program, ...args].join(' ');
-            const risk = await classifyRisk('shell', { command });
+            const risk = await classifyRisk('bash', { command });
             expect(risk).toBe(RiskLevel.Low);
           }
         ),
@@ -147,7 +147,7 @@ describe('Shell parser property-based tests', () => {
           fc.constantFrom(...readOnlyGit),
           async (subcommand) => {
             const command = `git ${subcommand}`;
-            const risk = await classifyRisk('shell', { command });
+            const risk = await classifyRisk('bash', { command });
             expect(risk).toBe(RiskLevel.Low);
           }
         ),
@@ -166,7 +166,7 @@ describe('Shell parser property-based tests', () => {
           fc.constantFrom('sudo', 'kill', 'reboot', 'shutdown', 'killall'),
           async (safe, dangerous) => {
             const command = `${safe} something | ${dangerous}`;
-            const risk = await classifyRisk('shell', { command });
+            const risk = await classifyRisk('bash', { command });
             expect(risk).toBe(RiskLevel.High);
           }
         ),
@@ -181,7 +181,7 @@ describe('Shell parser property-based tests', () => {
           fc.constantFrom('sudo rm -rf /', 'kill -9 1', 'reboot'),
           async (safe, dangerous) => {
             const command = `${safe} && ${dangerous}`;
-            const risk = await classifyRisk('shell', { command });
+            const risk = await classifyRisk('bash', { command });
             expect(risk).toBe(RiskLevel.High);
           }
         ),
@@ -214,7 +214,7 @@ describe('Shell parser property-based tests', () => {
           ),
           async (commands) => {
             const command = commands.join(' | ');
-            const risk = await classifyRisk('shell', { command });
+            const risk = await classifyRisk('bash', { command });
             expect(risk).toBe(RiskLevel.Low);
           }
         ),
@@ -264,7 +264,7 @@ describe('Shell parser property-based tests', () => {
         fc.asyncProperty(
           fc.string({ minLength: 0, maxLength: 500 }),
           async (input) => {
-            const risk = await classifyRisk('shell', { command: input });
+            const risk = await classifyRisk('bash', { command: input });
             expect([RiskLevel.Low, RiskLevel.Medium, RiskLevel.High]).toContain(risk);
           }
         ),
@@ -317,7 +317,7 @@ describe('Shell parser property-based tests', () => {
     });
 
     test('empty command classifies as low risk', async () => {
-      const risk = await classifyRisk('shell', { command: '' });
+      const risk = await classifyRisk('bash', { command: '' });
       expect(risk).toBe(RiskLevel.Low);
     });
 
@@ -326,7 +326,7 @@ describe('Shell parser property-based tests', () => {
         fc.asyncProperty(
           charsToString(fc.constantFrom(' ', '\t'), { minLength: 1, maxLength: 20 }),
           async (ws) => {
-            const risk = await classifyRisk('shell', { command: ws });
+            const risk = await classifyRisk('bash', { command: ws });
             expect(risk).toBe(RiskLevel.Low);
           }
         ),

@@ -20,6 +20,12 @@ mock.module('../util/platform.js', () => ({
   isWindows: () => process.platform === 'win32',
 }));
 
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+}));
+
 // Import after mock
 const { buildSystemPrompt } = await import('../config/system-prompt.js');
 const { DEFAULT_SYSTEM_PROMPT } = await import('../config/defaults.js');
@@ -86,5 +92,44 @@ describe('buildSystemPrompt', () => {
     writeFileSync(join(TEST_DIR, 'SOUL.md'), '\n  Be kind  \n\n');
     const result = buildSystemPrompt();
     expect(result).toBe('Be kind');
+  });
+
+  test('appends skills catalog when skills are configured', () => {
+    const skillsDir = join(TEST_DIR, 'skills');
+    mkdirSync(join(skillsDir, 'release-checklist'), { recursive: true });
+    writeFileSync(
+      join(skillsDir, 'release-checklist', 'SKILL.md'),
+      '---\nname: "Release Checklist"\ndescription: "Deployment checks."\n---\n\nRun checks.\n',
+    );
+    writeFileSync(join(skillsDir, 'SKILLS.md'), '- release-checklist\n');
+
+    const result = buildSystemPrompt('Custom config prompt');
+    expect(result).toContain('Custom config prompt');
+    expect(result).toContain('## Skills Catalog');
+    expect(result).toContain('`release-checklist` - Release Checklist: Deployment checks.');
+    expect(result).toContain('call the `skill_load` tool');
+  });
+
+  test('keeps SOUL.md and IDENTITY.md additive with skills', () => {
+    const skillsDir = join(TEST_DIR, 'skills');
+    mkdirSync(join(skillsDir, 'incident-response'), { recursive: true });
+    writeFileSync(
+      join(skillsDir, 'incident-response', 'SKILL.md'),
+      '---\nname: "Incident Response"\ndescription: "Triage and mitigation."\n---\n\nFollow runbook.\n',
+    );
+    writeFileSync(join(skillsDir, 'SKILLS.md'), '- incident-response\n');
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'Identity content');
+    writeFileSync(join(TEST_DIR, 'SOUL.md'), 'Soul content');
+
+    const result = buildSystemPrompt('Fallback');
+    expect(result).toContain('Identity content\n\nSoul content');
+    expect(result).toContain('## Skills Catalog');
+    expect(result.indexOf('Soul content')).toBeLessThan(result.indexOf('## Skills Catalog'));
+  });
+
+  test('omits skills catalog when no skills are available', () => {
+    const result = buildSystemPrompt('No skills prompt');
+    expect(result).toBe('No skills prompt');
+    expect(result).not.toContain('## Skills Catalog');
   });
 });

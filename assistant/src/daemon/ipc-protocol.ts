@@ -214,6 +214,26 @@ export interface SecretDetected {
   action: 'redact' | 'warn' | 'block';
 }
 
+export interface MemoryRecalled {
+  type: 'memory_recalled';
+  provider: string;
+  model: string;
+  lexicalHits: number;
+  semanticHits: number;
+  recencyHits: number;
+  injectedTokens: number;
+  latencyMs: number;
+}
+
+export interface MemoryStatus {
+  type: 'memory_status';
+  enabled: boolean;
+  degraded: boolean;
+  reason?: string;
+  provider?: string;
+  model?: string;
+}
+
 export type ServerMessage =
   | AssistantTextDelta
   | AssistantThinkingDelta
@@ -233,7 +253,9 @@ export type ServerMessage =
   | UsageUpdate
   | UsageResponse
   | ContextCompacted
-  | SecretDetected;
+  | SecretDetected
+  | MemoryRecalled
+  | MemoryStatus;
 
 // === Serialization ===
 
