@@ -234,7 +234,7 @@ final class ActionExecutor: ActionExecuting {
         case .wait:
             let ms = action.waitDuration ?? 500
             try await Task.sleep(nanoseconds: UInt64(ms) * 1_000_000)
-        case .done:
+        case .done, .respond:
             break
         }
         return nil

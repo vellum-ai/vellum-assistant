@@ -25,9 +25,14 @@ final class AmbientAnalyzer {
         self.client = AnthropicClient(apiKey: apiKey)
     }
 
-    func analyze(ocrText: String, appName: String, windowTitle: String, knowledgeContext: String) async throws -> AmbientAnalysisResult {
+    func analyze(screenContent: String, appName: String, windowTitle: String, knowledgeContext: String, captureMethod: String = "ocr") async throws -> AmbientAnalysisResult {
+        let captureNote = captureMethod == "ax-tree"
+            ? "Screen content is structured (from accessibility tree) and includes app name, window title, and element roles."
+            : "Screen content is raw text from OCR."
+
         let systemPrompt = """
-        You are a background screen-watching assistant. You observe the user's screen via OCR text and decide what to do.
+        You are a background screen-watching assistant. You observe the user's screen and decide what to do.
+        \(captureNote)
 
         Your goal is to learn about the user over time AND proactively offer help when you spot problems, clutter, or opportunities to make their life easier.
 
@@ -63,8 +68,8 @@ final class AmbientAnalyzer {
         ACTIVE APPLICATION: \(appName)
         WINDOW TITLE: \(windowTitle)
 
-        SCREEN CONTENT (OCR):
-        \(ocrText)
+        SCREEN CONTENT:
+        \(screenContent)
 
         YOUR KNOWLEDGE ABOUT THIS USER:
         \(knowledgeContext)

@@ -3,6 +3,8 @@
 import { Loader2, Trash2 } from "lucide-react";
 import { MouseEvent, useCallback, useRef } from "react";
 
+import { Button } from "@/components/app/core/Button";
+
 interface DeleteAssistantModalProps {
   isDeleting: boolean;
   error: string | null;
@@ -56,18 +58,20 @@ export function DeleteAssistantModal({
               {error}
             </p>
             <div className="flex gap-3">
-              <button
+              <Button
                 onClick={onClose}
-                className="flex-1 cursor-pointer rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                variant="outline"
+                className="flex-1"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={onConfirm}
-                className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
+                variant="danger"
+                className="flex-1"
               >
                 Retry
-              </button>
+              </Button>
             </div>
           </>
         ) : (
@@ -83,19 +87,21 @@ export function DeleteAssistantModal({
               be undone.
             </p>
             <div className="flex gap-3">
-              <button
+              <Button
                 onClick={onClose}
-                className="flex-1 cursor-pointer rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                variant="outline"
+                className="flex-1"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={onConfirm}
-                className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
+                variant="danger"
+                icon={Trash2}
+                className="flex-1"
               >
-                <Trash2 className="h-4 w-4" />
                 Delete
-              </button>
+              </Button>
             </div>
           </>
         )}

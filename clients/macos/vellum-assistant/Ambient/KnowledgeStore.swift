@@ -10,6 +10,10 @@ struct KnowledgeEntry: Codable, Identifiable {
     let observation: String
     let sourceApp: String
     let confidence: Double
+    var windowTitle: String?
+    var focusedElement: String?
+    var captureMethod: String?
+    var bundleIdentifier: String?
 }
 
 struct KnowledgeFile: Codable {
@@ -52,7 +56,9 @@ final class KnowledgeStore: ObservableObject {
         Array(knowledge.entries.suffix(10))
     }
 
-    func addEntry(category: String, observation: String, sourceApp: String, confidence: Double) {
+    func addEntry(category: String, observation: String, sourceApp: String, confidence: Double,
+                  windowTitle: String? = nil, focusedElement: String? = nil,
+                  captureMethod: String? = nil, bundleIdentifier: String? = nil) {
         // Dedup: skip if a recent entry has a very similar observation
         let recentWindow = knowledge.entries.suffix(20)
         let isDuplicate = recentWindow.contains { existing in
@@ -63,7 +69,7 @@ final class KnowledgeStore: ObservableObject {
             return
         }
 
-        let entry = KnowledgeEntry(
+        var entry = KnowledgeEntry(
             id: UUID(),
             timestamp: Date(),
             category: category,
@@ -71,6 +77,10 @@ final class KnowledgeStore: ObservableObject {
             sourceApp: sourceApp,
             confidence: confidence
         )
+        entry.windowTitle = windowTitle
+        entry.focusedElement = focusedElement
+        entry.captureMethod = captureMethod
+        entry.bundleIdentifier = bundleIdentifier
         knowledge.entries.append(entry)
 
         // Prune oldest entries if over limit

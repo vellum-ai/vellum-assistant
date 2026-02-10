@@ -67,7 +67,7 @@ function showToast(
     (id) => (
       <div
         role="alert"
-        className={`flex w-[356px] items-start gap-3 rounded-lg border p-4 shadow-lg ${styles.container}`}
+        className={`flex w-[356px] items-start gap-3 rounded-meadow border p-4 shadow-lg ${styles.container}`}
       >
         {styles.iconElement && (
           <span className={`mt-0.5 shrink-0 ${styles.icon}`}>

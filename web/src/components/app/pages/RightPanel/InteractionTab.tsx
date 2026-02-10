@@ -9,6 +9,8 @@ import {
   useState,
 } from "react";
 
+import { Button } from "@/components/app/core/Button";
+
 type AssistantStatus = "healthy" | "unhealthy" | "stopped" | "unreachable" | "unknown" | "checking" | "getting_set_up" | "setting_up" | "provisioning_failed";
 
 interface AssistantError {
@@ -257,32 +259,22 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
               {statusDisplay.text}
             </span>
           </div>
-          <button
+          <Button
             onClick={handleToggleStatus}
             disabled={isToggling || assistantStatus === "checking" || assistantStatus === "getting_set_up" || assistantStatus === "setting_up" || assistantStatus === "provisioning_failed" || assistantStatus === "unreachable"}
-            className={`flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
+            variant="ghost"
+            size="sm"
+            icon={isToggling ? Loader2 : isAlive ? Pause : Play}
+            className={
               isAlive
                 ? "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:hover:bg-amber-900"
                 : "bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-950 dark:text-green-400 dark:hover:bg-green-900"
-            }`}
+            }
           >
-            {isToggling ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {isAlive ? "Stopping..." : "Starting..."}
-              </>
-            ) : isAlive ? (
-              <>
-                <Pause className="h-4 w-4" />
-                Pause
-              </>
-            ) : (
-              <>
-                <Play className="h-4 w-4" />
-                Start
-              </>
-            )}
-          </button>
+            {isToggling
+              ? isAlive ? "Stopping..." : "Starting..."
+              : isAlive ? "Pause" : "Start"}
+          </Button>
         </div>
       </div>
 
@@ -354,23 +346,14 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
                       : "Start the assistant to interact with it directly"}
           </p>
           {assistantStatus !== "checking" && assistantStatus !== "getting_set_up" && assistantStatus !== "setting_up" && assistantStatus !== "provisioning_failed" && assistantStatus !== "unreachable" && (
-            <button
+            <Button
               onClick={handleStart}
               disabled={isToggling}
-              className="mt-4 flex cursor-pointer items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50"
+              icon={isToggling ? Loader2 : Play}
+              className="mt-4 bg-green-600 text-white hover:bg-green-700"
             >
-              {isToggling ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Starting...
-                </>
-              ) : (
-                <>
-                  <Play className="h-4 w-4" />
-                  Start Assistant
-                </>
-              )}
-            </button>
+              {isToggling ? "Starting..." : "Start Assistant"}
+            </Button>
           )}
         </div>
       ) : (
@@ -446,13 +429,13 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
                 rows={1}
                 className="flex-1 resize-none rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
               />
-              <button
+              <Button
                 type="submit"
                 disabled={!input.trim() || isLoading}
-                className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg bg-green-600 text-white transition-colors hover:bg-green-700 disabled:opacity-50"
-              >
-                <Send className="h-4 w-4" />
-              </button>
+                size="icon"
+                icon={Send}
+                className="bg-green-600 text-white hover:bg-green-700"
+              />
             </div>
           </form>
         </>

@@ -1,6 +1,6 @@
 import { Metadata } from "next";
 
-import { VellumHead, VellumScripts } from "@/components/marketing/VellumHomepage";
+import { VellumScripts } from "@/components/marketing/VellumHomepage";
 import { WebinarsBody } from "@/components/marketing/WebinarsPage/WebinarsBody";
 
 export const metadata: Metadata = {
@@ -10,7 +10,6 @@ export const metadata: Metadata = {
 export default function WebinarsPage() {
   return (
     <>
-      <VellumHead />
       <VellumScripts />
       <WebinarsBody />
     </>

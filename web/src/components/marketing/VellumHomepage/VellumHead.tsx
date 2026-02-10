@@ -5,11 +5,9 @@ import Script from "next/script";
 export function VellumHead() {
   return (
     <>
-      {/* Webflow CSS */}
       <link
-        href="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/css/vellum-v2.webflow.shared.8974b486a.min.css"
         rel="stylesheet"
-        type="text/css"
+        href="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/css/vellum-v2.webflow.shared.8974b486a.min.css"
         integrity="sha384-iXS0hqh2XhV4cggyxfyByEBXc6zfb+ifhTIGKjaf4dzNqrxjku3vwiVZ925Mf7Ef"
         crossOrigin="anonymous"
       />
