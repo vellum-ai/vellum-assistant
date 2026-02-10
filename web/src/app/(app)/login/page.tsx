@@ -1,5 +1,6 @@
 "use client";
 
+import clsx from "clsx";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -112,9 +113,10 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className={`d-button nav-button-5 cta-get-started new w-full inline-flex items-center justify-center gap-2 border-none mt-2 ${
+                  className={clsx(
+                    "d-button nav-button-5 cta-get-started new w-full inline-flex items-center justify-center gap-2 border-none mt-2",
                     isSubmitting ? "cursor-wait opacity-50" : "cursor-pointer"
-                  }`}
+                  )}
                 >
                   <div className="btn-text nav-button-6 new">
                     {isSubmitting ? "Signing in..." : "Sign in"}

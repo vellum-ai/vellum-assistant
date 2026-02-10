@@ -1,5 +1,6 @@
 "use client";
 
+import clsx from "clsx";
 import {
   CircleAlert,
   CircleCheck,
@@ -67,10 +68,13 @@ function showToast(
     (id) => (
       <div
         role="alert"
-        className={`flex w-fit max-w-[356px] max-h-[300px] items-start gap-3 rounded-lg border p-3 shadow-lg ${styles.container}`}
+        className={clsx(
+          "flex w-fit max-w-[356px] max-h-[300px] items-start gap-3 rounded-lg border p-3 shadow-lg",
+          styles.container
+        )}
       >
         {styles.iconElement && (
-          <span className={`mt-0.5 shrink-0 ${styles.icon}`}>
+          <span className={clsx("mt-0.5 shrink-0", styles.icon)}>
             {styles.iconElement}
           </span>
         )}
