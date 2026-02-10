@@ -104,6 +104,22 @@ describe('web_fetch tool', () => {
     expect(called).toBe(false);
   });
 
+  test('blocks IPv4 limited broadcast targets unless explicitly enabled', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch({ url: 'http://255.255.255.255/' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Refusing to fetch local/private network target');
+    expect(called).toBe(false);
+  });
+
   test('blocks hostnames that resolve to private addresses unless explicitly enabled', async () => {
     let called = false;
     globalThis.fetch = (async () => {

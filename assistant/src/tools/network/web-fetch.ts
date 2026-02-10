@@ -127,6 +127,7 @@ function isPrivateIPv4(hostname: string): boolean {
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
   if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a === 255) return true;
 
   return false;
 }
