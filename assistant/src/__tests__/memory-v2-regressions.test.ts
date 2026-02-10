@@ -38,7 +38,15 @@ import {
   injectMemoryRecallIntoUserMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
-import { conversations, memoryItems, memoryJobs, messages } from '../memory/schema.js';
+import {
+  conversations,
+  memoryEmbeddings,
+  memoryItems,
+  memoryItemSources,
+  memoryJobs,
+  memorySummaries,
+  messages,
+} from '../memory/schema.js';
 
 describe('Memory V2 regressions', () => {
   beforeAll(() => {
@@ -67,6 +75,44 @@ describe('Memory V2 regressions', () => {
       // best effort cleanup
     }
   });
+
+  async function withMockOllamaQueryEmbedding<T>(run: () => Promise<T>): Promise<T> {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => (
+      new Response(
+        JSON.stringify({ data: [{ embedding: [1, 0, 0] }] }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+    )) as unknown as typeof globalThis.fetch;
+    try {
+      return await run();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  function semanticRecallConfig() {
+    return {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: {
+          ...DEFAULT_CONFIG.memory.embeddings,
+          provider: 'ollama' as const,
+          required: true,
+        },
+        retrieval: {
+          ...DEFAULT_CONFIG.memory.retrieval,
+          lexicalTopK: 0,
+          semanticTopK: 10,
+          maxInjectTokens: 2000,
+        },
+      },
+    };
+  }
 
   test('lexical recall accepts punctuation-heavy user queries without degrading', async () => {
     const db = getDb();
@@ -170,6 +216,291 @@ describe('Memory V2 regressions', () => {
     );
     expect(recall.injectedText).toContain('[segment:seg-old]');
     expect(recall.injectedText).not.toContain('[segment:seg-current]');
+  });
+
+  test('semantic recall excludes items backed only by excluded message ids', async () => {
+    const db = getDb();
+    const now = 1_700_000_120_000;
+    db.insert(conversations).values({
+      id: 'conv-semantic-exclude',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values([
+      {
+        id: 'msg-semantic-old',
+        conversationId: 'conv-semantic-exclude',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'Timezone is PST.' }]),
+        createdAt: now - 10_000,
+      },
+      {
+        id: 'msg-semantic-current',
+        conversationId: 'conv-semantic-exclude',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'Remember timezone PST for this turn.' }]),
+        createdAt: now,
+      },
+    ]).run();
+    db.insert(memoryItems).values([
+      {
+        id: 'item-semantic-old',
+        kind: 'fact',
+        subject: 'timezone',
+        statement: 'User timezone is PST',
+        status: 'active',
+        confidence: 0.9,
+        fingerprint: 'item-semantic-old-fingerprint',
+        firstSeenAt: now - 10_000,
+        lastSeenAt: now - 10_000,
+        lastUsedAt: null,
+      },
+      {
+        id: 'item-semantic-current',
+        kind: 'fact',
+        subject: 'timezone',
+        statement: 'User timezone is PST (current turn)',
+        status: 'active',
+        confidence: 0.9,
+        fingerprint: 'item-semantic-current-fingerprint',
+        firstSeenAt: now,
+        lastSeenAt: now,
+        lastUsedAt: null,
+      },
+    ]).run();
+    db.insert(memoryItemSources).values([
+      {
+        memoryItemId: 'item-semantic-old',
+        messageId: 'msg-semantic-old',
+        evidence: 'old source',
+        createdAt: now - 10_000,
+      },
+      {
+        memoryItemId: 'item-semantic-current',
+        messageId: 'msg-semantic-current',
+        evidence: 'current turn source',
+        createdAt: now,
+      },
+    ]).run();
+    db.insert(memoryEmbeddings).values([
+      {
+        id: 'emb-semantic-old',
+        targetType: 'item',
+        targetId: 'item-semantic-old',
+        provider: 'ollama',
+        model: DEFAULT_CONFIG.memory.embeddings.ollamaModel,
+        dimensions: 3,
+        vectorJson: JSON.stringify([1, 0, 0]),
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'emb-semantic-current',
+        targetType: 'item',
+        targetId: 'item-semantic-current',
+        provider: 'ollama',
+        model: DEFAULT_CONFIG.memory.embeddings.ollamaModel,
+        dimensions: 3,
+        vectorJson: JSON.stringify([1, 0, 0]),
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]).run();
+
+    const recall = await withMockOllamaQueryEmbedding(() => (
+      buildMemoryRecall(
+        'timezone',
+        'conv-semantic-exclude',
+        semanticRecallConfig(),
+        { excludeMessageIds: ['msg-semantic-current'] },
+      )
+    ));
+    expect(recall.semanticHits).toBe(1);
+    expect(recall.injectedText).toContain('[item:item-semantic-old]');
+    expect(recall.injectedText).not.toContain('[item:item-semantic-current]');
+  });
+
+  test('semantic recall skips active items that have no remaining evidence rows', async () => {
+    const db = getDb();
+    const now = 1_700_000_130_000;
+    db.insert(conversations).values({
+      id: 'conv-semantic-evidence',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-semantic-evidence',
+      conversationId: 'conv-semantic-evidence',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Timezone is PST.' }]),
+      createdAt: now,
+    }).run();
+    db.insert(memoryItems).values([
+      {
+        id: 'item-semantic-with-evidence',
+        kind: 'fact',
+        subject: 'timezone',
+        statement: 'User timezone is PST',
+        status: 'active',
+        confidence: 0.9,
+        fingerprint: 'item-semantic-with-evidence-fingerprint',
+        firstSeenAt: now,
+        lastSeenAt: now,
+        lastUsedAt: null,
+      },
+      {
+        id: 'item-semantic-orphan',
+        kind: 'fact',
+        subject: 'timezone',
+        statement: 'Stale orphan fact',
+        status: 'active',
+        confidence: 0.9,
+        fingerprint: 'item-semantic-orphan-fingerprint',
+        firstSeenAt: now,
+        lastSeenAt: now,
+        lastUsedAt: null,
+      },
+    ]).run();
+    db.insert(memoryItemSources).values({
+      memoryItemId: 'item-semantic-with-evidence',
+      messageId: 'msg-semantic-evidence',
+      evidence: 'message evidence',
+      createdAt: now,
+    }).run();
+    db.insert(memoryEmbeddings).values([
+      {
+        id: 'emb-semantic-with-evidence',
+        targetType: 'item',
+        targetId: 'item-semantic-with-evidence',
+        provider: 'ollama',
+        model: DEFAULT_CONFIG.memory.embeddings.ollamaModel,
+        dimensions: 3,
+        vectorJson: JSON.stringify([1, 0, 0]),
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'emb-semantic-orphan',
+        targetType: 'item',
+        targetId: 'item-semantic-orphan',
+        provider: 'ollama',
+        model: DEFAULT_CONFIG.memory.embeddings.ollamaModel,
+        dimensions: 3,
+        vectorJson: JSON.stringify([1, 0, 0]),
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]).run();
+
+    const recall = await withMockOllamaQueryEmbedding(() => (
+      buildMemoryRecall(
+        'timezone',
+        'conv-semantic-evidence',
+        semanticRecallConfig(),
+      )
+    ));
+    expect(recall.semanticHits).toBe(1);
+    expect(recall.injectedText).toContain('[item:item-semantic-with-evidence]');
+    expect(recall.injectedText).not.toContain('[item:item-semantic-orphan]');
+  });
+
+  test('semantic recall excludes conversation summaries that overlap excluded messages', async () => {
+    const db = getDb();
+    const now = 1_700_000_140_000;
+    const conversationId = 'conv-semantic-summary';
+    db.insert(conversations).values({
+      id: conversationId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-semantic-summary-excluded',
+      conversationId,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'This is the current turn message.' }]),
+      createdAt: now,
+    }).run();
+    db.insert(memorySummaries).values([
+      {
+        id: 'summary-semantic-conversation',
+        scope: 'conversation',
+        scopeKey: conversationId,
+        summary: 'Conversation summary containing current turn details',
+        tokenEstimate: 12,
+        startAt: now - 500,
+        endAt: now + 500,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'summary-semantic-weekly',
+        scope: 'weekly_global',
+        scopeKey: '2026-W07',
+        summary: 'Weekly summary that should remain eligible',
+        tokenEstimate: 12,
+        startAt: now - 10_000,
+        endAt: now + 10_000,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]).run();
+    db.insert(memoryEmbeddings).values([
+      {
+        id: 'emb-summary-semantic-conversation',
+        targetType: 'summary',
+        targetId: 'summary-semantic-conversation',
+        provider: 'ollama',
+        model: DEFAULT_CONFIG.memory.embeddings.ollamaModel,
+        dimensions: 3,
+        vectorJson: JSON.stringify([1, 0, 0]),
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'emb-summary-semantic-weekly',
+        targetType: 'summary',
+        targetId: 'summary-semantic-weekly',
+        provider: 'ollama',
+        model: DEFAULT_CONFIG.memory.embeddings.ollamaModel,
+        dimensions: 3,
+        vectorJson: JSON.stringify([1, 0, 0]),
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]).run();
+
+    const recall = await withMockOllamaQueryEmbedding(() => (
+      buildMemoryRecall(
+        'summary',
+        conversationId,
+        semanticRecallConfig(),
+        { excludeMessageIds: ['msg-semantic-summary-excluded'] },
+      )
+    ));
+    expect(recall.semanticHits).toBe(1);
+    expect(recall.injectedText).not.toContain('[summary:summary-semantic-conversation]');
+    expect(recall.injectedText).toContain('[summary:summary-semantic-weekly]');
   });
 
   test('memory recall injection remains user-role and is stripped from runtime history', () => {

@@ -4,7 +4,7 @@ import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
 import { getDb } from './db.js';
-import { memoryEmbeddings, memoryItems, memorySegments, memorySummaries } from './schema.js';
+import { memoryEmbeddings, memoryItems, memoryItemSources, memorySegments, memorySummaries, messages } from './schema.js';
 
 const log = getLogger('memory-retriever');
 const MEMORY_RECALL_MARKER = '[Memory Recall v1]';
@@ -104,7 +104,7 @@ export async function buildMemoryRecall(
       excludeMessageIds,
     );
     semanticCandidates = queryVector
-      ? await semanticSearch(queryVector, provider!, model!, config.memory.retrieval.semanticTopK)
+      ? await semanticSearch(queryVector, provider!, model!, config.memory.retrieval.semanticTopK, excludeMessageIds)
       : [];
   } catch (err) {
     log.warn({ err }, 'Memory retrieval failed, returning degraded empty recall');
@@ -265,9 +265,11 @@ async function semanticSearch(
   provider: string,
   model: string,
   limit: number,
+  excludedMessageIds: string[] = [],
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
   const db = getDb();
+  const excludedMessageSet = new Set(excludedMessageIds);
   const rows = db
     .select()
     .from(memoryEmbeddings)
@@ -301,11 +303,46 @@ async function semanticSearch(
   const itemRows = itemIds.length > 0
     ? db.select().from(memoryItems).where(inArray(memoryItems.id, itemIds)).all()
     : [];
+  const itemSourceRows = itemIds.length > 0
+    ? db
+      .select({
+        memoryItemId: memoryItemSources.memoryItemId,
+        messageId: memoryItemSources.messageId,
+      })
+      .from(memoryItemSources)
+      .where(inArray(memoryItemSources.memoryItemId, itemIds))
+      .all()
+    : [];
   const summaryRows = summaryIds.length > 0
     ? db.select().from(memorySummaries).where(inArray(memorySummaries.id, summaryIds)).all()
     : [];
+  const excludedMessagesByConversation = summaryIds.length > 0 && excludedMessageSet.size > 0
+    ? db
+      .select({
+        conversationId: messages.conversationId,
+        createdAt: messages.createdAt,
+      })
+      .from(messages)
+      .where(inArray(messages.id, [...excludedMessageSet]))
+      .all()
+    : [];
   const itemMap = new Map(itemRows.map((item) => [item.id, item]));
   const summaryMap = new Map(summaryRows.map((summary) => [summary.id, summary]));
+  const itemEvidenceStats = new Map<string, { total: number; nonExcluded: number }>();
+  for (const source of itemSourceRows) {
+    const existing = itemEvidenceStats.get(source.memoryItemId) ?? { total: 0, nonExcluded: 0 };
+    existing.total += 1;
+    if (!excludedMessageSet.has(source.messageId)) {
+      existing.nonExcluded += 1;
+    }
+    itemEvidenceStats.set(source.memoryItemId, existing);
+  }
+  const excludedSummaryTimestampsByConversation = new Map<string, number[]>();
+  for (const row of excludedMessagesByConversation) {
+    const existing = excludedSummaryTimestampsByConversation.get(row.conversationId) ?? [];
+    existing.push(row.createdAt);
+    excludedSummaryTimestampsByConversation.set(row.conversationId, existing);
+  }
 
   const candidates: Candidate[] = [];
   for (const entry of top) {
@@ -313,6 +350,9 @@ async function semanticSearch(
     if (entry.row.targetType === 'item') {
       const item = itemMap.get(entry.row.targetId);
       if (!item || item.status !== 'active') continue;
+      const evidence = itemEvidenceStats.get(item.id);
+      if (!evidence || evidence.total <= 0) continue;
+      if (excludedMessageSet.size > 0 && evidence.nonExcluded <= 0) continue;
       candidates.push({
         key: `item:${item.id}`,
         type: 'item',
@@ -329,6 +369,13 @@ async function semanticSearch(
     }
     const summary = summaryMap.get(entry.row.targetId);
     if (!summary) continue;
+    if (summary.scope === 'conversation' && excludedMessageSet.size > 0) {
+      const excludedTimestamps = excludedSummaryTimestampsByConversation.get(summary.scopeKey) ?? [];
+      const overlapsExcludedMessage = excludedTimestamps.some((timestamp) => (
+        timestamp >= summary.startAt && timestamp <= summary.endAt
+      ));
+      if (overlapsExcludedMessage) continue;
+    }
     candidates.push({
       key: `summary:${summary.id}`,
       type: 'summary',
