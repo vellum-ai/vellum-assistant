@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { getAssistantConnectionMode } from "@/lib/assistant-connection";
 import { Assistant, getDb } from "@/lib/db";
 import { getInstanceExternalIp } from "@/lib/gcp";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
+
+export const runtime = "nodejs";
 
 function obfuscateEnvContent(content: string): string {
   // Obfuscate values in .env files while preserving keys
@@ -82,6 +85,17 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     if (result.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+
+    if (getAssistantConnectionMode() === "local") {
+      return NextResponse.json(
+        {
+          error:
+            "File reads are not supported in local-daemon mode in this rollout (chat + health only).",
+          connectionMode: "local",
+        },
+        { status: 501 }
+      );
     }
 
     const assistant = result[0] as Assistant;

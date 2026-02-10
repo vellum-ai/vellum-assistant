@@ -143,7 +143,7 @@ describe('ToolExecutor lifecycle events', () => {
     const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
 
-    const result = await executor.execute('shell', { command: 'ls -la' }, makeContext(events));
+    const result = await executor.execute('bash', { command: 'ls -la' }, makeContext(events));
 
     expect(result).toEqual({ content: 'Permission denied by user', isError: true });
     expect(events.map((event) => event.type)).toEqual([
@@ -177,7 +177,7 @@ describe('ToolExecutor lifecycle events', () => {
       }),
     );
 
-    const result = await executor.execute('shell', { command: 'rm -rf /tmp' }, makeContext(events));
+    const result = await executor.execute('bash', { command: 'rm -rf /tmp' }, makeContext(events));
 
     expect(result).toEqual({ content: 'Blocked by deny rule: rm *', isError: true });
     expect(events.map((event) => event.type)).toEqual(['start', 'permission_denied']);

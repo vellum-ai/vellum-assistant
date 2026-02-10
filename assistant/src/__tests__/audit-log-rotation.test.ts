@@ -48,7 +48,7 @@ function addInvocation(ageMs: number): void {
   db.prepare(
     `INSERT INTO tool_invocations (id, conversation_id, tool_name, input, result, decision, risk_level, duration_ms, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, 'conv-1', 'shell', '{"command":"echo hi"}', 'hi', 'allow', 'Low', 100, createdAt);
+  ).run(id, 'conv-1', 'bash', '{"command":"echo hi"}', 'hi', 'allow', 'Low', 100, createdAt);
   db.close();
 }
 

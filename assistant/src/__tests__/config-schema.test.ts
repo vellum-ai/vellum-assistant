@@ -3,13 +3,25 @@ import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { AssistantConfigSchema } from '../config/schema.js';
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports that depend on platform/logger
 // ---------------------------------------------------------------------------
 
 const TEST_DIR = join(tmpdir(), `vellum-schema-test-${randomBytes(4).toString('hex')}`);
+
+function ensureTestDir(): void {
+  const dirs = [
+    TEST_DIR,
+    join(TEST_DIR, 'data'),
+    join(TEST_DIR, 'memory'),
+    join(TEST_DIR, 'memory', 'knowledge'),
+    join(TEST_DIR, 'logs'),
+  ];
+  for (const dir of dirs) {
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  }
+}
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
@@ -20,11 +32,7 @@ mock.module('../util/logger.js', () => ({
 mock.module('../util/platform.js', () => ({
   getDataDir: () => TEST_DIR,
   getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
-  ensureDataDir: () => {
-    if (!existsSync(TEST_DIR)) mkdirSync(TEST_DIR, { recursive: true });
-    const logsDir = join(TEST_DIR, 'logs');
-    if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true });
-  },
+  ensureDataDir: () => ensureTestDir(),
   isMacOS: () => false,
   isLinux: () => false,
   isWindows: () => false,
@@ -33,6 +41,7 @@ mock.module('../util/platform.js', () => ({
 import { _setStorePath } from '../security/encrypted-store.js';
 import { _setBackend } from '../security/secure-keys.js';
 import { loadConfig, invalidateConfigCache } from '../config/loader.js';
+import { AssistantConfigSchema } from '../config/schema.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -266,11 +275,20 @@ describe('AssistantConfigSchema', () => {
 
 describe('loadConfig with schema validation', () => {
   beforeEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
+    // Keep TEST_DIR and logs in place to avoid racing async logger stream init.
+    ensureTestDir();
+    const resetPaths = [
+      join(TEST_DIR, 'config.json'),
+      join(TEST_DIR, 'keys.enc'),
+      join(TEST_DIR, 'data'),
+      join(TEST_DIR, 'memory'),
+    ];
+    for (const path of resetPaths) {
+      if (existsSync(path)) {
+        rmSync(path, { recursive: true, force: true });
+      }
     }
-    mkdirSync(TEST_DIR, { recursive: true });
-    mkdirSync(join(TEST_DIR, 'logs'), { recursive: true });
+    ensureTestDir();
     _setStorePath(join(TEST_DIR, 'keys.enc'));
     _setBackend('encrypted');
     invalidateConfigCache();

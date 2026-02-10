@@ -36,7 +36,7 @@ describe('tool audit listener', () => {
 
     listener({
       type: 'permission_denied',
-      toolName: 'shell',
+      toolName: 'bash',
       input: { command: 'rm -rf /tmp' },
       workingDir: '/tmp',
       sessionId: 'sess-2',
@@ -48,7 +48,7 @@ describe('tool audit listener', () => {
     });
     listener({
       type: 'permission_denied',
-      toolName: 'shell',
+      toolName: 'bash',
       input: { command: 'sudo rm -rf /tmp' },
       workingDir: '/tmp',
       sessionId: 'sess-2',
@@ -81,7 +81,7 @@ describe('tool audit listener', () => {
     });
     listener({
       type: 'permission_prompt',
-      toolName: 'shell',
+      toolName: 'bash',
       input: { command: 'rm -rf /tmp' },
       workingDir: '/tmp',
       sessionId: 'sess-3',

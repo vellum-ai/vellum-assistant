@@ -51,9 +51,9 @@ describe('Trust Store', () => {
 
   describe('addRule', () => {
     test('adds a rule and returns it', () => {
-      const rule = addRule('shell', 'git *', '/home/user/project');
+      const rule = addRule('bash', 'git *', '/home/user/project');
       expect(rule.id).toBeDefined();
-      expect(rule.tool).toBe('shell');
+      expect(rule.tool).toBe('bash');
       expect(rule.pattern).toBe('git *');
       expect(rule.scope).toBe('/home/user/project');
       expect(rule.decision).toBe('allow');
@@ -61,13 +61,13 @@ describe('Trust Store', () => {
     });
 
     test('assigns unique IDs to each rule', () => {
-      const rule1 = addRule('shell', 'npm *', '/tmp');
-      const rule2 = addRule('shell', 'bun *', '/tmp');
+      const rule1 = addRule('bash', 'npm *', '/tmp');
+      const rule2 = addRule('bash', 'bun *', '/tmp');
       expect(rule1.id).not.toBe(rule2.id);
     });
 
     test('persists rule to disk', () => {
-      addRule('shell', 'git push', '/home/user');
+      addRule('bash', 'git push', '/home/user');
       const trustPath = join(testDir, 'trust.json');
       const raw = readFileSync(trustPath, 'utf-8');
       const data = JSON.parse(raw);
@@ -77,9 +77,9 @@ describe('Trust Store', () => {
     });
 
     test('multiple rules accumulate', () => {
-      addRule('shell', 'git *', '/tmp');
+      addRule('bash', 'git *', '/tmp');
       addRule('file_write', '/tmp/*', '/tmp');
-      addRule('shell', 'npm *', '/tmp');
+      addRule('bash', 'npm *', '/tmp');
       expect(getAllRules()).toHaveLength(3);
     });
   });
@@ -88,7 +88,7 @@ describe('Trust Store', () => {
 
   describe('removeRule', () => {
     test('removes an existing rule', () => {
-      const rule = addRule('shell', 'git *', '/tmp');
+      const rule = addRule('bash', 'git *', '/tmp');
       expect(removeRule(rule.id)).toBe(true);
       expect(getAllRules()).toHaveLength(0);
     });
@@ -98,7 +98,7 @@ describe('Trust Store', () => {
     });
 
     test('persists removal to disk', () => {
-      const rule = addRule('shell', 'npm *', '/tmp');
+      const rule = addRule('bash', 'npm *', '/tmp');
       removeRule(rule.id);
       // Reload from disk to verify
       clearCache();
@@ -106,8 +106,8 @@ describe('Trust Store', () => {
     });
 
     test('only removes the targeted rule', () => {
-      const rule1 = addRule('shell', 'git *', '/tmp');
-      const rule2 = addRule('shell', 'npm *', '/tmp');
+      const rule1 = addRule('bash', 'git *', '/tmp');
+      const rule2 = addRule('bash', 'npm *', '/tmp');
       removeRule(rule1.id);
       const remaining = getAllRules();
       expect(remaining).toHaveLength(1);
@@ -119,59 +119,59 @@ describe('Trust Store', () => {
 
   describe('findMatchingRule', () => {
     test('finds exact match', () => {
-      addRule('shell', 'git push', '/tmp');
-      const match = findMatchingRule('shell', 'git push', '/tmp');
+      addRule('bash', 'git push', '/tmp');
+      const match = findMatchingRule('bash', 'git push', '/tmp');
       expect(match).not.toBeNull();
       expect(match!.pattern).toBe('git push');
     });
 
     test('finds glob wildcard match', () => {
-      addRule('shell', 'git *', '/tmp');
-      const match = findMatchingRule('shell', 'git push origin main', '/tmp');
+      addRule('bash', 'git *', '/tmp');
+      const match = findMatchingRule('bash', 'git push origin main', '/tmp');
       expect(match).not.toBeNull();
     });
 
     test('returns null when tool does not match', () => {
       addRule('file_write', 'git *', '/tmp');
-      const match = findMatchingRule('shell', 'git push', '/tmp');
+      const match = findMatchingRule('bash', 'git push', '/tmp');
       expect(match).toBeNull();
     });
 
     test('returns null when pattern does not match', () => {
-      addRule('shell', 'git *', '/tmp');
-      const match = findMatchingRule('shell', 'npm install', '/tmp');
+      addRule('bash', 'git *', '/tmp');
+      const match = findMatchingRule('bash', 'npm install', '/tmp');
       expect(match).toBeNull();
     });
 
     // Scope matching
     describe('scope matching', () => {
       test('matches when scope equals rule scope', () => {
-        addRule('shell', 'npm *', '/home/user/project');
-        const match = findMatchingRule('shell', 'npm install', '/home/user/project');
+        addRule('bash', 'npm *', '/home/user/project');
+        const match = findMatchingRule('bash', 'npm install', '/home/user/project');
         expect(match).not.toBeNull();
       });
 
       test('matches when scope is under rule scope (prefix)', () => {
-        addRule('shell', 'npm *', '/home/user');
-        const match = findMatchingRule('shell', 'npm install', '/home/user/project/sub');
+        addRule('bash', 'npm *', '/home/user');
+        const match = findMatchingRule('bash', 'npm install', '/home/user/project/sub');
         expect(match).not.toBeNull();
       });
 
       test('does not match when scope is outside rule scope', () => {
-        addRule('shell', 'npm *', '/home/user/project');
-        const match = findMatchingRule('shell', 'npm install', '/home/other');
+        addRule('bash', 'npm *', '/home/user/project');
+        const match = findMatchingRule('bash', 'npm install', '/home/other');
         expect(match).toBeNull();
       });
 
       test('everywhere scope matches any directory', () => {
-        addRule('shell', 'git *', 'everywhere');
-        const match = findMatchingRule('shell', 'git status', '/any/random/path');
+        addRule('bash', 'git *', 'everywhere');
+        const match = findMatchingRule('bash', 'git status', '/any/random/path');
         expect(match).not.toBeNull();
       });
 
       test('everywhere scope matches root', () => {
-        addRule('shell', 'ls', 'everywhere');
-        const match = findMatchingRule('shell', 'ls', '/');
+        addRule('bash', 'ls', 'everywhere');
+        const match = findMatchingRule('bash', 'ls', '/');
         expect(match).not.toBeNull();
       });
     });
@@ -179,15 +179,15 @@ describe('Trust Store', () => {
     // Pattern matching with minimatch
     describe('pattern matching', () => {
       test('matches * wildcard', () => {
-        addRule('shell', 'npm *', '/tmp');
-        expect(findMatchingRule('shell', 'npm install', '/tmp')).not.toBeNull();
-        expect(findMatchingRule('shell', 'npm test', '/tmp')).not.toBeNull();
+        addRule('bash', 'npm *', '/tmp');
+        expect(findMatchingRule('bash', 'npm install', '/tmp')).not.toBeNull();
+        expect(findMatchingRule('bash', 'npm test', '/tmp')).not.toBeNull();
       });
 
       test('matches exact string', () => {
-        addRule('shell', 'git status', '/tmp');
-        expect(findMatchingRule('shell', 'git status', '/tmp')).not.toBeNull();
-        expect(findMatchingRule('shell', 'git push', '/tmp')).toBeNull();
+        addRule('bash', 'git status', '/tmp');
+        expect(findMatchingRule('bash', 'git status', '/tmp')).not.toBeNull();
+        expect(findMatchingRule('bash', 'git push', '/tmp')).toBeNull();
       });
 
       test('matches file path pattern', () => {
@@ -217,7 +217,7 @@ describe('Trust Store', () => {
     });
 
     test('returns a copy (not the internal array)', () => {
-      addRule('shell', 'git *', '/tmp');
+      addRule('bash', 'git *', '/tmp');
       const rules1 = getAllRules();
       const rules2 = getAllRules();
       expect(rules1).toEqual(rules2);
@@ -229,7 +229,7 @@ describe('Trust Store', () => {
 
   describe('clearCache', () => {
     test('forces reload from disk on next access', () => {
-      addRule('shell', 'git *', '/tmp');
+      addRule('bash', 'git *', '/tmp');
       expect(getAllRules()).toHaveLength(1);
       clearCache();
       // After clearing cache, rules are reloaded from disk
@@ -241,7 +241,7 @@ describe('Trust Store', () => {
 
   describe('persistence', () => {
     test('rules survive cache clear (loaded from disk)', () => {
-      const rule = addRule('shell', 'npm *', '/tmp');
+      const rule = addRule('bash', 'npm *', '/tmp');
       clearCache();
       const rules = getAllRules();
       expect(rules).toHaveLength(1);
@@ -249,7 +249,7 @@ describe('Trust Store', () => {
     });
 
     test('trust file has correct structure', () => {
-      addRule('shell', 'git *', '/tmp');
+      addRule('bash', 'git *', '/tmp');
       const trustPath = join(testDir, 'trust.json');
       const data = JSON.parse(readFileSync(trustPath, 'utf-8'));
       expect(data).toHaveProperty('version', 1);
@@ -262,14 +262,14 @@ describe('Trust Store', () => {
 
   describe('deny rules', () => {
     test('addRule with deny decision creates a deny rule', () => {
-      const rule = addRule('shell', 'rm -rf *', '/tmp', 'deny');
+      const rule = addRule('bash', 'rm -rf *', '/tmp', 'deny');
       expect(rule.decision).toBe('deny');
-      expect(rule.tool).toBe('shell');
+      expect(rule.tool).toBe('bash');
       expect(rule.pattern).toBe('rm -rf *');
     });
 
     test('deny rule persists to disk', () => {
-      addRule('shell', 'rm *', '/tmp', 'deny');
+      addRule('bash', 'rm *', '/tmp', 'deny');
       clearCache();
       const rules = getAllRules();
       expect(rules).toHaveLength(1);
@@ -277,46 +277,46 @@ describe('Trust Store', () => {
     });
 
     test('findDenyRule finds deny rules', () => {
-      addRule('shell', 'rm *', '/tmp', 'deny');
-      const match = findDenyRule('shell', 'rm file.txt', '/tmp');
+      addRule('bash', 'rm *', '/tmp', 'deny');
+      const match = findDenyRule('bash', 'rm file.txt', '/tmp');
       expect(match).not.toBeNull();
       expect(match!.decision).toBe('deny');
     });
 
     test('findDenyRule ignores allow rules', () => {
-      addRule('shell', 'rm *', '/tmp', 'allow');
-      const match = findDenyRule('shell', 'rm file.txt', '/tmp');
+      addRule('bash', 'rm *', '/tmp', 'allow');
+      const match = findDenyRule('bash', 'rm file.txt', '/tmp');
       expect(match).toBeNull();
     });
 
     test('findMatchingRule ignores deny rules', () => {
-      addRule('shell', 'rm *', '/tmp', 'deny');
-      const match = findMatchingRule('shell', 'rm file.txt', '/tmp');
+      addRule('bash', 'rm *', '/tmp', 'deny');
+      const match = findMatchingRule('bash', 'rm file.txt', '/tmp');
       expect(match).toBeNull();
     });
 
     test('deny and allow rules coexist', () => {
-      addRule('shell', 'git *', '/tmp', 'allow');
-      addRule('shell', 'git push --force *', '/tmp', 'deny');
-      expect(findMatchingRule('shell', 'git status', '/tmp')).not.toBeNull();
-      expect(findDenyRule('shell', 'git push --force origin', '/tmp')).not.toBeNull();
+      addRule('bash', 'git *', '/tmp', 'allow');
+      addRule('bash', 'git push --force *', '/tmp', 'deny');
+      expect(findMatchingRule('bash', 'git status', '/tmp')).not.toBeNull();
+      expect(findDenyRule('bash', 'git push --force origin', '/tmp')).not.toBeNull();
     });
 
     test('deny rule with scope matching', () => {
-      addRule('shell', 'rm *', '/home/user/project', 'deny');
-      expect(findDenyRule('shell', 'rm file.txt', '/home/user/project/sub')).not.toBeNull();
-      expect(findDenyRule('shell', 'rm file.txt', '/home/other')).toBeNull();
+      addRule('bash', 'rm *', '/home/user/project', 'deny');
+      expect(findDenyRule('bash', 'rm file.txt', '/home/user/project/sub')).not.toBeNull();
+      expect(findDenyRule('bash', 'rm file.txt', '/home/other')).toBeNull();
     });
 
     test('deny rule with everywhere scope', () => {
-      addRule('shell', 'rm -rf *', 'everywhere', 'deny');
-      expect(findDenyRule('shell', 'rm -rf /', '/any/path')).not.toBeNull();
+      addRule('bash', 'rm -rf *', 'everywhere', 'deny');
+      expect(findDenyRule('bash', 'rm -rf /', '/any/path')).not.toBeNull();
     });
 
     test('removeRule works for deny rules', () => {
-      const rule = addRule('shell', 'rm *', '/tmp', 'deny');
+      const rule = addRule('bash', 'rm *', '/tmp', 'deny');
       expect(removeRule(rule.id)).toBe(true);
-      expect(findDenyRule('shell', 'rm file.txt', '/tmp')).toBeNull();
+      expect(findDenyRule('bash', 'rm file.txt', '/tmp')).toBeNull();
     });
   });
 });
