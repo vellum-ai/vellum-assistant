@@ -19,6 +19,9 @@ interface RouteParams {
 
 const ATTACHMENTS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || "vellum-ai-prod-vellum-assistant";
 const ATTACHMENTS_PREFIX = "vellum-assistant/chat-attachments";
+const MAX_FILES_PER_UPLOAD = 10;
+const MAX_TOTAL_BUFFERED_BYTES = 50 * 1024 * 1024;
+const MAX_TOTAL_BUFFERED_MIB = MAX_TOTAL_BUFFERED_BYTES / (1024 * 1024);
 
 interface UploadResponseAttachment {
   id: string;
@@ -76,15 +79,36 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         { status: 400 },
       );
     }
+    if (files.length > MAX_FILES_PER_UPLOAD) {
+      return NextResponse.json(
+        { error: `A maximum of ${MAX_FILES_PER_UPLOAD} files can be uploaded at once` },
+        { status: 400 },
+      );
+    }
+
+    const declaredTotalBytes = files.reduce((total, file) => total + file.size, 0);
+    if (declaredTotalBytes > MAX_TOTAL_BUFFERED_BYTES) {
+      return NextResponse.json(
+        { error: `Total attachment size cannot exceed ${MAX_TOTAL_BUFFERED_MIB}MB per request` },
+        { status: 400 },
+      );
+    }
 
     const storage = getStorage();
     const bucket = storage.bucket(ATTACHMENTS_BUCKET_NAME);
     const preparedUploads: PreparedUpload[] = [];
+    let totalBufferedBytes = 0;
 
     for (const file of files) {
       const fileName = file.name || "attachment";
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
+      totalBufferedBytes += buffer.byteLength;
+      if (totalBufferedBytes > MAX_TOTAL_BUFFERED_BYTES) {
+        throw new AttachmentValidationError(
+          `Total attachment size cannot exceed ${MAX_TOTAL_BUFFERED_MIB}MB per request`,
+        );
+      }
 
       const attachmentId = randomUUID();
       let processed: ProcessedAttachment;

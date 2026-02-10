@@ -32,6 +32,7 @@ export function estimateContentBlockTokens(block: ContentBlock): number {
       return FILE_BLOCK_OVERHEAD_TOKENS
         + estimateTextTokens(block.source.filename)
         + estimateTextTokens(block.source.media_type)
+        + estimateTextTokens(block.source.data)
         + estimateTextTokens(block.extracted_text ?? '');
     case 'thinking':
       return TEXT_BLOCK_OVERHEAD_TOKENS + estimateTextTokens(block.thinking);

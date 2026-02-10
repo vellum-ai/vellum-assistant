@@ -57,4 +57,25 @@ describe('token estimator', () => {
     expect(messagesOnly).toBeGreaterThan(estimateMessageTokens(messages[0]));
     expect(withSystem).toBeGreaterThan(messagesOnly);
   });
+
+  test('counts file base64 payload when estimating file block tokens', () => {
+    const sharedSource = {
+      type: 'base64' as const,
+      filename: 'report.pdf',
+      media_type: 'application/pdf',
+    };
+    const smallFileTokens = estimateContentBlockTokens({
+      type: 'file',
+      source: { ...sharedSource, data: 'a'.repeat(64) },
+      extracted_text: 'short summary',
+    });
+    const largeFileTokens = estimateContentBlockTokens({
+      type: 'file',
+      source: { ...sharedSource, data: 'a'.repeat(6400) },
+      extracted_text: 'short summary',
+    });
+
+    expect(largeFileTokens).toBeGreaterThan(smallFileTokens);
+    expect(largeFileTokens - smallFileTokens).toBeGreaterThan(1000);
+  });
 });

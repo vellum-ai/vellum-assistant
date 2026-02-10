@@ -70,7 +70,11 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     const sql = getDb();
     const { id } = await params;
 
-    await deleteAssistantAttachmentObjects(id);
+    try {
+      await deleteAssistantAttachmentObjects(id);
+    } catch (cleanupError) {
+      console.warn("Failed to delete attachment objects, continuing with assistant deletion:", cleanupError);
+    }
 
     const result = await sql`DELETE FROM assistants WHERE id = ${id} RETURNING id`;
 

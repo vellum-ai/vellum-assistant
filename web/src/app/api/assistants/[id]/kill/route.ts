@@ -57,7 +57,11 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
 
-    await deleteAssistantAttachmentObjects(assistantId);
+    try {
+      await deleteAssistantAttachmentObjects(assistantId);
+    } catch (cleanupError: unknown) {
+      console.warn("Failed to delete attachment objects, continuing with assistant deletion:", cleanupError);
+    }
     await sql`DELETE FROM assistants WHERE id = ${assistantId}`;
 
     return NextResponse.json({
