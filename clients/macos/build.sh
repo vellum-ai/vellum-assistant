@@ -152,7 +152,7 @@ fi
 echo "Signing with: $SIGN_IDENTITY"
 CODESIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --deep)
 if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-    CODESIGN_FLAGS+=(--timestamp)
+    CODESIGN_FLAGS+=(--timestamp --options runtime)
 fi
 codesign "${CODESIGN_FLAGS[@]}" "$APP_DIR"
 
