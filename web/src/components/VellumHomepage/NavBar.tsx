@@ -78,53 +78,18 @@ export function NavBar() {
                 <div className="btn_arrow nav-button-7 w-embed">{NAV_ARROW}</div>
                 <div className="d-button_bg-overlay nav-button-8"></div>
               </Link>
-              <div ref={menuRef} style={{ position: "relative" }}>
+              <div ref={menuRef} className="relative">
                 <button
                   onClick={() => setIsMenuOpen(!isMenuOpen)}
                   aria-label="User menu"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: "36px",
-                    height: "36px",
-                    borderRadius: "50%",
-                    backgroundColor: "rgba(255, 255, 255, 0.15)",
-                    border: "1px solid rgba(255, 255, 255, 0.2)",
-                    color: "#fff",
-                    fontSize: "14px",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
+                  className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-white/20 bg-white/15 text-sm font-semibold text-white"
                 >
                   {username ? username.charAt(0).toUpperCase() : "U"}
                 </button>
                 {isMenuOpen && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      right: 0,
-                      top: "calc(100% + 8px)",
-                      minWidth: "160px",
-                      borderRadius: "8px",
-                      border: "1px solid rgba(255, 255, 255, 0.15)",
-                      backgroundColor: "rgba(24, 24, 27, 0.95)",
-                      backdropFilter: "blur(12px)",
-                      WebkitBackdropFilter: "blur(12px)",
-                      padding: "4px 0",
-                      zIndex: 50,
-                    }}
-                  >
+                  <div className="absolute right-0 top-full z-50 mt-2 min-w-40 rounded-lg border border-white/15 bg-zinc-900/95 py-1 backdrop-blur-xl">
                     {username && (
-                      <div
-                        style={{
-                          padding: "8px 16px",
-                          fontSize: "13px",
-                          fontWeight: 500,
-                          color: "#fff",
-                          borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
-                        }}
-                      >
+                      <div className="border-b border-white/10 px-4 py-2 text-[13px] font-medium text-white">
                         {username}
                       </div>
                     )}
@@ -133,27 +98,7 @@ export function NavBar() {
                         logout();
                         setIsMenuOpen(false);
                       }}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        width: "100%",
-                        padding: "8px 16px",
-                        fontSize: "13px",
-                        color: "rgba(255, 255, 255, 0.7)",
-                        backgroundColor: "transparent",
-                        border: "none",
-                        cursor: "pointer",
-                        textAlign: "left",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
-                        e.currentTarget.style.color = "#fff";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = "transparent";
-                        e.currentTarget.style.color = "rgba(255, 255, 255, 0.7)";
-                      }}
+                      className="flex w-full cursor-pointer items-center gap-2 border-none bg-transparent px-4 py-2 text-left text-[13px] text-white/70 hover:bg-white/10 hover:text-white"
                     >
                       Log out
                     </button>
