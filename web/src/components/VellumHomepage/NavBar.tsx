@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 
 const NAV_ARROW = (
@@ -11,7 +12,19 @@ const NAV_ARROW = (
 );
 
 export function NavBar() {
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, username, logout } = useAuth();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   return (
     <div 
@@ -55,15 +68,99 @@ export function NavBar() {
         </nav>
         <div className="navbar2_button-wrapper hide-tablet new">
           {isLoggedIn ? (
-            <Link
-              href="/assistant"
-              className="d-button nav-button-5 cta-get-started new w-inline-block"
-              style={{ textDecoration: "none" }}
-            >
-              <div className="btn-text nav-button-6 new">Meet your assistant</div>
-              <div className="btn_arrow nav-button-7 w-embed">{NAV_ARROW}</div>
-              <div className="d-button_bg-overlay nav-button-8"></div>
-            </Link>
+            <>
+              <Link
+                href="/assistant"
+                className="d-button nav-button-5 cta-get-started new w-inline-block"
+                style={{ textDecoration: "none" }}
+              >
+                <div className="btn-text nav-button-6 new">Meet your assistant</div>
+                <div className="btn_arrow nav-button-7 w-embed">{NAV_ARROW}</div>
+                <div className="d-button_bg-overlay nav-button-8"></div>
+              </Link>
+              <div ref={menuRef} style={{ position: "relative" }}>
+                <button
+                  onClick={() => setIsMenuOpen(!isMenuOpen)}
+                  aria-label="User menu"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "50%",
+                    backgroundColor: "rgba(255, 255, 255, 0.15)",
+                    border: "1px solid rgba(255, 255, 255, 0.2)",
+                    color: "#fff",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {username ? username.charAt(0).toUpperCase() : "U"}
+                </button>
+                {isMenuOpen && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      right: 0,
+                      top: "calc(100% + 8px)",
+                      minWidth: "160px",
+                      borderRadius: "8px",
+                      border: "1px solid rgba(255, 255, 255, 0.15)",
+                      backgroundColor: "rgba(24, 24, 27, 0.95)",
+                      backdropFilter: "blur(12px)",
+                      WebkitBackdropFilter: "blur(12px)",
+                      padding: "4px 0",
+                      zIndex: 50,
+                    }}
+                  >
+                    {username && (
+                      <div
+                        style={{
+                          padding: "8px 16px",
+                          fontSize: "13px",
+                          fontWeight: 500,
+                          color: "#fff",
+                          borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+                        }}
+                      >
+                        {username}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => {
+                        logout();
+                        setIsMenuOpen(false);
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        width: "100%",
+                        padding: "8px 16px",
+                        fontSize: "13px",
+                        color: "rgba(255, 255, 255, 0.7)",
+                        backgroundColor: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        textAlign: "left",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
+                        e.currentTarget.style.color = "#fff";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = "transparent";
+                        e.currentTarget.style.color = "rgba(255, 255, 255, 0.7)";
+                      }}
+                    >
+                      Log out
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
           ) : (
             <>
               <Link href="/login" className="text-block-130" style={{ textDecoration: "none" }}>Log in</Link>
