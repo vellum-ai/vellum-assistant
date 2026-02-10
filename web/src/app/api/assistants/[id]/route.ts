@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { Assistant, getDb, UpdateAssistantInput } from "@/lib/db";
+import { deleteAssistantAttachmentObjects } from "@/lib/attachments/storage-cleanup";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -68,6 +69,8 @@ export async function DELETE(request: Request, { params }: RouteParams) {
   try {
     const sql = getDb();
     const { id } = await params;
+
+    await deleteAssistantAttachmentObjects(id);
 
     const result = await sql`DELETE FROM assistants WHERE id = ${id} RETURNING id`;
 

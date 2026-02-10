@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { deleteAssistantMailInbox, deleteAssistantMailWebhook } from "@/lib/agentmail";
+import { deleteAssistantAttachmentObjects } from "@/lib/attachments/storage-cleanup";
 import { Assistant, getDb } from "@/lib/db";
 import { deleteInstance } from "@/lib/gcp";
 
@@ -56,6 +57,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
 
+    await deleteAssistantAttachmentObjects(assistantId);
     await sql`DELETE FROM assistants WHERE id = ${assistantId}`;
 
     return NextResponse.json({
