@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -278,11 +278,9 @@ describe('loadConfig with schema validation', () => {
     invalidateConfigCache();
   });
 
-  afterAll(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true });
-    }
-  });
+  // Intentionally do not remove TEST_DIR in afterAll.
+  // A late async logger flush may still target logs under this path and can
+  // intermittently trigger unhandled ENOENT in CI if the directory is removed.
 
   test('loads valid config', () => {
     writeConfig({
