@@ -5,8 +5,8 @@ import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { toast } from "@/components/core/Toast";
-import { VellumHead } from "@/components/VellumHomepage";
+import { toast } from "@/components/shared/core/Toast";
+import { VellumHead } from "@/components/marketing/VellumHomepage";
 
 interface ForgotPasswordFormValues {
   email: string;
