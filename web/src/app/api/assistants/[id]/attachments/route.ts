@@ -2,14 +2,16 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 import {
-  createChatAttachment,
+  db,
   getDb,
 } from "@/lib/db";
+import { chatAttachmentsTable } from "@/lib/schema";
 import {
   processAttachmentUpload,
   sanitizeFilename,
+  type ProcessedAttachment,
 } from "@/lib/attachments";
-import { getStorage } from "@/lib/storage";
+import { getStorage, type StorageBucket } from "@/lib/storage";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -27,12 +29,34 @@ interface UploadResponseAttachment {
   created_at: Date | null;
 }
 
+interface PreparedUpload {
+  attachmentId: string;
+  fileName: string;
+  processed: ProcessedAttachment;
+  buffer: Buffer;
+  storageKey: string;
+}
+
+class AttachmentValidationError extends Error {}
+
 function getFilesFromFormData(formData: FormData): File[] {
   const directFiles = formData.getAll("files").filter((value): value is File => value instanceof File);
   if (directFiles.length > 0) {
     return directFiles;
   }
   return [...formData.values()].filter((value): value is File => value instanceof File);
+}
+
+async function cleanupUploadedObjects(bucket: StorageBucket, storageKeys: string[]): Promise<void> {
+  await Promise.all(
+    storageKeys.map(async (storageKey) => {
+      try {
+        await bucket.file(storageKey).delete();
+      } catch (error) {
+        console.warn(`[attachments] Failed to clean up object "${storageKey}"`, error);
+      }
+    }),
+  );
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
@@ -55,59 +79,100 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const storage = getStorage();
     const bucket = storage.bucket(ATTACHMENTS_BUCKET_NAME);
-    const createdAttachments: UploadResponseAttachment[] = [];
+    const preparedUploads: PreparedUpload[] = [];
 
     for (const file of files) {
       const fileName = file.name || "attachment";
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
-      const processed = await processAttachmentUpload(fileName, file.type, buffer);
       const attachmentId = randomUUID();
+      let processed: ProcessedAttachment;
+      try {
+        processed = await processAttachmentUpload(fileName, file.type, buffer);
+      } catch (error) {
+        throw new AttachmentValidationError(
+          error instanceof Error ? error.message : `Failed to process "${fileName}"`,
+        );
+      }
       const storageKey = `${ATTACHMENTS_PREFIX}/${assistantId}/${attachmentId}/${sanitizeFilename(fileName)}`;
 
-      await bucket.file(storageKey).save(buffer, {
-        contentType: processed.mimeType,
-        metadata: {
-          assistantId,
-          attachmentId,
-          originalFilename: processed.fileName,
-          mimeType: processed.mimeType,
-          sizeBytes: String(processed.sizeBytes),
-          sha256: processed.sha256,
-          kind: processed.kind,
-          createdAt: new Date().toISOString(),
-        },
-      });
-
-      const saved = await createChatAttachment({
-        id: attachmentId,
-        assistantId,
-        originalFilename: processed.fileName,
-        mimeType: processed.mimeType,
-        sizeBytes: processed.sizeBytes,
+      preparedUploads.push({
+        attachmentId,
+        fileName,
+        processed,
+        buffer,
         storageKey,
-        sha256: processed.sha256,
-        kind: processed.kind,
-        extractedText: processed.extractedText,
       });
+    }
 
-      createdAttachments.push({
-        id: saved.id,
-        original_filename: saved.originalFilename,
-        mime_type: saved.mimeType,
-        size_bytes: saved.sizeBytes,
-        kind: saved.kind,
-        created_at: saved.createdAt ?? null,
+    const uploadedStorageKeys: string[] = [];
+    try {
+      for (const upload of preparedUploads) {
+        await bucket.file(upload.storageKey).save(upload.buffer, {
+          contentType: upload.processed.mimeType,
+          metadata: {
+            assistantId,
+            attachmentId: upload.attachmentId,
+            originalFilename: upload.processed.fileName,
+            mimeType: upload.processed.mimeType,
+            sizeBytes: String(upload.processed.sizeBytes),
+            sha256: upload.processed.sha256,
+            kind: upload.processed.kind,
+            createdAt: new Date().toISOString(),
+          },
+        });
+        uploadedStorageKeys.push(upload.storageKey);
+      }
+    } catch (error) {
+      await cleanupUploadedObjects(bucket, uploadedStorageKeys);
+      throw error;
+    }
+
+    let createdAttachments: UploadResponseAttachment[] = [];
+    try {
+      const insertedRows = await db
+        .insert(chatAttachmentsTable)
+        .values(preparedUploads.map((upload) => ({
+          id: upload.attachmentId,
+          assistantId,
+          originalFilename: upload.processed.fileName,
+          mimeType: upload.processed.mimeType,
+          sizeBytes: upload.processed.sizeBytes,
+          storageKey: upload.storageKey,
+          sha256: upload.processed.sha256,
+          kind: upload.processed.kind,
+          extractedText: upload.processed.extractedText,
+        })))
+        .returning();
+
+      const insertedById = new Map(insertedRows.map((row) => [row.id, row]));
+      createdAttachments = preparedUploads.map((upload) => {
+        const saved = insertedById.get(upload.attachmentId);
+        if (!saved) {
+          throw new Error(`Missing inserted attachment row for ${upload.attachmentId}`);
+        }
+        return {
+          id: saved.id,
+          original_filename: saved.originalFilename,
+          mime_type: saved.mimeType,
+          size_bytes: saved.sizeBytes,
+          kind: saved.kind,
+          created_at: saved.createdAt ?? null,
+        };
       });
+    } catch (error) {
+      await cleanupUploadedObjects(bucket, uploadedStorageKeys);
+      throw error;
     }
 
     return NextResponse.json({ attachments: createdAttachments }, { status: 201 });
   } catch (error) {
     console.error("Error uploading attachments:", error);
+    const status = error instanceof AttachmentValidationError ? 400 : 500;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to upload attachments" },
-      { status: 500 },
+      { status },
     );
   }
 }

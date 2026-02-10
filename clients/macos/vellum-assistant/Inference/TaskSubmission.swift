@@ -18,6 +18,11 @@ struct TaskAttachment: Identifiable {
     static let maxImageBytes = 10 * 1024 * 1024
     static let maxDocumentBytes = 20 * 1024 * 1024
     static let maxExtractedChars = 8_000
+    private static let unsupportedOfficeMimeTypes: Set<String> = [
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ]
     private static let allowedMimeTypes: Set<String> = [
         "image/png",
         "image/jpeg",
@@ -28,15 +33,17 @@ struct TaskAttachment: Identifiable {
         "text/markdown",
         "application/json",
         "text/csv",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ]
 
     static func fromFileURL(_ url: URL) throws -> TaskAttachment {
         let data = try Data(contentsOf: url)
         let fileName = url.lastPathComponent
         let mimeType = Self.mimeType(for: url.pathExtension)
+        if unsupportedOfficeMimeTypes.contains(mimeType) {
+            throw NSError(domain: "TaskAttachment", code: 4, userInfo: [
+                NSLocalizedDescriptionKey: "\(fileName) is not supported yet on macOS for text extraction. Please convert it to PDF or plain text."
+            ])
+        }
         guard allowedMimeTypes.contains(mimeType) else {
             throw NSError(domain: "TaskAttachment", code: 3, userInfo: [
                 NSLocalizedDescriptionKey: "\(fileName) has an unsupported file type."

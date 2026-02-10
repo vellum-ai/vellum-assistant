@@ -22,8 +22,11 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../util/platform.js', () => ({
   getDataDir: () => TEST_DIR,
+  getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
   ensureDataDir: () => {
     if (!existsSync(TEST_DIR)) mkdirSync(TEST_DIR, { recursive: true });
+    const logsDir = join(TEST_DIR, 'logs');
+    if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true });
   },
   isMacOS: () => false,
   isLinux: () => false,
@@ -284,7 +287,6 @@ describe('loadConfig with schema validation', () => {
   // Intentionally do not remove TEST_DIR in afterAll.
   // A late async logger flush may still target logs under this path and can
   // intermittently trigger unhandled ENOENT in CI if the directory is removed.
-
   test('loads valid config', () => {
     writeConfig({
       provider: 'openai',

@@ -203,7 +203,7 @@ export class Session {
       );
       if (compacted.compacted) {
         this.messages = compacted.messages;
-        this.contextCompactedMessageCount += compacted.compactedMessages;
+        this.contextCompactedMessageCount += compacted.compactedPersistedMessages;
         conversationStore.updateConversationContextWindow(
           this.conversationId,
           compacted.summaryText,
@@ -221,6 +221,12 @@ export class Session {
           summaryOutputTokens: compacted.summaryOutputTokens,
           summaryModel: compacted.summaryModel,
         });
+        this.recordUsage(
+          compacted.summaryInputTokens,
+          compacted.summaryOutputTokens,
+          compacted.summaryModel,
+          onEvent,
+        );
       }
 
       // Run agent loop
@@ -271,30 +277,7 @@ export class Session {
 
       this.messages = updatedHistory;
 
-      // Update cumulative token usage
-      if (exchangeInputTokens > 0 || exchangeOutputTokens > 0) {
-        const exchangeCost = estimateCost(exchangeInputTokens, exchangeOutputTokens, model);
-        this.usageStats = {
-          inputTokens: this.usageStats.inputTokens + exchangeInputTokens,
-          outputTokens: this.usageStats.outputTokens + exchangeOutputTokens,
-          estimatedCost: this.usageStats.estimatedCost + exchangeCost,
-        };
-        conversationStore.updateConversationUsage(
-          this.conversationId,
-          this.usageStats.inputTokens,
-          this.usageStats.outputTokens,
-          this.usageStats.estimatedCost,
-        );
-        onEvent({
-          type: 'usage_update',
-          inputTokens: exchangeInputTokens,
-          outputTokens: exchangeOutputTokens,
-          totalInputTokens: this.usageStats.inputTokens,
-          totalOutputTokens: this.usageStats.outputTokens,
-          estimatedCost: exchangeCost,
-          model,
-        });
-      }
+      this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent);
 
       if (this.abortController?.signal.aborted) {
         onEvent({ type: 'generation_cancelled' });
@@ -352,6 +335,37 @@ export class Session {
     conversationStore.deleteLastExchange(this.conversationId);
 
     return removed;
+  }
+
+  private recordUsage(
+    inputTokens: number,
+    outputTokens: number,
+    model: string,
+    onEvent: (msg: ServerMessage) => void,
+  ): void {
+    if (inputTokens <= 0 && outputTokens <= 0) return;
+
+    const estimatedCost = estimateCost(inputTokens, outputTokens, model);
+    this.usageStats = {
+      inputTokens: this.usageStats.inputTokens + inputTokens,
+      outputTokens: this.usageStats.outputTokens + outputTokens,
+      estimatedCost: this.usageStats.estimatedCost + estimatedCost,
+    };
+    conversationStore.updateConversationUsage(
+      this.conversationId,
+      this.usageStats.inputTokens,
+      this.usageStats.outputTokens,
+      this.usageStats.estimatedCost,
+    );
+    onEvent({
+      type: 'usage_update',
+      inputTokens,
+      outputTokens,
+      totalInputTokens: this.usageStats.inputTokens,
+      totalOutputTokens: this.usageStats.outputTokens,
+      estimatedCost,
+      model,
+    });
   }
 
   private async generateTitle(userMessage: string, assistantResponse: string): Promise<void> {

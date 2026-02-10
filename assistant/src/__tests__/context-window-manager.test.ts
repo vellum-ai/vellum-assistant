@@ -80,7 +80,7 @@ describe('ContextWindowManager', () => {
     expect(result.summaryCalls).toBe(summaryCalls);
     expect(result.summaryInputTokens).toBeGreaterThan(0);
     expect(result.summaryOutputTokens).toBeGreaterThan(0);
-    expect(result.messages[0].role).toBe('assistant');
+    expect(result.messages[0].role).toBe('user');
     expect(getSummaryFromContextMessage(result.messages[0])?.length).toBeGreaterThan(0);
 
     const userTexts = result.messages
@@ -118,7 +118,7 @@ describe('ContextWindowManager', () => {
     expect(
       result.messages.filter(
         (m) =>
-          m.role === 'assistant'
+          m.role === 'user'
           && m.content.some(
             (block) =>
               block.type === 'text'
@@ -151,5 +151,90 @@ describe('ContextWindowManager', () => {
     expect(result.summaryOutputTokens).toBe(0);
     expect(result.summaryModel).toBe('');
     expect(result.summaryText).toContain('## Recent Progress');
+  });
+
+  test('serializes file blocks for summary chunks', async () => {
+    const prompts: string[] = [];
+    const provider = createProvider((messages) => {
+      const textBlock = messages[0]?.content[0];
+      if (textBlock?.type === 'text') {
+        prompts.push(textBlock.text);
+      }
+      return {
+        content: [{ type: 'text', text: '## Goals\n- file summarized' }],
+        model: 'mock-model',
+        usage: { inputTokens: 60, outputTokens: 12 },
+        stopReason: 'end_turn',
+      };
+    });
+    const manager = new ContextWindowManager(
+      provider,
+      'system prompt',
+      makeConfig({ maxInputTokens: 280, targetInputTokens: 150, preserveRecentUserTurns: 1 }),
+    );
+    const long = 'f'.repeat(220);
+    const history: Message[] = [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'file',
+            source: {
+              type: 'base64',
+              media_type: 'application/pdf',
+              filename: 'spec.pdf',
+              data: 'a'.repeat(4096),
+            },
+            extracted_text: 'Critical requirement from attached spec.',
+          },
+        ],
+      },
+      message('assistant', `ack ${long}`),
+      message('user', `followup ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+
+    const combinedPrompts = prompts.join('\n');
+    expect(combinedPrompts).toContain('file: spec.pdf');
+    expect(combinedPrompts).toContain('application/pdf');
+    expect(combinedPrompts).toContain('Critical requirement from attached spec.');
+    expect(combinedPrompts).not.toContain('unknown_block');
+  });
+
+  test('counts compacted persisted messages without tool-result user turns', async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: 'text', text: '## Goals\n- compacted summary' }],
+      model: 'mock-model',
+      usage: { inputTokens: 75, outputTokens: 20 },
+      stopReason: 'end_turn',
+    }));
+    const manager = new ContextWindowManager(
+      provider,
+      'system prompt',
+      makeConfig({ maxInputTokens: 320, targetInputTokens: 170, preserveRecentUserTurns: 1 }),
+    );
+    const long = 'k'.repeat(220);
+    const history: Message[] = [
+      message('user', `u1 ${long}`),
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'read_file', input: { path: '/tmp/a' } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'contents' }] },
+      message('assistant', `a1 ${long}`),
+      message('user', `u2 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    expect(result.compactedMessages).toBe(4);
+    expect(result.compactedPersistedMessages).toBe(3);
+  });
+
+  test('parses legacy assistant-role context summary messages', () => {
+    const legacySummary: Message = {
+      role: 'assistant',
+      content: [{ type: 'text', text: `${CONTEXT_SUMMARY_MARKER}\n## Goals\n- legacy` }],
+    };
+    expect(getSummaryFromContextMessage(legacySummary)).toContain('legacy');
   });
 });
