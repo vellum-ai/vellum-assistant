@@ -60,6 +60,28 @@ actor AmbientSyncClient {
         }
     }
 
+    // MARK: - Fetch Methods
+
+    func fetchRejections(limit: Int = 100) async -> [RejectionEntry] {
+        let url = baseURL.appendingPathComponent("api/rejections")
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "limit", value: "\(limit)")]
+        guard let requestURL = components.url else { return [] }
+        do {
+            let (data, response) = try await session.data(from: requestURL)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                log.warning("fetchRejections: HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+                return []
+            }
+            let rejections = try JSONDecoder().decode([RejectionEntry].self, from: data)
+            log.info("Fetched \(rejections.count) rejections")
+            return rejections
+        } catch {
+            log.warning("fetchRejections failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
     // MARK: - Send Methods
 
     func sendObservation(_ entry: KnowledgeEntry) {
@@ -173,5 +195,15 @@ struct AutomationDecision: Encodable {
     let description: String
     let schedule: String
     let approved: Bool
+    let reason: String?
     let source: String
+}
+
+struct RejectionEntry: Decodable {
+    let insightId: String
+    let title: String
+    let description: String
+    let reason: String?
+    let source: String
+    let receivedAt: String
 }

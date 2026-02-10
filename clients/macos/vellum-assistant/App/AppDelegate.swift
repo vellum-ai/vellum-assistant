@@ -352,6 +352,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             description: description,
             schedule: schedule,
             approved: approved,
+            reason: nil,
             source: "alexs-macbook-pro-2"
         )
 
