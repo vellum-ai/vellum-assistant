@@ -19,6 +19,7 @@ export async function getRequestUser(request: Request): Promise<RequestUser> {
   let id: string | null = null;
   let username: string | null = null;
   let email: string | null = null;
+  let emailVerified = false;
 
   try {
     const sessionResult = await (auth.api as unknown as {
@@ -27,14 +28,15 @@ export async function getRequestUser(request: Request): Promise<RequestUser> {
       headers: request.headers,
     });
 
-    const session = (sessionResult as { user?: { id?: string; username?: string; name?: string; email?: string } })?.user
-      ? (sessionResult as { user?: { id?: string; username?: string; name?: string; email?: string } })
-      : ((sessionResult as { data?: { user?: { id?: string; username?: string; name?: string; email?: string } } })?.data ??
+    const session = (sessionResult as { user?: { id?: string; username?: string; name?: string; email?: string; emailVerified?: boolean } })?.user
+      ? (sessionResult as { user?: { id?: string; username?: string; name?: string; email?: string; emailVerified?: boolean } })
+      : ((sessionResult as { data?: { user?: { id?: string; username?: string; name?: string; email?: string; emailVerified?: boolean } } })?.data ??
         null);
 
     id = session?.user?.id ?? null;
     username = session?.user?.username ?? session?.user?.name ?? null;
     email = session?.user?.email ?? null;
+    emailVerified = Boolean(session?.user?.emailVerified);
   } catch {
     // Fall through to unauthorized checks below.
   }
@@ -44,8 +46,8 @@ export async function getRequestUser(request: Request): Promise<RequestUser> {
     id,
     username,
     email: normalizedEmail,
-    // Admin privileges are granted only for authenticated-session emails.
-    isAdmin: normalizedEmail?.endsWith("@vellum.ai") ?? false,
+    // Admin privileges require authenticated + verified internal email.
+    isAdmin: Boolean(normalizedEmail?.endsWith("@vellum.ai") && emailVerified),
   };
 }
 
@@ -75,11 +77,6 @@ export async function requireAssistantOwner(
     ((user.username && createdBy === user.username) ||
       (user.id && createdBy === user.id))
   ) {
-    return { assistant, user };
-  }
-
-  // Pre-launch assistants can have null created_by.
-  if (!createdBy && (user.username || user.id)) {
     return { assistant, user };
   }
 
