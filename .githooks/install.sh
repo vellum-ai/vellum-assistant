@@ -1,15 +1,21 @@
 #!/bin/bash
 
-# Install git hooks from .githooks directory to .git/hooks
+# Install git hooks from .githooks directory to the repo's hooks path.
+# Works for both regular checkouts and git worktrees.
 
 HOOKS_DIR=".githooks"
-GIT_HOOKS_DIR=".git/hooks"
 
 echo "Installing git hooks..."
 
 # Check if we're in a git repository
-if [ ! -d ".git" ]; then
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "Error: Not in a git repository root directory"
+    exit 1
+fi
+
+GIT_HOOKS_DIR="$(git rev-parse --git-path hooks)"
+if [ -z "$GIT_HOOKS_DIR" ]; then
+    echo "Error: Unable to resolve git hooks directory"
     exit 1
 fi
 

@@ -42,63 +42,21 @@ done
 
 # Get the absolute path to the project root
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VEL_DIR="$PROJECT_ROOT/vel"
-SYMLINK_DIR="$HOME/.local/bin"
-SYMLINK_PATH="$SYMLINK_DIR/vel"
+WEB_DIR="$PROJECT_ROOT/web"
+LEGACY_COMPOSE_PATH="$PROJECT_ROOT/../vellum/docker-compose.yaml"
 
-# Setup vel CLI
-echo "🛠️  Setting up vel CLI..."
-cd "$VEL_DIR"
-bun install
-
-# Create wrapper script directory
-mkdir -p "$SYMLINK_DIR"
-
-# Write wrapper script that runs vel from source via bun
-echo "🔗 Installing vel wrapper script..."
-rm -f "$SYMLINK_PATH"
-cat > "$SYMLINK_PATH" << 'WRAPPER'
-#!/bin/bash
-
-resolve_bun() {
-  if command -v bun &> /dev/null; then
-    command -v bun
-    return
-  fi
-
-  local bun_path="$HOME/.bun/bin/bun"
-  if [ -x "$bun_path" ]; then
-    echo "$bun_path"
-    return
-  fi
-
-  return 1
-}
-
-BUN_BIN=$(resolve_bun) || {
-  echo "error: bun is not installed" >&2
-  echo "" >&2
-  echo "  Install it with:  curl -fsSL https://bun.sh/install | bash" >&2
-  echo "" >&2
-  echo "  Then re-run:  vel $*" >&2
-  exit 1
-}
-
-WRAPPER
-# Append the exec line with the resolved VEL_DIR path baked in
-echo "exec \"\$BUN_BIN\" run \"$VEL_DIR/src/index.ts\" \"\$@\"" >> "$SYMLINK_PATH"
-chmod +x "$SYMLINK_PATH"
-echo "✅ vel installed"
-
-# Check if ~/.local/bin is in PATH
-if [[ ":$PATH:" != *":$SYMLINK_DIR:"* ]]; then
-    echo ""
-    echo "⚠️  Note: $SYMLINK_DIR is not in your PATH"
-    echo "   Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
-    echo "   export PATH=\"\$HOME/.local/bin:\$PATH\""
-    echo ""
+echo "🧹 Checking for legacy Vellum containers..."
+if [ -f "$LEGACY_COMPOSE_PATH" ] && command -v docker &> /dev/null; then
+    LEGACY_DIR="$(dirname "$LEGACY_COMPOSE_PATH")"
+    LEGACY_RUNNING="$(cd "$LEGACY_DIR" && docker compose ps --format '{{.Name}}' 2>/dev/null || true)"
+    if [ -n "$LEGACY_RUNNING" ]; then
+        (cd "$LEGACY_DIR" && docker compose down --remove-orphans) || true
+    fi
 fi
 
+echo "📦 Installing web dependencies..."
+cd "$WEB_DIR"
+bun install
 cd "$PROJECT_ROOT"
 
 # Install git hooks
@@ -109,8 +67,9 @@ else
     echo "⚠️  Git hooks installer not found"
 fi
 
-# Ensure vel is available even if ~/.local/bin isn't in PATH yet
-export PATH="$SYMLINK_DIR:$PATH"
-
-# Run vel setup for remaining steps
-vel setup
+echo ""
+echo "✅ Setup complete"
+echo ""
+echo "Next steps:"
+echo "  1. Start local services:  docker compose up -d"
+echo "  2. Start the web app:     cd web && bun run dev"
