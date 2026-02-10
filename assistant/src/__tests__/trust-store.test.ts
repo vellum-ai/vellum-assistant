@@ -47,6 +47,9 @@ describe('Trust Store', () => {
     try { rmSync(trustPath); } catch { /* may not exist */ }
   });
 
+  // Intentionally do not remove `testDir` in afterAll.
+  // A late async log flush can still attempt to open `test.log` under this dir,
+  // which intermittently causes an unhandled ENOENT in CI if the dir is removed.
   // ── addRule ─────────────────────────────────────────────────────
 
   describe('addRule', () => {

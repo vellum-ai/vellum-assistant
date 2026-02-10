@@ -12,22 +12,39 @@ struct TurnLog: Codable {
     let outputTokens: Int?
 }
 
+struct SessionAttachmentLog: Codable {
+    let fileName: String
+    let mimeType: String
+    let sizeBytes: Int
+    let kind: String
+}
+
 struct SessionLog: Codable {
     let task: String
     let startTime: Date
     let endTime: Date
     let result: String
+    let attachments: [SessionAttachmentLog]
     let turns: [TurnLog]
 }
 
 final class SessionLogger {
     let task: String
     let startTime: Date
+    private let attachments: [SessionAttachmentLog]
     private var turns: [TurnLog] = []
 
-    init(task: String) {
+    init(task: String, attachments: [TaskAttachment] = []) {
         self.task = task
         self.startTime = Date()
+        self.attachments = attachments.map {
+            SessionAttachmentLog(
+                fileName: $0.fileName,
+                mimeType: $0.mimeType,
+                sizeBytes: $0.sizeBytes,
+                kind: $0.kind.rawValue
+            )
+        }
     }
 
     func logTurn(step: Int, axTree: String?, screenshot: Data?, action: AgentAction, usedVision: Bool, usage: TokenUsage? = nil) {
@@ -51,6 +68,7 @@ final class SessionLogger {
             startTime: startTime,
             endTime: Date(),
             result: result,
+            attachments: attachments,
             turns: turns
         )
 

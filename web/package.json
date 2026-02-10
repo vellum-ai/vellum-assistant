@@ -28,8 +28,11 @@
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.1",
     "handlebars": "^4.7.8",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.563.0",
+    "mammoth": "^1.11.0",
     "next": "16.1.6",
+    "pdf-parse": "^2.4.5",
     "postgres": "^3.4.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -38,7 +41,8 @@
     "stripe": "^20.3.1",
     "sucrase": "^3.35.1",
     "tailwind-merge": "^3.4.0",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

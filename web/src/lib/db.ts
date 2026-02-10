@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray, asc } from "drizzle-orm";
 import postgres from "postgres";
 
 import * as schema from "./schema";
@@ -53,6 +53,10 @@ export type Assistant = typeof schema.assistantsTable.$inferSelect;
 export type NewAssistant = typeof schema.assistantsTable.$inferInsert;
 export type ChatMessage = typeof schema.chatMessagesTable.$inferSelect;
 export type NewChatMessage = typeof schema.chatMessagesTable.$inferInsert;
+export type ChatAttachment = typeof schema.chatAttachmentsTable.$inferSelect;
+export type NewChatAttachment = typeof schema.chatAttachmentsTable.$inferInsert;
+export type ChatMessageAttachment = typeof schema.chatMessageAttachmentsTable.$inferSelect;
+export type NewChatMessageAttachment = typeof schema.chatMessageAttachmentsTable.$inferInsert;
 export type User = typeof schema.user.$inferSelect;
 export type NewUser = typeof schema.user.$inferInsert;
 export type ApiKey = typeof schema.apiKeysTable.$inferSelect;
@@ -115,6 +119,78 @@ export async function getChatMessages(assistantId: string) {
 export async function createChatMessage(data: NewChatMessage) {
   const result = await db.insert(schema.chatMessagesTable).values(data).returning();
   return result[0];
+}
+
+export async function createChatAttachment(data: NewChatAttachment) {
+  const result = await db.insert(schema.chatAttachmentsTable).values(data).returning();
+  return result[0];
+}
+
+export async function getChatAttachmentByIdAndAssistant(attachmentId: string, assistantId: string) {
+  const result = await db
+    .select()
+    .from(schema.chatAttachmentsTable)
+    .where(and(
+      eq(schema.chatAttachmentsTable.id, attachmentId),
+      eq(schema.chatAttachmentsTable.assistantId, assistantId),
+    ));
+  return result[0] || null;
+}
+
+export async function getChatAttachmentsByIdsAndAssistant(attachmentIds: string[], assistantId: string) {
+  if (attachmentIds.length === 0) {
+    return [];
+  }
+
+  return db
+    .select()
+    .from(schema.chatAttachmentsTable)
+    .where(and(
+      inArray(schema.chatAttachmentsTable.id, attachmentIds),
+      eq(schema.chatAttachmentsTable.assistantId, assistantId),
+    ));
+}
+
+export async function linkAttachmentsToMessage(messageId: string, attachmentIds: string[]) {
+  if (attachmentIds.length === 0) {
+    return;
+  }
+
+  const values: NewChatMessageAttachment[] = attachmentIds.map((attachmentId, index) => ({
+    messageId,
+    attachmentId,
+    position: index,
+  }));
+
+  await db.insert(schema.chatMessageAttachmentsTable).values(values);
+}
+
+export async function getAttachmentsForMessages(messageIds: string[]) {
+  if (messageIds.length === 0) {
+    return new Map<string, ChatAttachment[]>();
+  }
+
+  const rows = await db
+    .select({
+      messageId: schema.chatMessageAttachmentsTable.messageId,
+      attachment: schema.chatAttachmentsTable,
+    })
+    .from(schema.chatMessageAttachmentsTable)
+    .innerJoin(
+      schema.chatAttachmentsTable,
+      eq(schema.chatMessageAttachmentsTable.attachmentId, schema.chatAttachmentsTable.id),
+    )
+    .where(inArray(schema.chatMessageAttachmentsTable.messageId, messageIds))
+    .orderBy(asc(schema.chatMessageAttachmentsTable.position));
+
+  const attachmentsByMessageId = new Map<string, ChatAttachment[]>();
+  for (const row of rows) {
+    const existing = attachmentsByMessageId.get(row.messageId) ?? [];
+    existing.push(row.attachment);
+    attachmentsByMessageId.set(row.messageId, existing);
+  }
+
+  return attachmentsByMessageId;
 }
 
 export async function updateChatMessageStatus(id: string, status: string) {

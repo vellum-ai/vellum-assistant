@@ -4,9 +4,88 @@ import { initializeProviders } from '../providers/registry.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { getLogger } from '../util/logger.js';
 import { Session } from './session.js';
-import type { ClientMessage, ServerMessage } from './ipc-protocol.js';
+import type { ClientMessage, ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 
 const log = getLogger('handlers');
+const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function estimateBase64Bytes(base64: string): number {
+  const sanitized = base64.trim();
+  const padding = sanitized.endsWith('==') ? 2 : (sanitized.endsWith('=') ? 1 : 0);
+  return Math.max(0, Math.floor((sanitized.length * 3) / 4) - padding);
+}
+
+function formatBytes(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  const kb = sizeBytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+function clampAttachmentText(text: string): string {
+  if (text.length <= HISTORY_ATTACHMENT_TEXT_LIMIT) return text;
+  return `${text.slice(0, HISTORY_ATTACHMENT_TEXT_LIMIT)}...[truncated]`;
+}
+
+function renderImageBlockForHistory(block: Record<string, unknown>): string {
+  const source = isRecord(block.source) ? block.source : null;
+  const mediaType = source && typeof source.media_type === 'string' ? source.media_type : 'image/*';
+  const sizeBytes = source && typeof source.data === 'string' ? estimateBase64Bytes(source.data) : 0;
+  if (sizeBytes <= 0) {
+    return `[Image attachment] ${mediaType}`;
+  }
+  return `[Image attachment] ${mediaType}, ${formatBytes(sizeBytes)}`;
+}
+
+function renderFileBlockForHistory(block: Record<string, unknown>): string {
+  const source = isRecord(block.source) ? block.source : null;
+  const mediaType = source && typeof source.media_type === 'string' ? source.media_type : 'application/octet-stream';
+  const filename = source && typeof source.filename === 'string' ? source.filename : 'attachment';
+  const sizeBytes = source && typeof source.data === 'string' ? estimateBase64Bytes(source.data) : 0;
+  const summaryParts = [`[File attachment] ${filename}`, `type=${mediaType}`];
+  if (sizeBytes > 0) summaryParts.push(`size=${formatBytes(sizeBytes)}`);
+
+  const extractedText = typeof block.extracted_text === 'string' ? block.extracted_text.trim() : '';
+  if (!extractedText) {
+    return summaryParts.join(', ');
+  }
+  return `${summaryParts.join(', ')}\nAttachment text: ${clampAttachmentText(extractedText)}`;
+}
+
+export function renderHistoryContent(content: unknown): string {
+  if (!Array.isArray(content)) {
+    return String(content ?? '');
+  }
+
+  const textParts: string[] = [];
+  const attachmentParts: string[] = [];
+
+  for (const block of content) {
+    if (!isRecord(block) || typeof block.type !== 'string') continue;
+
+    if (block.type === 'text' && typeof block.text === 'string') {
+      textParts.push(block.text);
+      continue;
+    }
+    if (block.type === 'file') {
+      attachmentParts.push(renderFileBlockForHistory(block));
+      continue;
+    }
+    if (block.type === 'image') {
+      attachmentParts.push(renderImageBlockForHistory(block));
+      continue;
+    }
+  }
+
+  const text = textParts.join('');
+  if (attachmentParts.length === 0) return text;
+  if (text.trim().length === 0) return attachmentParts.join('\n');
+  return `${text}\n${attachmentParts.join('\n')}`;
+}
 
 /**
  * Shared context that handlers need from the DaemonServer.
@@ -36,7 +115,7 @@ export function handleMessage(
 ): void {
   switch (msg.type) {
     case 'user_message':
-      handleUserMessage(msg.sessionId, msg.content, socket, ctx);
+      handleUserMessage(msg.sessionId, msg.content, msg.attachments, socket, ctx);
       break;
     case 'confirmation_response':
       handleConfirmationResponse(msg, socket, ctx);
@@ -81,14 +160,15 @@ export function handleMessage(
 
 async function handleUserMessage(
   sessionId: string,
-  content: string,
+  content: string | undefined,
+  attachments: UserMessageAttachment[] | undefined,
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   try {
     ctx.socketToSession.set(socket, sessionId);
     const session = await ctx.getOrCreateSession(sessionId, socket, true);
-    await session.processMessage(content, (event) => {
+    await session.processMessage(content ?? '', attachments ?? [], (event) => {
       ctx.send(socket, event);
     });
   } catch (err) {
@@ -261,14 +341,7 @@ function handleHistoryRequest(
     let text = '';
     try {
       const content = JSON.parse(m.content);
-      if (Array.isArray(content)) {
-        text = content
-          .filter((b: { type: string }) => b.type === 'text')
-          .map((b: { text: string }) => b.text)
-          .join('');
-      } else {
-        text = String(content);
-      }
+      text = renderHistoryContent(content);
     } catch (err) {
       log.debug({ err, messageId: m.id }, 'Failed to parse message content as JSON, using raw text');
       text = m.content;

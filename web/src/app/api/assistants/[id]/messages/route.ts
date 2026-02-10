@@ -6,19 +6,26 @@ import {
 } from "@/lib/assistant-connection";
 import {
   Assistant,
+  ChatAttachment,
   ChatMessage,
   createChatMessage,
+  getAttachmentsForMessages,
+  getChatAttachmentsByIdsAndAssistant,
   getDb,
   getChatMessages,
   getMessageByGcsId,
+  linkAttachmentsToMessage,
 } from "@/lib/db";
+import { buildAttachmentFallbackText } from "@/lib/attachments";
 import { getInstanceExternalIp } from "@/lib/gcp";
 import {
+  type DaemonUserMessageAttachment,
   LocalDaemonClient,
   LocalDaemonError,
   describeLocalDaemonError,
   isLocalDaemonErrorWithCode,
 } from "@/lib/local-daemon-ipc";
+import { getStorage } from "@/lib/storage";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -39,7 +46,33 @@ interface AssistantError {
   message: string;
 }
 
+interface LinkedAttachmentRow {
+  attachment_id: string;
+}
+
+interface AttachmentStorageRow {
+  id: string;
+  storage_key: string | null;
+}
+
+interface MessageAttachmentPayload {
+  id: string;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  kind: string;
+}
+
+interface MessagePayload {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: Date | null;
+  attachments: MessageAttachmentPayload[];
+}
+
 const GREETING_MESSAGE = "Hey there! I just hatched 🐣\n\nWhat's your name? And while we're at it — what should I call myself?";
+const ATTACHMENTS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || "vellum-ai-prod-vellum-assistant";
 
 const GITHUB_APP_HTML = `<div style="border:1px solid #d0d7de;border-radius:12px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;max-width:600px;background:#fff">
   <div style="background:#24292f;padding:16px 24px;display:flex;align-items:center;gap:12px">
@@ -299,6 +332,154 @@ function getCannedResponse(assistantMessageCount: number): { content: string; ac
   }
 }
 
+function toAttachmentPayload(attachment: ChatAttachment): MessageAttachmentPayload {
+  return {
+    id: attachment.id,
+    original_filename: attachment.originalFilename,
+    mime_type: attachment.mimeType,
+    size_bytes: attachment.sizeBytes,
+    kind: attachment.kind,
+  };
+}
+
+function normalizeAttachmentIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const ids = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  return [...new Set(ids)];
+}
+
+function buildForwardedContent(
+  content: string,
+  attachments: ChatAttachment[],
+): string {
+  if (attachments.length === 0) {
+    return content;
+  }
+
+  const fallbackText = buildAttachmentFallbackText(
+    attachments.map((attachment) => ({
+      fileName: attachment.originalFilename,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      kind: attachment.kind === "image" ? "image" : "document",
+      extractedText: attachment.extractedText,
+    })),
+  );
+
+  if (!content) {
+    return fallbackText;
+  }
+  return `${fallbackText}\n\n${content}`;
+}
+
+async function buildMessagePayloads(messages: ChatMessage[]): Promise<MessagePayload[]> {
+  const attachmentsByMessageId = await getAttachmentsForMessages(messages.map((msg) => msg.id));
+  return messages.map((msg) => ({
+    id: msg.id,
+    role: msg.role as "user" | "assistant",
+    content: msg.content,
+    timestamp: msg.createdAt,
+    attachments: (attachmentsByMessageId.get(msg.id) ?? []).map(toAttachmentPayload),
+  }));
+}
+
+async function buildLocalDaemonAttachments(
+  attachments: ChatAttachment[]
+): Promise<DaemonUserMessageAttachment[]> {
+  if (attachments.length === 0) {
+    return [];
+  }
+
+  const bucket = getStorage().bucket(ATTACHMENTS_BUCKET_NAME);
+  return Promise.all(
+    attachments.map(async (attachment) => {
+      const [buffer] = await bucket.file(attachment.storageKey).download();
+      return {
+        id: attachment.id,
+        filename: attachment.originalFilename,
+        mimeType: attachment.mimeType,
+        data: buffer.toString("base64"),
+        extractedText: attachment.extractedText ?? undefined,
+      };
+    })
+  );
+}
+
+async function cleanupUnlinkedLocalAttachments(
+  sql: ReturnType<typeof getDb>,
+  assistantId: string,
+  attachmentIds: string[],
+): Promise<{ deletedIds: string[]; failedIds: string[] }> {
+  if (attachmentIds.length === 0) {
+    return { deletedIds: [], failedIds: [] };
+  }
+
+  const linkedRows = await sql.unsafe<LinkedAttachmentRow[]>(
+    `
+      SELECT DISTINCT attachment_id
+      FROM chat_message_attachments
+      WHERE attachment_id = ANY($1::uuid[])
+    `,
+    [attachmentIds],
+  );
+
+  const linkedIds = new Set(linkedRows.map((row) => row.attachment_id));
+  const candidateIds = attachmentIds.filter((attachmentId) => !linkedIds.has(attachmentId));
+  if (candidateIds.length === 0) {
+    return { deletedIds: [], failedIds: [] };
+  }
+
+  const rows = await sql.unsafe<AttachmentStorageRow[]>(
+    `
+      SELECT id, storage_key
+      FROM chat_attachments
+      WHERE assistant_id = $1
+        AND id = ANY($2::uuid[])
+    `,
+    [assistantId, candidateIds],
+  );
+
+  if (rows.length === 0) {
+    return { deletedIds: [], failedIds: [] };
+  }
+
+  const bucket = getStorage().bucket(ATTACHMENTS_BUCKET_NAME);
+  const deletedIds: string[] = [];
+  const failedIds: string[] = [];
+
+  for (const row of rows) {
+    const storageKey = row.storage_key;
+    if (typeof storageKey === "string" && storageKey.length > 0) {
+      try {
+        await bucket.file(storageKey).delete();
+      } catch (error: unknown) {
+        failedIds.push(row.id);
+        console.warn(
+          "Failed to delete unlinked local-mode attachment object:",
+          { attachmentId: row.id, storageKey, error },
+        );
+        continue;
+      }
+    }
+    deletedIds.push(row.id);
+  }
+
+  if (deletedIds.length > 0) {
+    await sql.unsafe(
+      `
+        DELETE FROM chat_attachments
+        WHERE assistant_id = $1
+          AND id = ANY($2::uuid[])
+      `,
+      [assistantId, deletedIds],
+    );
+  }
+
+  return { deletedIds, failedIds };
+}
+
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
@@ -357,12 +538,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // In local dev, return a hardcoded greeting if no messages exist yet
     if (process.env.NODE_ENV !== "production") {
       const localMessages = await getChatMessages(assistantId);
-      const formattedMessages = localMessages.map((msg: ChatMessage) => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.createdAt,
-      }));
+      const formattedMessages = await buildMessagePayloads(localMessages);
 
       if (formattedMessages.length === 0) {
         formattedMessages.push({
@@ -370,6 +546,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           role: "assistant" as const,
           content: `Hey there! I just hatched 🐣\n\nWhat's your name? And while we're at it — what should I call myself?`,
           timestamp: new Date(),
+          attachments: [],
         });
       }
 
@@ -422,12 +599,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     const dbMessages = await getChatMessages(assistantId);
-    const formattedMessages = dbMessages.map((msg: ChatMessage) => ({
-      id: msg.id,
-      role: msg.role,
-      content: msg.content,
-      timestamp: msg.createdAt,
-    }));
+    const formattedMessages = await buildMessagePayloads(dbMessages);
 
     // If no messages exist yet, persist and show a greeting
     if (formattedMessages.length === 0) {
@@ -442,6 +614,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         role: "assistant" as const,
         content: GREETING_MESSAGE,
         timestamp: greeting.createdAt,
+        attachments: [],
       });
     }
 
@@ -482,15 +655,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
-    const body = await request.json();
-    const { content } = body;
-
-    if (!content || typeof content !== "string") {
-      return NextResponse.json(
-        { error: "Message content is required" },
-        { status: 400 }
-      );
-    }
+    const body = await request.json() as { content?: unknown; attachment_ids?: unknown };
+    const content = typeof body.content === "string" ? body.content : "";
+    const trimmedContent = content.trim();
+    const attachmentIds = normalizeAttachmentIds(body.attachment_ids);
 
     const sql = getDb();
     const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
@@ -500,6 +668,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const assistant = result[0] as Assistant;
+    const fetchedAttachments = attachmentIds.length > 0
+      ? await getChatAttachmentsByIdsAndAssistant(attachmentIds, assistantId)
+      : [];
+
+    const attachmentsById = new Map(fetchedAttachments.map((attachment) => [attachment.id, attachment]));
+    const attachments = attachmentIds
+      .map((attachmentId) => attachmentsById.get(attachmentId))
+      .filter((attachment): attachment is ChatAttachment => Boolean(attachment));
+
+    if (!trimmedContent && attachmentIds.length === 0) {
+      return NextResponse.json(
+        { error: "Either content or attachment_ids is required" },
+        { status: 400 }
+      );
+    }
+
+    if (attachments.length !== attachmentIds.length) {
+      return NextResponse.json(
+        { error: "One or more attachment_ids are invalid for this assistant" },
+        { status: 400 }
+      );
+    }
+
     const connectionMode = getAssistantConnectionMode();
 
     if (connectionMode === "local") {
@@ -516,25 +707,98 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           assistantConfig
         );
 
-        const localResponse = await daemon.sendUserMessage(sessionId, content);
-        const timestamp = new Date().toISOString();
-        const assistantMessage =
-          localResponse.assistantText.length > 0
-            ? {
-                id: `local-${sessionId}-${Date.now()}`,
-                role: "assistant" as const,
-                content: localResponse.assistantText,
-                timestamp,
-              }
-            : null;
-
-        return NextResponse.json({
-          success: true,
-          connectionMode: "local",
-          sessionId,
-          ...(assistantMessage ? { assistantMessage } : {}),
-          message: "Message processed by local daemon",
+        const userMessage = await createChatMessage({
+          assistantId,
+          role: "user",
+          content,
+          status: "sending",
         });
+
+        try {
+          const daemonAttachments = await buildLocalDaemonAttachments(attachments);
+          const localResponse = await daemon.sendUserMessage(
+            sessionId,
+            content,
+            daemonAttachments
+          );
+
+          try {
+            await sql`
+              UPDATE chat_messages
+              SET status = 'sent', updated_at = NOW()
+              WHERE id = ${userMessage.id}
+            `;
+          } catch (statusError: unknown) {
+            console.warn(
+              "Failed to mark local-mode message as sent after daemon success:",
+              statusError
+            );
+          }
+          let attachmentWarning: string | null = null;
+          if (attachmentIds.length > 0) {
+            try {
+              await linkAttachmentsToMessage(userMessage.id, attachmentIds);
+            } catch (linkError: unknown) {
+              console.error(
+                "Failed to link local-mode attachments after daemon success. Attempting cleanup.",
+                linkError,
+              );
+              try {
+                const cleanup = await cleanupUnlinkedLocalAttachments(
+                  sql,
+                  assistantId,
+                  attachmentIds,
+                );
+                if (cleanup.failedIds.length > 0) {
+                  attachmentWarning = "Message was processed, but some attachment metadata could not be persisted.";
+                } else {
+                  attachmentWarning = "Message was processed, but attachments could not be linked and were removed.";
+                }
+              } catch (cleanupError: unknown) {
+                console.error(
+                  "Failed to clean up unlinked local-mode attachments:",
+                  cleanupError,
+                );
+                attachmentWarning = "Message was processed, but attachment metadata could not be persisted.";
+              }
+            }
+          }
+
+          const timestamp = new Date().toISOString();
+          const assistantMessage =
+            localResponse.assistantText.length > 0
+              ? {
+                  id: `local-${sessionId}-${Date.now()}`,
+                  role: "assistant" as const,
+                  content: localResponse.assistantText,
+                  timestamp,
+                }
+              : null;
+
+          return NextResponse.json({
+            success: true,
+            connectionMode: "local",
+            sessionId,
+            messageId: userMessage.id,
+            ...(assistantMessage ? { assistantMessage } : {}),
+            ...(attachmentWarning ? { attachmentWarning } : {}),
+            message: "Message processed by local daemon",
+          });
+        } catch (daemonError: unknown) {
+          try {
+            await sql`
+              UPDATE chat_messages
+              SET status = 'failed', updated_at = NOW()
+              WHERE id = ${userMessage.id}
+            `;
+          } catch (statusError: unknown) {
+            console.warn(
+              "Failed to mark local-mode message as failed after daemon error:",
+              statusError
+            );
+          }
+          throw daemonError;
+        }
       } catch (error: unknown) {
         console.error("Error sending local daemon message:", error);
         return localDaemonErrorResponse(
@@ -546,18 +810,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    const forwardedContent = buildForwardedContent(content, attachments);
     const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
 
     // If no compute instance, use canned responses (demo mode)
     if (!computeConfig?.instanceName) {
-      await createChatMessage({
+      const userMessage = await createChatMessage({
         assistantId,
         role: "user",
         content,
         status: "sent",
       });
+      if (attachmentIds.length > 0) {
+        await linkAttachmentsToMessage(userMessage.id, attachmentIds);
+      }
 
       // Count user messages to determine which canned response to give
       const existingMessages = await getChatMessages(assistantId);
@@ -616,7 +884,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const assistantResponse = await fetch(`http://${externalIp}:8080/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content: forwardedContent }),
     });
 
     if (!assistantResponse.ok) {
@@ -636,6 +904,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       status: "sent",
       gcsMessageId: assistantData.messageId,
     });
+    if (attachmentIds.length > 0) {
+      await linkAttachmentsToMessage(dbMessage.id, attachmentIds);
+    }
 
     return NextResponse.json({
       success: true,

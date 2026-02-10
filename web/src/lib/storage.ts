@@ -4,6 +4,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { Storage as GCSStorage } from "@google-cloud/storage";
 
@@ -23,6 +24,7 @@ export interface StorageFile {
   ): Promise<void>;
   download(): Promise<[Buffer]>;
   exists(): Promise<[boolean]>;
+  delete(): Promise<void>;
 }
 
 export interface StorageBucket {
@@ -85,6 +87,11 @@ function createS3Storage(): Storage {
                 return [false];
               }
             },
+            async delete() {
+              await client.send(
+                new DeleteObjectCommand({ Bucket: bucketName, Key: key })
+              );
+            },
           };
         },
         async getFiles(options) {
@@ -131,6 +138,9 @@ function createGCSStorage(): Storage {
             async exists() {
               return gcsFile.exists();
             },
+            async delete() {
+              await gcsFile.delete({ ignoreNotFound: true });
+            },
           };
         },
         async getFiles(options) {
@@ -150,6 +160,9 @@ function createGCSStorage(): Storage {
               },
               async exists() {
                 return gf.exists();
+              },
+              async delete() {
+                await gf.delete({ ignoreNotFound: true });
               },
             };
             return f;

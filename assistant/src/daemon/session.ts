@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Message } from '../providers/types.js';
-import type { ServerMessage, UsageStats } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats, UserMessageAttachment } from './ipc-protocol.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
 import { createUserMessage } from '../agent/message-types.js';
@@ -169,6 +169,7 @@ export class Session {
 
   async processMessage(
     content: string,
+    attachments: UserMessageAttachment[],
     onEvent: (msg: ServerMessage) => void,
   ): Promise<void> {
     if (this.processing) {
@@ -181,9 +182,19 @@ export class Session {
 
     try {
       const isFirstMessage = this.messages.length === 0;
+      if (!content.trim() && attachments.length === 0) {
+        onEvent({ type: 'error', message: 'Message content or attachments are required' });
+        return;
+      }
 
       // Add user message
-      const userMessage = createUserMessage(content);
+      const userMessage = createUserMessage(content, attachments.map((attachment) => ({
+        id: attachment.id,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        data: attachment.data,
+        extractedText: attachment.extractedText,
+      })));
       this.messages.push(userMessage);
       const persistedUserMessage = conversationStore.addMessage(
         this.conversationId,

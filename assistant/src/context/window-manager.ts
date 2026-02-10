@@ -51,7 +51,11 @@ export class ContextWindowManager {
   ) {}
 
   async maybeCompact(messages: Message[], signal?: AbortSignal): Promise<ContextWindowResult> {
-    const previousEstimatedInputTokens = estimatePromptTokens(messages, this.systemPrompt);
+    const previousEstimatedInputTokens = estimatePromptTokens(
+      messages,
+      this.systemPrompt,
+      { providerName: this.provider.name },
+    );
     const thresholdTokens = Math.floor(this.config.maxInputTokens * this.config.compactThreshold);
     const existingSummary = getSummaryFromContextMessage(messages[0]);
 
@@ -175,7 +179,11 @@ export class ContextWindowManager {
       createContextSummaryMessage(summary),
       ...messages.slice(keepPlan.keepFromIndex),
     ];
-    const estimatedInputTokens = estimatePromptTokens(compactedMessages, this.systemPrompt);
+    const estimatedInputTokens = estimatePromptTokens(
+      compactedMessages,
+      this.systemPrompt,
+      { providerName: this.provider.name },
+    );
     log.info(
       {
         previousEstimatedInputTokens,
@@ -218,7 +226,11 @@ export class ContextWindowManager {
         createContextSummaryMessage('Projected summary'),
         ...messages.slice(keepFromIndex),
       ];
-      const projectedTokens = estimatePromptTokens(projectedMessages, this.systemPrompt);
+      const projectedTokens = estimatePromptTokens(
+        projectedMessages,
+        this.systemPrompt,
+        { providerName: this.provider.name },
+      );
       if (projectedTokens <= this.config.targetInputTokens) break;
       keepTurns -= 1;
       keepFromIndex = userTurnStarts[userTurnStarts.length - keepTurns] ?? keepFromIndex;
@@ -357,7 +369,19 @@ function serializeBlock(block: ContentBlock): string {
     case 'tool_result':
       return `tool_result ${block.tool_use_id}${block.is_error ? ' (error)' : ''}: ${clampText(block.content)}`;
     case 'image':
-      return `image: ${block.source.media_type}, ${Math.ceil(block.source.data.length / 4)} bytes(base64)`;
+      return `image: ${block.source.media_type}, ${Math.ceil(block.source.data.length / 4) * 3} bytes(base64)`;
+    case 'file': {
+      const sizeBytes = Math.ceil(block.source.data.length / 4) * 3;
+      const parts = [
+        `file: ${block.source.filename}`,
+        block.source.media_type,
+        `${sizeBytes} bytes(base64)`,
+      ];
+      if (block.extracted_text) {
+        parts.push(`text=${clampText(block.extracted_text)}`);
+      }
+      return parts.join(', ');
+    }
     case 'thinking':
       return `thinking: ${clampText(block.thinking)}`;
     case 'redacted_thinking':
