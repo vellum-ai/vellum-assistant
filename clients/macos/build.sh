@@ -10,8 +10,13 @@ set -euo pipefail
 #   ./build.sh release      Build release .app
 #   ./build.sh test         Run tests (no .app needed)
 #   ./build.sh clean        Remove build artifacts
+#
+# Environment variables (for CI):
+#   DISPLAY_VERSION   Override CFBundleShortVersionString (default: 0.1.0)
+#   BUILD_VERSION     Override CFBundleVersion (default: 1)
+#   SIGN_IDENTITY     Override code signing identity
 
-export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -23,13 +28,19 @@ CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES_DIR="$CONTENTS/Resources"
 
-# Use Developer ID if available, fall back to ad-hoc
-SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
-    | grep "Developer ID Application" \
-    | head -1 \
-    | sed 's/.*"\(.*\)"/\1/' || true)
-if [ -z "$SIGN_IDENTITY" ]; then
-    SIGN_IDENTITY="-"
+# Version (overridable via env for CI)
+DISPLAY_VERSION="${DISPLAY_VERSION:-0.1.0}"
+BUILD_VERSION="${BUILD_VERSION:-1}"
+
+# Signing identity (overridable via env for CI)
+if [ -z "${SIGN_IDENTITY:-}" ]; then
+    SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+        | grep "Developer ID Application" \
+        | head -1 \
+        | sed 's/.*"\(.*\)"/\1/' || true)
+    if [ -z "$SIGN_IDENTITY" ]; then
+        SIGN_IDENTITY="-"
+    fi
 fi
 
 CMD="${1:-build}"
@@ -96,9 +107,9 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>$DISPLAY_VERSION</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$BUILD_VERSION</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleDevelopmentRegion</key>
@@ -139,7 +150,11 @@ fi
 
 # 6. Code sign
 echo "Signing with: $SIGN_IDENTITY"
-codesign --force --sign "$SIGN_IDENTITY" --deep "$APP_DIR" 2>/dev/null
+CODESIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --deep)
+if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+    CODESIGN_FLAGS+=(--timestamp)
+fi
+codesign "${CODESIGN_FLAGS[@]}" "$APP_DIR"
 
 echo "Built: $APP_DIR"
 

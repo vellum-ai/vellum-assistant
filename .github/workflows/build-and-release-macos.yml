@@ -16,9 +16,6 @@ jobs:
       run:
         working-directory: clients/macos
     env:
-      SCHEME: vellum-assistant
-      ARCHIVE_PATH: build/vellum-assistant.xcarchive
-      EXPORT_PATH: build/export
       DMG_PATH: build/vellum-assistant.dmg
       KEYCHAIN_NAME: build.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
@@ -69,74 +66,21 @@ jobs:
           BUILD_VERSION="${DATE}.${SHA_DECIMAL}"
           echo "version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
 
-          # Update CFBundleVersion (must be numeric dotted string)
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_VERSION" \
-            vellum-assistant/Resources/Info-generated.plist
-
-          # Update CFBundleShortVersionString with human-readable version
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $DISPLAY_VERSION" \
-            vellum-assistant/Resources/Info-generated.plist
-
-      - name: Resolve SPM dependencies
+      - name: Build release .app
         run: |
-          xcodebuild -resolvePackageDependencies \
-            -project vellum-assistant.xcodeproj \
-            -scheme "$SCHEME" \
-            -clonedSourcePackagesDirPath build/SourcePackages
+          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
+          BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
+          SIGN_IDENTITY="Developer ID Application" \
+          ./build.sh release
 
-      - name: Archive
-        run: |
-          set -o pipefail
-          xcodebuild archive \
-            -project vellum-assistant.xcodeproj \
-            -scheme "$SCHEME" \
-            -configuration Release \
-            -archivePath "$ARCHIVE_PATH" \
-            -clonedSourcePackagesDirPath build/SourcePackages \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Developer ID Application" \
-            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
-            OTHER_CODE_SIGN_FLAGS="--timestamp" \
-            | xcpretty
-
-      - name: Generate ExportOptions.plist
-        run: |
-          cat > build/ExportOptions.plist << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>method</key>
-              <string>developer-id</string>
-              <key>teamID</key>
-              <string>${{ secrets.APPLE_TEAM_ID }}</string>
-              <key>signingStyle</key>
-              <string>manual</string>
-              <key>signingCertificate</key>
-              <string>Developer ID Application</string>
-          </dict>
-          </plist>
-          EOF
-
-      - name: Export .app
-        run: |
-          set -o pipefail
-          xcodebuild -exportArchive \
-            -archivePath "$ARCHIVE_PATH" \
-            -exportPath "$EXPORT_PATH" \
-            -exportOptionsPlist build/ExportOptions.plist \
-            | xcpretty
+          APP_PATH="dist/vellum-assistant.app"
 
           # Verify the app exists
-          ls -la "$EXPORT_PATH/"
-          APP_PATH=$(find "$EXPORT_PATH" -name "*.app" -maxdepth 1 | head -1)
-          if [ -z "$APP_PATH" ]; then
-            echo "::error::No .app found in export directory"
-            exit 1
-          fi
-          echo "Exported app: $APP_PATH"
+          ls -la "$APP_PATH"
 
           # Verify code signature
           codesign --verify --deep --strict "$APP_PATH"
@@ -144,8 +88,8 @@ jobs:
 
       - name: Create DMG
         run: |
-          APP_PATH=$(find "$EXPORT_PATH" -name "*.app" -maxdepth 1 | head -1)
-          APP_NAME=$(basename "$APP_PATH")
+          APP_PATH="dist/vellum-assistant.app"
+          APP_NAME="vellum-assistant.app"
 
           # Create staging directory for DMG contents
           DMG_STAGING="build/dmg-staging"
