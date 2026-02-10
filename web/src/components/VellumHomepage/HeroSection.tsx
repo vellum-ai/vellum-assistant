@@ -33,9 +33,20 @@ export function HeroSection() {
                 <div className="text-align-center text-wrap-balance">
                   <div className="spacer-xxsmall"></div>
                   <h1 className="heading-1-new text-color-white font-playfair">
-                    <em className="italic-text-12">AI agents for your<br/></em>
-                    <span><em>boring ops tasks</em></span>
+                    <em className="italic-text-12">A personal assistant<br/></em>
+                    <span><em>that you can trust</em></span>
                   </h1>
+                  <p style={{
+                    color: "rgba(255, 255, 255, 0.85)",
+                    fontSize: "1.125rem",
+                    lineHeight: "1.6",
+                    marginTop: "1.5rem",
+                    maxWidth: "600px",
+                    marginLeft: "auto",
+                    marginRight: "auto",
+                  }}>
+                    An assistant that has it's own identity and has context of your life. It can clear your inbox, book your flights, submit PRs, becomes indispensable, and stays yours forever.
+                  </p>
                 </div>
               </div>
 
