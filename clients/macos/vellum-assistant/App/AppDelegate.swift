@@ -262,7 +262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task { @MainActor in
             await session.run()
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s for undo opportunity
             overlay.close()
             self.overlayWindow = nil
             self.currentSession = nil

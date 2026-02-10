@@ -4,6 +4,7 @@ build/
 *.xcuserdata
 xcuserdata/
 DerivedData/
+.dev/
 .DS_Store
 context.md
 Local.xcconfig

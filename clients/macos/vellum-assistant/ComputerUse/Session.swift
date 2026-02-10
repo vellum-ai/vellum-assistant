@@ -8,6 +8,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 enum SessionState: Equatable {
     case idle
     case running(step: Int, maxSteps: Int, lastAction: String, reasoning: String)
+    case thinking(step: Int, maxSteps: Int)
     case paused(step: Int, maxSteps: Int)
     case awaitingConfirmation(reason: String)
     case completed(summary: String, steps: Int)
@@ -18,6 +19,7 @@ enum SessionState: Equatable {
 @MainActor
 final class ComputerUseSession: ObservableObject {
     @Published var state: SessionState = .idle
+    @Published var undoCount = 0
 
     let task: String
     private let provider: ActionInferenceProvider
@@ -193,6 +195,7 @@ final class ComputerUseSession: ObservableObject {
             }
 
             // 2. INFER
+            state = .thinking(step: stepNumber, maxSteps: maxSteps)
             let action: AgentAction
             let tokenUsage: TokenUsage?
             do {
@@ -446,5 +449,16 @@ final class ComputerUseSession: ObservableObject {
 
     func rejectConfirmation() {
         confirmationContinuation?.resume(returning: false)
+    }
+
+    func undo() {
+        let undoExecutor = ActionExecutor()
+        do {
+            try undoExecutor.pressKey("cmd+z")
+            undoCount += 1
+            log.info("Undo #\(self.undoCount) sent")
+        } catch {
+            log.error("Undo failed: \(error.localizedDescription)")
+        }
     }
 }
