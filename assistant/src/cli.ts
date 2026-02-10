@@ -50,6 +50,8 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         return `Writing ${input.path ?? ''}...`;
       case 'file_edit':
         return `Editing ${input.path ?? ''}...`;
+      case 'web_fetch':
+        return `Fetching ${String(input.url ?? '').slice(0, 80)}...`;
       default:
         return `Running ${toolName}...`;
     }
@@ -82,6 +84,9 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
     if (req.toolName === 'file_write') {
       return `write ${req.input.path ?? ''}`;
+    }
+    if (req.toolName === 'web_fetch') {
+      return `fetch ${req.input.url ?? ''}`;
     }
     return `${req.toolName}: ${JSON.stringify(req.input).slice(0, 80)}`;
   }

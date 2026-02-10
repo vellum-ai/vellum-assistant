@@ -93,6 +93,7 @@ export async function initializeTools(): Promise<void> {
   await import('./filesystem/write.js');
   await import('./filesystem/edit.js');
   await import('./network/web-search.js');
+  await import('./network/web-fetch.js');
   await import('./skills/load.js');
 
   // The shell tool loads web-tree-sitter WASM for command parsing, which is

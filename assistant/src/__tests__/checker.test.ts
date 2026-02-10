@@ -86,6 +86,21 @@ describe('Permission Checker', () => {
       });
     });
 
+    describe('web_fetch', () => {
+      test('web_fetch is low risk by default', async () => {
+        const risk = await classifyRisk('web_fetch', { url: 'https://example.com' });
+        expect(risk).toBe(RiskLevel.Low);
+      });
+
+      test('web_fetch with allow_private_network is medium risk', async () => {
+        const risk = await classifyRisk('web_fetch', {
+          url: 'http://localhost:3000',
+          allow_private_network: true,
+        });
+        expect(risk).toBe(RiskLevel.Medium);
+      });
+    });
+
     // shell commands - low risk
     describe('shell — low risk', () => {
       test('ls is low risk', async () => {
@@ -358,6 +373,22 @@ describe('Permission Checker', () => {
       const result = await check('shell', { command: 'ls' }, '/tmp');
       expect(result.decision).toBe('allow');
     });
+
+    test('web_fetch allow rule can approve medium-risk private-network fetches', async () => {
+      addRule('web_fetch', 'web_fetch:http://localhost:3000/*', '/tmp');
+      const result = await check(
+        'web_fetch',
+        { url: 'http://localhost:3000/health', allow_private_network: true },
+        '/tmp',
+      );
+      expect(result.decision).toBe('allow');
+    });
+
+    test('web_fetch deny rule blocks matching urls', async () => {
+      addRule('web_fetch', 'web_fetch:https://example.com/private/*', 'everywhere', 'deny');
+      const result = await check('web_fetch', { url: 'https://example.com/private/doc' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
   });
 
   // ── generateAllowlistOptions ───────────────────────────────────
@@ -414,6 +445,14 @@ describe('Permission Checker', () => {
       const options = generateAllowlistOptions('other_tool', { foo: 'bar' });
       expect(options).toHaveLength(1);
       expect(options[0].pattern).toBe('*');
+    });
+
+    test('web_fetch: generates exact url, origin wildcard, and tool wildcard', () => {
+      const options = generateAllowlistOptions('web_fetch', { url: 'https://example.com/docs/page' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
+      expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
+      expect(options[2].pattern).toBe('web_fetch:*');
     });
   });
 

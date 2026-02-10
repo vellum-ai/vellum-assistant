@@ -60,6 +60,29 @@ function getStringField(input: Record<string, unknown>, ...keys: string[]): stri
   return '';
 }
 
+function normalizeWebFetchUrl(rawUrl: string): URL | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed;
+    return null;
+  } catch {
+    // Fall through.
+  }
+
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    return null;
+  }
+
+  try {
+    return new URL(`https://${trimmed}`);
+  } catch {
+    return null;
+  }
+}
+
 function buildCommandCandidates(toolName: string, input: Record<string, unknown>): string[] {
   if (toolName === 'shell') {
     return [getStringField(input, 'command')];
@@ -80,6 +103,27 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
     return [...new Set(targets)].map((target) => `${toolName}:${target}`);
   }
 
+  if (toolName === 'web_fetch') {
+    const rawUrl = getStringField(input, 'url').trim();
+    const candidates: string[] = [];
+
+    if (rawUrl) {
+      candidates.push(`${toolName}:${rawUrl}`);
+    }
+
+    const normalized = normalizeWebFetchUrl(rawUrl);
+    if (normalized) {
+      candidates.push(`${toolName}:${normalized.href}`);
+      candidates.push(`${toolName}:${normalized.origin}/*`);
+    }
+
+    if (candidates.length === 0) {
+      candidates.push(`${toolName}:`);
+    }
+
+    return [...new Set(candidates)];
+  }
+
   const fileTarget = getStringField(input, 'path', 'file_path');
   return [`${toolName}:${fileTarget}`];
 }
@@ -89,6 +133,9 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   if (toolName === 'file_write') return RiskLevel.Medium;
   if (toolName === 'file_edit') return RiskLevel.Medium;
   if (toolName === 'web_search') return RiskLevel.Low;
+  if (toolName === 'web_fetch') {
+    return input.allow_private_network === true ? RiskLevel.Medium : RiskLevel.Low;
+  }
   if (toolName === 'skill_load') return RiskLevel.Low;
 
   if (toolName === 'shell') {
@@ -239,6 +286,28 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     options.push({ label: `${toolName}:*`, pattern: `${toolName}:*` });
 
     return options;
+  }
+
+  if (toolName === 'web_fetch') {
+    const rawUrl = getStringField(input, 'url').trim();
+    const normalized = normalizeWebFetchUrl(rawUrl);
+    const exact = normalized?.href ?? rawUrl;
+
+    const options: AllowlistOption[] = [];
+    if (exact) {
+      options.push({ label: exact, pattern: `${toolName}:${exact}` });
+    }
+    if (normalized) {
+      options.push({ label: `${normalized.origin}/*`, pattern: `${toolName}:${normalized.origin}/*` });
+    }
+    options.push({ label: `${toolName}:*`, pattern: `${toolName}:*` });
+
+    const seen = new Set<string>();
+    return options.filter((o) => {
+      if (seen.has(o.pattern)) return false;
+      seen.add(o.pattern);
+      return true;
+    });
   }
 
   return [{ label: '*', pattern: '*' }];
