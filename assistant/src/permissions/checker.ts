@@ -69,6 +69,8 @@ function looksLikeHostPortShorthand(value: string): boolean {
 
 function canonicalizeWebFetchUrl(parsed: URL): URL {
   parsed.hash = '';
+  parsed.username = '';
+  parsed.password = '';
 
   if (parsed.hostname.endsWith('.')) {
     parsed.hostname = parsed.hostname.replace(/\.+$/, '');

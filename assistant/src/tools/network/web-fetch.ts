@@ -240,6 +240,22 @@ function buildHostHeader(url: URL): string {
   return url.port ? `${url.hostname}:${url.port}` : url.hostname;
 }
 
+function sanitizeUrlForOutput(url: URL): string {
+  const sanitized = new URL(url.href);
+  sanitized.username = '';
+  sanitized.password = '';
+  return sanitized.href;
+}
+
+function sanitizeUrlStringForOutput(url: string, base?: URL): string {
+  try {
+    const parsed = base ? new URL(url, base) : new URL(url);
+    return sanitizeUrlForOutput(parsed);
+  } catch {
+    return url.replace(/\/\/([^/?#\s@]+)@/g, '//[REDACTED]@');
+  }
+}
+
 function decodeUrlCredential(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -347,7 +363,7 @@ function looksLikeHtml(text: string): boolean {
 }
 
 function decodeHtmlEntities(text: string): string {
-  return text.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, entity: string) => {
+  return text.replace(/&(#(?:x|X)[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (match, entity: string) => {
     if (entity.startsWith('#x') || entity.startsWith('#X')) {
       const value = Number.parseInt(entity.slice(2), 16);
       if (Number.isNaN(value) || value < 0 || value > 0x10FFFF) return match;
@@ -538,12 +554,13 @@ export async function executeWebFetch(
   const startIndex = clampInteger(input.start_index, 0, 0, 10_000_000);
   const rawMode = input.raw === true;
   const requestedUrl = parsedUrl.href;
+  const safeRequestedUrl = sanitizeUrlForOutput(parsedUrl);
 
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
 
   try {
-    log.debug({ url: requestedUrl, timeoutSeconds, maxChars, startIndex, rawMode }, 'Fetching webpage');
+    log.debug({ url: safeRequestedUrl, timeoutSeconds, maxChars, startIndex, rawMode }, 'Fetching webpage');
 
     const requestHeaders = {
       'Accept': 'text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.8',
@@ -565,7 +582,7 @@ export async function executeWebFetch(
       }
       if (resolution.addresses.length === 0) {
         return {
-          content: `Error: Unable to resolve host "${currentUrl.hostname}" while fetching ${requestedUrl}`,
+          content: `Error: Unable to resolve host "${currentUrl.hostname}" while fetching ${safeRequestedUrl}`,
           isError: true,
         };
       }
@@ -610,7 +627,7 @@ export async function executeWebFetch(
 
       if (redirectCount >= MAX_REDIRECTS) {
         return {
-          content: `Error: Too many redirects (>${MAX_REDIRECTS}) while fetching ${requestedUrl}`,
+          content: `Error: Too many redirects (>${MAX_REDIRECTS}) while fetching ${safeRequestedUrl}`,
           isError: true,
         };
       }
@@ -619,8 +636,10 @@ export async function executeWebFetch(
       try {
         nextUrl = new URL(location!, currentUrl);
       } catch {
+        const safeLocation = sanitizeUrlStringForOutput(location ?? '', currentUrl);
+        const safeCurrentUrl = sanitizeUrlForOutput(currentUrl);
         return {
-          content: `Error: Invalid redirect location "${location}" received from ${currentUrl.href}`,
+          content: `Error: Invalid redirect location "${safeLocation}" received from ${safeCurrentUrl}`,
           isError: true,
         };
       }
@@ -647,8 +666,9 @@ export async function executeWebFetch(
           };
         }
         if (resolution.addresses.length === 0) {
+          const safeCurrentUrl = sanitizeUrlForOutput(currentUrl);
           return {
-            content: `Error: Unable to resolve redirect host "${nextUrl.hostname}" from ${currentUrl.href}`,
+            content: `Error: Unable to resolve redirect host "${nextUrl.hostname}" from ${safeCurrentUrl}`,
             isError: true,
           };
         }
@@ -701,8 +721,8 @@ export async function executeWebFetch(
     }
 
     const content = formatWebFetchOutput({
-      requestedUrl,
-      finalUrl: currentUrl.href,
+      requestedUrl: safeRequestedUrl,
+      finalUrl: sanitizeUrlForOutput(currentUrl),
       status: response.status,
       statusText: response.statusText,
       contentType,
@@ -736,7 +756,7 @@ export async function executeWebFetch(
     }
 
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, url: requestedUrl }, 'Web fetch failed');
+    log.error({ err, url: safeRequestedUrl }, 'Web fetch failed');
     return { content: `Error: Web fetch failed: ${msg}`, isError: true };
   } finally {
     clearTimeout(timeoutHandle);

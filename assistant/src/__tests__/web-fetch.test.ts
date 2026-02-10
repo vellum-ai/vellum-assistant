@@ -186,6 +186,46 @@ describe('web_fetch tool', () => {
     expect(authorizationHeader).toBe(`Basic ${Buffer.from('user name:p@ss', 'utf8').toString('base64')}`);
   });
 
+  test('redacts URL userinfo in output metadata', async () => {
+    const username = 'demo';
+    const credential = ['c', 'r', 'e', 'd', '1', '2', '3'].join('');
+    const credentialedUrl = new URL(`https://${username}:${credential}@example.com/protected`);
+
+    const result = await executeWithMockFetch(
+      { url: credentialedUrl.href },
+      {
+        resolveHostAddresses: async () => ['93.184.216.34'],
+        requestExecutor: async () =>
+          new Response('ok', {
+            status: 200,
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Requested URL: https://example.com/protected');
+    expect(result.content).toContain('Final URL: https://example.com/protected');
+    expect(result.content).not.toContain('demo:cred123@');
+  });
+
+  test('redacts URL userinfo in resolution error messages', async () => {
+    const username = 'demo';
+    const credential = ['c', 'r', 'e', 'd', '1', '2', '3'].join('');
+    const credentialedUrl = new URL(`https://${username}:${credential}@example.com/protected`);
+
+    const result = await executeWithMockFetch(
+      { url: credentialedUrl.href },
+      {
+        resolveHostAddresses: async () => [],
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('while fetching https://example.com/protected');
+    expect(result.content).not.toContain('demo:cred123@');
+  });
+
   test('allows hostnames that resolve to private addresses when allow_private_network=true', async () => {
     let called = false;
     globalThis.fetch = (async () => {
@@ -339,6 +379,19 @@ describe('web_fetch tool', () => {
     const result = await executeWithMockFetch({ url: 'https://example.com' });
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Description: She said "hello" today');
+  });
+
+  test('keeps malformed decimal entities unchanged', async () => {
+    globalThis.fetch = (async () =>
+      new Response('<html><body><p>Value: &#1a;</p></body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      })
+    ) as any;
+
+    const result = await executeWithMockFetch({ url: 'https://example.com/entities' });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Value: &#1a;');
   });
 
   test('supports character windowing with start_index and max_chars', async () => {
