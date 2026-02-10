@@ -1,11 +1,28 @@
 "use client";
 
-import { AlertTriangle, Bot, Loader2, Pause, Play, Send, User, X } from "lucide-react";
 import {
+  AlertTriangle,
+  Bot,
+  FileImage,
+  FileText,
+  Loader2,
+  Paperclip,
+  Pause,
+  Play,
+  Send,
+  User,
+  X,
+} from "lucide-react";
+import {
+  ChangeEvent,
+  ClipboardEvent,
+  DragEvent,
   FormEvent,
   KeyboardEvent,
   useCallback,
   useEffect,
+  useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -16,11 +33,31 @@ interface AssistantError {
   message: string;
 }
 
+interface MessageAttachment {
+  id: string;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  kind: string;
+}
+
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  attachments: MessageAttachment[];
+}
+
+interface PendingAttachment {
+  localId: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  kind: "image" | "document";
+  status: "uploading" | "uploaded" | "error";
+  attachmentId?: string;
+  error?: string;
 }
 
 interface InteractionTabProps {
@@ -33,6 +70,21 @@ const HEALTH_CHECK_INTERVAL = 10000;
 const MESSAGE_POLL_INTERVAL = 5000;
 const SETUP_GRACE_PERIOD_MS = 10 * 60 * 1000;
 
+function formatBytes(size: number): string {
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  const kb = size / 1024;
+  if (kb < 1024) {
+    return `${kb.toFixed(1)} KB`;
+  }
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+function inferKindFromMime(mimeType: string): "image" | "document" {
+  return mimeType.toLowerCase().startsWith("image/") ? "image" : "document";
+}
+
 export function InteractionTab({ assistantId, assistantName, assistantCreatedAt }: InteractionTabProps) {
   const [assistantStatus, setAssistantStatus] = useState<AssistantStatus>("checking");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -42,6 +94,9 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -51,19 +106,25 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
       }
       const data = await response.json();
       const fetchedMessages: Message[] = (data.messages || []).map(
-        (msg: { id: string; role: "user" | "assistant"; content: string; timestamp: string }) => ({
+        (msg: {
+          id: string;
+          role: "user" | "assistant";
+          content: string;
+          timestamp: string;
+          attachments?: MessageAttachment[];
+        }) => ({
           id: msg.id,
           role: msg.role,
           content: msg.content,
           timestamp: new Date(msg.timestamp),
+          attachments: msg.attachments || [],
         })
       );
-      
-      // Update errors if present
+
       if (data.errors && Array.isArray(data.errors)) {
         setErrors(data.errors);
       }
-      
+
       setMessages(fetchedMessages);
     } catch (error) {
       console.error("Failed to fetch messages:", error);
@@ -119,10 +180,136 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   }, [checkHealth]);
 
   const isAlive = assistantStatus === "healthy";
-  
-  // Show typing indicator when waiting for assistant response
+
   const lastMessage = messages[messages.length - 1];
   const isWaitingForResponse = lastMessage?.role === "user";
+
+  const uploadedAttachmentIds = useMemo(
+    () => pendingAttachments
+      .filter((attachment) => attachment.status === "uploaded" && attachment.attachmentId)
+      .map((attachment) => attachment.attachmentId as string),
+    [pendingAttachments],
+  );
+  const hasUploadingAttachments = pendingAttachments.some((attachment) => attachment.status === "uploading");
+
+  const uploadFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) {
+      return;
+    }
+
+    const localEntries: PendingAttachment[] = files.map((file) => ({
+      localId: crypto.randomUUID(),
+      fileName: file.name,
+      mimeType: file.type,
+      sizeBytes: file.size,
+      kind: inferKindFromMime(file.type),
+      status: "uploading",
+    }));
+
+    setPendingAttachments((prev) => [...prev, ...localEntries]);
+
+    try {
+      const formData = new FormData();
+      for (const file of files) {
+        formData.append("files", file);
+      }
+
+      const response = await fetch(`/api/assistants/${assistantId}/attachments`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to upload attachments");
+      }
+
+      const data = await response.json() as {
+        attachments?: Array<{
+          id: string;
+          original_filename: string;
+          mime_type: string;
+          size_bytes: number;
+          kind: string;
+        }>;
+      };
+
+      const uploaded = data.attachments || [];
+      if (uploaded.length !== localEntries.length) {
+        throw new Error("Upload response did not match selected files");
+      }
+
+      setPendingAttachments((prev) => {
+        const localIndexById = new Map(localEntries.map((entry, index) => [entry.localId, index]));
+        return prev.map((entry) => {
+          const index = localIndexById.get(entry.localId);
+          if (index === undefined) {
+            return entry;
+          }
+          const uploadedEntry = uploaded[index];
+          return {
+            ...entry,
+            fileName: uploadedEntry.original_filename,
+            mimeType: uploadedEntry.mime_type,
+            sizeBytes: uploadedEntry.size_bytes,
+            kind: uploadedEntry.kind === "image" ? "image" : "document",
+            attachmentId: uploadedEntry.id,
+            status: "uploaded",
+            error: undefined,
+          };
+        });
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Attachment upload failed";
+      setPendingAttachments((prev) => {
+        const localIds = new Set(localEntries.map((entry) => entry.localId));
+        return prev.map((entry) => {
+          if (!localIds.has(entry.localId)) {
+            return entry;
+          }
+          return {
+            ...entry,
+            status: "error",
+            error: errorMessage,
+          };
+        });
+      });
+    }
+  }, [assistantId]);
+
+  const handleOpenFilePicker = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileInputChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files ? Array.from(event.target.files) : [];
+    if (files.length > 0) {
+      await uploadFiles(files);
+    }
+    event.target.value = "";
+  }, [uploadFiles]);
+
+  const handlePaste = useCallback(async (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const pastedFiles = Array.from(event.clipboardData.files || []);
+    if (pastedFiles.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    await uploadFiles(pastedFiles);
+  }, [uploadFiles]);
+
+  const handleDrop = useCallback(async (event: DragEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsDragOver(false);
+    const droppedFiles = Array.from(event.dataTransfer.files || []);
+    if (droppedFiles.length > 0) {
+      await uploadFiles(droppedFiles);
+    }
+  }, [uploadFiles]);
+
+  const removePendingAttachment = useCallback((localId: string) => {
+    setPendingAttachments((prev) => prev.filter((attachment) => attachment.localId !== localId));
+  }, []);
 
   const handleStart = useCallback(async () => {
     setIsToggling(true);
@@ -166,18 +353,36 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
     }
   }, [isAlive, handleStart, handleStop]);
 
+  const canSend = isAlive
+    && !isLoading
+    && !hasUploadingAttachments
+    && (input.trim().length > 0 || uploadedAttachmentIds.length > 0);
+
   const handleSubmit = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
-      if (!input.trim() || isLoading || !isAlive) {
+      if (!canSend) {
         return;
       }
+
+      const trimmedInput = input.trim();
+      const attachmentIds = [...uploadedAttachmentIds];
+      const optimisticAttachments = pendingAttachments
+        .filter((attachment) => attachment.status === "uploaded" && attachment.attachmentId)
+        .map((attachment) => ({
+          id: attachment.attachmentId as string,
+          original_filename: attachment.fileName,
+          mime_type: attachment.mimeType,
+          size_bytes: attachment.sizeBytes,
+          kind: attachment.kind,
+        }));
 
       const userMessage: Message = {
         id: `optimistic-${crypto.randomUUID()}`,
         role: "user",
-        content: input.trim(),
+        content: trimmedInput,
         timestamp: new Date(),
+        attachments: optimisticAttachments,
       };
 
       setMessages((prev) => [...prev, userMessage]);
@@ -188,24 +393,25 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
         const response = await fetch(`/api/assistants/${assistantId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: userMessage.content }),
+          body: JSON.stringify({ content: trimmedInput, attachment_ids: attachmentIds }),
         });
 
         if (!response.ok) {
-          throw new Error("Failed to send message");
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || "Failed to send message");
         }
 
-        // Use preserveOptimistic to avoid flicker - merge server state with pending optimistic updates
         await fetchMessages();
+        setPendingAttachments((prev) => prev.filter((attachment) => !attachmentIds.includes(attachment.attachmentId || "")));
       } catch (error) {
         console.error("Failed to send message:", error);
-        // Remove the optimistic message on failure
         setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
+        setInput(trimmedInput);
       } finally {
         setIsLoading(false);
       }
     },
-    [input, isLoading, isAlive, assistantId, fetchMessages]
+    [assistantId, canSend, fetchMessages, input, pendingAttachments, uploadedAttachmentIds],
   );
 
   const handleKeyDown = useCallback(
@@ -404,9 +610,36 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
                           : "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white"
                       }`}
                     >
-                      <p className="whitespace-pre-wrap text-sm">
-                        {message.content}
-                      </p>
+                      {message.content ? (
+                        <p className="whitespace-pre-wrap text-sm">
+                          {message.content}
+                        </p>
+                      ) : null}
+
+                      {message.attachments.length > 0 && (
+                        <div className={`${message.content ? "mt-2" : ""} flex flex-wrap gap-2`}>
+                          {message.attachments.map((attachment) => (
+                            <div
+                              key={attachment.id}
+                              className={`inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs ${
+                                message.role === "user"
+                                  ? "border-indigo-400 bg-indigo-500/40 text-indigo-50"
+                                  : "border-zinc-300 bg-zinc-50 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                              }`}
+                            >
+                              {attachment.kind === "image" ? (
+                                <FileImage className="h-3 w-3" />
+                              ) : (
+                                <FileText className="h-3 w-3" />
+                              )}
+                              <span className="max-w-[220px] truncate" title={attachment.original_filename}>
+                                {attachment.original_filename}
+                              </span>
+                              <span className="opacity-75">{formatBytes(attachment.size_bytes)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     {message.role === "user" && (
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700">
@@ -435,25 +668,96 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
 
           <form
             onSubmit={handleSubmit}
-            className="border-t border-zinc-200 p-4 dark:border-zinc-800"
+            className={`border-t p-4 transition-colors ${isDragOver ? "border-green-500 bg-green-50/70 dark:bg-green-950/20" : "border-zinc-200 dark:border-zinc-800"}`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setIsDragOver(true);
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+                setIsDragOver(false);
+              }
+            }}
+            onDrop={handleDrop}
           >
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={handleFileInputChange}
+            />
+
+            {pendingAttachments.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {pendingAttachments.map((attachment) => (
+                  <div
+                    key={attachment.localId}
+                    className={`inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs ${
+                      attachment.status === "error"
+                        ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300"
+                        : "border-zinc-300 bg-zinc-50 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                    }`}
+                  >
+                    {attachment.kind === "image" ? (
+                      <FileImage className="h-3 w-3" />
+                    ) : (
+                      <FileText className="h-3 w-3" />
+                    )}
+                    <span className="max-w-[220px] truncate" title={attachment.fileName}>
+                      {attachment.fileName}
+                    </span>
+                    <span className="opacity-75">{formatBytes(attachment.sizeBytes)}</span>
+                    {attachment.status === "uploading" && <Loader2 className="h-3 w-3 animate-spin" />}
+                    {attachment.status === "error" && attachment.error && (
+                      <span className="max-w-[220px] truncate">{attachment.error}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removePendingAttachment(attachment.localId)}
+                      className="rounded p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+                      aria-label={`Remove ${attachment.fileName}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleOpenFilePicker}
+                className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                disabled={isLoading}
+                aria-label="Attach files"
+                title="Attach files"
+              >
+                {hasUploadingAttachments ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+              </button>
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
                 placeholder={`Message ${assistantName}...`}
                 rows={1}
                 className="flex-1 resize-none rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
               />
               <button
                 type="submit"
-                disabled={!input.trim() || isLoading}
+                disabled={!canSend}
                 className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg bg-green-600 text-white transition-colors hover:bg-green-700 disabled:opacity-50"
               >
                 <Send className="h-4 w-4" />
               </button>
             </div>
+            {hasUploadingAttachments && (
+              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                Uploading attachments...
+              </p>
+            )}
           </form>
         </>
       )}

@@ -5,6 +5,7 @@ const MESSAGE_OVERHEAD_TOKENS = 4;
 const TEXT_BLOCK_OVERHEAD_TOKENS = 2;
 const TOOL_BLOCK_OVERHEAD_TOKENS = 16;
 const IMAGE_BLOCK_TOKENS = 1024;
+const FILE_BLOCK_OVERHEAD_TOKENS = 48;
 const OTHER_BLOCK_TOKENS = 16;
 const SYSTEM_PROMPT_OVERHEAD_TOKENS = 8;
 
@@ -27,6 +28,11 @@ export function estimateContentBlockTokens(block: ContentBlock): number {
         + estimateTextTokens(block.content);
     case 'image':
       return IMAGE_BLOCK_TOKENS;
+    case 'file':
+      return FILE_BLOCK_OVERHEAD_TOKENS
+        + estimateTextTokens(block.source.filename)
+        + estimateTextTokens(block.source.media_type)
+        + estimateTextTokens(block.extracted_text ?? '');
     case 'thinking':
       return TEXT_BLOCK_OVERHEAD_TOKENS + estimateTextTokens(block.thinking);
     case 'redacted_thinking':

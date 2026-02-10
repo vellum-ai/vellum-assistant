@@ -2,12 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   Assistant,
+  ChatAttachment,
   ChatMessage,
   createChatMessage,
+  getAttachmentsForMessages,
+  getChatAttachmentsByIdsAndAssistant,
   getDb,
   getChatMessages,
   getMessageByGcsId,
+  linkAttachmentsToMessage,
 } from "@/lib/db";
+import { buildAttachmentFallbackText } from "@/lib/attachments";
 import { getInstanceExternalIp } from "@/lib/gcp";
 
 interface RouteParams {
@@ -25,6 +30,22 @@ interface OutboxMessage {
 interface AssistantError {
   timestamp: string;
   message: string;
+}
+
+interface MessageAttachmentPayload {
+  id: string;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  kind: string;
+}
+
+interface MessagePayload {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: Date | null;
+  attachments: MessageAttachmentPayload[];
 }
 
 const GREETING_MESSAGE = "Hey there! I just hatched 🐣\n\nWhat's your name? And while we're at it — what should I call myself?";
@@ -76,6 +97,59 @@ function getCannedResponse(assistantMessageCount: number): { content: string; ac
   }
 }
 
+function toAttachmentPayload(attachment: ChatAttachment): MessageAttachmentPayload {
+  return {
+    id: attachment.id,
+    original_filename: attachment.originalFilename,
+    mime_type: attachment.mimeType,
+    size_bytes: attachment.sizeBytes,
+    kind: attachment.kind,
+  };
+}
+
+function normalizeAttachmentIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const ids = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  return [...new Set(ids)];
+}
+
+function buildForwardedContent(
+  content: string,
+  attachments: ChatAttachment[],
+): string {
+  if (attachments.length === 0) {
+    return content;
+  }
+
+  const fallbackText = buildAttachmentFallbackText(
+    attachments.map((attachment) => ({
+      fileName: attachment.originalFilename,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      kind: attachment.kind === "image" ? "image" : "document",
+      extractedText: attachment.extractedText,
+    })),
+  );
+
+  if (!content) {
+    return fallbackText;
+  }
+  return `${fallbackText}\n\n${content}`;
+}
+
+async function buildMessagePayloads(messages: ChatMessage[]): Promise<MessagePayload[]> {
+  const attachmentsByMessageId = await getAttachmentsForMessages(messages.map((msg) => msg.id));
+  return messages.map((msg) => ({
+    id: msg.id,
+    role: msg.role as "user" | "assistant",
+    content: msg.content,
+    timestamp: msg.createdAt,
+    attachments: (attachmentsByMessageId.get(msg.id) ?? []).map(toAttachmentPayload),
+  }));
+}
+
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
@@ -92,12 +166,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // In local dev, return a hardcoded greeting if no messages exist yet
     if (process.env.NODE_ENV !== "production") {
       const localMessages = await getChatMessages(assistantId);
-      const formattedMessages = localMessages.map((msg: ChatMessage) => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.createdAt,
-      }));
+      const formattedMessages = await buildMessagePayloads(localMessages);
 
       if (formattedMessages.length === 0) {
         formattedMessages.push({
@@ -105,6 +174,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           role: "assistant" as const,
           content: `Hey there! I just hatched 🐣\n\nWhat's your name? And while we're at it — what should I call myself?`,
           timestamp: new Date(),
+          attachments: [],
         });
       }
 
@@ -157,12 +227,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     const dbMessages = await getChatMessages(assistantId);
-    const formattedMessages = dbMessages.map((msg: ChatMessage) => ({
-      id: msg.id,
-      role: msg.role,
-      content: msg.content,
-      timestamp: msg.createdAt,
-    }));
+    const formattedMessages = await buildMessagePayloads(dbMessages);
 
     // If no messages exist yet, persist and show a greeting
     if (formattedMessages.length === 0) {
@@ -177,6 +242,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         role: "assistant" as const,
         content: GREETING_MESSAGE,
         timestamp: greeting.createdAt,
+        attachments: [],
       });
     }
 
@@ -217,15 +283,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
-    const body = await request.json();
-    const { content } = body;
-
-    if (!content || typeof content !== "string") {
-      return NextResponse.json(
-        { error: "Message content is required" },
-        { status: 400 }
-      );
-    }
+    const body = await request.json() as { content?: unknown; attachment_ids?: unknown };
+    const rawContent = typeof body.content === "string" ? body.content : "";
+    const content = rawContent.trim();
+    const attachmentIds = normalizeAttachmentIds(body.attachment_ids);
 
     const sql = getDb();
     const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
@@ -235,18 +296,45 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const assistant = result[0] as Assistant;
+    const fetchedAttachments = attachmentIds.length > 0
+      ? await getChatAttachmentsByIdsAndAssistant(attachmentIds, assistantId)
+      : [];
+
+    const attachmentsById = new Map(fetchedAttachments.map((attachment) => [attachment.id, attachment]));
+    const attachments = attachmentIds
+      .map((attachmentId) => attachmentsById.get(attachmentId))
+      .filter((attachment): attachment is ChatAttachment => Boolean(attachment));
+
+    if (!content && attachmentIds.length === 0) {
+      return NextResponse.json(
+        { error: "Either content or attachment_ids is required" },
+        { status: 400 }
+      );
+    }
+
+    if (attachments.length !== attachmentIds.length) {
+      return NextResponse.json(
+        { error: "One or more attachment_ids are invalid for this assistant" },
+        { status: 400 }
+      );
+    }
+
+    const forwardedContent = buildForwardedContent(content, attachments);
     const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
 
     // If no compute instance, use canned responses (demo mode)
     if (!computeConfig?.instanceName) {
-      await createChatMessage({
+      const userMessage = await createChatMessage({
         assistantId,
         role: "user",
         content,
         status: "sent",
       });
+      if (attachmentIds.length > 0) {
+        await linkAttachmentsToMessage(userMessage.id, attachmentIds);
+      }
 
       // Count user messages to determine which canned response to give
       const existingMessages = await getChatMessages(assistantId);
@@ -303,7 +391,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const assistantResponse = await fetch(`http://${externalIp}:8080/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content: forwardedContent }),
     });
 
     if (!assistantResponse.ok) {
@@ -323,6 +411,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       status: "sent",
       gcsMessageId: assistantData.messageId,
     });
+    if (attachmentIds.length > 0) {
+      await linkAttachmentsToMessage(dbMessage.id, attachmentIds);
+    }
 
     return NextResponse.json({
       success: true,

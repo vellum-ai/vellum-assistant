@@ -254,9 +254,23 @@ export class OpenAIProvider implements Provider {
             },
           });
           break;
+        case 'file':
+          parts.push({
+            type: 'text',
+            text: this.fileBlockToText(block),
+          });
+          break;
       }
     }
 
     return { role: 'user', content: parts };
+  }
+
+  private fileBlockToText(block: Extract<ContentBlock, { type: 'file' }>): string {
+    const header = `[Attached file: ${block.source.filename} (${block.source.media_type})]`;
+    if (block.extracted_text && block.extracted_text.trim().length > 0) {
+      return `${header}\n${block.extracted_text}`;
+    }
+    return `${header}\nNo extracted text available.`;
   }
 }

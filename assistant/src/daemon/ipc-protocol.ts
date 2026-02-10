@@ -11,7 +11,16 @@ export interface UsageStats {
 export interface UserMessage {
   type: 'user_message';
   sessionId: string;
-  content: string;
+  content?: string;
+  attachments?: UserMessageAttachment[];
+}
+
+export interface UserMessageAttachment {
+  id?: string;
+  filename: string;
+  mimeType: string;
+  data: string;
+  extractedText?: string;
 }
 
 export interface ConfirmationResponse {

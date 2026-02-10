@@ -12,6 +12,17 @@ export interface ImageContent {
   };
 }
 
+export interface FileContent {
+  type: "file";
+  source: {
+    type: "base64";
+    media_type: string;
+    data: string;
+    filename: string;
+  };
+  extracted_text?: string;
+}
+
 export interface ToolUseContent {
   type: "tool_use";
   id: string;
@@ -42,6 +53,7 @@ export type ContentBlock =
   | ThinkingContent
   | RedactedThinkingContent
   | ImageContent
+  | FileContent
   | ToolUseContent
   | ToolResultContent;
 

@@ -16,6 +16,7 @@ import {
   MAX_LINE_SIZE,
   type ClientMessage,
   type ServerMessage,
+  type UserMessageAttachment,
 } from './ipc-protocol.js';
 
 const log = getLogger('server');
@@ -316,7 +317,7 @@ export class DaemonServer {
   private handleMessage(msg: ClientMessage, socket: net.Socket): void {
     switch (msg.type) {
       case 'user_message':
-        this.handleUserMessage(msg.sessionId, msg.content, socket);
+        this.handleUserMessage(msg.sessionId, msg.content, msg.attachments, socket);
         break;
       case 'confirmation_response': {
         const sessionId = this.socketToSession.get(socket);
@@ -378,13 +379,14 @@ export class DaemonServer {
 
   private async handleUserMessage(
     sessionId: string,
-    content: string,
+    content: string | undefined,
+    attachments: UserMessageAttachment[] | undefined,
     socket: net.Socket,
   ): Promise<void> {
     try {
       this.socketToSession.set(socket, sessionId);
       const session = await this.getOrCreateSession(sessionId, socket);
-      await session.processMessage(content, (event) => {
+      await session.processMessage(content ?? '', attachments ?? [], (event) => {
         this.send(socket, event);
       });
     } catch (err) {

@@ -24,6 +24,7 @@ final class MockInferenceProvider: ActionInferenceProvider {
         screenshot: Data?,
         screenSize: CGSize,
         task: String,
+        attachments: [TaskAttachment],
         history: [ActionRecord],
         elements: [AXElement]?,
         consecutiveUnchangedSteps: Int

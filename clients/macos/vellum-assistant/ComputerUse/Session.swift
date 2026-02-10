@@ -22,6 +22,7 @@ final class ComputerUseSession: ObservableObject {
     @Published var undoCount = 0
 
     let task: String
+    private let attachments: [TaskAttachment]
     private let provider: ActionInferenceProvider
     private let maxSteps: Int
     private let stepDelayMs: UInt64
@@ -56,11 +57,13 @@ final class ComputerUseSession: ObservableObject {
         screenCapture: ScreenCaptureProviding = ScreenCapture(),
         executor: ActionExecuting = ActionExecutor(),
         maxSteps: Int = 50,
+        attachments: [TaskAttachment] = [],
         stepDelayMs: UInt64 = 500,
         initialDelayMs: UInt64 = 300,
         adaptiveDelay: Bool = true
     ) {
         self.task = task
+        self.attachments = attachments
         self.provider = provider
         self.enumerator = enumerator
         self.screenCapture = screenCapture
@@ -70,7 +73,7 @@ final class ComputerUseSession: ObservableObject {
         self.initialDelayMs = initialDelayMs
         self.adaptiveDelayEnabled = adaptiveDelay
         self.verifier = ActionVerifier(maxSteps: maxSteps)
-        self.logger = SessionLogger(task: task)
+        self.logger = SessionLogger(task: task, attachments: attachments)
     }
 
     func run() async {
@@ -216,6 +219,7 @@ final class ComputerUseSession: ObservableObject {
                     screenshot: screenshot,
                     screenSize: screenCapture.screenSize(),
                     task: task,
+                    attachments: attachments,
                     history: actionHistory,
                     elements: flatElements,
                     consecutiveUnchangedSteps: consecutiveUnchangedSteps
