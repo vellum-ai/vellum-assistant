@@ -549,8 +549,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
     const body = await request.json() as { content?: unknown; attachment_ids?: unknown };
-    const rawContent = typeof body.content === "string" ? body.content : "";
-    const content = rawContent.trim();
+    const content = typeof body.content === "string" ? body.content : "";
+    const trimmedContent = content.trim();
     const attachmentIds = normalizeAttachmentIds(body.attachment_ids);
 
     const sql = getDb();
@@ -570,7 +570,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       .map((attachmentId) => attachmentsById.get(attachmentId))
       .filter((attachment): attachment is ChatAttachment => Boolean(attachment));
 
-    if (!content && attachmentIds.length === 0) {
+    if (!trimmedContent && attachmentIds.length === 0) {
       return NextResponse.json(
         { error: "Either content or attachment_ids is required" },
         { status: 400 }
