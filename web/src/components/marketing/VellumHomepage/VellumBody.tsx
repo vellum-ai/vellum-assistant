@@ -13,7 +13,7 @@ export function VellumBody() {
           minHeight: "100vh",
           backgroundImage: "url('/hero-bg.jpg')",
           backgroundSize: "cover",
-          backgroundPosition: "center 30%",
+          backgroundPosition: "center bottom",
           backgroundRepeat: "no-repeat",
           backgroundColor: "#3a8bc2",
           position: "relative",
@@ -21,12 +21,12 @@ export function VellumBody() {
           flexDirection: "column",
         }}
       >
-        {/* Dark overlay for text readability - z-index 1 */}
+        {/* Subtle gradient overlay for text readability - z-index 1 */}
         <div
           style={{
             position: "absolute",
             inset: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.35)",
+            background: "linear-gradient(to bottom, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0.35) 100%)",
             zIndex: 1,
             pointerEvents: "none",
           }}
