@@ -7,18 +7,9 @@ import {
   OctagonX,
   X,
 } from "lucide-react";
-import { toast as sonnerToast, Toaster as SonnerToaster } from "sonner";
+import { toast as sonnerToast } from "sonner";
 
-type ToastVariant = "default" | "info" | "warning" | "error" | "success";
-
-interface ToastOptions {
-  description?: string;
-  duration?: number;
-  action?: {
-    label: string;
-    onClick: () => void;
-  };
-}
+import type { ToastOptions, ToastVariant } from "@/components/core/Toast";
 
 const VARIANT_STYLES: Record<
   ToastVariant,
@@ -119,16 +110,4 @@ const toast = Object.assign(
   }
 );
 
-function Toaster() {
-  return (
-    <SonnerToaster
-      position="bottom-right"
-      toastOptions={{
-        unstyled: true,
-      }}
-    />
-  );
-}
-
-export { toast, Toaster };
-export type { ToastVariant, ToastOptions };
+export { toast };
