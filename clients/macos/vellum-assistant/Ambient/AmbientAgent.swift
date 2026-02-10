@@ -56,6 +56,7 @@ final class AmbientAgent: ObservableObject {
     private var knowledgeCancellable: AnyCancellable?
     private var suggestionWindow: AmbientSuggestionWindow?
     private var cachedRejections: [RejectionEntry] = []
+    private var localRejections: [RejectionEntry] = []
     private var lastRejectionFetchDate: Date?
     private let rejectionRefreshInterval: TimeInterval = 600
 
@@ -314,15 +315,18 @@ final class AmbientAgent: ObservableObject {
         }
         guard let syncClient else { return }
         if let fetched = await syncClient.fetchRejections() {
-            cachedRejections = fetched
+            // Remove local rejections that now appear on the server
+            let fetchedTitles = Set(fetched.map(\.title))
+            localRejections.removeAll { fetchedTitles.contains($0.title) }
+            cachedRejections = fetched + localRejections
             lastRejectionFetchDate = Date()
         }
     }
 
     private func isSimilarToRejection(_ suggestion: String) -> Bool {
         for rejection in cachedRejections {
-            let rejectionText = "\(rejection.title) \(rejection.description)"
-            if ScreenOCR.similarity(suggestion, rejectionText) > 0.5 {
+            if ScreenOCR.similarity(suggestion, rejection.title) > 0.5 ||
+               ScreenOCR.similarity(suggestion, rejection.description) > 0.5 {
                 return true
             }
         }
@@ -353,14 +357,16 @@ final class AmbientAgent: ObservableObject {
                     source: "alexs-macbook-pro-2"
                 )
                 Task { await self?.syncClient?.sendDecision(decision) }
-                self?.cachedRejections.append(RejectionEntry(
+                let entry = RejectionEntry(
                     insightId: "",
                     title: suggestion,
                     description: suggestion,
                     reason: nil,
                     source: "alexs-macbook-pro-2",
                     receivedAt: ISO8601DateFormatter().string(from: Date())
-                ))
+                )
+                self?.cachedRejections.append(entry)
+                self?.localRejections.append(entry)
             }
         )
         activeSuggestionWindow = window
