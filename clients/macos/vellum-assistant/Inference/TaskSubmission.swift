@@ -37,18 +37,18 @@ struct TaskAttachment: Identifiable {
 
     static func fromFileURL(_ url: URL) throws -> TaskAttachment {
         let fileName = url.lastPathComponent
-        let mimeType = Self.mimeType(for: url.pathExtension)
-        if unsupportedOfficeMimeTypes.contains(mimeType) {
+        let extensionMimeType = Self.mimeType(for: url.pathExtension)
+        if unsupportedOfficeMimeTypes.contains(extensionMimeType) {
             throw NSError(domain: "TaskAttachment", code: 4, userInfo: [
                 NSLocalizedDescriptionKey: "\(fileName) is not supported yet on macOS for text extraction. Please convert it to PDF or plain text."
             ])
         }
-        guard allowedMimeTypes.contains(mimeType) else {
+        guard allowedMimeTypes.contains(extensionMimeType) else {
             throw NSError(domain: "TaskAttachment", code: 3, userInfo: [
                 NSLocalizedDescriptionKey: "\(fileName) has an unsupported file type."
             ])
         }
-        let kind: TaskAttachmentKind = mimeType.hasPrefix("image/") ? .image : .document
+        let kind: TaskAttachmentKind = extensionMimeType.hasPrefix("image/") ? .image : .document
         let maxBytes = kind == .image ? maxImageBytes : maxDocumentBytes
 
         if let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey]),
@@ -67,6 +67,7 @@ struct TaskAttachment: Identifiable {
             ])
         }
 
+        let mimeType = try Self.validateMimeType(fileName: fileName, expectedMimeType: extensionMimeType, data: data)
         let extractedText = kind == .document ? Self.extractText(data: data, mimeType: mimeType) : nil
 
         return TaskAttachment(
@@ -166,6 +167,59 @@ struct TaskAttachment: Identifiable {
             return nil
         }
         return parts.joined(separator: "\n\n")
+    }
+
+    private static func validateMimeType(fileName: String, expectedMimeType: String, data: Data) throws -> String {
+        let detectedBinaryMimeType = detectBinaryMimeType(data)
+
+        if expectedMimeType.hasPrefix("image/") || expectedMimeType == "application/pdf" {
+            guard let detectedBinaryMimeType else {
+                throw NSError(domain: "TaskAttachment", code: 5, userInfo: [
+                    NSLocalizedDescriptionKey: "\(fileName) content does not match expected file type."
+                ])
+            }
+            guard detectedBinaryMimeType == expectedMimeType else {
+                throw NSError(domain: "TaskAttachment", code: 5, userInfo: [
+                    NSLocalizedDescriptionKey: "\(fileName) content does not match expected file type."
+                ])
+            }
+            return expectedMimeType
+        }
+
+        if detectedBinaryMimeType != nil {
+            throw NSError(domain: "TaskAttachment", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "\(fileName) content does not match expected file type."
+            ])
+        }
+
+        guard String(data: data, encoding: .utf8) != nil else {
+            throw NSError(domain: "TaskAttachment", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "\(fileName) is not valid UTF-8 text."
+            ])
+        }
+
+        return expectedMimeType
+    }
+
+    private static func detectBinaryMimeType(_ data: Data) -> String? {
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
+            return "image/png"
+        }
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) {
+            return "image/jpeg"
+        }
+        if data.starts(with: Data("GIF87a".utf8)) || data.starts(with: Data("GIF89a".utf8)) {
+            return "image/gif"
+        }
+        if data.count >= 12,
+           data.subdata(in: 0..<4) == Data("RIFF".utf8),
+           data.subdata(in: 8..<12) == Data("WEBP".utf8) {
+            return "image/webp"
+        }
+        if data.starts(with: Data("%PDF-".utf8)) {
+            return "application/pdf"
+        }
+        return nil
     }
 }
 

@@ -625,41 +625,71 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           assistantConfig
         );
 
-        const daemonAttachments = await buildLocalDaemonAttachments(attachments);
-        const localResponse = await daemon.sendUserMessage(
-          sessionId,
-          content,
-          daemonAttachments
-        );
         const userMessage = await createChatMessage({
           assistantId,
           role: "user",
           content,
-          status: "sent",
+          status: "sending",
         });
         if (attachmentIds.length > 0) {
           await linkAttachmentsToMessage(userMessage.id, attachmentIds);
         }
 
-        const timestamp = new Date().toISOString();
-        const assistantMessage =
-          localResponse.assistantText.length > 0
-            ? {
-                id: `local-${sessionId}-${Date.now()}`,
-                role: "assistant" as const,
-                content: localResponse.assistantText,
-                timestamp,
-              }
-            : null;
+        try {
+          const daemonAttachments = await buildLocalDaemonAttachments(attachments);
+          const localResponse = await daemon.sendUserMessage(
+            sessionId,
+            content,
+            daemonAttachments
+          );
 
-        return NextResponse.json({
-          success: true,
-          connectionMode: "local",
-          sessionId,
-          messageId: userMessage.id,
-          ...(assistantMessage ? { assistantMessage } : {}),
-          message: "Message processed by local daemon",
-        });
+          try {
+            await sql`
+              UPDATE chat_messages
+              SET status = 'sent', updated_at = NOW()
+              WHERE id = ${userMessage.id}
+            `;
+          } catch (statusError: unknown) {
+            console.warn(
+              "Failed to mark local-mode message as sent after daemon success:",
+              statusError
+            );
+          }
+
+          const timestamp = new Date().toISOString();
+          const assistantMessage =
+            localResponse.assistantText.length > 0
+              ? {
+                  id: `local-${sessionId}-${Date.now()}`,
+                  role: "assistant" as const,
+                  content: localResponse.assistantText,
+                  timestamp,
+                }
+              : null;
+
+          return NextResponse.json({
+            success: true,
+            connectionMode: "local",
+            sessionId,
+            messageId: userMessage.id,
+            ...(assistantMessage ? { assistantMessage } : {}),
+            message: "Message processed by local daemon",
+          });
+        } catch (daemonError: unknown) {
+          try {
+            await sql`
+              UPDATE chat_messages
+              SET status = 'failed', updated_at = NOW()
+              WHERE id = ${userMessage.id}
+            `;
+          } catch (statusError: unknown) {
+            console.warn(
+              "Failed to mark local-mode message as failed after daemon error:",
+              statusError
+            );
+          }
+          throw daemonError;
+        }
       } catch (error: unknown) {
         console.error("Error sending local daemon message:", error);
         return localDaemonErrorResponse(
