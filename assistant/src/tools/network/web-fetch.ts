@@ -313,6 +313,38 @@ function buildResponseHeaders(headers: IncomingHttpHeaders): Headers {
   return responseHeaders;
 }
 
+function createAbortError(): Error {
+  const err = new Error('The operation was aborted');
+  err.name = 'AbortError';
+  return err;
+}
+
+async function withAbortSignal<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    throw createAbortError();
+  }
+
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      reject(createAbortError());
+    };
+    const cleanup = () => signal.removeEventListener('abort', onAbort);
+
+    signal.addEventListener('abort', onAbort, { once: true });
+    operation.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
+
 const defaultRequestExecutor: WebFetchRequestExecutor = async (url, options) => {
   const resolvedAddress = options.resolvedAddress ? unwrapBracketedHostname(options.resolvedAddress) : undefined;
 
@@ -588,7 +620,10 @@ export async function executeWebFetch(
     let currentResolvedAddresses: string[] | undefined;
 
     if (!allowPrivateNetwork) {
-      const resolution = await resolveRequestAddress(currentUrl.hostname, resolveHost, allowPrivateNetwork);
+      const resolution = await withAbortSignal(
+        resolveRequestAddress(currentUrl.hostname, resolveHost, allowPrivateNetwork),
+        controller.signal,
+      );
       if (resolution.blockedAddress) {
         return {
           content: `Error: Refusing to fetch target (${currentUrl.hostname}) because it resolves to local/private network address ${resolution.blockedAddress}. Set allow_private_network=true if you explicitly need it.`,
@@ -673,7 +708,10 @@ export async function executeWebFetch(
         };
       }
       if (!allowPrivateNetwork) {
-        const resolution = await resolveRequestAddress(nextUrl.hostname, resolveHost, allowPrivateNetwork);
+        const resolution = await withAbortSignal(
+          resolveRequestAddress(nextUrl.hostname, resolveHost, allowPrivateNetwork),
+          controller.signal,
+        );
         if (resolution.blockedAddress) {
           return {
             content: `Error: Refusing redirect to target (${nextUrl.hostname}) because it resolves to local/private network address ${resolution.blockedAddress}. Set allow_private_network=true if you explicitly need it.`,

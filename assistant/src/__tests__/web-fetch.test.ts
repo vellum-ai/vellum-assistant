@@ -142,6 +142,27 @@ describe('web_fetch tool', () => {
     expect(called).toBe(false);
   });
 
+  test('times out while resolving initial host before any request is sent', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWithMockFetch(
+      { url: 'https://example.com/health', timeout_seconds: 1 },
+      {
+        resolveHostAddresses: async () => await new Promise<string[]>(() => {}),
+      },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('web fetch timed out after 1s');
+    expect(called).toBe(false);
+  });
+
   test('pins outbound requests to pre-resolved addresses when allow_private_network is false', async () => {
     const resolvedAddresses: string[] = [];
 
@@ -610,6 +631,30 @@ describe('web_fetch tool', () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('resolves to local/private network address 10.0.0.8');
+    expect(callCount).toBe(1);
+  });
+
+  test('times out while resolving redirect host before following the redirect', async () => {
+    let callCount = 0;
+    const result = await executeWithMockFetch(
+      { url: 'https://example.com/start', timeout_seconds: 1 },
+      {
+        resolveHostAddresses: async (hostname) => {
+          if (hostname === 'example.com') return ['93.184.216.34'];
+          return await new Promise<string[]>(() => {});
+        },
+        requestExecutor: async () => {
+          callCount++;
+          return new Response('', {
+            status: 302,
+            headers: { location: 'https://redirect.example/internal' },
+          });
+        },
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('web fetch timed out after 1s');
     expect(callCount).toBe(1);
   });
 
