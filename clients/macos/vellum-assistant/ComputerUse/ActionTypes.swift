@@ -13,6 +13,7 @@ enum ActionType: String, Codable {
     case drag
     case openApp = "open_app"
     case runAppleScript = "run_applescript"
+    case respond
 }
 
 struct AgentAction: Codable {
@@ -137,6 +138,12 @@ struct AgentAction: Codable {
                 return "Done: \(preview)"
             }
             return "Done"
+        case .respond:
+            if let summary = summary {
+                let preview = summary.count > 60 ? String(summary.prefix(60)) + "..." : summary
+                return "Response: \(preview)"
+            }
+            return "Response"
         }
     }
 }
