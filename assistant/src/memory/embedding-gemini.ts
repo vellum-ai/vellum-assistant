@@ -1,4 +1,4 @@
-import type { EmbeddingBackend } from './embedding-backend.js';
+import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
 
 interface GeminiEmbedResponse {
   embedding?: {
@@ -16,16 +16,16 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
     this.model = model;
   }
 
-  async embed(texts: string[]): Promise<number[][]> {
+  async embed(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]> {
     const vectors: number[][] = [];
     for (const text of texts) {
-      const values = await this.embedSingle(text);
+      const values = await this.embedSingle(text, options);
       vectors.push(values);
     }
     return vectors;
   }
 
-  private async embedSingle(text: string): Promise<number[]> {
+  private async embedSingle(text: string, options?: EmbeddingRequestOptions): Promise<number[]> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:embedContent?key=${encodeURIComponent(this.apiKey)}`;
     const response = await fetch(url, {
       method: 'POST',
@@ -36,6 +36,7 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
           parts: [{ text }],
         },
       }),
+      signal: options?.signal,
     });
     if (!response.ok) {
       const body = await response.text();

@@ -227,6 +227,7 @@ export class Session {
       const recallQuery = buildMemoryQuery(content, this.messages);
       const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig, {
         excludeMessageIds: [persistedUserMessage.id],
+        signal: this.abortController.signal,
       });
 
       onEvent({
@@ -299,7 +300,7 @@ export class Session {
         this.abortController.signal,
       );
 
-      this.messages = stripMemoryRecallMessages(updatedHistory);
+      this.messages = stripMemoryRecallMessages(updatedHistory, recall.injectedText);
 
       // Update cumulative token usage
       if (exchangeInputTokens > 0 || exchangeOutputTokens > 0) {

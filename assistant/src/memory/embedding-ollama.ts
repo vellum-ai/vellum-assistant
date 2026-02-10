@@ -1,4 +1,4 @@
-import type { EmbeddingBackend } from './embedding-backend.js';
+import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
 
 interface OllamaEmbeddingsResponse {
   data?: Array<{ embedding: number[] }>;
@@ -19,7 +19,7 @@ export class OllamaEmbeddingBackend implements EmbeddingBackend {
     this.apiKey = options?.apiKey ?? 'ollama';
   }
 
-  async embed(texts: string[]): Promise<number[][]> {
+  async embed(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]> {
     if (texts.length === 0) return [];
     const response = await fetch(`${this.baseUrl}/embeddings`, {
       method: 'POST',
@@ -31,6 +31,7 @@ export class OllamaEmbeddingBackend implements EmbeddingBackend {
         model: this.model,
         input: texts,
       }),
+      signal: options?.signal,
     });
     if (!response.ok) {
       const body = await response.text();

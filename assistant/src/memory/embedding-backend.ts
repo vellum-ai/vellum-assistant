@@ -8,10 +8,14 @@ const log = getLogger('memory-embeddings');
 
 export type EmbeddingProviderName = 'openai' | 'gemini' | 'ollama';
 
+export interface EmbeddingRequestOptions {
+  signal?: AbortSignal;
+}
+
 export interface EmbeddingBackend {
   readonly provider: EmbeddingProviderName;
   readonly model: string;
-  embed(texts: string[]): Promise<number[][]>;
+  embed(texts: string[], options?: EmbeddingRequestOptions): Promise<number[][]>;
 }
 
 export interface EmbeddingBackendSelection {
@@ -96,6 +100,7 @@ export function getMemoryBackendStatus(config: AssistantConfig): {
 export async function embedWithBackend(
   config: AssistantConfig,
   texts: string[],
+  options?: EmbeddingRequestOptions,
 ): Promise<{
   provider: EmbeddingProviderName;
   model: string;
@@ -105,7 +110,7 @@ export async function embedWithBackend(
   if (!selection.backend) {
     throw new Error(selection.reason ?? 'No memory embedding backend configured');
   }
-  const vectors = await selection.backend.embed(texts);
+  const vectors = await selection.backend.embed(texts, options);
   if (vectors.length !== texts.length) {
     throw new Error(`Embedding backend returned ${vectors.length} vectors for ${texts.length} texts`);
   }

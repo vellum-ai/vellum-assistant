@@ -40,6 +40,7 @@ export interface MemoryRecallResult {
 
 interface MemoryRecallOptions {
   excludeMessageIds?: string[];
+  signal?: AbortSignal;
 }
 
 export async function buildMemoryRecall(
@@ -50,8 +51,12 @@ export async function buildMemoryRecall(
 ): Promise<MemoryRecallResult> {
   const start = Date.now();
   const excludeMessageIds = options?.excludeMessageIds?.filter((id) => id.length > 0) ?? [];
+  const signal = options?.signal;
   if (!config.memory.enabled) {
     return emptyResult({ enabled: false, degraded: false, reason: 'memory.disabled', latencyMs: Date.now() - start });
+  }
+  if (signal?.aborted) {
+    return emptyResult({ enabled: true, degraded: false, reason: 'memory.aborted', latencyMs: Date.now() - start });
   }
 
   const backendStatus = getMemoryBackendStatus(config);
@@ -63,13 +68,23 @@ export async function buildMemoryRecall(
 
   if (backendStatus.provider) {
     try {
-      const embedded = await embedWithBackend(config, [query]);
+      const embedded = await embedWithBackend(config, [query], { signal });
       queryVector = embedded.vectors[0] ?? null;
       provider = embedded.provider;
       model = embedded.model;
       degraded = false;
       reason = undefined;
     } catch (err) {
+      if (signal?.aborted || isAbortError(err)) {
+        return emptyResult({
+          enabled: true,
+          degraded: false,
+          reason: 'memory.aborted',
+          provider: backendStatus.provider,
+          model: backendStatus.model ?? undefined,
+          latencyMs: Date.now() - start,
+        });
+      }
       logMemoryEmbeddingWarning(err, 'query');
       degraded = config.memory.embeddings.required;
       reason = `memory.embedding_failure: ${err instanceof Error ? err.message : String(err)}`;
@@ -107,6 +122,16 @@ export async function buildMemoryRecall(
       ? await semanticSearch(queryVector, provider!, model!, config.memory.retrieval.semanticTopK, excludeMessageIds)
       : [];
   } catch (err) {
+    if (signal?.aborted || isAbortError(err)) {
+      return emptyResult({
+        enabled: true,
+        degraded: false,
+        reason: 'memory.aborted',
+        provider,
+        model,
+        latencyMs: Date.now() - start,
+      });
+    }
     log.warn({ err }, 'Memory retrieval failed, returning degraded empty recall');
     return emptyResult({
       enabled: true,
@@ -152,18 +177,32 @@ export async function buildMemoryRecall(
 
 export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'; content: Array<{ type: string; text?: string }> }>(
   messages: T[],
+  memoryRecallText?: string,
 ): T[] {
+  const recallText = memoryRecallText ?? '';
+  if (recallText.trim().length === 0) return messages;
+
+  let targetIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.role !== 'user' || message.content.length === 0) continue;
+    const firstBlock = message.content[0];
+    if (firstBlock.type === 'text' && firstBlock.text === recallText) {
+      targetIndex = index;
+      break;
+    }
+  }
+  if (targetIndex === -1) return messages;
+
   const cleaned: T[] = [];
-  for (const message of messages) {
-    const filteredContent = message.content.filter((block) => {
-      if (block.type !== 'text') return true;
-      return !(block.text ?? '').trim().startsWith(MEMORY_RECALL_MARKER);
-    });
-    if (filteredContent.length === 0) continue;
-    if (filteredContent.length === message.content.length) {
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index];
+    if (index !== targetIndex) {
       cleaned.push(message);
       continue;
     }
+    const filteredContent = message.content.slice(1);
+    if (filteredContent.length === 0) continue;
     cleaned.push({ ...message, content: filteredContent } as T);
   }
   return cleaned;
@@ -575,4 +614,9 @@ function buildFtsMatchQuery(text: string): string | null {
   return unique
     .map((token) => `"${token.replace(/"/g, '""')}"`)
     .join(' OR ');
+}
+
+function isAbortError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.name === 'AbortError' || err.name === 'APIUserAbortError';
 }

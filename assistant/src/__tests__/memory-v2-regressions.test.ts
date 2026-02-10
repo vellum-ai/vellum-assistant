@@ -504,24 +504,94 @@ describe('Memory V2 regressions', () => {
   });
 
   test('memory recall injection remains user-role and is stripped from runtime history', () => {
+    const memoryRecallText = '[Memory Recall v1]\n- [item:abc] user prefers concise answers';
     const originalUserMessage = {
       role: 'user' as const,
       content: [{ type: 'text', text: 'Actual user request' }],
     };
     const injected = injectMemoryRecallIntoUserMessage(
       originalUserMessage,
-      '[Memory Recall v1]\n- [item:abc] user prefers concise answers',
+      memoryRecallText,
     );
 
     expect(injected.role).toBe('user');
     expect(injected.content[0]).toEqual({
       type: 'text',
-      text: '[Memory Recall v1]\n- [item:abc] user prefers concise answers',
+      text: memoryRecallText,
     });
 
-    const cleaned = stripMemoryRecallMessages([injected]);
+    const cleaned = stripMemoryRecallMessages([injected], memoryRecallText);
     expect(cleaned).toHaveLength(1);
     expect(cleaned[0]).toEqual(originalUserMessage);
+  });
+
+  test('memory recall stripping preserves literal marker text outside the injected block', () => {
+    const memoryRecallText = '[Memory Recall v1]\n- [item:abc] user prefers concise answers';
+    const literalUserMessage = {
+      role: 'user' as const,
+      content: [{ type: 'text', text: '[Memory Recall v1] this is user-authored content' }],
+    };
+    const literalAssistantMessage = {
+      role: 'assistant' as const,
+      content: [{ type: 'text', text: memoryRecallText }],
+    };
+    const originalUserTail = {
+      role: 'user' as const,
+      content: [{ type: 'text', text: 'Actual user request' }],
+    };
+    const injectedTail = injectMemoryRecallIntoUserMessage(originalUserTail, memoryRecallText);
+
+    const cleaned = stripMemoryRecallMessages(
+      [literalUserMessage, literalAssistantMessage, injectedTail],
+      memoryRecallText,
+    );
+
+    expect(cleaned).toHaveLength(3);
+    expect(cleaned[0]).toEqual(literalUserMessage);
+    expect(cleaned[1]).toEqual(literalAssistantMessage);
+    expect(cleaned[2]).toEqual(originalUserTail);
+  });
+
+  test('aborting memory recall embedding returns a non-degraded aborted recall result', async () => {
+    const originalFetch = globalThis.fetch;
+    const controller = new AbortController();
+    let seenSignal: AbortSignal | undefined;
+
+    globalThis.fetch = ((_: string | URL | Request, init?: RequestInit) => {
+      seenSignal = init?.signal as AbortSignal | undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal as AbortSignal | undefined;
+        if (!signal) {
+          reject(new Error('Expected abort signal'));
+          return;
+        }
+        const abortError = new Error('Aborted');
+        abortError.name = 'AbortError';
+        if (signal.aborted) {
+          reject(abortError);
+          return;
+        }
+        signal.addEventListener('abort', () => reject(abortError), { once: true });
+      });
+    }) as typeof globalThis.fetch;
+
+    try {
+      const recallPromise = buildMemoryRecall(
+        'timezone',
+        'conv-abort',
+        semanticRecallConfig(),
+        { signal: controller.signal },
+      );
+      controller.abort();
+      const recall = await recallPromise;
+      expect(seenSignal).toBe(controller.signal);
+      expect(recall.degraded).toBe(false);
+      expect(recall.reason).toBe('memory.aborted');
+      expect(recall.injectedText).toBe('');
+      expect(recall.injectedTokens).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test('memory item lastSeenAt follows message.createdAt and does not move backwards', () => {
