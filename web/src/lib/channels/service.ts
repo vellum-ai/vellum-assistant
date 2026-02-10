@@ -94,7 +94,8 @@ export async function connectTelegramChannel(params: {
     assistantId: params.assistantId,
     channel: "telegram",
     accountKey: "default",
-    enabled: params.enabled ?? true,
+    // Keep channel disabled until Telegram webhook setup succeeds.
+    enabled: false,
     status: "connecting",
     config: provisionalConfig,
     lastError: null,

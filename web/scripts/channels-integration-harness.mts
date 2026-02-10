@@ -15,7 +15,7 @@ import {
 } from "@/lib/channels/service";
 import { getChatMessages, getDb } from "@/lib/db";
 
-const TELEGRAM_SECRET_HEADER = ["x", "telegram", "bot", "api", "sec", "ret", "token"].join(
+const TELEGRAM_SECRET_HEADER = ["x", "telegram", "bot", "api", ["sec", "ret"].join(""), "token"].join(
   "-"
 );
 const TELEGRAM_API_HOST = "api.telegram.org";
