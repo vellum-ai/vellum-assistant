@@ -13,4 +13,5 @@ export type {
   AssistantDomainEvents,
 } from './domain-events.js';
 export { createToolDomainEventPublisher } from './tool-domain-event-publisher.js';
+export { registerToolMetricsLoggingListener } from './tool-metrics-listener.js';
 export { registerToolNotificationListener } from './tool-notification-listener.js';

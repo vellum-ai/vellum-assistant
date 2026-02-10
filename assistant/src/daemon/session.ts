@@ -16,6 +16,7 @@ import { getLogger } from '../util/logger.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
 import { createToolDomainEventPublisher } from '../events/tool-domain-event-publisher.js';
+import { registerToolMetricsLoggingListener } from '../events/tool-metrics-listener.js';
 import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
 import { createToolAuditListener } from '../events/tool-audit-listener.js';
 
@@ -49,6 +50,7 @@ export class Session {
     this.sendToClient = sendToClient;
     this.prompter = new PermissionPrompter(sendToClient);
     this.executor = new ToolExecutor(this.prompter);
+    registerToolMetricsLoggingListener(this.eventBus);
     registerToolNotificationListener(this.eventBus, (msg) => this.sendToClient(msg));
     const auditToolLifecycleEvent = createToolAuditListener();
     const publishToolDomainEvent = createToolDomainEventPublisher(this.eventBus);
