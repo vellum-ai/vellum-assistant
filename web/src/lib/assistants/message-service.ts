@@ -121,6 +121,29 @@ function toAssistantMessageResult(message: ChatMessage): AssistantMessageResult 
   };
 }
 
+function isExternalMessageDeduplicationError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const postgresError = error as {
+    code?: string;
+    constraint?: string;
+    constraint_name?: string;
+    detail?: string;
+  };
+  if (postgresError.code !== "23505") {
+    return false;
+  }
+
+  const constraint =
+    postgresError.constraint ?? postgresError.constraint_name ?? "";
+  return (
+    constraint === "uniq_chat_messages_external" ||
+    postgresError.detail?.includes("uniq_chat_messages_external") === true
+  );
+}
+
 async function getReplyContext(params: {
   assistantId: string;
   sourceChannel: string;
@@ -254,22 +277,62 @@ export async function handleInboundAssistantMessage(
     }
   }
 
-  const userMessage = await createChatMessage({
-    assistantId: input.assistantId,
-    role: "user",
-    content,
-    status: "sent",
-    sourceChannel,
-    externalChatId: input.externalChatId,
-    externalMessageId: input.externalMessageId,
-    metadata: {
-      sender: {
-        externalUserId: input.sender?.externalUserId ?? null,
-        username: input.sender?.username ?? null,
-        displayName: input.sender?.displayName ?? null,
+  let userMessage: ChatMessage;
+  try {
+    userMessage = await createChatMessage({
+      assistantId: input.assistantId,
+      role: "user",
+      content,
+      status: "sent",
+      sourceChannel,
+      externalChatId: input.externalChatId,
+      externalMessageId: input.externalMessageId,
+      metadata: {
+        sender: {
+          externalUserId: input.sender?.externalUserId ?? null,
+          username: input.sender?.username ?? null,
+          displayName: input.sender?.displayName ?? null,
+        },
       },
-    },
-  });
+    });
+  } catch (error) {
+    if (input.externalMessageId && isExternalMessageDeduplicationError(error)) {
+      const existing = await getMessageByExternalId(
+        input.assistantId,
+        sourceChannel,
+        input.externalChatId,
+        input.externalMessageId
+      );
+      if (existing) {
+        const existingAssistantReply = await getAssistantReplyByUserMessageId({
+          assistantId: input.assistantId,
+          sourceChannel,
+          externalChatId: input.externalChatId,
+          userMessageId: existing.id,
+        });
+
+        return {
+          duplicate: true,
+          userMessage: {
+            id: existing.id,
+            role: "user",
+            content: existing.content,
+            timestamp: existing.createdAt,
+          },
+          assistantMessage: existingAssistantReply
+            ? {
+                id: existingAssistantReply.id,
+                role: "assistant",
+                content: existingAssistantReply.content,
+                timestamp: existingAssistantReply.createdAt,
+              }
+            : null,
+        };
+      }
+    }
+
+    throw error;
+  }
 
   const contextMessages = await getReplyContext({
     assistantId: input.assistantId,

@@ -60,7 +60,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     await requireAssistantOwner(request, assistantId);
 
     const body = (await request.json()) as { botToken?: string; enabled?: boolean };
-    if (!body.botToken || typeof body.botToken !== "string") {
+    const botToken =
+      typeof body.botToken === "string" ? body.botToken.trim() : "";
+    if (!botToken) {
       return NextResponse.json(
         { error: "botToken is required" },
         { status: 400 }
@@ -69,7 +71,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const channel = await connectTelegramChannel({
       assistantId,
-      botToken: body.botToken.trim(),
+      botToken,
       enabled: body.enabled ?? true,
     });
 

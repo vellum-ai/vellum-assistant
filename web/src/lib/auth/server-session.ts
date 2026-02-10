@@ -34,7 +34,7 @@ export async function getRequestUser(request: Request): Promise<RequestUser> {
         null);
 
     id = session?.user?.id ?? null;
-    username = session?.user?.username ?? session?.user?.name ?? null;
+    username = session?.user?.username ?? null;
     email = session?.user?.email ?? null;
     emailVerified = Boolean(session?.user?.emailVerified);
   } catch {
