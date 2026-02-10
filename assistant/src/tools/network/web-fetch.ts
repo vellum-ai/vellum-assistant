@@ -3,6 +3,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { getLogger } from '../../util/logger.js';
+import { lookup } from 'node:dns/promises';
 
 const log = getLogger('web-fetch');
 
@@ -34,15 +35,32 @@ const HTML_ENTITY_MAP: Record<string, string> = {
   nbsp: ' ',
 };
 
+type ResolveHostAddresses = (hostname: string) => Promise<string[]>;
+
 function clampInteger(value: unknown, defaultValue: number, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return defaultValue;
   return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function looksLikeHostPortShorthand(value: string): boolean {
+  if (/^\[[0-9a-fA-F:.%]+\]:\d+(?:[/?#]|$)/.test(value)) {
+    return true;
+  }
+  return /^[^/?#@\s:]+:\d+(?:[/?#]|$)/.test(value);
 }
 
 function parseUrl(input: unknown): URL | null {
   if (typeof input !== 'string') return null;
   const value = input.trim();
   if (!value) return null;
+
+  if (looksLikeHostPortShorthand(value)) {
+    try {
+      return new URL(`https://${value}`);
+    } catch {
+      return null;
+    }
+  }
 
   try {
     return new URL(value);
@@ -161,6 +179,35 @@ function isPrivateOrLocalHost(hostname: string): boolean {
     return isPrivateIPv6(host);
   }
   return false;
+}
+
+async function resolveHostAddresses(hostname: string): Promise<string[]> {
+  try {
+    const records = await lookup(hostname, { all: true, verbatim: true });
+    return records.map((record) => record.address);
+  } catch {
+    return [];
+  }
+}
+
+async function resolvePrivateAddress(
+  hostname: string,
+  resolveHost: ResolveHostAddresses,
+): Promise<string | null> {
+  const normalizedHost = unwrapBracketedHostname(hostname);
+
+  if (isIPv4(normalizedHost) || isIPv6(normalizedHost)) {
+    return null;
+  }
+
+  const addresses = await resolveHost(normalizedHost);
+  for (const address of addresses) {
+    if (isPrivateOrLocalHost(address)) {
+      return address;
+    }
+  }
+
+  return null;
 }
 
 function isTextLikeContentType(contentType: string): boolean {
@@ -341,7 +388,10 @@ function formatWebFetchOutput(params: {
   return lines.join('\n');
 }
 
-export async function executeWebFetch(input: Record<string, unknown>): Promise<ToolExecutionResult> {
+export async function executeWebFetch(
+  input: Record<string, unknown>,
+  options?: { resolveHostAddresses?: ResolveHostAddresses },
+): Promise<ToolExecutionResult> {
   const parsedUrl = parseUrl(input.url);
   if (!parsedUrl) {
     return { content: 'Error: url is required and must be a valid HTTP(S) URL', isError: true };
@@ -351,11 +401,22 @@ export async function executeWebFetch(input: Record<string, unknown>): Promise<T
   }
 
   const allowPrivateNetwork = input.allow_private_network === true;
+  const resolveHost = options?.resolveHostAddresses ?? resolveHostAddresses;
+
   if (!allowPrivateNetwork && isPrivateOrLocalHost(parsedUrl.hostname)) {
     return {
       content: `Error: Refusing to fetch local/private network target (${parsedUrl.hostname}). Set allow_private_network=true if you explicitly need it.`,
       isError: true,
     };
+  }
+  if (!allowPrivateNetwork) {
+    const resolvedPrivateAddress = await resolvePrivateAddress(parsedUrl.hostname, resolveHost);
+    if (resolvedPrivateAddress) {
+      return {
+        content: `Error: Refusing to fetch target (${parsedUrl.hostname}) because it resolves to local/private network address ${resolvedPrivateAddress}. Set allow_private_network=true if you explicitly need it.`,
+        isError: true,
+      };
+    }
   }
 
   const timeoutSeconds = clampInteger(input.timeout_seconds, DEFAULT_TIMEOUT_SECONDS, 1, MAX_TIMEOUT_SECONDS);
@@ -420,6 +481,15 @@ export async function executeWebFetch(input: Record<string, unknown>): Promise<T
           content: `Error: Refusing redirect to local/private network target (${nextUrl.hostname}). Set allow_private_network=true if you explicitly need it.`,
           isError: true,
         };
+      }
+      if (!allowPrivateNetwork) {
+        const resolvedPrivateAddress = await resolvePrivateAddress(nextUrl.hostname, resolveHost);
+        if (resolvedPrivateAddress) {
+          return {
+            content: `Error: Refusing redirect to target (${nextUrl.hostname}) because it resolves to local/private network address ${resolvedPrivateAddress}. Set allow_private_network=true if you explicitly need it.`,
+            isError: true,
+          };
+        }
       }
 
       currentUrl = nextUrl;

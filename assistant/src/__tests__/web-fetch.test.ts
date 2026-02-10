@@ -40,6 +40,21 @@ describe('web_fetch tool', () => {
     expect(requestedUrl).toBe('https://example.com/docs');
   });
 
+  test('adds https:// for scheme-less host:port inputs', async () => {
+    let requestedUrl = '';
+    globalThis.fetch = (async (url: string) => {
+      requestedUrl = url;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWebFetch({ url: 'example.com:8443/docs' });
+    expect(result.isError).toBe(false);
+    expect(requestedUrl).toBe('https://example.com:8443/docs');
+  });
+
   test('blocks localhost targets unless explicitly enabled', async () => {
     let called = false;
     globalThis.fetch = (async () => {
@@ -54,6 +69,48 @@ describe('web_fetch tool', () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Refusing to fetch local/private network target');
     expect(called).toBe(false);
+  });
+
+  test('blocks hostnames that resolve to private addresses unless explicitly enabled', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWebFetch(
+      { url: 'https://example.com/health' },
+      {
+        resolveHostAddresses: async (hostname) =>
+          hostname === 'example.com' ? ['127.0.0.1'] : ['93.184.216.34'],
+      },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('resolves to local/private network address 127.0.0.1');
+    expect(called).toBe(false);
+  });
+
+  test('allows hostnames that resolve to private addresses when allow_private_network=true', async () => {
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('ok', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWebFetch(
+      { url: 'https://example.com/health', allow_private_network: true },
+      {
+        resolveHostAddresses: async () => ['127.0.0.1'],
+      },
+    );
+    expect(result.isError).toBe(false);
+    expect(called).toBe(true);
   });
 
   test('blocks subdomain localhost targets unless explicitly enabled', async () => {
@@ -239,6 +296,37 @@ describe('web_fetch tool', () => {
     const result = await executeWebFetch({ url: 'https://example.com/start' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Refusing redirect to local/private network target');
+    expect(callCount).toBe(1);
+  });
+
+  test('blocks redirects when target host resolves to private addresses and allow_private_network is false', async () => {
+    let callCount = 0;
+    globalThis.fetch = (async (_url: string) => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response('', {
+          status: 302,
+          headers: { location: 'https://internal.example/internal' },
+        });
+      }
+      return new Response('should-not-be-fetched', {
+        status: 200,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }) as any;
+
+    const result = await executeWebFetch(
+      { url: 'https://example.com/start' },
+      {
+        resolveHostAddresses: async (hostname) => {
+          if (hostname === 'example.com') return ['93.184.216.34'];
+          if (hostname === 'internal.example') return ['10.0.0.8'];
+          return ['93.184.216.34'];
+        },
+      },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('resolves to local/private network address 10.0.0.8');
     expect(callCount).toBe(1);
   });
 
