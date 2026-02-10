@@ -1,12 +1,39 @@
 {
   "pins" : [
     {
+      "identity" : "auth0.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/auth0/Auth0.swift",
+      "state" : {
+        "revision" : "a817d175ce7fcf9d1c818a880384574a658ce8e5",
+        "version" : "2.17.0"
+      }
+    },
+    {
       "identity" : "hotkey",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/soffes/HotKey",
       "state" : {
         "revision" : "a3cf605d7a96f6ff50e04fcb6dea6e2613cfcbe4",
         "version" : "0.2.1"
+      }
+    },
+    {
+      "identity" : "jwtdecode.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/auth0/JWTDecode.swift.git",
+      "state" : {
+        "revision" : "36a5ce735a61c4bc119593f43ce2c027b4ca7392",
+        "version" : "3.3.0"
+      }
+    },
+    {
+      "identity" : "simplekeychain",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/auth0/SimpleKeychain.git",
+      "state" : {
+        "revision" : "776c4a6db74d5c6c143974be91c383680d468630",
+        "version" : "1.3.0"
       }
     }
   ],

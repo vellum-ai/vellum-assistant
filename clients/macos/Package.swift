@@ -14,16 +14,21 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/soffes/HotKey", from: "0.2.1"),
+        .package(url: "https://github.com/auth0/Auth0.swift", from: "2.15.0"),
     ],
     targets: [
         .executableTarget(
             name: "vellum-assistant",
-            dependencies: ["HotKey"],
+            dependencies: [
+                "HotKey",
+                .product(name: "Auth0", package: "Auth0.swift"),
+            ],
             path: "vellum-assistant",
             exclude: ["Resources/Info.plist"],
             resources: [
                 .process("Resources/Assets.xcassets"),
-                .copy("Resources/Recipes")
+                .copy("Resources/Recipes"),
+                .copy("Resources/Auth0.plist")
             ],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),

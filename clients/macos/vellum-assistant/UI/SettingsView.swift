@@ -14,13 +14,61 @@ struct SettingsView: View {
         let val = UserDefaults.standard.double(forKey: "ambientCaptureInterval")
         return val == 0 ? 30 : val
     }()
+    @State private var authError: String?
     var ambientAgent: AmbientAgent
+    @ObservedObject var auth0Manager: Auth0Manager
 
     // Re-check permissions every 2 seconds while the window is open
     private let permissionTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         Form {
+            Section("Account") {
+                if auth0Manager.isAuthenticated {
+                    HStack {
+                        Image(systemName: "person.crop.circle.fill")
+                            .foregroundStyle(.green)
+                        Text("Signed in")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Sign Out") {
+                            authError = nil
+                            Task {
+                                do {
+                                    try await auth0Manager.logout()
+                                } catch {
+                                    authError = error.localizedDescription
+                                }
+                            }
+                        }
+                        .tint(.red)
+                    }
+                } else {
+                    HStack {
+                        Image(systemName: "person.crop.circle")
+                            .foregroundStyle(.secondary)
+                        Text("Not signed in")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Sign In") {
+                            authError = nil
+                            Task {
+                                do {
+                                    try await auth0Manager.login()
+                                } catch {
+                                    authError = error.localizedDescription
+                                }
+                            }
+                        }
+                    }
+                }
+                if let authError {
+                    Text(authError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
             Section("Anthropic API Key") {
                 if hasKey {
                     HStack {
@@ -128,7 +176,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 450, height: 550)
+        .frame(width: 450, height: 620)
         .onAppear {
             checkPermissions()
         }

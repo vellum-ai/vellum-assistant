@@ -10,6 +10,17 @@
     <string>vellum-assistant needs microphone access to transcribe voice commands.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>vellum-assistant uses speech recognition to convert voice commands into tasks.</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.vellum.vellum-assistant</string>
+            </array>
+        </dict>
+    </array>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>LSMinimumSystemVersion</key>
