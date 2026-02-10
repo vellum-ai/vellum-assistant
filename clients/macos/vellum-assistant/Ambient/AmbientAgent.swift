@@ -51,6 +51,7 @@ final class AmbientAgent: ObservableObject {
     private var syncTask: Task<Void, Never>?
     private var activeSuggestionWindow: AmbientSuggestionWindow?
     private var insightNotificationWindow: InsightNotificationWindow?
+    private var previousAXText: String = ""
     private var previousOCRText: String = ""
     private var knowledgeCancellable: AnyCancellable?
     private var suggestionWindow: AmbientSuggestionWindow?
@@ -164,6 +165,14 @@ final class AmbientAgent: ObservableObject {
 
         state = .analyzing
 
+        // Skip if frontmost app is Vellum itself to avoid self-referential observations
+        let ownBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == ownBundleId {
+            log.debug("[\(cycle)] Frontmost app is self — skipping cycle")
+            state = .watching
+            return
+        }
+
         // Try AX capture first
         let axStart = CFAbsoluteTimeGetCurrent()
         let snapshot = await AmbientAXCapture.capture()
@@ -215,14 +224,19 @@ final class AmbientAgent: ObservableObject {
             return
         }
 
-        // Check similarity with previous capture
-        let similarity = ScreenOCR.similarity(previousOCRText, screenContent)
+        // Check similarity with previous capture of the same method
+        let previousText = captureMethod == "ax-tree" ? previousAXText : previousOCRText
+        let similarity = ScreenOCR.similarity(previousText, screenContent)
         if similarity > 0.85 {
             log.debug("[\(cycle)] Screen unchanged (similarity: \(String(format: "%.2f", similarity))) — skipping")
             state = .watching
             return
         }
-        previousOCRText = screenContent
+        if captureMethod == "ax-tree" {
+            previousAXText = screenContent
+        } else {
+            previousOCRText = screenContent
+        }
 
         log.info("[\(cycle)] Analyzing \(appName) — \"\(windowTitle)\" (\(screenContent.count) chars, \(captureMethod))")
 

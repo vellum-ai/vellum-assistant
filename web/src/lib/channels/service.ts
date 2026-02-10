@@ -255,18 +255,22 @@ export async function disconnectTelegramChannel(assistantId: string) {
     }
   }
 
+  const preserveCredentials = Boolean(disconnectWarning);
+
   await upsertAssistantChannelAccount({
     assistantId,
     channel: "telegram",
     accountKey: account.account_key,
     enabled: false,
-    status: "inactive",
-    config: {
-      ...(account.config || {}),
-      botToken: null,
-      webhookSecret: null,
-      webhookUrl: null,
-    } as Record<string, unknown>,
+    status: disconnectWarning ? "error" : "inactive",
+    config: (preserveCredentials
+      ? (account.config || {})
+      : {
+          ...(account.config || {}),
+          botToken: null,
+          webhookSecret: null,
+          webhookUrl: null,
+        }) as Record<string, unknown>,
     lastError: disconnectWarning,
   });
 
@@ -345,6 +349,7 @@ const DUPLICATE_REPLY_POLL_INTERVAL_MS = 500;
 const DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS = 120_000;
 const ASSISTANT_REPLY_STATUS_DELIVERED = "delivered";
 const ASSISTANT_REPLY_STATUS_DELIVERY_FAILED = "delivery_failed";
+const USER_REPLY_STATUS_PROCESSING = "processing";
 
 async function waitForAssistantReplyForDuplicate(params: {
   assistantId: string;
@@ -385,6 +390,10 @@ function shouldDeferDuplicateReplyDelivery(
     status !== ASSISTANT_REPLY_STATUS_DELIVERY_FAILED &&
     userMessageAgeMs < DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS
   );
+}
+
+function isReplyGenerationInProgress(status: string | null | undefined) {
+  return status === USER_REPLY_STATUS_PROCESSING;
 }
 
 async function persistAssistantReplyStatus(
@@ -538,7 +547,7 @@ export async function handleTelegramWebhook(params: {
       return { status: "ok" as const, duplicate: true as const };
     }
 
-    if (userMessageAgeMs < DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS) {
+    if (isReplyGenerationInProgress(result.userMessage.status)) {
       // Let Telegram retry instead of racing the original in-flight reply generation.
       throw new Error("Assistant reply generation still in progress");
     }

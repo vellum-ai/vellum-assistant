@@ -1,5 +1,6 @@
 "use client";
 
+import clsx from "clsx";
 import {
   CircleAlert,
   CircleCheck,
@@ -67,14 +68,17 @@ function showToast(
     (id) => (
       <div
         role="alert"
-        className={`flex w-[356px] items-start gap-3 rounded-meadow border p-4 shadow-lg ${styles.container}`}
+        className={clsx(
+          "flex w-full max-h-[300px] items-start gap-3 rounded-meadow border p-3 shadow-lg",
+          styles.container
+        )}
       >
         {styles.iconElement && (
-          <span className={`mt-0.5 shrink-0 ${styles.icon}`}>
+          <span className={clsx("mt-0.5 shrink-0", styles.icon)}>
             {styles.iconElement}
           </span>
         )}
-        <div className="flex-1 space-y-1">
+        <div className="min-w-0 flex-1 space-y-1">
           <p className="text-sm font-medium leading-tight">{message}</p>
           {options?.description && (
             <p className="text-xs opacity-70">{options.description}</p>
@@ -125,6 +129,7 @@ function Toaster() {
       position="bottom-right"
       toastOptions={{
         unstyled: true,
+        style: { width: "356px" },
       }}
     />
   );

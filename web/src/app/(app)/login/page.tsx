@@ -1,230 +1,165 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Controller, useForm } from "react-hook-form";
+
 import { useAuth } from "@/lib/auth";
-import { VellumHead } from "@/components/marketing/VellumHomepage";
+import { toast } from "@/components/app/core/Toast";
+
+interface LoginFormValues {
+  username: string;
+  password: string;
+}
 
 export default function LoginPage() {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { control, handleSubmit, formState: { isSubmitting, errors } } = useForm<LoginFormValues>({
+    defaultValues: {
+      username: "",
+      password: "",
+    },
+  });
   const { login } = useAuth();
   const router = useRouter();
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setIsSubmitting(true);
-    try {
-      const errorMessage = await login(username, password);
-      if (!errorMessage) {
-        router.push("/assistant");
-      } else {
-        setError(errorMessage);
-      }
-    } finally {
-      setIsSubmitting(false);
+  const onSubmit = async (data: LoginFormValues) => {
+    const result = await login(data.username, data.password);
+    if (result.emailNotVerified) {
+      router.push("/check-email?reason=unverified");
+      return;
     }
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    router.push("/assistant");
   };
 
   return (
-    <>
-      <VellumHead />
-      <div
-        className="section_home home"
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <div
-          className="padding-global home z-index-2"
-          style={{ width: "100%", maxWidth: "480px" }}
-        >
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "2.5rem",
-            }}
-          >
-            <Link href="/" aria-label="Back to home">
-              <Image
-                loading="lazy"
-                src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6853f41167390a6658f3fd68_Vellum%20Wordmark%20Logo.svg"
-                alt="Vellum"
-                className="navbar2_logo"
-                width={0}
-                height={0}
-                unoptimized
-              />
-            </Link>
+    <div className="flex min-h-screen items-center justify-center bg-[#0d0d0d]">
+      <div className="w-full max-w-[480px] px-6">
+        <div className="flex flex-col items-center gap-10">
+          <Link href="/" aria-label="Back to home">
+            <Image
+              loading="lazy"
+              src="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/6853f41167390a6658f3fd68_Vellum%20Wordmark%20Logo.svg"
+              alt="Vellum"
+              className="h-auto w-[120px]"
+              width={120}
+              height={30}
+              unoptimized
+            />
+          </Link>
 
-            <div style={{ width: "100%" }}>
-              <div
-                className="text-align-center"
-                style={{ marginBottom: "2rem" }}
-              >
-                <h1
-                  className="heading-2-new font-playfair"
-                  style={{ fontSize: "2rem", marginBottom: "0.5rem" }}
+          <div className="w-full">
+            <div className="mb-8 text-center">
+              <h1 className="mb-2 font-serif text-[2rem] font-bold italic text-white">
+                Sign in to Vellum
+              </h1>
+              <p className="text-sm text-zinc-400">
+                {"Don't have an account? "}
+                <Link
+                  href="/signup"
+                  className="text-indigo-400 hover:text-indigo-300"
                 >
-                  <em>Sign in to Vellum</em>
-                </h1>
-                <div
-                  className="text-size-medium font-inter"
-                  style={{ color: "#a1a1aa" }}
-                >
-                  {"Don't have an account? "}
-                  <Link
-                    href="/signup"
-                    className="text-block-130"
-                    style={{ textDecoration: "none" }}
-                  >
-                    Sign up
-                  </Link>
+                  Sign up
+                </Link>
+              </p>
+            </div>
+
+            <form
+              method="post"
+              onSubmit={handleSubmit(onSubmit)}
+              className="flex flex-col gap-4"
+            >
+              <div className="flex flex-col gap-3">
+                <div>
+                  <Controller
+                    name="username"
+                    control={control}
+                    rules={{ required: "Username is required" }}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        id="username"
+                        type="text"
+                        autoComplete="username"
+                        placeholder="Username"
+                        className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-indigo-500/50"
+                      />
+                    )}
+                  />
+                  {errors.username && (
+                    <p className="mt-1 text-xs text-red-300">{errors.username.message}</p>
+                  )}
+                </div>
+                <div>
+                  <Controller
+                    name="password"
+                    control={control}
+                    rules={{ required: "Password is required" }}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        id="password"
+                        type="password"
+                        autoComplete="current-password"
+                        placeholder="Password"
+                        className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-indigo-500/50"
+                      />
+                    )}
+                  />
+                  {errors.password && (
+                    <p className="mt-1 text-xs text-red-300">{errors.password.message}</p>
+                  )}
                 </div>
               </div>
 
-              <form
-                onSubmit={handleSubmit}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "1rem",
-                }}
-              >
-                {error && (
-                  <div
-                    style={{
-                      padding: "0.75rem 1rem",
-                      borderRadius: "0.5rem",
-                      backgroundColor: "rgba(239, 68, 68, 0.1)",
-                      border: "1px solid rgba(239, 68, 68, 0.3)",
-                      color: "#fca5a5",
-                      fontSize: "0.875rem",
-                    }}
-                  >
-                    {error}
-                  </div>
-                )}
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "0.75rem",
-                  }}
-                >
-                  <input
-                    id="username"
-                    name="username"
-                    type="text"
-                    autoComplete="username"
-                    required
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Username"
-                    className="font-inter"
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem 1rem",
-                      borderRadius: "0.5rem",
-                      border: "1px solid rgba(255, 255, 255, 0.1)",
-                      backgroundColor: "rgba(255, 255, 255, 0.05)",
-                      color: "#fff",
-                      fontSize: "0.875rem",
-                      outline: "none",
-                    }}
-                  />
-                  <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    autoComplete="current-password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Password"
-                    className="font-inter"
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem 1rem",
-                      borderRadius: "0.5rem",
-                      border: "1px solid rgba(255, 255, 255, 0.1)",
-                      backgroundColor: "rgba(255, 255, 255, 0.05)",
-                      color: "#fff",
-                      fontSize: "0.875rem",
-                      outline: "none",
-                    }}
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="d-button nav-button-5 cta-get-started new"
-                  style={{
-                    width: "100%",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "0.5rem",
-                    cursor: isSubmitting ? "wait" : "pointer",
-                    border: "none",
-                    marginTop: "0.5rem",
-                    opacity: isSubmitting ? 0.5 : 1,
-                  }}
-                >
-                  <div className="btn-text nav-button-6 new">
-                    {isSubmitting ? "Signing in..." : "Sign in"}
-                  </div>
-                  <div
-                    className="btn_arrow nav-button-7"
-                    style={{ width: "20px", height: "20px" }}
-                  >
-                    <svg
-                      width="100%"
-                      height="100%"
-                      viewBox="0 0 20 20"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path
-                        d="M7.5 15L12.5 10L7.5 5"
-                        stroke="currentColor"
-                        strokeWidth="1.67"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </div>
-                  <div className="d-button_bg-overlay nav-button-8"></div>
-                </button>
-              </form>
-
-              <div
-                className="text-align-center"
-                style={{ marginTop: "2rem" }}
-              >
+              <div className="text-right">
                 <Link
-                  href="/"
-                  className="text-block-130 font-inter"
-                  style={{ textDecoration: "none", fontSize: "0.875rem" }}
+                  href="/forgot-password"
+                  className="text-[0.8125rem] text-zinc-400 hover:text-zinc-300"
                 >
-                  &larr; Back to home
+                  Forgot password?
                 </Link>
               </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="mt-2 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-50"
+              >
+                {isSubmitting ? "Signing in..." : "Sign in"}
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M7.5 15L12.5 10L7.5 5"
+                    stroke="currentColor"
+                    strokeWidth="1.67"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </form>
+
+            <div className="mt-8 text-center">
+              <Link
+                href="/"
+                className="text-sm text-zinc-400 hover:text-zinc-300"
+              >
+                &larr; Back to home
+              </Link>
             </div>
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }

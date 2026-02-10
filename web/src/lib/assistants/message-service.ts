@@ -9,6 +9,7 @@ import {
   getMessageByExternalId,
   getRecentConversationMessages,
   getRecentChatMessages,
+  updateChatMessageStatus,
 } from "@/lib/db";
 
 export interface InboundMessageSender {
@@ -33,6 +34,7 @@ export interface HandleInboundAssistantMessageResult {
     role: "user";
     content: string;
     timestamp: Date | null;
+    status: string | null;
   } | null;
   assistantMessage: {
     id: string;
@@ -175,6 +177,17 @@ async function safeGenerateAssistantReply(params: {
   }
 }
 
+async function safeUpdateUserMessageStatus(
+  userMessageId: string,
+  status: string
+) {
+  try {
+    await updateChatMessageStatus(userMessageId, status);
+  } catch (error) {
+    console.warn(`Failed to update user message status to ${status}:`, error);
+  }
+}
+
 export async function recoverMissingAssistantReplyForInbound(params: {
   assistantId: string;
   sourceChannel: string;
@@ -226,6 +239,7 @@ export async function recoverMissingAssistantReplyForInbound(params: {
       replyToUserMessageId: params.userMessageId,
     },
   });
+  await safeUpdateUserMessageStatus(params.userMessageId, "processed");
 
   return toAssistantMessageResult(assistantMessage);
 }
@@ -266,6 +280,7 @@ export async function handleInboundAssistantMessage(
           role: "user",
           content: existing.content,
           timestamp: existing.createdAt,
+          status: existing.status,
         },
         assistantMessage: existingAssistantReply
           ? {
@@ -286,7 +301,7 @@ export async function handleInboundAssistantMessage(
       assistantId: input.assistantId,
       role: "user",
       content,
-      status: "sent",
+      status: "processing",
       sourceChannel,
       externalChatId: input.externalChatId,
       externalMessageId: input.externalMessageId,
@@ -321,6 +336,7 @@ export async function handleInboundAssistantMessage(
             role: "user",
             content: existing.content,
             timestamp: existing.createdAt,
+            status: existing.status,
           },
           assistantMessage: existingAssistantReply
             ? {
@@ -348,17 +364,24 @@ export async function handleInboundAssistantMessage(
     messages: contextMessages,
   });
 
-  const assistantMessage = await createChatMessage({
-    assistantId: input.assistantId,
-    role: "assistant",
-    content: assistantReply,
-    status: "pending_delivery",
-    sourceChannel,
-    externalChatId: input.externalChatId,
-    metadata: {
-      replyToUserMessageId: userMessage.id,
-    },
-  });
+  let assistantMessage: ChatMessage;
+  try {
+    assistantMessage = await createChatMessage({
+      assistantId: input.assistantId,
+      role: "assistant",
+      content: assistantReply,
+      status: "pending_delivery",
+      sourceChannel,
+      externalChatId: input.externalChatId,
+      metadata: {
+        replyToUserMessageId: userMessage.id,
+      },
+    });
+  } catch (error) {
+    await safeUpdateUserMessageStatus(userMessage.id, "generation_failed");
+    throw error;
+  }
+  await safeUpdateUserMessageStatus(userMessage.id, "processed");
 
   return {
     duplicate: false,
@@ -367,6 +390,7 @@ export async function handleInboundAssistantMessage(
       role: "user",
       content: userMessage.content,
       timestamp: userMessage.createdAt,
+      status: "processed",
     },
     assistantMessage: toAssistantMessageResult(assistantMessage),
   };

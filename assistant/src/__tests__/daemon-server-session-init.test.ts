@@ -124,7 +124,7 @@ import { DaemonServer } from '../daemon/server.js';
 
 type DaemonServerTestAccess = {
   sendInitialSession: (socket: net.Socket) => Promise<void>;
-  handleUndo: (sessionId: string, socket: net.Socket) => void;
+  dispatchMessage: (msg: { type: string; [key: string]: unknown }, socket: net.Socket) => void;
   sessions: Map<string, MockSession>;
   socketToSession: Map<net.Socket, string>;
 };
@@ -164,7 +164,7 @@ describe('DaemonServer initial session hydration', () => {
     const { socket, writes } = createFakeSocket();
 
     await internal.sendInitialSession(socket);
-    internal.handleUndo(conversation.id, socket);
+    internal.dispatchMessage({ type: 'undo', sessionId: conversation.id }, socket);
 
     const messages = decodeMessages(writes);
     const sessionInfo = messages.find((msg) => msg.type === 'session_info');

@@ -3,7 +3,6 @@
 import {
   createContext,
   ReactNode,
-  useCallback,
   useContext,
   useEffect,
   useState,
@@ -20,12 +19,17 @@ function getSessionUsername(user: SessionUser): string | null {
   return user.username?.trim() || user.id?.trim() || null;
 }
 
+interface LoginResult {
+  error: string | null;
+  emailNotVerified?: boolean;
+}
+
 interface AuthContextType {
   isLoggedIn: boolean;
   isLoading: boolean;
   username: string | null;
   email: string | null;
-  login: (username: string, password: string) => Promise<string | null>;
+  login: (username: string, password: string) => Promise<LoginResult>;
   signup: (username: string, email: string, password: string) => Promise<string | null>;
   logout: () => void;
 }
@@ -37,8 +41,8 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [username, setUsername] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
 
@@ -54,23 +58,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
   }, []);
 
-  const login = useCallback(async (user: string, password: string): Promise<string | null> => {
+  const login = async (user: string, password: string): Promise<LoginResult> => {
     const { error } = await authClient.signIn.username({
       username: user,
       password,
     });
     if (error) {
-      return error.message ?? "Login failed. Please try again.";
+      if (error.code === "EMAIL_NOT_VERIFIED") {
+        return { error: null, emailNotVerified: true };
+      }
+      return { error: error.message ?? "Invalid username or password." };
     }
     setIsLoggedIn(true);
     const { data: sessionData } = await authClient.getSession();
     const sessionUser = (sessionData?.user as SessionUser | undefined) ?? null;
     setUsername(sessionUser ? getSessionUsername(sessionUser) : user);
     setEmail(sessionUser?.email ?? null);
-    return null;
-  }, []);
+    return { error: null };
+  };
 
-  const signup = useCallback(async (user: string, signupEmail: string, password: string): Promise<string | null> => {
+  const signup = async (user: string, signupEmail: string, password: string): Promise<string | null> => {
     const { error } = await authClient.signUp.email({
       name: user,
       username: user,
@@ -80,19 +87,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (error) {
       return error.message ?? "Failed to create account. Please try again.";
     }
-    setIsLoggedIn(true);
-    setUsername(user);
-    setEmail(signupEmail);
     return null;
-  }, []);
+  };
 
-  const logout = useCallback(async () => {
+  const logout = async () => {
     await authClient.signOut();
     setIsLoggedIn(false);
     setUsername(null);
     setEmail(null);
     window.location.href = "/";
-  }, []);
+  };
 
   return (
     <AuthContext.Provider

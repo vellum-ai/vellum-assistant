@@ -612,13 +612,13 @@ async function main() {
     const disconnectedAccount = await getTelegramChannelAccountForAssistant(assistantId);
     assert(disconnectedAccount, "Expected account to remain after disconnect");
     assert.equal(disconnectedAccount.enabled, false);
-    assert.equal(disconnectedAccount.status, "inactive");
+    assert.equal(disconnectedAccount.status, "error");
     assert.equal(typeof disconnectedAccount.last_error, "string");
 
     const disconnectedConfig = (disconnectedAccount.config ?? {}) as Record<string, unknown>;
-    assert.equal(disconnectedConfig.botToken ?? null, null);
-    assert.equal(disconnectedConfig.webhookSecret ?? null, null);
-    assert.equal(disconnectedConfig.webhookUrl ?? null, null);
+    assert.equal(typeof disconnectedConfig.botToken, "string");
+    assert.equal(typeof disconnectedConfig.webhookSecret, "string");
+    assert.equal(typeof disconnectedConfig.webhookUrl, "string");
 
     const methodCounts = countTelegramMethods(telegramCalls);
     assert((methodCounts.get("getMe") ?? 0) >= 1, "Expected getMe call");

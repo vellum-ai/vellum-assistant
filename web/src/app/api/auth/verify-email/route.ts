@@ -3,28 +3,29 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth/better-auth";
 
 export async function GET(request: Request) {
+  const { searchParams, origin } = new URL(request.url);
+  const token = searchParams.get("token");
+
+  if (!token) {
+    return NextResponse.redirect(new URL("/verify-email?status=error", origin));
+  }
+
   try {
-    const { searchParams } = new URL(request.url);
-    const token = searchParams.get("token");
-
-    if (!token) {
-      return NextResponse.json(
-        { error: "Token is required" },
-        { status: 400 }
-      );
-    }
-
-    return await auth.api.verifyEmail({
-      query: {
-        token,
-      },
+    const verifyResponse = await auth.api.verifyEmail({
+      query: { token },
       asResponse: true,
     });
+    if (!verifyResponse.ok) {
+      return NextResponse.redirect(new URL("/verify-email?status=error", origin));
+    }
+    const redirect = NextResponse.redirect(new URL("/verify-email?status=success", origin));
+    const setCookie = verifyResponse.headers.getSetCookie();
+    for (const cookie of setCookie) {
+      redirect.headers.append("Set-Cookie", cookie);
+    }
+    return redirect;
   } catch (error) {
     console.error("Error verifying email:", error);
-    return NextResponse.json(
-      { error: "Failed to verify email" },
-      { status: 500 }
-    );
+    return NextResponse.redirect(new URL("/verify-email?status=error", origin));
   }
 }
