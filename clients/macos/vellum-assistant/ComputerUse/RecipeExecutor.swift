@@ -142,8 +142,8 @@ final class RecipeExecutor {
             }
         #endif
 
-        // Xcode builds: recipes bundled via xcassets or copy phase
-        if let url = Bundle.main.url(forResource: name, withExtension: "md", subdirectory: "Recipes") {
+        // Xcode builds: individual files are copied flat into the bundle (no subdirectory)
+        if let url = Bundle.main.url(forResource: name, withExtension: "md") {
             return try? String(contentsOf: url, encoding: .utf8)
         }
 
