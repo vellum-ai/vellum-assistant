@@ -226,6 +226,10 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   }, [assistantId]);
 
   useEffect(() => {
+    setPendingAttachments([]);
+  }, [assistantId]);
+
+  useEffect(() => {
     return () => {
       if (isSendingRef.current) {
         return;

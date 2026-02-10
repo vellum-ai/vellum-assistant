@@ -5,7 +5,7 @@ import { getSocketPath, getDataDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
-import { getConfig, loadRawConfig, saveRawConfig, invalidateConfigCache } from '../config/loader.js';
+import { getConfig, invalidateConfigCache } from '../config/loader.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
 import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
 import { resetAllowlist } from '../security/secret-allowlist.js';
@@ -17,8 +17,8 @@ import {
   MAX_LINE_SIZE,
   type ClientMessage,
   type ServerMessage,
-  type UserMessageAttachment,
 } from './ipc-protocol.js';
+import { handleMessage, type HandlerContext } from './handlers.js';
 
 const log = getLogger('server');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -387,7 +387,7 @@ export class DaemonServer {
         return;
       }
       for (const msg of messages) {
-        this.handleMessage(msg as ClientMessage, socket);
+        this.dispatchMessage(msg as ClientMessage, socket);
       }
     });
 
@@ -499,242 +499,22 @@ export class DaemonServer {
     return session;
   }
 
-  private handleMessage(msg: ClientMessage, socket: net.Socket): void {
-    switch (msg.type) {
-      case 'user_message':
-        this.handleUserMessage(msg.sessionId, msg.content, msg.attachments, socket);
-        break;
-      case 'confirmation_response': {
-        const sessionId = this.socketToSession.get(socket);
-        if (sessionId) {
-          const session = this.sessions.get(sessionId);
-          if (session) {
-            session.handleConfirmationResponse(
-              msg.requestId,
-              msg.decision as 'allow' | 'always_allow' | 'deny',
-              msg.selectedPattern,
-              msg.selectedScope,
-            );
-          }
-        }
-        break;
-      }
-      case 'session_list':
-        this.handleSessionList(socket);
-        break;
-      case 'session_create':
-        this.handleSessionCreate(msg.title, socket);
-        break;
-      case 'session_switch':
-        this.handleSessionSwitch(msg.sessionId, socket);
-        break;
-      case 'cancel': {
-        const cancelSessionId = this.socketToSession.get(socket);
-        if (cancelSessionId) {
-          const session = this.sessions.get(cancelSessionId);
-          if (session) {
-            session.abort();
-          }
-        }
-        break;
-      }
-      case 'model_get':
-        this.handleModelGet(socket);
-        break;
-      case 'model_set':
-        this.handleModelSet(msg.model, socket);
-        break;
-      case 'history_request':
-        this.handleHistoryRequest(msg.sessionId, socket);
-        break;
-      case 'undo':
-        this.handleUndo(msg.sessionId, socket);
-        break;
-      case 'usage_request':
-        this.handleUsageRequest(msg.sessionId, socket);
-        break;
-      case 'sandbox_set':
-        this.handleSandboxSet(msg.enabled, socket);
-        break;
-      case 'ping':
-        this.send(socket, { type: 'pong' });
-        break;
-    }
+  private handlerContext(): HandlerContext {
+    return {
+      sessions: this.sessions,
+      socketToSession: this.socketToSession,
+      socketSandboxOverride: this.socketSandboxOverride,
+      debounceTimers: this.debounceTimers,
+      suppressConfigReload: this.suppressConfigReload,
+      setSuppressConfigReload: (value: boolean) => { this.suppressConfigReload = value; },
+      send: (socket, msg) => this.send(socket, msg),
+      getOrCreateSession: (id, socket?, rebind?) =>
+        this.getOrCreateSession(id, socket, rebind),
+    };
   }
 
-  private async handleUserMessage(
-    sessionId: string,
-    content: string | undefined,
-    attachments: UserMessageAttachment[] | undefined,
-    socket: net.Socket,
-  ): Promise<void> {
-    try {
-      this.socketToSession.set(socket, sessionId);
-      const session = await this.getOrCreateSession(sessionId, socket, true);
-      await session.processMessage(content ?? '', attachments ?? [], (event) => {
-        this.send(socket, event);
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error({ err, sessionId }, 'Error processing user message');
-      this.send(socket, { type: 'error', message });
-    }
-  }
-
-  private handleSessionList(socket: net.Socket): void {
-    const conversations = conversationStore.listConversations(50);
-    this.send(socket, {
-      type: 'session_list_response',
-      sessions: conversations.map((c) => ({
-        id: c.id,
-        title: c.title ?? 'Untitled',
-        updatedAt: c.updatedAt,
-      })),
-    });
-  }
-
-  private async handleSessionCreate(
-    title: string | undefined,
-    socket: net.Socket,
-  ): Promise<void> {
-    const conversation = conversationStore.createConversation(
-      title ?? 'New Conversation',
-    );
-    await this.getOrCreateSession(conversation.id, socket, true);
-    this.send(socket, {
-      type: 'session_info',
-      sessionId: conversation.id,
-      title: conversation.title ?? 'New Conversation',
-    });
-  }
-
-  private async handleSessionSwitch(
-    sessionId: string,
-    socket: net.Socket,
-  ): Promise<void> {
-    const conversation = conversationStore.getConversation(sessionId);
-    if (!conversation) {
-      this.send(socket, { type: 'error', message: `Session ${sessionId} not found` });
-      return;
-    }
-    this.socketToSession.set(socket, sessionId);
-    await this.getOrCreateSession(sessionId, socket, true);
-    this.send(socket, {
-      type: 'session_info',
-      sessionId: conversation.id,
-      title: conversation.title ?? 'Untitled',
-    });
-  }
-
-  private handleModelGet(socket: net.Socket): void {
-    const config = getConfig();
-    this.send(socket, {
-      type: 'model_info',
-      model: config.model,
-      provider: config.provider,
-    });
-  }
-
-  private handleModelSet(model: string, socket: net.Socket): void {
-    try {
-      // Use raw config to avoid persisting env-var API keys to disk
-      const raw = loadRawConfig();
-      raw.model = model;
-
-      // Suppress the file watcher callback — handleModelSet already does
-      // the full reload sequence; a redundant watcher-triggered reload
-      // would incorrectly evict sessions created after this method returns.
-      this.suppressConfigReload = true;
-      try {
-        saveRawConfig(raw);
-      } catch (err) {
-        this.suppressConfigReload = false;
-        throw err;
-      }
-      const existingSuppressTimer = this.debounceTimers.get('__suppress_reset__');
-      if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-      const resetTimer = setTimeout(() => { this.suppressConfigReload = false; }, 300);
-      this.debounceTimers.set('__suppress_reset__', resetTimer);
-
-      // Re-initialize provider with the new model so LLM calls use it
-      const config = getConfig();
-      initializeProviders(config);
-
-      // Evict idle sessions immediately; mark busy ones as stale so they
-      // get recreated with the new provider once they finish processing.
-      for (const [id, session] of this.sessions) {
-        if (!session.isProcessing()) {
-          this.sessions.delete(id);
-        } else {
-          session.markStale();
-        }
-      }
-
-      this.send(socket, {
-        type: 'model_info',
-        model: config.model,
-        provider: config.provider,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.send(socket, { type: 'error', message: `Failed to set model: ${message}` });
-    }
-  }
-
-  private handleSandboxSet(enabled: boolean, socket: net.Socket): void {
-    // Per-socket override: store the sandbox preference for this client only.
-    // The override is applied to the session so it doesn't affect other clients.
-    this.socketSandboxOverride.set(socket, enabled);
-    const sessionId = this.socketToSession.get(socket);
-    if (sessionId) {
-      const session = this.sessions.get(sessionId);
-      if (session) {
-        session.setSandboxOverride(enabled);
-      }
-    }
-    log.info({ enabled }, 'Sandbox override applied (per-session)');
-  }
-
-  private handleHistoryRequest(sessionId: string, socket: net.Socket): void {
-    const dbMessages = conversationStore.getMessages(sessionId);
-    const historyMessages = dbMessages.map((m) => {
-      let text = '';
-      try {
-        const content = JSON.parse(m.content);
-        text = renderHistoryContent(content);
-      } catch (err) {
-        log.debug({ err, messageId: m.id }, 'Failed to parse message content as JSON, using raw text');
-        text = m.content;
-      }
-      return { role: m.role, text, timestamp: m.createdAt };
-    });
-    this.send(socket, { type: 'history_response', messages: historyMessages });
-  }
-
-  private handleUndo(sessionId: string, socket: net.Socket): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      this.send(socket, { type: 'error', message: 'No active session' });
-      return;
-    }
-    const removedCount = session.undo();
-    this.send(socket, { type: 'undo_complete', removedCount });
-  }
-
-  private handleUsageRequest(sessionId: string, socket: net.Socket): void {
-    const conversation = conversationStore.getConversation(sessionId);
-    if (!conversation) {
-      this.send(socket, { type: 'error', message: 'No active session' });
-      return;
-    }
-    const config = getConfig();
-    this.send(socket, {
-      type: 'usage_response',
-      totalInputTokens: conversation.totalInputTokens,
-      totalOutputTokens: conversation.totalOutputTokens,
-      estimatedCost: conversation.totalEstimatedCost,
-      model: config.model,
-    });
+  private dispatchMessage(msg: ClientMessage, socket: net.Socket): void {
+    handleMessage(msg, socket, this.handlerContext());
   }
 
 }

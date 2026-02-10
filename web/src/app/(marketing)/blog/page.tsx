@@ -1,5 +1,4 @@
 import { BlogBody } from "@/components/marketing/BlogPage/BlogBody";
-import { VellumHead } from "@/components/marketing/VellumHomepage/VellumHead";
 import { VellumScripts } from "@/components/marketing/VellumHomepage/VellumScripts";
 
 export const metadata = {
@@ -9,7 +8,6 @@ export const metadata = {
 export default function BlogPage() {
   return (
     <>
-      <VellumHead />
       <BlogBody />
       <VellumScripts />
     </>

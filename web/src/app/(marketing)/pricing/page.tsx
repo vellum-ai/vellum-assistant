@@ -1,6 +1,5 @@
 import { Metadata } from "next";
 import {
-  VellumHead,
   VellumScripts,
   UTMTracker,
 } from "@/components/marketing/VellumHomepage";
@@ -13,7 +12,6 @@ export const metadata: Metadata = {
 export default function PricingPage() {
   return (
     <>
-      <VellumHead />
       <VellumScripts />
       <UTMTracker />
       <PricingBody />

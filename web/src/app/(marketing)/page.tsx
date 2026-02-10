@@ -1,6 +1,5 @@
 import { Metadata } from "next";
 import {
-  VellumHead,
   VellumScripts,
   UTMTracker,
   VellumBody,
@@ -39,7 +38,6 @@ export const metadata: Metadata = {
 export default function Home() {
   return (
     <>
-      <VellumHead />
       <VellumScripts />
       <UTMTracker />
       <VellumBody />
