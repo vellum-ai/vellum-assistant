@@ -6,6 +6,11 @@ import { useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/lib/auth";
 
+const menuLinkStyle = {
+  color: "inherit",
+  textDecoration: "none",
+};
+
 export function UserMenu() {
   const { isLoggedIn, username, logout } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
@@ -26,6 +31,7 @@ export function UserMenu() {
       <Link
         href="/login"
         className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
+        style={menuLinkStyle}
       >
         Sign in
       </Link>
@@ -43,7 +49,7 @@ export function UserMenu() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-56 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="absolute right-0 z-50 mt-2 w-56 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
           <div className="border-b border-zinc-200 px-4 py-2 dark:border-zinc-700">
             <p className="text-sm font-medium text-zinc-900 dark:text-white">
               {username}
@@ -54,6 +60,7 @@ export function UserMenu() {
             href="/"
             onClick={() => setIsOpen(false)}
             className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
+            style={menuLinkStyle}
           >
             <Home className="h-4 w-4" />
             Home
@@ -63,6 +70,7 @@ export function UserMenu() {
             href="/settings"
             onClick={() => setIsOpen(false)}
             className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
+            style={menuLinkStyle}
           >
             <Settings className="h-4 w-4" />
             Settings
