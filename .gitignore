@@ -25,7 +25,7 @@ dist
 .DS_Store
 *.pem
 .claude/
-.private/*.md
+.private/
 temp.sh
 context.md
 .codex
