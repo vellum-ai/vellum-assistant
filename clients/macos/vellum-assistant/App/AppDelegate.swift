@@ -67,8 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
-        let contentView = TaskInputView(onSubmit: { [weak self] task in
-            self?.startSession(task: task)
+        let contentView = TaskInputView(onSubmit: { [weak self] submission in
+            self?.startSession(submission: submission)
         })
 
         popover = NSPopover()
@@ -236,6 +236,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Session
 
     func startSession(task: String) {
+        startSession(submission: TaskSubmission(task: task, attachments: []))
+    }
+
+    func startSession(submission: TaskSubmission) {
         guard currentSession == nil else { return }
         popover.performClose(nil)
 
@@ -251,7 +255,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let provider = AnthropicProvider(apiKey: apiKey)
         let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
         let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
-        let session = ComputerUseSession(task: task, provider: provider, maxSteps: maxSteps)
+        let sessionTask = submission.task.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveTask = !sessionTask.isEmpty ? sessionTask : "Use the attached files as context."
+        let session = ComputerUseSession(
+            task: effectiveTask,
+            provider: provider,
+            maxSteps: maxSteps,
+            attachments: submission.attachments
+        )
         currentSession = session
 
         let overlay = SessionOverlayWindow(session: session)

@@ -92,6 +92,26 @@ describe('IPC Protocol', () => {
           /exceeds maximum line size/,
         );
       });
+
+      test('accepts chunked attachment-like payloads within MAX_LINE_SIZE', () => {
+        const parser = createMessageParser({ maxLineSize: MAX_LINE_SIZE });
+        const base64Payload = 'a'.repeat(256 * 1024);
+        const line = JSON.stringify({
+          type: 'user_message',
+          sessionId: 'session-1',
+          attachments: [
+            {
+              filename: 'doc.pdf',
+              mimeType: 'application/pdf',
+              data: base64Payload,
+            },
+          ],
+        }) + '\n';
+
+        const midpoint = Math.floor(line.length / 2);
+        expect(() => parser.feed(line.slice(0, midpoint))).not.toThrow();
+        expect(() => parser.feed(line.slice(midpoint))).not.toThrow();
+      });
     });
   });
 });

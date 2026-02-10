@@ -153,6 +153,56 @@ describe('ContextWindowManager', () => {
     expect(result.summaryText).toContain('## Recent Progress');
   });
 
+  test('serializes file blocks for summary chunks', async () => {
+    const prompts: string[] = [];
+    const provider = createProvider((messages) => {
+      const textBlock = messages[0]?.content[0];
+      if (textBlock?.type === 'text') {
+        prompts.push(textBlock.text);
+      }
+      return {
+        content: [{ type: 'text', text: '## Goals\n- file summarized' }],
+        model: 'mock-model',
+        usage: { inputTokens: 60, outputTokens: 12 },
+        stopReason: 'end_turn',
+      };
+    });
+    const manager = new ContextWindowManager(
+      provider,
+      'system prompt',
+      makeConfig({ maxInputTokens: 280, targetInputTokens: 150, preserveRecentUserTurns: 1 }),
+    );
+    const long = 'f'.repeat(220);
+    const history: Message[] = [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'file',
+            source: {
+              type: 'base64',
+              media_type: 'application/pdf',
+              filename: 'spec.pdf',
+              data: 'a'.repeat(4096),
+            },
+            extracted_text: 'Critical requirement from attached spec.',
+          },
+        ],
+      },
+      message('assistant', `ack ${long}`),
+      message('user', `followup ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+
+    const combinedPrompts = prompts.join('\n');
+    expect(combinedPrompts).toContain('file: spec.pdf');
+    expect(combinedPrompts).toContain('application/pdf');
+    expect(combinedPrompts).toContain('Critical requirement from attached spec.');
+    expect(combinedPrompts).not.toContain('unknown_block');
+  });
+
   test('counts compacted persisted messages without tool-result user turns', async () => {
     const provider = createProvider(() => ({
       content: [{ type: 'text', text: '## Goals\n- compacted summary' }],

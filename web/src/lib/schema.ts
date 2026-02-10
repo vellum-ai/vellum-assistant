@@ -7,6 +7,8 @@ import {
   jsonb,
   timestamp,
   index,
+  integer,
+  primaryKey,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -115,6 +117,48 @@ export const assistantChannelContactsTable = pgTable(
       table.assistantChannelAccountId,
       table.externalUserId
     ),
+  ]
+);
+
+export const chatAttachmentsTable = pgTable(
+  "chat_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    assistantId: uuid("assistant_id")
+      .notNull()
+      .references(() => assistantsTable.id, { onDelete: "cascade" }),
+    originalFilename: varchar("original_filename", { length: 512 }).notNull(),
+    mimeType: varchar("mime_type", { length: 255 }).notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    storageKey: text("storage_key").notNull(),
+    sha256: varchar("sha256", { length: 64 }).notNull(),
+    kind: varchar("kind", { length: 20 }).notNull(),
+    extractedText: text("extracted_text"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("idx_chat_attachments_assistant_id").on(table.assistantId),
+    index("idx_chat_attachments_sha256").on(table.sha256),
+  ]
+);
+
+export const chatMessageAttachmentsTable = pgTable(
+  "chat_message_attachments",
+  {
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => chatMessagesTable.id, { onDelete: "cascade" }),
+    attachmentId: uuid("attachment_id")
+      .notNull()
+      .references(() => chatAttachmentsTable.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.messageId, table.attachmentId] }),
+    index("idx_chat_message_attachments_message_id").on(table.messageId),
+    index("idx_chat_message_attachments_attachment_id").on(table.attachmentId),
   ]
 );
 

@@ -4,7 +4,7 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AmbientSync")
 
 actor AmbientSyncClient {
-    private let baseURL = URL(string: "http://100.77.178.101:3457")!
+    private let baseURL: URL
     private let session: URLSession
     private let encoder: JSONEncoder
 
@@ -16,13 +16,32 @@ actor AmbientSyncClient {
         let data: Data
     }
 
-    init() {
+    init(baseURL: URL? = nil) {
+        if let baseURL {
+            self.baseURL = baseURL
+        } else if let envURL = ProcessInfo.processInfo.environment["AMBIENT_SYNC_URL"] {
+            let normalized = envURL.hasPrefix("http://") || envURL.hasPrefix("https://")
+                ? envURL
+                : "http://\(envURL)"
+            if let parsed = URL(string: normalized), parsed.host != nil {
+                self.baseURL = parsed
+            } else {
+                log.error("AMBIENT_SYNC_URL is set but contains an invalid URL: '\(envURL)' — sync client disabled")
+                self.baseURL = URL(string: "http://localhost:0")!
+            }
+        } else {
+            log.warning("AMBIENT_SYNC_URL not set — sync client disabled")
+            self.baseURL = URL(string: "http://localhost:0")!
+        }
+
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
         self.session = URLSession(configuration: config)
 
         self.encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
+
+        log.info("Sync base URL: \(self.baseURL.absoluteString)")
     }
 
     // MARK: - Health Check

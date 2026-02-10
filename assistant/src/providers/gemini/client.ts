@@ -187,6 +187,21 @@ export class GeminiProvider implements Provider {
             },
           });
           break;
+        case 'file':
+          if (this.supportsGeminiInlineFile(block.source.media_type)) {
+            parts.push({
+              inlineData: {
+                mimeType: block.source.media_type,
+                data: block.source.data,
+              },
+            });
+          } else {
+            const fallback = block.extracted_text?.trim()
+              ? `[Attached file: ${block.source.filename} (${block.source.media_type})]\n${block.extracted_text}`
+              : `[Attached file: ${block.source.filename} (${block.source.media_type})]\nNo extracted text available.`;
+            parts.push({ text: fallback });
+          }
+          break;
         case 'tool_use':
           parts.push({
             functionCall: {
@@ -210,5 +225,9 @@ export class GeminiProvider implements Provider {
     }
 
     return parts;
+  }
+
+  private supportsGeminiInlineFile(mimeType: string): boolean {
+    return mimeType === 'application/pdf';
   }
 }

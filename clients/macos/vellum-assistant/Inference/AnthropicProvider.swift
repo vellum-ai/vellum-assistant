@@ -18,12 +18,23 @@ final class AnthropicProvider: ActionInferenceProvider {
         screenshot: Data?,
         screenSize: CGSize,
         task: String,
+        attachments: [TaskAttachment],
         history: [ActionRecord],
         elements: [AXElement]?,
         consecutiveUnchangedSteps: Int
     ) async throws -> (action: AgentAction, usage: TokenUsage?) {
         let systemPrompt = buildSystemPrompt(screenSize: screenSize)
-        let messages = buildMessages(axTree: axTree, previousAXTree: previousAXTree, axDiff: axDiff, secondaryWindows: secondaryWindows, screenshot: screenshot, task: task, history: history, consecutiveUnchangedSteps: consecutiveUnchangedSteps)
+        let messages = buildMessages(
+            axTree: axTree,
+            previousAXTree: previousAXTree,
+            axDiff: axDiff,
+            secondaryWindows: secondaryWindows,
+            screenshot: screenshot,
+            task: task,
+            attachments: attachments,
+            history: history,
+            consecutiveUnchangedSteps: consecutiveUnchangedSteps
+        )
 
         let result = try await client.sendToolUseRequest(
             model: model,
@@ -112,8 +123,106 @@ final class AnthropicProvider: ActionInferenceProvider {
 
     // MARK: - Message Building
 
-    private func buildMessages(axTree: String?, previousAXTree: String?, axDiff: String?, secondaryWindows: String?, screenshot: Data?, task: String, history: [ActionRecord], consecutiveUnchangedSteps: Int) -> [[String: Any]] {
+    private let maxAttachmentCharsPerFile = 8_000
+    private let maxAttachmentCharsTotal = 24_000
+
+    private func buildAttachmentBlocks(_ attachments: [TaskAttachment]) -> [[String: Any]] {
+        guard !attachments.isEmpty else { return [] }
+
+        var blocks: [[String: Any]] = []
+        let manifest = attachments.enumerated().map { index, attachment in
+            "\(index + 1). \(attachment.fileName) (\(attachment.mimeType), \(formatBytes(attachment.sizeBytes)))"
+        }
+        var textLines: [String] = [
+            "ATTACHMENT CONTEXT:",
+            "The user attached files to this request.",
+            "",
+            "Attachment manifest:",
+        ]
+        textLines.append(contentsOf: manifest)
+
+        let imageCount = attachments.filter { $0.kind == .image }.count
+        if imageCount > 0 {
+            textLines.append("")
+            textLines.append("Included image attachments are attached as image blocks below.")
+        }
+
+        let documents = attachments.filter { $0.kind == .document }
+        var remainingChars = maxAttachmentCharsTotal
+        var addedSnippet = false
+
+        for document in documents {
+            guard remainingChars > 0 else { break }
+            guard let extracted = document.extractedText?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !extracted.isEmpty else {
+                continue
+            }
+
+            let cappedPerFile = String(extracted.prefix(maxAttachmentCharsPerFile))
+            let finalSnippet = String(cappedPerFile.prefix(remainingChars))
+            remainingChars -= finalSnippet.count
+            guard !finalSnippet.isEmpty else { continue }
+
+            if !addedSnippet {
+                textLines.append("")
+                textLines.append("Document text snippets:")
+                addedSnippet = true
+            }
+
+            textLines.append("")
+            textLines.append("--- \(document.fileName) ---")
+            if finalSnippet.count < extracted.count {
+                textLines.append("\(finalSnippet)\n...[truncated]")
+            } else {
+                textLines.append(finalSnippet)
+            }
+        }
+
+        blocks.append([
+            "type": "text",
+            "text": textLines.joined(separator: "\n")
+        ])
+
+        for attachment in attachments where attachment.kind == .image {
+            blocks.append([
+                "type": "image",
+                "source": [
+                    "type": "base64",
+                    "media_type": attachment.mimeType,
+                    "data": attachment.data.base64EncodedString()
+                ]
+            ])
+        }
+
+        return blocks
+    }
+
+    private func formatBytes(_ sizeBytes: Int) -> String {
+        if sizeBytes < 1024 {
+            return "\(sizeBytes) B"
+        }
+        let kb = Double(sizeBytes) / 1024.0
+        if kb < 1024 {
+            return String(format: "%.1f KB", kb)
+        }
+        return String(format: "%.1f MB", kb / 1024.0)
+    }
+
+    private func buildMessages(
+        axTree: String?,
+        previousAXTree: String?,
+        axDiff: String?,
+        secondaryWindows: String?,
+        screenshot: Data?,
+        task: String,
+        attachments: [TaskAttachment],
+        history: [ActionRecord],
+        consecutiveUnchangedSteps: Int
+    ) -> [[String: Any]] {
         var contentBlocks: [[String: Any]] = []
+
+        // User-provided task attachments are included before screenshot/UI context.
+        contentBlocks.append(contentsOf: buildAttachmentBlocks(attachments))
 
         // Screenshot image block
         if let screenshotData = screenshot {
@@ -129,7 +238,14 @@ final class AnthropicProvider: ActionInferenceProvider {
 
         // Text block
         var textParts: [String] = []
-        textParts.append("TASK: \(task)")
+        let trimmedTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTask.isEmpty {
+            textParts.append("TASK: \(trimmedTask)")
+        } else if !attachments.isEmpty {
+            textParts.append("TASK: Use the attached files as primary context.")
+        } else {
+            textParts.append("TASK: No explicit task provided.")
+        }
         textParts.append("")
 
         // Include AX tree diff (compact summary of what changed)

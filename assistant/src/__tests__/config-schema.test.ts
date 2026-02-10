@@ -9,6 +9,7 @@ import { randomBytes } from 'node:crypto';
 // ---------------------------------------------------------------------------
 
 const TEST_DIR = join(tmpdir(), `vellum-schema-test-${randomBytes(4).toString('hex')}`);
+const CONFIG_PATH = join(TEST_DIR, 'config.json');
 
 function ensureTestDir(): void {
   const dirs = [
@@ -48,7 +49,7 @@ import { AssistantConfigSchema } from '../config/schema.js';
 // ---------------------------------------------------------------------------
 
 function writeConfig(obj: unknown): void {
-  writeFileSync(join(TEST_DIR, 'config.json'), JSON.stringify(obj));
+  writeFileSync(CONFIG_PATH, JSON.stringify(obj));
 }
 
 // ---------------------------------------------------------------------------
@@ -300,6 +301,9 @@ describe('loadConfig with schema validation', () => {
     invalidateConfigCache();
   });
 
+  // Intentionally do not remove TEST_DIR in afterAll.
+  // A late async logger flush may still target logs under this path and can
+  // intermittently trigger unhandled ENOENT in CI if the directory is removed.
   test('loads valid config', () => {
     writeConfig({
       provider: 'openai',

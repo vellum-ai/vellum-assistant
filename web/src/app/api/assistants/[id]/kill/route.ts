@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { deleteAssistantMailInbox, deleteAssistantMailWebhook } from "@/lib/agentmail";
 import { disconnectTelegramChannel } from "@/lib/channels/service";
+import { deleteAssistantAttachmentObjects } from "@/lib/attachments/storage-cleanup";
 import { Assistant, getDb } from "@/lib/db";
 import { deleteInstance } from "@/lib/gcp";
 
@@ -63,6 +64,11 @@ export async function POST(request: Request, { params }: RouteParams) {
       console.warn("Failed to disconnect Telegram channel, continuing:", channelError);
     }
 
+    try {
+      await deleteAssistantAttachmentObjects(assistantId);
+    } catch (cleanupError: unknown) {
+      console.warn("Failed to delete attachment objects, continuing with assistant deletion:", cleanupError);
+    }
     await sql`DELETE FROM assistants WHERE id = ${assistantId}`;
 
     return NextResponse.json({

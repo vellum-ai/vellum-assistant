@@ -52,6 +52,14 @@ export interface DaemonUserMessageResult {
   usage: DaemonUsageUpdate | null;
 }
 
+export interface DaemonUserMessageAttachment {
+  id?: string;
+  filename: string;
+  mimeType: string;
+  data: string;
+  extractedText?: string;
+}
+
 interface Waiter {
   predicate: (msg: DaemonMessage) => boolean;
   resolve: (msg: DaemonMessage) => void;
@@ -301,13 +309,18 @@ export class LocalDaemonClient {
   async sendUserMessage(
     sessionId: string,
     content: string,
+    attachments: DaemonUserMessageAttachment[] = [],
     timeoutMs = USER_MESSAGE_TIMEOUT_MS
   ): Promise<DaemonUserMessageResult> {
-    this.send({
+    const message: Record<string, unknown> = {
       type: "user_message",
       sessionId,
       content,
-    });
+    };
+    if (attachments.length > 0) {
+      message.attachments = attachments;
+    }
+    this.send(message);
 
     let assistantText = "";
     let usage: DaemonUsageUpdate | null = null;
