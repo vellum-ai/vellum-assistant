@@ -203,10 +203,16 @@ export class ToolExecutor {
             'Secrets detected in tool output',
           );
 
-          context.onSecretDetected?.({
+          emitLifecycleEvent(context, {
+            type: 'secret_detected',
             toolName: name,
+            input,
+            workingDir: context.workingDir,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
             matches: matchSummary,
             action: sdConfig.action,
+            detectedAtMs: Date.now(),
           });
 
           if (sdConfig.action === 'redact') {

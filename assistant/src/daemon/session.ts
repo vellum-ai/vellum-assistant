@@ -7,11 +7,16 @@ import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { ToolExecutor } from '../tools/executor.js';
+import type { ToolLifecycleEventHandler } from '../tools/types.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
 import { estimateCost } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
+import { EventBus } from '../events/bus.js';
+import type { AssistantDomainEvents } from '../events/domain-events.js';
+import { createToolDomainEventPublisher } from '../events/tool-domain-event-publisher.js';
+import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
 import { createToolAuditListener } from '../events/tool-audit-listener.js';
 
 const log = getLogger('session');
@@ -26,6 +31,7 @@ export class Session {
   private prompter: PermissionPrompter;
   private executor: ToolExecutor;
   private sendToClient: (msg: ServerMessage) => void;
+  private eventBus = new EventBus<AssistantDomainEvents>();
   private workingDir: string;
   private sandboxOverride?: boolean;
   private usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
@@ -43,7 +49,13 @@ export class Session {
     this.sendToClient = sendToClient;
     this.prompter = new PermissionPrompter(sendToClient);
     this.executor = new ToolExecutor(this.prompter);
+    registerToolNotificationListener(this.eventBus, (msg) => this.sendToClient(msg));
     const auditToolLifecycleEvent = createToolAuditListener();
+    const publishToolDomainEvent = createToolDomainEventPublisher(this.eventBus);
+    const handleToolLifecycleEvent: ToolLifecycleEventHandler = (event) => {
+      auditToolLifecycleEvent(event);
+      return publishToolDomainEvent(event);
+    };
 
     const toolDefs = getAllToolDefinitions();
     const toolExecutor = async (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => {
@@ -53,15 +65,7 @@ export class Session {
         conversationId: this.conversationId,
         onOutput,
         sandboxOverride: this.sandboxOverride,
-        onSecretDetected: (event) => {
-          this.sendToClient({
-            type: 'secret_detected',
-            toolName: event.toolName,
-            matches: event.matches,
-            action: event.action,
-          });
-        },
-        onToolLifecycleEvent: auditToolLifecycleEvent,
+        onToolLifecycleEvent: handleToolLifecycleEvent,
       });
     };
 
