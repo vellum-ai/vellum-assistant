@@ -1,36 +1,18 @@
 "use client";
 
-import { useEffect } from "react";
 import Script from "next/script";
 
-const WEBFLOW_CSS_HREF =
-  "https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/css/vellum-v2.webflow.shared.8974b486a.min.css";
-const WEBFLOW_CSS_INTEGRITY =
-  "sha384-iXS0hqh2XhV4cggyxfyByEBXc6zfb+ifhTIGKjaf4dzNqrxjku3vwiVZ925Mf7Ef";
-const WEBFLOW_LINK_ID = "webflow-css";
-
 export function VellumHead() {
-  useEffect(() => {
-    if (document.getElementById(WEBFLOW_LINK_ID)) {
-      return;
-    }
-
-    const link = document.createElement("link");
-    link.id = WEBFLOW_LINK_ID;
-    link.rel = "stylesheet";
-    link.type = "text/css";
-    link.href = WEBFLOW_CSS_HREF;
-    link.integrity = WEBFLOW_CSS_INTEGRITY;
-    link.crossOrigin = "anonymous";
-    document.head.appendChild(link);
-
-    return () => {
-      document.getElementById(WEBFLOW_LINK_ID)?.remove();
-    };
-  }, []);
-
   return (
     <>
+      <link
+        rel="stylesheet"
+        href="https://cdn.prod.website-files.com/63f416b32254e8eca5d8af54/css/vellum-v2.webflow.shared.8974b486a.min.css"
+        precedence="webflow"
+        integrity="sha384-iXS0hqh2XhV4cggyxfyByEBXc6zfb+ifhTIGKjaf4dzNqrxjku3vwiVZ925Mf7Ef"
+        crossOrigin="anonymous"
+      />
+
       {/* Google Fonts */}
       <link href="https://fonts.googleapis.com" rel="preconnect" />
       <link
