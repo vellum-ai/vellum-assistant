@@ -13,14 +13,41 @@ describe('web_fetch tool', () => {
     globalThis.fetch = originalFetch;
   });
 
+  const executeWithMockFetch = (
+    input: Record<string, unknown>,
+    options?: {
+      resolveHostAddresses?: (hostname: string) => Promise<string[]>;
+      requestExecutor?: (
+        url: URL,
+        requestOptions: {
+          signal: AbortSignal;
+          headers: Record<string, string>;
+          resolvedAddress?: string;
+        },
+      ) => Promise<Response>;
+    },
+  ) =>
+    executeWebFetch(input, {
+      ...options,
+      requestExecutor:
+        options?.requestExecutor
+        ?? ((url, requestOptions) =>
+          globalThis.fetch(url.href, {
+            method: 'GET',
+            redirect: 'manual',
+            signal: requestOptions.signal,
+            headers: requestOptions.headers,
+          }) as Promise<Response>),
+    });
+
   test('rejects missing url', async () => {
-    const result = await executeWebFetch({});
+    const result = await executeWithMockFetch({});
     expect(result.isError).toBe(true);
     expect(result.content).toContain('url is required');
   });
 
   test('rejects non-http schemes', async () => {
-    const result = await executeWebFetch({ url: 'ftp://example.com/file.txt' });
+    const result = await executeWithMockFetch({ url: 'ftp://example.com/file.txt' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('url must use http or https');
   });
@@ -35,7 +62,7 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch({ url: 'example.com/docs' });
+    const result = await executeWithMockFetch({ url: 'example.com/docs' });
     expect(result.isError).toBe(false);
     expect(requestedUrl).toBe('https://example.com/docs');
   });
@@ -50,7 +77,7 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch({ url: 'example.com:8443/docs' });
+    const result = await executeWithMockFetch({ url: 'example.com:8443/docs' });
     expect(result.isError).toBe(false);
     expect(requestedUrl).toBe('https://example.com:8443/docs');
   });
@@ -65,7 +92,7 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch({ url: 'http://localhost:3000/health' });
+    const result = await executeWithMockFetch({ url: 'http://localhost:3000/health' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Refusing to fetch local/private network target');
     expect(called).toBe(false);
@@ -81,7 +108,7 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch(
+    const result = await executeWithMockFetch(
       { url: 'https://example.com/health' },
       {
         resolveHostAddresses: async (hostname) =>
@@ -91,6 +118,27 @@ describe('web_fetch tool', () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('resolves to local/private network address 127.0.0.1');
     expect(called).toBe(false);
+  });
+
+  test('pins outbound requests to pre-resolved addresses when allow_private_network is false', async () => {
+    const resolvedAddresses: string[] = [];
+
+    const result = await executeWithMockFetch(
+      { url: 'https://example.com/health' },
+      {
+        resolveHostAddresses: async () => ['93.184.216.34'],
+        requestExecutor: async (_url, requestOptions) => {
+          resolvedAddresses.push(requestOptions.resolvedAddress ?? '');
+          return new Response('ok', {
+            status: 200,
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
+          });
+        },
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(resolvedAddresses).toEqual(['93.184.216.34']);
   });
 
   test('allows hostnames that resolve to private addresses when allow_private_network=true', async () => {
@@ -103,7 +151,7 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch(
+    const result = await executeWithMockFetch(
       { url: 'https://example.com/health', allow_private_network: true },
       {
         resolveHostAddresses: async () => ['127.0.0.1'],
@@ -123,7 +171,7 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch({ url: 'http://foo.localhost:3000/health' });
+    const result = await executeWithMockFetch({ url: 'http://foo.localhost:3000/health' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Refusing to fetch local/private network target');
     expect(called).toBe(false);
@@ -139,7 +187,7 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch({ url: 'http://[::1]:3000/health' });
+    const result = await executeWithMockFetch({ url: 'http://[::1]:3000/health' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Refusing to fetch local/private network target');
     expect(called).toBe(false);
@@ -155,7 +203,7 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch({ url: 'http://[::ffff:127.0.0.1]:3000/health' });
+    const result = await executeWithMockFetch({ url: 'http://[::ffff:127.0.0.1]:3000/health' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Refusing to fetch local/private network target');
     expect(called).toBe(false);
@@ -171,7 +219,7 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch({
+    const result = await executeWithMockFetch({
       url: 'http://localhost:3000/health',
       allow_private_network: true,
     });
@@ -199,7 +247,7 @@ describe('web_fetch tool', () => {
       )
     ) as any;
 
-    const result = await executeWebFetch({ url: 'https://example.com' });
+    const result = await executeWithMockFetch({ url: 'https://example.com' });
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Title: Example Title');
     expect(result.content).toContain('Description: Example Description');
@@ -223,7 +271,7 @@ describe('web_fetch tool', () => {
       )
     ) as any;
 
-    const result = await executeWebFetch({ url: 'https://example.com' });
+    const result = await executeWithMockFetch({ url: 'https://example.com' });
     expect(result.isError).toBe(false);
     expect(result.content).toContain(`Description: We've updated our privacy policy`);
   });
@@ -243,7 +291,7 @@ describe('web_fetch tool', () => {
       )
     ) as any;
 
-    const result = await executeWebFetch({ url: 'https://example.com' });
+    const result = await executeWithMockFetch({ url: 'https://example.com' });
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Description: She said "hello" today');
   });
@@ -256,7 +304,7 @@ describe('web_fetch tool', () => {
       })
     ) as any;
 
-    const result = await executeWebFetch({
+    const result = await executeWithMockFetch({
       url: 'https://example.com/letters',
       start_index: 5,
       max_chars: 4,
@@ -275,7 +323,7 @@ describe('web_fetch tool', () => {
       })
     ) as any;
 
-    const result = await executeWebFetch({ url: 'https://example.com/image.png' });
+    const result = await executeWithMockFetch({ url: 'https://example.com/image.png' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Unsupported content type');
   });
@@ -289,7 +337,7 @@ describe('web_fetch tool', () => {
       })
     ) as any;
 
-    const result = await executeWebFetch({ url: 'https://example.com/missing' });
+    const result = await executeWithMockFetch({ url: 'https://example.com/missing' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Error: HTTP 404');
     expect(result.content).toContain('missing page');
@@ -311,10 +359,43 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch({ url: 'https://example.com/start' });
+    const result = await executeWithMockFetch({ url: 'https://example.com/start' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Refusing redirect to local/private network target');
     expect(callCount).toBe(1);
+  });
+
+  test('pins redirect hops to their own pre-resolved addresses when allow_private_network is false', async () => {
+    let callCount = 0;
+    const resolvedAddresses: string[] = [];
+
+    const result = await executeWithMockFetch(
+      { url: 'https://example.com/start' },
+      {
+        resolveHostAddresses: async (hostname) => {
+          if (hostname === 'example.com') return ['93.184.216.34'];
+          if (hostname === 'redirect.example') return ['203.0.113.8'];
+          return ['93.184.216.34'];
+        },
+        requestExecutor: async (_url, requestOptions) => {
+          callCount++;
+          resolvedAddresses.push(requestOptions.resolvedAddress ?? '');
+          if (callCount === 1) {
+            return new Response('', {
+              status: 302,
+              headers: { location: 'https://redirect.example/internal' },
+            });
+          }
+          return new Response('ok', {
+            status: 200,
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
+          });
+        },
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(resolvedAddresses).toEqual(['93.184.216.34', '203.0.113.8']);
   });
 
   test('blocks redirects to subdomain localhost targets when allow_private_network is false', async () => {
@@ -333,7 +414,7 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch({ url: 'https://example.com/start' });
+    const result = await executeWithMockFetch({ url: 'https://example.com/start' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Refusing redirect to local/private network target');
     expect(callCount).toBe(1);
@@ -355,7 +436,7 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch(
+    const result = await executeWithMockFetch(
       { url: 'https://example.com/start' },
       {
         resolveHostAddresses: async (hostname) => {
@@ -386,7 +467,7 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch({ url: 'https://example.com/start' });
+    const result = await executeWithMockFetch({ url: 'https://example.com/start' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Refusing redirect to local/private network target');
     expect(callCount).toBe(1);
@@ -408,7 +489,7 @@ describe('web_fetch tool', () => {
       });
     }) as any;
 
-    const result = await executeWebFetch({
+    const result = await executeWithMockFetch({
       url: 'https://example.com/start',
       allow_private_network: true,
     });

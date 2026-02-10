@@ -4,6 +4,9 @@ import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { getLogger } from '../../util/logger.js';
 import { lookup } from 'node:dns/promises';
+import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
+import { request as httpsRequest, type RequestOptions as HttpsRequestOptions } from 'node:https';
+import { Readable } from 'node:stream';
 
 const log = getLogger('web-fetch');
 
@@ -36,6 +39,19 @@ const HTML_ENTITY_MAP: Record<string, string> = {
 };
 
 type ResolveHostAddresses = (hostname: string) => Promise<string[]>;
+type WebFetchRequestExecutor = (
+  url: URL,
+  options: {
+    signal: AbortSignal;
+    headers: Record<string, string>;
+    resolvedAddress?: string;
+  },
+) => Promise<Response>;
+
+type ExecuteWebFetchOptions = {
+  resolveHostAddresses?: ResolveHostAddresses;
+  requestExecutor?: WebFetchRequestExecutor;
+};
 
 function clampInteger(value: unknown, defaultValue: number, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return defaultValue;
@@ -190,25 +206,103 @@ async function resolveHostAddresses(hostname: string): Promise<string[]> {
   }
 }
 
-async function resolvePrivateAddress(
+async function resolveRequestAddress(
   hostname: string,
   resolveHost: ResolveHostAddresses,
-): Promise<string | null> {
+  allowPrivateNetwork: boolean,
+): Promise<{ address?: string; blockedAddress?: string }> {
   const normalizedHost = unwrapBracketedHostname(hostname);
 
   if (isIPv4(normalizedHost) || isIPv6(normalizedHost)) {
-    return null;
+    if (!allowPrivateNetwork && isPrivateOrLocalHost(normalizedHost)) {
+      return { blockedAddress: normalizedHost };
+    }
+    return { address: normalizedHost };
   }
 
   const addresses = await resolveHost(normalizedHost);
-  for (const address of addresses) {
-    if (isPrivateOrLocalHost(address)) {
-      return address;
+  if (addresses.length === 0) {
+    return {};
+  }
+
+  if (!allowPrivateNetwork) {
+    for (const address of addresses) {
+      if (isPrivateOrLocalHost(address)) {
+        return { blockedAddress: address };
+      }
     }
   }
 
-  return null;
+  return { address: addresses[0] };
 }
+
+function buildHostHeader(url: URL): string {
+  return url.port ? `${url.hostname}:${url.port}` : url.hostname;
+}
+
+function buildResponseHeaders(headers: IncomingHttpHeaders): Headers {
+  const responseHeaders = new Headers();
+  for (const [key, value] of Object.entries(headers)) {
+    if (typeof value === 'string') {
+      responseHeaders.append(key, value);
+      continue;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        responseHeaders.append(key, item);
+      }
+    }
+  }
+  return responseHeaders;
+}
+
+const defaultRequestExecutor: WebFetchRequestExecutor = async (url, options) => {
+  const resolvedAddress = options.resolvedAddress ? unwrapBracketedHostname(options.resolvedAddress) : undefined;
+
+  if (!resolvedAddress) {
+    return fetch(url.href, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: options.signal,
+      headers: options.headers,
+    });
+  }
+
+  const targetHost = unwrapBracketedHostname(url.hostname);
+  const isHttps = url.protocol === 'https:';
+  const requestFn = isHttps ? httpsRequest : httpRequest;
+  const requestHeaders = { ...options.headers, host: buildHostHeader(url) };
+  const requestOptions: HttpsRequestOptions = {
+    method: 'GET',
+    protocol: url.protocol,
+    hostname: resolvedAddress,
+    port: url.port ? Number(url.port) : undefined,
+    path: `${url.pathname}${url.search}`,
+    headers: requestHeaders,
+    signal: options.signal,
+  };
+
+  if (isIPv4(resolvedAddress)) {
+    requestOptions.family = 4;
+  } else if (isIPv6(resolvedAddress)) {
+    requestOptions.family = 6;
+  }
+
+  if (isHttps && !isIPv4(targetHost) && !isIPv6(targetHost)) {
+    requestOptions.servername = targetHost;
+  }
+
+  return await new Promise<Response>((resolve, reject) => {
+    const req = requestFn(requestOptions, (res) => {
+      const status = res.statusCode ?? 502;
+      const responseHeaders = buildResponseHeaders(res.headers);
+      const body = Readable.toWeb(res);
+      resolve(new Response(body as unknown as BodyInit, { status, statusText: res.statusMessage ?? '', headers: responseHeaders }));
+    });
+    req.once('error', reject);
+    req.end();
+  });
+};
 
 function isTextLikeContentType(contentType: string): boolean {
   if (!contentType) return true;
@@ -392,7 +486,7 @@ function formatWebFetchOutput(params: {
 
 export async function executeWebFetch(
   input: Record<string, unknown>,
-  options?: { resolveHostAddresses?: ResolveHostAddresses },
+  options?: ExecuteWebFetchOptions,
 ): Promise<ToolExecutionResult> {
   const parsedUrl = parseUrl(input.url);
   if (!parsedUrl) {
@@ -404,6 +498,7 @@ export async function executeWebFetch(
 
   const allowPrivateNetwork = input.allow_private_network === true;
   const resolveHost = options?.resolveHostAddresses ?? resolveHostAddresses;
+  const requestExecutor = options?.requestExecutor ?? defaultRequestExecutor;
 
   if (!allowPrivateNetwork && isPrivateOrLocalHost(parsedUrl.hostname)) {
     return {
@@ -411,16 +506,6 @@ export async function executeWebFetch(
       isError: true,
     };
   }
-  if (!allowPrivateNetwork) {
-    const resolvedPrivateAddress = await resolvePrivateAddress(parsedUrl.hostname, resolveHost);
-    if (resolvedPrivateAddress) {
-      return {
-        content: `Error: Refusing to fetch target (${parsedUrl.hostname}) because it resolves to local/private network address ${resolvedPrivateAddress}. Set allow_private_network=true if you explicitly need it.`,
-        isError: true,
-      };
-    }
-  }
-
   const timeoutSeconds = clampInteger(input.timeout_seconds, DEFAULT_TIMEOUT_SECONDS, 1, MAX_TIMEOUT_SECONDS);
   const maxChars = clampInteger(input.max_chars, DEFAULT_MAX_CHARS, 1, MAX_MAX_CHARS);
   const startIndex = clampInteger(input.start_index, 0, 0, 10_000_000);
@@ -441,14 +526,32 @@ export async function executeWebFetch(
     let currentUrl = new URL(requestedUrl);
     let redirectCount = 0;
     let response: Response | null = null;
+    let currentResolvedAddress: string | undefined;
+
+    if (!allowPrivateNetwork) {
+      const resolution = await resolveRequestAddress(currentUrl.hostname, resolveHost, allowPrivateNetwork);
+      if (resolution.blockedAddress) {
+        return {
+          content: `Error: Refusing to fetch target (${currentUrl.hostname}) because it resolves to local/private network address ${resolution.blockedAddress}. Set allow_private_network=true if you explicitly need it.`,
+          isError: true,
+        };
+      }
+      if (!resolution.address) {
+        return {
+          content: `Error: Unable to resolve host "${currentUrl.hostname}" while fetching ${requestedUrl}`,
+          isError: true,
+        };
+      }
+      currentResolvedAddress = resolution.address;
+    }
 
     while (true) {
-      response = await fetch(currentUrl.href, {
-        method: 'GET',
-        redirect: 'manual',
+      response = await requestExecutor(currentUrl, {
         signal: controller.signal,
         headers: requestHeaders,
+        resolvedAddress: currentResolvedAddress,
       });
+      currentResolvedAddress = undefined;
 
       const location = response.headers.get('location');
       const isRedirect = response.status >= 300 && response.status < 400 && !!location;
@@ -485,13 +588,20 @@ export async function executeWebFetch(
         };
       }
       if (!allowPrivateNetwork) {
-        const resolvedPrivateAddress = await resolvePrivateAddress(nextUrl.hostname, resolveHost);
-        if (resolvedPrivateAddress) {
+        const resolution = await resolveRequestAddress(nextUrl.hostname, resolveHost, allowPrivateNetwork);
+        if (resolution.blockedAddress) {
           return {
-            content: `Error: Refusing redirect to target (${nextUrl.hostname}) because it resolves to local/private network address ${resolvedPrivateAddress}. Set allow_private_network=true if you explicitly need it.`,
+            content: `Error: Refusing redirect to target (${nextUrl.hostname}) because it resolves to local/private network address ${resolution.blockedAddress}. Set allow_private_network=true if you explicitly need it.`,
             isError: true,
           };
         }
+        if (!resolution.address) {
+          return {
+            content: `Error: Unable to resolve redirect host "${nextUrl.hostname}" from ${currentUrl.href}`,
+            isError: true,
+          };
+        }
+        currentResolvedAddress = resolution.address;
       }
 
       currentUrl = nextUrl;
