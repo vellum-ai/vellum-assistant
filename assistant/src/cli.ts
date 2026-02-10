@@ -23,6 +23,23 @@ export interface CliOptions {
   noSandbox?: boolean;
 }
 
+export function sanitizeUrlForDisplay(rawUrl: unknown): string {
+  const value = typeof rawUrl === 'string' ? rawUrl : String(rawUrl ?? '');
+  if (!value) return '';
+
+  try {
+    const parsed = new URL(value);
+    if (!parsed.username && !parsed.password) {
+      return value;
+    }
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.href;
+  } catch {
+    return value.replace(/\/\/([^/?#\s@]+)@/g, '//[REDACTED]@');
+  }
+}
+
 export async function startCli(options: CliOptions = {}): Promise<void> {
   const socketPath = getSocketPath();
   let socket: net.Socket;
@@ -50,6 +67,8 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         return `Writing ${input.path ?? ''}...`;
       case 'file_edit':
         return `Editing ${input.path ?? ''}...`;
+      case 'web_fetch':
+        return `Fetching ${sanitizeUrlForDisplay(input.url).slice(0, 80)}...`;
       default:
         return `Running ${toolName}...`;
     }
@@ -82,6 +101,9 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
     if (req.toolName === 'file_write') {
       return `write ${req.input.path ?? ''}`;
+    }
+    if (req.toolName === 'web_fetch') {
+      return `fetch ${sanitizeUrlForDisplay(req.input.url ?? '')}`;
     }
     return `${req.toolName}: ${JSON.stringify(req.input).slice(0, 80)}`;
   }

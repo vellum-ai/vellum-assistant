@@ -60,6 +60,78 @@ function getStringField(input: Record<string, unknown>, ...keys: string[]): stri
   return '';
 }
 
+function looksLikeHostPortShorthand(value: string): boolean {
+  if (/^\[[0-9a-fA-F:.%]+\]:\d+(?:[/?#]|$)/.test(value)) {
+    return true;
+  }
+  return /^[^/?#@\s:]+:\d+(?:[/?#]|$)/.test(value);
+}
+
+function looksLikePathOnlyInput(value: string): boolean {
+  return value.startsWith('/') || value.startsWith('./') || value.startsWith('../') || value.startsWith('?') || value.startsWith('#');
+}
+
+function canonicalizeWebFetchUrl(parsed: URL): URL {
+  parsed.hash = '';
+  parsed.username = '';
+  parsed.password = '';
+
+  try {
+    // Normalize equivalent escaped paths (for example, "/%70rivate" -> "/private")
+    // so path-scoped trust rules cannot be bypassed via percent-encoding.
+    parsed.pathname = decodeURI(parsed.pathname);
+  } catch {
+    // Keep URL parser canonical form when decoding fails.
+  }
+
+  if (parsed.hostname.endsWith('.')) {
+    parsed.hostname = parsed.hostname.replace(/\.+$/, '');
+  }
+
+  return parsed;
+}
+
+function normalizeWebFetchUrl(rawUrl: string): URL | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+
+  if (looksLikeHostPortShorthand(trimmed)) {
+    try {
+      return canonicalizeWebFetchUrl(new URL(`https://${trimmed}`));
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return canonicalizeWebFetchUrl(parsed);
+    }
+    return null;
+  } catch {
+    // Fall through.
+  }
+
+  if (looksLikePathOnlyInput(trimmed)) {
+    return null;
+  }
+
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    return null;
+  }
+
+  try {
+    return canonicalizeWebFetchUrl(new URL(`https://${trimmed}`));
+  } catch {
+    return null;
+  }
+}
+
+function escapeMinimatchLiteral(value: string): string {
+  return value.replace(/([\\*?[\]{}()!+@|])/g, '\\$1');
+}
+
 function buildCommandCandidates(toolName: string, input: Record<string, unknown>): string[] {
   if (toolName === 'bash') {
     return [getStringField(input, 'command')];
@@ -80,6 +152,27 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
     return [...new Set(targets)].map((target) => `${toolName}:${target}`);
   }
 
+  if (toolName === 'web_fetch') {
+    const rawUrl = getStringField(input, 'url').trim();
+    const candidates: string[] = [];
+
+    if (rawUrl) {
+      candidates.push(`${toolName}:${rawUrl}`);
+    }
+
+    const normalized = normalizeWebFetchUrl(rawUrl);
+    if (normalized) {
+      candidates.push(`${toolName}:${normalized.href}`);
+      candidates.push(`${toolName}:${normalized.origin}/*`);
+    }
+
+    if (candidates.length === 0) {
+      candidates.push(`${toolName}:`);
+    }
+
+    return [...new Set(candidates)];
+  }
+
   const fileTarget = getStringField(input, 'path', 'file_path');
   return [`${toolName}:${fileTarget}`];
 }
@@ -89,6 +182,9 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   if (toolName === 'file_write') return RiskLevel.Medium;
   if (toolName === 'file_edit') return RiskLevel.Medium;
   if (toolName === 'web_search') return RiskLevel.Low;
+  if (toolName === 'web_fetch') {
+    return input.allow_private_network === true ? RiskLevel.Medium : RiskLevel.Low;
+  }
   if (toolName === 'skill_load') return RiskLevel.Low;
 
   if (toolName === 'bash') {
@@ -239,6 +335,31 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     options.push({ label: `${toolName}:*`, pattern: `${toolName}:*` });
 
     return options;
+  }
+
+  if (toolName === 'web_fetch') {
+    const rawUrl = getStringField(input, 'url').trim();
+    const normalized = normalizeWebFetchUrl(rawUrl);
+    const exact = normalized?.href ?? rawUrl;
+
+    const options: AllowlistOption[] = [];
+    if (exact) {
+      options.push({ label: exact, pattern: `${toolName}:${escapeMinimatchLiteral(exact)}` });
+    }
+    if (normalized) {
+      options.push({
+        label: `${normalized.origin}/*`,
+        pattern: `${toolName}:${escapeMinimatchLiteral(normalized.origin)}/*`,
+      });
+    }
+    options.push({ label: `${toolName}:*`, pattern: `${toolName}:*` });
+
+    const seen = new Set<string>();
+    return options.filter((o) => {
+      if (seen.has(o.pattern)) return false;
+      seen.add(o.pattern);
+      return true;
+    });
   }
 
   return [{ label: '*', pattern: '*' }];

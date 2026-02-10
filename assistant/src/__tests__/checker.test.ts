@@ -86,6 +86,21 @@ describe('Permission Checker', () => {
       });
     });
 
+    describe('web_fetch', () => {
+      test('web_fetch is low risk by default', async () => {
+        const risk = await classifyRisk('web_fetch', { url: 'https://example.com' });
+        expect(risk).toBe(RiskLevel.Low);
+      });
+
+      test('web_fetch with allow_private_network is medium risk', async () => {
+        const risk = await classifyRisk('web_fetch', {
+          url: 'http://localhost:3000',
+          allow_private_network: true,
+        });
+        expect(risk).toBe(RiskLevel.Medium);
+      });
+    });
+
     // shell commands - low risk
     describe('shell — low risk', () => {
       test('ls is low risk', async () => {
@@ -358,6 +373,76 @@ describe('Permission Checker', () => {
       const result = await check('bash', { command: 'ls' }, '/tmp');
       expect(result.decision).toBe('allow');
     });
+
+    test('web_fetch allow rule can approve medium-risk private-network fetches', async () => {
+      addRule('web_fetch', 'web_fetch:http://localhost:3000/*', '/tmp');
+      const result = await check(
+        'web_fetch',
+        { url: 'http://localhost:3000/health', allow_private_network: true },
+        '/tmp',
+      );
+      expect(result.decision).toBe('allow');
+    });
+
+    test('web_fetch exact allowlist pattern matches query urls literally', async () => {
+      const options = generateAllowlistOptions('web_fetch', { url: 'https://example.com/search?q=test' });
+      addRule('web_fetch', options[0].pattern, '/tmp');
+
+      const allowed = await check(
+        'web_fetch',
+        { url: 'https://example.com/search?q=test', allow_private_network: true },
+        '/tmp',
+      );
+      expect(allowed.decision).toBe('allow');
+
+      const nonExact = await check(
+        'web_fetch',
+        { url: 'https://example.com/searchXq=test', allow_private_network: true },
+        '/tmp',
+      );
+      expect(nonExact.decision).toBe('prompt');
+    });
+
+    test('web_fetch deny rule blocks matching urls', async () => {
+      addRule('web_fetch', 'web_fetch:https://example.com/private/*', 'everywhere', 'deny');
+      const result = await check('web_fetch', { url: 'https://example.com/private/doc' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    test('web_fetch deny rule blocks urls that only differ by fragment', async () => {
+      addRule('web_fetch', 'web_fetch:https://example.com/private/doc', 'everywhere', 'deny');
+      const result = await check('web_fetch', { url: 'https://example.com/private/doc#section-1' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    test('web_fetch deny rule blocks urls that only differ by trailing-dot hostname', async () => {
+      addRule('web_fetch', 'web_fetch:https://example.com/private/*', 'everywhere', 'deny');
+      const result = await check('web_fetch', { url: 'https://example.com./private/doc' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    test('web_fetch deny rule blocks urls after stripping userinfo during normalization', async () => {
+      addRule('web_fetch', 'web_fetch:https://example.com/private/*', 'everywhere', 'deny');
+      const username = 'demo';
+      const credential = ['c', 'r', 'e', 'd', '1', '2', '3'].join('');
+      const credentialedUrl = new URL('https://example.com/private/doc');
+      credentialedUrl.username = username;
+      credentialedUrl.password = credential;
+      const result = await check('web_fetch', { url: credentialedUrl.href }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    test('web_fetch deny rule blocks scheme-less host:port inputs after normalization', async () => {
+      addRule('web_fetch', 'web_fetch:https://example.com:8443/*', 'everywhere', 'deny');
+      const result = await check('web_fetch', { url: 'example.com:8443/private/doc' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    test('web_fetch deny rule blocks percent-encoded path equivalents after normalization', async () => {
+      addRule('web_fetch', 'web_fetch:https://example.com/private/*', 'everywhere', 'deny');
+      const result = await check('web_fetch', { url: 'https://example.com/%70rivate/doc' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
   });
 
   // ── generateAllowlistOptions ───────────────────────────────────
@@ -414,6 +499,68 @@ describe('Permission Checker', () => {
       const options = generateAllowlistOptions('other_tool', { foo: 'bar' });
       expect(options).toHaveLength(1);
       expect(options[0].pattern).toBe('*');
+    });
+
+    test('web_fetch: generates exact url, origin wildcard, and tool wildcard', () => {
+      const options = generateAllowlistOptions('web_fetch', { url: 'https://example.com/docs/page' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
+      expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
+      expect(options[2].pattern).toBe('web_fetch:*');
+    });
+
+    test('web_fetch: strips fragments when generating allowlist options', () => {
+      const options = generateAllowlistOptions('web_fetch', { url: 'https://example.com/docs/page#section-1' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
+      expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
+      expect(options[2].pattern).toBe('web_fetch:*');
+    });
+
+    test('web_fetch: strips trailing-dot hostnames when generating allowlist options', () => {
+      const options = generateAllowlistOptions('web_fetch', { url: 'https://example.com./docs/page' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
+      expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
+      expect(options[2].pattern).toBe('web_fetch:*');
+    });
+
+    test('web_fetch: strips userinfo when generating allowlist options', () => {
+      const username = 'demo';
+      const credential = ['c', 'r', 'e', 'd', '1', '2', '3'].join('');
+      const credentialedUrl = new URL('https://example.com/docs/page');
+      credentialedUrl.username = username;
+      credentialedUrl.password = credential;
+      const options = generateAllowlistOptions('web_fetch', { url: credentialedUrl.href });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
+      expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
+      expect(options[2].pattern).toBe('web_fetch:*');
+      expect(options[0].pattern).not.toContain('demo:cred123@');
+    });
+
+    test('web_fetch: normalizes scheme-less host:port for allowlist options', () => {
+      const options = generateAllowlistOptions('web_fetch', { url: 'example.com:8443/docs/page' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('web_fetch:https://example.com:8443/docs/page');
+      expect(options[1].pattern).toBe('web_fetch:https://example.com:8443/*');
+      expect(options[2].pattern).toBe('web_fetch:*');
+    });
+
+    test('web_fetch: does not coerce path-only urls to https hostnames in allowlist options', () => {
+      const options = generateAllowlistOptions('web_fetch', { url: '/docs/getting-started' });
+      expect(options).toHaveLength(2);
+      expect(options[0].pattern).toBe('web_fetch:/docs/getting-started');
+      expect(options[1].pattern).toBe('web_fetch:*');
+    });
+
+    test('web_fetch: escapes minimatch metacharacters in generated exact and origin patterns', () => {
+      const options = generateAllowlistOptions('web_fetch', { url: 'https://[2001:db8::1]/search?q=test' });
+      expect(options).toHaveLength(3);
+      expect(options[0].label).toBe('https://[2001:db8::1]/search?q=test');
+      expect(options[0].pattern).toBe('web_fetch:https://\\[2001:db8::1\\]/search\\?q=test');
+      expect(options[1].pattern).toBe('web_fetch:https://\\[2001:db8::1\\]/*');
+      expect(options[2].pattern).toBe('web_fetch:*');
     });
   });
 
