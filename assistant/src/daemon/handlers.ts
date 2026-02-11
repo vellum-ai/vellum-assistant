@@ -22,6 +22,7 @@ import type {
   CuSessionCreate,
   CuObservation,
   TaskSubmit,
+  UiSurfaceAction,
 } from './ipc-protocol.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
@@ -209,6 +210,9 @@ const handlers: DispatchMap = {
   ambient_observation: handleAmbientObservation,
   task_submit: handleTaskSubmit,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
+  ui_surface_action: (msg, _socket, _ctx) => {
+    log.info({ surfaceId: msg.surfaceId, actionId: msg.actionId }, 'Surface action received (not yet handled)');
+  },
 };
 
 export function handleMessage(

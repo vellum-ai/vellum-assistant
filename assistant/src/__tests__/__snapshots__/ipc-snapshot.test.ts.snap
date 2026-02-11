@@ -133,6 +133,18 @@ exports[`IPC message snapshots ClientMessage types task_submit serializes to exp
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types ui_surface_action serializes to expected JSON 1`] = `
+{
+  "actionId": "btn-ok",
+  "data": {
+    "selectedItem": "item-1",
+  },
+  "sessionId": "sess-001",
+  "surfaceId": "surface-001",
+  "type": "ui_surface_action",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
 {
   "text": "Here is some output",
@@ -419,5 +431,45 @@ exports[`IPC message snapshots ServerMessage types ambient_result serializes to 
   "suggestion": "Try running the test with --verbose flag for more details",
   "summary": "User appears to be debugging a test failure",
   "type": "ambient_result",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types ui_surface_show serializes to expected JSON 1`] = `
+{
+  "actions": [
+    {
+      "id": "dismiss",
+      "label": "OK",
+      "style": "primary",
+    },
+  ],
+  "data": {
+    "body": "All tests passed.",
+    "title": "Build Complete",
+  },
+  "sessionId": "sess-001",
+  "surfaceId": "surface-001",
+  "surfaceType": "card",
+  "title": "Status Update",
+  "type": "ui_surface_show",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types ui_surface_update serializes to expected JSON 1`] = `
+{
+  "data": {
+    "body": "Updated body text.",
+  },
+  "sessionId": "sess-001",
+  "surfaceId": "surface-001",
+  "type": "ui_surface_update",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types ui_surface_dismiss serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "surfaceId": "surface-001",
+  "type": "ui_surface_dismiss",
 }
 `;

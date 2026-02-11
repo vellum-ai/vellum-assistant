@@ -99,6 +99,13 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     screenWidth: 1920,
     screenHeight: 1080,
   },
+  ui_surface_action: {
+    type: 'ui_surface_action',
+    sessionId: 'sess-001',
+    surfaceId: 'surface-001',
+    actionId: 'btn-ok',
+    data: { selectedItem: 'item-1' },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -281,6 +288,26 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     decision: 'suggest',
     summary: 'User appears to be debugging a test failure',
     suggestion: 'Try running the test with --verbose flag for more details',
+  },
+  ui_surface_show: {
+    type: 'ui_surface_show',
+    sessionId: 'sess-001',
+    surfaceId: 'surface-001',
+    surfaceType: 'card',
+    title: 'Status Update',
+    data: { title: 'Build Complete', body: 'All tests passed.' },
+    actions: [{ id: 'dismiss', label: 'OK', style: 'primary' }],
+  },
+  ui_surface_update: {
+    type: 'ui_surface_update',
+    sessionId: 'sess-001',
+    surfaceId: 'surface-001',
+    data: { body: 'Updated body text.' },
+  },
+  ui_surface_dismiss: {
+    type: 'ui_surface_dismiss',
+    sessionId: 'sess-001',
+    surfaceId: 'surface-001',
   },
 };
 

@@ -157,6 +157,16 @@ struct PingMessage: Encodable, Sendable {
     let type: String = "ping"
 }
 
+/// Sent when user interacts with a surface.
+/// Wire type: `"ui_surface_action"`
+struct UiSurfaceActionMessage: Encodable, Sendable {
+    let type: String = "ui_surface_action"
+    let sessionId: String
+    let surfaceId: String
+    let actionId: String
+    let data: [String: AnyCodable]?
+}
+
 // MARK: - Server → Client Messages (Decodable)
 
 /// Action to execute from the inference server.
@@ -216,6 +226,38 @@ struct AmbientResultMessage: Decodable, Sendable {
     let suggestion: String?
 }
 
+/// Surface show command from daemon.
+/// Wire type: `"ui_surface_show"`
+struct UiSurfaceShowMessage: Decodable, Sendable {
+    let sessionId: String
+    let surfaceId: String
+    let surfaceType: String
+    let title: String?
+    let data: AnyCodable
+    let actions: [SurfaceActionData]?
+}
+
+struct SurfaceActionData: Decodable, Sendable {
+    let id: String
+    let label: String
+    let style: String?
+}
+
+/// Surface update command from daemon.
+/// Wire type: `"ui_surface_update"`
+struct UiSurfaceUpdateMessage: Decodable, Sendable {
+    let sessionId: String
+    let surfaceId: String
+    let data: AnyCodable
+}
+
+/// Surface dismiss command from daemon.
+/// Wire type: `"ui_surface_dismiss"`
+struct UiSurfaceDismissMessage: Decodable, Sendable {
+    let sessionId: String
+    let surfaceId: String
+}
+
 /// Server-level error message.
 struct ErrorMessage: Decodable, Sendable {
     let message: String
@@ -234,6 +276,9 @@ enum ServerMessage: Decodable, Sendable {
     case taskRouted(TaskRoutedMessage)
     case error(ErrorMessage)
     case ambientResult(AmbientResultMessage)
+    case uiSurfaceShow(UiSurfaceShowMessage)
+    case uiSurfaceUpdate(UiSurfaceUpdateMessage)
+    case uiSurfaceDismiss(UiSurfaceDismissMessage)
     case pong
     case unknown(String)
 
@@ -276,6 +321,15 @@ enum ServerMessage: Decodable, Sendable {
         case "ambient_result":
             let message = try AmbientResultMessage(from: decoder)
             self = .ambientResult(message)
+        case "ui_surface_show":
+            let message = try UiSurfaceShowMessage(from: decoder)
+            self = .uiSurfaceShow(message)
+        case "ui_surface_update":
+            let message = try UiSurfaceUpdateMessage(from: decoder)
+            self = .uiSurfaceUpdate(message)
+        case "ui_surface_dismiss":
+            let message = try UiSurfaceDismissMessage(from: decoder)
+            self = .uiSurfaceDismiss(message)
         case "pong":
             self = .pong
         default:
