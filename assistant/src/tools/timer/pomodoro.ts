@@ -24,14 +24,19 @@ export const MAX_DURATION_MINUTES = 1440;
 /** Module-level map of active timers keyed by sessionId -> timerId. */
 export const timers = new Map<string, Map<string, PomodoroTimer>>();
 
-/** Returns the per-session timer map, creating it if needed. */
-function getSessionTimers(sessionId: string): Map<string, PomodoroTimer> {
+/** Returns the per-session timer map, creating it if it doesn't exist. Use only in write paths (start). */
+function getOrCreateSessionTimers(sessionId: string): Map<string, PomodoroTimer> {
   let session = timers.get(sessionId);
   if (!session) {
     session = new Map();
     timers.set(sessionId, session);
   }
   return session;
+}
+
+/** Returns the per-session timer map without creating one. Returns undefined when the session has no timers. */
+function findSessionTimers(sessionId: string): Map<string, PomodoroTimer> | undefined {
+  return timers.get(sessionId);
 }
 
 function generateTimerId(): string {
@@ -123,7 +128,7 @@ function startAction(input: Record<string, unknown>, sessionId: string): ToolExe
     log.info({ id: timer.id, label: timer.label }, 'Pomodoro timer completed');
   }, durationMs);
 
-  const sessionTimers = getSessionTimers(sessionId);
+  const sessionTimers = getOrCreateSessionTimers(sessionId);
   sessionTimers.set(id, timer);
   log.info({ id, label, durationMinutes, sessionId }, 'Pomodoro timer started');
 
@@ -144,8 +149,8 @@ function pauseAction(input: Record<string, unknown>, sessionId: string): ToolExe
     return { content: 'Error: timer_id is required for pause action', isError: true };
   }
 
-  const sessionTimers = getSessionTimers(sessionId);
-  const timer = sessionTimers.get(timerId);
+  const sessionTimers = findSessionTimers(sessionId);
+  const timer = sessionTimers?.get(timerId);
   if (!timer) {
     return { content: `Error: Timer "${timerId}" not found`, isError: true };
   }
@@ -179,8 +184,8 @@ function resumeAction(input: Record<string, unknown>, sessionId: string): ToolEx
     return { content: 'Error: timer_id is required for resume action', isError: true };
   }
 
-  const sessionTimers = getSessionTimers(sessionId);
-  const timer = sessionTimers.get(timerId);
+  const sessionTimers = findSessionTimers(sessionId);
+  const timer = sessionTimers?.get(timerId);
   if (!timer) {
     return { content: `Error: Timer "${timerId}" not found`, isError: true };
   }
@@ -217,8 +222,8 @@ function cancelAction(input: Record<string, unknown>, sessionId: string): ToolEx
     return { content: 'Error: timer_id is required for cancel action', isError: true };
   }
 
-  const sessionTimers = getSessionTimers(sessionId);
-  const timer = sessionTimers.get(timerId);
+  const sessionTimers = findSessionTimers(sessionId);
+  const timer = sessionTimers?.get(timerId);
   if (!timer) {
     return { content: `Error: Timer "${timerId}" not found`, isError: true };
   }
@@ -255,8 +260,8 @@ function statusAction(input: Record<string, unknown>, sessionId: string): ToolEx
     return { content: 'Error: timer_id is required for status action', isError: true };
   }
 
-  const sessionTimers = getSessionTimers(sessionId);
-  const timer = sessionTimers.get(timerId);
+  const sessionTimers = findSessionTimers(sessionId);
+  const timer = sessionTimers?.get(timerId);
   if (!timer) {
     return { content: `Error: Timer "${timerId}" not found`, isError: true };
   }
@@ -265,8 +270,8 @@ function statusAction(input: Record<string, unknown>, sessionId: string): ToolEx
 }
 
 function listAction(sessionId: string): ToolExecutionResult {
-  const sessionTimers = getSessionTimers(sessionId);
-  if (sessionTimers.size === 0) {
+  const sessionTimers = findSessionTimers(sessionId);
+  if (!sessionTimers || sessionTimers.size === 0) {
     return { content: 'No timers found.', isError: false };
   }
 
