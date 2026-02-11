@@ -317,9 +317,9 @@ final class AmbientAgent: ObservableObject {
         }
 
         // Sync non-ignore analysis results and flush retry queue
-        if decision != .ignore {
+        if let decision, decision != .ignore {
             let result = AmbientAnalysisResult(
-                decision: decision ?? .ignore,
+                decision: decision,
                 observation: ambientResult.summary,
                 suggestion: ambientResult.suggestion,
                 confidence: 1.0,
