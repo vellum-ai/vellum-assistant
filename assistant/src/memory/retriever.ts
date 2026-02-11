@@ -183,12 +183,16 @@ export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'
   if (recallText.trim().length === 0) return messages;
 
   let targetIndex = -1;
+  let blockIndex = -1;
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
     if (message.role !== 'user' || message.content.length === 0) continue;
-    const firstBlock = message.content[0];
-    if (firstBlock.type === 'text' && firstBlock.text === recallText) {
+    const foundBlock = message.content.findIndex(
+      (block) => block.type === 'text' && block.text === recallText,
+    );
+    if (foundBlock !== -1) {
       targetIndex = index;
+      blockIndex = foundBlock;
       break;
     }
   }
@@ -201,7 +205,10 @@ export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'
       cleaned.push(message);
       continue;
     }
-    const filteredContent = message.content.slice(1);
+    const filteredContent = [
+      ...message.content.slice(0, blockIndex),
+      ...message.content.slice(blockIndex + 1),
+    ];
     if (filteredContent.length === 0) continue;
     cleaned.push({ ...message, content: filteredContent } as T);
   }
