@@ -3,6 +3,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from './types.js';
 import type { ToolDefinition } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import { registerComputerUseTools } from './computer-use/registry.js';
+import { registerUiSurfaceTools } from './ui-surface/registry.js';
 
 const log = getLogger('tool-registry');
 
@@ -106,6 +107,11 @@ export async function initializeTools(): Promise<void> {
   // and forward execution to the connected macOS client.  They are excluded
   // from getAllToolDefinitions() since regular chat sessions don't use them.
   registerComputerUseTools();
+
+  // UI surface proxy tools — registered so ToolExecutor can look them up
+  // and forward surface show/update/dismiss to the connected macOS client.
+  // Like CU tools, they are excluded from getAllToolDefinitions().
+  registerUiSurfaceTools();
 
   // The bash tool loads web-tree-sitter WASM for command parsing, which is
   // expensive.  Register it lazily so the WASM is only loaded on first use.
