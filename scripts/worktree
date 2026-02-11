@@ -77,7 +77,7 @@ remove() {
     echo
   else
     # Non-TTY: try to read piped input, default to "y" on EOF
-    read -r REPLY 2>/dev/null || REPLY="y"
+    read -r REPLY 2>/dev/null || { [ -z "$REPLY" ] && REPLY="y"; }
     REPLY="${REPLY:=y}"
   fi
   if [[ $REPLY =~ ^[Yy]$ ]]; then
