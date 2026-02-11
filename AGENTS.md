@@ -4,6 +4,10 @@
 
 Whenever you modify, add, or remove a slash command in `.claude/commands/`, you MUST update `README.md` to reflect the change. The README's "Slash Commands" section should always match the current set of commands. Update the TLDR description if the command's purpose changed, add new entries for new commands, and remove entries for deleted commands.
 
+## Keep the Architecture Diagram up to date
+
+Whenever you introduce, remove, or significantly modify a service, module, or data flow, you MUST update `ARCHITECTURE.md` to reflect the change. The Mermaid diagrams should always accurately represent the current system architecture, including new services, IPC message types, storage locations, and data flows.
+
 ## Slash Commands — TLDR
 
 These are the most commonly used slash commands defined in `.claude/commands/`:
