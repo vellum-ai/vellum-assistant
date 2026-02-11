@@ -1,24 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { createAssistantMailInbox, registerAssistantMailWebhook } from "@/lib/agentmail";
+import { verifyAssistantToken } from "@/lib/auth/assistant-tokens";
 import { Assistant, getDb } from "@/lib/db";
+
+function extractBearerToken(request: NextRequest): string | null {
+  const header = request.headers.get("Authorization");
+  if (!header?.startsWith("Bearer ")) {
+    return null;
+  }
+  return header.slice(7);
+}
 
 /**
  * POST /api/assistants/[id]/setup-email
- * 
+ *
  * Allows an assistant to set up its own email inbox.
- * Requires API key authentication via X-API-Key header.
+ * Requires bearer token authentication via Authorization header.
  */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: assistantId } = await params;
-  const apiKey = request.headers.get("X-API-Key");
+  const token = extractBearerToken(request);
 
-  if (!apiKey) {
+  if (!token) {
     return NextResponse.json(
-      { error: "Missing X-API-Key header" },
+      { error: "Missing or invalid Authorization header" },
+      { status: 401 }
+    );
+  }
+
+  const verified = await verifyAssistantToken(assistantId, token);
+  if (!verified) {
+    return NextResponse.json(
+      { error: "Invalid token" },
       { status: 401 }
     );
   }
@@ -26,7 +43,6 @@ export async function POST(
   try {
     const sql = getDb();
 
-    // Fetch assistant and verify API key
     const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
     if (result.length === 0) {
       return NextResponse.json(
@@ -36,14 +52,6 @@ export async function POST(
     }
 
     const assistant = result[0] as Assistant;
-    const storedApiKey = (assistant.configuration as Record<string, unknown>)?.apiKey;
-
-    if (!storedApiKey || storedApiKey !== apiKey) {
-      return NextResponse.json(
-        { error: "Invalid API key" },
-        { status: 401 }
-      );
-    }
 
     // Check if email is already set up
     const existingMail = (assistant.configuration as Record<string, unknown>)?.agentmail;
@@ -94,20 +102,28 @@ export async function POST(
 
 /**
  * GET /api/assistants/[id]/setup-email
- * 
+ *
  * Check email setup status for an assistant.
- * Requires API key authentication.
+ * Requires bearer token authentication.
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: assistantId } = await params;
-  const apiKey = request.headers.get("X-API-Key");
+  const token = extractBearerToken(request);
 
-  if (!apiKey) {
+  if (!token) {
     return NextResponse.json(
-      { error: "Missing X-API-Key header" },
+      { error: "Missing or invalid Authorization header" },
+      { status: 401 }
+    );
+  }
+
+  const verified = await verifyAssistantToken(assistantId, token);
+  if (!verified) {
+    return NextResponse.json(
+      { error: "Invalid token" },
       { status: 401 }
     );
   }
@@ -124,15 +140,6 @@ export async function GET(
     }
 
     const assistant = result[0] as Assistant;
-    const storedApiKey = (assistant.configuration as Record<string, unknown>)?.apiKey;
-
-    if (!storedApiKey || storedApiKey !== apiKey) {
-      return NextResponse.json(
-        { error: "Invalid API key" },
-        { status: 401 }
-      );
-    }
-
     const agentmail = (assistant.configuration as Record<string, unknown>)?.agentmail;
 
     return NextResponse.json({
