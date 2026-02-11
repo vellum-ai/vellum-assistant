@@ -415,7 +415,18 @@ export class Session {
     const removed = this.messages.length - lastUserIdx;
     this.messages = this.messages.slice(0, lastUserIdx);
 
-    // Also remove from DB
+    // Also remove from DB. We may need to call deleteLastExchange multiple
+    // times because the DB stores tool_result user messages as separate rows.
+    // The in-memory findLastUndoableUserMessageIndex skips these, but the DB's
+    // deleteLastExchange only finds the last role='user' row — which may be a
+    // tool_result message, leaving the real user message orphaned.
+    //
+    // Strategy: first peel back any tool_result user messages, then delete
+    // the real user message exchange. This ensures the DB cleanup matches
+    // the in-memory cleanup.
+    while (conversationStore.isLastUserMessageToolResult(this.conversationId)) {
+      conversationStore.deleteLastExchange(this.conversationId);
+    }
     conversationStore.deleteLastExchange(this.conversationId);
 
     return removed;

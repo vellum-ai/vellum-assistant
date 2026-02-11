@@ -177,6 +177,34 @@ export function clearAll(): { conversations: number; messages: number } {
   return { conversations: convCount, messages: msgCount };
 }
 
+/**
+ * Check whether the last user message in a conversation is a tool_result-only
+ * message (i.e., not a real user-typed message). This is used by undo() to
+ * determine if additional exchanges need to be deleted from the DB.
+ */
+export function isLastUserMessageToolResult(conversationId: string): boolean {
+  const db = getDb();
+  const lastUserMsg = db
+    .select({ content: messages.content })
+    .from(messages)
+    .where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'user')))
+    .orderBy(sql`rowid DESC`)
+    .limit(1)
+    .get();
+
+  if (!lastUserMsg) return false;
+
+  try {
+    const parsed = JSON.parse(lastUserMsg.content);
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((block: Record<string, unknown>) => block.type === 'tool_result')) {
+      return true;
+    }
+  } catch {
+    // Not JSON — it's a plain text user message
+  }
+  return false;
+}
+
 export function deleteLastExchange(conversationId: string): number {
   const db = getDb();
 

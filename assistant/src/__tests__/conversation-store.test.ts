@@ -29,7 +29,15 @@ import {
   addMessage,
   getMessages,
   deleteLastExchange,
+  isLastUserMessageToolResult,
 } from '../memory/conversation-store.js';
+
+// Initialize db once before all tests
+initializeDb();
+
+afterAll(() => {
+  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+});
 
 describe('deleteLastExchange', () => {
   beforeEach(() => {
@@ -37,13 +45,6 @@ describe('deleteLastExchange', () => {
     const db = getDb();
     db.run(`DELETE FROM messages`);
     db.run(`DELETE FROM conversations`);
-  });
-
-  // Initialize db once before all tests
-  initializeDb();
-
-  afterAll(() => {
-    try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
   });
 
   test('deletes last user message and subsequent assistant messages', () => {
@@ -105,5 +106,107 @@ describe('deleteLastExchange', () => {
     expect(remaining).toHaveLength(2);
     expect(remaining[0].content).toBe('first');
     expect(remaining[1].content).toBe('reply1');
+  });
+});
+
+describe('isLastUserMessageToolResult', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+  });
+
+  test('returns true when last user message is tool_result only', () => {
+    const conv = createConversation('test');
+    addMessage(conv.id, 'user', 'hello');
+    addMessage(conv.id, 'assistant', JSON.stringify([{ type: 'tool_use', id: 'tu1', name: 'bash', input: {} }]));
+    addMessage(conv.id, 'user', JSON.stringify([{ type: 'tool_result', tool_use_id: 'tu1', content: 'ok' }]));
+
+    expect(isLastUserMessageToolResult(conv.id)).toBe(true);
+  });
+
+  test('returns false when last user message is plain text', () => {
+    const conv = createConversation('test');
+    addMessage(conv.id, 'user', 'hello');
+
+    expect(isLastUserMessageToolResult(conv.id)).toBe(false);
+  });
+
+  test('returns false when no user messages exist', () => {
+    const conv = createConversation('test');
+    expect(isLastUserMessageToolResult(conv.id)).toBe(false);
+  });
+
+  test('returns false when last user message has mixed content types', () => {
+    const conv = createConversation('test');
+    addMessage(conv.id, 'user', JSON.stringify([
+      { type: 'text', text: 'hello' },
+      { type: 'tool_result', tool_use_id: 'tu1', content: 'ok' },
+    ]));
+
+    expect(isLastUserMessageToolResult(conv.id)).toBe(false);
+  });
+});
+
+describe('deleteLastExchange with tool_result messages', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+  });
+
+  test('looping deleteLastExchange cleans up tool_result user messages', () => {
+    const conv = createConversation('test');
+    // Simulate: user asks question -> assistant uses tool -> tool_result -> assistant responds
+    addMessage(conv.id, 'user', 'What files are in /tmp?');
+    addMessage(conv.id, 'assistant', JSON.stringify([{ type: 'tool_use', id: 'tu1', name: 'bash', input: { command: 'ls /tmp' } }]));
+    addMessage(conv.id, 'user', JSON.stringify([{ type: 'tool_result', tool_use_id: 'tu1', content: 'file1.txt' }]));
+    addMessage(conv.id, 'assistant', JSON.stringify([{ type: 'text', text: 'There is file1.txt in /tmp' }]));
+
+    // First deleteLastExchange removes the tool_result user msg + final assistant msg
+    let deleted = deleteLastExchange(conv.id);
+    expect(deleted).toBe(2);
+
+    // After deleting the tool_result user + assistant, the remaining are:
+    // user: "What files are in /tmp?" and assistant: tool_use
+    let remaining = getMessages(conv.id);
+    expect(remaining).toHaveLength(2);
+
+    // The last user message is the real one, so isLastUserMessageToolResult should be false
+    expect(isLastUserMessageToolResult(conv.id)).toBe(false);
+
+    // Now delete again to remove the real user message + tool_use assistant
+    deleted = deleteLastExchange(conv.id);
+    expect(deleted).toBe(2);
+
+    remaining = getMessages(conv.id);
+    expect(remaining).toHaveLength(0);
+  });
+
+  test('looping pattern handles multiple tool uses in sequence', () => {
+    const conv = createConversation('test');
+    // user -> assistant(tool_use) -> user(tool_result) -> assistant(tool_use) -> user(tool_result) -> assistant(text)
+    addMessage(conv.id, 'user', 'Do two things');
+    addMessage(conv.id, 'assistant', JSON.stringify([{ type: 'tool_use', id: 'tu1', name: 'bash', input: {} }]));
+    addMessage(conv.id, 'user', JSON.stringify([{ type: 'tool_result', tool_use_id: 'tu1', content: 'result1' }]));
+    addMessage(conv.id, 'assistant', JSON.stringify([{ type: 'tool_use', id: 'tu2', name: 'bash', input: {} }]));
+    addMessage(conv.id, 'user', JSON.stringify([{ type: 'tool_result', tool_use_id: 'tu2', content: 'result2' }]));
+    addMessage(conv.id, 'assistant', JSON.stringify([{ type: 'text', text: 'Done both' }]));
+
+    // First delete: removes last tool_result user (row 5) + final assistant (row 6)
+    deleteLastExchange(conv.id);
+    // Last user is now row 3 (tool_result tu1)
+    expect(isLastUserMessageToolResult(conv.id)).toBe(true);
+
+    // Second delete: removes tool_result user (row 3) + assistant tool_use (row 4)
+    deleteLastExchange(conv.id);
+    // Last user is now row 1 (real user message)
+    expect(isLastUserMessageToolResult(conv.id)).toBe(false);
+
+    // Final delete removes the real user message + assistant tool_use
+    deleteLastExchange(conv.id);
+
+    const remaining = getMessages(conv.id);
+    expect(remaining).toHaveLength(0);
   });
 });
