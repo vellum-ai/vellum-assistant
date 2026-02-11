@@ -9,14 +9,11 @@ struct VButton: View {
     var isDisabled: Bool = false
     let action: () -> Void
 
-    @State private var isPressed = false
-
     var body: some View {
         Button(action: action) {
             Text(label)
                 .font(VFont.bodyMedium)
                 .foregroundColor(foregroundColor)
-                .frame(maxWidth: isFullWidth ? .infinity : nil)
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.vertical, VSpacing.lg)
                 .background(backgroundColor)
@@ -25,15 +22,11 @@ struct VButton: View {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(borderColor, lineWidth: style == .ghost ? 1 : 0)
                 )
+                .frame(maxWidth: isFullWidth ? .infinity : nil)
         }
-        .buttonStyle(.plain)
-        .scaleEffect(isPressed ? 0.97 : 1.0)
-        .animation(VAnimation.fast, value: isPressed)
+        .buttonStyle(VButtonPressStyle())
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.5 : 1.0)
-        .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
-            isPressed = pressing
-        }, perform: {})
     }
 
     private var backgroundColor: Color {
@@ -57,5 +50,13 @@ struct VButton: View {
         case .ghost: return VColor.surfaceBorder
         default: return .clear
         }
+    }
+}
+
+private struct VButtonPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(VAnimation.fast, value: configuration.isPressed)
     }
 }
