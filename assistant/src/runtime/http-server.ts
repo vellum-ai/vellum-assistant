@@ -308,10 +308,41 @@ export class RuntimeHttpServer {
       content,
     );
 
+    // For new (non-duplicate) messages, run the agent loop to generate a reply.
+    if (!result.duplicate && this.processMessage) {
+      try {
+        await this.processMessage(result.conversationId, content);
+      } catch (err) {
+        log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
+      }
+    }
+
+    // Look up the latest assistant message in the conversation to return it.
+    let assistantMessage: RuntimeMessagePayload | undefined;
+    const msgs = conversationStore.getMessages(result.conversationId);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'assistant') {
+        let parsed: unknown;
+        try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
+        const rendered = renderHistoryContent(parsed);
+        if (rendered.text) {
+          assistantMessage = {
+            id: msgs[i].id,
+            role: 'assistant',
+            content: rendered.text,
+            timestamp: new Date(msgs[i].createdAt).toISOString(),
+            attachments: [],
+          };
+        }
+        break;
+      }
+    }
+
     return Response.json({
       accepted: result.accepted,
       duplicate: result.duplicate,
       eventId: result.eventId,
+      ...(assistantMessage ? { assistantMessage } : {}),
     });
   }
 
