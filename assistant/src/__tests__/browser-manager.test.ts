@@ -14,11 +14,14 @@ mock.module('../util/logger.js', () => ({
 
 import { browserManager, setLaunchFn } from '../tools/browser/browser-manager.js';
 
-function createMockPage(closed = false): { close: () => Promise<void>; isClosed: () => boolean } {
+function createMockPage(closed = false) {
   let _closed = closed;
   return {
     close: async () => { _closed = true; },
     isClosed: () => _closed,
+    goto: async () => ({ status: () => 200, url: () => 'about:blank' }),
+    title: async () => '',
+    url: () => 'about:blank',
   };
 }
 

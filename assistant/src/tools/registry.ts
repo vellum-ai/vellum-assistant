@@ -100,6 +100,7 @@ export async function initializeTools(): Promise<void> {
   await import('./network/web-search.js');
   await import('./network/web-fetch.js');
   await import('./skills/load.js');
+  await import('./browser/headless-browser.js');
 
   // Computer-use proxy tools — registered so ToolExecutor can look them up
   // and forward execution to the connected macOS client.  They are excluded

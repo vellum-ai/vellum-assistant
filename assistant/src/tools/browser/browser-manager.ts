@@ -10,9 +10,17 @@ type BrowserContext = {
   close(): Promise<void>;
 };
 
-type Page = {
+export type PageResponse = {
+  status(): number | null;
+  url(): string;
+};
+
+export type Page = {
   close(): Promise<void>;
   isClosed(): boolean;
+  goto(url: string, options?: { waitUntil?: string; timeout?: number }): Promise<PageResponse | null>;
+  title(): Promise<string>;
+  url(): string;
 };
 
 type LaunchFn = (userDataDir: string, options: { headless: boolean }) => Promise<BrowserContext>;

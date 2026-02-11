@@ -69,6 +69,8 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         return `Editing ${input.path ?? ''}...`;
       case 'web_fetch':
         return `Fetching ${sanitizeUrlForDisplay(input.url).slice(0, 80)}...`;
+      case 'browser_navigate':
+        return `Navigating to ${sanitizeUrlForDisplay(input.url).slice(0, 80)}...`;
       default:
         return `Running ${toolName}...`;
     }
@@ -104,6 +106,9 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
     if (req.toolName === 'web_fetch') {
       return `fetch ${sanitizeUrlForDisplay(req.input.url ?? '')}`;
+    }
+    if (req.toolName === 'browser_navigate') {
+      return `navigate ${sanitizeUrlForDisplay(req.input.url ?? '')}`;
     }
     return `${req.toolName}: ${JSON.stringify(req.input).slice(0, 80)}`;
   }
