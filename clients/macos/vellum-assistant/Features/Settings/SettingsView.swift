@@ -138,10 +138,8 @@ struct SettingsView: View {
                     Spacer()
                     if !screenRecordingGranted {
                         Button("Check") {
-                            Task {
-                                let status = await PermissionManager.screenRecordingStatus()
-                                screenRecordingGranted = status == .granted
-                            }
+                            let status = PermissionManager.screenRecordingStatus()
+                            screenRecordingGranted = status == .granted
                         }
                     }
                 }
@@ -174,10 +172,8 @@ struct SettingsView: View {
 
     private func checkPermissions() {
         accessibilityGranted = PermissionManager.accessibilityStatus() == .granted
-        Task {
-            let status = await PermissionManager.screenRecordingStatus()
-            screenRecordingGranted = status == .granted
-        }
+        let status = PermissionManager.screenRecordingStatus()
+        screenRecordingGranted = status == .granted
     }
 }
 

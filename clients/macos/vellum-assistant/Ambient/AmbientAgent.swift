@@ -215,6 +215,13 @@ final class AmbientAgent: ObservableObject {
                 log.debug("[\(cycle)] AX tree not useful (<3 elements), using OCR fallback")
             }
 
+            // Before attempting screenshot, check permission
+            guard PermissionManager.screenRecordingStatus() == .granted else {
+                log.debug("[\(cycle)] Screen recording not permitted — skipping OCR fallback")
+                state = .watching
+                return
+            }
+
             let screenshot: Data
             do {
                 screenshot = try await screenCapture.captureScreen()

@@ -1,5 +1,4 @@
 import ApplicationServices
-import ScreenCaptureKit
 
 enum PermissionStatus {
     case granted
@@ -14,12 +13,11 @@ enum PermissionManager {
         return trusted ? .granted : .denied
     }
 
-    static func screenRecordingStatus() async -> PermissionStatus {
-        do {
-            _ = try await SCShareableContent.current
-            return .granted
-        } catch {
-            return .denied
-        }
+    static func screenRecordingStatus() -> PermissionStatus {
+        return CGPreflightScreenCaptureAccess() ? .granted : .denied
+    }
+
+    static func requestScreenRecordingAccess() {
+        CGRequestScreenCaptureAccess()
     }
 }
