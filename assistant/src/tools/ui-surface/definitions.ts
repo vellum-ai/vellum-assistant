@@ -34,7 +34,9 @@ export const uiShowTool: Tool = {
     '- list: Selectable list of items. ' +
     'data shape: { items: Array<{ id: string, title: string, subtitle?: string, icon?: string, selected?: boolean }>, selectionMode: "single"|"multiple"|"none" }\n' +
     '- confirmation: Yes/no confirmation dialog. ' +
-    'data shape: { message: string, detail?: string, confirmLabel?: string, cancelLabel?: string, destructive?: boolean }',
+    'data shape: { message: string, detail?: string, confirmLabel?: string, cancelLabel?: string, destructive?: boolean }\n' +
+    '- dynamic_page: Custom HTML page rendered in a sandboxed container. ' +
+    'data shape: { html: string, width?: number, height?: number }',
   category: 'ui-surface',
   defaultRiskLevel: RiskLevel.Low,
   executionMode: 'proxy',
@@ -48,7 +50,7 @@ export const uiShowTool: Tool = {
         properties: {
           surface_type: {
             type: 'string',
-            enum: ['card', 'form', 'list', 'confirmation'],
+            enum: ['card', 'form', 'list', 'confirmation', 'dynamic_page'],
             description: 'The type of surface to display',
           },
           title: {
