@@ -13,7 +13,7 @@ import {
   getDaemonStatus,
 } from './daemon/lifecycle.js';
 import { existsSync, statSync, readFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { startCli } from './cli.js';
 import { getSocketPath, getDataDir, getDbPath, getLogPath } from './util/platform.js';
 import {
@@ -150,6 +150,42 @@ daemon
     } else {
       console.log('Daemon is not running');
     }
+  });
+
+// --- Dev command ---
+program
+  .command('dev')
+  .description('Run the daemon in dev mode with auto-restart on file changes')
+  .action(async () => {
+    // Stop any existing daemon first
+    const status = getDaemonStatus();
+    if (status.running) {
+      console.log('Stopping existing daemon...');
+      await stopDaemon();
+    }
+
+    const mainPath = `${import.meta.dirname}/daemon/main.ts`;
+
+    console.log('Starting daemon in dev mode (Ctrl+C to stop)');
+
+    const child = spawn('bun', ['--watch', 'run', mainPath], {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        VELLUM_LOG_STDERR: '1',
+        VELLUM_DEBUG: '1',
+      },
+    });
+
+    const forward = (signal: NodeJS.Signals) => {
+      child.kill(signal);
+    };
+    process.on('SIGINT', () => forward('SIGINT'));
+    process.on('SIGTERM', () => forward('SIGTERM'));
+
+    child.on('exit', (code) => {
+      process.exit(code ?? 0);
+    });
   });
 
 const sessions = program.command('sessions').description('Manage sessions');
@@ -897,7 +933,7 @@ program
       memory: ['status', 'backfill', 'query', 'rebuild-index'],
     };
     const topLevel = [
-      'daemon', 'sessions', 'config', 'keys', 'trust', 'memory',
+      'daemon', 'dev', 'sessions', 'config', 'keys', 'trust', 'memory',
       'audit', 'doctor', 'completions', 'help',
     ];
 
@@ -1002,6 +1038,7 @@ function generateFishCompletion(
   // Top-level commands
   const descriptions: Record<string, string> = {
     daemon: 'Manage the daemon process',
+    dev: 'Run daemon in dev mode with auto-restart',
     sessions: 'Manage sessions',
     config: 'Manage configuration',
     keys: 'Manage API keys in secure storage',
