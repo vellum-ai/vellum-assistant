@@ -77,7 +77,7 @@ git checkout main && git pull
 
 ### 9. Report
 
-Output the PR link and a summary of what was shipped.
+Output the PR link and a summary of what was shipped. End your message with "Mainlined."
 
 ## Repo-specific gotchas
 
