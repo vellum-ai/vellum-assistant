@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
     var currentTextSession: TextSession?
+    private var isStartingSession = false
     private var textResponseWindow: TextResponseWindow?
     private var voiceInput: VoiceInputManager?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
@@ -268,7 +269,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func startSession(submission: TaskSubmission) {
-        guard currentSession == nil && currentTextSession == nil else { return }
+        guard currentSession == nil && currentTextSession == nil && !isStartingSession else { return }
+        isStartingSession = true
         popover.performClose(nil)
 
         let sessionTask = submission.task.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -277,6 +279,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Ensure daemon connection before starting any session
         Task { @MainActor in
+            defer { self.isStartingSession = false }
+
             if !daemonClient.isConnected {
                 log.info("Daemon not connected, attempting to connect before session start")
                 do {
