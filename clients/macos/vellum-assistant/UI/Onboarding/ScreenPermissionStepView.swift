@@ -74,9 +74,17 @@ struct ScreenPermissionStepView: View {
                 }
                 return
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                withAnimation(.easeOut(duration: 0.5)) {
-                    showContent = true
+            // Auto-advance if permission was already granted (e.g. after restart)
+            Task {
+                let status = await PermissionManager.screenRecordingStatus()
+                if status == .granted {
+                    grantPermission()
+                    return
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    withAnimation(.easeOut(duration: 0.5)) {
+                        showContent = true
+                    }
                 }
             }
         }

@@ -194,6 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let onboarding = OnboardingWindow()
         onboarding.onComplete = { [weak self] state in
+            OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
 
@@ -210,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showOnboarding() {
         let onboarding = OnboardingWindow()
         onboarding.onComplete = { [weak self] state in
+            OnboardingState.clearPersistedState()
             UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
             UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
