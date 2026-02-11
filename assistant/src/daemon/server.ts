@@ -10,6 +10,7 @@ import { buildSystemPrompt } from '../config/system-prompt.js';
 import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
 import { resetAllowlist } from '../security/secret-allowlist.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import * as attachmentsStore from '../memory/attachments-store.js';
 import { Session } from './session.js';
 import { ComputerUseSession } from './computer-use-session.js';
 import {
@@ -466,9 +467,20 @@ export class DaemonServer {
    * Gets or creates a session and runs the agent loop.
    * Results are saved to the DB for the web UI to poll.
    */
-  async processMessage(conversationId: string, content: string): Promise<void> {
+  async processMessage(assistantId: string, conversationId: string, content: string, attachmentIds?: string[]): Promise<void> {
     const session = await this.getOrCreateSession(conversationId);
-    await session.processMessage(content, [], () => {}, crypto.randomUUID());
+
+    // Resolve attachment IDs to full attachment data for the session
+    const attachments = attachmentIds
+      ? attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds).map((a) => ({
+          id: a.id,
+          filename: a.originalFilename,
+          mimeType: a.mimeType,
+          data: a.dataBase64,
+        }))
+      : [];
+
+    await session.processMessage(content, attachments, () => {}, crypto.randomUUID());
   }
 
 }

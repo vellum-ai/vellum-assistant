@@ -186,8 +186,8 @@ export async function runDaemon(): Promise<void> {
     if (!isNaN(port) && port > 0) {
       runtimeHttp = new RuntimeHttpServer({
         port,
-        processMessage: (conversationId, content) =>
-          server.processMessage(conversationId, content),
+        processMessage: (assistantId, conversationId, content, attachmentIds) =>
+          server.processMessage(assistantId, conversationId, content, attachmentIds),
       });
       try {
         await runtimeHttp.start();

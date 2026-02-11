@@ -82,6 +82,40 @@ export function deleteAttachment(assistantId: string, attachmentId: string): boo
   return true;
 }
 
+export function getAttachmentsByIds(
+  assistantId: string,
+  ids: string[],
+): Array<StoredAttachment & { dataBase64: string }> {
+  if (ids.length === 0) return [];
+  const db = getDb();
+  const results: Array<StoredAttachment & { dataBase64: string }> = [];
+  for (const id of ids) {
+    const row = db
+      .select()
+      .from(attachments)
+      .where(
+        and(
+          eq(attachments.id, id),
+          eq(attachments.assistantId, assistantId),
+        ),
+      )
+      .get();
+    if (row) {
+      results.push({
+        id: row.id,
+        assistantId: row.assistantId,
+        originalFilename: row.originalFilename,
+        mimeType: row.mimeType,
+        sizeBytes: row.sizeBytes,
+        kind: row.kind,
+        dataBase64: row.dataBase64,
+        createdAt: row.createdAt,
+      });
+    }
+  }
+  return results;
+}
+
 export function linkAttachmentToMessage(
   messageId: string,
   attachmentId: string,

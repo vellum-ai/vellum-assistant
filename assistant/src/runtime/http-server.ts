@@ -20,8 +20,10 @@ const log = getLogger('runtime-http');
 const DEFAULT_PORT = 7821;
 
 export type MessageProcessor = (
+  assistantId: string,
   conversationId: string,
   content: string,
+  attachmentIds?: string[],
 ) => Promise<void>;
 
 export interface RuntimeHttpServerOptions {
@@ -174,7 +176,7 @@ export class RuntimeHttpServer {
       attachmentIds?: string[];
     };
 
-    const { conversationKey, content } = body;
+    const { conversationKey, content, attachmentIds } = body;
 
     if (!conversationKey) {
       return Response.json(
@@ -183,9 +185,12 @@ export class RuntimeHttpServer {
       );
     }
 
-    if (!content || typeof content !== 'string' || content.trim().length === 0) {
+    const trimmedContent = typeof content === 'string' ? content.trim() : '';
+    const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
+
+    if (trimmedContent.length === 0 && !hasAttachments) {
       return Response.json(
-        { error: 'content is required' },
+        { error: 'content or attachmentIds is required' },
         { status: 400 },
       );
     }
@@ -196,7 +201,7 @@ export class RuntimeHttpServer {
     // saves the user message and runs the agent loop; the web UI polls
     // for results via GET /messages.
     if (this.processMessage) {
-      this.processMessage(mapping.conversationId, content).catch((err) => {
+      this.processMessage(assistantId, mapping.conversationId, content ?? '', hasAttachments ? attachmentIds : undefined).catch((err) => {
         log.error({ err, conversationId: mapping.conversationId }, 'Failed to process message');
       });
     }
