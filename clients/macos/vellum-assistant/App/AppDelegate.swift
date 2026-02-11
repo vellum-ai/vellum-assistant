@@ -6,7 +6,7 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
-private enum InteractionType {
+enum InteractionType {
     case computerUse
     case textQA
 }
@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     let ambientAgent = AmbientAgent()
     let daemonClient = DaemonClient()
+    private let interactionClassifier = InteractionClassifier()
 
     private var onboardingWindow: OnboardingWindow?
     private var windowObserver: Any?
@@ -359,9 +360,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func classifyInteraction(_ task: String) -> InteractionType {
+        if let classifier = interactionClassifier {
+            return classifier.classify(task)
+        }
+        log.warning("InteractionClassifier unavailable, falling back to heuristic")
+        return classifyInteractionHeuristic(task)
+    }
+
+    private func classifyInteractionHeuristic(_ task: String) -> InteractionType {
         let lower = task.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Question patterns -> Q&A
         if lower.contains("?") { return .textQA }
 
         let qaStarters = ["what", "when", "where", "how", "why", "who", "which",
@@ -372,7 +380,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if lower.hasPrefix(starter) { return .textQA }
         }
 
-        // Action verbs -> CU
         let cuStarters = ["open", "click", "type", "navigate", "switch", "drag", "scroll",
                           "close", "send", "fill", "submit", "go to", "move", "select",
                           "copy", "paste", "delete", "create", "write", "edit", "save",
@@ -382,7 +389,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if lower.hasPrefix(starter) { return .computerUse }
         }
 
-        // Default to CU (safer -- CU can fall back to cu_respond if it's actually Q&A)
         return .computerUse
     }
 

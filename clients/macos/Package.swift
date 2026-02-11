@@ -35,6 +35,7 @@ let package = Package(
                 .linkedFramework("Speech"),
                 .linkedFramework("Vision"),
                 .linkedFramework("Network"),
+                .linkedFramework("NaturalLanguage"),
             ]
         ),
         .testTarget(

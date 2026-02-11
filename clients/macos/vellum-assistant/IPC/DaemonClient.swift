@@ -111,6 +111,9 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Connect
 
+    /// How long to wait for a connection before giving up.
+    private static let connectTimeout: TimeInterval = 5.0
+
     /// Connect to the daemon socket. If already connected, disconnects first.
     func connect() async throws {
         // Disconnect any existing connection without triggering reconnect.
@@ -131,6 +134,22 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try await withCheckedThrowingContinuation { (checkedContinuation: CheckedContinuation<Void, Error>) in
             var resumed = false
 
+            // Timeout: if we haven't connected within the deadline, fail.
+            let timeoutTask = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(Self.connectTimeout * 1_000_000_000))
+                } catch { return }
+
+                guard !resumed else { return }
+                resumed = true
+                log.error("Connection timed out after \(Self.connectTimeout)s")
+                self?.isConnected = false
+                self?.stopPingTimer()
+                conn.stateUpdateHandler = nil
+                conn.cancel()
+                checkedContinuation.resume(throwing: NWError.posix(.ETIMEDOUT))
+            }
+
             conn.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
 
@@ -139,6 +158,7 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
                     case .ready:
                         if !resumed {
                             resumed = true
+                            timeoutTask.cancel()
                             log.info("Connected to daemon socket")
                             self.isConnected = true
                             self.reconnectDelay = 1.0
@@ -153,6 +173,7 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
                         self.stopPingTimer()
                         if !resumed {
                             resumed = true
+                            timeoutTask.cancel()
                             checkedContinuation.resume(throwing: error)
                         } else {
                             self.scheduleReconnect()
@@ -164,12 +185,14 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
                         self.stopPingTimer()
                         if !resumed {
                             resumed = true
+                            timeoutTask.cancel()
                             checkedContinuation.resume(throwing: NWError.posix(.ECANCELED))
                         }
 
                     case .waiting(let error):
                         log.warning("Connection waiting: \(error.localizedDescription)")
                         // Don't resume the continuation yet; NWConnection may still transition to .ready.
+                        // The timeout task will handle the case where it never does.
 
                     default:
                         break
