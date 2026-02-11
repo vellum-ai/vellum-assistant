@@ -378,6 +378,17 @@ export class ComputerUseSession {
     });
   }
 
+  /**
+   * Escapes any literal `</ax-tree>` occurrences inside AX tree content so
+   * that the non-greedy compaction regex (`AX_TREE_PATTERN`) does not stop
+   * prematurely when the user happens to be viewing XML/HTML source that
+   * contains the closing tag.  The escaped content does not need to be
+   * unescaped because compaction replaces the entire block with a placeholder.
+   */
+  static escapeAxTreeContent(content: string): string {
+    return content.replace(/<\/ax-tree>/gi, '&lt;/ax-tree&gt;');
+  }
+
   // ---------------------------------------------------------------------------
   // Build rich tool-result content from an observation so the model sees
   // updated screen state on each turn (not just "Action executed").
@@ -412,7 +423,7 @@ export class ComputerUseSession {
     if (obs.axTree) {
       parts.push('<ax-tree>');
       parts.push('CURRENT SCREEN STATE:');
-      parts.push(obs.axTree);
+      parts.push(ComputerUseSession.escapeAxTreeContent(obs.axTree));
       parts.push('</ax-tree>');
     }
 
