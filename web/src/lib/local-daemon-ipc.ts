@@ -32,10 +32,18 @@ export interface DaemonSessionInfo {
   title: string;
 }
 
+export interface DaemonToolCall {
+  name: string;
+  input: Record<string, unknown>;
+  result?: string;
+  isError?: boolean;
+}
+
 export interface DaemonHistoryMessage {
   role: "user" | "assistant";
   text: string;
   timestamp: number;
+  toolCalls?: DaemonToolCall[];
 }
 
 export interface DaemonUsageUpdate {
@@ -50,6 +58,7 @@ export interface DaemonUsageUpdate {
 export interface DaemonUserMessageResult {
   assistantText: string;
   usage: DaemonUsageUpdate | null;
+  toolCalls: DaemonToolCall[];
 }
 
 export interface DaemonUserMessageAttachment {
@@ -297,10 +306,12 @@ export class LocalDaemonClient {
         ) {
           return null;
         }
+        const toolCalls = parseToolCalls(entry.toolCalls);
         return {
           role,
           text,
           timestamp,
+          ...(toolCalls.length > 0 ? { toolCalls } : {}),
         };
       })
       .filter((entry): entry is DaemonHistoryMessage => entry !== null);
@@ -324,6 +335,8 @@ export class LocalDaemonClient {
 
     let assistantText = "";
     let usage: DaemonUsageUpdate | null = null;
+    const toolCalls: DaemonToolCall[] = [];
+    let currentToolCall: DaemonToolCall | null = null;
 
     while (true) {
       const message = await this.waitFor(() => true, timeoutMs);
@@ -333,6 +346,26 @@ export class LocalDaemonClient {
           if (typeof message.text === "string") {
             assistantText += message.text;
           }
+          break;
+        }
+        case "tool_use_start": {
+          const name = typeof message.toolName === "string" ? message.toolName : "unknown";
+          const input = isObject(message.input) ? message.input as Record<string, unknown> : {};
+          currentToolCall = { name, input };
+          toolCalls.push(currentToolCall);
+          break;
+        }
+        case "tool_result": {
+          const result = typeof message.result === "string" ? message.result : "";
+          const isError = message.isError === true;
+          if (currentToolCall) {
+            currentToolCall.result = result;
+            currentToolCall.isError = isError;
+          } else {
+            const toolName = typeof message.toolName === "string" ? message.toolName : "unknown";
+            toolCalls.push({ name: toolName, input: {}, result, isError });
+          }
+          currentToolCall = null;
           break;
         }
         case "usage_update": {
@@ -346,6 +379,7 @@ export class LocalDaemonClient {
           return {
             assistantText: assistantText.trim(),
             usage,
+            toolCalls,
           };
         case "error": {
           const daemonMessage =
@@ -517,6 +551,21 @@ export class LocalDaemonClient {
       waiter.reject(error);
     }
   }
+}
+
+function parseToolCalls(raw: unknown): DaemonToolCall[] {
+  if (!Array.isArray(raw)) return [];
+  const result: DaemonToolCall[] = [];
+  for (const entry of raw) {
+    if (!isObject(entry)) continue;
+    const name = typeof entry.name === "string" ? entry.name : "unknown";
+    const input = isObject(entry.input) ? entry.input as Record<string, unknown> : {};
+    const tc: DaemonToolCall = { name, input };
+    if (typeof entry.result === "string") tc.result = entry.result;
+    if (typeof entry.isError === "boolean") tc.isError = entry.isError;
+    result.push(tc);
+  }
+  return result;
 }
 
 function parseUsageUpdate(message: DaemonMessage): DaemonUsageUpdate | null {

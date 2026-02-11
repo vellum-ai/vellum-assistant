@@ -523,6 +523,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           role: msg.role,
           content: msg.text,
           timestamp: new Date(msg.timestamp).toISOString(),
+          ...(msg.toolCalls && msg.toolCalls.length > 0 ? { toolCalls: msg.toolCalls } : {}),
         }));
 
         return NextResponse.json({
@@ -779,13 +780,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           }
 
           const timestamp = new Date().toISOString();
-          const assistantMessage =
-            localResponse.assistantText.length > 0
+          const hasContent = localResponse.assistantText.length > 0 || localResponse.toolCalls.length > 0;
+          const assistantMessage = hasContent
               ? {
                   id: `local-${sessionId}-${Date.now()}`,
                   role: "assistant" as const,
                   content: localResponse.assistantText,
                   timestamp,
+                  ...(localResponse.toolCalls.length > 0 ? { toolCalls: localResponse.toolCalls } : {}),
                 }
               : null;
 

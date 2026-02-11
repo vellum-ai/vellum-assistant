@@ -3,6 +3,8 @@
 import {
   AlertTriangle,
   Bot,
+  ChevronDown,
+  ChevronRight,
   FileImage,
   FileText,
   Loader2,
@@ -10,6 +12,7 @@ import {
   Pause,
   Play,
   Send,
+  Terminal,
   User,
   X,
 } from "lucide-react";
@@ -43,12 +46,20 @@ interface MessageAttachment {
   kind: string;
 }
 
+interface ToolCall {
+  name: string;
+  input: Record<string, unknown>;
+  result?: string;
+  isError?: boolean;
+}
+
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
   attachments: MessageAttachment[];
+  toolCalls?: ToolCall[];
 }
 
 interface PendingAttachment {
@@ -87,6 +98,57 @@ function inferKindFromMime(mimeType: string): "image" | "document" {
   return mimeType.toLowerCase().startsWith("image/") ? "image" : "document";
 }
 
+function summarizeToolInput(input: Record<string, unknown>): string {
+  const values = Object.values(input);
+  if (values.length === 0) return "";
+  const first = values[0];
+  const str = typeof first === "string" ? first : JSON.stringify(first);
+  return str.length > 80 ? `${str.slice(0, 77)}...` : str;
+}
+
+const TOOL_RESULT_MAX_LENGTH = 2000;
+
+function ToolCallChip({ toolCall }: { toolCall: ToolCall }) {
+  const [expanded, setExpanded] = useState(false);
+  const summary = summarizeToolInput(toolCall.input);
+  const hasResult = typeof toolCall.result === "string";
+
+  return (
+    <div className="my-1">
+      <button
+        type="button"
+        onClick={() => hasResult && setExpanded(!expanded)}
+        className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
+          toolCall.isError
+            ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300"
+            : "border-zinc-300 bg-zinc-50 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400"
+        } ${hasResult ? "cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800" : "cursor-default"}`}
+      >
+        <Terminal className="h-3 w-3 shrink-0" />
+        <span className="font-medium">{toolCall.name}</span>
+        {summary && (
+          <>
+            <span className="opacity-50">&mdash;</span>
+            <span className="max-w-[300px] truncate opacity-75">{summary}</span>
+          </>
+        )}
+        {hasResult && (
+          expanded
+            ? <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+            : <ChevronRight className="h-3 w-3 shrink-0 opacity-50" />
+        )}
+      </button>
+      {expanded && hasResult && (
+        <pre className="mt-1 max-h-60 overflow-auto rounded-md border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+          {toolCall.result!.length > TOOL_RESULT_MAX_LENGTH
+            ? `${toolCall.result!.slice(0, TOOL_RESULT_MAX_LENGTH)}...[truncated]`
+            : toolCall.result}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 export function InteractionTab({ assistantId, assistantName, assistantCreatedAt }: InteractionTabProps) {
   const [assistantStatus, setAssistantStatus] = useState<AssistantStatus>("checking");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -115,12 +177,14 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
           content: string;
           timestamp: string;
           attachments?: MessageAttachment[];
+          toolCalls?: ToolCall[];
         }) => ({
           id: msg.id,
           role: msg.role,
           content: msg.content,
           timestamp: new Date(msg.timestamp),
           attachments: msg.attachments || [],
+          toolCalls: msg.toolCalls,
         })
       );
 
@@ -687,6 +751,14 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
                               </span>
                               <span className="opacity-75">{formatBytes(attachment.size_bytes)}</span>
                             </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {message.toolCalls && message.toolCalls.length > 0 && (
+                        <div className={message.content || message.attachments.length > 0 ? "mt-2" : ""}>
+                          {message.toolCalls.map((tc, idx) => (
+                            <ToolCallChip key={`${tc.name}-${idx}`} toolCall={tc} />
                           ))}
                         </div>
                       )}

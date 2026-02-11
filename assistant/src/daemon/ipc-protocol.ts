@@ -175,9 +175,21 @@ export interface ModelInfo {
   provider: string;
 }
 
+export interface HistoryResponseToolCall {
+  name: string;
+  input: Record<string, unknown>;
+  result?: string;
+  isError?: boolean;
+}
+
 export interface HistoryResponse {
   type: 'history_response';
-  messages: Array<{ role: string; text: string; timestamp: number }>;
+  messages: Array<{
+    role: string;
+    text: string;
+    timestamp: number;
+    toolCalls?: HistoryResponseToolCall[];
+  }>;
 }
 
 export interface UndoComplete {

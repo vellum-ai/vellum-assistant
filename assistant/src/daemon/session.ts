@@ -241,6 +241,8 @@ export class Session {
       let exchangeOutputTokens = 0;
       let model = '';
       let runMessages = this.messages;
+      let lastSavedMessageId: string | null = null;
+      const pendingToolResults = new Map<string, { content: string; isError: boolean }>();
       const runtimeConfig = getConfig();
       const recallQuery = buildMemoryQuery(content, this.messages);
       const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig, {
@@ -296,18 +298,26 @@ export class Session {
               break;
             case 'tool_result':
               onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status });
+              pendingToolResults.set(event.toolUseId, { content: event.content, isError: event.isError });
               break;
             case 'error':
               onEvent({ type: 'error', message: event.error.message });
               break;
-            case 'message_complete':
+            case 'message_complete': {
+              // Patch the previously saved assistant message with tool results
+              if (lastSavedMessageId && pendingToolResults.size > 0) {
+                conversationStore.patchToolResults(this.conversationId, lastSavedMessageId, pendingToolResults);
+                pendingToolResults.clear();
+              }
               // Save assistant message to DB
-              conversationStore.addMessage(
+              const saved = conversationStore.addMessage(
                 this.conversationId,
                 'assistant',
                 JSON.stringify(event.message.content),
               );
+              lastSavedMessageId = saved.id;
               break;
+            }
             case 'usage':
               exchangeInputTokens += event.inputTokens;
               exchangeOutputTokens += event.outputTokens;
@@ -317,6 +327,12 @@ export class Session {
         },
         this.abortController.signal,
       );
+
+      // Flush any remaining tool results for the last saved assistant message
+      if (lastSavedMessageId && pendingToolResults.size > 0) {
+        conversationStore.patchToolResults(this.conversationId, lastSavedMessageId, pendingToolResults);
+        pendingToolResults.clear();
+      }
 
       this.messages = stripMemoryRecallMessages(updatedHistory, recall.injectedText);
 

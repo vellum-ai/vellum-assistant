@@ -56,13 +56,27 @@ function renderFileBlockForHistory(block: Record<string, unknown>): string {
   return `${summaryParts.join(', ')}\nAttachment text: ${clampAttachmentText(extractedText)}`;
 }
 
-export function renderHistoryContent(content: unknown): string {
+export interface HistoryToolCall {
+  name: string;
+  input: Record<string, unknown>;
+  result?: string;
+  isError?: boolean;
+}
+
+export interface RenderedHistoryContent {
+  text: string;
+  toolCalls: HistoryToolCall[];
+}
+
+export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   if (!Array.isArray(content)) {
-    return String(content ?? '');
+    return { text: String(content ?? ''), toolCalls: [] };
   }
 
   const textParts: string[] = [];
   const attachmentParts: string[] = [];
+  const toolCalls: HistoryToolCall[] = [];
+  const pendingToolUses = new Map<string, HistoryToolCall>();
 
   for (const block of content) {
     if (!isRecord(block) || typeof block.type !== 'string') continue;
@@ -79,12 +93,41 @@ export function renderHistoryContent(content: unknown): string {
       attachmentParts.push(renderImageBlockForHistory(block));
       continue;
     }
+    if (block.type === 'tool_use') {
+      const name = typeof block.name === 'string' ? block.name : 'unknown';
+      const input = isRecord(block.input) ? block.input as Record<string, unknown> : {};
+      const id = typeof block.id === 'string' ? block.id : '';
+      const entry: HistoryToolCall = { name, input };
+      toolCalls.push(entry);
+      if (id) pendingToolUses.set(id, entry);
+      continue;
+    }
+    if (block.type === 'tool_result') {
+      const toolUseId = typeof block.tool_use_id === 'string' ? block.tool_use_id : '';
+      const resultContent = typeof block.content === 'string' ? block.content : '';
+      const isError = block.is_error === true;
+      const matched = toolUseId ? pendingToolUses.get(toolUseId) : null;
+      if (matched) {
+        matched.result = resultContent;
+        matched.isError = isError;
+      } else {
+        toolCalls.push({ name: 'unknown', input: {}, result: resultContent, isError });
+      }
+      continue;
+    }
   }
 
   const text = textParts.join('');
-  if (attachmentParts.length === 0) return text;
-  if (text.trim().length === 0) return attachmentParts.join('\n');
-  return `${text}\n${attachmentParts.join('\n')}`;
+  let rendered: string;
+  if (attachmentParts.length === 0) {
+    rendered = text;
+  } else if (text.trim().length === 0) {
+    rendered = attachmentParts.join('\n');
+  } else {
+    rendered = `${text}\n${attachmentParts.join('\n')}`;
+  }
+
+  return { text: rendered, toolCalls };
 }
 
 /**
@@ -331,24 +374,79 @@ function handleSandboxSet(
   log.info({ enabled }, 'Sandbox override applied (per-session)');
 }
 
+interface ParsedHistoryMessage {
+  role: string;
+  text: string;
+  timestamp: number;
+  toolCalls: HistoryToolCall[];
+}
+
 function handleHistoryRequest(
   sessionId: string,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const dbMessages = conversationStore.getMessages(sessionId);
-  const historyMessages = dbMessages.map((m) => {
+  const parsed: ParsedHistoryMessage[] = dbMessages.map((m) => {
     let text = '';
+    let toolCalls: HistoryToolCall[] = [];
     try {
       const content = JSON.parse(m.content);
-      text = renderHistoryContent(content);
+      const rendered = renderHistoryContent(content);
+      text = rendered.text;
+      toolCalls = rendered.toolCalls;
     } catch (err) {
       log.debug({ err, messageId: m.id }, 'Failed to parse message content as JSON, using raw text');
       text = m.content;
     }
-    return { role: m.role, text, timestamp: m.createdAt };
+    return { role: m.role, text, timestamp: m.createdAt, toolCalls };
   });
+
+  // Merge tool_result data from user messages into the preceding assistant
+  // message's toolCalls, and suppress user messages that only contain
+  // tool_result blocks (internal agent-loop turns).
+  const merged = mergeToolResults(parsed);
+
+  const historyMessages = merged.map((m) => ({
+    role: m.role,
+    text: m.text,
+    timestamp: m.timestamp,
+    ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
+  }));
   ctx.send(socket, { type: 'history_response', messages: historyMessages });
+}
+
+export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistoryMessage[] {
+  const result: ParsedHistoryMessage[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+
+    // If this is a user message whose only content is tool_result blocks,
+    // merge those results into the preceding assistant message's toolCalls.
+    if (msg.role === 'user' && msg.text.trim() === '' && msg.toolCalls.length > 0) {
+      const prev = result.length > 0 ? result[result.length - 1] : null;
+      if (prev && prev.role === 'assistant' && prev.toolCalls.length > 0) {
+        // Build a lookup from tool name → result for this user message's tool_results
+        for (const resultEntry of msg.toolCalls) {
+          // Match by tool_use_id pairing: tool_results are ordered to match
+          // the tool_uses in the preceding assistant message, so pair by index
+          // of unresolved entries, or fall back to name matching.
+          const unresolved = prev.toolCalls.find(
+            (tc) => tc.result === undefined,
+          );
+          if (unresolved) {
+            unresolved.result = resultEntry.result;
+            unresolved.isError = resultEntry.isError;
+          }
+        }
+      }
+      // Suppress this internal user message from the visible history
+      continue;
+    }
+
+    result.push({ ...msg, toolCalls: msg.toolCalls.map((tc) => ({ ...tc })) });
+  }
+  return result;
 }
 
 function handleUndo(
