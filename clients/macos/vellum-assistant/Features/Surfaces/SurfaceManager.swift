@@ -22,7 +22,6 @@ final class SurfaceManager: ObservableObject {
     /// Ordered list of surface IDs for deterministic stacking positions.
     private var surfaceOrder: [String] = []
 
-    /// Vertical offset counter to stack multiple surfaces.
     private let panelWidth: CGFloat = 380
     private let panelMargin: CGFloat = 20
     private let panelSpacing: CGFloat = 10
@@ -74,13 +73,12 @@ final class SurfaceManager: ObservableObject {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
-        // Position bottom-right of screen, stacked above existing panels.
-        // The index is the last position in surfaceOrder (just appended above).
-        let panelIndex = surfaceOrder.count - 1
-        positionPanel(panel, at: panelIndex)
+        panels[surface.id] = panel
+
+        // Reposition all panels to ensure correct stacking after show/dismiss cycles.
+        repositionAllPanels()
 
         panel.orderFront(nil)
-        panels[surface.id] = panel
 
         log.info("Showing surface: id=\(surface.id), type=\(surface.type.rawValue)")
     }
@@ -157,6 +155,7 @@ final class SurfaceManager: ObservableObject {
     }
 
     /// Reposition all visible panels based on their order in `surfaceOrder`.
+    /// Called after show and dismiss to prevent gaps and overlaps.
     private func repositionAllPanels() {
         for (index, surfaceId) in surfaceOrder.enumerated() {
             if let panel = panels[surfaceId] {
@@ -165,4 +164,3 @@ final class SurfaceManager: ObservableObject {
         }
     }
 }
-

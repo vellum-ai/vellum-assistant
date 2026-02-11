@@ -252,33 +252,7 @@ extension Surface {
 
         var fields = existing.fields
         if let fieldsArray = update["fields"] as? [[String: Any?]] {
-            fields = fieldsArray.compactMap { fieldDict in
-                guard let id = fieldDict["id"] as? String,
-                      let typeStr = fieldDict["type"] as? String,
-                      let fieldType = FormFieldType(rawValue: typeStr),
-                      let label = fieldDict["label"] as? String else {
-                    return nil
-                }
-
-                var options: [FormFieldOption]?
-                if let optionsArray = fieldDict["options"] as? [[String: Any?]] {
-                    options = optionsArray.compactMap { optDict in
-                        guard let label = optDict["label"] as? String,
-                              let value = optDict["value"] as? String else { return nil }
-                        return FormFieldOption(label: label, value: value)
-                    }
-                }
-
-                return FormField(
-                    id: id,
-                    type: fieldType,
-                    label: label,
-                    placeholder: fieldDict["placeholder"] as? String,
-                    required: fieldDict["required"] as? Bool ?? false,
-                    defaultValue: FormFieldDefault.from(fieldDict["defaultValue"] as Any?),
-                    options: options
-                )
-            }
+            fields = parseFormFields(fieldsArray)
         }
 
         return FormSurfaceData(description: description, fields: fields, submitLabel: submitLabel)
@@ -331,6 +305,38 @@ extension Surface {
         )
     }
 
+    // MARK: - Field Parsing Helpers
+
+    private static func parseFormFields(_ fieldsArray: [[String: Any?]]) -> [FormField] {
+        return fieldsArray.compactMap { fieldDict in
+            guard let id = fieldDict["id"] as? String,
+                  let typeStr = fieldDict["type"] as? String,
+                  let fieldType = FormFieldType(rawValue: typeStr),
+                  let label = fieldDict["label"] as? String else {
+                return nil
+            }
+
+            var options: [FormFieldOption]?
+            if let optionsArray = fieldDict["options"] as? [[String: Any?]] {
+                options = optionsArray.compactMap { optDict in
+                    guard let label = optDict["label"] as? String,
+                          let value = optDict["value"] as? String else { return nil }
+                    return FormFieldOption(label: label, value: value)
+                }
+            }
+
+            return FormField(
+                id: id,
+                type: fieldType,
+                label: label,
+                placeholder: fieldDict["placeholder"] as? String,
+                required: fieldDict["required"] as? Bool ?? false,
+                defaultValue: FormFieldDefault.from(fieldDict["defaultValue"] as Any?),
+                options: options
+            )
+        }
+    }
+
     // MARK: - Full Parse Helpers
 
     private static func parseCardData(_ dict: [String: Any?]) -> CardSurfaceData? {
@@ -365,34 +371,7 @@ extension Surface {
 
         let description = dict["description"] as? String
         let submitLabel = dict["submitLabel"] as? String
-
-        let fields: [FormField] = fieldsArray.compactMap { fieldDict in
-            guard let id = fieldDict["id"] as? String,
-                  let typeStr = fieldDict["type"] as? String,
-                  let fieldType = FormFieldType(rawValue: typeStr),
-                  let label = fieldDict["label"] as? String else {
-                return nil
-            }
-
-            var options: [FormFieldOption]?
-            if let optionsArray = fieldDict["options"] as? [[String: Any?]] {
-                options = optionsArray.compactMap { optDict in
-                    guard let label = optDict["label"] as? String,
-                          let value = optDict["value"] as? String else { return nil }
-                    return FormFieldOption(label: label, value: value)
-                }
-            }
-
-            return FormField(
-                id: id,
-                type: fieldType,
-                label: label,
-                placeholder: fieldDict["placeholder"] as? String,
-                required: fieldDict["required"] as? Bool ?? false,
-                defaultValue: FormFieldDefault.from(fieldDict["defaultValue"] as Any?),
-                options: options
-            )
-        }
+        let fields = parseFormFields(fieldsArray)
 
         return FormSurfaceData(
             description: description,
