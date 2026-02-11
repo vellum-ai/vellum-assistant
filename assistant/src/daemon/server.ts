@@ -11,6 +11,7 @@ import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
 import { resetAllowlist } from '../security/secret-allowlist.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { Session } from './session.js';
+import { ComputerUseSession } from './computer-use-session.js';
 import {
   serialize,
   createMessageParser,
@@ -26,6 +27,8 @@ export class DaemonServer {
   private server: net.Server | null = null;
   private sessions = new Map<string, Session>();
   private socketToSession = new Map<net.Socket, string>();
+  private cuSessions = new Map<string, ComputerUseSession>();
+  private socketToCuSession = new Map<net.Socket, string>();
   private connectedSockets = new Set<net.Socket>();
   private socketSandboxOverride = new Map<net.Socket, boolean>();
   // Guards against duplicate session creation when multiple clients connect
@@ -104,6 +107,12 @@ export class DaemonServer {
       session.abort();
     }
     this.sessions.clear();
+
+    for (const cuSession of this.cuSessions.values()) {
+      cuSession.abort();
+    }
+    this.cuSessions.clear();
+    this.socketToCuSession.clear();
 
     for (const socket of this.connectedSockets) {
       socket.destroy();
@@ -323,6 +332,15 @@ export class DaemonServer {
         }
       }
       this.socketToSession.delete(socket);
+      const cuSessionId = this.socketToCuSession.get(socket);
+      if (cuSessionId) {
+        const cuSession = this.cuSessions.get(cuSessionId);
+        if (cuSession) {
+          cuSession.abort();
+          this.cuSessions.delete(cuSessionId);
+        }
+      }
+      this.socketToCuSession.delete(socket);
       log.info('Client disconnected');
     });
 
@@ -424,6 +442,8 @@ export class DaemonServer {
     return {
       sessions: this.sessions,
       socketToSession: this.socketToSession,
+      cuSessions: this.cuSessions,
+      socketToCuSession: this.socketToCuSession,
       socketSandboxOverride: this.socketSandboxOverride,
       debounceTimers: this.debounceTimers,
       suppressConfigReload: this.suppressConfigReload,

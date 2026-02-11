@@ -1,10 +1,12 @@
 import * as net from 'node:net';
 import { getConfig, loadRawConfig, saveRawConfig } from '../config/loader.js';
-import { initializeProviders } from '../providers/registry.js';
+import { getProvider, initializeProviders } from '../providers/registry.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { getLogger } from '../util/logger.js';
 import { Session } from './session.js';
-import type { ClientMessage, ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
+import { ComputerUseSession } from './computer-use-session.js';
+import type { ClientMessage, ServerMessage, UserMessageAttachment, CuSessionCreate, CuObservation, AmbientObservation } from './ipc-protocol.js';
+import { handleAmbientObservation } from './ambient-handler.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -137,6 +139,8 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
 export interface HandlerContext {
   sessions: Map<string, Session>;
   socketToSession: Map<net.Socket, string>;
+  cuSessions: Map<string, ComputerUseSession>;
+  socketToCuSession: Map<net.Socket, string>;
   socketSandboxOverride: Map<net.Socket, boolean>;
   debounceTimers: Map<string, ReturnType<typeof setTimeout>>;
   suppressConfigReload: boolean;
@@ -192,6 +196,15 @@ export function handleMessage(
       break;
     case 'sandbox_set':
       handleSandboxSet(msg.enabled, socket, ctx);
+      break;
+    case 'cu_session_create':
+      handleCuSessionCreate(msg, socket, ctx);
+      break;
+    case 'cu_observation':
+      handleCuObservation(msg, socket, ctx);
+      break;
+    case 'ambient_observation':
+      handleAmbientObservation(msg, socket, ctx);
       break;
     case 'ping':
       ctx.send(socket, { type: 'pong' });
@@ -480,5 +493,55 @@ function handleUsageRequest(
     totalOutputTokens: conversation.totalOutputTokens,
     estimatedCost: conversation.totalEstimatedCost,
     model: config.model,
+  });
+}
+
+// ─── Computer-use handlers ──────────────────────────────────────────────────
+
+function handleCuSessionCreate(
+  msg: CuSessionCreate,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const config = getConfig();
+  const provider = getProvider(config.provider);
+
+  const sendToClient = (serverMsg: ServerMessage) => {
+    ctx.send(socket, serverMsg);
+  };
+
+  const session = new ComputerUseSession(
+    msg.sessionId,
+    msg.task,
+    msg.screenWidth,
+    msg.screenHeight,
+    provider,
+    sendToClient,
+  );
+
+  ctx.cuSessions.set(msg.sessionId, session);
+  ctx.socketToCuSession.set(socket, msg.sessionId);
+
+  log.info({ sessionId: msg.sessionId, task: msg.task }, 'Computer-use session created');
+}
+
+function handleCuObservation(
+  msg: CuObservation,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const session = ctx.cuSessions.get(msg.sessionId);
+  if (!session) {
+    ctx.send(socket, {
+      type: 'cu_error',
+      sessionId: msg.sessionId,
+      message: `No computer-use session found for id ${msg.sessionId}`,
+    });
+    return;
+  }
+
+  // Fire-and-forget: the session sends messages via its sendToClient callback
+  session.handleObservation(msg).catch((err) => {
+    log.error({ err, sessionId: msg.sessionId }, 'Error handling CU observation');
   });
 }
