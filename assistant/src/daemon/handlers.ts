@@ -21,8 +21,10 @@ import type {
   UserMessage,
   CuSessionCreate,
   CuObservation,
+  TaskSubmit,
 } from './ipc-protocol.js';
 import { handleAmbientObservation } from './ambient-handler.js';
+import { classifyInteraction } from './classifier.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -197,6 +199,7 @@ const handlers: DispatchMap = {
   cu_session_create: handleCuSessionCreate,
   cu_observation: handleCuObservation,
   ambient_observation: handleAmbientObservation,
+  task_submit: handleTaskSubmit,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
 };
 
@@ -496,6 +499,66 @@ function handleUsageRequest(
     estimatedCost: conversation.totalEstimatedCost,
     model: config.model,
   });
+}
+
+// ─── Task submit handler ────────────────────────────────────────────────────
+
+async function handleTaskSubmit(
+  msg: TaskSubmit,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const requestId = uuid();
+  const rlog = log.child({ requestId });
+
+  try {
+    const interactionType = await classifyInteraction(msg.task);
+    rlog.info({ interactionType, task: msg.task }, 'Task classified');
+
+    if (interactionType === 'computer_use') {
+      // Create CU session (reuse handleCuSessionCreate logic)
+      const sessionId = uuid();
+      const cuMsg: CuSessionCreate = {
+        type: 'cu_session_create',
+        sessionId,
+        task: msg.task,
+        screenWidth: msg.screenWidth,
+        screenHeight: msg.screenHeight,
+        attachments: msg.attachments,
+        interactionType: 'computer_use',
+      };
+      handleCuSessionCreate(cuMsg, socket, ctx);
+
+      ctx.send(socket, {
+        type: 'task_routed',
+        sessionId,
+        interactionType: 'computer_use',
+      });
+    } else {
+      // Create text QA session and immediately start processing
+      const conversation = conversationStore.createConversation(msg.task);
+      const session = await ctx.getOrCreateSession(conversation.id, socket, true);
+
+      ctx.send(socket, {
+        type: 'task_routed',
+        sessionId: conversation.id,
+        interactionType: 'text_qa',
+      });
+
+      // Start streaming immediately — client doesn't need to send user_message
+      session.processMessage(msg.task, msg.attachments ?? [], (event) => {
+        ctx.send(socket, event);
+      }, requestId).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        rlog.error({ err }, 'Error processing task_submit text QA');
+        ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    rlog.error({ err }, 'Error handling task_submit');
+    ctx.send(socket, { type: 'error', message: `Failed to route task: ${message}` });
+  }
 }
 
 // ─── Computer-use handlers ──────────────────────────────────────────────────

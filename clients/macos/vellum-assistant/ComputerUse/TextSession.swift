@@ -20,6 +20,8 @@ final class TextSession: ObservableObject {
 
     private let attachments: [TaskAttachment]
     private let daemonClient: DaemonClientProtocol
+    private let skipSessionCreate: Bool
+    private let existingStream: AsyncStream<ServerMessage>?
     private var isCancelled = false
     private var messageLoopTask: Task<Void, Never>?
     private var daemonSessionId: String?
@@ -28,29 +30,39 @@ final class TextSession: ObservableObject {
     init(
         task: String,
         daemonClient: DaemonClientProtocol,
-        attachments: [TaskAttachment] = []
+        attachments: [TaskAttachment] = [],
+        sessionId: String? = nil,
+        skipSessionCreate: Bool = false,
+        existingStream: AsyncStream<ServerMessage>? = nil
     ) {
-        self.id = UUID().uuidString
+        self.id = sessionId ?? UUID().uuidString
         self.task = task
         self.attachments = attachments
         self.daemonClient = daemonClient
+        self.skipSessionCreate = skipSessionCreate
+        self.existingStream = existingStream
     }
 
     func run() async {
         isCancelled = false
         accumulatedText = ""
-        daemonSessionId = nil
         state = .thinking
 
         log.info("TextSession starting — task: \(self.task, privacy: .public)")
 
-        // 1. Subscribe before sending
-        let messageStream = daemonClient.subscribe()
+        // Use existing stream (from task_submit flow) or subscribe fresh
+        let messageStream: AsyncStream<ServerMessage>
+        if skipSessionCreate {
+            // Daemon already created the session and started streaming
+            daemonSessionId = id
+            messageStream = existingStream ?? daemonClient.subscribe()
+        } else {
+            daemonSessionId = nil
+            messageStream = daemonClient.subscribe()
+            try? daemonClient.send(SessionCreateMessage(title: task))
+        }
 
-        // 2. Send session_create
-        try? daemonClient.send(SessionCreateMessage(title: task))
-
-        // 3. Listen for messages
+        // Listen for messages
         let loopTask = Task { @MainActor [weak self] in
             guard let self else { return }
 

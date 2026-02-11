@@ -289,7 +289,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 log.info("Daemon not connected, attempting to connect before session start")
                 do {
                     try await daemonClient.connect()
-                    // Start ambient agent if it was deferred due to missing daemon connection
                     self.setupAmbientAgent()
                 } catch {
                     log.error("Failed to connect to daemon: \(error.localizedDescription)")
@@ -303,11 +302,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             thinking.show()
             self.thinkingWindow = thinking
 
-            // Classify in background
-            let interactionType = await self.classifyInteraction(effectiveTask)
+            // 1. Subscribe to daemon stream before sending task_submit
+            let messageStream = self.daemonClient.subscribe()
+
+            // 2. Send task_submit — daemon classifies and creates the session
+            let screenBounds = CGDisplayBounds(CGMainDisplayID())
+            let ipcAttachments: [IPCAttachment]? = submission.attachments.isEmpty ? nil : submission.attachments.map {
+                IPCAttachment(
+                    filename: $0.fileName,
+                    mimeType: $0.mimeType,
+                    data: $0.data.base64EncodedString(),
+                    extractedText: $0.extractedText
+                )
+            }
+            try? self.daemonClient.send(TaskSubmitMessage(
+                task: effectiveTask,
+                screenWidth: Int(screenBounds.width),
+                screenHeight: Int(screenBounds.height),
+                attachments: ipcAttachments
+            ))
+
+            // 3. Wait for task_routed response
+            var routedMessage: TaskRoutedMessage?
+            for await message in messageStream {
+                guard !Task.isCancelled else { break }
+                if case .taskRouted(let routed) = message {
+                    routedMessage = routed
+                    break
+                }
+            }
 
             // Check if cancelled during classification (e.g. user pressed Escape)
-            guard !Task.isCancelled else {
+            guard !Task.isCancelled, let routed = routedMessage else {
                 thinking.close()
                 self.thinkingWindow = nil
                 return
@@ -317,8 +343,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             thinking.close()
             self.thinkingWindow = nil
 
-            switch interactionType {
-            case .computerUse:
+            switch routed.interactionType {
+            case "computer_use":
                 guard ActionExecutor.checkAccessibilityPermission(prompt: true) else { return }
                 let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
                 let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
@@ -327,7 +353,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     daemonClient: self.daemonClient,
                     maxSteps: maxSteps,
                     attachments: submission.attachments,
-                    interactionType: interactionType
+                    sessionId: routed.sessionId,
+                    skipSessionCreate: true
                 )
                 self.currentSession = session
                 let overlay = SessionOverlayWindow(session: session)
@@ -341,11 +368,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.currentSession = nil
                 self.ambientAgent.resume()
 
-            case .textQA:
+            default: // text_qa
                 let session = TextSession(
                     task: effectiveTask,
                     daemonClient: self.daemonClient,
-                    attachments: submission.attachments
+                    attachments: submission.attachments,
+                    sessionId: routed.sessionId,
+                    skipSessionCreate: true,
+                    existingStream: messageStream
                 )
                 self.currentTextSession = session
                 let window = TextResponseWindow(session: session)
@@ -380,81 +410,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.overlayWindow = nil
             self.currentSession = nil
         }
-    }
-
-    private func classifyInteraction(_ task: String) async -> InteractionType {
-        guard let apiKey = APIKeyManager.getKey(), !apiKey.isEmpty else {
-            log.warning("No API key available, falling back to heuristic classification")
-            return classifyInteractionHeuristic(task)
-        }
-
-        let client = AnthropicClient(apiKey: apiKey)
-        let system = "You are a classifier. Determine whether the user's request requires computer use (controlling the mouse/keyboard/apps) or is a text Q&A (answerable with text only)."
-        let tools: [[String: Any]] = [[
-            "name": "classify_interaction",
-            "description": "Classify the user interaction type",
-            "input_schema": [
-                "type": "object",
-                "properties": [
-                    "interaction_type": [
-                        "type": "string",
-                        "enum": ["computer_use", "text_qa"],
-                        "description": "The type of interaction"
-                    ],
-                    "reasoning": [
-                        "type": "string",
-                        "description": "Brief reasoning for the classification"
-                    ]
-                ],
-                "required": ["interaction_type", "reasoning"]
-            ] as [String: Any]
-        ]]
-        let toolChoice: [String: Any] = ["type": "tool", "name": "classify_interaction"]
-        let messages: [[String: Any]] = [["role": "user", "content": task]]
-
-        do {
-            let result = try await client.sendToolUseRequest(
-                model: "claude-haiku-4-5-20251001",
-                maxTokens: 128,
-                system: system,
-                tools: tools,
-                toolChoice: toolChoice,
-                messages: messages,
-                timeout: 5
-            )
-            let interactionTypeStr = result.input["interaction_type"] as? String ?? "computer_use"
-            let reasoning = result.input["reasoning"] as? String ?? ""
-            log.info("Haiku classification: \(interactionTypeStr) — \(reasoning)")
-            return interactionTypeStr == "text_qa" ? .textQA : .computerUse
-        } catch {
-            log.warning("Haiku classification failed: \(error.localizedDescription), falling back to heuristic")
-            return classifyInteractionHeuristic(task)
-        }
-    }
-
-    private func classifyInteractionHeuristic(_ task: String) -> InteractionType {
-        let lower = task.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if lower.contains("?") { return .textQA }
-
-        let qaStarters = ["what", "when", "where", "how", "why", "who", "which",
-                          "is it", "is there", "is this", "are there", "are these",
-                          "can you tell", "can you explain", "can you describe",
-                          "tell me", "explain", "describe", "summarize", "list"]
-        for starter in qaStarters {
-            if lower.hasPrefix(starter) { return .textQA }
-        }
-
-        let cuStarters = ["open", "click", "type", "navigate", "switch", "drag", "scroll",
-                          "close", "send", "fill", "submit", "go to", "move", "select",
-                          "copy", "paste", "delete", "create", "write", "edit", "save",
-                          "download", "upload", "install", "run", "launch", "start",
-                          "stop", "press", "tap", "find", "search", "show me"]
-        for starter in cuStarters {
-            if lower.hasPrefix(starter) { return .computerUse }
-        }
-
-        return .computerUse
     }
 
     // MARK: - Notifications

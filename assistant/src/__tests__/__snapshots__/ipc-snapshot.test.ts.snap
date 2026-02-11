@@ -124,6 +124,15 @@ exports[`IPC message snapshots ClientMessage types ambient_observation serialize
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types task_submit serializes to expected JSON 1`] = `
+{
+  "screenHeight": 1080,
+  "screenWidth": 1920,
+  "task": "Open Safari and search for weather",
+  "type": "task_submit",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
 {
   "text": "Here is some output",
@@ -312,20 +321,6 @@ exports[`IPC message snapshots ServerMessage types usage_response serializes to 
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types secret_detected serializes to expected JSON 1`] = `
-{
-  "action": "redact",
-  "matches": [
-    {
-      "redactedValue": "sk-****abcd",
-      "type": "api_key",
-    },
-  ],
-  "toolName": "bash",
-  "type": "secret_detected",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types context_compacted serializes to expected JSON 1`] = `
 {
   "compactedMessages": 56,
@@ -338,6 +333,20 @@ exports[`IPC message snapshots ServerMessage types context_compacted serializes 
   "summaryOutputTokens": 900,
   "thresholdTokens": 144000,
   "type": "context_compacted",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types secret_detected serializes to expected JSON 1`] = `
+{
+  "action": "redact",
+  "matches": [
+    {
+      "redactedValue": "sk-****abcd",
+      "type": "api_key",
+    },
+  ],
+  "toolName": "bash",
+  "type": "secret_detected",
 }
 `;
 
@@ -392,6 +401,14 @@ exports[`IPC message snapshots ServerMessage types cu_error serializes to expect
   "message": "Session timed out after 30 steps",
   "sessionId": "cu-sess-001",
   "type": "cu_error",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types task_routed serializes to expected JSON 1`] = `
+{
+  "interactionType": "computer_use",
+  "sessionId": "sess-routed-001",
+  "type": "task_routed",
 }
 `;
 

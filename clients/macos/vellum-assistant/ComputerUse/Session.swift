@@ -29,6 +29,7 @@ final class ComputerUseSession: ObservableObject {
     private let daemonClient: DaemonClientProtocol
     private let maxSteps: Int
     private let interactionType: InteractionType
+    private let skipSessionCreate: Bool
 
     private var isCancelled = false
     private var isPaused = false
@@ -64,9 +65,11 @@ final class ComputerUseSession: ObservableObject {
         attachments: [TaskAttachment] = [],
         interactionType: InteractionType = .computerUse,
         initialDelayMs: UInt64 = 300,
-        adaptiveDelay: Bool = true
+        adaptiveDelay: Bool = true,
+        sessionId: String? = nil,
+        skipSessionCreate: Bool = false
     ) {
-        self.id = UUID().uuidString
+        self.id = sessionId ?? UUID().uuidString
         self.task = task
         self.attachments = attachments
         self.daemonClient = daemonClient
@@ -77,6 +80,7 @@ final class ComputerUseSession: ObservableObject {
         self.maxSteps = maxSteps
         self.initialDelayMs = initialDelayMs
         self.adaptiveDelayEnabled = adaptiveDelay
+        self.skipSessionCreate = skipSessionCreate
         self.verifier = ActionVerifier(maxSteps: maxSteps)
         self.logger = SessionLogger(task: task, attachments: attachments)
     }
@@ -105,27 +109,29 @@ final class ComputerUseSession: ObservableObject {
         // 1. Subscribe before sending so we don't miss fast daemon responses
         let messageStream = daemonClient.subscribe()
 
-        // 2. Send session create message
-        let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
-            IPCAttachment(
-                filename: $0.fileName,
-                mimeType: $0.mimeType,
-                data: $0.data.base64EncodedString(),
-                extractedText: $0.extractedText
-            )
+        // 2. Send session create message (skip if daemon already created via task_submit)
+        if !skipSessionCreate {
+            let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
+                IPCAttachment(
+                    filename: $0.fileName,
+                    mimeType: $0.mimeType,
+                    data: $0.data.base64EncodedString(),
+                    extractedText: $0.extractedText
+                )
+            }
+            let interactionTypeString: String = switch interactionType {
+            case .computerUse: "computer_use"
+            case .textQA: "text_qa"
+            }
+            try? daemonClient.send(CuSessionCreateMessage(
+                sessionId: id,
+                task: task,
+                screenWidth: Int(screenSize.width),
+                screenHeight: Int(screenSize.height),
+                attachments: ipcAttachments,
+                interactionType: interactionTypeString
+            ))
         }
-        let interactionTypeString: String = switch interactionType {
-        case .computerUse: "computer_use"
-        case .textQA: "text_qa"
-        }
-        try? daemonClient.send(CuSessionCreateMessage(
-            sessionId: id,
-            task: task,
-            screenWidth: Int(screenSize.width),
-            screenHeight: Int(screenSize.height),
-            attachments: ipcAttachments,
-            interactionType: interactionTypeString
-        ))
 
         // 3. Initial perceive + send first observation
         let obs = await buildObservation(executionResult: nil, executionError: nil)

@@ -93,6 +93,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     windowTitle: 'Google',
     timestamp: 1700000000,
   },
+  task_submit: {
+    type: 'task_submit',
+    task: 'Open Safari and search for weather',
+    screenWidth: 1920,
+    screenHeight: 1080,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -263,6 +269,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'cu_error',
     sessionId: 'cu-sess-001',
     message: 'Session timed out after 30 steps',
+  },
+  task_routed: {
+    type: 'task_routed',
+    sessionId: 'sess-routed-001',
+    interactionType: 'computer_use',
   },
   ambient_result: {
     type: 'ambient_result',

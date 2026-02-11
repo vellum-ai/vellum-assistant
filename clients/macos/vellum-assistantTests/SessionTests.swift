@@ -1000,6 +1000,83 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(executor.executedActions[1].scrollDirection, "down")
         XCTAssertEqual(executor.executedActions[1].scrollAmount, 3)
     }
+
+    // MARK: - skipSessionCreate
+
+    @MainActor
+    func testSkipSessionCreate_doesNotSendCuSessionCreate() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let session = ComputerUseSession(
+            task: "test task",
+            daemonClient: daemonClient,
+            enumerator: makeDefaultEnumerator(),
+            screenCapture: MockScreenCapture(),
+            executor: MockActionExecutor(),
+            maxSteps: 50,
+            initialDelayMs: 0,
+            adaptiveDelay: false,
+            sessionId: "daemon-assigned-id",
+            skipSessionCreate: true
+        )
+
+        XCTAssertEqual(session.id, "daemon-assigned-id")
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Should NOT have sent CuSessionCreateMessage
+        let createMessages = daemonClient.sentMessages.compactMap { $0 as? CuSessionCreateMessage }
+        XCTAssertEqual(createMessages.count, 0, "skipSessionCreate should prevent sending cu_session_create")
+
+        // Should still have sent an observation
+        let obsMessages = daemonClient.sentMessages.compactMap { $0 as? CuObservationMessage }
+        XCTAssertGreaterThanOrEqual(obsMessages.count, 1)
+        XCTAssertEqual(obsMessages[0].sessionId, "daemon-assigned-id")
+
+        // Clean up
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: "daemon-assigned-id",
+            summary: "Done",
+            stepCount: 1
+        )))
+        await runTask.value
+    }
+
+    // MARK: - ServerMessage.taskRouted decoding
+
+    @MainActor
+    func testTaskRoutedDecoding() async {
+        let json = """
+        {"type":"task_routed","sessionId":"sess-123","interactionType":"computer_use"}
+        """
+        let data = json.data(using: .utf8)!
+        let message = try! JSONDecoder().decode(ServerMessage.self, from: data)
+        if case .taskRouted(let routed) = message {
+            XCTAssertEqual(routed.sessionId, "sess-123")
+            XCTAssertEqual(routed.interactionType, "computer_use")
+        } else {
+            XCTFail("Expected taskRouted, got \(message)")
+        }
+    }
+
+    @MainActor
+    func testTaskRoutedDecoding_textQA() async {
+        let json = """
+        {"type":"task_routed","sessionId":"sess-456","interactionType":"text_qa"}
+        """
+        let data = json.data(using: .utf8)!
+        let message = try! JSONDecoder().decode(ServerMessage.self, from: data)
+        if case .taskRouted(let routed) = message {
+            XCTAssertEqual(routed.sessionId, "sess-456")
+            XCTAssertEqual(routed.interactionType, "text_qa")
+        } else {
+            XCTFail("Expected taskRouted, got \(message)")
+        }
+    }
 }
 
 /// Test elements with 3+ interactive elements (enough for screenshot skip)

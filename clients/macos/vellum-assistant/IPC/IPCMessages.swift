@@ -141,6 +141,16 @@ struct UserMessageMessage: Encodable, Sendable {
     let attachments: [IPCAttachment]?
 }
 
+/// Sent to request daemon-side classification and session creation.
+/// Wire type: `"task_submit"`
+struct TaskSubmitMessage: Encodable, Sendable {
+    let type: String = "task_submit"
+    let task: String
+    let screenWidth: Int
+    let screenHeight: Int
+    let attachments: [IPCAttachment]?
+}
+
 /// Keepalive ping.
 /// Wire type: `"ping"`
 struct PingMessage: Encodable, Sendable {
@@ -192,6 +202,12 @@ struct SessionInfoMessage: Decodable, Sendable {
     let title: String
 }
 
+/// Daemon response after classifying and routing a task_submit.
+struct TaskRoutedMessage: Decodable, Sendable {
+    let sessionId: String
+    let interactionType: String
+}
+
 /// Result from ambient observation analysis.
 struct AmbientResultMessage: Decodable, Sendable {
     let requestId: String
@@ -210,6 +226,7 @@ enum ServerMessage: Decodable, Sendable {
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
     case sessionInfo(SessionInfoMessage)
+    case taskRouted(TaskRoutedMessage)
     case ambientResult(AmbientResultMessage)
     case pong
     case unknown(String)
@@ -244,6 +261,9 @@ enum ServerMessage: Decodable, Sendable {
         case "session_info":
             let message = try SessionInfoMessage(from: decoder)
             self = .sessionInfo(message)
+        case "task_routed":
+            let message = try TaskRoutedMessage(from: decoder)
+            self = .taskRouted(message)
         case "ambient_result":
             let message = try AmbientResultMessage(from: decoder)
             self = .ambientResult(message)

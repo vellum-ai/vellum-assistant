@@ -103,6 +103,14 @@ export interface CuObservation {
   executionError?: string;
 }
 
+export interface TaskSubmit {
+  type: 'task_submit';
+  task: string;
+  screenWidth: number;
+  screenHeight: number;
+  attachments?: UserMessageAttachment[];
+}
+
 export interface AmbientObservation {
   type: 'ambient_observation';
   requestId: string;
@@ -128,7 +136,8 @@ export type ClientMessage =
   | SandboxSetRequest
   | CuSessionCreate
   | CuObservation
-  | AmbientObservation;
+  | AmbientObservation
+  | TaskSubmit;
 
 // === Server → Client messages ===
 
@@ -311,6 +320,12 @@ export interface CuError {
   message: string;
 }
 
+export interface TaskRouted {
+  type: 'task_routed';
+  sessionId: string;
+  interactionType: 'computer_use' | 'text_qa';
+}
+
 export interface AmbientResult {
   type: 'ambient_result';
   requestId: string;
@@ -344,6 +359,7 @@ export type ServerMessage =
   | CuAction
   | CuComplete
   | CuError
+  | TaskRouted
   | AmbientResult;
 
 // === Serialization ===
