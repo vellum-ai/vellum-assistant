@@ -33,41 +33,17 @@ Slash commands for Claude Code that automate development workflows. They manage 
 
 ## Setup
 
-### 1. Symlink into Claude Code
+### 1. Run `vel setup`
 
-Claude Code loads custom slash commands from `.claude/commands/` in the project root. Symlink each file:
+Run `vel setup` (or `./setup.sh`) to automatically symlink all commands into `.claude/commands/` and create the required `.private/` tracking files. Both directories are gitignored, so every developer needs to run this locally.
 
-```bash
-mkdir -p .claude/commands
-cd .claude/commands
-ln -s ../../scripts/commands/work.md work.md
-ln -s ../../scripts/commands/check-reviews.md check-reviews.md
-ln -s ../../scripts/commands/brainstorm.md brainstorm.md
-ln -s ../../scripts/commands/swarm.md swarm.md
-ln -s ../../scripts/commands/mainline.md mainline.md
-ln -s ../../scripts/commands/do.md do.md
-ln -s ../../scripts/commands/execute-plan.md execute-plan.md
-ln -s ../../scripts/commands/blitz.md blitz.md
-```
-
-After symlinking, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, `/mainline`, `/do`, `/blitz`, and `/execute-plan` in Claude Code.
+After setup, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, `/mainline`, `/do`, `/blitz`, and `/execute-plan` in Claude Code.
 
 ### 2. **IMPORTANT** Enable fast mode
 
 Type `/fast` in your Claude Code session in order to toggle fast mode. Fast mode uses the same Opus model but with massively reduced latency and increased cost.
 You should use this almost all the time for both running these scripts and adhoc work.
 The only exception is `/check-reviews` since that's not a time-sensitive command.
-
-### 3. Required files
-
-Create the tracking files if they don't exist:
-
-```bash
-mkdir -p .private
-touch .private/TODO.md .private/DONE.md .private/UNREVIEWED_PRS.md
-```
-
-These are gitignored. Multiple commands read and write to them concurrently, so the commands are careful to read before writing and verify after.
 
 ## Commands
 

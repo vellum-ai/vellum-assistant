@@ -1,4 +1,12 @@
-import { existsSync } from 'fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'fs';
 import { dirname, join } from 'path';
 
 import { exec, execOutput, runSteps } from '../lib/step-runner';
@@ -46,6 +54,44 @@ export async function setup(): Promise<void> {
       name: 'Installing web dependencies',
       run: async () => {
         await exec('bun', ['install'], { cwd: webDir });
+      },
+    },
+    {
+      name: 'Setting up Claude Code commands',
+      run: async () => {
+        const commandsSource = join(repoRoot, 'scripts', 'commands');
+        const commandsDest = join(repoRoot, '.claude', 'commands');
+
+        mkdirSync(commandsDest, { recursive: true });
+
+        const files = readdirSync(commandsSource).filter((f) =>
+          f.endsWith('.md')
+        );
+
+        for (const file of files) {
+          const linkPath = join(commandsDest, file);
+          const target = join('..', '..', 'scripts', 'commands', file);
+
+          try {
+            lstatSync(linkPath);
+            unlinkSync(linkPath);
+          } catch {
+            // doesn't exist yet, nothing to unlink
+          }
+
+          symlinkSync(target, linkPath);
+        }
+
+        // Create .private/ tracking files
+        const privateDir = join(repoRoot, '.private');
+        mkdirSync(privateDir, { recursive: true });
+
+        for (const name of ['TODO.md', 'DONE.md', 'UNREVIEWED_PRS.md']) {
+          const filePath = join(privateDir, name);
+          if (!existsSync(filePath)) {
+            writeFileSync(filePath, '');
+          }
+        }
       },
     },
   ]);
