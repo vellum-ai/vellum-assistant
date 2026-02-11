@@ -13,6 +13,7 @@ import { Spinner } from './util/spinner.js';
 import { copyToClipboard, extractLastCodeBlock, formatSessionForExport } from './util/clipboard.js';
 import { timeAgo } from './util/time.js';
 import { ensureDaemonRunning } from './daemon/lifecycle.js';
+import { shouldAutoStartDaemon } from './daemon/connection-policy.js';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
@@ -587,7 +588,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
       await new Promise((r) => setTimeout(r, RECONNECT_DELAY_MS));
 
       try {
-        await ensureDaemonRunning();
+        if (shouldAutoStartDaemon()) await ensureDaemonRunning();
         await connect();
         if (options.noSandbox) {
           send({ type: 'sandbox_set', enabled: false });

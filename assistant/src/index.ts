@@ -24,6 +24,7 @@ import {
 } from './daemon/ipc-protocol.js';
 import { IpcError } from './util/errors.js';
 import { timeAgo } from './util/time.js';
+import { shouldAutoStartDaemon } from './daemon/connection-policy.js';
 import {
   loadRawConfig,
   saveRawConfig,
@@ -98,7 +99,9 @@ program
   .version(version)
   .option('--no-sandbox', 'Disable sandbox for this session (runtime override, not persisted)')
   .action(async (opts: { sandbox?: boolean }) => {
-    await ensureDaemonRunning();
+    if (shouldAutoStartDaemon()) {
+      await ensureDaemonRunning();
+    }
     await startCli({ noSandbox: opts.sandbox === false });
   });
 
@@ -194,7 +197,7 @@ sessions
   .command('list')
   .description('List all sessions')
   .action(async () => {
-    await ensureDaemonRunning();
+    if (shouldAutoStartDaemon()) await ensureDaemonRunning();
     const response = await sendOneMessage({ type: 'session_list' });
     if (response.type === 'session_list_response') {
       if (response.sessions.length === 0) {
@@ -213,7 +216,7 @@ sessions
   .command('new [title]')
   .description('Create a new session')
   .action(async (title?: string) => {
-    await ensureDaemonRunning();
+    if (shouldAutoStartDaemon()) await ensureDaemonRunning();
     const response = await sendOneMessage({
       type: 'session_create',
       title,
