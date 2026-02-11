@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        setupDaemonClient()
         setupMenuBar()
         setupHotKey()
         setupEscapeMonitor()
@@ -38,6 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupAmbientAgent()
         setupWindowObserver()
         setupNotifications()
+    }
+
+    private func setupDaemonClient() {
+        Task {
+            try? await daemonClient.connect()
+        }
     }
 
     private func setupWindowObserver() {
@@ -164,12 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupAmbientAgent() {
         ambientAgent.appDelegate = self
-
-        let client = DaemonClient()
-        ambientAgent.daemonClient = client
-        Task {
-            try? await client.connect()
-        }
+        ambientAgent.daemonClient = daemonClient
 
         if ambientAgent.isEnabled {
             ambientAgent.start()
@@ -215,6 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding.close()
             self?.onboardingWindow = nil
 
+            self?.setupDaemonClient()
             self?.setupMenuBar()
             self?.setupHotKey()
             self?.setupEscapeMonitor()
