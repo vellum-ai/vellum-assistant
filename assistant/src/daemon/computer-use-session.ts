@@ -219,7 +219,7 @@ export class ComputerUseSession {
         // Interactive surfaces default to awaiting user action.
         // Lists with selectionMode "none" are passive (no actions emitted) so they don't block.
         const isInteractive = surfaceType === 'list'
-          ? (data as ListSurfaceData).selectionMode !== 'none'
+          ? ((data as ListSurfaceData).selectionMode ?? 'none') !== 'none'
           : ['form', 'confirmation'].includes(surfaceType);
         const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
