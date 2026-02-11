@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var thinkingWindow: ThinkingIndicatorWindow?
     let ambientAgent = AmbientAgent()
     let daemonClient = DaemonClient()
+    let surfaceManager = SurfaceManager()
 
     private var onboardingWindow: OnboardingWindow?
     private var windowObserver: Any?
@@ -53,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupEscapeMonitor()
         setupVoiceInput()
         setupAmbientAgent()
+        setupSurfaceManager()
         setupWindowObserver()
         setupNotifications()
     }
@@ -64,6 +66,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if daemonClient.isConnected {
                 setupAmbientAgent()
             }
+        }
+    }
+
+    private func setupSurfaceManager() {
+        // Wire daemon surface messages to SurfaceManager
+        daemonClient.onSurfaceShow = { [weak self] msg in
+            self?.surfaceManager.showSurface(msg)
+        }
+        daemonClient.onSurfaceUpdate = { [weak self] msg in
+            self?.surfaceManager.updateSurface(msg)
+        }
+        daemonClient.onSurfaceDismiss = { [weak self] msg in
+            self?.surfaceManager.dismissSurface(msg)
+        }
+
+        // Wire SurfaceManager action callback to DaemonClient
+        surfaceManager.onAction = { [weak self] sessionId, surfaceId, actionId, data in
+            guard let self else { return }
+            let codableData: [String: AnyCodable]? = data?.mapValues { AnyCodable($0) }
+            try? self.daemonClient.sendSurfaceAction(
+                sessionId: sessionId,
+                surfaceId: surfaceId,
+                actionId: actionId,
+                data: codableData
+            )
         }
     }
 
@@ -156,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.thinkingWindow = nil
                     self?.currentSession?.cancel()
                     self?.currentTextSession?.cancel()
+                    self?.surfaceManager.dismissAll()
                 }
             }
         }
@@ -249,6 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.setupEscapeMonitor()
             self?.setupVoiceInput()
             self?.setupAmbientAgent()
+            self?.setupSurfaceManager()
             self?.setupWindowObserver()
             self?.setupNotifications()
 
@@ -462,6 +491,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         voiceInput?.stop()
         ambientAgent.stop()
+        surfaceManager.dismissAll()
     }
 }
 

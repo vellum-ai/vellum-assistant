@@ -6,13 +6,15 @@
  * with the AgentLoop (which runs inference via the Anthropic API with CU tools).
  */
 
+import { v4 as uuid } from 'uuid';
 import type { Provider, Message, ContentBlock, ToolDefinition } from '../providers/types.js';
-import type { ServerMessage, CuObservation } from './ipc-protocol.js';
+import type { ServerMessage, CuObservation, SurfaceType, SurfaceData } from './ipc-protocol.js';
 import type { ToolExecutionResult } from '../tools/types.js';
 import { AgentLoop } from '../agent/loop.js';
 import { ToolExecutor } from '../tools/executor.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { allComputerUseTools } from '../tools/computer-use/definitions.js';
+import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
 import { getLogger } from '../util/logger.js';
 
@@ -59,6 +61,10 @@ export class ComputerUseSession {
   private pendingObservation: {
     resolve: (result: ToolExecutionResult) => void;
   } | null = null;
+
+  private pendingSurfaceActions = new Map<string, {
+    resolve: (result: ToolExecutionResult) => void;
+  }>();
 
   // Tracks the agent loop promise so callers can await session completion
   private loopPromise: Promise<void> | null = null;
@@ -142,6 +148,12 @@ export class ComputerUseSession {
       this.pendingObservation = null;
     }
 
+    // Resolve any pending surface actions
+    for (const [, pending] of this.pendingSurfaceActions) {
+      pending.resolve({ content: 'Session aborted', isError: true });
+    }
+    this.pendingSurfaceActions.clear();
+
     this.state = 'error';
     this.sendToClient({
       type: 'cu_error',
@@ -158,13 +170,29 @@ export class ComputerUseSession {
     return this.state;
   }
 
+  handleSurfaceAction(surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
+    const pending = this.pendingSurfaceActions.get(surfaceId);
+    if (!pending) {
+      log.warn({ surfaceId, actionId }, 'No pending surface action found');
+      return;
+    }
+    this.pendingSurfaceActions.delete(surfaceId);
+    pending.resolve({
+      content: JSON.stringify({ actionId, data: data ?? {} }),
+      isError: false,
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Agent loop execution
   // ---------------------------------------------------------------------------
 
   private async runAgentLoop(messages: Message[]): Promise<void> {
     const systemPrompt = buildComputerUseSystemPrompt(this.screenWidth, this.screenHeight);
-    const toolDefs: ToolDefinition[] = allComputerUseTools.map((t) => t.getDefinition());
+    const toolDefs: ToolDefinition[] = [
+      ...allComputerUseTools.map((t) => t.getDefinition()),
+      ...allUiSurfaceTools.map((t) => t.getDefinition()),
+    ];
 
     const prompter = new PermissionPrompter(this.sendToClient);
     const executor = new ToolExecutor(prompter);
@@ -173,6 +201,57 @@ export class ComputerUseSession {
       toolName: string,
       input: Record<string, unknown>,
     ): Promise<ToolExecutionResult> => {
+      // ── Surface tool proxying ──────────────────────────────────────
+      if (toolName === 'ui_show') {
+        const surfaceId = uuid();
+        const surfaceType = input.surface_type as string;
+        const title = typeof input.title === 'string' ? input.title : undefined;
+        const data = input.data as Record<string, unknown>;
+        const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
+        const awaitAction = input.await_action !== false && (input.await_action === true || (actions && actions.length > 0));
+
+        this.sendToClient({
+          type: 'ui_surface_show',
+          sessionId: this.sessionId,
+          surfaceId,
+          surfaceType: surfaceType as SurfaceType,
+          title,
+          data: data as unknown as SurfaceData,
+          actions: actions?.map(a => ({ id: a.id, label: a.label, style: (a.style ?? 'secondary') as 'primary' | 'secondary' | 'destructive' })),
+        });
+
+        if (awaitAction) {
+          return new Promise<ToolExecutionResult>((resolve) => {
+            this.pendingSurfaceActions.set(surfaceId, { resolve });
+          });
+        }
+        return { content: JSON.stringify({ surfaceId }), isError: false };
+      }
+
+      if (toolName === 'ui_update') {
+        const surfaceId = input.surface_id as string;
+        const data = input.data as Record<string, unknown>;
+        this.sendToClient({
+          type: 'ui_surface_update',
+          sessionId: this.sessionId,
+          surfaceId,
+          data: data as Partial<SurfaceData>,
+        });
+        return { content: 'Surface updated', isError: false };
+      }
+
+      if (toolName === 'ui_dismiss') {
+        const surfaceId = input.surface_id as string;
+        this.sendToClient({
+          type: 'ui_surface_dismiss',
+          sessionId: this.sessionId,
+          surfaceId,
+        });
+        this.pendingSurfaceActions.delete(surfaceId);
+        return { content: 'Surface dismissed', isError: false };
+      }
+
+      // ── Computer-use tool proxying ─────────────────────────────────
       const reasoning = typeof input.reasoning === 'string' ? input.reasoning : undefined;
 
       // Record action in history

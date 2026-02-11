@@ -210,8 +210,18 @@ const handlers: DispatchMap = {
   ambient_observation: handleAmbientObservation,
   task_submit: handleTaskSubmit,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
-  ui_surface_action: (msg, _socket, _ctx) => {
-    log.info({ surfaceId: msg.surfaceId, actionId: msg.actionId }, 'Surface action received (not yet handled)');
+  ui_surface_action: (msg, _socket, ctx) => {
+    const cuSession = ctx.cuSessions.get(msg.sessionId);
+    if (cuSession) {
+      cuSession.handleSurfaceAction(msg.surfaceId, msg.actionId, msg.data);
+      return;
+    }
+    const session = ctx.sessions.get(msg.sessionId);
+    if (session) {
+      session.handleSurfaceAction(msg.surfaceId, msg.actionId, msg.data);
+      return;
+    }
+    log.warn({ sessionId: msg.sessionId, surfaceId: msg.surfaceId }, 'No session found for surface action');
   },
 };
 

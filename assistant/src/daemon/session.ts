@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
@@ -9,8 +9,9 @@ import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { ToolExecutor } from '../tools/executor.js';
-import type { ToolLifecycleEventHandler } from '../tools/types.js';
+import type { ToolLifecycleEventHandler, ToolExecutionResult } from '../tools/types.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
+import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
 import { estimateCost } from '../util/pricing.js';
@@ -51,6 +52,9 @@ export class Session {
   private contextWindowManager: ContextWindowManager;
   private contextCompactedMessageCount = 0;
   private currentRequestId?: string;
+  private pendingSurfaceActions = new Map<string, {
+    resolve: (result: ToolExecutionResult) => void;
+  }>();
 
   constructor(
     conversationId: string,
@@ -74,7 +78,10 @@ export class Session {
       return publishToolDomainEvent(event);
     };
 
-    const toolDefs = getAllToolDefinitions();
+    const toolDefs = [
+      ...getAllToolDefinitions(),
+      ...allUiSurfaceTools.map((t) => t.getDefinition()),
+    ];
     const toolExecutor = async (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => {
       return this.executor.execute(name, input, {
         workingDir: this.workingDir,
@@ -84,6 +91,7 @@ export class Session {
         onOutput,
         sandboxOverride: this.sandboxOverride,
         onToolLifecycleEvent: handleToolLifecycleEvent,
+        proxyToolResolver: this.surfaceProxyResolver.bind(this),
       });
     };
 
@@ -174,6 +182,11 @@ export class Session {
       log.info({ conversationId: this.conversationId }, 'Aborting in-flight processing');
       this.abortController?.abort();
       this.prompter.dispose();
+      // Resolve any pending surface actions
+      for (const [, pending] of this.pendingSurfaceActions) {
+        pending.resolve({ content: 'Session aborted', isError: true });
+      }
+      this.pendingSurfaceActions.clear();
     }
   }
 
@@ -575,6 +588,19 @@ export class Session {
     return userMessageId;
   }
 
+  handleSurfaceAction(surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
+    const pending = this.pendingSurfaceActions.get(surfaceId);
+    if (!pending) {
+      log.warn({ surfaceId, actionId }, 'No pending surface action found');
+      return;
+    }
+    this.pendingSurfaceActions.delete(surfaceId);
+    pending.resolve({
+      content: JSON.stringify({ actionId, data: data ?? {} }),
+      isError: false,
+    });
+  }
+
   getMessages(): Message[] {
     return this.messages;
   }
@@ -607,6 +633,60 @@ export class Session {
     conversationStore.deleteLastExchange(this.conversationId);
 
     return removed;
+  }
+
+  private async surfaceProxyResolver(
+    toolName: string,
+    input: Record<string, unknown>,
+  ): Promise<ToolExecutionResult> {
+    if (toolName === 'ui_show') {
+      const surfaceId = uuid();
+      const surfaceType = input.surface_type as string;
+      const title = typeof input.title === 'string' ? input.title : undefined;
+      const data = input.data as Record<string, unknown>;
+      const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
+      const awaitAction = input.await_action !== false && (input.await_action === true || (actions && actions.length > 0));
+
+      this.sendToClient({
+        type: 'ui_surface_show',
+        sessionId: this.conversationId,
+        surfaceId,
+        surfaceType: surfaceType as SurfaceType,
+        title,
+        data: data as unknown as SurfaceData,
+        actions: actions?.map(a => ({ id: a.id, label: a.label, style: (a.style ?? 'secondary') as 'primary' | 'secondary' | 'destructive' })),
+      });
+
+      if (awaitAction) {
+        return new Promise<ToolExecutionResult>((resolve) => {
+          this.pendingSurfaceActions.set(surfaceId, { resolve });
+        });
+      }
+      return { content: JSON.stringify({ surfaceId }), isError: false };
+    }
+
+    if (toolName === 'ui_update') {
+      this.sendToClient({
+        type: 'ui_surface_update',
+        sessionId: this.conversationId,
+        surfaceId: input.surface_id as string,
+        data: input.data as Partial<SurfaceData>,
+      });
+      return { content: 'Surface updated', isError: false };
+    }
+
+    if (toolName === 'ui_dismiss') {
+      const surfaceId = input.surface_id as string;
+      this.sendToClient({
+        type: 'ui_surface_dismiss',
+        sessionId: this.conversationId,
+        surfaceId,
+      });
+      this.pendingSurfaceActions.delete(surfaceId);
+      return { content: 'Surface dismissed', isError: false };
+    }
+
+    return { content: `Unknown proxy tool: ${toolName}`, isError: true };
   }
 
   private recordUsage(
