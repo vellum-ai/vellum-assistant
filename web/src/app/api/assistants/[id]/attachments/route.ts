@@ -27,13 +27,11 @@ function getFilesFromFormData(formData: FormData): File[] {
     return directFiles;
   }
   const files: File[] = [];
-  for (const key of formData.keys()) {
-    for (const value of formData.getAll(key)) {
-      if (value instanceof File) {
-        files.push(value);
-      }
+  formData.forEach((value) => {
+    if (value instanceof File) {
+      files.push(value);
     }
-  }
+  });
   return files;
 }
 
