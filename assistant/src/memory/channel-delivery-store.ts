@@ -70,7 +70,8 @@ export function recordInbound(
 
   // Wrap message insert + event insert in a single transaction so a partial
   // failure doesn't leave an orphaned message without an idempotency record.
-  const message = { id: messageId, conversationId: mapping.conversationId, role: 'user', content, createdAt: now };
+  const jsonContent = JSON.stringify([{ type: 'text', text: content }]);
+  const message = { id: messageId, conversationId: mapping.conversationId, role: 'user', content: jsonContent, createdAt: now };
 
   db.transaction((tx) => {
     tx.insert(messages).values(message).run();

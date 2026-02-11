@@ -214,8 +214,17 @@ export class Session {
 
       if (options?.userMessageAlreadyPersisted) {
         // The user message was already persisted (e.g. by channel inbound
-        // idempotency logic) and loaded into this.messages via loadFromDb().
-        // Find its ID from the DB for memory-recall exclusion.
+        // idempotency logic).  We still need to add it to the in-memory
+        // messages array so the agent loop sees it (loadFromDb only runs
+        // when a session is first created, not on subsequent messages).
+        const userMessage = createUserMessage(content, attachments.map((attachment) => ({
+          id: attachment.id,
+          filename: attachment.filename,
+          mimeType: attachment.mimeType,
+          data: attachment.data,
+          extractedText: attachment.extractedText,
+        })));
+        this.messages.push(userMessage);
         const dbMessages = conversationStore.getMessages(this.conversationId);
         const lastUserMsg = dbMessages.filter((m) => m.role === 'user').pop();
         userMessageId = lastUserMsg?.id ?? '';
