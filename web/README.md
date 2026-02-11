@@ -12,27 +12,35 @@ Next.js web application for Vellum Assistant.
 
 See the [root README](../README.md) for local development setup instructions.
 
-## Connection Mode
+## Architecture
 
-The web API supports two deployment-level assistant connection modes:
+The web app is a thin proxy layer. All chat, attachments, and channel delivery state live in the assistant runtime. The web app stores only assistant metadata, auth, and channel-account configuration in Postgres.
 
-- `ASSISTANT_CONNECTION_MODE=cloud` (default): use cloud compute instance routes.
-- `ASSISTANT_CONNECTION_MODE=local`: use a running local daemon over a Unix socket.
+### Runtime Client
 
-Optional socket override for local mode:
+Every assistant-facing API route proxies through a single `RuntimeClient` abstraction (`src/lib/runtime/client.ts`). The runtime URL is resolved per-assistant via `resolveRuntime()`.
 
-- `LOCAL_DAEMON_SOCKET_PATH` (default: `~/.vellum/vellum.sock`)
+Environment variables:
 
-### Local Daemon Notes
+- `ASSISTANT_CONNECTION_MODE` — `local` (default) or `cloud`.
+- `LOCAL_DAEMON_SOCKET_PATH` — Unix socket path for local mode (default: `~/.vellum/vellum.sock`).
 
-- Local mode is strict: there is no fallback to demo or cloud behavior if the daemon is unavailable.
-- Current local-mode scope is chat + health only.
-- File system and logs APIs return unsupported in local mode.
-- Daemon lifecycle is managed outside the web UI (for example, `vellum daemon start`).
+### Assistant Auth
+
+Assistant-initiated routes (e.g. `/api/assistants/[id]/setup-email`, `/api/assistants/[id]/set-avatar`) authenticate with hashed bearer tokens stored in the `assistant_auth_tokens` table. Plaintext keys are never stored.
 
 ## Database
 
 This project uses [Drizzle ORM](https://orm.drizzle.team/) for database management.
+
+Postgres stores:
+- Assistant metadata (`assistants`)
+- Channel account config (`assistant_channel_accounts`, `assistant_channel_contacts`)
+- Auth tables (`user`, `session`, `account`, `verification`)
+- Assistant auth tokens (`assistant_auth_tokens`)
+- API keys (`api_keys`)
+
+Chat messages and attachments are **not** stored in Postgres — they live in the assistant runtime's SQLite database.
 
 ```bash
 # Push schema changes to database
@@ -42,23 +50,13 @@ bun run db:push
 bun run db:push:preview
 ```
 
-## Cloud Provisioning
-
-When deploying assistant instances to cloud compute (GCP), the startup script automatically installs:
-
-- **Bun** runtime
-- **Node packages** via `bun install`
-- **Chromium browser** via `bunx playwright install --with-deps chromium` (for headless browser tools)
-
-The cloud compute provisioning path is currently mostly disabled in routes, but the startup script is ready for when it is re-enabled. See [headless browser tools docs](../assistant/docs/headless-browser-tools.md) for details.
-
 ## Tech Stack
 
 - **Framework**: Next.js 16 (App Router)
 - **Styling**: Tailwind CSS v4
 - **Database**: PostgreSQL with Drizzle ORM
 - **AI**: Anthropic Claude
-- **Infrastructure**: Google Cloud (Compute Engine, Cloud Storage)
+- **Infrastructure**: Google Cloud (Compute Engine)
 
 ## Project Structure
 
@@ -67,8 +65,9 @@ web/
 ├── src/
 │   ├── app/           # Next.js App Router pages and API routes
 │   ├── components/    # React components
-│   └── lib/           # Utilities, database, GCP helpers
+│   └── lib/           # Utilities, database, runtime client
 │       ├── db.ts      # Database connection and queries
-│       └── schema.ts  # Drizzle schema definitions
+│       ├── schema.ts  # Drizzle schema definitions
+│       └── runtime/   # RuntimeClient abstraction
 └── public/            # Static assets
 ```
