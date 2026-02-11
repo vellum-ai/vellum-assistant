@@ -115,7 +115,8 @@ export class Session {
         const role = m.role as 'user' | 'assistant';
         let content: ContentBlock[];
         try {
-          content = JSON.parse(m.content);
+          const parsed = JSON.parse(m.content);
+          content = Array.isArray(parsed) ? parsed : [{ type: 'text', text: m.content }];
         } catch {
           log.warn({ conversationId: this.conversationId, messageId: m.id }, 'Invalid JSON in persisted message content, replacing with safe text block');
           content = [{ type: 'text', text: m.content }];

@@ -161,6 +161,37 @@ describe('loadFromDb history repair', () => {
     expect(messages[0].content[0].type === 'text' && messages[0].content[0].text).toBe('this is not valid json {{{');
   });
 
+  test('non-array JSON content is wrapped in a text block', async () => {
+    mockConversation = {
+      id: 'conv-1',
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      { id: 'm1', role: 'user', content: '"hello"' },
+      { id: 'm2', role: 'assistant', content: '42' },
+      { id: 'm3', role: 'user', content: '{}' },
+      { id: 'm4', role: 'assistant', content: JSON.stringify([{ type: 'text', text: 'Done' }]) },
+    ];
+
+    const session = makeSession();
+    await session.loadFromDb();
+    const messages = session.getMessages();
+
+    expect(messages).toHaveLength(4);
+    // String JSON should be wrapped
+    expect(messages[0].content).toEqual([{ type: 'text', text: '"hello"' }]);
+    // Number JSON should be wrapped
+    expect(messages[1].content).toEqual([{ type: 'text', text: '42' }]);
+    // Object JSON should be wrapped
+    expect(messages[2].content).toEqual([{ type: 'text', text: '{}' }]);
+    // Valid array content should pass through
+    expect(messages[3].content).toEqual([{ type: 'text', text: 'Done' }]);
+  });
+
   test('assistant-role tool_result blocks are stripped during load', async () => {
     mockConversation = {
       id: 'conv-1',
