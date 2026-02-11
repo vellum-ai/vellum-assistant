@@ -30,9 +30,6 @@ import {
 } from "react";
 
 import { Button } from "@/components/app/core/Button";
-import {
-  shouldShowSuggestion,
-} from "@/lib/chat-suggestion";
 
 type AssistantStatus = "healthy" | "unhealthy" | "stopped" | "unreachable" | "unknown" | "checking" | "getting_set_up" | "setting_up" | "provisioning_failed";
 
@@ -259,7 +256,7 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const lastMessageRole = lastMessage?.role;
 
   useEffect(() => {
-    if (!shouldShowSuggestion({ input, lastRole: lastMessageRole, isWaitingForResponse, isAlive })) {
+    if (lastMessageRole !== "assistant" || isWaitingForResponse || !isAlive) {
       setSuggestion(null);
       return;
     }
@@ -285,7 +282,9 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
       });
 
     return () => { cancelled = true; };
-  }, [assistantId, input, lastMessageId, lastMessageRole, isWaitingForResponse, isAlive]);
+  }, [assistantId, lastMessageId, lastMessageRole, isWaitingForResponse, isAlive]);
+
+  const displayedSuggestion = input.length === 0 ? suggestion : null;
 
   const uploadedAttachmentIds = useMemo(
     () => pendingAttachments
@@ -585,9 +584,9 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Tab" && suggestion && input.length === 0) {
+      if (e.key === "Tab" && displayedSuggestion && input.length === 0) {
         e.preventDefault();
-        setInput(suggestion);
+        setInput(displayedSuggestion);
         return;
       }
       if (e.key === "Enter" && !e.shiftKey) {
@@ -595,7 +594,7 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
         handleSubmit(e as unknown as FormEvent);
       }
     },
-    [handleSubmit, suggestion, input]
+    [handleSubmit, displayedSuggestion, input]
   );
 
   const getStatusDisplay = () => {
@@ -904,7 +903,7 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
-                placeholder={suggestion ?? undefined}
+                placeholder={displayedSuggestion ?? undefined}
                 rows={1}
                 className="flex-1 resize-none rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
               />
