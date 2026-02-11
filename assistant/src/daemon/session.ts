@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats, UserMessageAttachment, UiSurfaceShow, SurfaceData } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
@@ -651,11 +651,11 @@ export class Session {
         type: 'ui_surface_show',
         sessionId: this.conversationId,
         surfaceId,
-        surfaceType: surfaceType as SurfaceType,
+        surfaceType,
         title,
-        data: data as unknown as SurfaceData,
+        data,
         actions: actions?.map(a => ({ id: a.id, label: a.label, style: (a.style ?? 'secondary') as 'primary' | 'secondary' | 'destructive' })),
-      });
+      } as unknown as UiSurfaceShow);
 
       if (awaitAction) {
         return new Promise<ToolExecutionResult>((resolve) => {
