@@ -2,12 +2,19 @@
 
 AI-powered assistant platform by Vellum.
 
+## Architecture
+
+The platform has two main components:
+
+- **Assistant runtime** (`assistant/`): Bun + TypeScript daemon that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes an HTTP API consumed by the web app.
+- **Web app** (`web/`): Next.js frontend and API layer. Stores assistant metadata, auth, and channel config in Postgres. All chat operations proxy through the assistant runtime via a unified `RuntimeClient`.
+
 ## Repository Structure
 
 ```
 /
 ├── web/               # Next.js web application
-├── assistant/         # Bun-based assistant service
+├── assistant/         # Bun-based assistant runtime
 ├── platform/          # Terraform infrastructure
 ├── vel/               # Development toolkit CLI
 └── .github/           # GitHub Actions workflows
@@ -50,6 +57,16 @@ The web app lives in `/web`. See [web/README.md](./web/README.md) for setup inst
 cd web
 npm install
 npm run dev
+```
+
+## Assistant Runtime
+
+The assistant runtime lives in `/assistant`. See [assistant/README.md](./assistant/README.md) for details.
+
+```bash
+cd assistant
+bun install
+bun run src/index.ts daemon start
 ```
 
 ## License
