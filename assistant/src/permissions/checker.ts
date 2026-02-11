@@ -180,6 +180,9 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   if (toolName === 'browser_close') return RiskLevel.Medium;
   if (toolName === 'browser_click') return RiskLevel.Medium;
   if (toolName === 'browser_type') return RiskLevel.Medium;
+  if (toolName === 'browser_press_key') return RiskLevel.Medium;
+  if (toolName === 'browser_wait_for') return RiskLevel.Low;
+  if (toolName === 'browser_extract') return RiskLevel.Low;
   if (toolName === 'skill_load') return RiskLevel.Low;
 
   if (toolName === 'bash') {

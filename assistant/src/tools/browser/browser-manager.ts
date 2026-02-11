@@ -25,6 +25,9 @@ export type Page = {
   click(selector: string): Promise<void>;
   fill(selector: string, value: string): Promise<void>;
   press(selector: string, key: string): Promise<void>;
+  waitForSelector(selector: string, options?: { timeout?: number }): Promise<unknown>;
+  waitForFunction(expression: string, options?: { timeout?: number }): Promise<unknown>;
+  keyboard: { press(key: string): Promise<void> };
 };
 
 type LaunchFn = (userDataDir: string, options: { headless: boolean }) => Promise<BrowserContext>;
