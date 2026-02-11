@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PARENT_DIR="$(dirname "$REPO_ROOT")"
+
+usage() {
+  echo "Usage: scripts/worktree <create|remove|list> [args]"
+  echo ""
+  echo "Commands:"
+  echo "  create <branch-name>   Create a worktree + branch and install deps"
+  echo "  remove <branch-name>   Remove a worktree and optionally delete the branch"
+  echo "  list                   List all worktrees"
+  echo ""
+  echo "Examples:"
+  echo "  scripts/worktree create feat/streaming"
+  echo "  scripts/worktree remove feat/streaming"
+  echo "  scripts/worktree list"
+}
+
+create() {
+  local branch="$1"
+  local slug="${branch//\//-}"
+  local dir="$PARENT_DIR/vellum-wt-${slug}"
+
+  if [ -d "$dir" ]; then
+    echo "Error: worktree already exists at $dir"
+    exit 1
+  fi
+
+  echo "Creating worktree at $dir on branch $branch..."
+  git -C "$REPO_ROOT" worktree add "$dir" -b "$branch"
+
+  echo "Installing assistant dependencies..."
+  export PATH="$HOME/.bun/bin:$PATH"
+  cd "$dir/assistant" && bun install
+
+  echo ""
+  echo "Ready! To start working:"
+  echo "  cd $dir && claude"
+}
+
+remove() {
+  local branch="$1"
+  local slug="${branch//\//-}"
+  local dir="$PARENT_DIR/vellum-wt-${slug}"
+
+  if [ ! -d "$dir" ]; then
+    echo "Error: no worktree at $dir"
+    exit 1
+  fi
+
+  echo "Removing worktree at $dir..."
+  git -C "$REPO_ROOT" worktree remove "$dir"
+
+  read -p "Delete branch $branch? [y/N] " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    git -C "$REPO_ROOT" branch -d "$branch" 2>/dev/null || \
+      git -C "$REPO_ROOT" branch -D "$branch"
+    echo "Branch $branch deleted."
+  fi
+}
+
+list() {
+  git -C "$REPO_ROOT" worktree list
+}
+
+if [ $# -lt 1 ]; then
+  usage
+  exit 1
+fi
+
+case "$1" in
+  create)
+    [ $# -lt 2 ] && { echo "Error: branch name required"; usage; exit 1; }
+    create "$2"
+    ;;
+  remove)
+    [ $# -lt 2 ] && { echo "Error: branch name required"; usage; exit 1; }
+    remove "$2"
+    ;;
+  list)
+    list
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac
