@@ -282,6 +282,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     summary: 'User appears to be debugging a test failure',
     suggestion: 'Try running the test with --verbose flag for more details',
   },
+  task_routed: {
+    type: 'task_routed',
+    sessionId: 'sess-001',
+    interactionType: 'computer_use',
+    title: 'Open Safari',
+  },
 };
 
 // ---------------------------------------------------------------------------

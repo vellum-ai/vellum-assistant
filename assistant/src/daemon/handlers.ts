@@ -313,6 +313,19 @@ function handleCancel(socket: net.Socket, ctx: HandlerContext): void {
       session.abort();
     }
   }
+
+  // Also clean up any CU sessions for this socket
+  const cuSessionIds = ctx.socketToCuSession.get(socket);
+  if (cuSessionIds) {
+    for (const id of cuSessionIds) {
+      const cuSession = ctx.cuSessions.get(id);
+      if (cuSession) {
+        cuSession.abort();
+      }
+      ctx.cuSessions.delete(id);
+    }
+    cuSessionIds.clear();
+  }
 }
 
 function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
@@ -587,68 +600,75 @@ async function handleTask(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  const config = getConfig();
-  const interactionType = await classifyInteraction(msg.task, config.apiKeys.anthropic);
-  log.info({ interactionType, task: msg.task }, 'Task classified');
+  try {
+    const config = getConfig();
+    const interactionType = await classifyInteraction(msg.task, config.apiKeys.anthropic);
+    log.info({ interactionType, task: msg.task }, 'Task classified');
 
-  if (interactionType === 'text_qa') {
-    // Create a chat session and process the task as a user message
-    const conversation = conversationStore.createConversation(msg.task);
-    const session = await ctx.getOrCreateSession(conversation.id, socket, true);
-    ctx.socketToSession.set(socket, conversation.id);
+    if (interactionType === 'text_qa') {
+      // Create a chat session and process the task as a user message
+      const conversation = conversationStore.createConversation(msg.task);
+      const session = await ctx.getOrCreateSession(conversation.id, socket, true);
+      ctx.socketToSession.set(socket, conversation.id);
 
-    ctx.send(socket, {
-      type: 'session_info',
-      sessionId: conversation.id,
-      title: conversation.title ?? msg.task,
-    });
-
-    try {
-      await session.processMessage(msg.task, msg.attachments ?? [], (event) => {
-        ctx.send(socket, event);
+      ctx.send(socket, {
+        type: 'task_routed',
+        sessionId: conversation.id,
+        interactionType: 'text_qa',
+        title: conversation.title ?? msg.task,
       });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error({ err }, 'Error processing text Q&A task');
-      ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+
+      try {
+        await session.processMessage(msg.task, msg.attachments ?? [], (event) => {
+          ctx.send(socket, event);
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err }, 'Error processing text Q&A task');
+        ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+      }
+      return;
     }
-    return;
+
+    // Computer use — create CU session and ask client for first observation
+    const sessionId = uuid();
+
+    let provider = getProvider(config.provider);
+    const { rateLimit } = config;
+    if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
+      provider = new RateLimitProvider(provider, rateLimit, ctx.sharedRequestTimestamps);
+    }
+
+    const sendToClient = (serverMsg: ServerMessage) => {
+      ctx.send(socket, serverMsg);
+    };
+
+    const session = new ComputerUseSession(
+      sessionId,
+      msg.task,
+      msg.screenWidth,
+      msg.screenHeight,
+      provider,
+      sendToClient,
+    );
+
+    ctx.cuSessions.set(sessionId, session);
+
+    let sessionIds = ctx.socketToCuSession.get(socket);
+    if (!sessionIds) {
+      sessionIds = new Set();
+      ctx.socketToCuSession.set(socket, sessionIds);
+    }
+    sessionIds.add(sessionId);
+
+    log.info({ sessionId, task: msg.task }, 'Computer-use session created, requesting observation');
+
+    ctx.send(socket, { type: 'task_routed', sessionId, interactionType: 'computer_use' });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Error handling task');
+    ctx.send(socket, { type: 'error', message: `Failed to handle task: ${message}` });
   }
-
-  // Computer use — create CU session and ask client for first observation
-  const sessionId = uuid();
-
-  let provider = getProvider(config.provider);
-  const { rateLimit } = config;
-  if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
-    provider = new RateLimitProvider(provider, rateLimit, ctx.sharedRequestTimestamps);
-  }
-
-  const sendToClient = (serverMsg: ServerMessage) => {
-    ctx.send(socket, serverMsg);
-  };
-
-  const session = new ComputerUseSession(
-    sessionId,
-    msg.task,
-    msg.screenWidth,
-    msg.screenHeight,
-    provider,
-    sendToClient,
-  );
-
-  ctx.cuSessions.set(sessionId, session);
-
-  let sessionIds = ctx.socketToCuSession.get(socket);
-  if (!sessionIds) {
-    sessionIds = new Set();
-    ctx.socketToCuSession.set(socket, sessionIds);
-  }
-  sessionIds.add(sessionId);
-
-  log.info({ sessionId, task: msg.task }, 'Computer-use session created, requesting observation');
-
-  ctx.send(socket, { type: 'observation_needed', sessionId });
 }
 
 // ─── Computer-use handlers ──────────────────────────────────────────────────

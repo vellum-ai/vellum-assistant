@@ -287,8 +287,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
-            // Subscribe before sending so we don't miss the routing response
+            // Subscribe twice: routingStream for the routing decision,
+            // sessionStream for forwarding to TextSession (captures early deltas)
             let routingStream = self.daemonClient.subscribe()
+            let sessionStream = self.daemonClient.subscribe()
 
             // Send unified task request — daemon classifies and routes
             let screenSize = ScreenCapture().screenSize()
@@ -307,59 +309,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 attachments: ipcAttachments
             ))
 
-            // Wait for daemon's routing decision
-            for await message in routingStream {
-                switch message {
-                case .observationNeeded(let info):
-                    // Daemon classified as computer use
-                    guard ActionExecutor.checkAccessibilityPermission(prompt: true) else { return }
-                    let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
-                    let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
-                    let session = ComputerUseSession(
-                        sessionId: info.sessionId,
-                        task: effectiveTask,
-                        daemonClient: self.daemonClient,
-                        maxSteps: maxSteps,
-                        attachments: submission.attachments
-                    )
-                    self.currentSession = session
-                    let overlay = SessionOverlayWindow(session: session)
-                    overlay.show()
-                    self.overlayWindow = overlay
-                    self.ambientAgent.pause()
-                    await session.run()
-                    try? await Task.sleep(nanoseconds: 10_000_000_000)
-                    overlay.close()
-                    self.overlayWindow = nil
-                    self.currentSession = nil
-                    self.ambientAgent.resume()
-                    return
-
-                case .sessionInfo(let info):
-                    // Daemon classified as text Q&A — session already created,
-                    // text deltas will follow
-                    let session = TextSession(
-                        sessionId: info.sessionId,
-                        task: effectiveTask,
-                        daemonClient: self.daemonClient,
-                        attachments: submission.attachments
-                    )
-                    self.currentTextSession = session
-                    let window = TextResponseWindow(session: session)
-                    window.show()
-                    self.textResponseWindow = window
-                    self.ambientAgent.pause()
-                    await session.run()
-                    try? await Task.sleep(nanoseconds: 10_000_000_000)
-                    window.close()
-                    self.textResponseWindow = nil
-                    self.currentTextSession = nil
-                    self.ambientAgent.resume()
-                    return
-
-                default:
-                    break
+            // Wait for daemon's routing decision with a 30s timeout
+            let routingResult: TaskRoutedMessage? = await withTaskGroup(of: TaskRoutedMessage?.self) { group in
+                group.addTask { @MainActor in
+                    for await message in routingStream {
+                        switch message {
+                        case .taskRouted(let info):
+                            return info
+                        case .error(let err):
+                            log.error("Daemon error during routing: \(err.message)")
+                            return nil
+                        default:
+                            break
+                        }
+                    }
+                    return nil
                 }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 30_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+
+            guard let routed = routingResult else {
+                log.error("Task routing failed or timed out")
+                return
+            }
+
+            if routed.interactionType == "computer_use" {
+                guard ActionExecutor.checkAccessibilityPermission(prompt: true) else {
+                    // Clean up the daemon's CU session
+                    try? self.daemonClient.send(CancelMessage())
+                    return
+                }
+                let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
+                let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
+                let session = ComputerUseSession(
+                    sessionId: routed.sessionId,
+                    task: effectiveTask,
+                    daemonClient: self.daemonClient,
+                    maxSteps: maxSteps,
+                    attachments: submission.attachments
+                )
+                self.currentSession = session
+                let overlay = SessionOverlayWindow(session: session)
+                overlay.show()
+                self.overlayWindow = overlay
+                self.ambientAgent.pause()
+                await session.run()
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                overlay.close()
+                self.overlayWindow = nil
+                self.currentSession = nil
+                self.ambientAgent.resume()
+            } else {
+                // Text Q&A — pass sessionStream so early deltas aren't lost
+                let session = TextSession(
+                    sessionId: routed.sessionId,
+                    task: effectiveTask,
+                    daemonClient: self.daemonClient,
+                    attachments: submission.attachments,
+                    messageStream: sessionStream
+                )
+                self.currentTextSession = session
+                let window = TextResponseWindow(session: session)
+                window.show()
+                self.textResponseWindow = window
+                self.ambientAgent.pause()
+                await session.run()
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                window.close()
+                self.textResponseWindow = nil
+                self.currentTextSession = nil
+                self.ambientAgent.resume()
             }
         }
     }

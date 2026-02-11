@@ -421,3 +421,12 @@ exports[`IPC message snapshots ServerMessage types ambient_result serializes to 
   "type": "ambient_result",
 }
 `;
+
+exports[`IPC message snapshots ServerMessage types task_routed serializes to expected JSON 1`] = `
+{
+  "interactionType": "computer_use",
+  "sessionId": "sess-001",
+  "title": "Open Safari",
+  "type": "task_routed",
+}
+`;

@@ -302,6 +302,13 @@ export interface ObservationNeeded {
   sessionId: string;
 }
 
+export interface TaskRouted {
+  type: 'task_routed';
+  sessionId: string;
+  interactionType: 'computer_use' | 'text_qa';
+  title?: string;
+}
+
 export interface CuAction {
   type: 'cu_action';
   sessionId: string;
@@ -359,7 +366,8 @@ export type ServerMessage =
   | CuAction
   | CuComplete
   | CuError
-  | AmbientResult;
+  | AmbientResult
+  | TaskRouted;
 
 // === Serialization ===
 

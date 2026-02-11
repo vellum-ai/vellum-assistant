@@ -24,18 +24,21 @@ final class TextSession: ObservableObject {
     private var messageLoopTask: Task<Void, Never>?
     private var daemonSessionId: String?
     private var accumulatedText: String = ""
+    private var externalStream: AsyncStream<ServerMessage>?
 
     init(
         sessionId: String,
         task: String,
         daemonClient: DaemonClientProtocol,
-        attachments: [TaskAttachment] = []
+        attachments: [TaskAttachment] = [],
+        messageStream: AsyncStream<ServerMessage>? = nil
     ) {
         self.id = sessionId
         self.task = task
         self.attachments = attachments
         self.daemonClient = daemonClient
         self.daemonSessionId = sessionId
+        self.externalStream = messageStream
     }
 
     func run() async {
@@ -45,9 +48,8 @@ final class TextSession: ObservableObject {
 
         log.info("TextSession starting — task: \(self.task, privacy: .public), sessionId: \(self.id)")
 
-        // Subscribe and listen for text deltas (daemon already created the session
-        // and sent the user message via the unified task handler)
-        let messageStream = daemonClient.subscribe()
+        // Use provided stream (which already captured early deltas) or subscribe fresh
+        let messageStream = externalStream ?? daemonClient.subscribe()
 
         let loopTask = Task { @MainActor [weak self] in
             guard let self else { return }
