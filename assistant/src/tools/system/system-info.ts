@@ -192,7 +192,8 @@ class SystemInfoTool implements Tool {
     try {
       const sections = Array.isArray(input.sections) ? input.sections.filter((s): s is string => typeof s === 'string') : undefined;
       const content = buildSystemInfo(sections);
-      return { content, isError: false };
+      const isError = content.startsWith('Error:');
+      return { content, isError };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error({ err }, 'system_info failed');

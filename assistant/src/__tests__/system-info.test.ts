@@ -53,6 +53,7 @@ mock.module('node:child_process', () => ({
 // Import after mocks are set up
 // ---------------------------------------------------------------------------
 const { buildSystemInfo } = await import('../tools/system/system-info.js');
+const { getTool } = await import('../tools/registry.js');
 
 describe('system_info', () => {
   beforeEach(() => {
@@ -155,6 +156,14 @@ describe('system_info', () => {
     expect(result).toContain('Error: No valid sections specified');
     expect(result).toContain('memory');
     expect(result).toContain('cpu');
+  });
+
+  test('execute returns isError true when only invalid sections are provided', async () => {
+    const tool = getTool('system_info');
+    expect(tool).toBeDefined();
+    const result = await tool!.execute({ sections: ['memroy', 'bogus'] }, {} as ToolContext);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Error: No valid sections specified');
   });
 
   test('handles missing battery gracefully (desktop Mac)', () => {
