@@ -863,6 +863,17 @@ program
     } else {
       fail('WASM files', missingWasm.join(', '));
     }
+
+    // 12. Browser runtime (Playwright + Chromium)
+    const { checkBrowserRuntime } = await import('./tools/browser/runtime-check.js');
+    const browserStatus = await checkBrowserRuntime();
+    if (browserStatus.playwrightAvailable && browserStatus.chromiumInstalled) {
+      pass('Browser runtime (Playwright + Chromium)');
+    } else if (!browserStatus.playwrightAvailable) {
+      fail('Browser runtime', 'playwright not available');
+    } else {
+      fail('Browser runtime', browserStatus.error ?? 'Chromium not installed');
+    }
   });
 
 // --- Completions command ---
