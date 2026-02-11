@@ -85,7 +85,12 @@ export class RetryProvider implements Provider {
 
         if (attempt < MAX_RETRIES && isRetryableError(error)) {
           const delay = getRetryDelay(attempt);
-          log.warn({ attempt: attempt + 1, delay }, 'Retrying after transient error');
+          const errorType = error instanceof ProviderError && error.statusCode === 429
+            ? 'rate_limit'
+            : error instanceof ProviderError && error.statusCode !== undefined && error.statusCode >= 500
+              ? `server_error_${error.statusCode}`
+              : 'network_error';
+          log.warn({ attempt: attempt + 1, maxRetries: MAX_RETRIES, delay, errorType, provider: this.name }, 'Retrying after transient error');
           await sleep(delay);
           continue;
         }

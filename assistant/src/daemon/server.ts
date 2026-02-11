@@ -63,7 +63,7 @@ export class DaemonServer {
 
       this.server.once('error', (err) => {
         process.umask(oldUmask);
-        log.error({ err }, 'Server error');
+        log.error({ err, socketPath: this.socketPath }, 'Server failed to start (is another daemon already running?)');
         reject(err);
       });
 
@@ -72,7 +72,7 @@ export class DaemonServer {
         // Replace the one-shot startup handler with a permanent one
         this.server!.removeAllListeners('error');
         this.server!.on('error', (err) => {
-          log.error({ err }, 'Server error');
+          log.error({ err, socketPath: this.socketPath }, 'Server socket error while running');
         });
         chmodSync(this.socketPath, 0o600);
         log.info({ socketPath: this.socketPath }, 'Daemon server listening');
@@ -150,7 +150,7 @@ export class DaemonServer {
           const config = getConfig();
           initializeProviders(config);
         } catch (err) {
-          log.error({ err }, 'Failed to reload config');
+          log.error({ err, configPath: join(getDataDir(), 'config.json') }, 'Failed to reload config after file change. Previous config remains active.');
           return;
         }
         evictSessions();
@@ -186,7 +186,7 @@ export class DaemonServer {
       this.watchers.push(watcher);
       log.info({ dir: dataDir }, 'Watching data directory for config/trust/prompt changes');
     } catch (err) {
-      log.warn({ err }, 'Failed to watch data directory');
+      log.warn({ err, dir: dataDir }, 'Failed to watch data directory for config changes. Config/trust/prompt hot-reload will be unavailable.');
     }
 
     this.startSkillsWatchers(evictSessions);
@@ -303,7 +303,7 @@ export class DaemonServer {
 
     // Send initial session info
     this.sendInitialSession(socket).catch((err) => {
-      log.error({ err }, 'Failed to send initial session');
+      log.error({ err }, 'Failed to send initial session info to client on connect');
     });
 
     socket.on('data', (data) => {
@@ -311,8 +311,8 @@ export class DaemonServer {
       try {
         messages = parser.feed(data.toString());
       } catch (err) {
-        log.error({ err }, 'IPC parse error, dropping client');
-        socket.write(serialize({ type: 'error', message: (err as Error).message }));
+        log.error({ err }, 'IPC parse error (malformed JSON or message exceeded size limit), dropping client');
+        socket.write(serialize({ type: 'error', message: `IPC parse error: ${(err as Error).message}` }));
         socket.destroy();
         return;
       }
@@ -347,7 +347,7 @@ export class DaemonServer {
     });
 
     socket.on('error', (err) => {
-      log.error({ err }, 'Socket error');
+      log.error({ err, remoteAddress: socket.remoteAddress }, 'Client socket error');
     });
   }
 

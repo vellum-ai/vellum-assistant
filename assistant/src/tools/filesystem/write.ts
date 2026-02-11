@@ -78,7 +78,11 @@ class FileWriteTool implements Tool {
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { content: `Error writing file: ${msg}`, isError: true };
+      const hint = msg.includes('ENOENT') ? ' (parent directory does not exist)'
+        : msg.includes('EACCES') ? ' (permission denied)'
+        : msg.includes('EROFS') ? ' (read-only file system)'
+        : '';
+      return { content: `Error writing file "${input.path}"${hint}: ${msg}`, isError: true };
     }
   }
 }

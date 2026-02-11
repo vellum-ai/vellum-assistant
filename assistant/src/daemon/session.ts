@@ -412,7 +412,7 @@ export class Session {
         );
 
         if (orderingErrorDetected) {
-          rlog.error({ phase: 'retry' }, 'Deep-repair retry also failed with ordering error');
+          rlog.error({ phase: 'retry' }, 'Deep-repair retry also failed with ordering error. Consider starting a new conversation if this persists.');
         }
       }
 
@@ -476,7 +476,7 @@ export class Session {
       // Auto-generate conversation title after first exchange
       if (isFirstMessage) {
         this.generateTitle(content, firstAssistantText).catch((err) => {
-          log.warn({ err }, 'Failed to generate conversation title');
+          log.warn({ err, conversationId: this.conversationId }, 'Failed to generate conversation title (non-fatal, using default title)');
         });
       }
     } catch (err) {
@@ -487,7 +487,7 @@ export class Session {
       } else {
         const message = err instanceof Error ? err.message : String(err);
         rlog.error({ err }, 'Session processing error');
-        onEvent({ type: 'error', message });
+        onEvent({ type: 'error', message: `Failed to process message: ${message}` });
       }
     } finally {
       this.abortController = null;

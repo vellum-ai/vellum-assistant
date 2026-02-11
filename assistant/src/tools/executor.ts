@@ -1,5 +1,5 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { getTool } from './registry.js';
+import { getTool, getAllTools } from './registry.js';
 import type { ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
 import { RiskLevel } from '../permissions/types.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
@@ -45,7 +45,8 @@ export class ToolExecutor {
 
     const tool = getTool(name);
     if (!tool) {
-      const msg = `Unknown tool: ${name}`;
+      const available = getAllTools().map((t) => t.name).sort().join(', ');
+      const msg = `Unknown tool: ${name}. Available tools: ${available}`;
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent(context, {
         type: 'error',
@@ -177,7 +178,7 @@ export class ToolExecutor {
       let execResult: ToolExecutionResult;
       if (tool.executionMode === 'proxy') {
         if (!context.proxyToolResolver) {
-          const msg = 'No proxy resolver configured for proxy tool';
+          const msg = `No proxy resolver configured for proxy tool "${name}". This tool requires an external resolver (e.g. a connected macOS client for computer-use tools).`;
           const durationMs = Date.now() - startTime;
           emitLifecycleEvent(context, {
             type: 'error',
@@ -299,7 +300,7 @@ export class ToolExecutor {
       if (isExpected) {
         return { content: msg, isError: true };
       }
-      return { content: `Tool error: ${msg}`, isError: true };
+      return { content: `Tool "${name}" encountered an unexpected error: ${msg}`, isError: true };
     }
   }
 }
@@ -314,14 +315,14 @@ function emitLifecycleEvent(context: ToolContext, event: ToolLifecycleEvent): vo
       void maybePromise.catch((err) => {
         log.warn(
           { err, eventType: event.type, toolName: event.toolName },
-          'Tool lifecycle event handler failed',
+          'Tool lifecycle event handler failed (non-fatal, tool execution was not affected)',
         );
       });
     }
   } catch (err) {
     log.warn(
       { err, eventType: event.type, toolName: event.toolName },
-      'Tool lifecycle event handler failed',
+      'Tool lifecycle event handler failed (non-fatal, tool execution was not affected)',
     );
   }
 }
