@@ -162,6 +162,26 @@ export const channelInboundEvents = sqliteTable('channel_inbound_events', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+// ── Message Runs (approval flow) ─────────────────────────────────────
+
+export const messageRuns = sqliteTable('message_runs', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull(),
+  conversationId: text('conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  messageId: text('message_id')
+    .references(() => messages.id, { onDelete: 'cascade' }),
+  status: text('status').notNull().default('running'),          // running | needs_confirmation | completed | failed
+  pendingConfirmation: text('pending_confirmation'),            // JSON when status=needs_confirmation
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  estimatedCost: real('estimated_cost').notNull().default(0),
+  error: text('error'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export const memoryCheckpoints = sqliteTable('memory_checkpoints', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
