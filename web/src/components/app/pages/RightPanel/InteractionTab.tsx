@@ -251,14 +251,27 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const lastMessage = messages[messages.length - 1];
   const isWaitingForResponse = lastMessage?.role === "user";
 
+  const lastAssistantMessage = useMemo(
+    () => [...messages].reverse().find((m) => m.role === "assistant"),
+    [messages],
+  );
+  const lastAssistantMessageId = lastAssistantMessage?.id;
+
   const wasWaitingRef = useRef(false);
+  const lastAlertedAssistantIdRef = useRef(lastAssistantMessageId);
   useEffect(() => {
-    if (wasWaitingRef.current && !isWaitingForResponse && !document.hasFocus()) {
+    const hasNewAssistantMessage =
+      lastAssistantMessageId !== undefined &&
+      lastAssistantMessageId !== lastAlertedAssistantIdRef.current;
+    if (wasWaitingRef.current && !isWaitingForResponse && hasNewAssistantMessage && !document.hasFocus()) {
       const audio = new Audio("/wilhelm.mp3");
       audio.play().catch(() => {});
     }
+    if (hasNewAssistantMessage) {
+      lastAlertedAssistantIdRef.current = lastAssistantMessageId;
+    }
     wasWaitingRef.current = isWaitingForResponse;
-  }, [isWaitingForResponse]);
+  }, [isWaitingForResponse, lastAssistantMessageId]);
 
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const lastMessageId = lastMessage?.id;
