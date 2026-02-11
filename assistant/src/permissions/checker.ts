@@ -2,6 +2,7 @@ import { RiskLevel, type PermissionCheckResult, type AllowlistOption, type Scope
 import { findMatchingRule, findDenyRule } from './trust-store.js';
 import { parse } from '../tools/terminal/parser.js';
 import { resolveSkillSelector } from '../config/skills.js';
+import { getTool } from '../tools/registry.js';
 import { dirname } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -244,6 +245,10 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
 
     return maxRisk;
   }
+
+  // Check the tool registry for a declared default risk level
+  const tool = getTool(toolName);
+  if (tool) return tool.defaultRiskLevel;
 
   // Unknown tool → Medium
   return RiskLevel.Medium;

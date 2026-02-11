@@ -96,10 +96,12 @@ export class ComputerUseSession {
     }
 
     if (this.state === 'awaiting_observation' && this.pendingObservation) {
-      // Resolve the pending proxy tool result with a summary
+      // Resolve the pending proxy tool result with updated screen context
+      const content = this.buildObservationResultContent(obs);
       const result: ToolExecutionResult = obs.executionError
-        ? { content: `Action failed: ${obs.executionError}`, isError: true }
-        : { content: obs.executionResult ?? 'Action executed', isError: false };
+        ? { content: `Action failed: ${obs.executionError}\n\n${content}`, isError: true }
+        : { content, isError: false };
+      this.state = 'inferring';
       this.pendingObservation.resolve(result);
       this.pendingObservation = null;
       // The agent loop continues automatically after resolution
@@ -298,6 +300,45 @@ export class ComputerUseSession {
   }
 
   // ---------------------------------------------------------------------------
+  // Build rich tool-result content from an observation so the model sees
+  // updated screen state on each turn (not just "Action executed").
+  // ---------------------------------------------------------------------------
+
+  private buildObservationResultContent(obs: CuObservation): string {
+    const parts: string[] = [];
+
+    if (obs.executionResult) {
+      parts.push(obs.executionResult);
+      parts.push('');
+    }
+
+    // AX tree diff
+    if (obs.axDiff) {
+      parts.push(obs.axDiff);
+      parts.push('');
+    } else if (this.previousAXTree != null && obs.axTree != null) {
+      const lastAction = this.actionHistory[this.actionHistory.length - 1];
+      const wasWait = lastAction?.toolName === 'cu_wait';
+      if (this.consecutiveUnchangedSteps >= CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD) {
+        parts.push(
+          `WARNING: ${this.consecutiveUnchangedSteps} consecutive actions had NO VISIBLE EFFECT on the UI. You MUST try a completely different approach.`,
+        );
+      } else if (!wasWait) {
+        parts.push('Your last action had NO VISIBLE EFFECT on the UI. Try something different.');
+      }
+      parts.push('');
+    }
+
+    // Current screen state
+    if (obs.axTree) {
+      parts.push('CURRENT SCREEN STATE:');
+      parts.push(obs.axTree);
+    }
+
+    return parts.join('\n').trim() || 'Action executed';
+  }
+
+  // ---------------------------------------------------------------------------
   // Message building (replicates AnthropicProvider.buildMessages from Swift)
   // ---------------------------------------------------------------------------
 
@@ -330,7 +371,7 @@ export class ComputerUseSession {
     if (obs.axDiff && this.actionHistory.length > 0) {
       textParts.push(obs.axDiff);
       textParts.push('');
-    } else if (obs.previousAXTree != null && obs.axTree != null && this.actionHistory.length > 0) {
+    } else if (this.previousAXTree != null && obs.axTree != null && this.actionHistory.length > 0) {
       // AX tree unchanged — tell the model its action had no effect
       const lastAction = this.actionHistory[this.actionHistory.length - 1];
       const wasWait = lastAction?.toolName === 'cu_wait';
