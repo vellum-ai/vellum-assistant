@@ -424,7 +424,7 @@ async function persistAssistantReplyStatus(
 
 async function claimAssistantReplyDelivery(messageId: string) {
   const sql = getDb();
-  const staleDeliveryCutoff = new Date(Date.now() - DELIVERY_IN_PROGRESS_STALE_MS);
+  const staleDeliveryCutoff = new Date(Date.now() - DELIVERY_IN_PROGRESS_STALE_MS).toISOString();
   const claimed = await sql`
     UPDATE chat_messages
     SET status = ${ASSISTANT_REPLY_STATUS_DELIVERY_IN_PROGRESS},
