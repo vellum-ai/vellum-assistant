@@ -46,11 +46,19 @@ final class OnboardingWindow {
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
 
-        // Fix the content size so the hosting controller doesn't resize the window after centering
-        let contentSize = NSSize(width: 1366, height: 849)
-        window.contentMinSize = contentSize
-        window.contentMaxSize = contentSize
-        window.setContentSize(contentSize)
+        // Set preferred size, clamped to screen
+        let preferredSize = NSSize(width: 1366, height: 849)
+        let minSize = NSSize(width: 800, height: 600)
+        window.contentMinSize = minSize
+
+        if let screen = NSScreen.main {
+            let visibleFrame = screen.visibleFrame
+            let clampedWidth = min(preferredSize.width, visibleFrame.width)
+            let clampedHeight = min(preferredSize.height, visibleFrame.height)
+            window.setContentSize(NSSize(width: clampedWidth, height: clampedHeight))
+        } else {
+            window.setContentSize(preferredSize)
+        }
         window.center()
 
         // Make the app a regular app so the window gets focus
