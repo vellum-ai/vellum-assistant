@@ -2,6 +2,9 @@ import AppKit
 import SwiftUI
 import HotKey
 import UserNotifications
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
 private enum InteractionType {
     case computerUse
@@ -51,6 +54,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupDaemonClient() {
         Task {
             try? await daemonClient.connect()
+            // Once connected, start ambient agent if it was waiting for daemon
+            if daemonClient.isConnected {
+                setupAmbientAgent()
+            }
         }
     }
 
@@ -181,7 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ambientAgent.appDelegate = self
         ambientAgent.daemonClient = daemonClient
 
-        if ambientAgent.isEnabled {
+        if ambientAgent.isEnabled && daemonClient.isConnected {
             ambientAgent.start()
             updateMenuBarIcon()
         }
@@ -268,43 +275,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let effectiveTask = !sessionTask.isEmpty ? sessionTask : "Use the attached files as context."
         let interactionType = classifyInteraction(effectiveTask)
 
-        switch interactionType {
-        case .computerUse:
-            guard ActionExecutor.checkAccessibilityPermission(prompt: true) else { return }
-            let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
-            let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
-            let session = ComputerUseSession(
-                task: effectiveTask,
-                daemonClient: daemonClient,
-                maxSteps: maxSteps,
-                attachments: submission.attachments
-            )
-            currentSession = session
-            let overlay = SessionOverlayWindow(session: session)
-            overlay.show()
-            overlayWindow = overlay
-            ambientAgent.pause()
-            Task { @MainActor in
+        // Ensure daemon connection before starting any session
+        Task { @MainActor in
+            if !daemonClient.isConnected {
+                log.info("Daemon not connected, attempting to connect before session start")
+                do {
+                    try await daemonClient.connect()
+                } catch {
+                    log.error("Failed to connect to daemon: \(error.localizedDescription)")
+                    self.showDaemonConnectionError()
+                    return
+                }
+            }
+
+            switch interactionType {
+            case .computerUse:
+                guard ActionExecutor.checkAccessibilityPermission(prompt: true) else { return }
+                let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
+                let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
+                let session = ComputerUseSession(
+                    task: effectiveTask,
+                    daemonClient: self.daemonClient,
+                    maxSteps: maxSteps,
+                    attachments: submission.attachments
+                )
+                self.currentSession = session
+                let overlay = SessionOverlayWindow(session: session)
+                overlay.show()
+                self.overlayWindow = overlay
+                self.ambientAgent.pause()
                 await session.run()
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 overlay.close()
                 self.overlayWindow = nil
                 self.currentSession = nil
                 self.ambientAgent.resume()
-            }
 
-        case .textQA:
-            let session = TextSession(
-                task: effectiveTask,
-                daemonClient: daemonClient,
-                attachments: submission.attachments
-            )
-            currentTextSession = session
-            let window = TextResponseWindow(session: session)
-            window.show()
-            textResponseWindow = window
-            ambientAgent.pause()
-            Task { @MainActor in
+            case .textQA:
+                let session = TextSession(
+                    task: effectiveTask,
+                    daemonClient: self.daemonClient,
+                    attachments: submission.attachments
+                )
+                self.currentTextSession = session
+                let window = TextResponseWindow(session: session)
+                window.show()
+                self.textResponseWindow = window
+                self.ambientAgent.pause()
                 await session.run()
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 window.close()
@@ -312,6 +329,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.currentTextSession = nil
                 self.ambientAgent.resume()
             }
+        }
+    }
+
+    private func showDaemonConnectionError() {
+        // Create a temporary session in failed state to show the error in the overlay
+        let session = ComputerUseSession(
+            task: "",
+            daemonClient: daemonClient,
+            maxSteps: 1
+        )
+        session.state = .failed(reason: "Cannot connect to daemon. Please ensure the daemon is running.")
+        currentSession = session
+        let overlay = SessionOverlayWindow(session: session)
+        overlay.show()
+        overlayWindow = overlay
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000) // Show error for 5 seconds
+            overlay.close()
+            self.overlayWindow = nil
+            self.currentSession = nil
         }
     }
 
