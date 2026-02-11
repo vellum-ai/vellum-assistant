@@ -124,7 +124,7 @@ enum AXTreeDiff {
 
         // If more than half the elements changed on a non-trivial page, it likely navigated —
         // the per-element diff is noise. Return a short sentinel instead of nil so the caller
-        // knows a diff was computed (avoiding the full previous-tree fallback in AnthropicProvider).
+        // knows a diff was computed (avoiding the full previous-tree fallback in the inference layer).
         let totalElements = max(prevFlat.count, currFlat.count)
         if totalElements >= 10 && changes.count > totalElements / 2 {
             return "CHANGES SINCE LAST ACTION:\nPage navigated — UI changed substantially (\(changes.count) of \(totalElements) elements differ). Refer to the current screen state below."
