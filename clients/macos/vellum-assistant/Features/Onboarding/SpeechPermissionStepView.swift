@@ -153,5 +153,5 @@ struct SpeechPermissionStepView: View {
             }())
         }
     }
-    .frame(width: 600, height: 500)
+    .frame(width: 1366, height: 849)
 }

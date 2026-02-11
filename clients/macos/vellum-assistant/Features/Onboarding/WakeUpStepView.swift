@@ -60,5 +60,5 @@ struct WakeUpStepView: View {
         OnboardingBackground()
         WakeUpStepView(state: OnboardingState())
     }
-    .frame(width: 600, height: 500)
+    .frame(width: 1366, height: 849)
 }

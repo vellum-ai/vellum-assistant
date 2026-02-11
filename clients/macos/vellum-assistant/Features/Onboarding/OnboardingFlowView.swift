@@ -60,7 +60,7 @@ struct OnboardingFlowView: View {
                 Spacer()
             }
         }
-        .frame(width: 600, height: 500)
+        .frame(width: 1366, height: 849)
         .animation(.easeOut(duration: 0.8), value: state.currentStep)
     }
 
