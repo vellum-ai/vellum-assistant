@@ -191,10 +191,10 @@ export class Session {
     attachments: UserMessageAttachment[],
     onEvent: (msg: ServerMessage) => void,
     requestId?: string,
-  ): Promise<void> {
+  ): Promise<string> {
     if (this.processing) {
       onEvent({ type: 'error', message: 'Already processing a message' });
-      return;
+      return '';
     }
 
     const reqId = requestId ?? uuid();
@@ -202,12 +202,13 @@ export class Session {
     const rlog = log.child({ conversationId: this.conversationId, requestId: reqId });
     this.processing = true;
     this.abortController = new AbortController();
+    let userMessageId = '';
 
     try {
       const isFirstMessage = this.messages.length === 0;
       if (!content.trim() && attachments.length === 0) {
         onEvent({ type: 'error', message: 'Message content or attachments are required' });
-        return;
+        return '';
       }
 
       // Add user message
@@ -224,6 +225,7 @@ export class Session {
         'user',
         JSON.stringify(userMessage.content),
       );
+      userMessageId = persistedUserMessage.id;
 
       const compacted = await this.contextWindowManager.maybeCompact(
         this.messages,
@@ -498,6 +500,8 @@ export class Session {
       this.processing = false;
       this.currentRequestId = undefined;
     }
+
+    return userMessageId;
   }
 
   getMessages(): Message[] {
