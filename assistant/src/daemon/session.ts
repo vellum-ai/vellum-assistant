@@ -56,6 +56,9 @@ export class Session {
     resolve: (result: ToolExecutionResult) => void;
   }>();
 
+  /** Tracks active surface data so ui_update can merge patches before forwarding. */
+  private activeSurfaces = new Map<string, { type: SurfaceType; data: Record<string, unknown> }>();
+
   constructor(
     conversationId: string,
     provider: Provider,
@@ -187,6 +190,7 @@ export class Session {
         pending.resolve({ content: 'Session aborted', isError: true });
       }
       this.pendingSurfaceActions.clear();
+      this.activeSurfaces.clear();
     }
   }
 
@@ -645,7 +649,11 @@ export class Session {
       const title = typeof input.title === 'string' ? input.title : undefined;
       const data = input.data as Record<string, unknown>;
       const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
-      const awaitAction = input.await_action !== false && (input.await_action === true || (actions && actions.length > 0));
+      const isInteractive = ['form', 'list', 'confirmation'].includes(surfaceType);
+      const awaitAction = (input.await_action as boolean) ?? isInteractive;
+
+      // Track active surface data for patch merging in ui_update
+      this.activeSurfaces.set(surfaceId, { type: surfaceType as SurfaceType, data: { ...data } });
 
       this.sendToClient({
         type: 'ui_surface_show',
@@ -666,11 +674,19 @@ export class Session {
     }
 
     if (toolName === 'ui_update') {
+      const surfaceId = input.surface_id as string;
+      const data = input.data as Record<string, unknown>;
+      // Merge the patch with existing surface data before forwarding
+      const existing = this.activeSurfaces.get(surfaceId);
+      const mergedData = { ...existing?.data, ...data };
+      if (existing) {
+        this.activeSurfaces.set(surfaceId, { type: existing.type, data: mergedData });
+      }
       this.sendToClient({
         type: 'ui_surface_update',
         sessionId: this.conversationId,
-        surfaceId: input.surface_id as string,
-        data: input.data as Partial<SurfaceData>,
+        surfaceId,
+        data: mergedData as Partial<SurfaceData>,
       });
       return { content: 'Surface updated', isError: false };
     }
@@ -683,6 +699,7 @@ export class Session {
         surfaceId,
       });
       this.pendingSurfaceActions.delete(surfaceId);
+      this.activeSurfaces.delete(surfaceId);
       return { content: 'Surface dismissed', isError: false };
     }
 
