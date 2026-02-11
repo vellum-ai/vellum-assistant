@@ -19,7 +19,7 @@ final class SurfaceManager: ObservableObject {
 
     private var panels: [String: NSPanel] = [:]
 
-    /// Ordered list of surface IDs for consistent positioning.
+    /// Ordered list of surface IDs for deterministic stacking positions.
     private var surfaceOrder: [String] = []
 
     private let panelWidth: CGFloat = 380
@@ -46,6 +46,7 @@ final class SurfaceManager: ObservableObject {
         }
 
         activeSurfaces[surface.id] = surface
+        surfaceOrder.append(surface.id)
 
         let view = SurfaceContainerView(
             surface: surface,
@@ -74,10 +75,7 @@ final class SurfaceManager: ObservableObject {
 
         panels[surface.id] = panel
 
-        // Track ordering and reposition all panels to avoid gaps after dismissals.
-        if !surfaceOrder.contains(surface.id) {
-            surfaceOrder.append(surface.id)
-        }
+        // Reposition all panels to ensure correct stacking after show/dismiss cycles.
         repositionAllPanels()
 
         panel.orderFront(nil)
@@ -127,9 +125,9 @@ final class SurfaceManager: ObservableObject {
             panels[id]?.close()
             panels.removeValue(forKey: id)
             activeSurfaces.removeValue(forKey: id)
+            log.info("Dismissed surface: id=\(id)")
         }
         surfaceOrder.removeAll()
-        log.info("Dismissed all surfaces")
     }
 
     private func dismissSurfaceById(_ surfaceId: String) {
@@ -143,20 +141,26 @@ final class SurfaceManager: ObservableObject {
 
     // MARK: - Positioning
 
-    /// Repositions all active panels based on their order in `surfaceOrder`,
-    /// ensuring no gaps after dismissals or re-shows.
-    private func repositionAllPanels() {
+    private func positionPanel(_ panel: NSPanel, at index: Int) {
         guard let screen = NSScreen.main else { return }
         let screenFrame = screen.visibleFrame
-        let estimatedPanelHeight: CGFloat = 140
 
+        let estimatedPanelHeight: CGFloat = 140
+        let yOffset = CGFloat(index) * (estimatedPanelHeight + panelSpacing)
+
+        let x = screenFrame.maxX - panelWidth - panelMargin
+        let y = screenFrame.minY + panelMargin + yOffset
+
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+
+    /// Reposition all visible panels based on their order in `surfaceOrder`.
+    /// Called after show and dismiss to prevent gaps and overlaps.
+    private func repositionAllPanels() {
         for (index, surfaceId) in surfaceOrder.enumerated() {
-            guard let panel = panels[surfaceId] else { continue }
-            let yOffset = CGFloat(index) * (estimatedPanelHeight + panelSpacing)
-            let x = screenFrame.maxX - panelWidth - panelMargin
-            let y = screenFrame.minY + panelMargin + yOffset
-            panel.setFrameOrigin(NSPoint(x: x, y: y))
+            if let panel = panels[surfaceId] {
+                positionPanel(panel, at: index)
+            }
         }
     }
 }
-

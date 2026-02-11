@@ -43,13 +43,46 @@ enum FormFieldType: String, Sendable {
     case number
 }
 
+/// A form field default value that can be a string, number, or boolean,
+/// matching the `string | number | boolean` union in ipc-protocol.ts.
+enum FormFieldDefault: Sendable, Equatable {
+    case string(String)
+    case number(Double)
+    case boolean(Bool)
+
+    /// Convenience accessor that returns the value as a display string.
+    var stringValue: String {
+        switch self {
+        case .string(let s): return s
+        case .number(let n):
+            // Format integers without a decimal point.
+            if n == n.rounded(.towardZero) && !n.isNaN && !n.isInfinite {
+                return String(Int(n))
+            }
+            return String(n)
+        case .boolean(let b): return b ? "true" : "false"
+        }
+    }
+
+    /// Parse from an untyped Any value coming from IPC JSON.
+    static func from(_ value: Any?) -> FormFieldDefault? {
+        guard let value = value else { return nil }
+        // Check Bool before numeric types because Bool conforms to numeric protocols in Swift.
+        if let b = value as? Bool { return .boolean(b) }
+        if let n = value as? Double { return .number(n) }
+        if let n = value as? Int { return .number(Double(n)) }
+        if let s = value as? String { return .string(s) }
+        return nil
+    }
+}
+
 struct FormField: Identifiable, Sendable {
     let id: String
     let type: FormFieldType
     let label: String
     let placeholder: String?
     let required: Bool
-    let defaultValue: String?
+    let defaultValue: FormFieldDefault?
     let options: [FormFieldOption]?
 }
 
@@ -137,7 +170,9 @@ extension Surface {
     }
 
     /// Update only the data payload of an existing surface from a `UiSurfaceUpdateMessage`.
-    /// Performs a proper merge: only fields present in the update dictionary override existing values.
+    ///
+    /// The update payload is `Partial<SurfaceData>` — only the fields present in the dict are
+    /// applied over the existing data. Missing keys keep their current value.
     func updated(with message: UiSurfaceUpdateMessage) -> Surface? {
         let dict = message.data.value as? [String: Any?] ?? [:]
         guard let mergedData = Self.mergeSurfaceData(existing: self.data, update: dict) else {
@@ -168,10 +203,11 @@ extension Surface {
         }
     }
 
-    // MARK: - Merge Helpers (for partial updates)
+    // MARK: - Partial Merge Helpers
 
-    /// Merge an update dictionary into the existing `SurfaceData`, keeping current values for
-    /// any fields not present in the update.
+    /// Merge a partial update dict into existing `SurfaceData`, keeping fields that are not
+    /// present in the update unchanged. This supports the `Partial<SurfaceData>` contract
+    /// from ipc-protocol.ts.
     private static func mergeSurfaceData(existing: SurfaceData, update: [String: Any?]) -> SurfaceData? {
         switch existing {
         case .card(let card):
@@ -180,15 +216,15 @@ extension Surface {
             return .form(mergeFormData(existing: form, update: update))
         case .list(let list):
             return .list(mergeListData(existing: list, update: update))
-        case .confirmation(let conf):
-            return .confirmation(mergeConfirmationData(existing: conf, update: update))
+        case .confirmation(let confirmation):
+            return .confirmation(mergeConfirmationData(existing: confirmation, update: update))
         }
     }
 
     private static func mergeCardData(existing: CardSurfaceData, update: [String: Any?]) -> CardSurfaceData {
         let title = (update["title"] as? String) ?? existing.title
         let body = (update["body"] as? String) ?? existing.body
-        let subtitle: String? = update.keys.contains("subtitle") ? update["subtitle"] as? String : existing.subtitle
+        let subtitle: String? = update.keys.contains("subtitle") ? (update["subtitle"] as? String) : existing.subtitle
 
         var metadata = existing.metadata
         if update.keys.contains("metadata") {
@@ -207,8 +243,12 @@ extension Surface {
     }
 
     private static func mergeFormData(existing: FormSurfaceData, update: [String: Any?]) -> FormSurfaceData {
-        let description: String? = update.keys.contains("description") ? update["description"] as? String : existing.description
-        let submitLabel: String? = update.keys.contains("submitLabel") ? update["submitLabel"] as? String : existing.submitLabel
+        let description: String? = update.keys.contains("description")
+            ? (update["description"] as? String)
+            : existing.description
+        let submitLabel: String? = update.keys.contains("submitLabel")
+            ? (update["submitLabel"] as? String)
+            : existing.submitLabel
 
         var fields = existing.fields
         if let fieldsArray = update["fields"] as? [[String: Any?]] {
@@ -219,16 +259,13 @@ extension Surface {
     }
 
     private static func mergeListData(existing: ListSurfaceData, update: [String: Any?]) -> ListSurfaceData {
-        var selectionMode = existing.selectionMode
-        if let modeStr = update["selectionMode"] as? String, let mode = SelectionMode(rawValue: modeStr) {
-            selectionMode = mode
-        }
-
         var items = existing.items
         if let itemsArray = update["items"] as? [[String: Any?]] {
             items = itemsArray.compactMap { itemDict in
                 guard let id = itemDict["id"] as? String,
-                      let title = itemDict["title"] as? String else { return nil }
+                      let title = itemDict["title"] as? String else {
+                    return nil
+                }
                 return ListItemData(
                     id: id,
                     title: title,
@@ -239,15 +276,25 @@ extension Surface {
             }
         }
 
+        let selectionMode: SelectionMode
+        if let modeStr = update["selectionMode"] as? String,
+           let mode = SelectionMode(rawValue: modeStr) {
+            selectionMode = mode
+        } else {
+            selectionMode = existing.selectionMode
+        }
+
         return ListSurfaceData(items: items, selectionMode: selectionMode)
     }
 
     private static func mergeConfirmationData(existing: ConfirmationSurfaceData, update: [String: Any?]) -> ConfirmationSurfaceData {
         let message = (update["message"] as? String) ?? existing.message
-        let detail: String? = update.keys.contains("detail") ? update["detail"] as? String : existing.detail
-        let confirmLabel: String? = update.keys.contains("confirmLabel") ? update["confirmLabel"] as? String : existing.confirmLabel
-        let cancelLabel: String? = update.keys.contains("cancelLabel") ? update["cancelLabel"] as? String : existing.cancelLabel
-        let destructive = (update["destructive"] as? Bool) ?? existing.destructive
+        let detail: String? = update.keys.contains("detail") ? (update["detail"] as? String) : existing.detail
+        let confirmLabel: String? = update.keys.contains("confirmLabel")
+            ? (update["confirmLabel"] as? String) : existing.confirmLabel
+        let cancelLabel: String? = update.keys.contains("cancelLabel")
+            ? (update["cancelLabel"] as? String) : existing.cancelLabel
+        let destructive: Bool = (update["destructive"] as? Bool) ?? existing.destructive
 
         return ConfirmationSurfaceData(
             message: message,
@@ -278,31 +325,19 @@ extension Surface {
                 }
             }
 
-            // defaultValue can be string, number, or boolean — coerce to String.
-            let defaultValue: String?
-            if let s = fieldDict["defaultValue"] as? String {
-                defaultValue = s
-            } else if let n = fieldDict["defaultValue"] as? NSNumber {
-                if CFGetTypeID(n) == CFBooleanGetTypeID() {
-                    defaultValue = n.boolValue ? "true" : "false"
-                } else {
-                    defaultValue = n.stringValue
-                }
-            } else {
-                defaultValue = nil
-            }
-
             return FormField(
                 id: id,
                 type: fieldType,
                 label: label,
                 placeholder: fieldDict["placeholder"] as? String,
                 required: fieldDict["required"] as? Bool ?? false,
-                defaultValue: defaultValue,
+                defaultValue: FormFieldDefault.from(fieldDict["defaultValue"] as Any?),
                 options: options
             )
         }
     }
+
+    // MARK: - Full Parse Helpers
 
     private static func parseCardData(_ dict: [String: Any?]) -> CardSurfaceData? {
         guard let title = dict["title"] as? String,

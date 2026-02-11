@@ -128,11 +128,15 @@ struct FormSurfaceView: View {
             guard let defaultValue = field.defaultValue else { continue }
             switch field.type {
             case .text, .textarea, .number:
-                textValues[field.id] = defaultValue
+                textValues[field.id] = defaultValue.stringValue
             case .toggle:
-                toggleValues[field.id] = (defaultValue == "true")
+                if case .boolean(let b) = defaultValue {
+                    toggleValues[field.id] = b
+                } else {
+                    toggleValues[field.id] = (defaultValue.stringValue == "true")
+                }
             case .select:
-                selectValues[field.id] = defaultValue
+                selectValues[field.id] = defaultValue.stringValue
             }
         }
     }

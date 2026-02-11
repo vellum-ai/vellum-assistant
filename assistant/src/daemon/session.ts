@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats, UserMessageAttachment, UiSurfaceShow, SurfaceData } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
@@ -12,6 +12,7 @@ import { ToolExecutor } from '../tools/executor.js';
 import type { ToolLifecycleEventHandler, ToolExecutionResult } from '../tools/types.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
+import { registerUiSurfaceTools } from '../tools/ui-surface/registry.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
 import { estimateCost } from '../util/pricing.js';
@@ -55,6 +56,7 @@ export class Session {
   private pendingSurfaceActions = new Map<string, {
     resolve: (result: ToolExecutionResult) => void;
   }>();
+  private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
 
   constructor(
     conversationId: string,
@@ -77,6 +79,11 @@ export class Session {
       auditToolLifecycleEvent(event);
       return publishToolDomainEvent(event);
     };
+
+    // Ensure UI surface tools are registered so ToolExecutor can resolve them.
+    // Registration is done here (not at daemon startup) so that surface tools
+    // are only available in sessions that have surface proxy infrastructure.
+    registerUiSurfaceTools();
 
     const toolDefs = [
       ...getAllToolDefinitions(),
@@ -187,6 +194,7 @@ export class Session {
         pending.resolve({ content: 'Session aborted', isError: true });
       }
       this.pendingSurfaceActions.clear();
+      this.surfaceState.clear();
     }
   }
 
@@ -641,21 +649,26 @@ export class Session {
   ): Promise<ToolExecutionResult> {
     if (toolName === 'ui_show') {
       const surfaceId = uuid();
-      const surfaceType = input.surface_type as string;
+      const surfaceType = input.surface_type as SurfaceType;
       const title = typeof input.title === 'string' ? input.title : undefined;
-      const data = input.data as Record<string, unknown>;
+      const data = input.data as SurfaceData;
       const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
-      const awaitAction = input.await_action !== false && (input.await_action === true || (actions && actions.length > 0));
+      // Interactive surfaces (form, list, confirmation) default to awaiting user action
+      const isInteractive = surfaceType === 'form' || surfaceType === 'list' || surfaceType === 'confirmation';
+      const awaitAction = input.await_action !== false && (input.await_action === true || isInteractive || (actions && actions.length > 0));
+
+      // Track surface state for ui_update merging
+      this.surfaceState.set(surfaceId, { surfaceType, data });
 
       this.sendToClient({
         type: 'ui_surface_show',
         sessionId: this.conversationId,
         surfaceId,
-        surfaceType: surfaceType as SurfaceType,
+        surfaceType,
         title,
-        data: data as unknown as SurfaceData,
+        data,
         actions: actions?.map(a => ({ id: a.id, label: a.label, style: (a.style ?? 'secondary') as 'primary' | 'secondary' | 'destructive' })),
-      });
+      } as unknown as UiSurfaceShow);
 
       if (awaitAction) {
         return new Promise<ToolExecutionResult>((resolve) => {
@@ -666,11 +679,24 @@ export class Session {
     }
 
     if (toolName === 'ui_update') {
+      const surfaceId = input.surface_id as string;
+      const patch = input.data as Record<string, unknown>;
+
+      // Merge the partial patch into the stored full surface data
+      const stored = this.surfaceState.get(surfaceId);
+      let mergedData: SurfaceData;
+      if (stored) {
+        mergedData = { ...stored.data, ...patch } as SurfaceData;
+        stored.data = mergedData;
+      } else {
+        mergedData = patch as unknown as SurfaceData;
+      }
+
       this.sendToClient({
         type: 'ui_surface_update',
         sessionId: this.conversationId,
-        surfaceId: input.surface_id as string,
-        data: input.data as Partial<SurfaceData>,
+        surfaceId,
+        data: mergedData,
       });
       return { content: 'Surface updated', isError: false };
     }
@@ -683,6 +709,7 @@ export class Session {
         surfaceId,
       });
       this.pendingSurfaceActions.delete(surfaceId);
+      this.surfaceState.delete(surfaceId);
       return { content: 'Surface dismissed', isError: false };
     }
 
