@@ -43,10 +43,13 @@ interface RuntimeMessagePayload {
   toolCalls?: Array<{ name: string; input: Record<string, unknown>; result?: string; isError?: boolean }>;
 }
 
+const SUGGESTION_CACHE_MAX = 100;
+
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
   private processMessage?: MessageProcessor;
+  private suggestionCache = new Map<string, string>();
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
@@ -212,12 +215,29 @@ export class RuntimeHttpServer {
         return Response.json({ suggestion: null, messageId: null, source: 'none' as const, stale: true });
       }
 
+      // Return cached suggestion if we already generated one for this message
+      const cached = this.suggestionCache.get(msg.id);
+      if (cached !== undefined) {
+        return Response.json({
+          suggestion: cached,
+          messageId: msg.id,
+          source: 'llm' as const,
+        });
+      }
+
       // Try LLM suggestion if an Anthropic API key is configured
       const apiKey = getConfig().apiKeys.anthropic;
       if (apiKey) {
         try {
           const llmSuggestion = await this.generateLlmSuggestion(apiKey, text);
           if (llmSuggestion) {
+            // Evict oldest entries if cache is at capacity
+            if (this.suggestionCache.size >= SUGGESTION_CACHE_MAX) {
+              const oldest = this.suggestionCache.keys().next().value!;
+              this.suggestionCache.delete(oldest);
+            }
+            this.suggestionCache.set(msg.id, llmSuggestion);
+
             return Response.json({
               suggestion: llmSuggestion,
               messageId: msg.id,
