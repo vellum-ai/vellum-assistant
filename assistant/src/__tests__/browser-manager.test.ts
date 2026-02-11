@@ -23,6 +23,9 @@ function createMockPage(closed = false) {
     title: async () => '',
     url: () => 'about:blank',
     evaluate: async () => null,
+    click: async () => {},
+    fill: async () => {},
+    press: async () => {},
   };
 }
 

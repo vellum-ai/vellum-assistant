@@ -22,6 +22,9 @@ export type Page = {
   title(): Promise<string>;
   url(): string;
   evaluate(expression: string): Promise<unknown>;
+  click(selector: string): Promise<void>;
+  fill(selector: string, value: string): Promise<void>;
+  press(selector: string, key: string): Promise<void>;
 };
 
 type LaunchFn = (userDataDir: string, options: { headless: boolean }) => Promise<BrowserContext>;

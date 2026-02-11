@@ -291,4 +291,180 @@ class BrowserCloseTool implements Tool {
 
 registerTool(new BrowserCloseTool());
 
-export { executeBrowserNavigate, executeBrowserSnapshot, executeBrowserClose };
+// ── shared element resolution ────────────────────────────────────────
+
+function resolveSelector(
+  sessionId: string,
+  input: Record<string, unknown>,
+): { selector: string | null; error: string | null } {
+  const elementId = typeof input.element_id === 'string' ? input.element_id : null;
+  const rawSelector = typeof input.selector === 'string' ? input.selector : null;
+
+  if (!elementId && !rawSelector) {
+    return { selector: null, error: 'Error: Either element_id or selector is required.' };
+  }
+
+  if (elementId) {
+    const resolved = browserManager.resolveSnapshotSelector(sessionId, elementId);
+    if (!resolved) {
+      return {
+        selector: null,
+        error: `Error: element_id "${elementId}" not found. Run browser_snapshot first to get current element IDs.`,
+      };
+    }
+    return { selector: resolved, error: null };
+  }
+
+  return { selector: rawSelector!, error: null };
+}
+
+// ── browser_click ────────────────────────────────────────────────────
+
+async function executeBrowserClick(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const { selector, error } = resolveSelector(context.sessionId, input);
+  if (error) return { content: error, isError: true };
+
+  try {
+    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    await page.click(selector!);
+    return { content: `Clicked element: ${selector}`, isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err, selector }, 'Click failed');
+    return { content: `Error: Click failed: ${msg}`, isError: true };
+  }
+}
+
+class BrowserClickTool implements Tool {
+  name = 'browser_click';
+  description = 'Click an element on the page. Target the element by element_id (from browser_snapshot) or a CSS selector.';
+  category = 'browser';
+  defaultRiskLevel = RiskLevel.Medium;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          element_id: {
+            type: 'string',
+            description: 'The element ID from a previous browser_snapshot result (e.g. "e1").',
+          },
+          selector: {
+            type: 'string',
+            description: 'A CSS selector to target. Used as fallback when element_id is not available.',
+          },
+        },
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeBrowserClick(input, context);
+  }
+}
+
+registerTool(new BrowserClickTool());
+
+// ── browser_type ─────────────────────────────────────────────────────
+
+async function executeBrowserType(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const { selector, error } = resolveSelector(context.sessionId, input);
+  if (error) return { content: error, isError: true };
+
+  const text = typeof input.text === 'string' ? input.text : '';
+  if (!text) {
+    return { content: 'Error: text is required.', isError: true };
+  }
+
+  const clearFirst = input.clear_first !== false; // default true
+  const pressEnter = input.press_enter === true;
+
+  try {
+    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+
+    if (clearFirst) {
+      await page.fill(selector!, text);
+    } else {
+      const currentValue = (await page.evaluate(
+        `document.querySelector(${JSON.stringify(selector!)})?.value ?? ''`,
+      )) as string;
+      await page.fill(selector!, currentValue + text);
+    }
+
+    if (pressEnter) {
+      await page.press(selector!, 'Enter');
+    }
+
+    const lines = [`Typed into element: ${selector}`];
+    if (clearFirst) lines.push('(cleared existing content first)');
+    if (pressEnter) lines.push('(pressed Enter after typing)');
+    return { content: lines.join('\n'), isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err, selector }, 'Type failed');
+    return { content: `Error: Type failed: ${msg}`, isError: true };
+  }
+}
+
+class BrowserTypeTool implements Tool {
+  name = 'browser_type';
+  description = 'Type text into an input element. Target by element_id (from browser_snapshot) or CSS selector.';
+  category = 'browser';
+  defaultRiskLevel = RiskLevel.Medium;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          element_id: {
+            type: 'string',
+            description: 'The element ID from a previous browser_snapshot result (e.g. "e3").',
+          },
+          selector: {
+            type: 'string',
+            description: 'A CSS selector to target. Used as fallback when element_id is not available.',
+          },
+          text: {
+            type: 'string',
+            description: 'The text to type into the element.',
+          },
+          clear_first: {
+            type: 'boolean',
+            description: 'If true (default), clear existing content before typing. Set to false to append.',
+          },
+          press_enter: {
+            type: 'boolean',
+            description: 'If true, press Enter after typing the text.',
+          },
+        },
+        required: ['text'],
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeBrowserType(input, context);
+  }
+}
+
+registerTool(new BrowserTypeTool());
+
+export {
+  executeBrowserNavigate,
+  executeBrowserSnapshot,
+  executeBrowserClose,
+  executeBrowserClick,
+  executeBrowserType,
+};

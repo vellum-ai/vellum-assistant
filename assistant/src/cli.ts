@@ -75,6 +75,10 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         return 'Taking page snapshot...';
       case 'browser_close':
         return 'Closing browser...';
+      case 'browser_click':
+        return `Clicking ${String(input.element_id ?? input.selector ?? '').slice(0, 60)}...`;
+      case 'browser_type':
+        return `Typing into ${String(input.element_id ?? input.selector ?? '').slice(0, 60)}...`;
       default:
         return `Running ${toolName}...`;
     }
@@ -116,6 +120,12 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
     if (req.toolName === 'browser_close') {
       return req.input.close_all_pages ? 'close all browser pages' : 'close browser page';
+    }
+    if (req.toolName === 'browser_click') {
+      return `click ${req.input.element_id ?? req.input.selector ?? ''}`;
+    }
+    if (req.toolName === 'browser_type') {
+      return `type into ${req.input.element_id ?? req.input.selector ?? ''}`;
     }
     return `${req.toolName}: ${JSON.stringify(req.input).slice(0, 80)}`;
   }
