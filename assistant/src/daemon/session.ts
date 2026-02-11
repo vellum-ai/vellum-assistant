@@ -654,8 +654,8 @@ export class Session {
       const data = input.data as SurfaceData;
       const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
       // Interactive surfaces (form, list, confirmation) default to awaiting user action
-      const isInteractive = surfaceType === 'form' || surfaceType === 'list' || surfaceType === 'confirmation';
-      const awaitAction = input.await_action !== false && (input.await_action === true || isInteractive || (actions && actions.length > 0));
+      const isInteractive = ['form', 'list', 'confirmation'].includes(surfaceType);
+      const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
       // Track surface state for ui_update merging
       this.surfaceState.set(surfaceId, { surfaceType, data });
