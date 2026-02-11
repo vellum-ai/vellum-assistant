@@ -38,7 +38,17 @@ export function getDataDir(): string {
 }
 
 export function getSocketPath(): string {
+  const override = process.env.VELLUM_DAEMON_SOCKET?.trim();
+  if (override) {
+    return expandHomePath(override);
+  }
   return join(getDataDir(), 'vellum.sock');
+}
+
+function expandHomePath(p: string): string {
+  if (p === '~') return homedir();
+  if (p.startsWith('~/')) return join(homedir(), p.slice(2));
+  return p;
 }
 
 export function getPidPath(): string {
