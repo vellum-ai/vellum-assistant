@@ -258,6 +258,9 @@ final class AmbientAgent: ObservableObject {
             return
         }
 
+        // Subscribe before sending so we don't miss a fast daemon response
+        let messageStream = daemonClient.subscribe()
+
         do {
             try daemonClient.send(AmbientObservationMessage(
                 ocrText: screenContent,
@@ -272,7 +275,7 @@ final class AmbientAgent: ObservableObject {
         }
 
         // Wait for ambient_result from daemon
-        guard let ambientResult = await waitForAmbientResult(timeout: 30) else {
+        guard let ambientResult = await waitForAmbientResult(stream: messageStream, timeout: 30) else {
             log.warning("[\(cycle)] Timed out waiting for ambient result from daemon")
             state = .watching
             return
@@ -332,9 +335,7 @@ final class AmbientAgent: ObservableObject {
         state = .watching
     }
 
-    private func waitForAmbientResult(timeout: TimeInterval = 30) async -> AmbientResultMessage? {
-        guard let daemonClient = daemonClient else { return nil }
-        let messageStream = daemonClient.subscribe()
+    private func waitForAmbientResult(stream messageStream: AsyncStream<ServerMessage>, timeout: TimeInterval = 30) async -> AmbientResultMessage? {
         return await withTaskGroup(of: AmbientResultMessage?.self) { group in
             group.addTask {
                 for await message in messageStream {

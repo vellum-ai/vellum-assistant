@@ -98,7 +98,10 @@ final class ComputerUseSession: ObservableObject {
             try? await Task.sleep(nanoseconds: initialDelayMs * 1_000_000)
         }
 
-        // 1. Send session create message
+        // 1. Subscribe before sending so we don't miss fast daemon responses
+        let messageStream = daemonClient.subscribe()
+
+        // 2. Send session create message
         let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
             IPCAttachment(
                 filename: $0.fileName,
@@ -115,7 +118,7 @@ final class ComputerUseSession: ObservableObject {
             attachments: ipcAttachments
         ))
 
-        // 2. Initial perceive + send first observation
+        // 3. Initial perceive + send first observation
         let obs = await buildObservation(executionResult: nil, executionError: nil)
         if let obs {
             try? daemonClient.send(obs)
@@ -127,11 +130,11 @@ final class ComputerUseSession: ObservableObject {
 
         state = .thinking(step: 1, maxSteps: maxSteps)
 
-        // 3. Listen for daemon messages (filter by sessionId)
+        // 4. Listen for daemon messages (filter by sessionId)
         // Wrap in a cancellable task so cancel() can interrupt the stream await.
         let loopTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in daemonClient.subscribe() {
+            for await message in messageStream {
                 guard !self.isCancelled else { break }
 
                 // Wait while paused
