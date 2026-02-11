@@ -174,8 +174,8 @@ export const cronJobs = sqliteTable('cron_jobs', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-  scheduleKind: text('schedule_kind').notNull(),       // ScheduleKind: 'at' | 'cron'
-  scheduleConfig: text('schedule_config').notNull(),   // JSON string
+  cronExpression: text('cron_expression').notNull(),    // e.g. '0 9 * * 1-5'
+  timezone: text('timezone'),                           // e.g. 'America/Los_Angeles'
   message: text('message').notNull(),
   nextRunAt: integer('next_run_at').notNull(),
   lastRunAt: integer('last_run_at'),
