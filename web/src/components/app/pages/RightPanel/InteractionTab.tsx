@@ -270,7 +270,7 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
       })
       .then((data) => {
         if (cancelled) return;
-        if (data.stale) return;
+        if (data.stale) { setSuggestion(null); return; }
         if (data.suggestion && data.messageId === lastMessageId) {
           setSuggestion(data.suggestion);
         } else {
