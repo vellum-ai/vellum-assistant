@@ -143,6 +143,10 @@ class BrowserManager {
     this.snapshotMaps.set(sessionId, map);
   }
 
+  clearSnapshotMap(sessionId: string): void {
+    this.snapshotMaps.delete(sessionId);
+  }
+
   resolveSnapshotSelector(sessionId: string, elementId: string): string | null {
     const map = this.snapshotMaps.get(sessionId);
     if (!map) return null;

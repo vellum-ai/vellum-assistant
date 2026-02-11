@@ -120,6 +120,12 @@ async function executeBrowserNavigate(
       };
     }
 
+    // Navigation changed the page content, so clear stale snapshot mappings.
+    // Without this, element IDs from a previous page could resolve and cause
+    // confusing Playwright timeout errors instead of the actionable
+    // "run browser_snapshot first" message.
+    browserManager.clearSnapshotMap(context.sessionId);
+
     const finalUrl = page.url();
     const safeFinalUrl = sanitizeUrlForOutput(new URL(finalUrl));
     const title = await page.title();
@@ -461,8 +467,10 @@ async function executeBrowserType(
     if (clearFirst) {
       await page.fill(selector!, text);
     } else {
+      // Read existing content before appending. Use .value for form inputs,
+      // with fallback to .textContent for contenteditable elements.
       const currentValue = (await page.evaluate(
-        `document.querySelector(${JSON.stringify(selector!)})?.value ?? ''`,
+        `(() => { const el = document.querySelector(${JSON.stringify(selector!)}); if (!el) return ''; if (typeof el.value === 'string') return el.value; return el.textContent ?? ''; })()`,
       )) as string;
       await page.fill(selector!, currentValue + text);
     }
