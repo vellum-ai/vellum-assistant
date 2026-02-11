@@ -93,7 +93,7 @@ scripts/worktree remove do/<slug> --delete-branch
 ### 8. Pull main
 
 ```bash
-git pull origin main
+git checkout main && git pull origin main
 ```
 
 ### 9. Report
