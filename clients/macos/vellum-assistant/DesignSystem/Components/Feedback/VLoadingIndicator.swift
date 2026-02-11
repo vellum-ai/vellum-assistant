@@ -19,5 +19,8 @@ struct VLoadingIndicator: View {
             .onAppear {
                 isAnimating = true
             }
+            .onDisappear {
+                isAnimating = false
+            }
     }
 }

@@ -23,5 +23,7 @@ struct VEmptyState: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title). \(subtitle ?? "")")
     }
 }

@@ -27,6 +27,7 @@ struct VButton: View {
         .buttonStyle(VButtonPressStyle())
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.5 : 1.0)
+        .accessibilityHint(isDisabled ? "Button is currently disabled" : "")
     }
 
     private var backgroundColor: Color {

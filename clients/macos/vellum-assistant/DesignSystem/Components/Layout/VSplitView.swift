@@ -18,6 +18,7 @@ struct VSplitView<Main: View, Panel: View>: View {
                 panel
                     .frame(width: panelWidth)
                     .background(VColor.backgroundSubtle)
+                    .transition(.move(edge: .trailing))
             }
         }
         .animation(VAnimation.standard, value: showPanel)

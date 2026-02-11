@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct VToast: View {
     enum Style { case info, success, warning, error }
@@ -22,6 +23,18 @@ struct VToast: View {
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
         )
         .vShadow(VShadow.md)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(style): \(message)")
+        .onAppear {
+            NSAccessibility.post(
+                element: NSApp as Any,
+                notification: .announcementRequested,
+                userInfo: [
+                    .announcement: "\(style): \(message)" as NSString,
+                    .priority: NSAccessibilityPriorityLevel.high.rawValue
+                ]
+            )
+        }
     }
 
     private var iconName: String {

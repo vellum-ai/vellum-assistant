@@ -16,6 +16,7 @@ struct VTextEditor: View {
                     .foregroundColor(VColor.textMuted)
                     .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.md)
+                    .accessibilityHidden(true)
             }
 
             TextEditor(text: $text)
@@ -24,6 +25,7 @@ struct VTextEditor: View {
                 .scrollContentBackground(.hidden)
                 .focused($isFocused)
                 .frame(minHeight: minHeight, maxHeight: maxHeight)
+                .accessibilityLabel(text.isEmpty ? placeholder : text)
         }
         .padding(VSpacing.xs)
         .background(VColor.surface)
