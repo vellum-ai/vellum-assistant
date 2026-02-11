@@ -399,6 +399,11 @@ export class Session {
         rlog.warn({ phase: 'retry' }, 'Provider ordering error detected, attempting one-shot deep-repair retry');
         const retryRepair = deepRepairHistory(runMessages);
         runMessages = retryRepair.messages;
+        // Update preRepairMessages so that structural fixes from deep repair
+        // (e.g., stripping leading assistant messages, merging same-role runs)
+        // persist in this.messages after the run.  Without this, the original
+        // malformed prefix would be restored and trigger the same error next turn.
+        preRepairMessages = retryRepair.messages;
         preRunHistoryLength = runMessages.length;
         orderingErrorDetected = false;
         deferredOrderingError = null;
