@@ -113,6 +113,19 @@ class BrowserManager {
 
     try {
       this.context = await this.contextCreating;
+
+      // Listen for browser disconnection so we can reset state
+      // instead of leaving a stale context reference.
+      const rawCtx = this.context as unknown as { on?: (event: string, handler: (...args: unknown[]) => void) => void };
+      if (typeof rawCtx.on === 'function') {
+        rawCtx.on('close', () => {
+          log.warn('Browser context closed unexpectedly, resetting state');
+          this.context = null;
+          this.pages.clear();
+          this.snapshotMaps.clear();
+        });
+      }
+
       return this.context;
     } finally {
       this.contextCreating = null;

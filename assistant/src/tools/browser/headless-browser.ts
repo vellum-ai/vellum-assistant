@@ -67,37 +67,42 @@ async function executeBrowserNavigate(
     // since Playwright follows redirects internally and performs its own DNS resolution.
     if (!allowPrivateNetwork) {
       routeHandler = async (route, request) => {
-        const reqUrl = request.url();
-        let reqParsed: URL;
         try {
-          reqParsed = new URL(reqUrl);
-        } catch {
+          const reqUrl = request.url();
+          let reqParsed: URL;
+          try {
+            reqParsed = new URL(reqUrl);
+          } catch {
+            await route.continue();
+            return;
+          }
+
+          // Check hostname against private/local patterns
+          if (isPrivateOrLocalHost(reqParsed.hostname)) {
+            blockedUrl = sanitizeUrlForOutput(reqParsed);
+            log.warn({ blockedUrl }, 'Blocked navigation to private network target via redirect');
+            await route.abort('blockedbyclient');
+            return;
+          }
+
+          // Resolve DNS and check resolved addresses
+          const resolution = await resolveRequestAddress(
+            reqParsed.hostname,
+            resolveHostAddresses,
+            false,
+          );
+          if (resolution.blockedAddress) {
+            blockedUrl = sanitizeUrlForOutput(reqParsed);
+            log.warn({ blockedUrl, resolvedTo: resolution.blockedAddress }, 'Blocked navigation: DNS resolves to private address');
+            await route.abort('blockedbyclient');
+            return;
+          }
+
           await route.continue();
-          return;
+        } catch (err) {
+          // Route may already be handled if the page navigated or was closed
+          log.debug({ err }, 'Route handler error (route likely already handled)');
         }
-
-        // Check hostname against private/local patterns
-        if (isPrivateOrLocalHost(reqParsed.hostname)) {
-          blockedUrl = sanitizeUrlForOutput(reqParsed);
-          log.warn({ blockedUrl }, 'Blocked navigation to private network target via redirect');
-          await route.abort('blockedbyclient');
-          return;
-        }
-
-        // Resolve DNS and check resolved addresses
-        const resolution = await resolveRequestAddress(
-          reqParsed.hostname,
-          resolveHostAddresses,
-          false,
-        );
-        if (resolution.blockedAddress) {
-          blockedUrl = sanitizeUrlForOutput(reqParsed);
-          log.warn({ blockedUrl, resolvedTo: resolution.blockedAddress }, 'Blocked navigation: DNS resolves to private address');
-          await route.abort('blockedbyclient');
-          return;
-        }
-
-        await route.continue();
       };
       await page.route('**/*', routeHandler);
     }
