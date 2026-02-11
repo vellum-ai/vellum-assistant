@@ -89,6 +89,16 @@ struct IPCAttachment: Codable, Sendable {
     let extractedText: String?
 }
 
+/// Unified task request — daemon classifies and routes to CU or text Q&A.
+/// Wire type: `"task"`
+struct TaskMessage: Encodable, Sendable {
+    let type: String = "task"
+    let task: String
+    let screenWidth: Int
+    let screenHeight: Int
+    let attachments: [IPCAttachment]?
+}
+
 /// Sent to create a new computer-use session.
 /// Wire type: `"cu_session_create"`
 struct CuSessionCreateMessage: Encodable, Sendable {
@@ -98,7 +108,6 @@ struct CuSessionCreateMessage: Encodable, Sendable {
     let screenWidth: Int
     let screenHeight: Int
     let attachments: [IPCAttachment]?
-    let interactionType: String?
 }
 
 /// Sent after each perceive step with AX tree, screenshot, and execution results.
@@ -149,6 +158,11 @@ struct PingMessage: Encodable, Sendable {
 }
 
 // MARK: - Server → Client Messages (Decodable)
+
+/// Daemon signals that it needs a screen observation to start the CU loop.
+struct ObservationNeededMessage: Decodable, Sendable {
+    let sessionId: String
+}
 
 /// Action to execute from the inference server.
 struct CuActionMessage: Decodable, Sendable {
@@ -204,6 +218,7 @@ struct AmbientResultMessage: Decodable, Sendable {
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 enum ServerMessage: Decodable, Sendable {
+    case observationNeeded(ObservationNeededMessage)
     case cuAction(CuActionMessage)
     case cuComplete(CuCompleteMessage)
     case cuError(CuErrorMessage)
@@ -224,6 +239,9 @@ enum ServerMessage: Decodable, Sendable {
         let type = try container.decode(String.self, forKey: .type)
 
         switch type {
+        case "observation_needed":
+            let message = try ObservationNeededMessage(from: decoder)
+            self = .observationNeeded(message)
         case "cu_action":
             let message = try CuActionMessage(from: decoder)
             self = .cuAction(message)

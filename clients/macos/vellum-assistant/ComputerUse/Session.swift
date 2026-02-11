@@ -28,7 +28,6 @@ final class ComputerUseSession: ObservableObject {
     private let attachments: [TaskAttachment]
     private let daemonClient: DaemonClientProtocol
     private let maxSteps: Int
-    private let interactionType: InteractionType
 
     private var isCancelled = false
     private var isPaused = false
@@ -54,7 +53,14 @@ final class ComputerUseSession: ObservableObject {
     private let maxDelayMs: UInt64 = 2000
     private let pollIntervalMs: UInt64 = 100
 
+    /// If `sessionId` is provided the daemon has already created the CU session
+    /// (unified task flow) and `run()` will skip sending `cu_session_create`.
+    /// When nil, the session generates its own id and sends the create message
+    /// (used by RecipeExecutor and the error-display helper).
+    private let daemonOwnsSession: Bool
+
     init(
+        sessionId: String? = nil,
         task: String,
         daemonClient: DaemonClientProtocol,
         enumerator: AccessibilityTreeProviding = AccessibilityTreeEnumerator(),
@@ -62,15 +68,14 @@ final class ComputerUseSession: ObservableObject {
         executor: ActionExecuting = ActionExecutor(),
         maxSteps: Int = 50,
         attachments: [TaskAttachment] = [],
-        interactionType: InteractionType = .computerUse,
         initialDelayMs: UInt64 = 300,
         adaptiveDelay: Bool = true
     ) {
-        self.id = UUID().uuidString
+        self.daemonOwnsSession = sessionId != nil
+        self.id = sessionId ?? UUID().uuidString
         self.task = task
         self.attachments = attachments
         self.daemonClient = daemonClient
-        self.interactionType = interactionType
         self.enumerator = enumerator
         self.screenCapture = screenCapture
         self.executor = executor
@@ -105,27 +110,16 @@ final class ComputerUseSession: ObservableObject {
         // 1. Subscribe before sending so we don't miss fast daemon responses
         let messageStream = daemonClient.subscribe()
 
-        // 2. Send session create message
-        let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
-            IPCAttachment(
-                filename: $0.fileName,
-                mimeType: $0.mimeType,
-                data: $0.data.base64EncodedString(),
-                extractedText: $0.extractedText
-            )
+        // 2. If the daemon doesn't own the session, send cu_session_create (legacy/recipe path)
+        if !daemonOwnsSession {
+            try? daemonClient.send(CuSessionCreateMessage(
+                sessionId: id,
+                task: task,
+                screenWidth: Int(screenSize.width),
+                screenHeight: Int(screenSize.height),
+                attachments: nil
+            ))
         }
-        let interactionTypeString: String = switch interactionType {
-        case .computerUse: "computer_use"
-        case .textQA: "text_qa"
-        }
-        try? daemonClient.send(CuSessionCreateMessage(
-            sessionId: id,
-            task: task,
-            screenWidth: Int(screenSize.width),
-            screenHeight: Int(screenSize.height),
-            attachments: ipcAttachments,
-            interactionType: interactionTypeString
-        ))
 
         // 3. Initial perceive + send first observation
         let obs = await buildObservation(executionResult: nil, executionError: nil)

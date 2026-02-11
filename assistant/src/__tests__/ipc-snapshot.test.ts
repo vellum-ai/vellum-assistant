@@ -69,6 +69,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'sandbox_set',
     enabled: true,
   },
+  task: {
+    type: 'task',
+    task: 'What is the weather today?',
+    screenWidth: 1920,
+    screenHeight: 1080,
+  },
   cu_session_create: {
     type: 'cu_session_create',
     sessionId: 'cu-sess-001',
@@ -245,6 +251,10 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     degraded: false,
     provider: 'openai',
     model: 'text-embedding-3-small',
+  },
+  observation_needed: {
+    type: 'observation_needed',
+    sessionId: 'cu-sess-001',
   },
   cu_action: {
     type: 'cu_action',

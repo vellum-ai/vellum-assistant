@@ -82,6 +82,14 @@ export interface SandboxSetRequest {
   enabled: boolean;
 }
 
+export interface TaskRequest {
+  type: 'task';
+  task: string;
+  screenWidth: number;
+  screenHeight: number;
+  attachments?: UserMessageAttachment[];
+}
+
 export interface CuSessionCreate {
   type: 'cu_session_create';
   sessionId: string;
@@ -89,7 +97,6 @@ export interface CuSessionCreate {
   screenWidth: number;
   screenHeight: number;
   attachments?: UserMessageAttachment[];
-  interactionType?: 'computer_use' | 'text_qa';
 }
 
 export interface CuObservation {
@@ -127,6 +134,7 @@ export type ClientMessage =
   | UndoRequest
   | UsageRequest
   | SandboxSetRequest
+  | TaskRequest
   | CuSessionCreate
   | CuObservation
   | AmbientObservation;
@@ -289,6 +297,11 @@ export interface MemoryStatus {
   model?: string;
 }
 
+export interface ObservationNeeded {
+  type: 'observation_needed';
+  sessionId: string;
+}
+
 export interface CuAction {
   type: 'cu_action';
   sessionId: string;
@@ -342,6 +355,7 @@ export type ServerMessage =
   | SecretDetected
   | MemoryRecalled
   | MemoryStatus
+  | ObservationNeeded
   | CuAction
   | CuComplete
   | CuError

@@ -26,31 +26,29 @@ final class TextSession: ObservableObject {
     private var accumulatedText: String = ""
 
     init(
+        sessionId: String,
         task: String,
         daemonClient: DaemonClientProtocol,
         attachments: [TaskAttachment] = []
     ) {
-        self.id = UUID().uuidString
+        self.id = sessionId
         self.task = task
         self.attachments = attachments
         self.daemonClient = daemonClient
+        self.daemonSessionId = sessionId
     }
 
     func run() async {
         isCancelled = false
         accumulatedText = ""
-        daemonSessionId = nil
         state = .thinking
 
-        log.info("TextSession starting — task: \(self.task, privacy: .public)")
+        log.info("TextSession starting — task: \(self.task, privacy: .public), sessionId: \(self.id)")
 
-        // 1. Subscribe before sending
+        // Subscribe and listen for text deltas (daemon already created the session
+        // and sent the user message via the unified task handler)
         let messageStream = daemonClient.subscribe()
 
-        // 2. Send session_create
-        try? daemonClient.send(SessionCreateMessage(title: task))
-
-        // 3. Listen for messages
         let loopTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
@@ -58,37 +56,14 @@ final class TextSession: ObservableObject {
                 guard !self.isCancelled else { break }
 
                 switch message {
-                case .sessionInfo(let info):
-                    // Accept first session_info as ours (daemon assigns session ID)
-                    if self.daemonSessionId == nil {
-                        self.daemonSessionId = info.sessionId
-                        log.info("Got daemon session ID: \(info.sessionId)")
-
-                        // Now send the user message
-                        let ipcAttachments: [IPCAttachment]? = self.attachments.isEmpty ? nil : self.attachments.map {
-                            IPCAttachment(
-                                filename: $0.fileName,
-                                mimeType: $0.mimeType,
-                                data: $0.data.base64EncodedString(),
-                                extractedText: $0.extractedText
-                            )
-                        }
-                        try? self.daemonClient.send(UserMessageMessage(
-                            sessionId: info.sessionId,
-                            content: self.task,
-                            attachments: ipcAttachments
-                        ))
-                    }
-
-                case .assistantTextDelta(let delta) where self.daemonSessionId != nil:
+                case .assistantTextDelta(let delta):
                     self.accumulatedText += delta.text
                     self.state = .streaming(text: self.accumulatedText)
 
-                case .assistantThinkingDelta(let delta) where self.daemonSessionId != nil:
-                    // Stay in thinking state while receiving thinking deltas
+                case .assistantThinkingDelta(let delta):
                     log.debug("Thinking: \(delta.thinking)")
 
-                case .messageComplete(_) where self.daemonSessionId != nil:
+                case .messageComplete:
                     if self.accumulatedText.isEmpty {
                         self.state = .completed(text: "(No response)")
                     } else {

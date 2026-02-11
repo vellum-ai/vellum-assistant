@@ -91,6 +91,15 @@ exports[`IPC message snapshots ClientMessage types sandbox_set serializes to exp
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types task serializes to expected JSON 1`] = `
+{
+  "screenHeight": 1080,
+  "screenWidth": 1920,
+  "task": "What is the weather today?",
+  "type": "task",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types cu_session_create serializes to expected JSON 1`] = `
 {
   "screenHeight": 1080,
@@ -313,20 +322,6 @@ exports[`IPC message snapshots ServerMessage types usage_response serializes to 
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types secret_detected serializes to expected JSON 1`] = `
-{
-  "action": "redact",
-  "matches": [
-    {
-      "redactedValue": "sk-****abcd",
-      "type": "api_key",
-    },
-  ],
-  "toolName": "bash",
-  "type": "secret_detected",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types context_compacted serializes to expected JSON 1`] = `
 {
   "compactedMessages": 56,
@@ -339,6 +334,20 @@ exports[`IPC message snapshots ServerMessage types context_compacted serializes 
   "summaryOutputTokens": 900,
   "thresholdTokens": 144000,
   "type": "context_compacted",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types secret_detected serializes to expected JSON 1`] = `
+{
+  "action": "redact",
+  "matches": [
+    {
+      "redactedValue": "sk-****abcd",
+      "type": "api_key",
+    },
+  ],
+  "toolName": "bash",
+  "type": "secret_detected",
 }
 `;
 
@@ -362,6 +371,13 @@ exports[`IPC message snapshots ServerMessage types memory_status serializes to e
   "model": "text-embedding-3-small",
   "provider": "openai",
   "type": "memory_status",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types observation_needed serializes to expected JSON 1`] = `
+{
+  "sessionId": "cu-sess-001",
+  "type": "observation_needed",
 }
 `;
 

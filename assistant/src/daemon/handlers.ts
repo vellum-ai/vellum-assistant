@@ -7,6 +7,7 @@ import * as conversationStore from '../memory/conversation-store.js';
 import { getLogger } from '../util/logger.js';
 import { Session } from './session.js';
 import { ComputerUseSession } from './computer-use-session.js';
+import Anthropic from '@anthropic-ai/sdk';
 import type {
   ClientMessage,
   ServerMessage,
@@ -19,6 +20,7 @@ import type {
   UsageRequest,
   SandboxSetRequest,
   UserMessage,
+  TaskRequest,
   CuSessionCreate,
   CuObservation,
 } from './ipc-protocol.js';
@@ -194,6 +196,7 @@ const handlers: DispatchMap = {
   undo: handleUndo,
   usage_request: handleUsageRequest,
   sandbox_set: handleSandboxSet,
+  task: handleTask,
   cu_session_create: handleCuSessionCreate,
   cu_observation: handleCuObservation,
   ambient_observation: handleAmbientObservation,
@@ -498,6 +501,156 @@ function handleUsageRequest(
   });
 }
 
+// ─── Unified task handler ───────────────────────────────────────────────────
+
+function classifyInteractionHeuristic(task: string): 'computer_use' | 'text_qa' {
+  const lower = task.toLowerCase().trim();
+
+  if (lower.includes('?')) return 'text_qa';
+
+  const qaStarters = [
+    'what', 'when', 'where', 'how', 'why', 'who', 'which',
+    'is it', 'is there', 'is this', 'are there', 'are these',
+    'can you tell', 'can you explain', 'can you describe',
+    'tell me', 'explain', 'describe', 'summarize', 'list',
+  ];
+  for (const starter of qaStarters) {
+    if (lower.startsWith(starter)) return 'text_qa';
+  }
+
+  const cuStarters = [
+    'open', 'click', 'type', 'navigate', 'switch', 'drag', 'scroll',
+    'close', 'send', 'fill', 'submit', 'go to', 'move', 'select',
+    'copy', 'paste', 'delete', 'create', 'write', 'edit', 'save',
+    'download', 'upload', 'install', 'run', 'launch', 'start',
+    'stop', 'press', 'tap', 'find', 'search', 'show me',
+  ];
+  for (const starter of cuStarters) {
+    if (lower.startsWith(starter)) return 'computer_use';
+  }
+
+  return 'computer_use';
+}
+
+async function classifyInteraction(
+  task: string,
+  apiKey: string | undefined,
+): Promise<'computer_use' | 'text_qa'> {
+  if (!apiKey) return classifyInteractionHeuristic(task);
+
+  try {
+    const client = new Anthropic({ apiKey });
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 128,
+      system: 'You are a classifier. Determine whether the user\'s request requires computer use (controlling the mouse/keyboard/apps) or is a text Q&A (answerable with text only).',
+      tools: [{
+        name: 'classify_interaction',
+        description: 'Classify the user interaction type',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            interaction_type: {
+              type: 'string',
+              enum: ['computer_use', 'text_qa'],
+              description: 'The type of interaction',
+            },
+            reasoning: {
+              type: 'string',
+              description: 'Brief reasoning for the classification',
+            },
+          },
+          required: ['interaction_type', 'reasoning'],
+        },
+      }],
+      tool_choice: { type: 'tool' as const, name: 'classify_interaction' },
+      messages: [{ role: 'user' as const, content: task }],
+    });
+
+    const toolBlock = response.content.find((b) => b.type === 'tool_use');
+    if (toolBlock && toolBlock.type === 'tool_use') {
+      const input = toolBlock.input as Record<string, unknown>;
+      const interactionType = input.interaction_type as string;
+      const reasoning = input.reasoning as string;
+      log.info({ interactionType, reasoning }, 'Haiku classification');
+      return interactionType === 'text_qa' ? 'text_qa' : 'computer_use';
+    }
+  } catch (err) {
+    log.warn({ err }, 'Haiku classification failed, falling back to heuristic');
+  }
+
+  return classifyInteractionHeuristic(task);
+}
+
+async function handleTask(
+  msg: TaskRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const config = getConfig();
+  const interactionType = await classifyInteraction(msg.task, config.apiKeys.anthropic);
+  log.info({ interactionType, task: msg.task }, 'Task classified');
+
+  if (interactionType === 'text_qa') {
+    // Create a chat session and process the task as a user message
+    const conversation = conversationStore.createConversation(msg.task);
+    const session = await ctx.getOrCreateSession(conversation.id, socket, true);
+    ctx.socketToSession.set(socket, conversation.id);
+
+    ctx.send(socket, {
+      type: 'session_info',
+      sessionId: conversation.id,
+      title: conversation.title ?? msg.task,
+    });
+
+    try {
+      await session.processMessage(msg.task, msg.attachments ?? [], (event) => {
+        ctx.send(socket, event);
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error({ err }, 'Error processing text Q&A task');
+      ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+    }
+    return;
+  }
+
+  // Computer use — create CU session and ask client for first observation
+  const sessionId = uuid();
+
+  let provider = getProvider(config.provider);
+  const { rateLimit } = config;
+  if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
+    provider = new RateLimitProvider(provider, rateLimit, ctx.sharedRequestTimestamps);
+  }
+
+  const sendToClient = (serverMsg: ServerMessage) => {
+    ctx.send(socket, serverMsg);
+  };
+
+  const session = new ComputerUseSession(
+    sessionId,
+    msg.task,
+    msg.screenWidth,
+    msg.screenHeight,
+    provider,
+    sendToClient,
+  );
+
+  ctx.cuSessions.set(sessionId, session);
+
+  let sessionIds = ctx.socketToCuSession.get(socket);
+  if (!sessionIds) {
+    sessionIds = new Set();
+    ctx.socketToCuSession.set(socket, sessionIds);
+  }
+  sessionIds.add(sessionId);
+
+  log.info({ sessionId, task: msg.task }, 'Computer-use session created, requesting observation');
+
+  ctx.send(socket, { type: 'observation_needed', sessionId });
+}
+
 // ─── Computer-use handlers ──────────────────────────────────────────────────
 
 function handleCuSessionCreate(
@@ -537,7 +690,6 @@ function handleCuSessionCreate(
     msg.screenHeight,
     provider,
     sendToClient,
-    msg.interactionType,
   );
 
   ctx.cuSessions.set(msg.sessionId, session);
