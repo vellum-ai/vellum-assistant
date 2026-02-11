@@ -15,11 +15,10 @@ ln -s ../../scripts/commands/work.md work.md
 ln -s ../../scripts/commands/check-reviews.md check-reviews.md
 ln -s ../../scripts/commands/brainstorm.md brainstorm.md
 ln -s ../../scripts/commands/swarm.md swarm.md
-ln -s ../../scripts/commands/worktree-plan.md worktree-plan.md
 ln -s ../../scripts/commands/mainline.md mainline.md
 ```
 
-After symlinking, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, `/worktree-plan`, and `/mainline` in Claude Code.
+After symlinking, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, and `/mainline` in Claude Code.
 
 ### 2. **IMPORTANT** Enable fast mode
 
