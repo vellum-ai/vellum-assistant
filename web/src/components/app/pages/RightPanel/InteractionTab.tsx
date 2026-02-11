@@ -563,12 +563,17 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Tab" && suggestion && input.length === 0) {
+        e.preventDefault();
+        setInput(suggestion);
+        return;
+      }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSubmit(e as unknown as FormEvent);
       }
     },
-    [handleSubmit]
+    [handleSubmit, suggestion, input]
   );
 
   const getStatusDisplay = () => {
