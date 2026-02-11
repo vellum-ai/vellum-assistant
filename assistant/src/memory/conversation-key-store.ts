@@ -10,8 +10,7 @@
 import { eq, and } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
-import { conversationKeys } from './schema.js';
-import { createConversation } from './conversation-store.js';
+import { conversations, conversationKeys } from './schema.js';
 
 export interface ConversationKeyMapping {
   id: string;
@@ -47,30 +46,59 @@ export function getConversationByKey(
  * Get or create a conversation for the given (assistantId, conversationKey).
  *
  * If a mapping already exists, returns the existing conversation ID.
- * Otherwise, creates a new conversation and mapping atomically.
+ * Otherwise, creates a new conversation and mapping atomically within a
+ * single transaction to prevent race conditions and orphaned rows.
  */
 export function getOrCreateConversation(
   assistantId: string,
   conversationKey: string,
 ): { conversationId: string; created: boolean } {
-  const existing = getConversationByKey(assistantId, conversationKey);
-  if (existing) {
-    return { conversationId: existing.conversationId, created: false };
-  }
-
-  const conversation = createConversation(`Runtime: ${conversationKey}`);
   const db = getDb();
-  const now = Date.now();
 
-  db.insert(conversationKeys)
-    .values({
-      id: uuid(),
-      assistantId,
-      conversationKey,
-      conversationId: conversation.id,
-      createdAt: now,
-    })
-    .run();
+  return db.transaction((tx) => {
+    const existing = tx
+      .select()
+      .from(conversationKeys)
+      .where(
+        and(
+          eq(conversationKeys.assistantId, assistantId),
+          eq(conversationKeys.conversationKey, conversationKey),
+        ),
+      )
+      .get();
 
-  return { conversationId: conversation.id, created: true };
+    if (existing) {
+      return { conversationId: existing.conversationId, created: false };
+    }
+
+    const now = Date.now();
+    const conversationId = uuid();
+
+    tx.insert(conversations)
+      .values({
+        id: conversationId,
+        title: `Runtime: ${conversationKey}`,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      })
+      .run();
+
+    tx.insert(conversationKeys)
+      .values({
+        id: uuid(),
+        assistantId,
+        conversationKey,
+        conversationId,
+        createdAt: now,
+      })
+      .run();
+
+    return { conversationId, created: true };
+  });
 }
