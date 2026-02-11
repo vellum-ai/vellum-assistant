@@ -287,66 +287,9 @@ sessions
 
 sessions
   .command('clear')
-  .description('Clear all chat messages from both the daemon DB and the web Postgres DB (dev only)')
+  .description('Clear all conversations and messages from the daemon SQLite DB (dev only)')
   .action(async () => {
-    // ── Resolve DATABASE_URL ──────────────────────────────────────────
-    let databaseUrl = process.env.DATABASE_URL;
-    if (!databaseUrl) {
-      const { resolve } = await import('node:path');
-      const envLocalPath = resolve(import.meta.dirname, '../../web/.env.local');
-      try {
-        const envContent = readFileSync(envLocalPath, 'utf-8');
-        const match = envContent.match(/^DATABASE_URL=(.+)$/m);
-        if (match) databaseUrl = match[1].trim().replace(/^['"]|['"]$/g, '');
-      } catch {
-        // .env.local not found — will warn below
-      }
-    }
-
-    // ── Safety: only allow localhost ──────────────────────────────────
-    let pgAvailable = false;
-    if (databaseUrl) {
-      let host: string;
-      try {
-        host = new URL(databaseUrl).hostname;
-      } catch {
-        console.error(`Error: DATABASE_URL is not a valid URL: ${databaseUrl}`);
-        process.exit(1);
-      }
-      const allowedHosts = ['localhost', '127.0.0.1', '0.0.0.0', 'host.docker.internal'];
-      if (!allowedHosts.includes(host)) {
-        console.error(`Error: DATABASE_URL points to '${host}' — refusing to run.`);
-        console.error('This command is dev-only and will only run against localhost databases.');
-        process.exit(1);
-      }
-      pgAvailable = true;
-    } else {
-      console.log('Warning: DATABASE_URL not set — will only clear daemon DB.');
-    }
-
-    // ── Safety: reject databases with many users ─────────────────────
-    if (pgAvailable && databaseUrl) {
-      const postgres = (await import('postgres')).default;
-      const checkSql = postgres(databaseUrl, { max: 1 });
-      try {
-        const [{ count: userCount }] = await checkSql`SELECT COUNT(*)::int AS count FROM "user"`;
-        if (userCount >= 10) {
-          console.error(`Error: database has ${userCount} users — this looks like a production database.`);
-          console.error('This command is dev-only and will only run against small dev databases.');
-          process.exit(1);
-        }
-      } catch (err: unknown) {
-        const isUndefinedTable = err instanceof Error && 'code' in err && (err as Record<string, unknown>).code === '42P01';
-        if (!isUndefinedTable) throw err;
-      } finally {
-        await checkSql.end();
-      }
-    }
-
-    // ── Confirmation prompt ──────────────────────────────────────────
-    const parts: string[] = ['daemon SQLite database'];
-    if (pgAvailable) parts.push('web Postgres database');
-    console.log(`This will permanently delete all conversations and messages from: ${parts.join(', ')}.`);
+    console.log('This will permanently delete all conversations and messages from the daemon SQLite database.');
 
     const readline = await import('node:readline');
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -359,24 +302,9 @@ sessions
       return;
     }
 
-    // ── Clear daemon SQLite ──────────────────────────────────────────
     initializeDb();
     const result = clearAllConversations();
-    console.log(`Daemon DB: cleared ${result.conversations} conversations, ${result.messages} messages`);
-
-    // ── Clear web Postgres ───────────────────────────────────────────
-    if (pgAvailable && databaseUrl) {
-      const postgres = (await import('postgres')).default;
-      const sql = postgres(databaseUrl, { max: 1 });
-      try {
-        const msgs = await sql`DELETE FROM chat_messages`;
-        const attachments = await sql`DELETE FROM chat_attachments`;
-        console.log(`Postgres: cleared ${msgs.count} messages, ${attachments.count} attachments`);
-      } finally {
-        await sql.end();
-      }
-    }
-
+    console.log(`Cleared ${result.conversations} conversations, ${result.messages} messages`);
     console.log('Done.');
   });
 
