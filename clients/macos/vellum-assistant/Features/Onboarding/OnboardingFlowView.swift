@@ -9,12 +9,13 @@ struct OnboardingFlowView: View {
         ZStack {
             MeadowBackground()
 
-            HStack(spacing: 0) {
+            // Centered egg + panel
+            HStack(alignment: .center, spacing: VSpacing.xxxl) {
                 // LEFT: SpriteKit egg scene
                 EggSceneView(state: state)
-                    .frame(width: 280)
+                    .frame(width: 260, height: 380)
 
-                // RIGHT: Dark panel with step content
+                // RIGHT: Compact floating panel
                 OnboardingPanel {
                     Group {
                         switch state.currentStep {
@@ -45,8 +46,8 @@ struct OnboardingFlowView: View {
                     )
                     .id(state.currentStep)
                 }
-                .frame(maxWidth: .infinity)
             }
+            .padding(.horizontal, VSpacing.xxxl)
 
             // Bottom caption
             VStack {

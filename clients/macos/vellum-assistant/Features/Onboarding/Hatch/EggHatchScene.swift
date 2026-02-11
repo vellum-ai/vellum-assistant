@@ -43,18 +43,23 @@ final class EggHatchScene: SKScene {
     }
 
     private func setupEgg() {
-        // Load egg.jpg from bundle
-        if let url = Bundle.module.url(forResource: "egg", withExtension: "jpg"),
+        // Load egg_svg.svg (transparent background) with fallback to egg.jpg
+        if let url = Bundle.module.url(forResource: "egg_svg", withExtension: "svg"),
            let nsImage = NSImage(contentsOf: url) {
+            let texture = SKTexture(image: nsImage)
+            texture.filteringMode = .nearest
+            eggNode = SKSpriteNode(texture: texture)
+        } else if let url = Bundle.module.url(forResource: "egg", withExtension: "jpg"),
+                  let nsImage = NSImage(contentsOf: url) {
             let texture = SKTexture(image: nsImage)
             texture.filteringMode = .nearest
             eggNode = SKSpriteNode(texture: texture)
         } else {
             // Fallback: colored oval
-            eggNode = SKSpriteNode(color: .orange, size: CGSize(width: 120, height: 156))
+            eggNode = SKSpriteNode(color: .orange, size: CGSize(width: 140, height: 180))
         }
 
-        eggNode.size = CGSize(width: 120, height: 156)
+        eggNode.size = CGSize(width: 140, height: 180)
         eggNode.position = CGPoint(x: 0, y: 10)
         eggNode.zPosition = 10
         addChild(eggNode)

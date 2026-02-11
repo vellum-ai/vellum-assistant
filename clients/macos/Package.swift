@@ -25,6 +25,7 @@ let package = Package(
                 .process("Resources/Assets.xcassets"),
                 .process("Resources/dino.webp"),
                 .process("Resources/egg.jpg"),
+                .process("Resources/egg_svg.svg"),
                 .process("Resources/meadow.svg"),
                 .process("Resources/Fonts"),
                 .copy("Resources/Recipes")
