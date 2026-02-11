@@ -40,6 +40,7 @@ final class ThinkingIndicatorWindow {
         panel.isOpaque = false
         panel.alphaValue = 0.95
         panel.isReleasedWhenClosed = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
         // Position at bottom-right of screen (same as SessionOverlayWindow)
         if let screen = NSScreen.main {
