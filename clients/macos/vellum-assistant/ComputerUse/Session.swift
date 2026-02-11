@@ -12,6 +12,7 @@ enum SessionState: Equatable {
     case paused(step: Int, maxSteps: Int)
     case awaitingConfirmation(reason: String)
     case completed(summary: String, steps: Int)
+    case responded(answer: String, steps: Int)
     case failed(reason: String)
     case cancelled
 }
@@ -39,6 +40,7 @@ final class ComputerUseSession: ObservableObject {
     private let verifier: ActionVerifier
     private let logger: SessionLogger
     private let initialDelayMs: UInt64
+    private var pendingResponseAnswer: String?
     private var didChromeAccessibilityCheck = false
     private var previousAXTreeText: String?
     private var previousElements: [AXElement]?
@@ -81,6 +83,7 @@ final class ComputerUseSession: ObservableObject {
         verifier.reset()
         isCancelled = false
         isPaused = false
+        pendingResponseAnswer = nil
         previousAXTreeText = nil
         previousElements = nil
         previousFlatElements = nil
@@ -150,7 +153,12 @@ final class ComputerUseSession: ObservableObject {
                     if self.isCancelled { return }
 
                 case .cuComplete(let complete) where complete.sessionId == self.id:
-                    self.state = .completed(summary: complete.summary, steps: complete.stepCount)
+                    if let answer = self.pendingResponseAnswer {
+                        self.state = .responded(answer: answer, steps: complete.stepCount)
+                        self.pendingResponseAnswer = nil
+                    } else {
+                        self.state = .completed(summary: complete.summary, steps: complete.stepCount)
+                    }
                     self.logger.finishSession(result: "completed: \(complete.summary)")
                     return
 
@@ -169,7 +177,7 @@ final class ComputerUseSession: ObservableObject {
 
         // Stream ended or cancelled — ensure terminal state is set
         switch state {
-        case .completed, .failed, .cancelled:
+        case .completed, .responded, .failed, .cancelled:
             break // already in terminal state
         default:
             if isCancelled {
@@ -208,7 +216,12 @@ final class ComputerUseSession: ObservableObject {
         log.info("[\(action.stepNumber)] Daemon action: \(agentAction.displayDescription) — reasoning: \(action.reasoning ?? "")")
 
         // Handle done/respond completion actions — don't execute, wait for cu_complete
-        if agentAction.type == .done || agentAction.type == .respond {
+        if agentAction.type == .done {
+            return
+        }
+        if agentAction.type == .respond {
+            pendingResponseAnswer = action.input["answer"]?.value as? String
+                ?? action.input["text"]?.value as? String
             return
         }
 

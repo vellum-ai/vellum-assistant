@@ -129,6 +129,24 @@ struct SessionOverlayView: View {
                 }
             }
 
+        case .responded(let answer, _):
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "text.bubble.fill")
+                        .foregroundStyle(.blue)
+                    Text("Response")
+                        .font(.caption.bold())
+                }
+                ScrollView {
+                    Text(answer)
+                        .font(.caption)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 200)
+            }
+            .frame(width: 380)
+
         case .failed(let reason):
             HStack(spacing: 6) {
                 Image(systemName: "xmark.circle.fill")
@@ -184,7 +202,7 @@ struct SessionOverlayView: View {
                 .controlSize(.small)
             }
 
-        case .completed, .failed, .cancelled:
+        case .completed, .failed, .cancelled, .responded:
             HStack(spacing: 8) {
                 undoButton
                 Spacer()
