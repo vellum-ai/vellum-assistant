@@ -392,7 +392,8 @@ function handleSandboxSet(
   log.info({ enabled: msg.enabled }, 'Sandbox override applied (per-session)');
 }
 
-interface ParsedHistoryMessage {
+export interface ParsedHistoryMessage {
+  id?: string;
   role: string;
   text: string;
   timestamp: number;

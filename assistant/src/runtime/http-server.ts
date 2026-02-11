@@ -12,29 +12,11 @@ import {
 import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
+import { renderHistoryContent, mergeToolResults } from '../daemon/handlers.js';
 
 const log = getLogger('runtime-http');
 
 const DEFAULT_PORT = 7821;
-
-/**
- * Extract plain text from a DB content field.
- * Content is stored as JSON (Anthropic content block array) or plain text.
- */
-function extractTextContent(raw: string): string {
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed
-        .filter((b: { type?: string }) => b.type === 'text')
-        .map((b: { text?: string }) => b.text ?? '')
-        .join('');
-    }
-    return raw;
-  } catch {
-    return raw;
-  }
-}
 
 export type MessageProcessor = (
   conversationId: string,
@@ -52,6 +34,7 @@ interface RuntimeMessagePayload {
   content: string;
   timestamp: string;
   attachments: unknown[];
+  toolCalls?: Array<{ name: string; input: Record<string, unknown>; result?: string; isError?: boolean }>;
 }
 
 export class RuntimeHttpServer {
@@ -149,12 +132,32 @@ export class RuntimeHttpServer {
     const mapping = getOrCreateConversation(assistantId, conversationKey);
     const rawMessages = conversationStore.getMessages(mapping.conversationId);
 
-    const messages: RuntimeMessagePayload[] = rawMessages.map((msg) => ({
-      id: msg.id,
-      role: msg.role,
-      content: extractTextContent(msg.content),
-      timestamp: new Date(msg.createdAt).toISOString(),
+    // Parse content blocks and extract text + tool calls
+    const parsed = rawMessages.map((msg) => {
+      let content: unknown;
+      try { content = JSON.parse(msg.content); } catch { content = msg.content; }
+      const rendered = renderHistoryContent(content);
+      return {
+        role: msg.role,
+        text: rendered.text,
+        timestamp: msg.createdAt,
+        toolCalls: rendered.toolCalls,
+        id: msg.id,
+      };
+    });
+
+    // Merge tool_result data from internal user messages into the
+    // preceding assistant message's toolCalls, and suppress those
+    // internal user messages from the visible history.
+    const merged = mergeToolResults(parsed);
+
+    const messages: RuntimeMessagePayload[] = merged.map((m) => ({
+      id: m.id ?? '',
+      role: m.role,
+      content: m.text,
+      timestamp: new Date(m.timestamp).toISOString(),
       attachments: [],
+      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
     }));
 
     return Response.json({ messages });
