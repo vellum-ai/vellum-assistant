@@ -589,7 +589,7 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Tab" && ghostSuffix) {
+      if (e.key === "Tab" && !e.shiftKey && ghostSuffix) {
         e.preventDefault();
         setInput(input + ghostSuffix);
         return;
