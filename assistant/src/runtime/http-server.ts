@@ -279,6 +279,14 @@ export class RuntimeHttpServer {
       );
     }
 
+    // P2: Reject non-string content values (numbers, objects, etc.)
+    if (content !== undefined && content !== null && typeof content !== 'string') {
+      return Response.json(
+        { error: 'content must be a string' },
+        { status: 400 },
+      );
+    }
+
     const trimmedContent = typeof content === 'string' ? content.trim() : '';
     const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
 
@@ -287,6 +295,19 @@ export class RuntimeHttpServer {
         { error: 'content or attachmentIds is required' },
         { status: 400 },
       );
+    }
+
+    // P1: Validate that all attachment IDs resolve
+    if (hasAttachments) {
+      const resolved = attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds);
+      if (resolved.length !== attachmentIds.length) {
+        const resolvedIds = new Set(resolved.map((a) => a.id));
+        const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
+        return Response.json(
+          { error: `Attachment IDs not found: ${missing.join(', ')}` },
+          { status: 400 },
+        );
+      }
     }
 
     const mapping = getOrCreateConversation(assistantId, conversationKey);
