@@ -340,8 +340,10 @@ final class ComputerUseSession: ObservableObject {
 
         // Start screenshot capture early (it's async and takes ~100-200ms)
         // This runs in parallel with AX tree enumeration below
-        let screenshotPromise: Task<Data?, Never> = Task {
-            try? await screenCapture.captureScreen()
+        // Use Task.detached so it doesn't inherit @MainActor isolation and can truly run concurrently
+        let screenCap = self.screenCapture
+        let screenshotPromise: Task<Data?, Never> = Task.detached {
+            try? await screenCap.captureScreen()
         }
 
         if let result = enumerator.enumerateCurrentWindow() {
