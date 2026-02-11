@@ -11,30 +11,34 @@ struct VTab: View {
     @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: VSpacing.xs) {
-            if let icon = icon {
-                Image(systemName: icon)
-                    .font(.system(size: 10))
+        Button(action: onSelect) {
+            HStack(spacing: VSpacing.xs) {
+                if let icon = icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 10))
+                }
+                Text(label)
+                    .font(VFont.caption)
+                    .lineLimit(1)
             }
-            Text(label)
-                .font(VFont.caption)
-                .lineLimit(1)
-            if isCloseable, let onClose = onClose {
+            .foregroundColor(isSelected ? VColor.textPrimary : VColor.textSecondary)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(isSelected ? VColor.surfaceBorder : (isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in isHovered = hovering }
+        .overlay(alignment: .trailing) {
+            if isCloseable, let onClose = onClose, isHovered {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundColor(VColor.textMuted)
+                        .padding(.trailing, VSpacing.xs)
                 }
                 .buttonStyle(.plain)
-                .opacity(isHovered ? 1 : 0)
             }
         }
-        .foregroundColor(isSelected ? VColor.textPrimary : VColor.textSecondary)
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
-        .background(isSelected ? VColor.surfaceBorder : (isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear))
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-        .onHover { hovering in isHovered = hovering }
-        .onTapGesture { onSelect() }
     }
 }

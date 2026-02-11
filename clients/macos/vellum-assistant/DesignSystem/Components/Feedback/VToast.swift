@@ -5,8 +5,6 @@ struct VToast: View {
 
     let message: String
     var style: Style = .info
-    var duration: TimeInterval = 3
-
     var body: some View {
         HStack(spacing: VSpacing.md) {
             Image(systemName: iconName)
