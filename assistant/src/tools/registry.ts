@@ -108,12 +108,13 @@ export async function initializeTools(): Promise<void> {
   registerComputerUseTools();
 
   // NOTE: UI surface proxy tools (ui_show, ui_update, ui_dismiss) are NOT
-  // registered here.  They are registered lazily by sessions that have the
-  // surface proxy infrastructure wired up (ComputerUseSession and Session).
-  // Registering them globally would make them executable in any context with
-  // a proxyToolResolver, but the CU proxy resolver forwards unknown tool
-  // names as cu_action and blocks waiting for cu_observation — which would
-  // never arrive for surface tools, causing the turn to stall indefinitely.
+  // registered here.  They are registered per-session by Session and
+  // ComputerUseSession, which both wire up a surfaceProxyResolver that
+  // explicitly handles ui_show/ui_update/ui_dismiss BEFORE falling through
+  // to CU tool handling.  This ensures surface tools never reach the
+  // cu_action dispatch path and cannot stall waiting for a cu_observation
+  // that would never arrive.  See surfaceProxyResolver in session.ts and
+  // the proxyResolver in computer-use-session.ts.
 
   // The bash tool loads web-tree-sitter WASM for command parsing, which is
   // expensive.  Register it lazily so the WASM is only loaded on first use.
