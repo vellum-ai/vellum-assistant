@@ -400,7 +400,6 @@ export class Session {
         const retryRepair = deepRepairHistory(runMessages);
         runMessages = retryRepair.messages;
         preRunHistoryLength = runMessages.length;
-        preRepairMessages = runMessages;
         orderingErrorDetected = false;
         deferredOrderingError = null;
 
