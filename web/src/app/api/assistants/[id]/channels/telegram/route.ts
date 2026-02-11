@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { requireAssistantOwner } from "@/lib/auth/server-session";
+import { requireAssistantOwner, toAuthErrorResponse } from "@/lib/auth/server-session";
 import {
   connectTelegramChannel,
   disconnectTelegramChannel,
@@ -9,20 +9,6 @@ import {
 
 interface RouteParams {
   params: Promise<{ id: string }>;
-}
-
-function toErrorResponse(error: unknown) {
-  const message = error instanceof Error ? error.message : "Unknown error";
-  if (message === "NOT_FOUND") {
-    return NextResponse.json({ error: "Assistant not found" }, { status: 404 });
-  }
-  if (message === "UNAUTHORIZED") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (message === "FORBIDDEN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  return NextResponse.json({ error: message }, { status: 500 });
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
@@ -50,7 +36,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
   } catch (error) {
     console.error("Error getting Telegram channel:", error);
-    return toErrorResponse(error);
+    return toAuthErrorResponse(error);
   }
 }
 
@@ -78,7 +64,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ channel });
   } catch (error) {
     console.error("Error connecting Telegram channel:", error);
-    return toErrorResponse(error);
+    return toAuthErrorResponse(error);
   }
 }
 
@@ -91,6 +77,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json(result);
   } catch (error) {
     console.error("Error disconnecting Telegram channel:", error);
-    return toErrorResponse(error);
+    return toAuthErrorResponse(error);
   }
 }

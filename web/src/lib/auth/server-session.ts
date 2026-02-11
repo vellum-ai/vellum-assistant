@@ -1,3 +1,5 @@
+import { NextResponse } from "next/server";
+
 import { Assistant, getDb } from "@/lib/db";
 import { auth } from "@/lib/auth/better-auth";
 
@@ -148,4 +150,18 @@ export async function requireAssistantOwner(
   }
 
   throw new Error("FORBIDDEN");
+}
+
+export function toAuthErrorResponse(error: unknown): NextResponse {
+  const message = error instanceof Error ? error.message : "Unknown error";
+  if (message === "NOT_FOUND") {
+    return NextResponse.json({ error: "Assistant not found" }, { status: 404 });
+  }
+  if (message === "UNAUTHORIZED") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (message === "FORBIDDEN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  return NextResponse.json({ error: message }, { status: 500 });
 }
