@@ -28,5 +28,6 @@ struct VIconButton: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 }

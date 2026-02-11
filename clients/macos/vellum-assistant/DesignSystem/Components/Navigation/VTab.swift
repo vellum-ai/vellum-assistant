@@ -38,6 +38,7 @@ struct VTab: View {
                         .padding(.trailing, VSpacing.xs)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Close \(label)")
             }
         }
     }

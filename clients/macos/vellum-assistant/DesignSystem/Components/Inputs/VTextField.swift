@@ -15,6 +15,7 @@ struct VTextField: View {
                 Image(systemName: leadingIcon)
                     .foregroundColor(VColor.textMuted)
                     .font(.system(size: 14))
+                    .accessibilityHidden(true)
             }
 
             TextField(placeholder, text: $text)
@@ -30,6 +31,7 @@ struct VTextField: View {
                 Image(systemName: trailingIcon)
                     .foregroundColor(VColor.textMuted)
                     .font(.system(size: 14))
+                    .accessibilityHidden(true)
             }
         }
         .padding(VSpacing.md)

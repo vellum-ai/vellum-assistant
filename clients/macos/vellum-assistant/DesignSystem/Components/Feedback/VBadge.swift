@@ -20,11 +20,13 @@ struct VBadge: View {
                 .padding(.vertical, VSpacing.xxs)
                 .background(color)
                 .clipShape(Capsule())
+                .accessibilityLabel("\(count) items")
 
         case .dot:
             Circle()
                 .fill(color)
                 .frame(width: 8, height: 8)
+                .accessibilityHidden(true)
 
         case .label(let text):
             Text(text)
@@ -34,6 +36,7 @@ struct VBadge: View {
                 .padding(.vertical, VSpacing.xxs)
                 .background(color)
                 .clipShape(Capsule())
+                .accessibilityLabel(text)
         }
     }
 }

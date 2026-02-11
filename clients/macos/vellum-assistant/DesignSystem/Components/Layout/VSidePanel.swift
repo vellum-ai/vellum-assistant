@@ -20,6 +20,7 @@ struct VSidePanel<Content: View>: View {
                             .foregroundColor(VColor.textMuted)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Close \(title)")
                 }
             }
             .padding(VSpacing.xl)

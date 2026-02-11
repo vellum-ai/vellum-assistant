@@ -21,6 +21,8 @@ struct VSegmentedControl: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(items[index])
+                .accessibilityAddTraits(selection == index ? .isSelected : [])
             }
         }
     }
