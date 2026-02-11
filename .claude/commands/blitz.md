@@ -178,7 +178,7 @@ gh api graphql -f query='mutation {
 
 ## Phase 4: Swarm
 
-Read and follow the instructions in `scripts/commands/swarm.md` with these modifications:
+Read and follow the instructions in `.claude/commands/swarm.md` with these modifications:
 
 - Pass the `--workers` count (or default 3) as the first argument.
 - **After each milestone task completes and its PR merges**, update the corresponding GitHub issue. Skip this for non-milestone tasks (e.g., "Address the feedback on ..." items from Phase 5 — those are PR-based and have no associated milestone issue):
@@ -237,7 +237,7 @@ gh issue close <issue-number>
 1. Unless `--auto` was passed, pause and ask the user: **"Initial swarm complete. Run sweep for review feedback?"**
    - If the user declines, skip to Phase 6.
 
-2. Run the check-reviews workflow by reading and following `scripts/commands/check-reviews.md`.
+2. Run the check-reviews workflow by reading and following `.claude/commands/check-reviews.md`.
 
 3. After check-reviews completes, read `.private/TODO.md`:
    - If new "Address the feedback" items were added, run another swarm pass (back to Phase 4).

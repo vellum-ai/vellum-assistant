@@ -1,4 +1,4 @@
-import { existsSync, readlinkSync, symlinkSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 
 import { exec, execOutput, runSteps } from '../lib/step-runner';
@@ -65,6 +65,21 @@ export async function setup(): Promise<void> {
         }
 
         symlinkSync('AGENTS.md', claudeMd);
+      },
+    },
+    {
+      name: 'Creating .private/ tracking files',
+      run: async () => {
+        const privateDir = join(repoRoot, '.private');
+        if (!existsSync(privateDir)) {
+          mkdirSync(privateDir, { recursive: true });
+        }
+        for (const file of ['TODO.md', 'DONE.md', 'UNREVIEWED_PRS.md']) {
+          const filePath = join(privateDir, file);
+          if (!existsSync(filePath)) {
+            writeFileSync(filePath, '');
+          }
+        }
       },
     },
     {
