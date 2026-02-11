@@ -10,10 +10,12 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 final class SurfaceViewModel: ObservableObject {
     @Published var surface: Surface
     let onAction: (String, [String: Any]?) -> Void
+    let onDismiss: () -> Void
 
-    init(surface: Surface, onAction: @escaping (String, [String: Any]?) -> Void) {
+    init(surface: Surface, onAction: @escaping (String, [String: Any]?) -> Void, onDismiss: @escaping () -> Void) {
         self.surface = surface
         self.onAction = onAction
+        self.onDismiss = onDismiss
     }
 }
 
@@ -66,6 +68,10 @@ final class SurfaceManager: ObservableObject {
             surface: surface,
             onAction: { [weak self] actionId, data in
                 self?.onAction?(surface.sessionId, surface.id, actionId, data)
+            },
+            onDismiss: { [weak self] in
+                self?.onAction?(surface.sessionId, surface.id, "dismiss", nil)
+                self?.dismissSurfaceById(surface.id)
             }
         )
         viewModels[surface.id] = viewModel
