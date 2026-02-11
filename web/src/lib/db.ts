@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, and, inArray, asc, desc, isNull, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import postgres from "postgres";
 
 import * as schema from "./schema";
@@ -51,16 +51,10 @@ export function getDb() {
 // Re-export schema types
 export type Assistant = typeof schema.assistantsTable.$inferSelect;
 export type NewAssistant = typeof schema.assistantsTable.$inferInsert;
-export type ChatMessage = typeof schema.chatMessagesTable.$inferSelect;
-export type NewChatMessage = typeof schema.chatMessagesTable.$inferInsert;
 export type AssistantChannelAccount = typeof schema.assistantChannelAccountsTable.$inferSelect;
 export type NewAssistantChannelAccount = typeof schema.assistantChannelAccountsTable.$inferInsert;
 export type AssistantChannelContact = typeof schema.assistantChannelContactsTable.$inferSelect;
 export type NewAssistantChannelContact = typeof schema.assistantChannelContactsTable.$inferInsert;
-export type ChatAttachment = typeof schema.chatAttachmentsTable.$inferSelect;
-export type NewChatAttachment = typeof schema.chatAttachmentsTable.$inferInsert;
-export type ChatMessageAttachment = typeof schema.chatMessageAttachmentsTable.$inferSelect;
-export type NewChatMessageAttachment = typeof schema.chatMessageAttachmentsTable.$inferInsert;
 export type User = typeof schema.user.$inferSelect;
 export type NewUser = typeof schema.user.$inferInsert;
 export type ApiKey = typeof schema.apiKeysTable.$inferSelect;
@@ -110,200 +104,6 @@ export async function deleteAssistant(id: string) {
   await db.delete(schema.assistantsTable).where(eq(schema.assistantsTable.id, id));
 }
 
-
-// Chat message queries
-export async function getChatMessages(assistantId: string) {
-  return db
-    .select()
-    .from(schema.chatMessagesTable)
-    .where(eq(schema.chatMessagesTable.assistantId, assistantId))
-    .orderBy(schema.chatMessagesTable.createdAt);
-}
-
-export async function getRecentChatMessages(assistantId: string, limit = 40) {
-  const messages = await db
-    .select()
-    .from(schema.chatMessagesTable)
-    .where(eq(schema.chatMessagesTable.assistantId, assistantId))
-    .orderBy(desc(schema.chatMessagesTable.createdAt))
-    .limit(limit);
-  return [...messages].reverse();
-}
-
-export async function getRecentConversationMessages(params: {
-  assistantId: string;
-  sourceChannel: string;
-  externalChatId: string;
-  limit?: number;
-}) {
-  const limit = params.limit ?? 40;
-  const messages = await db
-    .select()
-    .from(schema.chatMessagesTable)
-    .where(
-      and(
-        eq(schema.chatMessagesTable.assistantId, params.assistantId),
-        eq(schema.chatMessagesTable.sourceChannel, params.sourceChannel),
-        eq(schema.chatMessagesTable.externalChatId, params.externalChatId)
-      )
-    )
-    .orderBy(desc(schema.chatMessagesTable.createdAt))
-    .limit(limit);
-
-  return [...messages].reverse();
-}
-
-export async function createChatMessage(data: NewChatMessage) {
-  const result = await db.insert(schema.chatMessagesTable).values(data).returning();
-  return result[0];
-}
-
-export async function getChatMessageById(id: string) {
-  const result = await db
-    .select()
-    .from(schema.chatMessagesTable)
-    .where(eq(schema.chatMessagesTable.id, id));
-  return result[0] || null;
-}
-
-export async function createChatAttachment(data: NewChatAttachment) {
-  const result = await db.insert(schema.chatAttachmentsTable).values(data).returning();
-  return result[0];
-}
-
-export async function getChatAttachmentByIdAndAssistant(attachmentId: string, assistantId: string) {
-  const result = await db
-    .select()
-    .from(schema.chatAttachmentsTable)
-    .where(and(
-      eq(schema.chatAttachmentsTable.id, attachmentId),
-      eq(schema.chatAttachmentsTable.assistantId, assistantId),
-    ));
-  return result[0] || null;
-}
-
-export async function getChatAttachmentsByIdsAndAssistant(attachmentIds: string[], assistantId: string) {
-  if (attachmentIds.length === 0) {
-    return [];
-  }
-
-  return db
-    .select()
-    .from(schema.chatAttachmentsTable)
-    .where(and(
-      inArray(schema.chatAttachmentsTable.id, attachmentIds),
-      eq(schema.chatAttachmentsTable.assistantId, assistantId),
-    ));
-}
-
-export async function linkAttachmentsToMessage(messageId: string, attachmentIds: string[]) {
-  if (attachmentIds.length === 0) {
-    return;
-  }
-
-  const values: NewChatMessageAttachment[] = attachmentIds.map((attachmentId, index) => ({
-    messageId,
-    attachmentId,
-    position: index,
-  }));
-
-  await db.insert(schema.chatMessageAttachmentsTable).values(values);
-}
-
-export async function getAttachmentsForMessages(messageIds: string[]) {
-  if (messageIds.length === 0) {
-    return new Map<string, ChatAttachment[]>();
-  }
-
-  const rows = await db
-    .select({
-      messageId: schema.chatMessageAttachmentsTable.messageId,
-      attachment: schema.chatAttachmentsTable,
-    })
-    .from(schema.chatMessageAttachmentsTable)
-    .innerJoin(
-      schema.chatAttachmentsTable,
-      eq(schema.chatMessageAttachmentsTable.attachmentId, schema.chatAttachmentsTable.id),
-    )
-    .where(inArray(schema.chatMessageAttachmentsTable.messageId, messageIds))
-    .orderBy(asc(schema.chatMessageAttachmentsTable.position));
-
-  const attachmentsByMessageId = new Map<string, ChatAttachment[]>();
-  for (const row of rows) {
-    const existing = attachmentsByMessageId.get(row.messageId) ?? [];
-    existing.push(row.attachment);
-    attachmentsByMessageId.set(row.messageId, existing);
-  }
-
-  return attachmentsByMessageId;
-}
-
-export async function updateChatMessageStatus(id: string, status: string) {
-  await db
-    .update(schema.chatMessagesTable)
-    .set({ status, updatedAt: new Date() })
-    .where(eq(schema.chatMessagesTable.id, id));
-}
-
-export async function getMessageByGcsId(gcsMessageId: string) {
-  const result = await db
-    .select()
-    .from(schema.chatMessagesTable)
-    .where(eq(schema.chatMessagesTable.gcsMessageId, gcsMessageId));
-  return result[0] || null;
-}
-
-export async function getMessageByExternalId(
-  assistantId: string,
-  sourceChannel: string,
-  externalChatId: string | null | undefined,
-  externalMessageId: string
-) {
-  const chatMatch = externalChatId
-    ? eq(schema.chatMessagesTable.externalChatId, externalChatId)
-    : isNull(schema.chatMessagesTable.externalChatId);
-
-  const result = await db
-    .select()
-    .from(schema.chatMessagesTable)
-    .where(
-      and(
-        eq(schema.chatMessagesTable.assistantId, assistantId),
-        eq(schema.chatMessagesTable.sourceChannel, sourceChannel),
-        chatMatch,
-        eq(schema.chatMessagesTable.externalMessageId, externalMessageId)
-      )
-    );
-  return result[0] || null;
-}
-
-export async function getAssistantReplyByUserMessageId(params: {
-  assistantId: string;
-  sourceChannel: string;
-  externalChatId: string | null | undefined;
-  userMessageId: string;
-}) {
-  const chatMatch = params.externalChatId
-    ? eq(schema.chatMessagesTable.externalChatId, params.externalChatId)
-    : isNull(schema.chatMessagesTable.externalChatId);
-
-  const result = await db
-    .select()
-    .from(schema.chatMessagesTable)
-    .where(
-      and(
-        eq(schema.chatMessagesTable.assistantId, params.assistantId),
-        eq(schema.chatMessagesTable.sourceChannel, params.sourceChannel),
-        eq(schema.chatMessagesTable.role, "assistant"),
-        chatMatch,
-        sql`${schema.chatMessagesTable.metadata} ->> 'replyToUserMessageId' = ${params.userMessageId}`
-      )
-    )
-    .orderBy(desc(schema.chatMessagesTable.createdAt))
-    .limit(1);
-
-  return result[0] || null;
-}
 
 // User queries
 export async function getUserByUsername(username: string) {

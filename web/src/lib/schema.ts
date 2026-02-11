@@ -7,11 +7,8 @@ import {
   jsonb,
   timestamp,
   index,
-  integer,
-  primaryKey,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
 
 // Assistants table (formerly agents)
 export const assistantsTable = pgTable("assistants", {
@@ -23,44 +20,6 @@ export const assistantsTable = pgTable("assistants", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
-
-// Chat messages table
-export const chatMessagesTable = pgTable(
-  "chat_messages",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    assistantId: uuid("assistant_id")
-      .notNull()
-      .references(() => assistantsTable.id, { onDelete: "cascade" }),
-    role: varchar("role", { length: 20 }).notNull(),
-    content: text("content").notNull(),
-    status: varchar("status", { length: 20 }).default("sent"),
-    sourceChannel: varchar("source_channel", { length: 32 }).default("web"),
-    externalChatId: varchar("external_chat_id", { length: 255 }),
-    externalMessageId: varchar("external_message_id", { length: 255 }),
-    metadata: jsonb("metadata").default({}),
-    gcsMessageId: varchar("gcs_message_id", { length: 255 }),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-  },
-  (table) => [
-    index("idx_chat_messages_assistant_id").on(table.assistantId),
-    index("idx_chat_messages_external_lookup").on(
-      table.assistantId,
-      table.sourceChannel,
-      table.externalChatId,
-      table.externalMessageId
-    ),
-    uniqueIndex("uniq_chat_messages_external").on(
-      table.assistantId,
-      table.sourceChannel,
-      table.externalChatId,
-      table.externalMessageId
-    ).where(
-      sql`${table.externalChatId} IS NOT NULL AND ${table.externalMessageId} IS NOT NULL`
-    ),
-  ]
-);
 
 // Assistant channel accounts (Telegram, future channels)
 export const assistantChannelAccountsTable = pgTable(
@@ -117,48 +76,6 @@ export const assistantChannelContactsTable = pgTable(
       table.assistantChannelAccountId,
       table.externalUserId
     ),
-  ]
-);
-
-export const chatAttachmentsTable = pgTable(
-  "chat_attachments",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    assistantId: uuid("assistant_id")
-      .notNull()
-      .references(() => assistantsTable.id, { onDelete: "cascade" }),
-    originalFilename: varchar("original_filename", { length: 512 }).notNull(),
-    mimeType: varchar("mime_type", { length: 255 }).notNull(),
-    sizeBytes: integer("size_bytes").notNull(),
-    storageKey: text("storage_key").notNull(),
-    sha256: varchar("sha256", { length: 64 }).notNull(),
-    kind: varchar("kind", { length: 20 }).notNull(),
-    extractedText: text("extracted_text"),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-  },
-  (table) => [
-    index("idx_chat_attachments_assistant_id").on(table.assistantId),
-    index("idx_chat_attachments_sha256").on(table.sha256),
-  ]
-);
-
-export const chatMessageAttachmentsTable = pgTable(
-  "chat_message_attachments",
-  {
-    messageId: uuid("message_id")
-      .notNull()
-      .references(() => chatMessagesTable.id, { onDelete: "cascade" }),
-    attachmentId: uuid("attachment_id")
-      .notNull()
-      .references(() => chatAttachmentsTable.id, { onDelete: "cascade" }),
-    position: integer("position").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.messageId, table.attachmentId] }),
-    index("idx_chat_message_attachments_message_id").on(table.messageId),
-    index("idx_chat_message_attachments_attachment_id").on(table.attachmentId),
   ]
 );
 

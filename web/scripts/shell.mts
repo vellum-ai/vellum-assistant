@@ -11,13 +11,12 @@ const connectionString =
 const client = postgres(connectionString);
 const db = drizzle(client, { schema });
 
-const { assistantsTable, chatMessagesTable, user, apiKeysTable } = schema;
+const { assistantsTable, user, apiKeysTable } = schema;
 
 const context: Record<string, unknown> = {
   db,
   schema,
   assistantsTable,
-  chatMessagesTable,
   user,
   apiKeysTable,
   and,
@@ -39,7 +38,7 @@ console.log("─".repeat(40));
 console.log("Globals:");
 console.log("  db                 Drizzle database client");
 console.log("  schema             All schema tables");
-console.log("  assistantsTable, chatMessagesTable, user, apiKeysTable");
+console.log("  assistantsTable, user, apiKeysTable");
 console.log("  eq, and, or, not, gt, gte, lt, lte,");
 console.log("  like, ilike, inArray, sql");
 console.log("");
