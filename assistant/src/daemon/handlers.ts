@@ -6,7 +6,7 @@ import * as conversationStore from '../memory/conversation-store.js';
 import { getLogger } from '../util/logger.js';
 import { Session } from './session.js';
 import { ComputerUseSession } from './computer-use-session.js';
-import type { ClientMessage, ServerMessage, UserMessageAttachment, CuSessionCreate, CuObservation, AmbientObservation } from './ipc-protocol.js';
+import type { ClientMessage, ServerMessage, UserMessageAttachment, CuSessionCreate, CuObservation } from './ipc-protocol.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 
 const log = getLogger('handlers');
