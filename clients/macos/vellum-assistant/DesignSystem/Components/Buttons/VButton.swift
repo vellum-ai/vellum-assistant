@@ -14,9 +14,9 @@ struct VButton: View {
             Text(label)
                 .font(VFont.bodyMedium)
                 .foregroundColor(foregroundColor)
-                .frame(maxWidth: isFullWidth ? .infinity : nil)
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.vertical, VSpacing.lg)
+                .frame(maxWidth: isFullWidth ? .infinity : nil)
                 .background(backgroundColor)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .overlay(
