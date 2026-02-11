@@ -24,7 +24,8 @@ dist
 # misc
 .DS_Store
 *.pem
-.claude/
+.claude/*
+!.claude/commands/
 .private/
 temp.sh
 context.md
