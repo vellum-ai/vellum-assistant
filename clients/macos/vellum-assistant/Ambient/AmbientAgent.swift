@@ -44,7 +44,7 @@ final class AmbientAgent: ObservableObject {
     private let screenCapture = ScreenCapture()
     private let ocr = ScreenOCR()
     let knowledgeStore = KnowledgeStore()
-    private var analyzer: AmbientAnalyzer?
+    var daemonClient: DaemonClient?
     private var watchTask: Task<Void, Never>?
     private(set) var knowledgeCron: KnowledgeCron?
     private(set) var syncClient: AmbientSyncClient?
@@ -73,12 +73,12 @@ final class AmbientAgent: ObservableObject {
 
     func start() {
         guard watchTask == nil else { return }
-        guard let apiKey = APIKeyManager.getKey() else {
-            log.warning("Cannot start ambient agent: no API key")
+
+        guard daemonClient != nil else {
+            log.warning("Cannot start ambient agent: no daemon client")
             return
         }
 
-        analyzer = AmbientAnalyzer(apiKey: apiKey)
         state = .watching
         log.info("Ambient agent started (interval: \(self.captureIntervalSeconds)s)")
 
@@ -86,7 +86,11 @@ final class AmbientAgent: ObservableObject {
         cron.onInsight = { [weak self] insight in
             self?.showInsightNotification(insight)
         }
-        cron.start(apiKey: apiKey)
+        if let apiKey = APIKeyManager.getKey() {
+            cron.start(apiKey: apiKey)
+        } else {
+            log.warning("No API key for KnowledgeCron — insight analysis disabled")
+        }
         knowledgeCron = cron
 
         // Remote sync
@@ -134,7 +138,6 @@ final class AmbientAgent: ObservableObject {
         knowledgeCron = nil
         syncClient = nil
         knowledgeStore.onEntryAdded = nil
-        analyzer = nil
         state = .disabled
         log.info("Ambient agent stopped")
     }
@@ -248,35 +251,47 @@ final class AmbientAgent: ObservableObject {
 
         log.info("[\(cycle)] Analyzing \(appName) — \"\(windowTitle)\" (\(screenContent.count) chars, \(captureMethod))")
 
-        // Send to Haiku
-        guard let analyzer = analyzer else { return }
-
-        let result: AmbientAnalysisResult
-        do {
-            result = try await analyzer.analyze(
-                screenContent: screenContent,
-                appName: appName,
-                windowTitle: windowTitle,
-                knowledgeContext: knowledgeStore.formattedContext(),
-                captureMethod: captureMethod
-            )
-        } catch {
-            log.warning("[\(cycle)] Analysis failed: \(error.localizedDescription)")
+        // Send observation to daemon via IPC
+        guard let daemonClient = daemonClient else {
+            log.warning("[\(cycle)] No daemon client — skipping analysis")
             state = .watching
             return
         }
 
-        switch result.decision {
+        do {
+            try daemonClient.send(AmbientObservationMessage(
+                ocrText: screenContent,
+                appName: appName,
+                windowTitle: windowTitle,
+                timestamp: Date().timeIntervalSince1970 * 1000
+            ))
+        } catch {
+            log.warning("[\(cycle)] Failed to send observation to daemon: \(error.localizedDescription)")
+            state = .watching
+            return
+        }
+
+        // Wait for ambient_result from daemon
+        guard let ambientResult = await waitForAmbientResult(timeout: 30) else {
+            log.warning("[\(cycle)] Timed out waiting for ambient result from daemon")
+            state = .watching
+            return
+        }
+
+        let decision = AmbientDecision(rawValue: ambientResult.decision)
+        log.info("[\(cycle)] Decision: \(ambientResult.decision)")
+
+        switch decision {
         case .ignore:
-            log.debug("[\(cycle)] Decision: ignore — \(result.reasoning)")
+            break
 
         case .observe:
-            if let observation = result.observation, result.confidence > 0.5 {
+            if let observation = ambientResult.summary {
                 knowledgeStore.addEntry(
                     category: "observation",
                     observation: observation,
                     sourceApp: appName,
-                    confidence: result.confidence,
+                    confidence: 1.0,
                     windowTitle: windowTitle,
                     focusedElement: focusedElementDesc,
                     captureMethod: captureMethod,
@@ -286,7 +301,7 @@ final class AmbientAgent: ObservableObject {
             }
 
         case .suggest:
-            if let suggestion = result.suggestion, result.confidence > 0.8 {
+            if let suggestion = ambientResult.suggestion {
                 await refreshRejectionsIfNeeded()
                 if isSimilarToRejection(suggestion) {
                     log.info("[\(cycle)] Suggestion suppressed (similar to previous rejection): \(suggestion)")
@@ -295,18 +310,48 @@ final class AmbientAgent: ObservableObject {
                     lastSuggestion = suggestion
                     showSuggestion(suggestion)
                 }
-            } else {
-                log.debug("[\(cycle)] Suggestion below confidence threshold (\(String(format: "%.2f", result.confidence)))")
             }
+
+        case .none:
+            log.warning("[\(cycle)] Unknown decision from daemon: \(ambientResult.decision)")
         }
 
         // Sync non-ignore analysis results and flush retry queue
-        if result.decision != .ignore {
+        if decision != .ignore {
+            let result = AmbientAnalysisResult(
+                decision: decision ?? .ignore,
+                observation: ambientResult.summary,
+                suggestion: ambientResult.suggestion,
+                confidence: 1.0,
+                reasoning: ""
+            )
             await syncClient?.sendAnalysis(result)
         }
         await syncClient?.flushQueue()
 
         state = .watching
+    }
+
+    private func waitForAmbientResult(timeout: TimeInterval = 30) async -> AmbientResultMessage? {
+        guard let daemonClient = daemonClient else { return nil }
+        let messageStream = daemonClient.messages
+        return await withTaskGroup(of: AmbientResultMessage?.self) { group in
+            group.addTask {
+                for await message in messageStream {
+                    if case .ambientResult(let result) = message {
+                        return result
+                    }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                return nil
+            }
+            let result = await group.next() ?? nil
+            group.cancelAll()
+            return result
+        }
     }
 
     private func refreshRejectionsIfNeeded() async {
