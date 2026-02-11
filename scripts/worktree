@@ -53,8 +53,12 @@ remove() {
   echo "Removing worktree at $dir..."
   git -C "$REPO_ROOT" worktree remove "$dir"
 
-  read -p "Delete branch $branch? [y/N] " -n 1 -r
-  echo
+  if [[ -t 0 ]]; then
+    read -p "Delete branch $branch? [y/N] " -n 1 -r
+    echo
+  else
+    REPLY="y"
+  fi
   if [[ $REPLY =~ ^[Yy]$ ]]; then
     git -C "$REPO_ROOT" branch -d "$branch" 2>/dev/null || \
       git -C "$REPO_ROOT" branch -D "$branch"
