@@ -120,6 +120,70 @@ export interface AmbientObservation {
   timestamp: number;
 }
 
+// === Surface types ===
+
+export type SurfaceType = 'card' | 'form' | 'list' | 'confirmation';
+
+export interface SurfaceAction {
+  id: string;
+  label: string;
+  style?: 'primary' | 'secondary' | 'destructive';
+}
+
+export interface CardSurfaceData {
+  title: string;
+  subtitle?: string;
+  body: string;
+  metadata?: Array<{ label: string; value: string }>;
+}
+
+export interface FormField {
+  id: string;
+  type: 'text' | 'textarea' | 'select' | 'toggle' | 'number';
+  label: string;
+  placeholder?: string;
+  required?: boolean;
+  defaultValue?: string | number | boolean;
+  options?: Array<{ label: string; value: string }>;
+}
+
+export interface FormSurfaceData {
+  description?: string;
+  fields: FormField[];
+  submitLabel?: string;
+}
+
+export interface ListItem {
+  id: string;
+  title: string;
+  subtitle?: string;
+  icon?: string;
+  selected?: boolean;
+}
+
+export interface ListSurfaceData {
+  items: ListItem[];
+  selectionMode: 'single' | 'multiple' | 'none';
+}
+
+export interface ConfirmationSurfaceData {
+  message: string;
+  detail?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+}
+
+export type SurfaceData = CardSurfaceData | FormSurfaceData | ListSurfaceData | ConfirmationSurfaceData;
+
+export interface UiSurfaceAction {
+  type: 'ui_surface_action';
+  sessionId: string;
+  surfaceId: string;
+  actionId: string;
+  data?: Record<string, unknown>;
+}
+
 export type ClientMessage =
   | UserMessage
   | ConfirmationResponse
@@ -137,7 +201,8 @@ export type ClientMessage =
   | CuSessionCreate
   | CuObservation
   | AmbientObservation
-  | TaskSubmit;
+  | TaskSubmit
+  | UiSurfaceAction;
 
 // === Server → Client messages ===
 
@@ -334,6 +399,29 @@ export interface AmbientResult {
   suggestion?: string;
 }
 
+export interface UiSurfaceShow {
+  type: 'ui_surface_show';
+  sessionId: string;
+  surfaceId: string;
+  surfaceType: SurfaceType;
+  title?: string;
+  data: SurfaceData;
+  actions?: SurfaceAction[];
+}
+
+export interface UiSurfaceUpdate {
+  type: 'ui_surface_update';
+  sessionId: string;
+  surfaceId: string;
+  data: Partial<SurfaceData>;
+}
+
+export interface UiSurfaceDismiss {
+  type: 'ui_surface_dismiss';
+  sessionId: string;
+  surfaceId: string;
+}
+
 export type ServerMessage =
   | AssistantTextDelta
   | AssistantThinkingDelta
@@ -360,7 +448,10 @@ export type ServerMessage =
   | CuComplete
   | CuError
   | TaskRouted
-  | AmbientResult;
+  | AmbientResult
+  | UiSurfaceShow
+  | UiSurfaceUpdate
+  | UiSurfaceDismiss;
 
 // === Serialization ===
 
