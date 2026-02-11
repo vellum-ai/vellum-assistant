@@ -55,7 +55,16 @@ After each PR is mainlined, tell the user:
 
 Then proceed to the next PR.
 
-### 4. Completion
+### 4. Archive the plan
+
+After all PRs are mainlined, move the plan file to `.private/plans/archived/`:
+
+```bash
+mkdir -p .private/plans/archived
+mv .private/plans/$ARGUMENTS .private/plans/archived/$ARGUMENTS
+```
+
+### 5. Completion
 
 After all PRs are mainlined, tell the user the plan is fully executed. List all the PRs that were created with their links.
 
