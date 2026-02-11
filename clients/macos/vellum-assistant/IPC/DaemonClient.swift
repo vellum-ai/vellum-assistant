@@ -7,7 +7,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Protocol for daemon client communication, enabling dependency injection and testing.
 @MainActor
 protocol DaemonClientProtocol {
-    var messages: AsyncStream<ServerMessage> { get }
+    func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
 }
 
@@ -16,8 +16,9 @@ protocol DaemonClientProtocol {
 /// Connects to the daemon's socket at `~/.vellum/vellum.sock` (or `VELLUM_DAEMON_SOCKET` env override),
 /// sends and receives newline-delimited JSON messages.
 ///
-/// This is a long-lived singleton. The `messages` stream stays open for the app's lifetime.
-/// Consumers (ComputerUseSession, AmbientAgent) filter for messages relevant to them.
+/// This is a long-lived singleton. Consumers call `subscribe()` to get an independent message
+/// stream, enabling multiple consumers (ComputerUseSession, AmbientAgent) to each receive all
+/// messages and filter for the ones relevant to them.
 @MainActor
 final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
@@ -25,11 +26,21 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     @Published var isConnected: Bool = false
 
-    // MARK: - Message Stream
+    // MARK: - Broadcast Subscribers
 
-    /// Stream of incoming server messages. Stays open for the lifetime of the client.
-    var messages: AsyncStream<ServerMessage> {
-        stream
+    /// Creates a new message stream for the caller. Each subscriber receives all messages
+    /// independently, enabling multiple consumers (ComputerUseSession, AmbientAgent) to
+    /// filter for messages relevant to them without competing for elements.
+    func subscribe() -> AsyncStream<ServerMessage> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<ServerMessage>.makeStream()
+        subscribers[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.subscribers.removeValue(forKey: id)
+            }
+        }
+        return stream
     }
 
     // MARK: - Private State
@@ -37,8 +48,7 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
     private var connection: NWConnection?
     private let queue = DispatchQueue(label: "com.vellum.vellum-assistant.daemon-client", qos: .userInitiated)
 
-    private let stream: AsyncStream<ServerMessage>
-    private let continuation: AsyncStream<ServerMessage>.Continuation
+    private var subscribers: [UUID: AsyncStream<ServerMessage>.Continuation] = [:]
 
     /// Buffer for accumulating incoming data until we have complete newline-delimited messages.
     private var receiveBuffer = Data()
@@ -72,11 +82,7 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Init
 
-    init() {
-        let (stream, continuation) = AsyncStream<ServerMessage>.makeStream()
-        self.stream = stream
-        self.continuation = continuation
-    }
+    init() {}
 
     deinit {
         // Cancel everything without triggering reconnect.
@@ -85,7 +91,10 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
         pingTask?.cancel()
         pongTimeoutTask?.cancel()
         connection?.cancel()
-        continuation.finish()
+        for continuation in subscribers.values {
+            continuation.finish()
+        }
+        subscribers.removeAll()
     }
 
     // MARK: - Socket Path
@@ -108,7 +117,6 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
         disconnectInternal(triggerReconnect: false)
 
         shouldReconnect = true
-        reconnectDelay = 1.0
 
         let socketPath = Self.resolveSocketPath()
         log.info("Connecting to daemon socket at \(socketPath)")
@@ -289,8 +297,10 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
             pongTimeoutTask = nil
         }
 
-        // Yield all messages (including pong) to stream consumers.
-        continuation.yield(message)
+        // Broadcast to all subscribers.
+        for continuation in subscribers.values {
+            continuation.yield(message)
+        }
     }
 
     // MARK: - Reconnect

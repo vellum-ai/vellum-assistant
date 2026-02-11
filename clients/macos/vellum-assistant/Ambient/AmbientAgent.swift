@@ -334,7 +334,7 @@ final class AmbientAgent: ObservableObject {
 
     private func waitForAmbientResult(timeout: TimeInterval = 30) async -> AmbientResultMessage? {
         guard let daemonClient = daemonClient else { return nil }
-        let messageStream = daemonClient.messages
+        let messageStream = daemonClient.subscribe()
         return await withTaskGroup(of: AmbientResultMessage?.self) { group in
             group.addTask {
                 for await message in messageStream {

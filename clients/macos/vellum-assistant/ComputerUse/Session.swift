@@ -131,7 +131,7 @@ final class ComputerUseSession: ObservableObject {
         // Wrap in a cancellable task so cancel() can interrupt the stream await.
         let loopTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in daemonClient.messages {
+            for await message in daemonClient.subscribe() {
                 guard !self.isCancelled else { break }
 
                 // Wait while paused
