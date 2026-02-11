@@ -15,6 +15,7 @@ import { DaemonServer } from './server.js';
 import { getLogger } from '../util/logger.js';
 import { DaemonError } from '../util/errors.js';
 import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
+import { browserManager } from '../tools/browser/browser-manager.js';
 
 const log = getLogger('lifecycle');
 
@@ -206,6 +207,7 @@ export async function runDaemon(): Promise<void> {
     forceTimer.unref();
 
     await server.stop();
+    await browserManager.closeAllPages();
     memoryWorker.stop();
     cleanupPidFile();
     process.exit(0);
