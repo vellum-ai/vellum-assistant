@@ -1,7 +1,9 @@
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { getDataDir } from '../../util/platform.js';
 import { getLogger } from '../../util/logger.js';
+import { checkBrowserRuntime } from './runtime-check.js';
 
 const log = getLogger('browser-manager');
 
@@ -73,6 +75,24 @@ class BrowserManager {
     this.contextCreating = (async () => {
       const profileDir = getProfileDir();
       mkdirSync(profileDir, { recursive: true });
+
+      // Auto-install Chromium if missing
+      if (!launchPersistentContext) {
+        const status = await checkBrowserRuntime();
+        if (status.playwrightAvailable && !status.chromiumInstalled) {
+          log.info('Chromium not installed, installing via playwright...');
+          const result = spawnSync('bunx', ['playwright', 'install', 'chromium'], {
+            stdio: 'pipe',
+            timeout: 120_000,
+          });
+          if (result.status === 0) {
+            log.info('Chromium installed successfully');
+          } else {
+            const stderr = result.stderr?.toString().trim();
+            log.error({ exitCode: result.status, stderr }, 'Failed to install Chromium');
+          }
+        }
+      }
 
       const launch = launchPersistentContext ?? await getDefaultLaunchFn();
       const ctx = await launch(profileDir, { headless: true });
