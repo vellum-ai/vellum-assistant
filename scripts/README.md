@@ -16,9 +16,10 @@ ln -s ../../scripts/commands/check-reviews.md check-reviews.md
 ln -s ../../scripts/commands/brainstorm.md brainstorm.md
 ln -s ../../scripts/commands/swarm.md swarm.md
 ln -s ../../scripts/commands/worktree-plan.md worktree-plan.md
+ln -s ../../scripts/commands/mainline.md mainline.md
 ```
 
-After symlinking, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, and `/worktree-plan` in Claude Code.
+After symlinking, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, `/worktree-plan`, and `/mainline` in Claude Code.
 
 ### 2. Enable fast mode
 
@@ -86,6 +87,19 @@ Spawns a pool of agents that work through `.private/TODO.md` in parallel using i
 /swarm       # 3 parallel workers, runs until TODO.md is empty
 /swarm 5     # 5 parallel workers
 /swarm 3 10  # 3 workers, stop after 10 tasks completed
+```
+
+### `/mainline` - Ship current changes to main
+
+Takes all uncommitted changes, creates a branch, commits, opens a PR, merges it via squash, adds the PR to the unreviewed list, and switches back to main. A one-shot command for shipping adhoc work.
+
+**When to use:** When you've been working on something interactively and want to ship it without manually going through the branch/PR/merge dance.
+
+**Frequency:** Whenever you have uncommitted changes to ship.
+
+```
+/mainline                          # infers PR title from the changes
+/mainline Fix login redirect bug   # uses the provided title
 ```
 
 ### `/check-reviews` - Process PR review feedback
@@ -171,6 +185,12 @@ Follow the instructions in scripts/commands/work.md
 
 ```
 Follow the instructions in scripts/commands/check-reviews.md
+```
+
+### Mainline prompt
+
+```
+Follow the instructions in scripts/commands/mainline.md
 ```
 
 ### Brainstorm prompt
