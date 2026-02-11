@@ -26,6 +26,8 @@ Environment variables:
 - `CLOUD_RUNTIME_URL` — Base URL for the hosted cloud runtime (required in cloud mode).
 - `LOCAL_RUNTIME_URL` — Override the default local runtime URL (default: `http://127.0.0.1:7821`).
 
+For remote runtime access via SSH, see the [Remote Access](../README.md#remote-access) section in the root README.
+
 ### Assistant Auth
 
 Assistant-initiated routes (e.g. `/api/assistants/[id]/setup-email`, `/api/assistants/[id]/set-avatar`) authenticate with hashed bearer tokens stored in the `assistant_auth_tokens` table. Plaintext keys are never stored.

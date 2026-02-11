@@ -69,6 +69,61 @@ bun install
 bun run src/index.ts daemon start
 ```
 
+## Remote Access
+
+Access a remote assistant daemon from your local machine via SSH.
+
+### Web (runtime HTTP tunnel)
+
+The web app connects to the runtime via HTTP. Use the tunnel helper to forward the runtime port:
+
+```bash
+# On your local machine — forward remote runtime port
+scripts/vellum-runtime-tunnel.sh start user@remote-host
+
+# Print env vars for web local mode
+scripts/vellum-runtime-tunnel.sh print-env
+# Output:
+#   ASSISTANT_CONNECTION_MODE=local
+#   LOCAL_RUNTIME_URL=http://127.0.0.1:7821
+
+# On the remote host, start the daemon with HTTP enabled
+RUNTIME_HTTP_PORT=7821 bun run src/index.ts daemon start
+```
+
+### CLI (socket forwarding)
+
+The CLI connects via Unix socket. Forward the socket with SSH:
+
+```bash
+ssh -L ~/.vellum/remote.sock:/home/user/.vellum/vellum.sock user@remote-host -N &
+VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock vellum
+```
+
+When `VELLUM_DAEMON_SOCKET` is set, autostart is disabled by default. Set `VELLUM_DAEMON_AUTOSTART=1` to override.
+
+### macOS app (socket forwarding)
+
+The macOS app also supports `VELLUM_DAEMON_SOCKET`. Launch it from the terminal:
+
+```bash
+ssh -L ~/.vellum/remote.sock:/home/user/.vellum/vellum.sock user@remote-host -N &
+VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock open -a vellum-assistant
+```
+
+### Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| Web: "Failed to connect to runtime" | Is the tunnel running? (`scripts/vellum-runtime-tunnel.sh status`) |
+| Web: "CLOUD_RUNTIME_URL must be set" | Set `ASSISTANT_CONNECTION_MODE=local` |
+| CLI: "could not connect to daemon socket" | Is the SSH socket tunnel active? Check `VELLUM_DAEMON_SOCKET` path |
+| CLI: daemon starts locally despite socket override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1` |
+| macOS: not connecting | Verify socket path in `VELLUM_DAEMON_SOCKET` exists and is writable |
+| Any: "connection refused" | Is the remote daemon running? (`vellum daemon status` on remote) |
+
+Run `vellum doctor` for a full diagnostic check including socket path and autostart policy.
+
 ## License
 
 Proprietary - Vellum AI

@@ -105,6 +105,10 @@ UI/                   SwiftUI views + overlay windows
 Logging/              Session recording to JSON
 ```
 
+## Remote Daemon
+
+The app supports connecting to a remote daemon via SSH socket forwarding. Set `VELLUM_DAEMON_SOCKET` to the forwarded socket path. See the [Remote Access](../../README.md#remote-access) section in the root README.
+
 ## Safety
 
 - Credit cards, SSNs, and passwords are blocked at the verifier level
