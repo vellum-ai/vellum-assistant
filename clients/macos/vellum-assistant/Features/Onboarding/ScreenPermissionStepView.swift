@@ -9,15 +9,15 @@ struct ScreenPermissionStepView: View {
     @State private var pollTimer: Timer?
 
     var body: some View {
-        VStack(spacing: VellumSpacing.xxl) {
-            VStack(spacing: VellumSpacing.md) {
+        VStack(spacing: VSpacing.xxl) {
+            VStack(spacing: VSpacing.md) {
                 Text("One more thing \u{2014} let me see.")
-                    .font(VellumFont.onboardingTitle)
-                    .foregroundColor(VellumTheme.textPrimary)
+                    .font(VFont.onboardingTitle)
+                    .foregroundColor(VColor.textPrimary)
 
                 Text("I can hear you and act for you, but I\u{2019}m working blind. Let me see your screen so I know what\u{2019}s happening.")
-                    .font(VellumFont.onboardingSubtitle)
-                    .foregroundColor(VellumTheme.textSecondary)
+                    .font(VFont.onboardingSubtitle)
+                    .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 360)
             }
@@ -25,27 +25,27 @@ struct ScreenPermissionStepView: View {
             .offset(y: showContent ? 0 : 8)
 
             // Permission card
-            VStack(spacing: VellumSpacing.xl) {
+            VStack(spacing: VSpacing.xl) {
                 Text("\u{1F441}")
-                    .font(VellumFont.cardEmoji)
+                    .font(VFont.cardEmoji)
 
                 Text("Help me see")
-                    .font(VellumFont.cardTitle)
-                    .foregroundColor(VellumTheme.textPrimary)
+                    .font(VFont.cardTitle)
+                    .foregroundColor(VColor.textPrimary)
 
                 Text("Screen access lets \(state.assistantName) see what you\u{2019}re working on and respond to what\u{2019}s on screen. You can turn this off anytime.")
-                    .font(VellumFont.caption)
-                    .foregroundColor(VellumTheme.textSecondary)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 280)
 
                 if permissionGranted {
-                    HStack(spacing: VellumSpacing.md) {
+                    HStack(spacing: VSpacing.md) {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VellumTheme.success)
+                            .foregroundColor(VColor.success)
                         Text("I can see your screen now")
-                            .foregroundColor(VellumTheme.success)
-                            .font(VellumFont.bodyMedium)
+                            .foregroundColor(VColor.success)
+                            .font(VFont.bodyMedium)
                     }
                     .transition(.scale.combined(with: .opacity))
                 } else {
@@ -54,13 +54,13 @@ struct ScreenPermissionStepView: View {
                     }
                 }
             }
-            .padding(VellumSpacing.xxl)
+            .padding(VSpacing.xxl)
             .background(
-                RoundedRectangle(cornerRadius: VellumRadius.lg)
-                    .fill(VellumTheme.surface.opacity(0.4))
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(VColor.surface.opacity(0.4))
                     .overlay(
-                        RoundedRectangle(cornerRadius: VellumRadius.lg)
-                            .stroke(VellumTheme.onboardingAccent.opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.onboardingAccent.opacity(0.3), lineWidth: 1)
                     )
             )
             .opacity(showContent ? 1 : 0)

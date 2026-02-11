@@ -21,23 +21,23 @@ struct FnKeyStepView: View {
     ]
 
     var body: some View {
-        VStack(spacing: VellumSpacing.xxl) {
+        VStack(spacing: VSpacing.xxl) {
             ReactionBubble(text: nameReaction)
 
-            VStack(spacing: VellumSpacing.md) {
+            VStack(spacing: VSpacing.md) {
                 Text("Let\u{2019}s find your voice.")
-                    .font(VellumFont.onboardingTitle)
-                    .foregroundColor(VellumTheme.textPrimary)
+                    .font(VFont.onboardingTitle)
+                    .foregroundColor(VColor.textPrimary)
 
                 Text("To call \(state.assistantName), you\u{2019}ll hold down a key. Try pressing it now \u{2014} which of these lights up?")
-                    .font(VellumFont.onboardingSubtitle)
-                    .foregroundColor(VellumTheme.textSecondary)
+                    .font(VFont.onboardingSubtitle)
+                    .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 360)
             }
             .opacity(showButtons ? 1 : 0)
 
-            HStack(spacing: VellumSpacing.lg) {
+            HStack(spacing: VSpacing.lg) {
                 ForEach(keyOptions, id: \.key) { option in
                     keyButton(option.key, label: option.label)
                 }
@@ -46,8 +46,8 @@ struct FnKeyStepView: View {
 
             if let hint = wrongKeyHint {
                 Text(hint)
-                    .font(VellumFont.caption)
-                    .foregroundColor(VellumTheme.textMuted)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
                     .transition(.opacity)
             }
 
@@ -86,16 +86,16 @@ struct FnKeyStepView: View {
             selectKey(key)
         } label: {
             Text(label)
-                .font(VellumFont.mono)
-                .foregroundColor(highlightedKey == key ? VellumTheme.background : VellumTheme.textPrimary.opacity(0.85))
+                .font(VFont.mono)
+                .foregroundColor(highlightedKey == key ? VColor.background : VColor.textPrimary.opacity(0.85))
                 .frame(width: 64, height: 44)
                 .background(
-                    RoundedRectangle(cornerRadius: VellumRadius.md)
-                        .fill(highlightedKey == key ? VellumTheme.onboardingAccent : VellumTheme.surface.opacity(0.5))
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(highlightedKey == key ? VColor.onboardingAccent : VColor.surface.opacity(0.5))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: VellumRadius.md)
-                        .stroke(highlightedKey == key ? Color.clear : VellumTheme.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(highlightedKey == key ? Color.clear : VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)

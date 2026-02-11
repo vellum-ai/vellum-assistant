@@ -4,19 +4,19 @@ struct SessionOverlayView: View {
     @ObservedObject var session: ComputerUseSession
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VellumSpacing.md + VellumSpacing.xxs) {
+        VStack(alignment: .leading, spacing: VSpacing.md + VSpacing.xxs) {
             // Header
-            HStack(spacing: VellumSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
                 Image(systemName: "cursorarrow.click.2")
                     .foregroundStyle(.blue)
                 Text("vellum-assistant is working...")
-                    .font(VellumFont.heading)
+                    .font(VFont.heading)
                     .lineLimit(1)
             }
 
             // Task text
             Text(session.task)
-                .font(VellumFont.caption)
+                .font(VFont.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
 

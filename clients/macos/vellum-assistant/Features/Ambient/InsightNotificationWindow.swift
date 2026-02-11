@@ -75,23 +75,23 @@ private struct InsightNotificationView: View {
     let onViewAll: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VellumSpacing.lg) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             HStack {
                 Image(systemName: "lightbulb.fill")
                     .foregroundStyle(Amber._600)
                 Text("Knowledge Insight")
-                    .font(VellumFont.heading)
+                    .font(VFont.heading)
                 Spacer()
                 categoryBadge
             }
 
             Text(insight.title)
-                .font(VellumFont.body)
+                .font(VFont.body)
                 .fontWeight(.bold)
                 .lineLimit(2)
 
             Text(insight.description)
-                .font(VellumFont.caption)
+                .font(VFont.caption)
                 .lineLimit(3)
                 .foregroundStyle(.secondary)
 

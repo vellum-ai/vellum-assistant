@@ -7,20 +7,20 @@ struct ConfirmationView: View {
     let onStop: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VellumSpacing.lg) {
-            HStack(spacing: VellumSpacing.md) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            HStack(spacing: VSpacing.md) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.title2)
-                    .foregroundStyle(VellumTheme.warning)
+                    .foregroundStyle(VColor.warning)
                 Text("Action Requires Confirmation")
-                    .font(VellumFont.heading)
+                    .font(VFont.heading)
             }
 
             Text(reason)
-                .font(VellumFont.body)
+                .font(VFont.body)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: VellumSpacing.lg) {
+            HStack(spacing: VSpacing.lg) {
                 Spacer()
                 Button("Stop Session") {
                     onStop()

@@ -94,9 +94,9 @@ enum Amber {
     static let _100 = Color(hex: 0xFEFCE8)
 }
 
-// MARK: - Semantic Tokens
+// MARK: - Semantic Color Tokens
 
-enum VellumTheme {
+enum VColor {
     // Backgrounds
     static let background = Slate._900
     static let backgroundSubtle = Slate._800
@@ -112,7 +112,7 @@ enum VellumTheme {
     static let accent = Violet._600
     static let accentSubtle = Violet._100
 
-    // Onboarding accent (amber replaces gold)
+    // Onboarding accent (amber)
     static let onboardingAccent = Amber._500
     static let onboardingAccentDark = Amber._600
     static let onboardingAccentDarker = Amber._800
@@ -121,44 +121,4 @@ enum VellumTheme {
     static let success = Emerald._600
     static let error = Rose._600
     static let warning = Amber._600
-}
-
-// MARK: - Spacing
-
-enum VellumSpacing {
-    static let xxs: CGFloat = 2
-    static let xs: CGFloat = 4
-    static let sm: CGFloat = 6
-    static let md: CGFloat = 8
-    static let lg: CGFloat = 12
-    static let xl: CGFloat = 16
-    static let xxl: CGFloat = 24
-    static let xxxl: CGFloat = 28
-}
-
-// MARK: - Corner Radius
-
-enum VellumRadius {
-    static let sm: CGFloat = 8
-    static let md: CGFloat = 10
-    static let lg: CGFloat = 16
-}
-
-// MARK: - Typography
-
-enum VellumFont {
-    // Onboarding — Silkscreen (pixel font)
-    static let onboardingTitle = Font.custom("Silkscreen-Regular", size: 28)
-    static let onboardingSubtitle = Font.custom("Silkscreen-Regular", size: 15)
-
-    // App — system fonts
-    static let heading = Font.system(.headline)
-    static let body = Font.system(size: 15)
-    static let bodyMedium = Font.system(size: 15, weight: .medium)
-    static let caption = Font.system(size: 13)
-    static let captionMedium = Font.system(size: 13, weight: .medium)
-    static let small = Font.system(size: 12)
-    static let cardTitle = Font.system(size: 17, weight: .semibold)
-    static let cardEmoji = Font.system(size: 32)
-    static let mono = Font.system(size: 16, weight: .medium, design: .monospaced)
 }

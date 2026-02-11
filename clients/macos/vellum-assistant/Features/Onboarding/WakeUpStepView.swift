@@ -8,11 +8,11 @@ struct WakeUpStepView: View {
     @State private var isHatching = false
 
     var body: some View {
-        VStack(spacing: VellumSpacing.xxl) {
+        VStack(spacing: VSpacing.xxl) {
             TypewriterText(
                 fullText: "Something is ready to hatch.",
                 speed: 0.06,
-                font: VellumFont.onboardingTitle
+                font: VFont.onboardingTitle
             ) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                     withAnimation(.easeOut(duration: 0.5)) {
@@ -22,8 +22,8 @@ struct WakeUpStepView: View {
             }
 
             Text("All it needs is you.")
-                .font(VellumFont.onboardingSubtitle)
-                .foregroundColor(VellumTheme.textSecondary)
+                .font(VFont.onboardingSubtitle)
+                .foregroundColor(VColor.textSecondary)
                 .opacity(showSubtext ? 1 : 0)
                 .offset(y: showSubtext ? 0 : 8)
                 .onChange(of: showSubtext) { _, visible in

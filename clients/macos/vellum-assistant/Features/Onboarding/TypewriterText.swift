@@ -3,7 +3,7 @@ import SwiftUI
 struct TypewriterText: View {
     let fullText: String
     var speed: TimeInterval = 0.05
-    var font: Font = VellumFont.onboardingTitle
+    var font: Font = VFont.onboardingTitle
     var onComplete: (() -> Void)? = nil
 
     @State private var displayedText = ""
@@ -13,7 +13,7 @@ struct TypewriterText: View {
     var body: some View {
         Text(displayedText)
             .font(font)
-            .foregroundColor(VellumTheme.textPrimary)
+            .foregroundColor(VColor.textPrimary)
             .onAppear {
                 startTyping()
             }
@@ -40,7 +40,7 @@ struct TypewriterText: View {
 
 #Preview {
     ZStack {
-        VellumTheme.background
+        VColor.background
         TypewriterText(fullText: "Hello, world.")
     }
     .frame(width: 400, height: 200)

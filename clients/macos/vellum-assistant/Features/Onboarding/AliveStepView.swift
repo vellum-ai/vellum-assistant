@@ -28,12 +28,12 @@ struct AliveStepView: View {
     }
 
     var body: some View {
-        VStack(spacing: VellumSpacing.xxxl) {
+        VStack(spacing: VSpacing.xxxl) {
             ZStack {
                 // Sparkle particles
                 ForEach(particles) { particle in
                     Circle()
-                        .fill(VellumTheme.onboardingAccent)
+                        .fill(VColor.onboardingAccent)
                         .frame(width: 4, height: 4)
                         .scaleEffect(particle.scale)
                         .opacity(particle.opacity)
@@ -42,20 +42,20 @@ struct AliveStepView: View {
             }
             .frame(width: 140, height: 140)
 
-            VStack(spacing: VellumSpacing.md) {
+            VStack(spacing: VSpacing.md) {
                 Text("\(state.assistantName.isEmpty ? "It" : state.assistantName) has hatched.")
-                    .font(VellumFont.onboardingTitle)
-                    .foregroundColor(VellumTheme.textPrimary)
+                    .font(VFont.onboardingTitle)
+                    .foregroundColor(VColor.textPrimary)
 
                 Text("All set up and ready to help.")
-                    .font(VellumFont.onboardingSubtitle)
-                    .foregroundColor(VellumTheme.textSecondary)
+                    .font(VFont.onboardingSubtitle)
+                    .foregroundColor(VColor.textSecondary)
             }
 
             // Ability tags — 2x2 grid
-            VStack(spacing: VellumSpacing.md + VellumSpacing.xxs) {
+            VStack(spacing: VSpacing.md + VSpacing.xxs) {
                 ForEach([0, 2], id: \.self) { row in
-                    HStack(spacing: VellumSpacing.md + VellumSpacing.xxs) {
+                    HStack(spacing: VSpacing.md + VSpacing.xxs) {
                         ForEach(row..<min(row + 2, abilities.count), id: \.self) { index in
                             abilityTag(abilities[index].0, icon: abilities[index].1)
                                 .opacity(showAbilities ? 1 : 0)
@@ -69,21 +69,21 @@ struct AliveStepView: View {
                 }
             }
 
-            VStack(spacing: VellumSpacing.xl) {
+            VStack(spacing: VSpacing.xl) {
                 OnboardingButton(
                     title: "Start using \(state.assistantName.isEmpty ? "your agent" : state.assistantName)",
                     style: .primary
                 ) {
                     onComplete()
                 }
-                .font(VellumFont.cardTitle)
+                .font(VFont.cardTitle)
 
                 Button {
                     onOpenSettings()
                 } label: {
                     Text("Open Settings first")
-                        .font(VellumFont.caption)
-                        .foregroundColor(VellumTheme.textMuted)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)
                 .onHover { hovering in
@@ -95,14 +95,14 @@ struct AliveStepView: View {
 
             if state.anyPermissionDenied {
                 Text("Some abilities are limited \u{2014} you can enable them in Settings anytime.")
-                    .font(VellumFont.small)
-                    .foregroundColor(VellumTheme.textMuted)
+                    .font(VFont.small)
+                    .foregroundColor(VColor.textMuted)
                     .multilineTextAlignment(.center)
                     .opacity(showButtons ? 1 : 0)
             }
 
             Spacer()
-                .frame(height: VellumSpacing.xxl)
+                .frame(height: VSpacing.xxl)
         }
         .onAppear {
             state.orbMood = .celebrating
@@ -120,21 +120,21 @@ struct AliveStepView: View {
     }
 
     private func abilityTag(_ title: String, icon: String) -> some View {
-        HStack(spacing: VellumSpacing.sm) {
+        HStack(spacing: VSpacing.sm) {
             Image(systemName: icon)
-                .font(VellumFont.small)
+                .font(VFont.small)
             Text(title)
-                .font(VellumFont.captionMedium)
+                .font(VFont.captionMedium)
         }
-        .foregroundColor(VellumTheme.textPrimary.opacity(0.8))
-        .padding(.horizontal, VellumSpacing.lg)
-        .padding(.vertical, VellumSpacing.sm)
+        .foregroundColor(VColor.textPrimary.opacity(0.8))
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
         .background(
             Capsule()
-                .fill(VellumTheme.surface.opacity(0.5))
+                .fill(VColor.surface.opacity(0.5))
                 .overlay(
                     Capsule()
-                        .stroke(VellumTheme.surfaceBorder.opacity(0.4), lineWidth: 1)
+                        .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
                 )
         )
     }

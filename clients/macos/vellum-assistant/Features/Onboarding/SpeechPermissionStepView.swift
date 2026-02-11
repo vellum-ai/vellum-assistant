@@ -10,7 +10,7 @@ struct SpeechPermissionStepView: View {
     @State private var pollTimer: Timer?
 
     var body: some View {
-        VStack(spacing: VellumSpacing.xxl) {
+        VStack(spacing: VSpacing.xxl) {
             if permissionGranted {
                 ReactionBubble(text: "I can understand you now.", delay: 0)
             } else if permissionDenied {
@@ -25,27 +25,27 @@ struct SpeechPermissionStepView: View {
             }
 
             // Permission card
-            VStack(spacing: VellumSpacing.xl) {
+            VStack(spacing: VSpacing.xl) {
                 Text("\u{1F399}")
-                    .font(VellumFont.cardEmoji)
+                    .font(VFont.cardEmoji)
 
                 Text("Help me hear")
-                    .font(VellumFont.cardTitle)
-                    .foregroundColor(VellumTheme.textPrimary)
+                    .font(VFont.cardTitle)
+                    .foregroundColor(VColor.textPrimary)
 
                 Text("To understand you when you hold \(state.chosenKey.displayName), \(state.assistantName) needs speech recognition access. Your Mac will ask \u{2014} just tap Allow.")
-                    .font(VellumFont.caption)
-                    .foregroundColor(VellumTheme.textSecondary)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 280)
 
                 if permissionGranted {
-                    HStack(spacing: VellumSpacing.md) {
+                    HStack(spacing: VSpacing.md) {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VellumTheme.success)
+                            .foregroundColor(VColor.success)
                         Text("I can understand you now")
-                            .foregroundColor(VellumTheme.success)
-                            .font(VellumFont.bodyMedium)
+                            .foregroundColor(VColor.success)
+                            .font(VFont.bodyMedium)
                     }
                     .transition(.scale.combined(with: .opacity))
                 } else {
@@ -54,13 +54,13 @@ struct SpeechPermissionStepView: View {
                     }
                 }
             }
-            .padding(VellumSpacing.xxl)
+            .padding(VSpacing.xxl)
             .background(
-                RoundedRectangle(cornerRadius: VellumRadius.lg)
-                    .fill(VellumTheme.surface.opacity(0.4))
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(VColor.surface.opacity(0.4))
                     .overlay(
-                        RoundedRectangle(cornerRadius: VellumRadius.lg)
-                            .stroke(VellumTheme.onboardingAccent.opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.onboardingAccent.opacity(0.3), lineWidth: 1)
                     )
             )
             .opacity(showCard ? 1 : 0)

@@ -30,7 +30,7 @@ struct VoiceTranscriptionView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "mic.fill")
-                    .foregroundColor(VellumTheme.error)
+                    .foregroundColor(VColor.error)
                     .font(.system(size: 18))
                     .padding(.top, 2)
 

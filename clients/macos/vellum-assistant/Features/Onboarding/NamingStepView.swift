@@ -7,33 +7,33 @@ struct NamingStepView: View {
     @State private var showInput = false
 
     var body: some View {
-        VStack(spacing: VellumSpacing.xxl) {
+        VStack(spacing: VSpacing.xxl) {
             ReactionBubble(text: "Oh\u{2026} I\u{2019}m here! Who are you?")
 
-            VStack(spacing: VellumSpacing.md) {
+            VStack(spacing: VSpacing.md) {
                 Text("Every creature needs a name.")
-                    .font(VellumFont.onboardingTitle)
-                    .foregroundColor(VellumTheme.textPrimary)
+                    .font(VFont.onboardingTitle)
+                    .foregroundColor(VColor.textPrimary)
 
                 Text("What should this one be called?")
-                    .font(VellumFont.onboardingSubtitle)
-                    .foregroundColor(VellumTheme.textSecondary)
+                    .font(VFont.onboardingSubtitle)
+                    .foregroundColor(VColor.textSecondary)
             }
             .opacity(showInput ? 1 : 0)
 
             TextField("Name your agent\u{2026}", text: $state.assistantName)
                 .textFieldStyle(.plain)
                 .font(.system(size: 18, weight: .medium))
-                .foregroundColor(VellumTheme.textPrimary)
+                .foregroundColor(VColor.textPrimary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 20)
-                .padding(.vertical, VellumSpacing.lg)
+                .padding(.vertical, VSpacing.lg)
                 .background(
                     Capsule()
-                        .fill(VellumTheme.surface.opacity(0.5))
+                        .fill(VColor.surface.opacity(0.5))
                         .overlay(
                             Capsule()
-                                .stroke(VellumTheme.surfaceBorder.opacity(0.5), lineWidth: 1)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                         )
                 )
                 .frame(maxWidth: 280)

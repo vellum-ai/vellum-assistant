@@ -14,21 +14,21 @@ struct AccessibilityPermissionStepView: View {
     ]
 
     var body: some View {
-        VStack(spacing: VellumSpacing.xxl) {
+        VStack(spacing: VSpacing.xxl) {
             if permissionGranted {
                 ReactionBubble(text: "I can take action now.", delay: 0)
             } else {
                 ReactionBubble(text: Self.reactions.randomElement()!)
             }
 
-            VStack(spacing: VellumSpacing.md) {
+            VStack(spacing: VSpacing.md) {
                 Text("Now teach me to act.")
-                    .font(VellumFont.onboardingTitle)
-                    .foregroundColor(VellumTheme.textPrimary)
+                    .font(VFont.onboardingTitle)
+                    .foregroundColor(VColor.textPrimary)
 
                 Text("I can hear you, but I can\u{2019}t do anything yet. Let me control your Mac so I can take action on what you ask.")
-                    .font(VellumFont.onboardingSubtitle)
-                    .foregroundColor(VellumTheme.textSecondary)
+                    .font(VFont.onboardingSubtitle)
+                    .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 360)
             }
@@ -36,48 +36,48 @@ struct AccessibilityPermissionStepView: View {
             .offset(y: showContent ? 0 : 8)
 
             // Permission card
-            VStack(spacing: VellumSpacing.xl) {
+            VStack(spacing: VSpacing.xl) {
                 Text("\u{1F932}")
-                    .font(VellumFont.cardEmoji)
+                    .font(VFont.cardEmoji)
 
                 Text("Give me hands")
-                    .font(VellumFont.cardTitle)
-                    .foregroundColor(VellumTheme.textPrimary)
+                    .font(VFont.cardTitle)
+                    .foregroundColor(VColor.textPrimary)
 
                 Text("Accessibility access lets \(state.assistantName) click, type, and navigate your Mac for you. macOS will ask you to flip a switch in System Settings.")
-                    .font(VellumFont.caption)
-                    .foregroundColor(VellumTheme.textSecondary)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 280)
 
                 if permissionGranted {
-                    HStack(spacing: VellumSpacing.md) {
+                    HStack(spacing: VSpacing.md) {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VellumTheme.success)
+                            .foregroundColor(VColor.success)
                         Text("I can take action now")
-                            .foregroundColor(VellumTheme.success)
-                            .font(VellumFont.bodyMedium)
+                            .foregroundColor(VColor.success)
+                            .font(VFont.bodyMedium)
                     }
                     .transition(.scale.combined(with: .opacity))
                 } else {
-                    VStack(spacing: VellumSpacing.md) {
+                    VStack(spacing: VSpacing.md) {
                         OnboardingButton(title: "Let me help", style: .primary) {
                             requestAccessibilityPermission()
                         }
 
                         Text("You\u{2019}ll be sent to System Settings \u{2014} come back here after.")
-                            .font(VellumFont.small)
-                            .foregroundColor(VellumTheme.textMuted)
+                            .font(VFont.small)
+                            .foregroundColor(VColor.textMuted)
                     }
                 }
             }
-            .padding(VellumSpacing.xxl)
+            .padding(VSpacing.xxl)
             .background(
-                RoundedRectangle(cornerRadius: VellumRadius.lg)
-                    .fill(VellumTheme.surface.opacity(0.4))
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(VColor.surface.opacity(0.4))
                     .overlay(
-                        RoundedRectangle(cornerRadius: VellumRadius.lg)
-                            .stroke(VellumTheme.onboardingAccent.opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.onboardingAccent.opacity(0.3), lineWidth: 1)
                     )
             )
             .opacity(showContent ? 1 : 0)

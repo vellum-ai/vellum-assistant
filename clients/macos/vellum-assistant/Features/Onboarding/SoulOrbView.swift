@@ -16,7 +16,7 @@ struct SoulOrbView: View {
             if mood == .celebrating {
                 ForEach(0..<3, id: \.self) { i in
                     Circle()
-                        .stroke(VellumTheme.onboardingAccent.opacity(celebrateOpacities[i]), lineWidth: 2)
+                        .stroke(VColor.onboardingAccent.opacity(celebrateOpacities[i]), lineWidth: 2)
                         .frame(width: size, height: size)
                         .scaleEffect(celebrateRings[i])
                 }
@@ -25,7 +25,7 @@ struct SoulOrbView: View {
             // Listening pulse ring
             if mood == .listening {
                 Circle()
-                    .stroke(VellumTheme.onboardingAccent.opacity(ringOpacity), lineWidth: 1.5)
+                    .stroke(VColor.onboardingAccent.opacity(ringOpacity), lineWidth: 1.5)
                     .frame(width: size, height: size)
                     .scaleEffect(ringScale)
             }
@@ -35,9 +35,9 @@ struct SoulOrbView: View {
                 .fill(
                     RadialGradient(
                         gradient: Gradient(colors: [
-                            VellumTheme.onboardingAccent,
-                            VellumTheme.onboardingAccentDark,
-                            VellumTheme.onboardingAccentDarker,
+                            VColor.onboardingAccent,
+                            VColor.onboardingAccentDark,
+                            VColor.onboardingAccentDarker,
                         ]),
                         center: .center,
                         startRadius: 0,
@@ -45,7 +45,7 @@ struct SoulOrbView: View {
                     )
                 )
                 .frame(width: size, height: size)
-                .shadow(color: VellumTheme.onboardingAccent.opacity(shadowOpacity), radius: shadowRadius)
+                .shadow(color: VColor.onboardingAccent.opacity(shadowOpacity), radius: shadowRadius)
                 .scaleEffect(scale)
         }
         .onChange(of: mood, initial: true) { _, newMood in
@@ -125,7 +125,7 @@ struct SoulOrbView: View {
 
 #Preview("Breathing") {
     ZStack {
-        VellumTheme.background
+        VColor.background
         SoulOrbView(mood: .breathing)
     }
     .frame(width: 200, height: 200)
@@ -133,7 +133,7 @@ struct SoulOrbView: View {
 
 #Preview("Listening") {
     ZStack {
-        VellumTheme.background
+        VColor.background
         SoulOrbView(mood: .listening)
     }
     .frame(width: 200, height: 200)
@@ -141,7 +141,7 @@ struct SoulOrbView: View {
 
 #Preview("Celebrating") {
     ZStack {
-        VellumTheme.background
+        VColor.background
         SoulOrbView(mood: .celebrating)
     }
     .frame(width: 200, height: 200)

@@ -23,10 +23,10 @@ struct TaskInputView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VellumSpacing.lg) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             HStack {
                 Text("vellum-assistant")
-                    .font(VellumFont.heading)
+                    .font(VFont.heading)
                     .foregroundStyle(.primary)
                 Spacer()
                 Button(action: {
@@ -44,15 +44,15 @@ struct TaskInputView: View {
             }
 
             TextEditor(text: $taskText)
-                .font(VellumFont.body)
+                .font(VFont.body)
                 .frame(minHeight: 60, maxHeight: 100)
                 .scrollContentBackground(.hidden)
-                .padding(VellumSpacing.md)
+                .padding(VSpacing.md)
                 .background(Color(.textBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: VellumRadius.sm))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .focused($isTextFieldFocused)
                 .overlay(
-                    RoundedRectangle(cornerRadius: VellumRadius.sm)
+                    RoundedRectangle(cornerRadius: VRadius.sm)
                         .stroke(isDropTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
                 )
                 .onDrop(
@@ -83,12 +83,12 @@ struct TaskInputView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
-                            .padding(.horizontal, VellumSpacing.md)
+                            .padding(.horizontal, VSpacing.md)
                             .padding(.vertical, 5)
                             .background(Color(.windowBackgroundColor))
-                            .clipShape(RoundedRectangle(cornerRadius: VellumRadius.sm))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                             .overlay(
-                                RoundedRectangle(cornerRadius: VellumRadius.sm)
+                                RoundedRectangle(cornerRadius: VRadius.sm)
                                     .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
                             )
                         }

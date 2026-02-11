@@ -7,14 +7,14 @@ struct OnboardingBackground: View {
 
     var body: some View {
         ZStack {
-            VellumTheme.background
+            VColor.background
 
             // Ambient gradient orb 1 — top-left, warm
             Circle()
                 .fill(
                     RadialGradient(
                         gradient: Gradient(colors: [
-                            VellumTheme.onboardingAccent.opacity(0.08),
+                            VColor.onboardingAccent.opacity(0.08),
                             Color.clear,
                         ]),
                         center: .center,
@@ -46,7 +46,7 @@ struct OnboardingBackground: View {
                 .fill(
                     RadialGradient(
                         gradient: Gradient(colors: [
-                            VellumTheme.onboardingAccent.opacity(0.04),
+                            VColor.onboardingAccent.opacity(0.04),
                             Color.clear,
                         ]),
                         center: .center,

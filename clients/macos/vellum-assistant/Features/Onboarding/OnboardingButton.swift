@@ -19,10 +19,10 @@ struct OnboardingButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(VellumFont.bodyMedium)
+                .font(VFont.bodyMedium)
                 .foregroundColor(foregroundColor)
-                .padding(.horizontal, VellumSpacing.xxl)
-                .padding(.vertical, VellumSpacing.md + VellumSpacing.xxs)
+                .padding(.horizontal, VSpacing.xxl)
+                .padding(.vertical, VSpacing.md + VSpacing.xxs)
                 .background(background)
                 .clipShape(Capsule())
                 .overlay(
@@ -55,23 +55,23 @@ struct OnboardingButton: View {
     private var foregroundColor: Color {
         switch style {
         case .primary:
-            return disabled ? VellumTheme.textPrimary.opacity(0.4) : VellumTheme.background
+            return disabled ? VColor.textPrimary.opacity(0.4) : VColor.background
         case .ghost:
-            return disabled ? VellumTheme.textPrimary.opacity(0.3) : VellumTheme.textPrimary.opacity(0.85)
+            return disabled ? VColor.textPrimary.opacity(0.3) : VColor.textPrimary.opacity(0.85)
         }
     }
 
     private var background: some ShapeStyle {
         switch style {
         case .primary:
-            return AnyShapeStyle(disabled ? VellumTheme.onboardingAccent.opacity(0.3) : VellumTheme.onboardingAccent)
+            return AnyShapeStyle(disabled ? VColor.onboardingAccent.opacity(0.3) : VColor.onboardingAccent)
         case .ghost:
             return AnyShapeStyle(Color.clear)
         }
     }
 
     private var borderColor: Color {
-        style == .ghost ? VellumTheme.textPrimary.opacity(disabled ? 0.1 : 0.25) : .clear
+        style == .ghost ? VColor.textPrimary.opacity(disabled ? 0.1 : 0.25) : .clear
     }
 
     private var opacity: Double {
@@ -81,8 +81,8 @@ struct OnboardingButton: View {
 
 #Preview {
     ZStack {
-        VellumTheme.background
-        VStack(spacing: VellumSpacing.xl) {
+        VColor.background
+        VStack(spacing: VSpacing.xl) {
             OnboardingButton(title: "Say hello", style: .primary) {}
             OnboardingButton(title: "Skip", style: .ghost) {}
             OnboardingButton(title: "Disabled", style: .primary, disabled: true) {}
