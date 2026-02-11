@@ -255,17 +255,18 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const isWaitingForResponse = lastMessage?.role === "user";
 
   const [suggestion, setSuggestion] = useState<string | null>(null);
+  const lastMessageId = lastMessage?.id;
+  const lastMessageRole = lastMessage?.role;
 
   useEffect(() => {
-    if (!shouldShowSuggestion({ input, lastRole: lastMessage?.role, isWaitingForResponse, isAlive })) {
+    if (!shouldShowSuggestion({ input, lastRole: lastMessageRole, isWaitingForResponse, isAlive })) {
       setSuggestion(null);
       return;
     }
 
-    const messageId = lastMessage?.id;
     let cancelled = false;
 
-    fetch(`/api/assistants/${assistantId}/suggestion${messageId ? `?messageId=${messageId}` : ""}`)
+    fetch(`/api/assistants/${assistantId}/suggestion${lastMessageId ? `?messageId=${lastMessageId}` : ""}`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json() as Promise<{ suggestion: string | null; messageId: string | null; stale?: boolean; source: string }>;
@@ -273,7 +274,7 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
       .then((data) => {
         if (cancelled) return;
         if (data.stale) return;
-        if (data.suggestion && data.messageId === messageId) {
+        if (data.suggestion && data.messageId === lastMessageId) {
           setSuggestion(data.suggestion);
         } else {
           setSuggestion(null);
@@ -284,7 +285,7 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
       });
 
     return () => { cancelled = true; };
-  }, [assistantId, input, lastMessage, isWaitingForResponse, isAlive]);
+  }, [assistantId, input, lastMessageId, lastMessageRole, isWaitingForResponse, isAlive]);
 
   const uploadedAttachmentIds = useMemo(
     () => pendingAttachments
