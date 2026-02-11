@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var currentSession: ComputerUseSession?
     var currentTextSession: TextSession?
     private var isStartingSession = false
+    private var startSessionTask: Task<Void, Never>?
     private var textResponseWindow: TextResponseWindow?
     private var voiceInput: VoiceInputManager?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
@@ -147,6 +148,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 { // Escape
                 Task { @MainActor in
+                    self?.startSessionTask?.cancel()
+                    self?.thinkingWindow?.close()
+                    self?.thinkingWindow = nil
                     self?.currentSession?.cancel()
                     self?.currentTextSession?.cancel()
                 }
@@ -278,8 +282,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let effectiveTask = !sessionTask.isEmpty ? sessionTask : "Use the attached files as context."
 
         // Ensure daemon connection before starting any session
-        Task { @MainActor in
-            defer { self.isStartingSession = false }
+        startSessionTask = Task { @MainActor in
+            defer { self.isStartingSession = false; self.startSessionTask = nil }
 
             if !daemonClient.isConnected {
                 log.info("Daemon not connected, attempting to connect before session start")
@@ -301,6 +305,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             // Classify in background
             let interactionType = await self.classifyInteraction(effectiveTask)
+
+            // Check if cancelled during classification (e.g. user pressed Escape)
+            guard !Task.isCancelled else {
+                thinking.close()
+                self.thinkingWindow = nil
+                return
+            }
 
             // Dismiss thinking indicator
             thinking.close()
