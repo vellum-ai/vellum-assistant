@@ -124,6 +124,8 @@ export interface AmbientObservation {
 
 export type SurfaceType = 'card' | 'form' | 'list' | 'confirmation' | 'dynamic_page';
 
+export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = ['form', 'confirmation', 'dynamic_page'];
+
 export interface SurfaceAction {
   id: string;
   label: string;

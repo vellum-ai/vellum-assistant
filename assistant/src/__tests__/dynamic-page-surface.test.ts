@@ -1,4 +1,7 @@
 import { describe, test, expect } from 'bun:test';
+import {
+  INTERACTIVE_SURFACE_TYPES,
+} from '../daemon/ipc-protocol.js';
 import type {
   DynamicPageSurfaceData,
   UiSurfaceShowDynamicPage,
@@ -82,8 +85,7 @@ describe('UiSurfaceShowDynamicPage structure', () => {
 // ---------------------------------------------------------------------------
 
 describe('dynamic_page interactivity', () => {
-  test('dynamic_page is treated as an interactive surface type', () => {
-    const interactiveSurfaceTypes = ['form', 'confirmation', 'dynamic_page'];
-    expect(interactiveSurfaceTypes.includes('dynamic_page')).toBe(true);
+  test('dynamic_page is in the interactive surface types list', () => {
+    expect(INTERACTIVE_SURFACE_TYPES).toContain('dynamic_page');
   });
 });

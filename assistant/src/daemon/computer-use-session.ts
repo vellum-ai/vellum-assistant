@@ -8,6 +8,7 @@
 
 import { v4 as uuid } from 'uuid';
 import type { Provider, Message, ContentBlock, ToolDefinition } from '../providers/types.js';
+import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
 import type { ServerMessage, CuObservation, SurfaceType, SurfaceData, ListSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import type { ToolExecutionResult } from '../tools/types.js';
 import { AgentLoop } from '../agent/loop.js';
@@ -220,7 +221,7 @@ export class ComputerUseSession {
         // Lists with selectionMode "none" are passive (no actions emitted) so they don't block.
         const isInteractive = surfaceType === 'list'
           ? ((data as ListSurfaceData).selectionMode ?? 'none') !== 'none'
-          : ['form', 'confirmation', 'dynamic_page'].includes(surfaceType);
+          : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
         const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
         // Track surface state for ui_update merging
