@@ -50,6 +50,7 @@ export class RuntimeHttpServer {
   private port: number;
   private processMessage?: MessageProcessor;
   private suggestionCache = new Map<string, string>();
+  private suggestionInFlight = new Map<string, Promise<string | null>>();
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
@@ -235,12 +236,22 @@ export class RuntimeHttpServer {
         });
       }
 
-
       // Try LLM suggestion if an Anthropic API key is configured
       const apiKey = getConfig().apiKeys.anthropic;
       if (apiKey) {
         try {
-          const llmSuggestion = await this.generateLlmSuggestion(apiKey, text);
+          // Deduplicate concurrent requests: if an LLM call is already
+          // in-flight for this messageId, await the same promise instead
+          // of starting a duplicate call.
+          let promise = this.suggestionInFlight.get(msg.id);
+          if (!promise) {
+            promise = this.generateLlmSuggestion(apiKey, text);
+            this.suggestionInFlight.set(msg.id, promise);
+          }
+
+          const llmSuggestion = await promise;
+          this.suggestionInFlight.delete(msg.id);
+
           if (llmSuggestion) {
             // Evict oldest entries if cache is at capacity
             if (this.suggestionCache.size >= SUGGESTION_CACHE_MAX) {
@@ -256,6 +267,7 @@ export class RuntimeHttpServer {
             });
           }
         } catch (err) {
+          this.suggestionInFlight.delete(msg.id);
           log.warn({ err }, 'LLM suggestion failed');
         }
       }
