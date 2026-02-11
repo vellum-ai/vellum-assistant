@@ -4,6 +4,19 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SurfaceManager")
 
+/// Observable view model that holds the current surface state.
+/// Kept alive across updates so that child SwiftUI views preserve their @State (e.g. form inputs).
+@MainActor
+final class SurfaceViewModel: ObservableObject {
+    @Published var surface: Surface
+    let onAction: (String, [String: Any]?) -> Void
+
+    init(surface: Surface, onAction: @escaping (String, [String: Any]?) -> Void) {
+        self.surface = surface
+        self.onAction = onAction
+    }
+}
+
 /// Manages the lifecycle of surface windows (NSPanel) shown in response to daemon IPC messages.
 ///
 /// Each surface is displayed in a floating, non-activating panel positioned at the bottom-right
@@ -18,6 +31,7 @@ final class SurfaceManager: ObservableObject {
     // MARK: - Private State
 
     private var panels: [String: NSPanel] = [:]
+    private var viewModels: [String: SurfaceViewModel] = [:]
 
     /// Ordered list of surface IDs for deterministic stacking positions.
     private var surfaceOrder: [String] = []
@@ -48,12 +62,15 @@ final class SurfaceManager: ObservableObject {
         activeSurfaces[surface.id] = surface
         surfaceOrder.append(surface.id)
 
-        let view = SurfaceContainerView(
+        let viewModel = SurfaceViewModel(
             surface: surface,
             onAction: { [weak self] actionId, data in
                 self?.onAction?(surface.sessionId, surface.id, actionId, data)
             }
         )
+        viewModels[surface.id] = viewModel
+
+        let view = SurfaceContainerView(viewModel: viewModel)
 
         let hostingController = NSHostingController(rootView: view)
 
@@ -98,17 +115,8 @@ final class SurfaceManager: ObservableObject {
 
         activeSurfaces[message.surfaceId] = updated
 
-        // Rebuild the view in the existing panel.
-        guard let panel = panels[message.surfaceId] else { return }
-
-        let view = SurfaceContainerView(
-            surface: updated,
-            onAction: { [weak self] actionId, data in
-                self?.onAction?(updated.sessionId, updated.id, actionId, data)
-            }
-        )
-
-        panel.contentViewController = NSHostingController(rootView: view)
+        // Update the existing view model so child views preserve their @State.
+        viewModels[message.surfaceId]?.surface = updated
 
         log.info("Updated surface: id=\(message.surfaceId)")
     }
@@ -124,6 +132,7 @@ final class SurfaceManager: ObservableObject {
         for id in ids {
             panels[id]?.close()
             panels.removeValue(forKey: id)
+            viewModels.removeValue(forKey: id)
             activeSurfaces.removeValue(forKey: id)
             log.info("Dismissed surface: id=\(id)")
         }
@@ -133,6 +142,7 @@ final class SurfaceManager: ObservableObject {
     private func dismissSurfaceById(_ surfaceId: String) {
         panels[surfaceId]?.close()
         panels.removeValue(forKey: surfaceId)
+        viewModels.removeValue(forKey: surfaceId)
         activeSurfaces.removeValue(forKey: surfaceId)
         surfaceOrder.removeAll { $0 == surfaceId }
         repositionAllPanels()
