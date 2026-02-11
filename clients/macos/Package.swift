@@ -34,6 +34,7 @@ let package = Package(
                 .linkedFramework("Security"),
                 .linkedFramework("Speech"),
                 .linkedFramework("Vision"),
+                .linkedFramework("Network"),
             ]
         ),
         .testTarget(
