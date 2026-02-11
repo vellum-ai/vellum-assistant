@@ -292,7 +292,13 @@ export class Session {
         }
       }
 
-      // Pre-run repair: fix any message ordering issues before sending to provider
+      // Pre-run repair: fix any message ordering issues before sending to provider.
+      // Keep a reference to the original (un-repaired) messages so we can
+      // reconstruct this.messages after the agent loop without leaking synthetic
+      // tool_result blocks that repair may inject.  Leaking those blocks would
+      // break undo semantics (isUndoableUserMessage skips user messages
+      // containing tool_result).
+      const preRepairMessages = runMessages;
       const preRunRepair = repairHistory(runMessages);
       if (preRunRepair.stats.assistantToolResultsMigrated > 0 || preRunRepair.stats.missingToolResultsInserted > 0 || preRunRepair.stats.orphanToolResultsDowngraded > 0) {
         log.warn({ conversationId: this.conversationId, phase: 'pre_run', ...preRunRepair.stats }, 'Repaired runtime history before provider call');
@@ -424,7 +430,13 @@ export class Session {
         pendingToolResults.clear();
       }
 
-      this.messages = stripMemoryRecallMessages(updatedHistory, recall.injectedText);
+      // Reconstruct history: use the original (un-repaired) prefix so that
+      // synthetic tool_result blocks from pre-run repair don't leak into
+      // this.messages.  Only the new messages appended by the agent loop
+      // (beyond the repaired prefix) are carried forward.
+      const newMessages = updatedHistory.slice(preRunHistoryLength);
+      const restoredHistory = [...preRepairMessages, ...newMessages];
+      this.messages = stripMemoryRecallMessages(restoredHistory, recall.injectedText);
 
       this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent);
 
