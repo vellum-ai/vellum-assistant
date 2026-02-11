@@ -177,7 +177,9 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
     return input.allow_private_network === true ? RiskLevel.Medium : RiskLevel.Low;
   }
   if (toolName === 'browser_snapshot') return RiskLevel.Low;
-  if (toolName === 'browser_close') return RiskLevel.Medium;
+  if (toolName === 'browser_close') {
+    return input.close_all_pages === true ? RiskLevel.High : RiskLevel.Medium;
+  }
   if (toolName === 'browser_click') return RiskLevel.Medium;
   if (toolName === 'browser_type') return RiskLevel.Medium;
   if (toolName === 'browser_press_key') return RiskLevel.Medium;

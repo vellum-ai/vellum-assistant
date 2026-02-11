@@ -224,6 +224,8 @@ async function executeBrowserSnapshot(
       (() => {
         const SELECTOR = ${JSON.stringify(INTERACTIVE_SELECTOR)};
         const MAX = ${MAX_SNAPSHOT_ELEMENTS};
+        // Clear stale eid attributes from previous snapshots
+        document.querySelectorAll('[data-vellum-eid]').forEach(el => el.removeAttribute('data-vellum-eid'));
         const els = Array.from(document.querySelectorAll(SELECTOR));
         const visible = els.filter(el => {
           const rect = el.getBoundingClientRect();
