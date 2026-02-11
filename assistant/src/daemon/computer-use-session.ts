@@ -113,7 +113,7 @@ export class ComputerUseSession {
     this.state = 'inferring';
     this.abortController = new AbortController();
 
-    const messages = this.buildMessages(obs);
+    const messages = this.buildMessages(obs, hadPreviousAXTree);
     this.loopPromise = this.runAgentLoop(messages);
 
     // Await the loop; errors are caught inside runAgentLoop
@@ -344,7 +344,7 @@ export class ComputerUseSession {
   // Message building (replicates AnthropicProvider.buildMessages from Swift)
   // ---------------------------------------------------------------------------
 
-  private buildMessages(obs: CuObservation): Message[] {
+  private buildMessages(obs: CuObservation, hadPreviousAXTree: boolean): Message[] {
     const contentBlocks: ContentBlock[] = [];
 
     // Screenshot image block
@@ -373,7 +373,7 @@ export class ComputerUseSession {
     if (obs.axDiff && this.actionHistory.length > 0) {
       textParts.push(obs.axDiff);
       textParts.push('');
-    } else if (this.previousAXTree != null && obs.axTree != null && this.actionHistory.length > 0) {
+    } else if (hadPreviousAXTree && obs.axTree != null && this.actionHistory.length > 0) {
       // AX tree unchanged — tell the model its action had no effect
       const lastAction = this.actionHistory[this.actionHistory.length - 1];
       const wasWait = lastAction?.toolName === 'cu_wait';
