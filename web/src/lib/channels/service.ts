@@ -1,10 +1,6 @@
 import { randomBytes } from "crypto";
 
 import {
-  handleInboundAssistantMessage,
-  recoverMissingAssistantReplyForInbound,
-} from "@/lib/assistants/message-service";
-import {
   AssistantChannelContactRecord,
   AssistantChannelContactStatus,
   getAssistantChannelAccount,
@@ -19,11 +15,8 @@ import {
   upsertAssistantChannelContact,
 } from "@/lib/channels/db";
 import { getChannelPlugin } from "@/lib/channels/plugins";
-import {
-  getAssistantReplyByUserMessageId,
-  getDb,
-  updateChatMessageStatus,
-} from "@/lib/db";
+import { createRuntimeClient } from "@/lib/runtime/client";
+import { resolveRuntime } from "@/lib/runtime/resolver";
 
 type TelegramAccountConfig = {
   botToken?: string | null;
@@ -348,110 +341,9 @@ function shouldSendPairingPrompt(contact: AssistantChannelContactRecord): boolea
   return Date.now() - lastPromptMs > 5 * 60 * 1000;
 }
 
-const DUPLICATE_REPLY_POLL_ATTEMPTS = 20;
-const DUPLICATE_REPLY_POLL_INTERVAL_MS = 500;
-const DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS = 120_000;
-const DELIVERY_IN_PROGRESS_STALE_MS = DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS;
-const ASSISTANT_REPLY_STATUS_PENDING = "pending_delivery";
-const ASSISTANT_REPLY_STATUS_DELIVERY_IN_PROGRESS = "delivery_in_progress";
-const ASSISTANT_REPLY_STATUS_DELIVERED = "delivered";
-const ASSISTANT_REPLY_STATUS_DELIVERY_FAILED = "delivery_failed";
-const USER_REPLY_STATUS_PROCESSING = "processing";
-
-async function waitForAssistantReplyForDuplicate(params: {
-  assistantId: string;
-  sourceChannel: string;
-  externalChatId?: string;
-  userMessageId: string;
-}) {
-  for (let attempt = 0; attempt < DUPLICATE_REPLY_POLL_ATTEMPTS; attempt += 1) {
-    const reply = await getAssistantReplyByUserMessageId({
-      assistantId: params.assistantId,
-      sourceChannel: params.sourceChannel,
-      externalChatId: params.externalChatId,
-      userMessageId: params.userMessageId,
-    });
-    if (reply) {
-      return reply;
-    }
-    if (attempt < DUPLICATE_REPLY_POLL_ATTEMPTS - 1) {
-      await new Promise((resolve) => setTimeout(resolve, DUPLICATE_REPLY_POLL_INTERVAL_MS));
-    }
-  }
-
-  return null;
-}
-
-function getUserMessageAgeMs(timestamp: Date | null): number {
-  if (!timestamp) {
-    return Number.POSITIVE_INFINITY;
-  }
-  return Date.now() - new Date(timestamp).getTime();
-}
-
-function shouldDeferDuplicateReplyDelivery(
-  status: string | null | undefined,
-  userMessageAgeMs: number
-) {
-  return (
-    status !== ASSISTANT_REPLY_STATUS_DELIVERY_FAILED &&
-    userMessageAgeMs < DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS
-  );
-}
-
-function isReplyGenerationInProgress(status: string | null | undefined) {
-  return status === USER_REPLY_STATUS_PROCESSING;
-}
-
-function shouldDeferDuplicateReplyGeneration(
-  status: string | null | undefined,
-  userMessageAgeMs: number
-) {
-  return isReplyGenerationInProgress(status) &&
-    userMessageAgeMs < DUPLICATE_REPLY_IN_FLIGHT_GRACE_MS;
-}
-
-async function persistAssistantReplyStatus(
-  messageId: string,
-  status: string
-): Promise<void> {
-  try {
-    await updateChatMessageStatus(messageId, status);
-  } catch (error) {
-    console.warn(`Failed to update assistant message status to ${status}:`, error);
-  }
-}
-
-async function claimAssistantReplyDelivery(messageId: string) {
-  const sql = getDb();
-  const staleDeliveryCutoff = new Date(Date.now() - DELIVERY_IN_PROGRESS_STALE_MS).toISOString();
-  const claimed = await sql`
-    UPDATE chat_messages
-    SET status = ${ASSISTANT_REPLY_STATUS_DELIVERY_IN_PROGRESS},
-        updated_at = NOW()
-    WHERE id = ${messageId}
-      AND (
-        status IN (${ASSISTANT_REPLY_STATUS_PENDING}, ${ASSISTANT_REPLY_STATUS_DELIVERY_FAILED})
-        OR (
-          status = ${ASSISTANT_REPLY_STATUS_DELIVERY_IN_PROGRESS}
-          AND (updated_at IS NULL OR updated_at < ${staleDeliveryCutoff})
-        )
-      )
-    RETURNING id
-  `;
-  if (claimed.length > 0) {
-    return { claimed: true, status: ASSISTANT_REPLY_STATUS_DELIVERY_IN_PROGRESS };
-  }
-
-  const existing = await sql`
-    SELECT status
-    FROM chat_messages
-    WHERE id = ${messageId}
-    LIMIT 1
-  `;
-  const status =
-    typeof existing[0]?.status === "string" ? existing[0].status : null;
-  return { claimed: false, status };
+function getRuntimeClient(assistantId: string) {
+  const { baseUrl } = resolveRuntime(assistantId);
+  return createRuntimeClient(baseUrl, assistantId);
 }
 
 export async function handleTelegramWebhook(params: {
@@ -507,130 +399,31 @@ export async function handleTelegramWebhook(params: {
     return { status: "ignored", reason: "missing_bot_token" as const };
   }
 
-  const sendAssistantReply = async (assistantMessage: {
-    id: string;
-    content: string;
-  }) => {
-    const claim = await claimAssistantReplyDelivery(assistantMessage.id);
-    if (!claim.claimed) {
-      if (claim.status === ASSISTANT_REPLY_STATUS_DELIVERED) {
-        return;
-      }
-      throw new Error("Assistant reply delivery still in progress");
-    }
+  const client = getRuntimeClient(account.assistant_id);
 
-    try {
-      await plugin.outbound.sendText({
-        botToken: config.botToken as string,
-        chatId: normalized.externalChatId,
-        text: assistantMessage.content,
-      });
-      await persistAssistantReplyStatus(
-        assistantMessage.id,
-        ASSISTANT_REPLY_STATUS_DELIVERED
-      );
-    } catch (error) {
-      await persistAssistantReplyStatus(
-        assistantMessage.id,
-        ASSISTANT_REPLY_STATUS_DELIVERY_FAILED
-      );
-      throw error;
-    }
-  };
-
-  const result = await handleInboundAssistantMessage({
-    assistantId: account.assistant_id,
-    content: normalized.text,
+  const inboundResult = await client.channelInbound({
     sourceChannel: "telegram",
     externalChatId: normalized.externalChatId,
     externalMessageId: normalized.externalMessageId,
-    sender: normalized.sender,
+    content: normalized.text,
+    senderName: normalized.sender.displayName ?? normalized.sender.username ?? undefined,
   });
 
-  if (result.duplicate) {
-    if (!result.userMessage?.id) {
-      throw new Error("Duplicate message missing user message context");
-    }
-
-    const userMessageAgeMs = getUserMessageAgeMs(result.userMessage.timestamp);
-
-    if (result.assistantMessage?.content) {
-      if (result.assistantMessage.status === ASSISTANT_REPLY_STATUS_DELIVERED) {
-        return { status: "ok" as const, duplicate: true as const };
-      }
-
-      if (
-        shouldDeferDuplicateReplyDelivery(
-          result.assistantMessage.status,
-          userMessageAgeMs
-        )
-      ) {
-        // Let Telegram retry instead of racing the original in-flight send.
-        throw new Error("Assistant reply delivery still in progress");
-      }
-
-      await sendAssistantReply({
-        id: result.assistantMessage.id,
-        content: result.assistantMessage.content,
-      });
-      return { status: "ok" as const, duplicate: true as const };
-    }
-
-    const awaitedReply = await waitForAssistantReplyForDuplicate({
-      assistantId: account.assistant_id,
-      sourceChannel: "telegram",
-      externalChatId: normalized.externalChatId,
-      userMessageId: result.userMessage.id,
-    });
-
-    if (awaitedReply?.content) {
-      if (awaitedReply.status === ASSISTANT_REPLY_STATUS_DELIVERED) {
-        return { status: "ok" as const, duplicate: true as const };
-      }
-
-      if (
-        shouldDeferDuplicateReplyDelivery(awaitedReply.status, userMessageAgeMs)
-      ) {
-        // Let Telegram retry instead of racing the original in-flight send.
-        throw new Error("Assistant reply delivery still in progress");
-      }
-
-      await sendAssistantReply({
-        id: awaitedReply.id,
-        content: awaitedReply.content,
-      });
-      return { status: "ok" as const, duplicate: true as const };
-    }
-
-    if (
-      shouldDeferDuplicateReplyGeneration(
-        result.userMessage.status,
-        userMessageAgeMs
-      )
-    ) {
-      // Let Telegram retry instead of racing the original in-flight reply generation.
-      throw new Error("Assistant reply generation still in progress");
-    }
-
-    const recoveredAssistantMessage = await recoverMissingAssistantReplyForInbound({
-      assistantId: account.assistant_id,
-      sourceChannel: "telegram",
-      externalChatId: normalized.externalChatId,
-      userMessageId: result.userMessage.id,
-    });
-
-    await sendAssistantReply({
-      id: recoveredAssistantMessage.id,
-      content: recoveredAssistantMessage.content,
-    });
-
-    return { status: "ok" as const, duplicate: true as const };
+  if (!inboundResult.accepted) {
+    return { status: "ignored", reason: "not_accepted" as const };
   }
 
-  if (result.assistantMessage?.content) {
-    await sendAssistantReply({
-      id: result.assistantMessage.id,
-      content: result.assistantMessage.content,
+  if (inboundResult.assistantMessage?.content) {
+    await plugin.outbound.sendText({
+      botToken: config.botToken,
+      chatId: normalized.externalChatId,
+      text: inboundResult.assistantMessage.content,
+    });
+
+    await client.channelDeliveryAck({
+      sourceChannel: "telegram",
+      externalChatId: normalized.externalChatId,
+      externalMessageId: normalized.externalMessageId,
     });
   }
 
