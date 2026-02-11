@@ -36,7 +36,7 @@ struct NamingStepView: View {
                                 .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                         )
                 )
-                .frame(maxWidth: 280)
+                .frame(maxWidth: 260)
                 .focused($nameFieldFocused)
                 .opacity(showInput ? 1 : 0)
                 .onSubmit {
@@ -53,7 +53,6 @@ struct NamingStepView: View {
             .opacity(showInput ? 1 : 0)
         }
         .onAppear {
-            state.orbMood = .breathing
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showInput = true
@@ -73,7 +72,7 @@ struct NamingStepView: View {
 
 #Preview {
     ZStack {
-        OnboardingBackground()
+        MeadowBackground()
         NamingStepView(state: {
             let s = OnboardingState()
             s.currentStep = 1
