@@ -65,7 +65,13 @@ describe('renderHistoryContent', () => {
 
   test('falls back to string conversion for non-array content', () => {
     expect(renderHistoryContent('raw string').text).toBe('raw string');
-    expect(renderHistoryContent({ foo: 'bar' }).text).toBe('[object Object]');
+    expect(renderHistoryContent(null).text).toBe('');
+    expect(renderHistoryContent(undefined).text).toBe('');
+    expect(renderHistoryContent(42).text).toBe('42');
+  });
+
+  test('preserves JSON object content as JSON string', () => {
+    expect(renderHistoryContent({ foo: 'bar' }).text).toBe('{"foo":"bar"}');
   });
 
   test('extracts tool_use blocks into toolCalls', () => {

@@ -90,7 +90,15 @@ export interface RenderedHistoryContent {
 
 export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   if (!Array.isArray(content)) {
-    return { text: String(content ?? ''), toolCalls: [] };
+    let text: string;
+    if (content == null) {
+      text = '';
+    } else if (typeof content === 'object') {
+      text = JSON.stringify(content);
+    } else {
+      text = String(content);
+    }
+    return { text, toolCalls: [] };
   }
 
   const textParts: string[] = [];
