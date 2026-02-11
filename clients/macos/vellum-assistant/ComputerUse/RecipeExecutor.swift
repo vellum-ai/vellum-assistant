@@ -119,6 +119,16 @@ final class RecipeExecutor {
             ))
             return RecipeResult(success: true, credentials: credentials, error: nil)
 
+        case .responded(let answer, let steps):
+            log.info("Recipe '\(recipeName)' responded in \(steps) steps: \(answer)")
+            let credentials = extractCredentials(from: answer)
+            onProgress(RecipeProgress(
+                currentStep: recipe.totalSteps,
+                totalSteps: recipe.totalSteps,
+                description: "Done!"
+            ))
+            return RecipeResult(success: true, credentials: credentials, error: nil)
+
         case .failed(let reason):
             log.error("Recipe '\(recipeName)' failed: \(reason)")
             return RecipeResult(success: false, credentials: [:], error: reason)
