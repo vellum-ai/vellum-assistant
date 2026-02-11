@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getAssistantById } from "@/lib/db";
 import { createRuntimeClient, RuntimeClientError } from "@/lib/runtime/client";
 import { resolveRuntime } from "@/lib/runtime/resolver";
 
@@ -12,6 +13,12 @@ export const runtime = "nodejs";
 export async function GET(_request: Request, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
+
+    const assistant = await getAssistantById(assistantId);
+    if (!assistant) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+
     const { baseUrl, mode } = resolveRuntime(assistantId);
     const client = createRuntimeClient(baseUrl, assistantId);
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { getAssistantById } from "@/lib/db";
 import { createRuntimeClient, RuntimeClientError } from "@/lib/runtime/client";
 import { resolveRuntime } from "@/lib/runtime/resolver";
 
@@ -31,6 +32,12 @@ function getRuntimeClient(assistantId: string) {
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
+
+    const assistant = await getAssistantById(assistantId);
+    if (!assistant) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+
     const client = getRuntimeClient(assistantId);
     const conversationKey = assistantId;
 
@@ -53,6 +60,12 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
+
+    const assistant = await getAssistantById(assistantId);
+    if (!assistant) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+
     const body = await request.json() as PostMessageBody;
     const content = typeof body.content === "string" ? body.content : "";
     const trimmedContent = content.trim();
