@@ -923,13 +923,18 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
                 />
                 {ghostSuffix && (
                   <div
-                    aria-hidden
+                    aria-hidden="true"
                     className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg border border-transparent bg-white px-4 py-2 text-sm dark:bg-zinc-900"
                   >
                     <span className="invisible whitespace-pre">{input}</span>
                     <span className="text-zinc-400 dark:text-zinc-500">{ghostSuffix}</span>
                   </div>
                 )}
+                <span className="sr-only" aria-live="polite">
+                  {ghostSuffix
+                    ? `Suggestion available: ${suggestion}. Press Tab to accept.`
+                    : ""}
+                </span>
               </div>
               <Button
                 type="submit"
