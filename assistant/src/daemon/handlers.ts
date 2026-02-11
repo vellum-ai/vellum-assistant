@@ -7,7 +7,21 @@ import * as conversationStore from '../memory/conversation-store.js';
 import { getLogger } from '../util/logger.js';
 import { Session } from './session.js';
 import { ComputerUseSession } from './computer-use-session.js';
-import type { ClientMessage, ServerMessage, UserMessageAttachment, CuSessionCreate, CuObservation } from './ipc-protocol.js';
+import type {
+  ClientMessage,
+  ServerMessage,
+  ConfirmationResponse,
+  SessionCreateRequest,
+  SessionSwitchRequest,
+  ModelSetRequest,
+  HistoryRequest,
+  UndoRequest,
+  UsageRequest,
+  SandboxSetRequest,
+  UserMessage,
+  CuSessionCreate,
+  CuObservation,
+} from './ipc-protocol.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 
 const log = getLogger('handlers');
@@ -156,81 +170,63 @@ export interface HandlerContext {
   ): Promise<Session>;
 }
 
-// ─── Dispatch ────────────────────────────────────────────────────────────────
+// ─── Typed dispatch ──────────────────────────────────────────────────────────
+
+type MessageType = ClientMessage['type'];
+type MessageOfType<T extends MessageType> = Extract<ClientMessage, { type: T }>;
+type MessageHandler<T extends MessageType> = (
+  msg: MessageOfType<T>,
+  socket: net.Socket,
+  ctx: HandlerContext,
+) => void | Promise<void>;
+type DispatchMap = { [T in MessageType]: MessageHandler<T> };
+
+const handlers: DispatchMap = {
+  user_message: handleUserMessage,
+  confirmation_response: handleConfirmationResponse,
+  session_list: (_msg, socket, ctx) => handleSessionList(socket, ctx),
+  session_create: handleSessionCreate,
+  session_switch: handleSessionSwitch,
+  cancel: (_msg, socket, ctx) => handleCancel(socket, ctx),
+  model_get: (_msg, socket, ctx) => handleModelGet(socket, ctx),
+  model_set: handleModelSet,
+  history_request: handleHistoryRequest,
+  undo: handleUndo,
+  usage_request: handleUsageRequest,
+  sandbox_set: handleSandboxSet,
+  cu_session_create: handleCuSessionCreate,
+  cu_observation: handleCuObservation,
+  ambient_observation: handleAmbientObservation,
+  ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
+};
 
 export function handleMessage(
   msg: ClientMessage,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  switch (msg.type) {
-    case 'user_message':
-      handleUserMessage(msg.sessionId, msg.content, msg.attachments, socket, ctx);
-      break;
-    case 'confirmation_response':
-      handleConfirmationResponse(msg, socket, ctx);
-      break;
-    case 'session_list':
-      handleSessionList(socket, ctx);
-      break;
-    case 'session_create':
-      handleSessionCreate(msg.title, socket, ctx);
-      break;
-    case 'session_switch':
-      handleSessionSwitch(msg.sessionId, socket, ctx);
-      break;
-    case 'cancel':
-      handleCancel(socket, ctx);
-      break;
-    case 'model_get':
-      handleModelGet(socket, ctx);
-      break;
-    case 'model_set':
-      handleModelSet(msg.model, socket, ctx);
-      break;
-    case 'history_request':
-      handleHistoryRequest(msg.sessionId, socket, ctx);
-      break;
-    case 'undo':
-      handleUndo(msg.sessionId, socket, ctx);
-      break;
-    case 'usage_request':
-      handleUsageRequest(msg.sessionId, socket, ctx);
-      break;
-    case 'sandbox_set':
-      handleSandboxSet(msg.enabled, socket, ctx);
-      break;
-    case 'cu_session_create':
-      handleCuSessionCreate(msg, socket, ctx);
-      break;
-    case 'cu_observation':
-      handleCuObservation(msg, socket, ctx);
-      break;
-    case 'ambient_observation':
-      handleAmbientObservation(msg, socket, ctx);
-      break;
-    case 'ping':
-      ctx.send(socket, { type: 'pong' });
-      break;
-  }
+  const handler = handlers[msg.type] as (
+    msg: ClientMessage,
+    socket: net.Socket,
+    ctx: HandlerContext,
+  ) => void;
+  handler(msg, socket, ctx);
 }
 
 // ─── Individual handlers ─────────────────────────────────────────────────────
 
 async function handleUserMessage(
-  sessionId: string,
-  content: string | undefined,
-  attachments: UserMessageAttachment[] | undefined,
+  msg: UserMessage,
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const requestId = uuid();
-  const rlog = log.child({ sessionId, requestId });
+  const rlog = log.child({ sessionId: msg.sessionId, requestId });
   try {
-    ctx.socketToSession.set(socket, sessionId);
-    const session = await ctx.getOrCreateSession(sessionId, socket, true);
+    ctx.socketToSession.set(socket, msg.sessionId);
+    const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
     rlog.info('Processing user message');
-    await session.processMessage(content ?? '', attachments ?? [], (event) => {
+    await session.processMessage(msg.content ?? '', msg.attachments ?? [], (event) => {
       ctx.send(socket, event);
     }, requestId);
   } catch (err) {
@@ -241,7 +237,7 @@ async function handleUserMessage(
 }
 
 function handleConfirmationResponse(
-  msg: ClientMessage & { type: 'confirmation_response' },
+  msg: ConfirmationResponse,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
@@ -272,12 +268,12 @@ function handleSessionList(socket: net.Socket, ctx: HandlerContext): void {
 }
 
 async function handleSessionCreate(
-  title: string | undefined,
+  msg: SessionCreateRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const conversation = conversationStore.createConversation(
-    title ?? 'New Conversation',
+    msg.title ?? 'New Conversation',
   );
   await ctx.getOrCreateSession(conversation.id, socket, true);
   ctx.send(socket, {
@@ -288,17 +284,17 @@ async function handleSessionCreate(
 }
 
 async function handleSessionSwitch(
-  sessionId: string,
+  msg: SessionSwitchRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  const conversation = conversationStore.getConversation(sessionId);
+  const conversation = conversationStore.getConversation(msg.sessionId);
   if (!conversation) {
-    ctx.send(socket, { type: 'error', message: `Session ${sessionId} not found` });
+    ctx.send(socket, { type: 'error', message: `Session ${msg.sessionId} not found` });
     return;
   }
-  ctx.socketToSession.set(socket, sessionId);
-  await ctx.getOrCreateSession(sessionId, socket, true);
+  ctx.socketToSession.set(socket, msg.sessionId);
+  await ctx.getOrCreateSession(msg.sessionId, socket, true);
   ctx.send(socket, {
     type: 'session_info',
     sessionId: conversation.id,
@@ -326,14 +322,14 @@ function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
 }
 
 function handleModelSet(
-  model: string,
+  msg: ModelSetRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   try {
     // Use raw config to avoid persisting env-var API keys to disk
     const raw = loadRawConfig();
-    raw.model = model;
+    raw.model = msg.model;
 
     // Suppress the file watcher callback — handleModelSet already does
     // the full reload sequence; a redundant watcher-triggered reload
@@ -376,21 +372,21 @@ function handleModelSet(
 }
 
 function handleSandboxSet(
-  enabled: boolean,
+  msg: SandboxSetRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   // Per-socket override: store the sandbox preference for this client only.
   // The override is applied to the session so it doesn't affect other clients.
-  ctx.socketSandboxOverride.set(socket, enabled);
+  ctx.socketSandboxOverride.set(socket, msg.enabled);
   const sessionId = ctx.socketToSession.get(socket);
   if (sessionId) {
     const session = ctx.sessions.get(sessionId);
     if (session) {
-      session.setSandboxOverride(enabled);
+      session.setSandboxOverride(msg.enabled);
     }
   }
-  log.info({ enabled }, 'Sandbox override applied (per-session)');
+  log.info({ enabled: msg.enabled }, 'Sandbox override applied (per-session)');
 }
 
 interface ParsedHistoryMessage {
@@ -401,11 +397,11 @@ interface ParsedHistoryMessage {
 }
 
 function handleHistoryRequest(
-  sessionId: string,
+  msg: HistoryRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const dbMessages = conversationStore.getMessages(sessionId);
+  const dbMessages = conversationStore.getMessages(msg.sessionId);
   const parsed: ParsedHistoryMessage[] = dbMessages.map((m) => {
     let text = '';
     let toolCalls: HistoryToolCall[] = [];
@@ -469,11 +465,11 @@ export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistor
 }
 
 function handleUndo(
-  sessionId: string,
+  msg: UndoRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const session = ctx.sessions.get(sessionId);
+  const session = ctx.sessions.get(msg.sessionId);
   if (!session) {
     ctx.send(socket, { type: 'error', message: 'No active session' });
     return;
@@ -483,11 +479,11 @@ function handleUndo(
 }
 
 function handleUsageRequest(
-  sessionId: string,
+  msg: UsageRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const conversation = conversationStore.getConversation(sessionId);
+  const conversation = conversationStore.getConversation(msg.sessionId);
   if (!conversation) {
     ctx.send(socket, { type: 'error', message: 'No active session' });
     return;
