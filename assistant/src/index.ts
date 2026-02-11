@@ -294,7 +294,7 @@ sessions
           process.exit(1);
         }
       } catch (err: unknown) {
-        const isUndefinedTable = err instanceof Error && err.message.includes('does not exist');
+        const isUndefinedTable = err instanceof Error && 'code' in err && (err as Record<string, unknown>).code === '42P01';
         if (!isUndefinedTable) throw err;
       } finally {
         await checkSql.end();
