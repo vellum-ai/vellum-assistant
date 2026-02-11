@@ -420,4 +420,74 @@ describe('AgentLoop', () => {
 
     expect(calls[0].tools).toBeUndefined();
   });
+
+  // 13. Parallel tool execution — multiple tool_use blocks in a single response
+  test('executes multiple tools in parallel', async () => {
+    const { provider, calls } = createMockProvider([
+      // Provider returns 3 tool_use blocks in a single response
+      {
+        content: [
+          { type: 'tool_use' as const, id: 't1', name: 'read_file', input: { path: '/a.txt' } },
+          { type: 'tool_use' as const, id: 't2', name: 'read_file', input: { path: '/b.txt' } },
+          { type: 'tool_use' as const, id: 't3', name: 'read_file', input: { path: '/c.txt' } },
+        ],
+        model: 'mock-model',
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: 'tool_use' as const,
+      },
+      textResponse('Got all three files.'),
+    ]);
+
+    const executionLog: { path: string; start: number; end: number }[] = [];
+    const toolExecutor = async (_name: string, input: Record<string, unknown>) => {
+      const start = Date.now();
+      // Simulate async work — all tools should overlap in time
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const end = Date.now();
+      executionLog.push({ path: (input as { path: string }).path, start, end });
+      return { content: `contents of ${(input as { path: string }).path}`, isError: false };
+    };
+
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events));
+
+    // All 3 tools should have been called
+    expect(executionLog).toHaveLength(3);
+
+    // Verify parallel execution: all tools should start before any finishes
+    // (with 50ms delay each, sequential would take 150ms+, parallel ~50ms)
+    const allStarts = executionLog.map(e => e.start);
+    const allEnds = executionLog.map(e => e.end);
+    const firstEnd = Math.min(...allEnds);
+    const lastStart = Math.max(...allStarts);
+    // In parallel execution, the last tool starts before the first tool ends
+    expect(lastStart).toBeLessThanOrEqual(firstEnd);
+
+    // Provider should have been called twice (tool batch + final text)
+    expect(calls).toHaveLength(2);
+
+    // Second call should contain 3 tool_result blocks in order
+    const secondCallMessages = calls[1].messages;
+    const lastMsg = secondCallMessages[secondCallMessages.length - 1];
+    const toolResultBlocks = lastMsg.content.filter(
+      (b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result',
+    );
+    expect(toolResultBlocks).toHaveLength(3);
+    expect(toolResultBlocks[0].tool_use_id).toBe('t1');
+    expect(toolResultBlocks[1].tool_use_id).toBe('t2');
+    expect(toolResultBlocks[2].tool_use_id).toBe('t3');
+
+    // All tool_use events should be emitted before any tool_result events
+    let lastToolUseIdx = -1;
+    let firstToolResultIdx = events.length;
+    events.forEach((e, i) => {
+      if (e.type === 'tool_use') lastToolUseIdx = i;
+      if (e.type === 'tool_result' && i < firstToolResultIdx) firstToolResultIdx = i;
+    });
+    expect(lastToolUseIdx).toBeLessThan(firstToolResultIdx);
+
+    // Final history: user, assistant(3 tool_use), user(3 tool_result), assistant(text)
+    expect(history).toHaveLength(4);
+  });
 });

@@ -153,10 +153,8 @@ export class AgentLoop {
           break;
         }
 
-        // Execute tools and collect results
-        const resultBlocks: ContentBlock[] = [];
+        // Emit all tool_use events upfront, then execute tools in parallel
         for (const toolUse of toolUseBlocks) {
-          if (signal?.aborted) break;
           onEvent({
             type: 'tool_use',
             id: toolUse.id,
@@ -170,60 +168,51 @@ export class AgentLoop {
               input: truncateForLog(JSON.stringify(toolUse.input), 300),
             }, 'Executing tool');
           }
-
-          const toolStart = Date.now();
-
-          const result = await this.toolExecutor(toolUse.name, toolUse.input, (chunk) => {
-            onEvent({ type: 'tool_output_chunk', toolUseId: toolUse.id, chunk });
-          });
-
-          const toolDurationMs = Date.now() - toolStart;
-
-          if (debug) {
-            log.debug({
-              tool: toolUse.name,
-              toolDurationMs,
-              isError: result.isError,
-              output: truncateForLog(result.content, 300),
-            }, 'Tool execution complete');
-          }
-
-          onEvent({
-            type: 'tool_result',
-            toolUseId: toolUse.id,
-            content: result.content,
-            isError: result.isError,
-            diff: result.diff,
-            status: result.status,
-          });
-
-          resultBlocks.push({
-            type: 'tool_result',
-            tool_use_id: toolUse.id,
-            content: result.content,
-            is_error: result.isError,
-          });
         }
 
-        // If cancelled mid-execution, synthesize cancelled results for
-        // any tool_use blocks that weren't executed, so the API contract
-        // (every tool_use must have a matching tool_result) is maintained.
-        if (signal?.aborted) {
-          const completedIds = new Set(
-            resultBlocks
-              .filter((b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result')
-              .map((b) => b.tool_use_id),
-          );
-          for (const toolUse of toolUseBlocks) {
-            if (!completedIds.has(toolUse.id)) {
-              resultBlocks.push({
-                type: 'tool_result',
-                tool_use_id: toolUse.id,
-                content: 'Cancelled by user',
-                is_error: true,
-              });
+        // Execute all tools concurrently for reduced latency
+        const toolResults = await Promise.all(
+          toolUseBlocks.map(async (toolUse) => {
+            const toolStart = Date.now();
+
+            const result = await this.toolExecutor!(toolUse.name, toolUse.input, (chunk) => {
+              onEvent({ type: 'tool_output_chunk', toolUseId: toolUse.id, chunk });
+            });
+
+            const toolDurationMs = Date.now() - toolStart;
+
+            if (debug) {
+              log.debug({
+                tool: toolUse.name,
+                toolDurationMs,
+                isError: result.isError,
+                output: truncateForLog(result.content, 300),
+              }, 'Tool execution complete');
             }
-          }
+
+            onEvent({
+              type: 'tool_result',
+              toolUseId: toolUse.id,
+              content: result.content,
+              isError: result.isError,
+              diff: result.diff,
+              status: result.status,
+            });
+
+            return { toolUse, result };
+          }),
+        );
+
+        // Collect result blocks preserving tool_use order (Promise.all maintains order)
+        const resultBlocks: ContentBlock[] = toolResults.map(({ toolUse, result }) => ({
+          type: 'tool_result' as const,
+          tool_use_id: toolUse.id,
+          content: result.content,
+          is_error: result.isError,
+        }));
+
+        // If cancelled during execution, push completed results and stop
+        if (signal?.aborted) {
           history.push({ role: 'user', content: resultBlocks });
           break;
         }
