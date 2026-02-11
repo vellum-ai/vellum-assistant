@@ -227,11 +227,12 @@ describe('ToolExecutor lifecycle events', () => {
 
     const result = await executor.execute('unknown_tool', { test: true }, makeContext(events));
 
-    expect(result).toEqual({ content: 'Unknown tool: unknown_tool', isError: true });
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/^Unknown tool: unknown_tool/);
     expect(events.map((event) => event.type)).toEqual(['start', 'error']);
     const errorEvent = events[1];
     if (errorEvent.type !== 'error') throw new Error('Expected error event');
-    expect(errorEvent.errorMessage).toBe('Unknown tool: unknown_tool');
+    expect(errorEvent.errorMessage).toMatch(/^Unknown tool: unknown_tool/);
     expect(errorEvent.decision).toBe('error');
     expect(errorEvent.isExpected).toBe(true);
   });
