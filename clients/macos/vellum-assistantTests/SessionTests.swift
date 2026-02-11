@@ -3,49 +3,40 @@ import CoreGraphics
 import Combine
 @testable import vellum_assistant
 
-// MARK: - Mocks
+// MARK: - Mock Daemon Client
 
-final class MockInferenceProvider: ActionInferenceProvider {
-    var actions: [AgentAction]
-    var inferCallCount = 0
-    var receivedPreviousAXTrees: [String?] = []
-    var shouldThrowOnCall: Int? = nil
-    var delayNanoseconds: UInt64 = 0
+/// A mock DaemonClientProtocol that lets tests inject messages into the stream
+/// and inspect sent messages.
+@MainActor
+final class MockDaemonClient: DaemonClientProtocol {
+    var sentMessages: [Any] = []
+    private var testContinuation: AsyncStream<ServerMessage>.Continuation?
+    private var _messages: AsyncStream<ServerMessage>
 
-    init(actions: [AgentAction]) {
-        self.actions = actions
+    init() {
+        let (stream, _) = AsyncStream<ServerMessage>.makeStream()
+        self._messages = stream
     }
 
-    func infer(
-        axTree: String?,
-        previousAXTree: String?,
-        axDiff: String?,
-        secondaryWindows: String?,
-        screenshot: Data?,
-        screenSize: CGSize,
-        task: String,
-        attachments: [TaskAttachment],
-        history: [ActionRecord],
-        elements: [AXElement]?,
-        consecutiveUnchangedSteps: Int
-    ) async throws -> (action: AgentAction, usage: TokenUsage?) {
-        if delayNanoseconds > 0 {
-            try? await Task.sleep(nanoseconds: delayNanoseconds)
-        }
-        receivedPreviousAXTrees.append(previousAXTree)
-        let index = inferCallCount
-        inferCallCount += 1
+    /// Set up a controllable message stream for tests.
+    /// Returns the continuation so tests can yield messages.
+    func setupTestStream() -> AsyncStream<ServerMessage>.Continuation {
+        let (stream, continuation) = AsyncStream<ServerMessage>.makeStream()
+        self._messages = stream
+        self.testContinuation = continuation
+        return continuation
+    }
 
-        if shouldThrowOnCall == index {
-            throw InferenceError.networkError("Mock network error")
-        }
+    var messages: AsyncStream<ServerMessage> {
+        _messages
+    }
 
-        guard index < actions.count else {
-            return (action: AgentAction(type: .done, reasoning: "No more scripted actions", summary: "Auto-completed"), usage: nil)
-        }
-        return (action: actions[index], usage: nil)
+    func send<T: Encodable>(_ message: T) throws {
+        sentMessages.append(message)
     }
 }
+
+// MARK: - Mocks
 
 final class MockAccessibilityTreeEnumerator: AccessibilityTreeProviding {
     var result: (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
@@ -165,7 +156,7 @@ private func makeDefaultEnumerator() -> MockAccessibilityTreeEnumerator {
 
 @MainActor private func makeSession(
     task: String = "test task",
-    provider: ActionInferenceProvider,
+    daemonClient: MockDaemonClient,
     enumerator: AccessibilityTreeProviding? = nil,
     screenCapture: MockScreenCapture? = nil,
     executor: MockActionExecutor? = nil,
@@ -173,14 +164,54 @@ private func makeDefaultEnumerator() -> MockAccessibilityTreeEnumerator {
 ) -> ComputerUseSession {
     ComputerUseSession(
         task: task,
-        provider: provider,
+        daemonClient: daemonClient,
         enumerator: enumerator ?? makeDefaultEnumerator(),
         screenCapture: screenCapture ?? MockScreenCapture(),
         executor: executor ?? MockActionExecutor(),
         maxSteps: maxSteps,
-        stepDelayMs: 0,
         initialDelayMs: 0,
         adaptiveDelay: false
+    )
+}
+
+/// Helper to create a CuActionMessage for tests
+private func makeActionMessage(
+    sessionId: String,
+    toolName: String,
+    input: [String: AnyCodable] = [:],
+    reasoning: String? = nil,
+    stepNumber: Int = 1
+) -> CuActionMessage {
+    CuActionMessage(
+        sessionId: sessionId,
+        toolName: toolName,
+        input: input,
+        reasoning: reasoning,
+        stepNumber: stepNumber
+    )
+}
+
+/// Helper to create a CuCompleteMessage for tests
+private func makeCompleteMessage(
+    sessionId: String,
+    summary: String = "Task completed",
+    stepCount: Int = 1
+) -> CuCompleteMessage {
+    CuCompleteMessage(
+        sessionId: sessionId,
+        summary: summary,
+        stepCount: stepCount
+    )
+}
+
+/// Helper to create a CuErrorMessage for tests
+private func makeErrorMessage(
+    sessionId: String,
+    message: String = "Something went wrong"
+) -> CuErrorMessage {
+    CuErrorMessage(
+        sessionId: sessionId,
+        message: message
     )
 }
 
@@ -192,15 +223,55 @@ final class SessionTests: XCTestCase {
 
     @MainActor
     func testHappyPath_completesInThreeSteps() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "Click submit", x: 140, y: 215),
-            AgentAction(type: .type, reasoning: "Type name", text: "John"),
-            AgentAction(type: .done, reasoning: "Task complete", summary: "Filled form and submitted")
-        ])
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
         let executor = MockActionExecutor()
-        let session = makeSession(provider: provider, executor: executor)
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
 
-        await session.run()
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        // Wait for session to start and send initial observation
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Step 1: click
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_click",
+            input: ["x": AnyCodable(140), "y": AnyCodable(215)],
+            reasoning: "Click submit",
+            stepNumber: 1
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Step 2: type
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_type_text",
+            input: ["text": AnyCodable("John")],
+            reasoning: "Type name",
+            stepNumber: 2
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Step 3: done + complete
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_done",
+            input: ["summary": AnyCodable("Filled form and submitted")],
+            reasoning: "Task complete",
+            stepNumber: 3
+        )))
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Filled form and submitted",
+            stepCount: 3
+        )))
+
+        await runTask.value
 
         if case .completed(let summary, let steps) = session.state {
             XCTAssertEqual(steps, 3)
@@ -217,12 +288,32 @@ final class SessionTests: XCTestCase {
 
     @MainActor
     func testSingleStepDone_completesImmediately() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .done, reasoning: "Already done", summary: "Nothing to do")
-        ])
-        let session = makeSession(provider: provider)
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let session = makeSession(daemonClient: daemonClient)
 
-        await session.run()
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_done",
+            input: ["summary": AnyCodable("Nothing to do")],
+            reasoning: "Already done",
+            stepNumber: 1
+        )))
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Nothing to do",
+            stepCount: 1
+        )))
+
+        await runTask.value
 
         if case .completed(let summary, let steps) = session.state {
             XCTAssertEqual(steps, 1)
@@ -236,40 +327,55 @@ final class SessionTests: XCTestCase {
 
     @MainActor
     func testCancellation_stopsSession() async {
-        // Provider returns many actions, but we cancel after a few
-        let actions = (0..<20).map { i in
-            AgentAction(type: .click, reasoning: "step \(i)", x: CGFloat(100 + i * 10), y: 200)
-        }
-        let provider = MockInferenceProvider(actions: actions)
-        provider.delayNanoseconds = 20_000_000 // 20ms per inference so cancel can take effect
-        let session = makeSession(provider: provider)
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let session = makeSession(daemonClient: daemonClient)
 
         let runTask = Task { @MainActor in
             await session.run()
         }
 
-        // Let one step execute, then cancel
-        // With stepDelayMs=0, this races, but cancel should stop the loop
-        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+        // Wait for session to start
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Send one action
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_click",
+            input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+            reasoning: "click",
+            stepNumber: 1
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
         session.cancel()
+        continuation.finish() // End the stream so for-await exits
 
         await runTask.value
 
         XCTAssertEqual(session.state, .cancelled)
-        // Should have executed fewer than all 20 actions
-        XCTAssertLessThan(provider.inferCallCount, 20)
     }
 
-    // MARK: - Inference Failure
+    // MARK: - Daemon Error
 
     @MainActor
-    func testInferenceFailure_failsSession() async {
-        let provider = MockInferenceProvider(actions: [])
-        provider.shouldThrowOnCall = 0
+    func testDaemonError_failsSession() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let session = makeSession(daemonClient: daemonClient)
 
-        let session = makeSession(provider: provider)
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
 
-        await session.run()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuError(makeErrorMessage(
+            sessionId: session.id,
+            message: "Inference failed: Mock network error"
+        )))
+
+        await runTask.value
 
         if case .failed(let reason) = session.state {
             XCTAssertTrue(reason.contains("Inference failed"), "Expected inference failure, got: \(reason)")
@@ -278,38 +384,39 @@ final class SessionTests: XCTestCase {
         }
     }
 
-    @MainActor
-    func testInferenceFailure_afterOneSuccess() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "first click", x: 100, y: 200)
-        ])
-        provider.shouldThrowOnCall = 1 // Fail on second call
-
-        let session = makeSession(provider: provider)
-
-        await session.run()
-
-        if case .failed(let reason) = session.state {
-            XCTAssertTrue(reason.contains("Inference failed"))
-        } else {
-            XCTFail("Expected failed state, got \(session.state)")
-        }
-        XCTAssertEqual(provider.inferCallCount, 2)
-    }
-
     // MARK: - Execution Failure
 
     @MainActor
-    func testExecutionFailure_failsSession() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "click", x: 100, y: 200)
-        ])
+    func testExecutionFailure_sendsErrorObservation() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
         let executor = MockActionExecutor()
         executor.shouldFailOnCall = 0
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
 
-        let session = makeSession(provider: provider, executor: executor)
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
 
-        await session.run()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Send action that will fail execution
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_click",
+            input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+            reasoning: "click",
+            stepNumber: 1
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Daemon sends error after observing the execution error
+        continuation.yield(.cuError(makeErrorMessage(
+            sessionId: session.id,
+            message: "Execution failed"
+        )))
+
+        await runTask.value
 
         if case .failed(let reason) = session.state {
             XCTAssertTrue(reason.contains("Execution failed"))
@@ -318,139 +425,28 @@ final class SessionTests: XCTestCase {
         }
     }
 
-    // MARK: - Step Limit
-
-    @MainActor
-    func testStepLimit_blocksAtMax() async {
-        // 3 actions + done, but maxSteps=2 so the 3rd action will be blocked
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "step 1", x: 100, y: 200),
-            AgentAction(type: .click, reasoning: "step 2", x: 200, y: 200),
-            AgentAction(type: .click, reasoning: "step 3", x: 300, y: 200), // blocked
-            AgentAction(type: .click, reasoning: "step 3b", x: 400, y: 200), // blocked
-            AgentAction(type: .click, reasoning: "step 3c", x: 500, y: 200), // blocked → fail
-        ])
-
-        let session = makeSession(provider: provider, maxSteps: 2)
-
-        await session.run()
-
-        if case .failed(let reason) = session.state {
-            XCTAssertTrue(reason.contains("blocked"), "Expected block-related failure, got: \(reason)")
-        } else {
-            XCTFail("Expected failed state, got \(session.state)")
-        }
-    }
-
-    // MARK: - Loop Detection
-
-    @MainActor
-    func testLoopDetection_threeIdenticalActions_blocked() async {
-        let repeatedAction = AgentAction(type: .click, reasoning: "same click", x: 100, y: 200)
-        let provider = MockInferenceProvider(actions: [
-            repeatedAction, repeatedAction, repeatedAction, // 3rd is blocked
-            repeatedAction, // blocked
-            repeatedAction, // blocked → fail (3 consecutive blocks)
-        ])
-
-        let session = makeSession(provider: provider)
-
-        await session.run()
-
-        if case .failed(let reason) = session.state {
-            XCTAssertTrue(reason.contains("blocked"), "Expected block-related failure, got: \(reason)")
-        } else {
-            XCTFail("Expected failed state, got \(session.state)")
-        }
-    }
-
-    // MARK: - No AX Tree (Screenshot Fallback)
-
-    @MainActor
-    func testNoAXTree_usesScreenshotFallback() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .done, reasoning: "done", summary: "Used screenshot")
-        ])
-        // Enumerator returns nil → triggers screenshot fallback
-        let enumerator = MockAccessibilityTreeEnumerator(result: nil)
-
-        let session = makeSession(provider: provider, enumerator: enumerator)
-
-        await session.run()
-
-        if case .completed(let summary, _) = session.state {
-            XCTAssertEqual(summary, "Used screenshot")
-        } else {
-            XCTFail("Expected completed state, got \(session.state)")
-        }
-    }
-
-    // MARK: - Previous AX Tree Context
-
-    @MainActor
-    func testPreviousAXTree_nilOnFirstStep() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .done, reasoning: "done", summary: "Checked context")
-        ])
-        let session = makeSession(provider: provider)
-
-        await session.run()
-
-        XCTAssertEqual(provider.receivedPreviousAXTrees.count, 1)
-        XCTAssertNil(provider.receivedPreviousAXTrees[0], "First step should have nil previousAXTree")
-    }
-
-    @MainActor
-    func testPreviousAXTree_populatedOnSecondStep() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "click", x: 100, y: 200),
-            AgentAction(type: .done, reasoning: "done", summary: "Checked context")
-        ])
-        let session = makeSession(provider: provider)
-
-        await session.run()
-
-        XCTAssertEqual(provider.receivedPreviousAXTrees.count, 2)
-        XCTAssertNil(provider.receivedPreviousAXTrees[0], "First step should have nil previousAXTree")
-        XCTAssertNotNil(provider.receivedPreviousAXTrees[1], "Second step should have previousAXTree from step 1")
-
-        // Verify the previous tree contains expected content
-        let prevTree = provider.receivedPreviousAXTrees[1]!
-        XCTAssertTrue(prevTree.contains("Test Window"), "Previous AX tree should contain window title")
-        XCTAssertTrue(prevTree.contains("TestApp"), "Previous AX tree should contain app name")
-    }
-
-    @MainActor
-    func testPreviousAXTree_nilWhenNoAXTree() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "click", x: 100, y: 200),
-            AgentAction(type: .done, reasoning: "done", summary: "Done")
-        ])
-        // No AX tree available — screenshot only
-        let enumerator = MockAccessibilityTreeEnumerator(result: nil)
-        let session = makeSession(provider: provider, enumerator: enumerator)
-
-        await session.run()
-
-        // Both steps should have nil previousAXTree since no AX tree was available
-        XCTAssertEqual(provider.receivedPreviousAXTrees.count, 2)
-        XCTAssertNil(provider.receivedPreviousAXTrees[0])
-        XCTAssertNil(provider.receivedPreviousAXTrees[1])
-    }
-
     // MARK: - Confirmation Flow
 
     @MainActor
     func testConfirmation_approved_continuesSession() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .key, reasoning: "quit app", key: "cmd+q"),
-            AgentAction(type: .done, reasoning: "done", summary: "Completed after approval")
-        ])
-        let session = makeSession(provider: provider)
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let session = makeSession(daemonClient: daemonClient)
 
         let runTask = Task { @MainActor in
             await session.run()
         }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Send a dangerous key action that requires confirmation
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_key",
+            input: ["key": AnyCodable("cmd+q")],
+            reasoning: "quit app",
+            stepNumber: 1
+        )))
 
         // Wait for confirmation state
         var sawConfirmation = false
@@ -465,6 +461,15 @@ final class SessionTests: XCTestCase {
         XCTAssertTrue(sawConfirmation, "Should have reached awaitingConfirmation state")
 
         session.approveConfirmation()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Daemon sends complete
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Completed after approval",
+            stepCount: 1
+        )))
+
         await runTask.value
 
         if case .completed(let summary, _) = session.state {
@@ -476,15 +481,23 @@ final class SessionTests: XCTestCase {
 
     @MainActor
     func testConfirmation_rejected_cancelsSession() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .key, reasoning: "quit app", key: "cmd+q"),
-            AgentAction(type: .done, reasoning: "done", summary: "Should not reach")
-        ])
-        let session = makeSession(provider: provider)
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let session = makeSession(daemonClient: daemonClient)
 
         let runTask = Task { @MainActor in
             await session.run()
         }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_key",
+            input: ["key": AnyCodable("cmd+q")],
+            reasoning: "quit app",
+            stepNumber: 1
+        )))
 
         // Wait for confirmation state
         for _ in 0..<200 {
@@ -493,290 +506,142 @@ final class SessionTests: XCTestCase {
         }
 
         session.rejectConfirmation()
+        continuation.finish()
+
         await runTask.value
 
-        // Current behavior: rejection cancels the session
         XCTAssertEqual(session.state, .cancelled)
-    }
-
-    // MARK: - Pause and Resume
-
-    @MainActor
-    func testPauseAndResume() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "step 1", x: 100, y: 200),
-            AgentAction(type: .click, reasoning: "step 2", x: 200, y: 200),
-            AgentAction(type: .done, reasoning: "done", summary: "Completed after pause")
-        ])
-        provider.delayNanoseconds = 20_000_000 // 20ms per inference so pause can take effect
-        let session = makeSession(provider: provider)
-
-        let runTask = Task { @MainActor in
-            await session.run()
-        }
-
-        // Wait for first action to execute (may be in .running or .thinking state)
-        for _ in 0..<200 {
-            let shouldBreak: Bool
-            switch session.state {
-            case .running(let step, _, _, _) where step >= 1: shouldBreak = true
-            case .thinking(let step, _) where step >= 2: shouldBreak = true
-            default: shouldBreak = false
-            }
-            if shouldBreak { break }
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
-
-        session.pause()
-
-        // Verify paused state
-        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
-        if case .paused = session.state {
-            // Good — paused
-        } else {
-            // May have completed before pause took effect — still valid
-        }
-
-        session.resume()
-        await runTask.value
-
-        if case .completed(let summary, _) = session.state {
-            XCTAssertEqual(summary, "Completed after pause")
-        } else if case .paused = session.state {
-            // Race condition: pause took effect after all actions completed but before done
-            // This is acceptable in a timing-sensitive test
-        } else {
-            XCTFail("Expected completed state, got \(session.state)")
-        }
-    }
-
-    // MARK: - Task Property
-
-    // MARK: - Open App
-
-    @MainActor
-    func testOpenApp_executesSuccessfully() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .openApp, reasoning: "Open Slack to send message", appName: "Slack"),
-            AgentAction(type: .done, reasoning: "done", summary: "Opened Slack")
-        ])
-        let executor = MockActionExecutor()
-        let session = makeSession(provider: provider, executor: executor)
-
-        await session.run()
-
-        if case .completed(let summary, let steps) = session.state {
-            XCTAssertEqual(steps, 2)
-            XCTAssertEqual(summary, "Opened Slack")
-        } else {
-            XCTFail("Expected completed state, got \(session.state)")
-        }
-
-        XCTAssertEqual(executor.executedActions.count, 1)
-        XCTAssertEqual(executor.executedActions[0].type, .openApp)
-        XCTAssertEqual(executor.executedActions[0].appName, "Slack")
-    }
-
-    // MARK: - No-Op Detection
-
-    @MainActor
-    func testOpenApp_noOp_skipsExecution() async {
-        // Model emits openApp for the app that's already frontmost (TestApp from mock enumerator)
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .openApp, reasoning: "Open TestApp", appName: "TestApp"),
-            AgentAction(type: .done, reasoning: "done", summary: "Completed after no-op")
-        ])
-        let executor = MockActionExecutor()
-        let session = makeSession(provider: provider, executor: executor)
-
-        await session.run()
-
-        if case .completed(let summary, let steps) = session.state {
-            XCTAssertEqual(steps, 2)
-            XCTAssertEqual(summary, "Completed after no-op")
-        } else {
-            XCTFail("Expected completed state, got \(session.state)")
-        }
-
-        // Executor should NOT have received the open_app action (it was a no-op)
-        XCTAssertEqual(executor.executedActions.count, 0)
-    }
-
-    @MainActor
-    func testOpenApp_noOp_caseInsensitive() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .openApp, reasoning: "Open testapp", appName: "testapp"),
-            AgentAction(type: .done, reasoning: "done", summary: "Completed")
-        ])
-        let executor = MockActionExecutor()
-        let session = makeSession(provider: provider, executor: executor)
-
-        await session.run()
-
-        if case .completed(_, _) = session.state {
-            // Good
-        } else {
-            XCTFail("Expected completed state, got \(session.state)")
-        }
-
-        // No-op: "testapp" matches "TestApp" (case-insensitive)
-        XCTAssertEqual(executor.executedActions.count, 0)
-    }
-
-    @MainActor
-    func testOpenApp_noOp_aliasMatch() async {
-        // "chrome" is an alias for "Google Chrome"
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .openApp, reasoning: "Open Chrome", appName: "chrome"),
-            AgentAction(type: .done, reasoning: "done", summary: "Completed")
-        ])
-        let executor = MockActionExecutor()
-        let enumerator = MockAccessibilityTreeEnumerator(
-            result: (elements: makeTestElements(), windowTitle: "New Tab", appName: "Google Chrome")
-        )
-        let session = makeSession(provider: provider, enumerator: enumerator, executor: executor)
-
-        await session.run()
-
-        if case .completed(_, _) = session.state {
-            // Good
-        } else {
-            XCTFail("Expected completed state, got \(session.state)")
-        }
-
-        // No-op: "chrome" resolves to "Google Chrome" which matches the frontmost app
-        XCTAssertEqual(executor.executedActions.count, 0)
-    }
-
-    @MainActor
-    func testOpenApp_differentApp_executesNormally() async {
-        // Model opens a DIFFERENT app — should execute normally
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .openApp, reasoning: "Open Safari", appName: "Safari"),
-            AgentAction(type: .done, reasoning: "done", summary: "Opened Safari")
-        ])
-        let executor = MockActionExecutor()
-        let session = makeSession(provider: provider, executor: executor)
-
-        await session.run()
-
-        if case .completed(_, _) = session.state {
-            // Good
-        } else {
-            XCTFail("Expected completed state, got \(session.state)")
-        }
-
-        // Different app — executor SHOULD have received the open_app action
-        XCTAssertEqual(executor.executedActions.count, 1)
-        XCTAssertEqual(executor.executedActions[0].type, .openApp)
-        XCTAssertEqual(executor.executedActions[0].appName, "Safari")
     }
 
     // MARK: - Task Property
 
     @MainActor
     func testTaskProperty_matchesInput() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .done, reasoning: "done", summary: "Done")
-        ])
-        let session = makeSession(task: "Open Safari and search for cats", provider: provider)
+        let daemonClient = MockDaemonClient()
+        _ = daemonClient.setupTestStream()
+        let session = makeSession(task: "Open Safari and search for cats", daemonClient: daemonClient)
 
         XCTAssertEqual(session.task, "Open Safari and search for cats")
     }
 
-    // MARK: - AppleScript
+    // MARK: - Message Filtering
 
     @MainActor
-    func testAppleScript_requiresConfirmation_approved() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .runAppleScript, reasoning: "Set Safari URL", script: "tell application \"Safari\" to set URL of current tab of front window to \"https://example.com\""),
-            AgentAction(type: .done, reasoning: "done", summary: "Set URL via AppleScript")
-        ])
-        let executor = MockActionExecutor()
-        executor.mockResult = "https://example.com"
-        let session = makeSession(provider: provider, executor: executor)
+    func testMessagesForOtherSession_ignored() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let session = makeSession(daemonClient: daemonClient)
 
         let runTask = Task { @MainActor in
             await session.run()
         }
 
-        // Wait for confirmation state
-        var sawConfirmation = false
-        for _ in 0..<200 {
-            if case .awaitingConfirmation = session.state {
-                sawConfirmation = true
-                break
-            }
-            try? await Task.sleep(nanoseconds: 10_000_000)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Send messages for a different session — should be ignored
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: "other-session-id",
+            summary: "Other session done",
+            stepCount: 5
+        )))
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        // Session should still be running/thinking, not completed
+        if case .completed = session.state {
+            XCTFail("Should not have completed from another session's message")
         }
 
-        XCTAssertTrue(sawConfirmation, "AppleScript should require confirmation")
-        session.approveConfirmation()
+        // Now complete this session
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "This session done",
+            stepCount: 1
+        )))
+
         await runTask.value
 
         if case .completed(let summary, _) = session.state {
-            XCTAssertEqual(summary, "Set URL via AppleScript")
+            XCTAssertEqual(summary, "This session done")
         } else {
             XCTFail("Expected completed state, got \(session.state)")
         }
-        XCTAssertEqual(executor.executedActions.count, 1)
-        XCTAssertEqual(executor.executedActions[0].type, .runAppleScript)
     }
 
-    @MainActor
-    func testAppleScript_doShellScript_blocked() async {
-        let blockedScript = "do shell script \"rm -rf /\""
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .runAppleScript, reasoning: "bad", script: blockedScript),
-            AgentAction(type: .runAppleScript, reasoning: "bad2", script: blockedScript),
-            AgentAction(type: .runAppleScript, reasoning: "bad3", script: blockedScript),
-        ])
-        let executor = MockActionExecutor()
-        let session = makeSession(provider: provider, executor: executor)
-
-        await session.run()
-
-        if case .failed(let reason) = session.state {
-            XCTAssertTrue(reason.contains("blocked"), "Expected block-related failure, got: \(reason)")
-        } else {
-            XCTFail("Expected failed state, got \(session.state)")
-        }
-        // None should have been executed
-        XCTAssertEqual(executor.executedActions.count, 0)
-    }
+    // MARK: - IPC Message Sending
 
     @MainActor
-    func testAppleScript_confirmationRejected_cancelsSession() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .runAppleScript, reasoning: "Set URL", script: "tell application \"Safari\" to return name of front window"),
-            AgentAction(type: .done, reasoning: "done", summary: "Should not reach")
-        ])
-        let session = makeSession(provider: provider)
+    func testSessionCreate_sentOnStart() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let session = makeSession(task: "click the button", daemonClient: daemonClient)
 
         let runTask = Task { @MainActor in
             await session.run()
         }
 
-        for _ in 0..<200 {
-            if case .awaitingConfirmation = session.state { break }
-            try? await Task.sleep(nanoseconds: 10_000_000)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Check that a CuSessionCreateMessage was sent
+        let createMessages = daemonClient.sentMessages.compactMap { $0 as? CuSessionCreateMessage }
+        XCTAssertEqual(createMessages.count, 1)
+        XCTAssertEqual(createMessages[0].sessionId, session.id)
+        XCTAssertEqual(createMessages[0].task, "click the button")
+        XCTAssertEqual(createMessages[0].screenWidth, 1920)
+        XCTAssertEqual(createMessages[0].screenHeight, 1080)
+
+        // Check that an observation was sent
+        let obsMessages = daemonClient.sentMessages.compactMap { $0 as? CuObservationMessage }
+        XCTAssertGreaterThanOrEqual(obsMessages.count, 1)
+        XCTAssertEqual(obsMessages[0].sessionId, session.id)
+
+        // Clean up
+        session.cancel()
+        continuation.finish()
+        await runTask.value
+    }
+
+    @MainActor
+    func testObservation_sentAfterAction() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let session = makeSession(daemonClient: daemonClient)
+
+        let runTask = Task { @MainActor in
+            await session.run()
         }
 
-        session.rejectConfirmation()
-        await runTask.value
+        try? await Task.sleep(nanoseconds: 50_000_000)
 
-        XCTAssertEqual(session.state, .cancelled)
+        let initialObsCount = daemonClient.sentMessages.compactMap({ $0 as? CuObservationMessage }).count
+
+        // Send an action
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_click",
+            input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+            reasoning: "click button",
+            stepNumber: 1
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Should have sent another observation after executing
+        let obsMessages = daemonClient.sentMessages.compactMap { $0 as? CuObservationMessage }
+        XCTAssertGreaterThan(obsMessages.count, initialObsCount, "Should send observation after action execution")
+
+        session.cancel()
+        continuation.finish()
+        await runTask.value
     }
 
     // MARK: - Undo
 
     @MainActor
     func testUndo_incrementsCount() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .done, reasoning: "done", summary: "Done")
-        ])
+        let daemonClient = MockDaemonClient()
+        _ = daemonClient.setupTestStream()
         let executor = MockActionExecutor()
-        let session = makeSession(provider: provider, executor: executor)
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
 
         XCTAssertEqual(session.undoCount, 0)
         session.undo()
@@ -794,13 +659,24 @@ final class SessionTests: XCTestCase {
 
     @MainActor
     func testUndo_worksAfterCompletion() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .done, reasoning: "done", summary: "Done")
-        ])
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
         let executor = MockActionExecutor()
-        let session = makeSession(provider: provider, executor: executor)
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
 
-        await session.run()
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Done",
+            stepCount: 1
+        )))
+
+        await runTask.value
 
         if case .completed = session.state {
             // Good — session completed
@@ -816,103 +692,222 @@ final class SessionTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 10_000_000)
         XCTAssertEqual(session.undoCount, 2)
 
-        // Verify undo actions went through the mock executor (not a real ActionExecutor)
         let undoActions = executor.executedActions.filter { $0.type == .key && $0.key == "cmd+z" }
         XCTAssertEqual(undoActions.count, 2)
     }
 
-    // MARK: - Thinking State
+    // MARK: - Open App
 
     @MainActor
-    func testThinkingState_setBeforeInference() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "click", x: 100, y: 200),
-            AgentAction(type: .done, reasoning: "done", summary: "Done")
-        ])
-        provider.delayNanoseconds = 100_000_000 // 100ms delay to observe thinking state
-        let session = makeSession(provider: provider)
+    func testOpenApp_executesSuccessfully() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let executor = MockActionExecutor()
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
 
         let runTask = Task { @MainActor in
             await session.run()
         }
 
-        // Wait for thinking state
-        var sawThinking = false
-        for _ in 0..<200 {
-            if case .thinking = session.state {
-                sawThinking = true
-                break
-            }
-            try? await Task.sleep(nanoseconds: 5_000_000) // 5ms
-        }
+        try? await Task.sleep(nanoseconds: 50_000_000)
 
-        XCTAssertTrue(sawThinking, "Should have observed .thinking state during inference")
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_open_app",
+            input: ["app_name": AnyCodable("Slack")],
+            reasoning: "Open Slack to send message",
+            stepNumber: 1
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Opened Slack",
+            stepCount: 2
+        )))
 
         await runTask.value
+
+        if case .completed(let summary, let steps) = session.state {
+            XCTAssertEqual(steps, 2)
+            XCTAssertEqual(summary, "Opened Slack")
+        } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+
+        XCTAssertEqual(executor.executedActions.count, 1)
+        XCTAssertEqual(executor.executedActions[0].type, .openApp)
+        XCTAssertEqual(executor.executedActions[0].appName, "Slack")
+    }
+
+    // MARK: - AppleScript
+
+    @MainActor
+    func testAppleScript_requiresConfirmation_approved() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let executor = MockActionExecutor()
+        executor.mockResult = "https://example.com"
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_run_applescript",
+            input: ["script": AnyCodable("tell application \"Safari\" to set URL of current tab of front window to \"https://example.com\"")],
+            reasoning: "Set Safari URL",
+            stepNumber: 1
+        )))
+
+        // Wait for confirmation state
+        var sawConfirmation = false
+        for _ in 0..<200 {
+            if case .awaitingConfirmation = session.state {
+                sawConfirmation = true
+                break
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertTrue(sawConfirmation, "AppleScript should require confirmation")
+        session.approveConfirmation()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Set URL via AppleScript",
+            stepCount: 1
+        )))
+
+        await runTask.value
+
+        if case .completed(let summary, _) = session.state {
+            XCTAssertEqual(summary, "Set URL via AppleScript")
+        } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+        XCTAssertEqual(executor.executedActions.count, 1)
+        XCTAssertEqual(executor.executedActions[0].type, .runAppleScript)
     }
 
     @MainActor
-    func testThinkingState_transitionsToRunning() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "click submit", x: 100, y: 200),
-            AgentAction(type: .click, reasoning: "click next", x: 200, y: 200),
-            AgentAction(type: .done, reasoning: "done", summary: "Done")
-        ])
-        provider.delayNanoseconds = 100_000_000 // 100ms delay to observe state transitions
-        let session = makeSession(provider: provider)
+    func testAppleScript_doShellScript_blocked() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let executor = MockActionExecutor()
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
 
-        // Use Combine to track all state transitions
-        var observedStates: [String] = []
-        let cancellable = session.$state.sink { state in
-            switch state {
-            case .thinking: observedStates.append("thinking")
-            case .running: observedStates.append("running")
-            case .completed: observedStates.append("completed")
-            default: break
-            }
+        let runTask = Task { @MainActor in
+            await session.run()
         }
 
-        await session.run()
+        try? await Task.sleep(nanoseconds: 50_000_000)
 
-        cancellable.cancel()
-
-        // Expected pattern: running(0) -> thinking(1) -> running(1) -> thinking(2) -> running(2) -> thinking(3) -> completed
-        // The initial running(step:0) is the startup state, then thinking before each infer
-        let sawThinking = observedStates.contains("thinking")
-        let sawRunning = observedStates.contains("running")
-        XCTAssertTrue(sawThinking, "Should have observed .thinking state")
-        XCTAssertTrue(sawRunning, "Should have observed .running state after .thinking")
-
-        // After the initial running(0), pattern should be thinking->running pairs
-        // Find first thinking and verify a running follows it
-        if let firstThinking = observedStates.firstIndex(of: "thinking") {
-            let afterThinking = observedStates.suffix(from: observedStates.index(after: firstThinking))
-            XCTAssertTrue(afterThinking.contains("running"), ".running should appear after first .thinking")
+        // Send 3 blocked AppleScript actions to trigger the "too many blocks" failure
+        for i in 1...3 {
+            continuation.yield(.cuAction(makeActionMessage(
+                sessionId: session.id,
+                toolName: "cu_run_applescript",
+                input: ["script": AnyCodable("do shell script \"rm -rf /\"")],
+                reasoning: "bad \(i)",
+                stepNumber: i
+            )))
+            try? await Task.sleep(nanoseconds: 50_000_000)
         }
+
+        // The session should fail after 3 consecutive blocks
+        // Give it a moment to process
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        // End the stream to unblock for-await
+        continuation.finish()
+        await runTask.value
+
+        if case .failed(let reason) = session.state {
+            XCTAssertTrue(reason.contains("blocked"), "Expected block-related failure, got: \(reason)")
+        } else {
+            XCTFail("Expected failed state, got \(session.state)")
+        }
+        // None should have been executed
+        XCTAssertEqual(executor.executedActions.count, 0)
+    }
+
+    @MainActor
+    func testAppleScript_confirmationRejected_cancelsSession() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let session = makeSession(daemonClient: daemonClient)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_run_applescript",
+            input: ["script": AnyCodable("tell application \"Safari\" to return name of front window")],
+            reasoning: "Set URL",
+            stepNumber: 1
+        )))
+
+        for _ in 0..<200 {
+            if case .awaitingConfirmation = session.state { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        session.rejectConfirmation()
+        continuation.finish()
+
+        await runTask.value
+
+        XCTAssertEqual(session.state, .cancelled)
     }
 
     // MARK: - AppleScript (execution error)
 
     @MainActor
     func testAppleScript_executionError_nonFatal() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .runAppleScript, reasoning: "Try script", script: "tell application \"NonExistentApp\" to activate"),
-            AgentAction(type: .done, reasoning: "done", summary: "Recovered from error")
-        ])
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
         let executor = MockActionExecutor()
         executor.shouldThrowAppleScriptError = true
-        let session = makeSession(provider: provider, executor: executor)
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
 
         let runTask = Task { @MainActor in
             await session.run()
         }
 
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
         // First action is AppleScript — needs confirmation
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_run_applescript",
+            input: ["script": AnyCodable("tell application \"NonExistentApp\" to activate")],
+            reasoning: "Try script",
+            stepNumber: 1
+        )))
+
         for _ in 0..<200 {
             if case .awaitingConfirmation = session.state { break }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         session.approveConfirmation()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // The error observation should have been sent; daemon can now complete
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Recovered from error",
+            stepCount: 1
+        )))
 
         await runTask.value
 
@@ -924,147 +919,85 @@ final class SessionTests: XCTestCase {
         }
     }
 
-    // MARK: - Performance Optimization Tests
+    // MARK: - No AX Tree (Screenshot Fallback)
 
     @MainActor
-    func testScreenshot_skippedOnMiddleSteps() async {
-        // 3-step session with enough interactive elements — screenshot should only be captured on step 1
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "Click button", x: 140, y: 215),
-            AgentAction(type: .click, reasoning: "Click another", x: 200, y: 215),
-            AgentAction(type: .done, reasoning: "Task complete", summary: "Done")
-        ])
-        let screenCapture = MockScreenCapture()
-        let enumerator = MockAccessibilityTreeEnumerator(
-            result: (elements: makeInteractiveTestElements(), windowTitle: "Test Window", appName: "TestApp")
-        )
-        let session = makeSession(provider: provider, enumerator: enumerator, screenCapture: screenCapture)
+    func testNoAXTree_usesScreenshotFallback() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        // Enumerator returns nil -> triggers screenshot fallback
+        let enumerator = MockAccessibilityTreeEnumerator(result: nil)
+        let session = makeSession(daemonClient: daemonClient, enumerator: enumerator)
 
-        await session.run()
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
 
-        if case .completed(_, let steps) = session.state {
-            XCTAssertEqual(steps, 3)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Used screenshot",
+            stepCount: 1
+        )))
+
+        await runTask.value
+
+        if case .completed(let summary, _) = session.state {
+            XCTAssertEqual(summary, "Used screenshot")
         } else {
             XCTFail("Expected completed state, got \(session.state)")
         }
-
-        // Step 1: captured (first step). Step 2: skipped (AX tree sufficient).
-        // Step 3: captured (consecutiveUnchangedSteps reaches 2 since mock returns identical elements).
-        XCTAssertEqual(screenCapture.captureCallCount, 2, "Screenshot should be captured on step 1 and when stuck")
     }
 
-    @MainActor
-    func testScreenshot_capturedAfterOpenApp() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .openApp, reasoning: "Switch app", appName: "Safari"),
-            AgentAction(type: .click, reasoning: "Click link", x: 200, y: 300),
-            AgentAction(type: .done, reasoning: "done", summary: "Done")
-        ])
-        let screenCapture = MockScreenCapture()
-        let enumerator = MockAccessibilityTreeEnumerator(
-            result: (elements: makeInteractiveTestElements(), windowTitle: "Test Window", appName: "TestApp")
-        )
-        let session = makeSession(provider: provider, enumerator: enumerator, screenCapture: screenCapture)
-
-        await session.run()
-
-        if case .completed(_, _) = session.state { } else {
-            XCTFail("Expected completed state, got \(session.state)")
-        }
-
-        // Step 1: captured (first step). Step 2: captured (after openApp).
-        // Step 3: captured (consecutiveUnchangedSteps reaches 2 since mock returns identical elements).
-        XCTAssertEqual(screenCapture.captureCallCount, 3, "Screenshot should be captured on step 1, after openApp, and when stuck")
-    }
+    // MARK: - Tool Name Mapping
 
     @MainActor
-    func testSecondaryWindows_skippedForSingleAppTask() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "Click button", x: 140, y: 215),
-            AgentAction(type: .click, reasoning: "Click another", x: 200, y: 215),
-            AgentAction(type: .done, reasoning: "done", summary: "Done")
-        ])
-        let enumerator = MockAccessibilityTreeEnumerator(
-            result: (elements: makeTestElements(), windowTitle: "Test Window", appName: "TestApp")
-        )
-        let session = makeSession(task: "click the submit button", provider: provider, enumerator: enumerator)
+    func testToolNameMapping_allTypes() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let executor = MockActionExecutor()
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
 
-        await session.run()
-
-        if case .completed(_, _) = session.state { } else {
-            XCTFail("Expected completed state, got \(session.state)")
+        let runTask = Task { @MainActor in
+            await session.run()
         }
 
-        // Single-app task: secondary windows only enumerated on step 1
-        XCTAssertEqual(enumerator.secondaryWindowCallCount, 1, "Secondary windows should only be enumerated on step 1 for single-app tasks")
-    }
+        try? await Task.sleep(nanoseconds: 50_000_000)
 
-    @MainActor
-    func testSecondaryWindows_enumeratedForCrossAppTask() async {
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "Click button", x: 140, y: 215),
-            AgentAction(type: .click, reasoning: "Click another", x: 200, y: 215),
-            AgentAction(type: .done, reasoning: "done", summary: "Done")
-        ])
-        let enumerator = MockAccessibilityTreeEnumerator(
-            result: (elements: makeTestElements(), windowTitle: "Test Window", appName: "TestApp")
-        )
-        // Task mentions two apps — should enumerate secondary windows on every step
-        let session = makeSession(task: "copy from Safari and paste into Notes", provider: provider, enumerator: enumerator)
+        // Test click mapping
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_click",
+            input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+            stepNumber: 1
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
 
-        await session.run()
+        // Test scroll mapping
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_scroll",
+            input: ["direction": AnyCodable("down"), "amount": AnyCodable(3)],
+            stepNumber: 2
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
 
-        if case .completed(_, _) = session.state { } else {
-            XCTFail("Expected completed state, got \(session.state)")
-        }
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Done",
+            stepCount: 2
+        )))
 
-        // Cross-app task: secondary windows enumerated on all 3 steps
-        XCTAssertEqual(enumerator.secondaryWindowCallCount, 3, "Secondary windows should be enumerated on every step for cross-app tasks")
-    }
+        await runTask.value
 
-    @MainActor
-    func testSecondaryWindows_skippedForXcodeTask() async {
-        // Regression test: "open xcode" should NOT match both "xcode" and "code"
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "Click button", x: 140, y: 215),
-            AgentAction(type: .click, reasoning: "Click another", x: 200, y: 215),
-            AgentAction(type: .done, reasoning: "done", summary: "Done")
-        ])
-        let enumerator = MockAccessibilityTreeEnumerator(
-            result: (elements: makeTestElements(), windowTitle: "Test Window", appName: "TestApp")
-        )
-        let session = makeSession(task: "open xcode and build the project", provider: provider, enumerator: enumerator)
-
-        await session.run()
-
-        if case .completed(_, _) = session.state { } else {
-            XCTFail("Expected completed state, got \(session.state)")
-        }
-
-        // Single-app task mentioning xcode — should NOT trigger multi-app detection
-        XCTAssertEqual(enumerator.secondaryWindowCallCount, 1, "Task mentioning only xcode should not trigger multi-app detection")
-    }
-
-    @MainActor
-    func testSecondaryWindows_skippedForGenericPhrase() async {
-        // Regression test: "switch to dark mode" should NOT trigger multi-app detection
-        let provider = MockInferenceProvider(actions: [
-            AgentAction(type: .click, reasoning: "Click button", x: 140, y: 215),
-            AgentAction(type: .done, reasoning: "done", summary: "Done")
-        ])
-        let enumerator = MockAccessibilityTreeEnumerator(
-            result: (elements: makeTestElements(), windowTitle: "Test Window", appName: "TestApp")
-        )
-        let session = makeSession(task: "switch to dark mode in the settings", provider: provider, enumerator: enumerator)
-
-        await session.run()
-
-        if case .completed(_, _) = session.state { } else {
-            XCTFail("Expected completed state, got \(session.state)")
-        }
-
-        // Generic phrase: should NOT trigger multi-app detection
-        XCTAssertEqual(enumerator.secondaryWindowCallCount, 1, "Generic phrase 'switch to' should not trigger multi-app detection")
+        XCTAssertEqual(executor.executedActions.count, 2)
+        XCTAssertEqual(executor.executedActions[0].type, .click)
+        XCTAssertEqual(executor.executedActions[0].x, 100)
+        XCTAssertEqual(executor.executedActions[0].y, 200)
+        XCTAssertEqual(executor.executedActions[1].type, .scroll)
+        XCTAssertEqual(executor.executedActions[1].scrollDirection, "down")
+        XCTAssertEqual(executor.executedActions[1].scrollAmount, 3)
     }
 }
 

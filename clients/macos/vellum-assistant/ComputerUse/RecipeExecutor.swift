@@ -49,6 +49,12 @@ struct RecipeStep {
 @MainActor
 final class RecipeExecutor {
 
+    private let daemonClient: DaemonClientProtocol
+
+    init(daemonClient: DaemonClientProtocol) {
+        self.daemonClient = daemonClient
+    }
+
     /// Parse a recipe markdown file and execute it via ComputerUseSession.
     func execute(
         recipeName: String,
@@ -69,15 +75,9 @@ final class RecipeExecutor {
         let taskPrompt = buildTaskPrompt(recipe: recipe, context: context)
 
         // 4. Create and run a ComputerUseSession
-        guard let apiKey = APIKeyManager.getKey() else {
-            log.error("No API key available for recipe execution")
-            return RecipeResult(success: false, credentials: [:], error: "No API key configured")
-        }
-
-        let provider = AnthropicProvider(apiKey: apiKey)
         let session = ComputerUseSession(
             task: taskPrompt,
-            provider: provider,
+            daemonClient: daemonClient,
             maxSteps: max(recipe.totalSteps * 4, 40), // generous headroom; floor of 40 for high-level recipes
             initialDelayMs: 500
         )
