@@ -14,6 +14,7 @@ struct VButton: View {
             Text(label)
                 .font(VFont.bodyMedium)
                 .foregroundColor(foregroundColor)
+                .frame(maxWidth: isFullWidth ? .infinity : nil)
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.vertical, VSpacing.lg)
                 .background(backgroundColor)
@@ -22,7 +23,6 @@ struct VButton: View {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(borderColor, lineWidth: style == .ghost ? 1 : 0)
                 )
-                .frame(maxWidth: isFullWidth ? .infinity : nil)
         }
         .buttonStyle(VButtonPressStyle())
         .disabled(isDisabled)

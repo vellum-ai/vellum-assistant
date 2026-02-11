@@ -399,6 +399,7 @@ export interface AmbientResult {
   suggestion?: string;
 }
 
+/** Common fields shared by all UiSurfaceShow variants. */
 interface UiSurfaceShowBase {
   type: 'ui_surface_show';
   sessionId: string;
