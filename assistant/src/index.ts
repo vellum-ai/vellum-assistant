@@ -294,6 +294,9 @@ sessions
           console.error('This command is dev-only and will only run against small dev databases.');
           process.exit(1);
         }
+      } catch (err: unknown) {
+        const isUndefinedTable = err instanceof Error && err.message.includes('does not exist');
+        if (!isUndefinedTable) throw err;
       } finally {
         await checkSql.end();
       }
