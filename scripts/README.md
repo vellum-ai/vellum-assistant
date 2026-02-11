@@ -1,6 +1,35 @@
-# Automation Commands
+# Scripts
 
-This directory contains slash commands for Claude Code that automate development workflows. They manage a shared task list (`.private/TODO.md`), create PRs, merge them, and track review status.
+This directory contains automation commands for Claude Code and helper scripts for development workflows.
+
+## Utility Scripts
+
+### `vellum-runtime-tunnel.sh` — SSH tunnel for remote runtime access
+
+Forwards a local TCP port to a remote Vellum runtime HTTP server via SSH. Use this when running the web app in local mode against a remote assistant daemon.
+
+```bash
+# Start a tunnel to a remote host
+scripts/vellum-runtime-tunnel.sh start user@remote-host
+
+# Check tunnel status
+scripts/vellum-runtime-tunnel.sh status
+
+# Print env vars for web local mode
+scripts/vellum-runtime-tunnel.sh print-env
+# Output:
+#   ASSISTANT_CONNECTION_MODE=local
+#   LOCAL_RUNTIME_URL=http://127.0.0.1:7821
+
+# Stop the tunnel
+scripts/vellum-runtime-tunnel.sh stop
+```
+
+Options: `--local-port PORT` and `--remote-port PORT` (both default to 7821).
+
+## Automation Commands
+
+Slash commands for Claude Code that automate development workflows. They manage a shared task list (`.private/TODO.md`), create PRs, merge them, and track review status.
 
 ## Setup
 
