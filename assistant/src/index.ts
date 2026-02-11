@@ -283,6 +283,22 @@ sessions
       console.log('Warning: DATABASE_URL not set — will only clear daemon DB.');
     }
 
+    // ── Safety: reject databases with many users ─────────────────────
+    if (pgAvailable && databaseUrl) {
+      const postgres = (await import('postgres')).default;
+      const checkSql = postgres(databaseUrl, { max: 1 });
+      try {
+        const [{ count: userCount }] = await checkSql`SELECT COUNT(*)::int AS count FROM "user"`;
+        if (userCount >= 10) {
+          console.error(`Error: database has ${userCount} users — this looks like a production database.`);
+          console.error('This command is dev-only and will only run against small dev databases.');
+          process.exit(1);
+        }
+      } finally {
+        await checkSql.end();
+      }
+    }
+
     // ── Confirmation prompt ──────────────────────────────────────────
     const parts: string[] = ['daemon SQLite database'];
     if (pgAvailable) parts.push('web Postgres database');
