@@ -35,6 +35,14 @@ struct SurfaceContainerView: View {
                         viewModel.onAction(actionId, nil)
                     }
                 )
+            case .dynamicPage(let data):
+                DynamicPageSurfaceView(data: data, onAction: { actionId, actionData in
+                    viewModel.onAction(actionId, actionData as? [String: Any])
+                })
+                .frame(
+                    width: CGFloat(data.width ?? 380),
+                    height: CGFloat(data.height ?? 500)
+                )
             }
 
             // Action buttons for card/list surfaces
@@ -51,7 +59,7 @@ struct SurfaceContainerView: View {
 
     private var isFormOrConfirmation: Bool {
         switch surface.data {
-        case .form, .confirmation:
+        case .form, .confirmation, .dynamicPage:
             return true
         case .card, .list:
             return false
