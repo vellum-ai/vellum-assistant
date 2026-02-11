@@ -1,4 +1,3 @@
-import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 
 import { Assistant, CreateAssistantInput, getDb } from "@/lib/db";
@@ -6,10 +5,7 @@ import {
   getDefaultEditorTemplate,
   uploadEditorPage,
 } from "@/lib/gcp";
-
-function generateApiKey(): string {
-  return `vellum_${randomBytes(32).toString("hex")}`;
-}
+import { createAssistantToken } from "@/lib/auth/assistant-tokens";
 
 export async function GET() {
   try {
@@ -44,12 +40,7 @@ export async function POST(request: Request) {
           body.name = "New Assistant";
         }
 
-        const apiKey = generateApiKey();
-        
-        const initialConfig = { 
-          ...body.configuration, 
-          apiKey,
-        };
+        const initialConfig = body.configuration ?? {};
 
         controller.enqueue(sseEvent("progress", { step: "database", message: "Creating assistant record..." }));
         const result = await sql`
@@ -58,6 +49,9 @@ export async function POST(request: Request) {
           RETURNING *
         `;
         const assistant = result[0] as Assistant;
+
+        const { plaintext: assistantToken } = await createAssistantToken(assistant.id);
+        controller.enqueue(sseEvent("token", { token: assistantToken }));
 
         controller.enqueue(sseEvent("progress", { step: "editor", message: "Setting up editor..." }));
         try {
