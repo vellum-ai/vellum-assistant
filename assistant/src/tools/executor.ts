@@ -45,7 +45,7 @@ export class ToolExecutor {
 
     const tool = getTool(name);
     if (!tool) {
-      const available = getAllTools().filter((t) => t.executionMode !== 'proxy').map((t) => t.name).sort().join(', ');
+      const available = getAllTools().filter((t) => t.executionMode !== 'proxy' || context.proxyToolResolver).map((t) => t.name).sort().join(', ');
       const msg = `Unknown tool: ${name}. Available tools: ${available}`;
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent(context, {
