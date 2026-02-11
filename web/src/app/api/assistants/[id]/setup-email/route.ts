@@ -32,15 +32,15 @@ export async function POST(
     );
   }
 
-  const verified = await verifyAssistantToken(assistantId, token);
-  if (!verified) {
-    return NextResponse.json(
-      { error: "Invalid token" },
-      { status: 401 }
-    );
-  }
-
   try {
+    const verified = await verifyAssistantToken(assistantId, token);
+    if (!verified) {
+      return NextResponse.json(
+        { error: "Invalid token" },
+        { status: 401 }
+      );
+    }
+
     const sql = getDb();
 
     const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
@@ -120,15 +120,15 @@ export async function GET(
     );
   }
 
-  const verified = await verifyAssistantToken(assistantId, token);
-  if (!verified) {
-    return NextResponse.json(
-      { error: "Invalid token" },
-      { status: 401 }
-    );
-  }
-
   try {
+    const verified = await verifyAssistantToken(assistantId, token);
+    if (!verified) {
+      return NextResponse.json(
+        { error: "Invalid token" },
+        { status: 401 }
+      );
+    }
+
     const sql = getDb();
 
     const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
