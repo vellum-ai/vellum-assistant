@@ -18,8 +18,21 @@ export interface PomodoroTimer {
   timeoutHandle?: ReturnType<typeof setTimeout>;
 }
 
-/** Module-level map of active timers keyed by timer ID. */
-export const timers = new Map<string, PomodoroTimer>();
+/** Maximum allowed duration in minutes (24 hours). */
+export const MAX_DURATION_MINUTES = 1440;
+
+/** Module-level map of active timers keyed by sessionId -> timerId. */
+export const timers = new Map<string, Map<string, PomodoroTimer>>();
+
+/** Returns the per-session timer map, creating it if needed. */
+function getSessionTimers(sessionId: string): Map<string, PomodoroTimer> {
+  let session = timers.get(sessionId);
+  if (!session) {
+    session = new Map();
+    timers.set(sessionId, session);
+  }
+  return session;
+}
 
 function generateTimerId(): string {
   return crypto.randomUUID().slice(0, 8);
@@ -74,10 +87,18 @@ function formatTimerStatus(timer: PomodoroTimer): string {
   return lines.join('\n');
 }
 
-function startAction(input: Record<string, unknown>): ToolExecutionResult {
+function startAction(input: Record<string, unknown>, sessionId: string): ToolExecutionResult {
   const durationMinutes = typeof input.duration_minutes === 'number' && input.duration_minutes > 0
     ? input.duration_minutes
     : 25;
+
+  if (durationMinutes > MAX_DURATION_MINUTES) {
+    return {
+      content: `Error: duration_minutes exceeds maximum of ${MAX_DURATION_MINUTES} (24 hours). Requested: ${durationMinutes}`,
+      isError: true,
+    };
+  }
+
   const label = typeof input.label === 'string' && input.label.length > 0
     ? input.label
     : 'Pomodoro';
@@ -102,8 +123,9 @@ function startAction(input: Record<string, unknown>): ToolExecutionResult {
     log.info({ id: timer.id, label: timer.label }, 'Pomodoro timer completed');
   }, durationMs);
 
-  timers.set(id, timer);
-  log.info({ id, label, durationMinutes }, 'Pomodoro timer started');
+  const sessionTimers = getSessionTimers(sessionId);
+  sessionTimers.set(id, timer);
+  log.info({ id, label, durationMinutes, sessionId }, 'Pomodoro timer started');
 
   const endTime = new Date(now + durationMs).toISOString();
   const content = [
@@ -116,13 +138,14 @@ function startAction(input: Record<string, unknown>): ToolExecutionResult {
   return { content, isError: false };
 }
 
-function pauseAction(input: Record<string, unknown>): ToolExecutionResult {
+function pauseAction(input: Record<string, unknown>, sessionId: string): ToolExecutionResult {
   const timerId = input.timer_id;
   if (typeof timerId !== 'string' || timerId.length === 0) {
     return { content: 'Error: timer_id is required for pause action', isError: true };
   }
 
-  const timer = timers.get(timerId);
+  const sessionTimers = getSessionTimers(sessionId);
+  const timer = sessionTimers.get(timerId);
   if (!timer) {
     return { content: `Error: Timer "${timerId}" not found`, isError: true };
   }
@@ -150,13 +173,14 @@ function pauseAction(input: Record<string, unknown>): ToolExecutionResult {
   };
 }
 
-function resumeAction(input: Record<string, unknown>): ToolExecutionResult {
+function resumeAction(input: Record<string, unknown>, sessionId: string): ToolExecutionResult {
   const timerId = input.timer_id;
   if (typeof timerId !== 'string' || timerId.length === 0) {
     return { content: 'Error: timer_id is required for resume action', isError: true };
   }
 
-  const timer = timers.get(timerId);
+  const sessionTimers = getSessionTimers(sessionId);
+  const timer = sessionTimers.get(timerId);
   if (!timer) {
     return { content: `Error: Timer "${timerId}" not found`, isError: true };
   }
@@ -187,13 +211,14 @@ function resumeAction(input: Record<string, unknown>): ToolExecutionResult {
   };
 }
 
-function cancelAction(input: Record<string, unknown>): ToolExecutionResult {
+function cancelAction(input: Record<string, unknown>, sessionId: string): ToolExecutionResult {
   const timerId = input.timer_id;
   if (typeof timerId !== 'string' || timerId.length === 0) {
     return { content: 'Error: timer_id is required for cancel action', isError: true };
   }
 
-  const timer = timers.get(timerId);
+  const sessionTimers = getSessionTimers(sessionId);
+  const timer = sessionTimers.get(timerId);
   if (!timer) {
     return { content: `Error: Timer "${timerId}" not found`, isError: true };
   }
@@ -224,13 +249,14 @@ function cancelAction(input: Record<string, unknown>): ToolExecutionResult {
   };
 }
 
-function statusAction(input: Record<string, unknown>): ToolExecutionResult {
+function statusAction(input: Record<string, unknown>, sessionId: string): ToolExecutionResult {
   const timerId = input.timer_id;
   if (typeof timerId !== 'string' || timerId.length === 0) {
     return { content: 'Error: timer_id is required for status action', isError: true };
   }
 
-  const timer = timers.get(timerId);
+  const sessionTimers = getSessionTimers(sessionId);
+  const timer = sessionTimers.get(timerId);
   if (!timer) {
     return { content: `Error: Timer "${timerId}" not found`, isError: true };
   }
@@ -238,38 +264,44 @@ function statusAction(input: Record<string, unknown>): ToolExecutionResult {
   return { content: formatTimerStatus(timer), isError: false };
 }
 
-function listAction(): ToolExecutionResult {
-  if (timers.size === 0) {
+function listAction(sessionId: string): ToolExecutionResult {
+  const sessionTimers = getSessionTimers(sessionId);
+  if (sessionTimers.size === 0) {
     return { content: 'No timers found.', isError: false };
   }
 
   const entries: string[] = [];
-  for (const timer of timers.values()) {
+  for (const timer of sessionTimers.values()) {
     entries.push(formatTimerStatus(timer));
   }
 
   return { content: entries.join('\n\n'), isError: false };
 }
 
-export function executePomodoro(input: Record<string, unknown>): ToolExecutionResult {
+export function executePomodoro(
+  input: Record<string, unknown>,
+  context: { sessionId: string },
+): ToolExecutionResult {
   const action = input.action;
   if (typeof action !== 'string') {
     return { content: 'Error: action is required', isError: true };
   }
 
+  const { sessionId } = context;
+
   switch (action) {
     case 'start':
-      return startAction(input);
+      return startAction(input, sessionId);
     case 'pause':
-      return pauseAction(input);
+      return pauseAction(input, sessionId);
     case 'resume':
-      return resumeAction(input);
+      return resumeAction(input, sessionId);
     case 'cancel':
-      return cancelAction(input);
+      return cancelAction(input, sessionId);
     case 'status':
-      return statusAction(input);
+      return statusAction(input, sessionId);
     case 'list':
-      return listAction();
+      return listAction(sessionId);
     default:
       return {
         content: `Error: Unknown action "${action}". Valid actions: start, pause, resume, cancel, status, list`,
@@ -314,8 +346,8 @@ class PomodoroTool implements Tool {
     };
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executePomodoro(input);
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executePomodoro(input, context);
   }
 }
 
