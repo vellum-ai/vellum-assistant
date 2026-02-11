@@ -245,6 +245,13 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         receiveBuffer = Data()
         isConnected = false
+
+        // Finish all subscriber streams so `for await` loops terminate
+        // instead of hanging forever on disconnect.
+        for continuation in subscribers.values {
+            continuation.finish()
+        }
+        subscribers.removeAll()
     }
 
     // MARK: - Receive Loop
