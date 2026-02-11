@@ -85,10 +85,11 @@ class BrowserManager {
             stderr: 'pipe',
           });
           const timeoutMs = 120_000;
+          let timer: ReturnType<typeof setTimeout>;
           const exitCode = await Promise.race([
-            proc.exited,
+            proc.exited.finally(() => clearTimeout(timer)),
             new Promise<never>((_, reject) =>
-              setTimeout(() => {
+              timer = setTimeout(() => {
                 proc.kill();
                 reject(new Error(`Chromium install timed out after ${timeoutMs / 1000}s`));
               }, timeoutMs),
