@@ -185,7 +185,12 @@ export async function runDaemon(): Promise<void> {
     const port = parseInt(httpPortEnv, 10);
     if (!isNaN(port) && port > 0) {
       runtimeHttp = new RuntimeHttpServer({ port });
-      await runtimeHttp.start();
+      try {
+        await runtimeHttp.start();
+      } catch (err) {
+        log.warn({ err, port }, 'Failed to start runtime HTTP server, continuing without it');
+        runtimeHttp = null;
+      }
     }
   }
 
