@@ -6,11 +6,17 @@ import {
   uploadEditorPage,
 } from "@/lib/gcp";
 import { createAssistantToken } from "@/lib/auth/assistant-tokens";
+import { getRequestUser } from "@/lib/auth/server-session";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const user = await getRequestUser(request);
+    if (!user.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const sql = getDb();
-    const assistants = await sql`SELECT * FROM assistants ORDER BY created_at DESC`;
+    const assistants = await sql`SELECT * FROM assistants WHERE created_by = ${user.id} ORDER BY created_at DESC`;
     return NextResponse.json(assistants as unknown as Assistant[]);
   } catch (error: unknown) {
     console.error("Error fetching assistants:", error);
@@ -28,8 +34,13 @@ export async function POST(request: Request) {
     return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   }
 
+  const user = await getRequestUser(request);
+  if (!user.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const body: CreateAssistantInput = await request.json();
-  const createdBy = request.headers.get("x-username") || null;
+  const createdBy = user.id;
 
   const stream = new ReadableStream({
     async start(controller) {

@@ -11,7 +11,7 @@ import { Assistant } from "@/lib/db";
 
 export default function AssistantsPage() {
   const router = useRouter();
-  const { isLoggedIn, isLoading: isAuthLoading, username, email } = useAuth();
+  const { isLoggedIn, isLoading: isAuthLoading, email } = useAuth();
   const [assistants, setAssistants] = useState<Assistant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -46,13 +46,9 @@ export default function AssistantsPage() {
     setProgressMessage("Initializing...");
     setError(null);
     try {
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (username) {
-        headers["x-username"] = username;
-      }
       const response = await fetch("/api/assistants", {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
 
