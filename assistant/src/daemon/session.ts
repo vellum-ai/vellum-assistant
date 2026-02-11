@@ -299,6 +299,7 @@ export class Session {
         runMessages = preRunRepair.messages;
       }
 
+      const preRunHistoryLength = runMessages.length;
       const updatedHistory = await this.agentLoop.run(
         runMessages,
         (event) => {
@@ -359,6 +360,24 @@ export class Session {
         },
         this.abortController.signal,
       );
+
+      // Reconcile synthesized cancellation tool_results from history tail.
+      // When abort happens, the agent loop synthesizes "Cancelled by user"
+      // results directly into the history without firing tool_result events,
+      // so they're missing from pendingToolResults and would not be persisted.
+      for (let i = preRunHistoryLength; i < updatedHistory.length; i++) {
+        const msg = updatedHistory[i];
+        if (msg.role === 'user') {
+          for (const block of msg.content) {
+            if (block.type === 'tool_result' && !pendingToolResults.has(block.tool_use_id)) {
+              pendingToolResults.set(block.tool_use_id, {
+                content: block.content,
+                isError: block.is_error ?? false,
+              });
+            }
+          }
+        }
+      }
 
       // Flush any remaining tool results as a user message
       if (pendingToolResults.size > 0) {
