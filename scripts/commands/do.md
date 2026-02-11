@@ -17,8 +17,11 @@ If `$ARGUMENTS` is empty, stop and tell the user to provide a description of wha
 
 Derive a short branch name slug from the description (e.g. `do/add-login-validation`).
 
+Fetch the latest main and create the worktree based on `origin/main` so the branch doesn't include unrelated commits:
+
 ```bash
-scripts/worktree create do/<slug>
+git fetch origin main
+scripts/worktree create do/<slug> origin/main
 ```
 
 Remember the worktree path printed by the script. ALL work happens in the worktree — do NOT modify files in the main repo.
@@ -80,14 +83,17 @@ gh pr merge <N> --squash
 
 ### 7. Clean up worktree
 
+Change back to the main repo directory first (you may still be inside the worktree from earlier steps), then remove it:
+
 ```bash
+cd <main-repo>
 scripts/worktree remove do/<slug> --delete-branch
 ```
 
 ### 8. Pull main
 
 ```bash
-git checkout main && git pull
+git pull origin main
 ```
 
 ### 9. Report

@@ -8,7 +8,7 @@ usage() {
   echo "Usage: scripts/worktree <create|remove|list> [args]"
   echo ""
   echo "Commands:"
-  echo "  create <branch-name>                Create a worktree + branch and install deps"
+  echo "  create <branch-name> [start-point]  Create a worktree + branch and install deps"
   echo "  remove <branch-name> [options]      Remove a worktree and optionally delete the branch"
   echo "  list                                List all worktrees"
   echo ""
@@ -25,6 +25,7 @@ usage() {
 
 create() {
   local branch="$1"
+  local start_point="${2:-}"
   local slug="${branch//\//-}"
   local dir="$PARENT_DIR/vellum-wt-${slug}"
 
@@ -34,7 +35,11 @@ create() {
   fi
 
   echo "Creating worktree at $dir on branch $branch..."
-  git -C "$REPO_ROOT" worktree add "$dir" -b "$branch"
+  if [ -n "$start_point" ]; then
+    git -C "$REPO_ROOT" worktree add "$dir" -b "$branch" "$start_point"
+  else
+    git -C "$REPO_ROOT" worktree add "$dir" -b "$branch"
+  fi
 
   echo "Installing assistant dependencies..."
   export PATH="$HOME/.bun/bin:$PATH"
@@ -99,7 +104,7 @@ fi
 case "$1" in
   create)
     [ $# -lt 2 ] && { echo "Error: branch name required"; usage; exit 1; }
-    create "$2"
+    create "$2" "${3:-}"
     ;;
   remove)
     [ $# -lt 2 ] && { echo "Error: branch name required"; usage; exit 1; }
