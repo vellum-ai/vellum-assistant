@@ -103,6 +103,7 @@ export async function initializeTools(): Promise<void> {
   await import('./browser/headless-browser.js');
   await import('./weather/get-weather.js');
   await import('./timer/pomodoro.js');
+  await import('./system/system-info.js');
 
   // Computer-use proxy tools — registered so ToolExecutor can look them up
   // and forward execution to the connected macOS client.  They are excluded
