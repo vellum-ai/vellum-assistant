@@ -80,15 +80,15 @@ final class TextSession: ObservableObject {
                         ))
                     }
 
-                case .assistantTextDelta(let delta) where delta.sessionId == self.daemonSessionId:
+                case .assistantTextDelta(let delta) where self.daemonSessionId != nil:
                     self.accumulatedText += delta.text
                     self.state = .streaming(text: self.accumulatedText)
 
-                case .assistantThinkingDelta(let delta) where delta.sessionId == self.daemonSessionId:
+                case .assistantThinkingDelta(let delta) where self.daemonSessionId != nil:
                     // Stay in thinking state while receiving thinking deltas
                     log.debug("Thinking: \(delta.thinking)")
 
-                case .messageComplete(let complete) where complete.sessionId == self.daemonSessionId:
+                case .messageComplete(_) where self.daemonSessionId != nil:
                     if self.accumulatedText.isEmpty {
                         self.state = .completed(text: "(No response)")
                     } else {
