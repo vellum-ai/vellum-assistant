@@ -29,9 +29,23 @@ export type MessageProcessor = (
   options?: { userMessageAlreadyPersisted?: boolean },
 ) => Promise<{ messageId: string }>;
 
+/**
+ * Non-blocking message processor that persists the user message and
+ * starts the agent loop in the background, returning the messageId
+ * immediately.
+ */
+export type NonBlockingMessageProcessor = (
+  assistantId: string,
+  conversationId: string,
+  content: string,
+  attachmentIds?: string[],
+) => Promise<{ messageId: string }>;
+
 export interface RuntimeHttpServerOptions {
   port?: number;
   processMessage?: MessageProcessor;
+  /** Non-blocking processor for POST /messages (persists + fires agent loop). */
+  persistAndProcessMessage?: NonBlockingMessageProcessor;
 }
 
 interface RuntimeMessagePayload {
@@ -49,12 +63,14 @@ export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
   private processMessage?: MessageProcessor;
+  private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
     this.processMessage = options.processMessage;
+    this.persistAndProcessMessage = options.persistAndProcessMessage;
   }
 
   async start(): Promise<void> {
@@ -355,12 +371,13 @@ export class RuntimeHttpServer {
 
     const mapping = getOrCreateConversation(assistantId, conversationKey);
 
-    if (!this.processMessage) {
+    const processor = this.persistAndProcessMessage ?? this.processMessage;
+    if (!processor) {
       return Response.json({ error: 'Message processing not configured' }, { status: 503 });
     }
 
     try {
-      const result = await this.processMessage(
+      const result = await processor(
         assistantId,
         mapping.conversationId,
         content ?? '',

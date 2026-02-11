@@ -463,9 +463,46 @@ export class DaemonServer {
   }
 
   /**
-   * Process a message from the HTTP runtime API.
-   * Gets or creates a session and runs the agent loop.
-   * Results are saved to the DB for the web UI to poll.
+   * Persist a user message and start the agent loop in the background.
+   * Returns the messageId immediately without waiting for the agent loop
+   * to complete. Used by the HTTP sendMessage endpoint so the response
+   * is not blocked for the duration of the agent loop.
+   */
+  async persistAndProcessMessage(
+    assistantId: string,
+    conversationId: string,
+    content: string,
+    attachmentIds?: string[],
+  ): Promise<{ messageId: string }> {
+    const session = await this.getOrCreateSession(conversationId);
+
+    // Resolve attachment IDs to full attachment data for the session
+    const attachments = attachmentIds
+      ? attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds).map((a) => ({
+          id: a.id,
+          filename: a.originalFilename,
+          mimeType: a.mimeType,
+          data: a.dataBase64,
+        }))
+      : [];
+
+    // persistUserMessage throws if the session is busy or persistence fails
+    const requestId = crypto.randomUUID();
+    const messageId = session.persistUserMessage(content, attachments, requestId);
+
+    // Fire-and-forget the agent loop. Errors are logged but do not
+    // affect the HTTP response (the client polls GET /messages).
+    session.runAgentLoop(content, messageId, () => {}).catch((err) => {
+      log.error({ err, conversationId }, 'Background agent loop failed');
+    });
+
+    return { messageId };
+  }
+
+  /**
+   * Process a message from the HTTP runtime API (blocking).
+   * Gets or creates a session and runs the full agent loop before returning.
+   * Used by the channel inbound endpoint which needs the assistant reply.
    */
   async processMessage(
     assistantId: string,
@@ -491,6 +528,10 @@ export class DaemonServer {
       : [];
 
     const messageId = await session.processMessage(content, attachments, () => {}, crypto.randomUUID(), options);
+
+    if (!messageId) {
+      throw new Error('Failed to persist user message');
+    }
 
     return { messageId };
   }
