@@ -1,4 +1,5 @@
 import * as net from 'node:net';
+import { v4 as uuid } from 'uuid';
 import { getConfig, loadRawConfig, saveRawConfig } from '../config/loader.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
@@ -223,15 +224,18 @@ async function handleUserMessage(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
+  const requestId = uuid();
+  const rlog = log.child({ sessionId, requestId });
   try {
     ctx.socketToSession.set(socket, sessionId);
     const session = await ctx.getOrCreateSession(sessionId, socket, true);
+    rlog.info('Processing user message');
     await session.processMessage(content ?? '', attachments ?? [], (event) => {
       ctx.send(socket, event);
-    });
+    }, requestId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, sessionId }, 'Error processing user message');
+    rlog.error({ err }, 'Error processing user message');
     ctx.send(socket, { type: 'error', message });
   }
 }

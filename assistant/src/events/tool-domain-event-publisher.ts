@@ -17,6 +17,7 @@ export function createToolDomainEventPublisher(
         await eventBus.emit('tool.execution.started', {
           conversationId: event.conversationId,
           sessionId: event.sessionId,
+          requestId: event.requestId,
           toolName: event.toolName,
           input: event.input,
           startedAtMs: event.startedAtMs,
@@ -26,6 +27,7 @@ export function createToolDomainEventPublisher(
         await eventBus.emit('tool.permission.requested', {
           conversationId: event.conversationId,
           sessionId: event.sessionId,
+          requestId: event.requestId,
           toolName: event.toolName,
           riskLevel: event.riskLevel,
           requestedAtMs: Date.now(),
@@ -35,6 +37,7 @@ export function createToolDomainEventPublisher(
         await eventBus.emit('tool.permission.decided', {
           conversationId: event.conversationId,
           sessionId: event.sessionId,
+          requestId: event.requestId,
           toolName: event.toolName,
           decision: event.decision,
           riskLevel: event.riskLevel,
@@ -46,6 +49,7 @@ export function createToolDomainEventPublisher(
           await eventBus.emit('tool.permission.decided', {
             conversationId: event.conversationId,
             sessionId: event.sessionId,
+            requestId: event.requestId,
             toolName: event.toolName,
             decision: event.decision,
             riskLevel: event.riskLevel,
@@ -55,6 +59,7 @@ export function createToolDomainEventPublisher(
         await eventBus.emit('tool.execution.finished', {
           conversationId: event.conversationId,
           sessionId: event.sessionId,
+          requestId: event.requestId,
           toolName: event.toolName,
           decision: event.decision,
           riskLevel: event.riskLevel,
@@ -68,6 +73,7 @@ export function createToolDomainEventPublisher(
           await eventBus.emit('tool.permission.decided', {
             conversationId: event.conversationId,
             sessionId: event.sessionId,
+            requestId: event.requestId,
             toolName: event.toolName,
             decision: event.decision,
             riskLevel: event.riskLevel,
@@ -77,6 +83,7 @@ export function createToolDomainEventPublisher(
         await eventBus.emit('tool.execution.failed', {
           conversationId: event.conversationId,
           sessionId: event.sessionId,
+          requestId: event.requestId,
           toolName: event.toolName,
           decision: event.decision,
           riskLevel: event.riskLevel,
@@ -92,6 +99,7 @@ export function createToolDomainEventPublisher(
         await eventBus.emit('tool.secret.detected', {
           conversationId: event.conversationId,
           sessionId: event.sessionId,
+          requestId: event.requestId,
           toolName: event.toolName,
           action: event.action,
           matches: event.matches,

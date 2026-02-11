@@ -51,10 +51,12 @@ export class AgentLoop {
     messages: Message[],
     onEvent: (event: AgentEvent) => void,
     signal?: AbortSignal,
+    requestId?: string,
   ): Promise<Message[]> {
     const history = [...messages];
     let toolUseTurns = 0;
     const debug = isDebug();
+    const rlog = requestId ? log.child({ requestId }) : log;
 
     while (true) {
       if (signal?.aborted) break;
@@ -80,7 +82,7 @@ export class AgentLoop {
         }
 
         if (debug) {
-          log.debug({
+          rlog.debug({
             systemPrompt: truncateForLog(this.systemPrompt, 200),
             messageCount: history.length,
             lastMessage: history.length > 0
@@ -113,7 +115,7 @@ export class AgentLoop {
         const providerDurationMs = Date.now() - providerStart;
 
         if (debug) {
-          log.debug({
+          rlog.debug({
             providerDurationMs,
             model: response.model,
             stopReason: response.stopReason,
@@ -163,7 +165,7 @@ export class AgentLoop {
           });
 
           if (debug) {
-            log.debug({
+            rlog.debug({
               tool: toolUse.name,
               input: truncateForLog(JSON.stringify(toolUse.input), 300),
             }, 'Executing tool');
@@ -182,7 +184,7 @@ export class AgentLoop {
             const toolDurationMs = Date.now() - toolStart;
 
             if (debug) {
-              log.debug({
+              rlog.debug({
                 tool: toolUse.name,
                 toolDurationMs,
                 isError: result.isError,
@@ -231,7 +233,7 @@ export class AgentLoop {
 
         if (debug) {
           const turnDurationMs = Date.now() - turnStart;
-          log.debug({
+          rlog.debug({
             turnDurationMs,
             providerDurationMs,
             toolCount: toolUseBlocks.length,
@@ -242,7 +244,7 @@ export class AgentLoop {
         // Abort errors are expected when user cancels — don't emit as errors
         if (signal?.aborted) break;
         const err = error instanceof Error ? error : new Error(String(error));
-        log.error({ err }, 'Agent loop error');
+        rlog.error({ err }, 'Agent loop error');
         onEvent({ type: 'error', error: err });
         break;
       }

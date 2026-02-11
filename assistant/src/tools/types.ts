@@ -7,6 +7,7 @@ interface ToolLifecycleEventBase {
   workingDir: string;
   sessionId: string;
   conversationId: string;
+  requestId?: string;
 }
 
 export interface ToolExecutionStartEvent extends ToolLifecycleEventBase {
@@ -77,6 +78,8 @@ export interface ToolContext {
   workingDir: string;
   sessionId: string;
   conversationId: string;
+  /** Per-message request ID for log correlation across session/connection boundaries. */
+  requestId?: string;
   /** Optional callback for streaming incremental output to the client. */
   onOutput?: (chunk: string) => void;
   /** Per-session sandbox override. When set, takes precedence over the global config. */

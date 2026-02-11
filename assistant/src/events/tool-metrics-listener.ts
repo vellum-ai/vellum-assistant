@@ -36,6 +36,7 @@ export function registerToolMetricsLoggingListener(
             input: formatInputForLog(event.payload.input, truncate),
             sessionId: event.payload.sessionId,
             conversationId: event.payload.conversationId,
+            requestId: event.payload.requestId,
           },
           'Tool execute start',
         );
@@ -47,6 +48,7 @@ export function registerToolMetricsLoggingListener(
             riskLevel: event.payload.riskLevel,
             sessionId: event.payload.sessionId,
             conversationId: event.payload.conversationId,
+            requestId: event.payload.requestId,
           },
           'Tool permission requested',
         );
@@ -58,6 +60,7 @@ export function registerToolMetricsLoggingListener(
           riskLevel: event.payload.riskLevel,
           sessionId: event.payload.sessionId,
           conversationId: event.payload.conversationId,
+          requestId: event.payload.requestId,
         };
 
         if (event.payload.decision === 'deny' || event.payload.decision === 'always_deny') {
@@ -79,6 +82,7 @@ export function registerToolMetricsLoggingListener(
             action: event.payload.action,
             sessionId: event.payload.sessionId,
             conversationId: event.payload.conversationId,
+            requestId: event.payload.requestId,
           },
           'Secrets detected in tool output',
         );
@@ -95,6 +99,7 @@ export function registerToolMetricsLoggingListener(
             isError: event.payload.isError,
             sessionId: event.payload.sessionId,
             conversationId: event.payload.conversationId,
+            requestId: event.payload.requestId,
           },
           'Tool execute result',
         );
@@ -113,6 +118,7 @@ export function registerToolMetricsLoggingListener(
               isExpected: event.payload.isExpected,
               sessionId: event.payload.sessionId,
               conversationId: event.payload.conversationId,
+              requestId: event.payload.requestId,
             },
             'Tool execution failed (expected)',
           );
@@ -130,6 +136,7 @@ export function registerToolMetricsLoggingListener(
             isExpected: event.payload.isExpected,
             sessionId: event.payload.sessionId,
             conversationId: event.payload.conversationId,
+            requestId: event.payload.requestId,
           },
           'Tool execution error',
         );

@@ -39,6 +39,7 @@ export class ToolExecutor {
       workingDir: context.workingDir,
       sessionId: context.sessionId,
       conversationId: context.conversationId,
+      requestId: context.requestId,
       startedAtMs: startTime,
     });
 

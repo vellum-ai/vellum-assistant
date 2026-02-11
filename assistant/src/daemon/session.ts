@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
 import type { ServerMessage, UsageStats, UserMessageAttachment } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
@@ -49,6 +50,7 @@ export class Session {
   private usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
   private contextWindowManager: ContextWindowManager;
   private contextCompactedMessageCount = 0;
+  private currentRequestId?: string;
 
   constructor(
     conversationId: string,
@@ -78,6 +80,7 @@ export class Session {
         workingDir: this.workingDir,
         sessionId: this.conversationId,
         conversationId: this.conversationId,
+        requestId: this.currentRequestId,
         onOutput,
         sandboxOverride: this.sandboxOverride,
         onToolLifecycleEvent: handleToolLifecycleEvent,
@@ -187,12 +190,16 @@ export class Session {
     content: string,
     attachments: UserMessageAttachment[],
     onEvent: (msg: ServerMessage) => void,
+    requestId?: string,
   ): Promise<void> {
     if (this.processing) {
       onEvent({ type: 'error', message: 'Already processing a message' });
       return;
     }
 
+    const reqId = requestId ?? uuid();
+    this.currentRequestId = reqId;
+    const rlog = log.child({ conversationId: this.conversationId, requestId: reqId });
     this.processing = true;
     this.abortController = new AbortController();
 
@@ -303,7 +310,7 @@ export class Session {
       let preRepairMessages = runMessages;
       const preRunRepair = repairHistory(runMessages);
       if (preRunRepair.stats.assistantToolResultsMigrated > 0 || preRunRepair.stats.missingToolResultsInserted > 0 || preRunRepair.stats.orphanToolResultsDowngraded > 0) {
-        log.warn({ conversationId: this.conversationId, phase: 'pre_run', ...preRunRepair.stats }, 'Repaired runtime history before provider call');
+        rlog.warn({ phase: 'pre_run', ...preRunRepair.stats }, 'Repaired runtime history before provider call');
         runMessages = preRunRepair.messages;
       }
 
@@ -381,6 +388,7 @@ export class Session {
         runMessages,
         buildEventHandler(),
         this.abortController.signal,
+        reqId,
       );
 
       // One-shot self-heal retry: if the provider returned a strict ordering
@@ -388,7 +396,7 @@ export class Session {
       // deep repair (handles additional edge cases like consecutive same-role
       // messages) and retry exactly once.
       if (orderingErrorDetected && updatedHistory.length === preRunHistoryLength) {
-        log.warn({ conversationId: this.conversationId, phase: 'retry' }, 'Provider ordering error detected, attempting one-shot deep-repair retry');
+        rlog.warn({ phase: 'retry' }, 'Provider ordering error detected, attempting one-shot deep-repair retry');
         const retryRepair = deepRepairHistory(runMessages);
         runMessages = retryRepair.messages;
         preRunHistoryLength = runMessages.length;
@@ -400,10 +408,11 @@ export class Session {
           runMessages,
           buildEventHandler(),
           this.abortController.signal,
+          reqId,
         );
 
         if (orderingErrorDetected) {
-          log.error({ conversationId: this.conversationId, phase: 'retry' }, 'Deep-repair retry also failed with ordering error');
+          rlog.error({ phase: 'retry' }, 'Deep-repair retry also failed with ordering error');
         }
       }
 
@@ -473,16 +482,17 @@ export class Session {
     } catch (err) {
       // AbortError is expected when user cancels — don't treat as an error
       if (this.abortController?.signal.aborted) {
-        log.info({ conversationId: this.conversationId }, 'Generation cancelled by user');
+        rlog.info('Generation cancelled by user');
         onEvent({ type: 'generation_cancelled' });
       } else {
         const message = err instanceof Error ? err.message : String(err);
-        log.error({ err }, 'Session processing error');
+        rlog.error({ err }, 'Session processing error');
         onEvent({ type: 'error', message });
       }
     } finally {
       this.abortController = null;
       this.processing = false;
+      this.currentRequestId = undefined;
     }
   }
 
