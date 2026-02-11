@@ -28,7 +28,7 @@ struct AliveStepView: View {
     }
 
     var body: some View {
-        VStack(spacing: 28) {
+        VStack(spacing: 20) {
             ZStack {
                 // Sparkle particles
                 ForEach(particles) { particle in
@@ -40,7 +40,7 @@ struct AliveStepView: View {
                         .offset(x: particle.x, y: particle.y)
                 }
             }
-            .frame(width: 140, height: 140)
+            .frame(width: 100, height: 80)
 
             VStack(spacing: 8) {
                 Text("\(state.assistantName.isEmpty ? "It" : state.assistantName) has hatched.")
@@ -102,7 +102,7 @@ struct AliveStepView: View {
             }
 
             Spacer()
-                .frame(height: 24)
+                .frame(height: 8)
         }
         .onAppear {
             state.orbMood = .celebrating

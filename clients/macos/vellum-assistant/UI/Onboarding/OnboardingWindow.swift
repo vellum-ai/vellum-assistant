@@ -33,7 +33,7 @@ final class OnboardingWindow {
         let hostingController = NSHostingController(rootView: flowView)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 580),
             styleMask: [.titled, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -47,7 +47,7 @@ final class OnboardingWindow {
         window.isReleasedWhenClosed = false
 
         // Fix the content size so the hosting controller doesn't resize the window after centering
-        let contentSize = NSSize(width: 600, height: 500)
+        let contentSize = NSSize(width: 600, height: 580)
         window.contentMinSize = contentSize
         window.contentMaxSize = contentSize
         window.setContentSize(contentSize)

@@ -6,6 +6,7 @@ struct AccessibilityPermissionStepView: View {
     @State private var showContent = false
     @State private var permissionGranted = false
     @State private var pollTimer: Timer?
+    @State private var showSkip = false
 
     private static let reactions = [
         "Sound! I can hear everything \u{2014} this is wild.",
@@ -14,7 +15,7 @@ struct AccessibilityPermissionStepView: View {
     ]
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 16) {
             if permissionGranted {
                 ReactionBubble(text: "I can take action now.", delay: 0)
             } else {
@@ -36,9 +37,9 @@ struct AccessibilityPermissionStepView: View {
             .offset(y: showContent ? 0 : 8)
 
             // Permission card
-            VStack(spacing: 16) {
+            VStack(spacing: 12) {
                 Text("\u{1F932}")
-                    .font(.system(size: 32))
+                    .font(.system(size: 28))
 
                 Text("Give me hands")
                     .font(.system(size: 17, weight: .semibold))
@@ -71,7 +72,7 @@ struct AccessibilityPermissionStepView: View {
                     }
                 }
             }
-            .padding(24)
+            .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color.white.opacity(0.05))
@@ -82,8 +83,16 @@ struct AccessibilityPermissionStepView: View {
             )
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 12)
+
+            if showSkip && !permissionGranted {
+                OnboardingButton(title: "Continue anyway", style: .ghost) {
+                    grantPermission()
+                }
+                .transition(.opacity)
+            }
         }
         .animation(.easeOut(duration: 0.5), value: permissionGranted)
+        .animation(.easeOut(duration: 0.3), value: showSkip)
         .onAppear {
             state.orbMood = .listening
             if state.skipPermissionChecks {
@@ -103,6 +112,9 @@ struct AccessibilityPermissionStepView: View {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showContent = true
                 }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
+                withAnimation { showSkip = true }
             }
             startPolling()
         }

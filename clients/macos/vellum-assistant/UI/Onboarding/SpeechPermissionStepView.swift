@@ -10,7 +10,7 @@ struct SpeechPermissionStepView: View {
     @State private var pollTimer: Timer?
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 16) {
             if permissionGranted {
                 ReactionBubble(text: "I can understand you now.", delay: 0)
             } else if permissionDenied {
@@ -25,9 +25,9 @@ struct SpeechPermissionStepView: View {
             }
 
             // Permission card
-            VStack(spacing: 16) {
+            VStack(spacing: 12) {
                 Text("\u{1F399}")
-                    .font(.system(size: 32))
+                    .font(.system(size: 28))
 
                 Text("Help me hear")
                     .font(.system(size: 17, weight: .semibold))
@@ -54,7 +54,7 @@ struct SpeechPermissionStepView: View {
                     }
                 }
             }
-            .padding(24)
+            .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color.white.opacity(0.05))

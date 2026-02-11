@@ -7,9 +7,10 @@ struct ScreenPermissionStepView: View {
     @State private var showContent = false
     @State private var permissionGranted = false
     @State private var pollTimer: Timer?
+    @State private var showSkip = false
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 16) {
             VStack(spacing: 8) {
                 Text("One more thing \u{2014} let me see.")
                     .font(.system(.title2, design: .serif))
@@ -25,9 +26,9 @@ struct ScreenPermissionStepView: View {
             .offset(y: showContent ? 0 : 8)
 
             // Permission card
-            VStack(spacing: 16) {
+            VStack(spacing: 12) {
                 Text("\u{1F441}")
-                    .font(.system(size: 32))
+                    .font(.system(size: 28))
 
                 Text("Help me see")
                     .font(.system(size: 17, weight: .semibold))
@@ -54,7 +55,7 @@ struct ScreenPermissionStepView: View {
                     }
                 }
             }
-            .padding(24)
+            .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color.white.opacity(0.05))
@@ -65,8 +66,16 @@ struct ScreenPermissionStepView: View {
             )
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 12)
+
+            if showSkip && !permissionGranted {
+                OnboardingButton(title: "Continue anyway", style: .ghost) {
+                    grantPermission()
+                }
+                .transition(.opacity)
+            }
         }
         .animation(.easeOut(duration: 0.5), value: permissionGranted)
+        .animation(.easeOut(duration: 0.3), value: showSkip)
         .onAppear {
             if state.skipPermissionChecks {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -86,6 +95,9 @@ struct ScreenPermissionStepView: View {
                         showContent = true
                     }
                 }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
+                withAnimation { showSkip = true }
             }
         }
         .onDisappear {
