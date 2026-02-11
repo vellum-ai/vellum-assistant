@@ -256,14 +256,49 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const lastMessage = messages[messages.length - 1];
   const isWaitingForResponse = lastMessage?.role === "user";
 
-  const suggestion = useMemo(() => {
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+  const suggestionMessageIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
     if (!shouldShowSuggestion({ input, lastRole: lastMessage?.role, isWaitingForResponse, isAlive })) {
-      return null;
+      setSuggestion(null);
+      return;
     }
+
     const text = extractSuggestibleAssistantText(lastMessage);
-    if (!text) return null;
-    return buildHeuristicSuggestion(text);
-  }, [input, lastMessage, isWaitingForResponse, isAlive]);
+    if (!text) {
+      setSuggestion(null);
+      return;
+    }
+
+    // Set heuristic immediately as fallback
+    const heuristic = buildHeuristicSuggestion(text);
+    setSuggestion(heuristic);
+    suggestionMessageIdRef.current = lastMessage?.id ?? null;
+
+    // Try backend endpoint for potentially better suggestion
+    const messageId = lastMessage?.id;
+    let cancelled = false;
+
+    fetch(`/api/assistants/${assistantId}/suggestion${messageId ? `?messageId=${messageId}` : ""}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json() as Promise<{ suggestion: string | null; messageId: string | null; stale?: boolean; source: string }>;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        // Ignore stale responses (latest message changed since request)
+        if (data.stale) return;
+        if (data.suggestion && data.messageId === messageId) {
+          setSuggestion(data.suggestion);
+        }
+      })
+      .catch(() => {
+        // Silently fall back to heuristic (already set above)
+      });
+
+    return () => { cancelled = true; };
+  }, [assistantId, input, lastMessage, isWaitingForResponse, isAlive]);
 
   const uploadedAttachmentIds = useMemo(
     () => pendingAttachments
