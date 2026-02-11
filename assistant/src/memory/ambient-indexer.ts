@@ -8,6 +8,9 @@ import { getLogger } from '../util/logger.js';
 
 const log = getLogger('ambient-indexer');
 
+/** Deterministic well-known ID for the ambient conversation so we never
+ *  select the wrong conversation by mutable title. */
+const AMBIENT_CONVERSATION_ID = '00000000-0000-4000-a000-000000000001';
 const AMBIENT_CONVERSATION_TITLE = 'Ambient Observations';
 
 const ANALYSIS_PROMPT = `You are an ambient screen observer for a macOS assistant. You receive OCR text captured from the user's screen along with the app name and window title.
@@ -97,7 +100,7 @@ function getOrCreateAmbientConversation(): string {
   const existing = db
     .select({ id: conversations.id })
     .from(conversations)
-    .where(eq(conversations.title, AMBIENT_CONVERSATION_TITLE))
+    .where(eq(conversations.id, AMBIENT_CONVERSATION_ID))
     .limit(1)
     .get();
 
@@ -105,7 +108,20 @@ function getOrCreateAmbientConversation(): string {
     return existing.id;
   }
 
-  const conv = conversationStore.createConversation(AMBIENT_CONVERSATION_TITLE);
-  log.info({ conversationId: conv.id }, 'Created ambient observations conversation');
-  return conv.id;
+  const now = Date.now();
+  db.insert(conversations)
+    .values({
+      id: AMBIENT_CONVERSATION_ID,
+      title: AMBIENT_CONVERSATION_TITLE,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextCompactedMessageCount: 0,
+    })
+    .run();
+
+  log.info({ conversationId: AMBIENT_CONVERSATION_ID }, 'Created ambient observations conversation');
+  return AMBIENT_CONVERSATION_ID;
 }
