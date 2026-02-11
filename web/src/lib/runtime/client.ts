@@ -13,6 +13,8 @@ import type {
   ListMessagesResponse,
   SendMessageParams,
   SendMessageResponse,
+  GetSuggestionParams,
+  GetSuggestionResponse,
   UploadAttachmentParams,
   UploadAttachmentResponse,
   DeleteAttachmentParams,
@@ -81,6 +83,12 @@ export function createRuntimeClient(
         method: "POST",
         body: JSON.stringify(params),
       });
+    },
+
+    getSuggestion(params: GetSuggestionParams) {
+      const qs = new URLSearchParams({ conversationKey: params.conversationKey });
+      if (params.messageId) qs.set("messageId", params.messageId);
+      return request<GetSuggestionResponse>(`/suggestion?${qs.toString()}`);
     },
 
     uploadAttachment(params: UploadAttachmentParams) {

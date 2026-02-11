@@ -101,6 +101,10 @@ export class RuntimeHttpServer {
         return await this.handleDeleteAttachment(assistantId, req);
       }
 
+      if (endpoint === 'suggestion' && req.method === 'GET') {
+        return this.handleGetSuggestion(assistantId, url);
+      }
+
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
         return await this.handleChannelInbound(assistantId, req);
       }
@@ -167,6 +171,56 @@ export class RuntimeHttpServer {
     }));
 
     return Response.json({ messages });
+  }
+
+  private handleGetSuggestion(assistantId: string, url: URL): Response {
+    const conversationKey = url.searchParams.get('conversationKey');
+    if (!conversationKey) {
+      return Response.json(
+        { error: 'conversationKey query parameter is required' },
+        { status: 400 },
+      );
+    }
+
+    const mapping = getConversationByKey(assistantId, conversationKey);
+    if (!mapping) {
+      return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
+    }
+
+    const rawMessages = conversationStore.getMessages(mapping.conversationId);
+    if (rawMessages.length === 0) {
+      return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
+    }
+
+    // Walk backwards to find the last assistant message with text content
+    for (let i = rawMessages.length - 1; i >= 0; i--) {
+      const msg = rawMessages[i];
+      if (msg.role !== 'assistant') continue;
+
+      let content: unknown;
+      try { content = JSON.parse(msg.content); } catch { content = msg.content; }
+      const rendered = renderHistoryContent(content);
+      const text = rendered.text.trim();
+      if (!text) continue;
+
+      // Optional: skip if a specific messageId was requested and doesn't match
+      const requestedMessageId = url.searchParams.get('messageId');
+      if (requestedMessageId && msg.id !== requestedMessageId) {
+        return Response.json({ suggestion: null, messageId: null, source: 'none' as const, stale: true });
+      }
+
+      // Heuristic: if last text ends with a question, suggest "Yes", else "Tell me more"
+      const questionRe = /\?[\s"'`)*\]]*$/;
+      const suggestion = questionRe.test(text) ? 'Yes' : 'Tell me more';
+
+      return Response.json({
+        suggestion,
+        messageId: msg.id,
+        source: 'heuristic' as const,
+      });
+    }
+
+    return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
   }
 
   private async handleSendMessage(assistantId: string, req: Request): Promise<Response> {

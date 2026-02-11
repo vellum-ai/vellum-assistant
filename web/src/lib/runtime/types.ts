@@ -81,6 +81,22 @@ export interface DeleteAttachmentParams {
 }
 
 // ---------------------------------------------------------------------------
+// Suggestion
+// ---------------------------------------------------------------------------
+
+export interface GetSuggestionParams {
+  conversationKey: string;
+  messageId?: string;
+}
+
+export interface GetSuggestionResponse {
+  suggestion: string | null;
+  messageId: string | null;
+  source: "heuristic" | "llm" | "none";
+  stale?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Channels
 // ---------------------------------------------------------------------------
 
@@ -112,6 +128,8 @@ export interface RuntimeClient {
 
   listMessages(params: ListMessagesParams): Promise<ListMessagesResponse>;
   sendMessage(params: SendMessageParams): Promise<SendMessageResponse>;
+
+  getSuggestion(params: GetSuggestionParams): Promise<GetSuggestionResponse>;
 
   uploadAttachment(params: UploadAttachmentParams): Promise<UploadAttachmentResponse>;
   deleteAttachment(params: DeleteAttachmentParams): Promise<void>;
