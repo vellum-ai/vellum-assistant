@@ -469,6 +469,7 @@ export class DaemonServer {
    */
   async processMessage(assistantId: string, conversationId: string, content: string, attachmentIds?: string[]): Promise<void> {
     const session = await this.getOrCreateSession(conversationId);
+    session.setAutoApprove(true);
 
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds

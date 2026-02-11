@@ -322,7 +322,7 @@ export class RuntimeHttpServer {
     // For new (non-duplicate) messages, run the agent loop to generate a reply.
     if (!result.duplicate && this.processMessage) {
       try {
-        await this.processMessage(result.conversationId, content);
+        await this.processMessage(assistantId, result.conversationId, content);
       } catch (err) {
         log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
       }
