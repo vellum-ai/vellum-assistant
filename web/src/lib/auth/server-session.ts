@@ -18,39 +18,6 @@ function normalizeEmail(email: string | null): string | null {
   return email.trim().toLowerCase();
 }
 
-type UserIdLookupRow = {
-  id: string;
-};
-
-async function resolveOwnerUserId(
-  sql: ReturnType<typeof getDb>,
-  createdBy: string
-): Promise<string | null> {
-  // Canonical namespace: treat created_by as user.id when possible.
-  const byId = await sql<UserIdLookupRow[]>`
-    SELECT id
-    FROM "user"
-    WHERE id = ${createdBy}
-    LIMIT 1
-  `;
-  if (byId.length > 0 && typeof byId[0]?.id === "string") {
-    return byId[0].id;
-  }
-
-  // Backward compatibility for assistants that still store username values.
-  const byUsername = await sql<UserIdLookupRow[]>`
-    SELECT id
-    FROM "user"
-    WHERE username = ${createdBy}
-    LIMIT 1
-  `;
-  if (byUsername.length > 0 && typeof byUsername[0]?.id === "string") {
-    return byUsername[0].id;
-  }
-
-  return null;
-}
-
 export async function getRequestUser(request: Request): Promise<RequestUser> {
   let id: string | null = null;
   let username: string | null = null;
@@ -102,51 +69,15 @@ export async function requireAssistantOwner(
 
   const assistant = result[0] as Assistant & { created_by?: string | null };
   const user = await getRequestUser(request);
-  if (!user.id && !user.isAdmin) {
+  if (!user.id) {
     throw new Error("UNAUTHORIZED");
   }
 
   const createdBy =
     assistant.created_by?.trim() || assistant.createdBy?.trim() || null;
-  if (user.isAdmin) {
+
+  if (createdBy === user.id) {
     return { assistant, user };
-  }
-
-  if (createdBy && user.id) {
-    const ownerUserId = await resolveOwnerUserId(sql, createdBy);
-    if (ownerUserId === user.id) {
-      if (createdBy !== user.id) {
-        await sql`
-          UPDATE assistants
-          SET created_by = ${user.id}
-          WHERE id = ${assistantId}
-            AND created_by = ${createdBy}
-        `;
-      }
-      return { assistant, user };
-    }
-  }
-
-  // Backward compatibility: legacy assistants may store display name in created_by.
-  // Only allow this path when the display name uniquely maps to the current user id.
-  if (createdBy && user.name && user.id && createdBy === user.name) {
-    const nameMatches = await sql`
-      SELECT id
-      FROM "user"
-      WHERE name = ${createdBy}
-      LIMIT 2
-    `;
-    if (nameMatches.length === 1 && nameMatches[0]?.id === user.id) {
-      if (createdBy !== user.id) {
-        await sql`
-          UPDATE assistants
-          SET created_by = ${user.id}
-          WHERE id = ${assistantId}
-            AND created_by = ${createdBy}
-        `;
-      }
-      return { assistant, user };
-    }
   }
 
   throw new Error("FORBIDDEN");
@@ -155,13 +86,13 @@ export async function requireAssistantOwner(
 export function toAuthErrorResponse(error: unknown): NextResponse {
   const message = error instanceof Error ? error.message : "Unknown error";
   if (message === "NOT_FOUND") {
-    return NextResponse.json({ error: "Assistant not found" }, { status: 404 });
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   if (message === "UNAUTHORIZED") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (message === "FORBIDDEN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   return NextResponse.json({ error: message }, { status: 500 });
 }
