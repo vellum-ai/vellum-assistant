@@ -26,7 +26,6 @@ export type MessageProcessor = (
   conversationId: string,
   content: string,
   attachmentIds?: string[],
-  options?: { userMessageAlreadyPersisted?: boolean },
 ) => Promise<{ messageId: string }>;
 
 export interface RuntimeHttpServerOptions {
@@ -485,18 +484,13 @@ export class RuntimeHttpServer {
       sourceChannel,
       externalChatId,
       externalMessageId,
-      content,
     );
 
     // For new (non-duplicate) messages, run the agent loop to generate a reply.
-    // Pass userMessageAlreadyPersisted so the session skips inserting a second
-    // user message (recordInbound already persisted it within its transaction).
     let processingSucceeded = false;
     if (!result.duplicate && this.processMessage) {
       try {
-        await this.processMessage(assistantId, result.conversationId, content, undefined, {
-          userMessageAlreadyPersisted: true,
-        });
+        await this.processMessage(assistantId, result.conversationId, content);
         processingSucceeded = true;
       } catch (err) {
         log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
