@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var voiceInput: VoiceInputManager?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     let ambientAgent = AmbientAgent()
+    let daemonClient = DaemonClient()
 
     private var onboardingWindow: OnboardingWindow?
     private var windowObserver: Any?
@@ -243,23 +244,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard currentSession == nil else { return }
         popover.performClose(nil)
 
-        guard let apiKey = APIKeyManager.getKey() else {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            return
-        }
-
         guard ActionExecutor.checkAccessibilityPermission(prompt: true) else {
             return
         }
 
-        let provider = AnthropicProvider(apiKey: apiKey)
         let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
         let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
         let sessionTask = submission.task.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveTask = !sessionTask.isEmpty ? sessionTask : "Use the attached files as context."
         let session = ComputerUseSession(
             task: effectiveTask,
-            provider: provider,
+            daemonClient: daemonClient,
             maxSteps: maxSteps,
             attachments: submission.attachments
         )

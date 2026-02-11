@@ -4,6 +4,13 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DaemonClient")
 
+/// Protocol for daemon client communication, enabling dependency injection and testing.
+@MainActor
+protocol DaemonClientProtocol {
+    var messages: AsyncStream<ServerMessage> { get }
+    func send<T: Encodable>(_ message: T) throws
+}
+
 /// Unix domain socket client for communicating with the Vellum daemon.
 ///
 /// Connects to the daemon's socket at `~/.vellum/vellum.sock` (or `VELLUM_DAEMON_SOCKET` env override),
@@ -12,7 +19,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// This is a long-lived singleton. The `messages` stream stays open for the app's lifetime.
 /// Consumers (ComputerUseSession, AmbientAgent) filter for messages relevant to them.
 @MainActor
-final class DaemonClient: ObservableObject {
+final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Published State
 

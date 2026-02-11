@@ -22,12 +22,12 @@ final class ComputerUseSession: ObservableObject {
     @Published var undoCount = 0
 
     let task: String
-    private let attachments: [TaskAttachment]
-    private let provider: ActionInferenceProvider
-    private let maxSteps: Int
-    private let stepDelayMs: UInt64
+    let id: String
 
-    private var actionHistory: [ActionRecord] = []
+    private let attachments: [TaskAttachment]
+    private let daemonClient: DaemonClientProtocol
+    private let maxSteps: Int
+
     private var isCancelled = false
     private var isPaused = false
     private var confirmationContinuation: CheckedContinuation<Bool, Never>?
@@ -43,6 +43,7 @@ final class ComputerUseSession: ObservableObject {
     private var previousElements: [AXElement]?
     private var previousFlatElements: [AXElement]?
     private var consecutiveUnchangedSteps = 0
+    private var currentStepNumber = 0
 
     /// Adaptive delay configuration
     private let adaptiveDelayEnabled: Bool
@@ -52,24 +53,23 @@ final class ComputerUseSession: ObservableObject {
 
     init(
         task: String,
-        provider: ActionInferenceProvider,
+        daemonClient: DaemonClientProtocol,
         enumerator: AccessibilityTreeProviding = AccessibilityTreeEnumerator(),
         screenCapture: ScreenCaptureProviding = ScreenCapture(),
         executor: ActionExecuting = ActionExecutor(),
         maxSteps: Int = 50,
         attachments: [TaskAttachment] = [],
-        stepDelayMs: UInt64 = 500,
         initialDelayMs: UInt64 = 300,
         adaptiveDelay: Bool = true
     ) {
+        self.id = UUID().uuidString
         self.task = task
         self.attachments = attachments
-        self.provider = provider
+        self.daemonClient = daemonClient
         self.enumerator = enumerator
         self.screenCapture = screenCapture
         self.executor = executor
         self.maxSteps = maxSteps
-        self.stepDelayMs = stepDelayMs
         self.initialDelayMs = initialDelayMs
         self.adaptiveDelayEnabled = adaptiveDelay
         self.verifier = ActionVerifier(maxSteps: maxSteps)
@@ -77,7 +77,6 @@ final class ComputerUseSession: ObservableObject {
     }
 
     func run() async {
-        actionHistory.removeAll()
         verifier.reset()
         isCancelled = false
         isPaused = false
@@ -85,288 +84,407 @@ final class ComputerUseSession: ObservableObject {
         previousElements = nil
         previousFlatElements = nil
         consecutiveUnchangedSteps = 0
+        currentStepNumber = 0
         state = .running(step: 0, maxSteps: maxSteps, lastAction: "Starting...", reasoning: "")
 
         log.info("Session starting — task: \(self.task, privacy: .public)")
-        log.info("Screen size: \(Int(self.screenCapture.screenSize().width))×\(Int(self.screenCapture.screenSize().height))")
+
+        let screenSize = screenCapture.screenSize()
+        log.info("Screen size: \(Int(screenSize.width))x\(Int(screenSize.height))")
 
         // Brief delay to let the popover close and the target app regain focus
         if initialDelayMs > 0 {
             try? await Task.sleep(nanoseconds: initialDelayMs * 1_000_000)
         }
 
-        while !isCancelled {
+        // 1. Send session create message
+        let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
+            IPCAttachment(
+                filename: $0.fileName,
+                mimeType: $0.mimeType,
+                data: $0.data.base64EncodedString(),
+                extractedText: $0.extractedText
+            )
+        }
+        try? daemonClient.send(CuSessionCreateMessage(
+            sessionId: id,
+            task: task,
+            screenWidth: Int(screenSize.width),
+            screenHeight: Int(screenSize.height),
+            attachments: ipcAttachments
+        ))
+
+        // 2. Initial perceive + send first observation
+        let obs = await buildObservation(executionResult: nil, executionError: nil)
+        if let obs {
+            try? daemonClient.send(obs)
+        } else {
+            state = .failed(reason: "No focused window and screen capture failed")
+            logger.finishSession(result: "failed: no window")
+            return
+        }
+
+        state = .thinking(step: 1, maxSteps: maxSteps)
+
+        // 3. Listen for daemon messages (filter by sessionId)
+        for await message in daemonClient.messages {
+            guard !isCancelled else { break }
+
             // Wait while paused
             while isPaused && !isCancelled {
                 try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
             }
             if isCancelled { break }
 
-            let stepNumber = actionHistory.count + 1
+            switch message {
+            case .cuAction(let action) where action.sessionId == id:
+                await handleAction(action)
 
-            // 1. PERCEIVE — always prefer accessibility tree
-            var axTreeText: String?
-            var elements: [AXElement]?
-            var flatElements: [AXElement]?
-            var screenshot: Data?
-            var usedVision = false
-            var axDiffText: String?
-            var secondaryWindowsText: String?
-            var primaryPID: pid_t?
-            var currentAppName: String?
-
-            if let result = enumerator.enumerateCurrentWindow() {
-                // On first step with Chrome: check if web content is visible.
-                // If not, restart Chrome with --force-renderer-accessibility and re-enumerate.
-                if !didChromeAccessibilityCheck,
-                   let frontApp = NSWorkspace.shared.frontmostApplication,
-                   ChromeAccessibilityHelper.isChromium(frontApp),
-                   !ChromeAccessibilityHelper.hasWebContent(elements: result.elements) {
-                    didChromeAccessibilityCheck = true
-                    log.warning("Chrome detected but AX tree has no web content — restarting with accessibility")
-                    state = .running(step: 0, maxSteps: maxSteps, lastAction: "Enabling Chrome accessibility...", reasoning: "")
-                    let restarted = await ChromeAccessibilityHelper.restartChromeWithAccessibility(app: frontApp)
-                    if restarted {
-                        // Clear the enhanced-AX cache so we re-set it on the new process
-                        AccessibilityTreeEnumerator.clearEnhancedAXCache()
-                        log.info("Chrome restarted — re-enumerating")
-                        continue // re-run the PERCEIVE step
-                    } else {
-                        log.error("Chrome restart failed — continuing with limited AX tree")
-                    }
-                }
-                didChromeAccessibilityCheck = true
-
-                // Always use the AX tree when we have a focused window
-                axTreeText = AccessibilityTreeEnumerator.formatAXTree(
-                    elements: result.elements,
-                    windowTitle: result.windowTitle,
-                    appName: result.appName
-                )
-                elements = result.elements
-                currentAppName = result.appName
-                let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
-                flatElements = flat
-                let interactiveCount = flat.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
-                log.info("[\(stepNumber)] AX tree: \(result.appName) — \"\(result.windowTitle)\" — \(flat.count) elements (\(interactiveCount) interactive)")
-                log.debug("[\(stepNumber)] AX tree text:\n\(axTreeText ?? "(empty)")")
-
-                // Compute AX tree diff if we have a previous snapshot (using pre-flattened arrays)
-                if let prevFlat = previousFlatElements {
-                    axDiffText = AXTreeDiff.diff(previousFlat: prevFlat, currentFlat: flat)
-                    if let diff = axDiffText {
-                        log.info("[\(stepNumber)] AX diff:\n\(diff)")
-                        consecutiveUnchangedSteps = 0
-                    } else {
-                        consecutiveUnchangedSteps += 1
-                        log.info("[\(stepNumber)] AX tree unchanged from previous step (consecutive: \(self.consecutiveUnchangedSteps))")
-                    }
-                }
-
-                // Use the actual enumerated app's PID (not frontmostApplication,
-                // which may be our own app when we fell back to enumeratePreviousApp)
-                primaryPID = result.pid
-
-                // Enumerate secondary windows for cross-app awareness (skip for single-app tasks)
-                let lastAction = actionHistory.last?.action
-                if shouldEnumerateSecondaryWindows(stepNumber: stepNumber, lastAction: lastAction) {
-                    let secondaryWindows = enumerator.enumerateSecondaryWindows(
-                        excludingPID: primaryPID,
-                        maxWindows: 2
-                    )
-                    secondaryWindowsText = AccessibilityTreeEnumerator.formatSecondaryWindows(secondaryWindows)
-                    if let secText = secondaryWindowsText {
-                        log.info("[\(stepNumber)] Secondary windows: \(secondaryWindows.count)")
-                        log.debug("[\(stepNumber)] Secondary windows text:\n\(secText)")
-                    }
-                }
-                if shouldCaptureScreenshot(stepNumber: stepNumber, flatElements: flat, lastAction: lastAction) {
-                    do {
-                        screenshot = try await screenCapture.captureScreen()
-                        log.info("[\(stepNumber)] Screenshot captured alongside AX tree (\(screenshot?.count ?? 0) bytes)")
-                    } catch {
-                        log.warning("[\(stepNumber)] Screenshot capture failed alongside AX tree: \(error.localizedDescription)")
-                        // Non-fatal — we still have the AX tree
-                    }
-                } else {
-                    log.debug("[\(stepNumber)] Screenshot skipped — AX tree is sufficient")
-                }
-            } else {
-                // No focused window — try screenshot as last resort
-                log.warning("[\(stepNumber)] No AX tree available — falling back to screenshot")
-                do {
-                    screenshot = try await screenCapture.captureScreen()
-                    usedVision = true
-                    log.info("[\(stepNumber)] Screenshot captured (\(screenshot?.count ?? 0) bytes)")
-                } catch {
-                    log.error("[\(stepNumber)] Screen capture failed: \(error.localizedDescription)")
-                    state = .failed(reason: "No focused window and screen capture failed")
-                    logger.finishSession(result: "failed: no window")
-                    return
-                }
-            }
-
-            // 2. INFER
-            state = .thinking(step: stepNumber, maxSteps: maxSteps)
-            let action: AgentAction
-            let tokenUsage: TokenUsage?
-            do {
-                let result = try await provider.infer(
-                    axTree: axTreeText,
-                    previousAXTree: previousAXTreeText,
-                    axDiff: axDiffText,
-                    secondaryWindows: secondaryWindowsText,
-                    screenshot: screenshot,
-                    screenSize: screenCapture.screenSize(),
-                    task: task,
-                    attachments: attachments,
-                    history: actionHistory,
-                    elements: flatElements,
-                    consecutiveUnchangedSteps: consecutiveUnchangedSteps
-                )
-                action = result.action
-                tokenUsage = result.usage
-            } catch {
-                log.error("[\(stepNumber)] Inference error: \(error.localizedDescription)")
-                state = .failed(reason: "Inference failed: \(error.localizedDescription)")
-                logger.finishSession(result: "failed: inference error")
+            case .cuComplete(let complete) where complete.sessionId == id:
+                state = .completed(summary: complete.summary, steps: complete.stepCount)
+                logger.finishSession(result: "completed: \(complete.summary)")
                 return
-            }
 
-            log.info("[\(stepNumber)] Model action: \(action.displayDescription) — reasoning: \(action.reasoning)")
-            if let usage = tokenUsage {
-                log.info("[\(stepNumber)] Tokens — input: \(usage.inputTokens), output: \(usage.outputTokens)")
-            }
-            logger.logTurn(step: stepNumber, axTree: axTreeText, screenshot: screenshot, action: action, usedVision: usedVision, usage: tokenUsage)
-
-            // 3. CHECK COMPLETION
-            if action.type == .done || action.type == .respond {
-                let summary = action.summary ?? "Task completed"
-                let record = ActionRecord(step: stepNumber, action: action, result: "executed", timestamp: Date())
-                actionHistory.append(record)
-                state = .completed(summary: summary, steps: stepNumber)
-                logger.finishSession(result: "completed: \(summary)")
+            case .cuError(let error) where error.sessionId == id:
+                state = .failed(reason: error.message)
+                logger.finishSession(result: "failed: \(error.message)")
                 return
-            }
 
-            // 4. VERIFY
-            let verifyResult = verifier.verify(action)
-            switch verifyResult {
-            case .allowed:
-                verifier.resetBlockCount()
-
-            case .needsConfirmation(let reason):
-                state = .awaitingConfirmation(reason: reason)
-                let approved = await withCheckedContinuation { continuation in
-                    confirmationContinuation = continuation
-                }
-                confirmationContinuation = nil
-
-                if !approved {
-                    state = .cancelled
-                    logger.finishSession(result: "cancelled: user rejected confirmation")
-                    return
-                }
-                verifier.recordConfirmedAction(action)
-                state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: action.displayDescription, reasoning: action.reasoning)
-
-                // Re-activate the target app after the confirmation panel interaction,
-                // which may have briefly taken key window focus. Without this, key events
-                // (like Enter to send a message) get delivered to the panel instead.
-                if let pid = primaryPID,
-                   let app = NSRunningApplication(processIdentifier: pid) {
-                    app.activate()
-                    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms for focus to settle
-                }
-
-            case .blocked(let reason):
-                log.warning("[\(stepNumber)] BLOCKED: \(reason)")
-                let record = ActionRecord(step: stepNumber, action: action, result: "BLOCKED: \(reason)", timestamp: Date())
-                actionHistory.append(record)
-                verifier.recordBlock()
-                if verifier.consecutiveBlockCount >= 3 {
-                    state = .failed(reason: "Session stopped: 3 consecutive actions blocked")
-                    logger.finishSession(result: "failed: too many blocks")
-                    return
-                }
-                continue
-            }
-
-            // 4.5. NO-OP DETECTION — skip execution for actions that would have no effect
-            if let noOpReason = detectNoOp(action, currentAppName: currentAppName) {
-                log.info("[\(stepNumber)] NO-OP: \(noOpReason)")
-                let record = ActionRecord(step: stepNumber, action: action, result: "NO-OP: \(noOpReason). What action would you like to take?", timestamp: Date())
-                actionHistory.append(record)
-                state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: "\(action.displayDescription) (skipped)", reasoning: action.reasoning)
-                previousAXTreeText = axTreeText
-                previousElements = elements
-                previousFlatElements = flatElements
-                continue
-            }
-
-            // 5. EXECUTE
-            let executionResult: String?
-            do {
-                executionResult = try await executor.execute(action)
-            } catch {
-                let errorMessage = error.localizedDescription
-                let record = ActionRecord(step: stepNumber, action: action, result: "ERROR: \(errorMessage)", timestamp: Date())
-                actionHistory.append(record)
-
-                // AppleScript errors are non-fatal — let the model adapt
-                if action.type == .runAppleScript {
-                    log.warning("[\(stepNumber)] AppleScript error (non-fatal): \(errorMessage)")
-                    state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: "\(action.displayDescription) (error)", reasoning: action.reasoning)
-                    previousAXTreeText = axTreeText
-                    previousElements = elements
-                    previousFlatElements = flatElements
-                    continue
-                }
-
-                state = .failed(reason: "Execution failed: \(errorMessage)")
-                logger.finishSession(result: "failed: execution error")
-                return
-            }
-
-            // Format result string, including AppleScript output when present
-            let resultString: String
-            if let output = executionResult {
-                let truncated = output.count > 500 ? String(output.prefix(500)) + "..." : output
-                resultString = "executed (result: \(truncated))"
-            } else {
-                resultString = "executed"
-            }
-
-            let record = ActionRecord(step: stepNumber, action: action, result: resultString, timestamp: Date())
-            actionHistory.append(record)
-
-            // 6. UPDATE UI
-            state = .running(step: stepNumber, maxSteps: maxSteps, lastAction: action.displayDescription, reasoning: action.reasoning)
-
-            // Save current AX tree for next step's context
-            previousAXTreeText = axTreeText
-            previousElements = elements
-            previousFlatElements = flatElements
-
-            // 7. WAIT — adaptive delay: poll for AX tree changes instead of fixed sleep
-            if adaptiveDelayEnabled && axTreeText != nil {
-                let prevHash = flatElements.map { Self.fastElementHash($0) } ?? 0
-                await waitForUISettle(previousTree: axTreeText, previousHash: prevHash)
-            } else {
-                try? await Task.sleep(nanoseconds: stepDelayMs * 1_000_000)
+            default:
+                break // ignore messages for other sessions
             }
         }
 
-        // Cancelled
-        state = .cancelled
-        logger.finishSession(result: "cancelled")
+        // Stream ended or cancelled
+        if isCancelled {
+            state = .cancelled
+            logger.finishSession(result: "cancelled")
+        }
+    }
+
+    // MARK: - Action Handler
+
+    private func handleAction(_ action: CuActionMessage) async {
+        let agentAction = mapToAgentAction(action)
+        currentStepNumber = action.stepNumber
+
+        // Update state for UI
+        state = .running(
+            step: action.stepNumber,
+            maxSteps: maxSteps,
+            lastAction: agentAction.displayDescription,
+            reasoning: action.reasoning ?? ""
+        )
+
+        // Log the step
+        logger.logTurn(
+            step: action.stepNumber,
+            axTree: previousAXTreeText,
+            screenshot: nil,
+            action: agentAction,
+            usedVision: false
+        )
+
+        log.info("[\(action.stepNumber)] Daemon action: \(agentAction.displayDescription) — reasoning: \(action.reasoning ?? "")")
+
+        // Handle done/respond completion actions — don't execute, wait for cu_complete
+        if agentAction.type == .done || agentAction.type == .respond {
+            return
+        }
+
+        // VERIFY (local safety check)
+        let verifyResult = verifier.verify(agentAction)
+        var primaryPID: pid_t?
+
+        switch verifyResult {
+        case .allowed:
+            verifier.resetBlockCount()
+
+        case .needsConfirmation(let reason):
+            // Capture the PID before showing confirmation UI
+            if let result = enumerator.enumerateCurrentWindow() {
+                primaryPID = result.pid
+            }
+
+            state = .awaitingConfirmation(reason: reason)
+            let approved = await withCheckedContinuation { continuation in
+                confirmationContinuation = continuation
+            }
+            confirmationContinuation = nil
+
+            if !approved {
+                state = .cancelled
+                logger.finishSession(result: "cancelled: user rejected confirmation")
+                return
+            }
+            verifier.recordConfirmedAction(agentAction)
+            state = .running(
+                step: action.stepNumber,
+                maxSteps: maxSteps,
+                lastAction: agentAction.displayDescription,
+                reasoning: action.reasoning ?? ""
+            )
+
+            // Re-activate the target app after the confirmation panel interaction
+            if let pid = primaryPID,
+               let app = NSRunningApplication(processIdentifier: pid) {
+                app.activate()
+                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms for focus to settle
+            }
+
+        case .blocked(let reason):
+            log.warning("[\(action.stepNumber)] BLOCKED: \(reason)")
+            verifier.recordBlock()
+            if verifier.consecutiveBlockCount >= 3 {
+                state = .failed(reason: "Session stopped: 3 consecutive actions blocked")
+                logger.finishSession(result: "failed: too many blocks")
+                return
+            }
+            // Send observation with block error so daemon can adapt
+            let obs = await buildObservation(executionResult: nil, executionError: "BLOCKED: \(reason)")
+            if let obs {
+                try? daemonClient.send(obs)
+            }
+            state = .thinking(step: action.stepNumber + 1, maxSteps: maxSteps)
+            return
+        }
+
+        // EXECUTE
+        var executionResult: String? = nil
+        var executionError: String? = nil
+        do {
+            executionResult = try await executor.execute(agentAction)
+        } catch {
+            let errorMessage = error.localizedDescription
+
+            // AppleScript errors are non-fatal — let the daemon adapt
+            if agentAction.type == .runAppleScript {
+                log.warning("[\(action.stepNumber)] AppleScript error (non-fatal): \(errorMessage)")
+                executionError = errorMessage
+            } else {
+                executionError = errorMessage
+            }
+        }
+
+        // Format result string for logging
+        if let output = executionResult {
+            let truncated = output.count > 500 ? String(output.prefix(500)) + "..." : output
+            log.info("[\(action.stepNumber)] Execution result: \(truncated)")
+        }
+
+        // WAIT — adaptive delay: poll for AX tree changes instead of fixed sleep
+        if adaptiveDelayEnabled && previousAXTreeText != nil {
+            let prevHash = previousFlatElements.map { Self.fastElementHash($0) } ?? 0
+            await waitForUISettle(previousTree: previousAXTreeText, previousHash: prevHash)
+        } else if adaptiveDelayEnabled {
+            // Small delay for first step or when no previous tree
+            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+        }
+
+        // PERCEIVE + send next observation
+        let obs = await buildObservation(executionResult: executionResult, executionError: executionError)
+        if let obs {
+            try? daemonClient.send(obs)
+        }
+
+        state = .thinking(step: action.stepNumber + 1, maxSteps: maxSteps)
+    }
+
+    // MARK: - Observation Builder
+
+    private func buildObservation(executionResult: String?, executionError: String?) async -> CuObservationMessage? {
+        var axTreeText: String?
+        var elements: [AXElement]?
+        var flatElements: [AXElement]?
+        var screenshot: Data?
+        var axDiffText: String?
+        var secondaryWindowsText: String?
+        var primaryPID: pid_t?
+
+        let stepNumber = currentStepNumber + 1
+
+        if let result = enumerator.enumerateCurrentWindow() {
+            // On first step with Chrome: check if web content is visible.
+            if !didChromeAccessibilityCheck,
+               let frontApp = NSWorkspace.shared.frontmostApplication,
+               ChromeAccessibilityHelper.isChromium(frontApp),
+               !ChromeAccessibilityHelper.hasWebContent(elements: result.elements) {
+                didChromeAccessibilityCheck = true
+                log.warning("Chrome detected but AX tree has no web content — restarting with accessibility")
+                let restarted = await ChromeAccessibilityHelper.restartChromeWithAccessibility(app: frontApp)
+                if restarted {
+                    AccessibilityTreeEnumerator.clearEnhancedAXCache()
+                    log.info("Chrome restarted — re-enumerating")
+                    // Re-enumerate after Chrome restart
+                    return await buildObservation(executionResult: executionResult, executionError: executionError)
+                } else {
+                    log.error("Chrome restart failed — continuing with limited AX tree")
+                }
+            }
+            didChromeAccessibilityCheck = true
+
+            axTreeText = AccessibilityTreeEnumerator.formatAXTree(
+                elements: result.elements,
+                windowTitle: result.windowTitle,
+                appName: result.appName
+            )
+            elements = result.elements
+            let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
+            flatElements = flat
+            let interactiveCount = flat.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
+            log.info("[\(stepNumber)] AX tree: \(result.appName) — \"\(result.windowTitle)\" — \(flat.count) elements (\(interactiveCount) interactive)")
+
+            // Compute AX tree diff
+            if let prevFlat = previousFlatElements {
+                axDiffText = AXTreeDiff.diff(previousFlat: prevFlat, currentFlat: flat)
+                if let diff = axDiffText {
+                    log.info("[\(stepNumber)] AX diff:\n\(diff)")
+                    consecutiveUnchangedSteps = 0
+                } else {
+                    consecutiveUnchangedSteps += 1
+                    log.info("[\(stepNumber)] AX tree unchanged from previous step (consecutive: \(self.consecutiveUnchangedSteps))")
+                }
+            }
+
+            primaryPID = result.pid
+
+            // Enumerate secondary windows
+            if shouldEnumerateSecondaryWindows(stepNumber: stepNumber, lastAction: nil) {
+                let secondaryWindows = enumerator.enumerateSecondaryWindows(
+                    excludingPID: primaryPID,
+                    maxWindows: 2
+                )
+                secondaryWindowsText = AccessibilityTreeEnumerator.formatSecondaryWindows(secondaryWindows)
+                if let secText = secondaryWindowsText {
+                    log.info("[\(stepNumber)] Secondary windows: \(secondaryWindows.count)")
+                    log.debug("[\(stepNumber)] Secondary windows text:\n\(secText)")
+                }
+            }
+
+            if shouldCaptureScreenshot(stepNumber: stepNumber, flatElements: flat, lastAction: nil) {
+                do {
+                    screenshot = try await screenCapture.captureScreen()
+                    log.info("[\(stepNumber)] Screenshot captured alongside AX tree (\(screenshot?.count ?? 0) bytes)")
+                } catch {
+                    log.warning("[\(stepNumber)] Screenshot capture failed alongside AX tree: \(error.localizedDescription)")
+                }
+            }
+        } else {
+            // No focused window — try screenshot as last resort
+            log.warning("[\(stepNumber)] No AX tree available — falling back to screenshot")
+            do {
+                screenshot = try await screenCapture.captureScreen()
+                log.info("[\(stepNumber)] Screenshot captured (\(screenshot?.count ?? 0) bytes)")
+            } catch {
+                log.error("[\(stepNumber)] Screen capture failed: \(error.localizedDescription)")
+                return nil
+            }
+        }
+
+        // Save current AX tree for next step's context
+        let prevAXTree = previousAXTreeText
+        previousAXTreeText = axTreeText
+        previousElements = elements
+        previousFlatElements = flatElements
+
+        // Encode screenshot as base64
+        let screenshotBase64 = screenshot?.base64EncodedString()
+
+        return CuObservationMessage(
+            sessionId: id,
+            axTree: axTreeText,
+            previousAXTree: prevAXTree,
+            axDiff: axDiffText,
+            secondaryWindows: secondaryWindowsText,
+            screenshot: screenshotBase64,
+            executionResult: executionResult,
+            executionError: executionError
+        )
+    }
+
+    // MARK: - Tool Name Mapping
+
+    private func mapToAgentAction(_ msg: CuActionMessage) -> AgentAction {
+        let type: ActionType = switch msg.toolName {
+        case "cu_click": .click
+        case "cu_double_click": .doubleClick
+        case "cu_right_click": .rightClick
+        case "cu_type_text": .type
+        case "cu_key": .key
+        case "cu_scroll": .scroll
+        case "cu_wait": .wait
+        case "cu_drag": .drag
+        case "cu_open_app": .openApp
+        case "cu_run_applescript": .runAppleScript
+        case "cu_done": .done
+        case "cu_respond": .respond
+        default: .done
+        }
+
+        // Extract fields from input dict
+        let x = extractCGFloat(from: msg.input, key: "x")
+        let y = extractCGFloat(from: msg.input, key: "y")
+        let toX = extractCGFloat(from: msg.input, key: "toX")
+            ?? extractCGFloat(from: msg.input, key: "to_x")
+        let toY = extractCGFloat(from: msg.input, key: "toY")
+            ?? extractCGFloat(from: msg.input, key: "to_y")
+        let text = msg.input["text"]?.value as? String
+        let key = msg.input["key"]?.value as? String
+        let scrollDirection = msg.input["direction"]?.value as? String
+            ?? msg.input["scrollDirection"]?.value as? String
+            ?? msg.input["scroll_direction"]?.value as? String
+        let scrollAmount = extractInt(from: msg.input, key: "amount")
+            ?? extractInt(from: msg.input, key: "scrollAmount")
+            ?? extractInt(from: msg.input, key: "scroll_amount")
+        let summary = msg.input["summary"]?.value as? String
+        let waitDuration = extractInt(from: msg.input, key: "duration")
+            ?? extractInt(from: msg.input, key: "waitDuration")
+            ?? extractInt(from: msg.input, key: "wait_duration")
+        let appName = msg.input["app_name"]?.value as? String
+            ?? msg.input["appName"]?.value as? String
+        let script = msg.input["script"]?.value as? String
+        let elementId = extractInt(from: msg.input, key: "element_id")
+            ?? extractInt(from: msg.input, key: "elementId")
+        let elementDescription = msg.input["element_description"]?.value as? String
+            ?? msg.input["elementDescription"]?.value as? String
+
+        return AgentAction(
+            type: type,
+            reasoning: msg.reasoning ?? "",
+            x: x,
+            y: y,
+            toX: toX,
+            toY: toY,
+            text: text,
+            key: key,
+            scrollDirection: scrollDirection,
+            scrollAmount: scrollAmount,
+            summary: summary,
+            waitDuration: waitDuration,
+            appName: appName,
+            script: script,
+            resolvedFromElementId: elementId,
+            elementDescription: elementDescription
+        )
+    }
+
+    private func extractCGFloat(from input: [String: AnyCodable], key: String) -> CGFloat? {
+        guard let val = input[key]?.value else { return nil }
+        if let intVal = val as? Int { return CGFloat(intVal) }
+        if let doubleVal = val as? Double { return CGFloat(doubleVal) }
+        return nil
+    }
+
+    private func extractInt(from input: [String: AnyCodable], key: String) -> Int? {
+        guard let val = input[key]?.value else { return nil }
+        if let intVal = val as? Int { return intVal }
+        if let doubleVal = val as? Double { return Int(doubleVal) }
+        return nil
     }
 
     // MARK: - Adaptive Delay
 
     /// Poll the AX tree until it changes or max polls are exhausted.
-    /// Uses a fast path (lightweight hash of element properties) for most polls
-    /// and only does a full tree format+compare on the first and last poll.
     private func waitForUISettle(previousTree: String?, previousHash: Int) async {
         // Always wait the minimum delay to let CGEvents propagate
         try? await Task.sleep(nanoseconds: minDelayMs * 1_000_000)
@@ -380,7 +498,6 @@ final class ComputerUseSession: ObservableObject {
                 let isFirstOrLastPoll = pollCount == 0 || pollCount == maxPollCount - 1
 
                 if isFirstOrLastPoll {
-                    // Full comparison on first and last poll
                     let currentTree = AccessibilityTreeEnumerator.formatAXTree(
                         elements: result.elements,
                         windowTitle: result.windowTitle,
@@ -391,8 +508,6 @@ final class ComputerUseSession: ObservableObject {
                         return
                     }
                 } else {
-                    // Fast path: compare a lightweight hash that captures count,
-                    // values, and focus state without full tree formatting.
                     let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
                     let currentHash = Self.fastElementHash(flat)
                     if currentHash != previousHash {
@@ -410,9 +525,6 @@ final class ComputerUseSession: ObservableObject {
         log.debug("UI settle timeout after \(elapsed)ms (polls: \(pollCount))")
     }
 
-    /// Compute a lightweight hash of flattened elements that captures count,
-    /// values, titles, and focus state — enough to detect text edits, checkbox
-    /// toggles, and focus changes without full tree formatting.
     private static func fastElementHash(_ elements: [AXElement]) -> Int {
         var hasher = Hasher()
         hasher.combine(elements.count)
@@ -426,18 +538,10 @@ final class ComputerUseSession: ObservableObject {
 
     // MARK: - Conditional Secondary Windows
 
-    /// Decide whether to enumerate secondary windows.
-    /// Skips on middle steps for single-app tasks where cross-app context isn't needed.
     private func shouldEnumerateSecondaryWindows(stepNumber: Int, lastAction: AgentAction?) -> Bool {
-        // Always enumerate on step 1 (need full context)
         if stepNumber == 1 { return true }
-
-        // Enumerate after openApp (just switched apps, secondary context is relevant)
         if lastAction?.type == .openApp { return true }
-
-        // Enumerate if the task mentions multiple apps or cross-app phrases
         if taskMentionsMultipleApps() { return true }
-
         return false
     }
 
@@ -448,9 +552,6 @@ final class ComputerUseSession: ObservableObject {
         "textedit", "pages", "numbers", "keynote", "calendar"
     ]
 
-    /// Cross-app phrases that strongly indicate a multi-app task.
-    /// Each phrase must be specific enough to avoid matching single-app commands
-    /// like "switch to dark mode" or "copy from the first column".
     private static let crossAppPhrases = [
         "paste into", "drag from",
         "from safari", "from chrome", "from slack", "from finder",
@@ -462,13 +563,9 @@ final class ComputerUseSession: ObservableObject {
 
     private func taskMentionsMultipleApps() -> Bool {
         let lower = task.lowercased()
-
-        // Check for cross-app phrases first
         for phrase in Self.crossAppPhrases {
             if lower.contains(phrase) { return true }
         }
-
-        // Check if 2+ distinct app names appear in the task (word-boundary matching)
         var appCount = 0
         for keyword in Self.appKeywords {
             if Self.matchesWholeWord(keyword, in: lower) {
@@ -476,12 +573,9 @@ final class ComputerUseSession: ObservableObject {
                 if appCount >= 2 { return true }
             }
         }
-
         return false
     }
 
-    /// Match a keyword as a whole word in the text, preventing substring overlaps
-    /// (e.g., "code" should not match inside "xcode" or "vscode").
     private static func matchesWholeWord(_ keyword: String, in text: String) -> Bool {
         let pattern = "\\b\(NSRegularExpression.escapedPattern(for: keyword))\\b"
         return text.range(of: pattern, options: .regularExpression) != nil
@@ -489,59 +583,20 @@ final class ComputerUseSession: ObservableObject {
 
     // MARK: - Conditional Screenshot
 
-    /// Decide whether to capture a screenshot alongside the AX tree.
-    /// Skips on middle steps when the AX tree provides sufficient context.
     private func shouldCaptureScreenshot(stepNumber: Int, flatElements: [AXElement], lastAction: AgentAction?) -> Bool {
-        // Always capture on step 1 (model needs full visual context to start)
         if stepNumber == 1 { return true }
-
-        // Capture after openApp (visual context for new app)
         if lastAction?.type == .openApp { return true }
-
-        // Capture when AX tree is too sparse to be useful (< 3 interactive elements)
         let interactiveCount = flatElements.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
         if interactiveCount < 3 { return true }
-
-        // Capture when UI appears stuck (model may need visual clues to break out)
         if consecutiveUnchangedSteps >= 2 { return true }
-
-        // AX tree is sufficient — skip screenshot
         return false
-    }
-
-    // MARK: - No-Op Detection
-
-    /// Detect if an action would be a no-op (e.g., opening an app that's already frontmost).
-    /// Returns a human-readable reason if no-op, nil if the action should proceed normally.
-    private func detectNoOp(_ action: AgentAction, currentAppName: String?) -> String? {
-        guard action.type == .openApp,
-              let requestedApp = action.appName,
-              let currentApp = currentAppName else {
-            return nil
-        }
-
-        let requestedLower = requestedApp.lowercased()
-        let currentLower = currentApp.lowercased()
-
-        // Direct name match
-        if requestedLower == currentLower {
-            return "\(currentApp) is already the frontmost app"
-        }
-
-        // Alias match (e.g., "chrome" → "Google Chrome")
-        if let resolvedName = ActionExecutor.appAliases[requestedLower],
-           resolvedName.lowercased() == currentLower {
-            return "\(currentApp) is already the frontmost app"
-        }
-
-        return nil
     }
 
     // MARK: - Control
 
     func pause() {
         isPaused = true
-        let step = actionHistory.count
+        let step = currentStepNumber
         state = .paused(step: step, maxSteps: maxSteps)
     }
 
