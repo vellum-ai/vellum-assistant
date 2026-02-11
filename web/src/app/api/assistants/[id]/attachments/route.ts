@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getAssistantById } from "@/lib/db";
+import { requireAssistantOwner, toAuthErrorResponse } from "@/lib/auth/server-session";
 import { createRuntimeClient, RuntimeClientError } from "@/lib/runtime/client";
 import { resolveRuntime } from "@/lib/runtime/resolver";
 
@@ -37,9 +37,6 @@ function normalizeAttachmentIds(value: unknown): string[] {
   return [...new Set(ids)];
 }
 
-const MAX_FILES_PER_UPLOAD = 10;
-const MAX_TOTAL_BYTES = 50 * 1024 * 1024; // 50 MB
-
 function getRuntimeClient(assistantId: string) {
   const { baseUrl } = resolveRuntime(assistantId);
   return createRuntimeClient(baseUrl, assistantId);
@@ -48,11 +45,7 @@ function getRuntimeClient(assistantId: string) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
-
-    const assistant = await getAssistantById(assistantId);
-    if (!assistant) {
-      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
-    }
+    await requireAssistantOwner(request, assistantId);
 
     const formData = await request.formData();
     const files = getFilesFromFormData(formData);
@@ -73,24 +66,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (declaredTotalBytes > MAX_TOTAL_BUFFERED_BYTES) {
       return NextResponse.json(
         { error: `Total attachment size cannot exceed ${MAX_TOTAL_BUFFERED_MIB}MB per request` },
-        { status: 400 },
-      );
-    }
-
-    if (files.length > MAX_FILES_PER_UPLOAD) {
-      return NextResponse.json(
-        { error: `Too many files. Maximum is ${MAX_FILES_PER_UPLOAD} per upload.` },
-        { status: 400 },
-      );
-    }
-
-    let totalBytes = 0;
-    for (const file of files) {
-      totalBytes += file.size;
-    }
-    if (totalBytes > MAX_TOTAL_BYTES) {
-      return NextResponse.json(
-        { error: `Total upload size exceeds the ${MAX_TOTAL_BYTES / (1024 * 1024)} MB limit.` },
         { status: 400 },
       );
     }
@@ -132,6 +107,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ attachments: createdAttachments }, { status: 201 });
   } catch (error) {
     console.error("Error uploading attachments:", error);
+    if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
+      return toAuthErrorResponse(error);
+    }
     const status = error instanceof RuntimeClientError ? error.status : 500;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to upload attachments" },
@@ -143,11 +121,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
-
-    const assistant = await getAssistantById(assistantId);
-    if (!assistant) {
-      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
-    }
+    await requireAssistantOwner(request, assistantId);
 
     const body = await request.json().catch(() => ({})) as { attachment_ids?: unknown };
     const attachmentIds = normalizeAttachmentIds(body.attachment_ids);
@@ -167,6 +141,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ deleted_ids: attachmentIds });
   } catch (error) {
     console.error("Error deleting attachments:", error);
+    if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
+      return toAuthErrorResponse(error);
+    }
     const status = error instanceof RuntimeClientError ? error.status : 500;
     return NextResponse.json(
       { error: "Failed to delete attachments" },
