@@ -3,6 +3,11 @@ import SwiftUI
 import HotKey
 import UserNotifications
 
+private enum InteractionType {
+    case computerUse
+    case textQA
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -11,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var escapeMonitor: Any?
     private var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
+    var currentTextSession: TextSession?
+    private var textResponseWindow: TextResponseWindow?
     private var voiceInput: VoiceInputManager?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     let ambientAgent = AmbientAgent()
@@ -132,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if event.keyCode == 53 { // Escape
                 Task { @MainActor in
                     self?.currentSession?.cancel()
+                    self?.currentTextSession?.cancel()
                 }
             }
         }
@@ -251,39 +259,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func startSession(submission: TaskSubmission) {
-        guard currentSession == nil else { return }
+        guard currentSession == nil && currentTextSession == nil else { return }
         popover.performClose(nil)
 
-        guard ActionExecutor.checkAccessibilityPermission(prompt: true) else {
-            return
-        }
-
-        let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
-        let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
         let sessionTask = submission.task.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveTask = !sessionTask.isEmpty ? sessionTask : "Use the attached files as context."
-        let session = ComputerUseSession(
-            task: effectiveTask,
-            daemonClient: daemonClient,
-            maxSteps: maxSteps,
-            attachments: submission.attachments
-        )
-        currentSession = session
+        let interactionType = classifyInteraction(effectiveTask)
 
-        let overlay = SessionOverlayWindow(session: session)
-        overlay.show()
-        overlayWindow = overlay
+        switch interactionType {
+        case .computerUse:
+            guard ActionExecutor.checkAccessibilityPermission(prompt: true) else { return }
+            let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
+            let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
+            let session = ComputerUseSession(
+                task: effectiveTask,
+                daemonClient: daemonClient,
+                maxSteps: maxSteps,
+                attachments: submission.attachments
+            )
+            currentSession = session
+            let overlay = SessionOverlayWindow(session: session)
+            overlay.show()
+            overlayWindow = overlay
+            ambientAgent.pause()
+            Task { @MainActor in
+                await session.run()
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                overlay.close()
+                self.overlayWindow = nil
+                self.currentSession = nil
+                self.ambientAgent.resume()
+            }
 
-        ambientAgent.pause()
-
-        Task { @MainActor in
-            await session.run()
-            try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s for undo opportunity
-            overlay.close()
-            self.overlayWindow = nil
-            self.currentSession = nil
-            self.ambientAgent.resume()
+        case .textQA:
+            let session = TextSession(
+                task: effectiveTask,
+                daemonClient: daemonClient,
+                attachments: submission.attachments
+            )
+            currentTextSession = session
+            let window = TextResponseWindow(session: session)
+            window.show()
+            textResponseWindow = window
+            ambientAgent.pause()
+            Task { @MainActor in
+                await session.run()
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                window.close()
+                self.textResponseWindow = nil
+                self.currentTextSession = nil
+                self.ambientAgent.resume()
+            }
         }
+    }
+
+    private func classifyInteraction(_ task: String) -> InteractionType {
+        let lower = task.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Question patterns -> Q&A
+        if lower.contains("?") { return .textQA }
+
+        let qaStarters = ["what", "when", "where", "how", "why", "who", "which",
+                          "is it", "is there", "is this", "are there", "are these",
+                          "can you tell", "can you explain", "can you describe",
+                          "tell me", "explain", "describe", "summarize", "list"]
+        for starter in qaStarters {
+            if lower.hasPrefix(starter) { return .textQA }
+        }
+
+        // Action verbs -> CU
+        let cuStarters = ["open", "click", "type", "navigate", "switch", "drag", "scroll",
+                          "close", "send", "fill", "submit", "go to", "move", "select",
+                          "copy", "paste", "delete", "create", "write", "edit", "save",
+                          "download", "upload", "install", "run", "launch", "start",
+                          "stop", "press", "tap", "find", "search", "show me"]
+        for starter in cuStarters {
+            if lower.hasPrefix(starter) { return .computerUse }
+        }
+
+        // Default to CU (safer -- CU can fall back to cu_respond if it's actually Q&A)
+        return .computerUse
     }
 
     // MARK: - Notifications
