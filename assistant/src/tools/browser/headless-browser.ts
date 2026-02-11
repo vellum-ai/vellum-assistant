@@ -479,9 +479,10 @@ async function executeBrowserType(
       await page.fill(selector!, text);
     } else {
       // Read existing content before appending. Use .value for form inputs,
-      // with fallback to .textContent for contenteditable elements.
+      // with fallback to .innerText for contenteditable elements (preserves
+      // visual line breaks from <br> and block elements, unlike textContent).
       const currentValue = (await page.evaluate(
-        `(() => { const el = document.querySelector(${JSON.stringify(selector!)}); if (!el) return ''; if (typeof el.value === 'string') return el.value; return el.textContent ?? ''; })()`,
+        `(() => { const el = document.querySelector(${JSON.stringify(selector!)}); if (!el) return ''; if (typeof el.value === 'string') return el.value; return el.innerText ?? ''; })()`,
       )) as string;
       await page.fill(selector!, currentValue + text);
     }
