@@ -270,7 +270,13 @@ sessions
     // ── Safety: only allow localhost ──────────────────────────────────
     let pgAvailable = false;
     if (databaseUrl) {
-      const host = new URL(databaseUrl).hostname;
+      let host: string;
+      try {
+        host = new URL(databaseUrl).hostname;
+      } catch {
+        console.error(`Error: DATABASE_URL is not a valid URL: ${databaseUrl}`);
+        process.exit(1);
+      }
       const allowedHosts = ['localhost', '127.0.0.1', '0.0.0.0', 'host.docker.internal'];
       if (!allowedHosts.includes(host)) {
         console.error(`Error: DATABASE_URL points to '${host}' — refusing to run.`);
