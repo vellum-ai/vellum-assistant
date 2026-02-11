@@ -100,11 +100,18 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Socket Path
 
     /// Resolves the daemon socket path:
-    /// 1. `VELLUM_DAEMON_SOCKET` environment variable
+    /// 1. `VELLUM_DAEMON_SOCKET` environment variable (or override dictionary)
     /// 2. `~/.vellum/vellum.sock`
-    private static func resolveSocketPath() -> String {
-        if let envPath = ProcessInfo.processInfo.environment["VELLUM_DAEMON_SOCKET"], !envPath.isEmpty {
-            return envPath
+    ///
+    /// Accepts an optional environment dictionary for testability.
+    static func resolveSocketPath(environment: [String: String]? = nil) -> String {
+        let env = environment ?? ProcessInfo.processInfo.environment
+        if let envPath = env["VELLUM_DAEMON_SOCKET"], !envPath.trimmingCharacters(in: .whitespaces).isEmpty {
+            let trimmed = envPath.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("~/") {
+                return NSHomeDirectory() + "/" + String(trimmed.dropFirst(2))
+            }
+            return trimmed
         }
         return NSHomeDirectory() + "/.vellum/vellum.sock"
     }
