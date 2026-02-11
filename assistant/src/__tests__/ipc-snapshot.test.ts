@@ -80,7 +80,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'cu_observation',
     sessionId: 'cu-sess-001',
     axTree: '<ax-tree>...</ax-tree>',
-    previousAXTree: '<prev-ax-tree>...</prev-ax-tree>',
     axDiff: '+ new element',
     secondaryWindows: 'Finder, Terminal',
     screenshot: 'base64-screenshot-data',

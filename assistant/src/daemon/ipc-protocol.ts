@@ -96,7 +96,6 @@ export interface CuObservation {
   type: 'cu_observation';
   sessionId: string;
   axTree?: string;
-  previousAXTree?: string;
   axDiff?: string;
   secondaryWindows?: string;
   screenshot?: string;

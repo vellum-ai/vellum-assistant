@@ -27,7 +27,7 @@ final class MockDaemonClient: DaemonClientProtocol {
         return continuation
     }
 
-    var messages: AsyncStream<ServerMessage> {
+    func subscribe() -> AsyncStream<ServerMessage> {
         _messages
     }
 
@@ -200,7 +200,8 @@ private func makeCompleteMessage(
     CuCompleteMessage(
         sessionId: sessionId,
         summary: summary,
-        stepCount: stepCount
+        stepCount: stepCount,
+        isResponse: nil
     )
 }
 

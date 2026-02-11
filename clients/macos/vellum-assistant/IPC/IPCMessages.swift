@@ -107,7 +107,6 @@ struct CuObservationMessage: Encodable, Sendable {
     let type: String = "cu_observation"
     let sessionId: String
     let axTree: String?
-    let previousAXTree: String?
     let axDiff: String?
     let secondaryWindows: String?
     let screenshot: String?
