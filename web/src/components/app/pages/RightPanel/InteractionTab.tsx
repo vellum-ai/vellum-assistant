@@ -284,7 +284,12 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
     return () => { cancelled = true; };
   }, [assistantId, lastMessageId, lastMessageRole, isWaitingForResponse, isAlive]);
 
-  const displayedSuggestion = input.length === 0 ? suggestion : null;
+  const ghostSuffix = useMemo(() => {
+    if (!suggestion) return null;
+    if (suggestion.startsWith(input)) return suggestion.slice(input.length) || null;
+    if (input.length === 0) return suggestion;
+    return null;
+  }, [suggestion, input]);
 
   const uploadedAttachmentIds = useMemo(
     () => pendingAttachments
@@ -584,9 +589,9 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Tab" && displayedSuggestion && input.length === 0) {
+      if (e.key === "Tab" && ghostSuffix) {
         e.preventDefault();
-        setInput(displayedSuggestion);
+        setInput(input + ghostSuffix);
         return;
       }
       if (e.key === "Enter" && !e.shiftKey) {
@@ -594,7 +599,7 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
         handleSubmit(e as unknown as FormEvent);
       }
     },
-    [handleSubmit, displayedSuggestion, input]
+    [handleSubmit, ghostSuffix, input]
   );
 
   const getStatusDisplay = () => {
@@ -898,15 +903,25 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
               >
                 {hasUploadingAttachments ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
               </button>
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                placeholder={displayedSuggestion ?? undefined}
-                rows={1}
-                className="flex-1 resize-none rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
-              />
+              <div className="relative flex-1">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                  rows={1}
+                  className="relative z-10 w-full resize-none rounded-lg border border-zinc-200 bg-transparent px-4 py-2 text-sm text-zinc-900 caret-zinc-900 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500 dark:border-zinc-700 dark:bg-transparent dark:text-white dark:caret-white"
+                />
+                {ghostSuffix && (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg border border-transparent bg-white px-4 py-2 text-sm dark:bg-zinc-900"
+                  >
+                    <span className="invisible whitespace-pre">{input}</span>
+                    <span className="text-zinc-400 dark:text-zinc-500">{ghostSuffix}</span>
+                  </div>
+                )}
+              </div>
               <Button
                 type="submit"
                 disabled={!canSend}
