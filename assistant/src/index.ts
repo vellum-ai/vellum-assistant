@@ -261,7 +261,7 @@ sessions
       try {
         const envContent = readFileSync(envLocalPath, 'utf-8');
         const match = envContent.match(/^DATABASE_URL=(.+)$/m);
-        if (match) databaseUrl = match[1].trim();
+        if (match) databaseUrl = match[1].trim().replace(/^['"]|['"]$/g, '');
       } catch {
         // .env.local not found — will warn below
       }
@@ -270,8 +270,7 @@ sessions
     // ── Safety: only allow localhost ──────────────────────────────────
     let pgAvailable = false;
     if (databaseUrl) {
-      const hostMatch = databaseUrl.match(/@([^:/]+)/);
-      const host = hostMatch?.[1] ?? '';
+      const host = new URL(databaseUrl).hostname;
       const allowedHosts = ['localhost', '127.0.0.1', '0.0.0.0', 'host.docker.internal'];
       if (!allowedHosts.includes(host)) {
         console.error(`Error: DATABASE_URL points to '${host}' — refusing to run.`);
