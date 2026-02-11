@@ -32,6 +32,9 @@ function normalizeAttachmentIds(value: unknown): string[] {
   return [...new Set(ids)];
 }
 
+const MAX_FILES_PER_UPLOAD = 10;
+const MAX_TOTAL_BYTES = 50 * 1024 * 1024; // 50 MB
+
 function getRuntimeClient(assistantId: string) {
   const { baseUrl } = resolveRuntime(assistantId);
   return createRuntimeClient(baseUrl, assistantId);
@@ -50,25 +53,56 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    if (files.length > MAX_FILES_PER_UPLOAD) {
+      return NextResponse.json(
+        { error: `Too many files. Maximum is ${MAX_FILES_PER_UPLOAD} per upload.` },
+        { status: 400 },
+      );
+    }
+
+    let totalBytes = 0;
+    for (const file of files) {
+      totalBytes += file.size;
+    }
+    if (totalBytes > MAX_TOTAL_BYTES) {
+      return NextResponse.json(
+        { error: `Total upload size exceeds the ${MAX_TOTAL_BYTES / (1024 * 1024)} MB limit.` },
+        { status: 400 },
+      );
+    }
+
     const client = getRuntimeClient(assistantId);
     const createdAttachments: UploadResponseAttachment[] = [];
+    const uploadedIds: string[] = [];
 
-    for (const file of files) {
-      const arrayBuffer = await file.arrayBuffer();
-      const base64 = Buffer.from(arrayBuffer).toString("base64");
-      const result = await client.uploadAttachment({
-        filename: file.name || "attachment",
-        mimeType: file.type || "application/octet-stream",
-        data: base64,
-      });
-      createdAttachments.push({
-        id: result.id,
-        original_filename: result.original_filename,
-        mime_type: result.mime_type,
-        size_bytes: result.size_bytes,
-        kind: result.kind,
-        created_at: null,
-      });
+    try {
+      for (const file of files) {
+        const arrayBuffer = await file.arrayBuffer();
+        const base64 = Buffer.from(arrayBuffer).toString("base64");
+        const result = await client.uploadAttachment({
+          filename: file.name || "attachment",
+          mimeType: file.type || "application/octet-stream",
+          data: base64,
+        });
+        uploadedIds.push(result.id);
+        createdAttachments.push({
+          id: result.id,
+          original_filename: result.original_filename,
+          mime_type: result.mime_type,
+          size_bytes: result.size_bytes,
+          kind: result.kind,
+          created_at: null,
+        });
+      }
+    } catch (uploadError) {
+      await Promise.all(
+        uploadedIds.map((id) =>
+          client.deleteAttachment({ attachmentId: id }).catch((e) =>
+            console.warn("[attachments] Failed to clean up attachment", id, e),
+          ),
+        ),
+      );
+      throw uploadError;
     }
 
     return NextResponse.json({ attachments: createdAttachments }, { status: 201 });
