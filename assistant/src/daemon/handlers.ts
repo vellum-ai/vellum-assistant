@@ -235,8 +235,8 @@ async function handleUserMessage(
     }, requestId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    rlog.error({ err }, 'Error processing user message');
-    ctx.send(socket, { type: 'error', message });
+    rlog.error({ err }, 'Error processing user message (session or provider failure)');
+    ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
   }
 }
 

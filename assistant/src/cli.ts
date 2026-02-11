@@ -599,7 +599,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
       }
     }
 
-    process.stderr.write('\n  Failed to reconnect after multiple attempts.\n');
+    process.stderr.write('\n  Failed to reconnect after multiple attempts.\n  Check that the daemon is running (vellum daemon start) and the socket at ~/.vellum/vellum.sock is accessible.\n');
     reconnecting = false;
     process.exit(1);
   }

@@ -244,7 +244,7 @@ export class AgentLoop {
         // Abort errors are expected when user cancels — don't emit as errors
         if (signal?.aborted) break;
         const err = error instanceof Error ? error : new Error(String(error));
-        rlog.error({ err }, 'Agent loop error');
+        rlog.error({ err, turn: toolUseTurns, messageCount: history.length }, 'Agent loop error during turn processing');
         onEvent({ type: 'error', error: err });
         break;
       }

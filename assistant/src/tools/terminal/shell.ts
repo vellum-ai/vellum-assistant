@@ -164,7 +164,7 @@ class ShellTool implements Tool {
       child.on('error', (err) => {
         clearTimeout(timer);
         resolve({
-          content: `Error spawning command: ${err.message}`,
+          content: `Error spawning command: ${err.message}${(err as NodeJS.ErrnoException).code === 'ENOENT' ? '. The command was not found — check that it is installed and in PATH.' : ''}`,
           isError: true,
         });
       });

@@ -80,7 +80,11 @@ class FileReadTool implements Tool {
       return { content: numbered, isError: false };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { content: `Error reading file: ${msg}`, isError: true };
+      const hint = msg.includes('ENOENT') ? ' (file does not exist)'
+        : msg.includes('EACCES') ? ' (permission denied)'
+        : msg.includes('EISDIR') ? ' (path is a directory, not a file)'
+        : '';
+      return { content: `Error reading file "${input.path}"${hint}: ${msg}`, isError: true };
     }
   }
 }
