@@ -88,12 +88,14 @@ ComputerUse/          Core perception + action pipeline
   ScreenCapture       ScreenCaptureKit screenshot capture
   Session             Main orchestration loop
 Inference/            AI action selection
-  AnthropicClient     Shared HTTP client with retry logic
-  AnthropicProvider   Claude API integration (session inference)
+  AnthropicClient     Shared HTTP client with retry logic (used by KnowledgeCron)
   ToolDefinitions     Tool schemas for function calling
+IPC/                  Daemon communication
+  DaemonClient        Unix domain socket IPC client (auto-reconnect, ping/pong)
+  IPCMessages         Codable structs mirroring ipc-protocol.ts
 Ambient/              Background screen-watching agent
-  AmbientAgent        Periodic capture → OCR → analyze orchestration
-  AmbientAnalyzer     Sends OCR text to Haiku for ignore/observe/suggest decisions
+  AmbientAgent        Periodic capture → OCR → analyze via daemon IPC
+  AmbientAnalyzer     Type definitions (AmbientDecision, AmbientAnalysisResult)
   KnowledgeStore      Persists observations as JSON
   KnowledgeCron       Triggers periodic insight analysis
   InsightStore        Higher-level insights derived from observations

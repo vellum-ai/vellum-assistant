@@ -37,7 +37,7 @@ log stream --predicate 'subsystem == "com.vellum.vellum-assistant"' --level debu
 The core orchestration cycle runs per-task in `ComputerUseSession` (`@MainActor`):
 
 1. **PERCEIVE** — enumerate the AX tree of the focused window (`AccessibilityTree.swift`); also captures a screenshot alongside; falls back to screenshot-only if no AX tree. Computes `AXTreeDiff` between steps. Enumerates secondary windows for cross-app awareness.
-2. **INFER** — send AX tree + screenshot + previous AX tree + diff + task + action history to Claude via `AnthropicProvider`; model returns exactly one tool call per turn.
+2. **INFER** — send AX tree + screenshot + previous AX tree + diff + task + action history to the daemon via IPC (`DaemonClient`); daemon calls Claude and returns exactly one tool call per turn.
 3. **VERIFY** — safety checks: sensitive data, destructive keys, loop detection (3 identical consecutive actions), step limits, system menu bar exclusion (`ActionVerifier`).
 4. **EXECUTE** — inject mouse/keyboard events via CGEvent (`ActionExecutor`). Text input uses clipboard-paste (Cmd+V) with save/restore.
 5. **WAIT** — adaptive delay: polls AX tree for changes instead of fixed sleep, returns early when UI settles.
@@ -45,24 +45,25 @@ The core orchestration cycle runs per-task in `ComputerUseSession` (`@MainActor`
 ### Dependency Injection
 
 All session dependencies are protocol-based for testability:
-- `ActionInferenceProvider` — inference (impl: `AnthropicProvider`)
 - `AccessibilityTreeProviding` — AX enumeration (impl: `AccessibilityTreeEnumerator`)
 - `ScreenCaptureProviding` — screenshots (impl: `ScreenCapture`)
 - `ActionExecuting` — CGEvent injection (impl: `ActionExecutor`)
 
 Tests use `Mock*` versions defined in `SessionTests.swift`. Test pattern: `@MainActor func testX() async`.
 
-### Inference Layer
+### IPC Layer (`IPC/`)
 
-`AnthropicClient` is the shared HTTP client with retry logic (exponential backoff for 429/5xx). Used by both `AnthropicProvider` (session inference) and `AmbientAnalyzer`.
+All inference (both computer-use sessions and ambient analysis) goes through daemon IPC:
+- `DaemonClient` — `@MainActor`, Unix domain socket (`~/.vellum/vellum.sock`), auto-reconnect, ping/pong keepalive, `AsyncStream<ServerMessage>`
+- `IPCMessages.swift` — Codable structs mirroring `ipc-protocol.ts`: `cu_session_create`, `cu_observation`, `cu_action`, `cu_complete`, `cu_error`, `ambient_analyze`, etc.
 
-`AnthropicProvider` builds Messages API requests with 10 tools: `click`, `double_click`, `right_click`, `type_text`, `key`, `scroll`, `wait`, `drag`, `open_app`, `done`. Element targeting uses `[ID]` numbers from the AX tree resolved to screen coordinates via `resolvePosition`.
+`AnthropicClient` is the shared HTTP client with retry logic (exponential backoff for 429/5xx). Still used by `KnowledgeCron` for local insight analysis (direct Haiku calls, not through daemon).
 
 ### Ambient Agent (`Ambient/`)
 
 A background screen-watching system that runs alongside the manual session loop:
-- `AmbientAgent` — orchestrates periodic capture → OCR → analyze cycles (configurable interval, default 30s)
-- `AmbientAnalyzer` — sends OCR text to Haiku; returns ignore/observe/suggest decisions
+- `AmbientAgent` — orchestrates periodic capture → OCR → analyze cycles via daemon IPC (configurable interval, default 30s)
+- `AmbientAnalyzer.swift` — type definitions only (`AmbientDecision`, `AmbientAnalysisResult`); analysis logic lives in the daemon
 - `KnowledgeStore` — persists observations as JSON in Application Support (max 500 entries)
 - `KnowledgeCron` — triggers insight analysis after every N observations; generates higher-level insights via `InsightStore`
 
