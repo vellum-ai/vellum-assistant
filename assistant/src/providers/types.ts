@@ -72,6 +72,7 @@ export interface ProviderResponse {
   content: ContentBlock[];
   model: string;
   usage: {
+    /** Total input tokens (input_tokens + cache_creation + cache_read). */
     inputTokens: number;
     outputTokens: number;
     cacheCreationInputTokens?: number;
