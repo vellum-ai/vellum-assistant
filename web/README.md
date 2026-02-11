@@ -23,7 +23,8 @@ Every assistant-facing API route proxies through a single `RuntimeClient` abstra
 Environment variables:
 
 - `ASSISTANT_CONNECTION_MODE` — `cloud` (default) or `local`.
-- `LOCAL_DAEMON_SOCKET_PATH` — Unix socket path for local mode (default: `~/.vellum/vellum.sock`).
+- `CLOUD_RUNTIME_URL` — Base URL for the hosted cloud runtime (required in cloud mode).
+- `LOCAL_RUNTIME_URL` — Override the default local runtime URL (default: `http://127.0.0.1:7821`).
 
 ### Assistant Auth
 
