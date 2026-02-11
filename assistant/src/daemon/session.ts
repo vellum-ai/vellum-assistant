@@ -299,67 +299,94 @@ export class Session {
         runMessages = preRunRepair.messages;
       }
 
+      let orderingErrorDetected = false;
       const preRunHistoryLength = runMessages.length;
-      const updatedHistory = await this.agentLoop.run(
-        runMessages,
-        (event) => {
-          switch (event.type) {
-            case 'text_delta':
-              onEvent({ type: 'assistant_text_delta', text: event.text });
-              if (isFirstMessage) firstAssistantText += event.text;
-              break;
-            case 'thinking_delta':
-              onEvent({ type: 'assistant_thinking_delta', thinking: event.thinking });
-              break;
-            case 'tool_use':
-              onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input });
-              break;
-            case 'tool_output_chunk':
-              onEvent({ type: 'tool_output_chunk', chunk: event.chunk });
-              break;
-            case 'tool_result':
-              onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status });
-              pendingToolResults.set(event.toolUseId, { content: event.content, isError: event.isError });
-              break;
-            case 'error':
-              onEvent({ type: 'error', message: event.error.message });
-              break;
-            case 'message_complete': {
-              // Save pending tool results as a user message before the next assistant message.
-              // tool_result blocks belong in user messages per the Anthropic API spec.
-              if (pendingToolResults.size > 0) {
-                const toolResultBlocks = Array.from(pendingToolResults.entries()).map(
-                  ([toolUseId, result]) => ({
-                    type: 'tool_result',
-                    tool_use_id: toolUseId,
-                    content: result.content,
-                    is_error: result.isError,
-                  }),
-                );
-                conversationStore.addMessage(
-                  this.conversationId,
-                  'user',
-                  JSON.stringify(toolResultBlocks),
-                );
-                pendingToolResults.clear();
-              }
-              // Save assistant message to DB
+
+      const buildEventHandler = () => (event: import('../agent/loop.js').AgentEvent) => {
+        switch (event.type) {
+          case 'text_delta':
+            onEvent({ type: 'assistant_text_delta', text: event.text });
+            if (isFirstMessage) firstAssistantText += event.text;
+            break;
+          case 'thinking_delta':
+            onEvent({ type: 'assistant_thinking_delta', thinking: event.thinking });
+            break;
+          case 'tool_use':
+            onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input });
+            break;
+          case 'tool_output_chunk':
+            onEvent({ type: 'tool_output_chunk', chunk: event.chunk });
+            break;
+          case 'tool_result':
+            onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status });
+            pendingToolResults.set(event.toolUseId, { content: event.content, isError: event.isError });
+            break;
+          case 'error':
+            if (isProviderOrderingError(event.error.message)) {
+              orderingErrorDetected = true;
+            }
+            onEvent({ type: 'error', message: event.error.message });
+            break;
+          case 'message_complete': {
+            // Save pending tool results as a user message before the next assistant message.
+            // tool_result blocks belong in user messages per the Anthropic API spec.
+            if (pendingToolResults.size > 0) {
+              const toolResultBlocks = Array.from(pendingToolResults.entries()).map(
+                ([toolUseId, result]) => ({
+                  type: 'tool_result',
+                  tool_use_id: toolUseId,
+                  content: result.content,
+                  is_error: result.isError,
+                }),
+              );
               conversationStore.addMessage(
                 this.conversationId,
-                'assistant',
-                JSON.stringify(event.message.content),
+                'user',
+                JSON.stringify(toolResultBlocks),
               );
-              break;
+              pendingToolResults.clear();
             }
-            case 'usage':
-              exchangeInputTokens += event.inputTokens;
-              exchangeOutputTokens += event.outputTokens;
-              model = event.model;
-              break;
+            // Save assistant message to DB
+            conversationStore.addMessage(
+              this.conversationId,
+              'assistant',
+              JSON.stringify(event.message.content),
+            );
+            break;
           }
-        },
+          case 'usage':
+            exchangeInputTokens += event.inputTokens;
+            exchangeOutputTokens += event.outputTokens;
+            model = event.model;
+            break;
+        }
+      };
+
+      let updatedHistory = await this.agentLoop.run(
+        runMessages,
+        buildEventHandler(),
         this.abortController.signal,
       );
+
+      // One-shot self-heal retry: if the provider returned a strict ordering
+      // error and no messages were appended (error on first call), repair
+      // the history and retry exactly once.
+      if (orderingErrorDetected && updatedHistory.length === preRunHistoryLength) {
+        log.warn({ conversationId: this.conversationId, phase: 'retry' }, 'Provider ordering error detected, attempting one-shot repair retry');
+        const retryRepair = repairHistory(runMessages);
+        runMessages = retryRepair.messages;
+        orderingErrorDetected = false;
+
+        updatedHistory = await this.agentLoop.run(
+          runMessages,
+          buildEventHandler(),
+          this.abortController.signal,
+        );
+
+        if (orderingErrorDetected) {
+          log.error({ conversationId: this.conversationId, phase: 'retry' }, 'Repair retry also failed with ordering error');
+        }
+      }
 
       // Reconcile synthesized cancellation tool_results from history tail.
       // When abort happens, the agent loop synthesizes "Cancelled by user"
@@ -532,6 +559,18 @@ export function findLastUndoableUserMessageIndex(messages: Message[]): number {
     }
   }
   return -1;
+}
+
+const ORDERING_ERROR_PATTERNS = [
+  /tool_result.*not immediately after.*tool_use/i,
+  /tool_use.*must have.*tool_result/i,
+  /tool_use_id.*without.*tool_result/i,
+  /tool_result.*tool_use_id.*not found/i,
+  /messages.*invalid.*order/i,
+];
+
+function isProviderOrderingError(message: string): boolean {
+  return ORDERING_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 function buildMemoryQuery(content: string, messages: Message[]): string {
