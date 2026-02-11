@@ -51,7 +51,7 @@ final class ComputerUseSession: ObservableObject {
     /// Adaptive delay configuration
     private let adaptiveDelayEnabled: Bool
     private let minDelayMs: UInt64 = 100
-    private let maxDelayMs: UInt64 = 2000
+    private let maxDelayMs: UInt64 = 1200
     private let pollIntervalMs: UInt64 = 100
 
     init(
@@ -338,6 +338,12 @@ final class ComputerUseSession: ObservableObject {
 
         let stepNumber = currentStepNumber + 1
 
+        // Start screenshot capture early (it's async and takes ~100-200ms)
+        // This runs in parallel with AX tree enumeration below
+        let screenshotPromise: Task<Data?, Never> = Task {
+            try? await screenCapture.captureScreen()
+        }
+
         if let result = enumerator.enumerateCurrentWindow() {
             // On first step with Chrome: check if web content is visible.
             if !didChromeAccessibilityCheck,
@@ -350,6 +356,7 @@ final class ComputerUseSession: ObservableObject {
                 if restarted {
                     AccessibilityTreeEnumerator.clearEnhancedAXCache()
                     log.info("Chrome restarted — re-enumerating")
+                    screenshotPromise.cancel()
                     // Re-enumerate after Chrome restart
                     return await buildObservation(executionResult: executionResult, executionError: executionError)
                 } else {
@@ -396,28 +403,26 @@ final class ComputerUseSession: ObservableObject {
                 }
             }
 
+            // Await the pre-started screenshot if we need it; cancel otherwise
             if shouldCaptureScreenshot(stepNumber: stepNumber, flatElements: flat, lastAction: nil) {
-                do {
-                    screenshot = try await screenCapture.captureScreen()
-                    log.info("[\(stepNumber)] Screenshot captured alongside AX tree (\(screenshot?.count ?? 0) bytes)")
-                } catch {
-                    log.warning("[\(stepNumber)] Screenshot capture failed alongside AX tree: \(error.localizedDescription)")
-                }
+                screenshot = await screenshotPromise.value
+                log.info("[\(stepNumber)] Screenshot captured alongside AX tree (\(screenshot?.count ?? 0) bytes)")
+            } else {
+                screenshotPromise.cancel()
             }
         } else {
-            // No focused window — try screenshot as last resort
+            // No focused window — await pre-started screenshot as last resort
             log.warning("[\(stepNumber)] No AX tree available — falling back to screenshot")
-            do {
-                screenshot = try await screenCapture.captureScreen()
+            screenshot = await screenshotPromise.value
+            if screenshot != nil {
                 log.info("[\(stepNumber)] Screenshot captured (\(screenshot?.count ?? 0) bytes)")
-            } catch {
-                log.error("[\(stepNumber)] Screen capture failed: \(error.localizedDescription)")
+            } else {
+                log.error("[\(stepNumber)] Screen capture failed")
                 return nil
             }
         }
 
         // Save current AX tree for next step's context
-        let prevAXTree = previousAXTreeText
         previousAXTreeText = axTreeText
         previousElements = elements
         previousFlatElements = flatElements
@@ -428,7 +433,6 @@ final class ComputerUseSession: ObservableObject {
         return CuObservationMessage(
             sessionId: id,
             axTree: axTreeText,
-            previousAXTree: prevAXTree,
             axDiff: axDiffText,
             secondaryWindows: secondaryWindowsText,
             screenshot: screenshotBase64,
@@ -526,7 +530,7 @@ final class ComputerUseSession: ObservableObject {
 
         var elapsed = minDelayMs
         var pollCount = 0
-        let maxPollCount = 6
+        let maxPollCount = 5
 
         while elapsed < maxDelayMs && !isCancelled && pollCount < maxPollCount {
             if let result = enumerator.enumerateCurrentWindow() {

@@ -1,6 +1,8 @@
 import ScreenCaptureKit
 import AppKit
 import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
 
 enum CaptureError: LocalizedError {
     case noDisplay
@@ -63,14 +65,18 @@ final class ScreenCapture: ScreenCaptureProviding {
 
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
 
-        let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
-        guard let tiffData = nsImage.tiffRepresentation,
-              let bitmapRep = NSBitmapImageRep(data: tiffData),
-              let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.6]) else {
+        // Direct CGImage → JPEG via ImageIO (skips NSImage/TIFF intermediate)
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil) else {
+            throw CaptureError.conversionFailed
+        }
+        let options: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.6]
+        CGImageDestinationAddImage(destination, image, options as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else {
             throw CaptureError.conversionFailed
         }
 
-        return jpegData
+        return data as Data
     }
 
     /// Returns the main display size in logical points (same coordinate space as AX tree and CGEvent).

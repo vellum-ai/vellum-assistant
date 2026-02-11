@@ -106,7 +106,6 @@ exports[`IPC message snapshots ClientMessage types cu_observation serializes to 
   "axDiff": "+ new element",
   "axTree": "<ax-tree>...</ax-tree>",
   "executionResult": "click completed",
-  "previousAXTree": "<prev-ax-tree>...</prev-ax-tree>",
   "screenshot": "base64-screenshot-data",
   "secondaryWindows": "Finder, Terminal",
   "sessionId": "cu-sess-001",
