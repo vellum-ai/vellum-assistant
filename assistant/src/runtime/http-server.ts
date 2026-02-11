@@ -251,9 +251,15 @@ export class RuntimeHttpServer {
   }
 
   private async handleDeleteAttachment(assistantId: string, req: Request): Promise<Response> {
-    const body = await req.json() as {
-      attachmentId?: string;
-    };
+    let body: { attachmentId?: string };
+    try {
+      body = await req.json() as { attachmentId?: string };
+    } catch {
+      return Response.json(
+        { error: 'Invalid or missing JSON body' },
+        { status: 400 },
+      );
+    }
 
     const { attachmentId } = body;
 

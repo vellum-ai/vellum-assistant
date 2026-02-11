@@ -33,7 +33,8 @@ export function uploadAttachment(
 ): StoredAttachment {
   const db = getDb();
   const now = Date.now();
-  const sizeBytes = Math.ceil((dataBase64.length * 3) / 4);
+  const padding = dataBase64.endsWith('==') ? 2 : (dataBase64.endsWith('=') ? 1 : 0);
+  const sizeBytes = Math.max(0, Math.floor((dataBase64.length * 3) / 4) - padding);
   const kind = classifyKind(mimeType);
 
   const record = {
