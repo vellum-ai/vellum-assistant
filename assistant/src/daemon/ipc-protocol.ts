@@ -399,15 +399,40 @@ export interface AmbientResult {
   suggestion?: string;
 }
 
-export interface UiSurfaceShow {
+/** Common fields shared by all UiSurfaceShow variants. */
+interface UiSurfaceShowBase {
   type: 'ui_surface_show';
   sessionId: string;
   surfaceId: string;
-  surfaceType: SurfaceType;
   title?: string;
-  data: SurfaceData;
   actions?: SurfaceAction[];
 }
+
+export interface UiSurfaceShowCard extends UiSurfaceShowBase {
+  surfaceType: 'card';
+  data: CardSurfaceData;
+}
+
+export interface UiSurfaceShowForm extends UiSurfaceShowBase {
+  surfaceType: 'form';
+  data: FormSurfaceData;
+}
+
+export interface UiSurfaceShowList extends UiSurfaceShowBase {
+  surfaceType: 'list';
+  data: ListSurfaceData;
+}
+
+export interface UiSurfaceShowConfirmation extends UiSurfaceShowBase {
+  surfaceType: 'confirmation';
+  data: ConfirmationSurfaceData;
+}
+
+export type UiSurfaceShow =
+  | UiSurfaceShowCard
+  | UiSurfaceShowForm
+  | UiSurfaceShowList
+  | UiSurfaceShowConfirmation;
 
 export interface UiSurfaceUpdate {
   type: 'ui_surface_update';

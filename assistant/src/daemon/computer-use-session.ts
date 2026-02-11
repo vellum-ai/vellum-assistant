@@ -8,7 +8,7 @@
 
 import { v4 as uuid } from 'uuid';
 import type { Provider, Message, ContentBlock, ToolDefinition } from '../providers/types.js';
-import type { ServerMessage, CuObservation, SurfaceType, SurfaceData } from './ipc-protocol.js';
+import type { ServerMessage, CuObservation, UiSurfaceShow, SurfaceType, SurfaceData } from './ipc-protocol.js';
 import type { ToolExecutionResult } from '../tools/types.js';
 import { AgentLoop } from '../agent/loop.js';
 import { ToolExecutor } from '../tools/executor.js';
@@ -65,9 +65,7 @@ export class ComputerUseSession {
   private pendingSurfaceActions = new Map<string, {
     resolve: (result: ToolExecutionResult) => void;
   }>();
-
-  /** Tracks active surface data so ui_update can merge patches before forwarding. */
-  private activeSurfaces = new Map<string, { type: SurfaceType; data: Record<string, unknown> }>();
+  private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
 
   // Tracks the agent loop promise so callers can await session completion
   private loopPromise: Promise<void> | null = null;
@@ -156,7 +154,7 @@ export class ComputerUseSession {
       pending.resolve({ content: 'Session aborted', isError: true });
     }
     this.pendingSurfaceActions.clear();
-    this.activeSurfaces.clear();
+    this.surfaceState.clear();
 
     this.state = 'error';
     this.sendToClient({
@@ -208,25 +206,26 @@ export class ComputerUseSession {
       // ── Surface tool proxying ──────────────────────────────────────
       if (toolName === 'ui_show') {
         const surfaceId = uuid();
-        const surfaceType = input.surface_type as string;
+        const surfaceType = input.surface_type as SurfaceType;
         const title = typeof input.title === 'string' ? input.title : undefined;
-        const data = input.data as Record<string, unknown>;
+        const data = input.data as SurfaceData;
         const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
+        // Interactive surfaces (form, list, confirmation) default to awaiting user action
         const isInteractive = ['form', 'list', 'confirmation'].includes(surfaceType);
         const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
-        // Track active surface data for patch merging in ui_update
-        this.activeSurfaces.set(surfaceId, { type: surfaceType as SurfaceType, data: { ...data } });
+        // Track surface state for ui_update merging
+        this.surfaceState.set(surfaceId, { surfaceType, data });
 
         this.sendToClient({
           type: 'ui_surface_show',
           sessionId: this.sessionId,
           surfaceId,
-          surfaceType: surfaceType as SurfaceType,
+          surfaceType,
           title,
-          data: data as unknown as SurfaceData,
+          data,
           actions: actions?.map(a => ({ id: a.id, label: a.label, style: (a.style ?? 'secondary') as 'primary' | 'secondary' | 'destructive' })),
-        });
+        } as unknown as UiSurfaceShow);
 
         if (awaitAction) {
           return new Promise<ToolExecutionResult>((resolve) => {
@@ -238,18 +237,23 @@ export class ComputerUseSession {
 
       if (toolName === 'ui_update') {
         const surfaceId = input.surface_id as string;
-        const data = input.data as Record<string, unknown>;
-        // Merge the patch with existing surface data before forwarding
-        const existing = this.activeSurfaces.get(surfaceId);
-        const mergedData = { ...existing?.data, ...data };
-        if (existing) {
-          this.activeSurfaces.set(surfaceId, { type: existing.type, data: mergedData });
+        const patch = input.data as Record<string, unknown>;
+
+        // Merge the partial patch into the stored full surface data
+        const stored = this.surfaceState.get(surfaceId);
+        let mergedData: SurfaceData;
+        if (stored) {
+          mergedData = { ...stored.data, ...patch } as SurfaceData;
+          stored.data = mergedData;
+        } else {
+          mergedData = patch as unknown as SurfaceData;
         }
+
         this.sendToClient({
           type: 'ui_surface_update',
           sessionId: this.sessionId,
           surfaceId,
-          data: mergedData as Partial<SurfaceData>,
+          data: mergedData,
         });
         return { content: 'Surface updated', isError: false };
       }
@@ -262,7 +266,7 @@ export class ComputerUseSession {
           surfaceId,
         });
         this.pendingSurfaceActions.delete(surfaceId);
-        this.activeSurfaces.delete(surfaceId);
+        this.surfaceState.delete(surfaceId);
         return { content: 'Surface dismissed', isError: false };
       }
 
