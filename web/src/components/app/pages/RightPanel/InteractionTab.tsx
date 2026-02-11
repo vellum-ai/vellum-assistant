@@ -31,8 +31,6 @@ import {
 
 import { Button } from "@/components/app/core/Button";
 import {
-  buildHeuristicSuggestion,
-  extractSuggestibleAssistantText,
   shouldShowSuggestion,
 } from "@/lib/chat-suggestion";
 
@@ -257,7 +255,6 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const isWaitingForResponse = lastMessage?.role === "user";
 
   const [suggestion, setSuggestion] = useState<string | null>(null);
-  const suggestionMessageIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!shouldShowSuggestion({ input, lastRole: lastMessage?.role, isWaitingForResponse, isAlive })) {
@@ -265,18 +262,6 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
       return;
     }
 
-    const text = extractSuggestibleAssistantText(lastMessage);
-    if (!text) {
-      setSuggestion(null);
-      return;
-    }
-
-    // Set heuristic immediately as fallback
-    const heuristic = buildHeuristicSuggestion(text);
-    setSuggestion(heuristic);
-    suggestionMessageIdRef.current = lastMessage?.id ?? null;
-
-    // Try backend endpoint for potentially better suggestion
     const messageId = lastMessage?.id;
     let cancelled = false;
 
@@ -287,14 +272,15 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
       })
       .then((data) => {
         if (cancelled) return;
-        // Ignore stale responses (latest message changed since request)
         if (data.stale) return;
         if (data.suggestion && data.messageId === messageId) {
           setSuggestion(data.suggestion);
+        } else {
+          setSuggestion(null);
         }
       })
       .catch(() => {
-        // Silently fall back to heuristic (already set above)
+        setSuggestion(null);
       });
 
     return () => { cancelled = true; };

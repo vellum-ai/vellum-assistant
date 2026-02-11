@@ -8,12 +8,6 @@
 // Types
 // ---------------------------------------------------------------------------
 
-export interface SuggestionMessage {
-  role: "user" | "assistant";
-  content: string;
-  toolCalls?: { name: string; input: Record<string, unknown>; result?: string; isError?: boolean }[];
-}
-
 export interface ShouldShowSuggestionParams {
   input: string;
   lastRole: "user" | "assistant" | undefined;
@@ -37,52 +31,6 @@ export function sanitizeSuggestion(raw: string, maxLen = 200): string | null {
   const firstLine = raw.split("\n")[0].trim();
   if (firstLine.length === 0) return null;
   return firstLine.length <= maxLen ? firstLine : firstLine.slice(0, maxLen);
-}
-
-// ---------------------------------------------------------------------------
-// extractSuggestibleAssistantText
-// ---------------------------------------------------------------------------
-
-/**
- * Given the last message, extract the text portion that is suitable for
- * deriving a suggestion. Returns `null` when:
- * - The message is not from the assistant.
- * - The assistant message has no text content (e.g. tool-only).
- */
-export function extractSuggestibleAssistantText(message: SuggestionMessage): string | null {
-  if (message.role !== "assistant") return null;
-
-  const text = message.content.trim();
-  if (text.length === 0) return null;
-
-  return text;
-}
-
-// ---------------------------------------------------------------------------
-// buildHeuristicSuggestion
-// ---------------------------------------------------------------------------
-
-const QUESTION_RE = /\?[\s"'`)*\]]*$/;
-
-/**
- * Build a short heuristic follow-up suggestion from the assistant's last text.
- *
- * Strategy (v1 — intentionally simple):
- * 1. If the text ends with a question → "Yes"
- * 2. Otherwise → "Tell me more"
- */
-export function buildHeuristicSuggestion(lastAssistantText: string): string | null {
-  const sanitized = sanitizeSuggestion(lastAssistantText);
-  if (!sanitized) return null;
-
-  // Use the full (non-sanitized) text for question detection since the
-  // question mark may be beyond the truncation boundary.
-  const trimmed = lastAssistantText.trim();
-  if (QUESTION_RE.test(trimmed)) {
-    return "Yes";
-  }
-
-  return "Tell me more";
 }
 
 // ---------------------------------------------------------------------------
