@@ -461,10 +461,266 @@ class BrowserTypeTool implements Tool {
 
 registerTool(new BrowserTypeTool());
 
+// ── browser_press_key ────────────────────────────────────────────────
+
+async function executeBrowserPressKey(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const key = typeof input.key === 'string' ? input.key : '';
+  if (!key) {
+    return { content: 'Error: key is required.', isError: true };
+  }
+
+  try {
+    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+
+    // If element_id or selector is provided, press key on that element
+    const elementId = typeof input.element_id === 'string' ? input.element_id : null;
+    const rawSelector = typeof input.selector === 'string' ? input.selector : null;
+
+    if (elementId || rawSelector) {
+      const { selector, error } = resolveSelector(context.sessionId, input);
+      if (error) return { content: error, isError: true };
+      await page.press(selector!, key);
+      return { content: `Pressed "${key}" on element: ${selector}`, isError: false };
+    }
+
+    // No target → press key on the page (focused element)
+    await page.keyboard.press(key);
+    return { content: `Pressed "${key}"`, isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err, key }, 'Press key failed');
+    return { content: `Error: Press key failed: ${msg}`, isError: true };
+  }
+}
+
+class BrowserPressKeyTool implements Tool {
+  name = 'browser_press_key';
+  description = 'Press a keyboard key, optionally targeting a specific element. Use for Enter, Escape, Tab, arrow keys, etc.';
+  category = 'browser';
+  defaultRiskLevel = RiskLevel.Medium;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          key: {
+            type: 'string',
+            description: 'The key to press (e.g. "Enter", "Escape", "Tab", "ArrowDown", "a").',
+          },
+          element_id: {
+            type: 'string',
+            description: 'Optional element ID from browser_snapshot to target.',
+          },
+          selector: {
+            type: 'string',
+            description: 'Optional CSS selector to target.',
+          },
+        },
+        required: ['key'],
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeBrowserPressKey(input, context);
+  }
+}
+
+registerTool(new BrowserPressKeyTool());
+
+// ── browser_wait_for ─────────────────────────────────────────────────
+
+const MAX_WAIT_MS = 30_000;
+
+async function executeBrowserWaitFor(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const selector = typeof input.selector === 'string' ? input.selector : null;
+  const text = typeof input.text === 'string' ? input.text : null;
+  const duration = typeof input.duration === 'number' ? input.duration : null;
+
+  const modeCount = [selector, text, duration].filter((v) => v !== null).length;
+  if (modeCount === 0) {
+    return { content: 'Error: Exactly one of selector, text, or duration is required.', isError: true };
+  }
+  if (modeCount > 1) {
+    return { content: 'Error: Provide exactly one of selector, text, or duration (not multiple).', isError: true };
+  }
+
+  const timeout = typeof input.timeout === 'number'
+    ? Math.min(input.timeout, MAX_WAIT_MS)
+    : MAX_WAIT_MS;
+
+  try {
+    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+
+    if (selector) {
+      await page.waitForSelector(selector, { timeout });
+      return { content: `Element matching "${selector}" appeared.`, isError: false };
+    }
+
+    if (text) {
+      const escaped = JSON.stringify(text);
+      await page.waitForFunction(
+        `document.body?.innerText?.includes(${escaped})`,
+        { timeout },
+      );
+      return { content: `Text "${text.slice(0, 80)}" appeared on page.`, isError: false };
+    }
+
+    // duration mode (milliseconds)
+    const waitMs = Math.min(duration!, MAX_WAIT_MS);
+    await new Promise((r) => setTimeout(r, waitMs));
+    return { content: `Waited ${waitMs}ms.`, isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Wait failed');
+    return { content: `Error: Wait failed: ${msg}`, isError: true };
+  }
+}
+
+class BrowserWaitForTool implements Tool {
+  name = 'browser_wait_for';
+  description = 'Wait for a condition: a CSS selector to appear, text to appear on the page, or a fixed duration in milliseconds. Provide exactly one mode.';
+  category = 'browser';
+  defaultRiskLevel = RiskLevel.Low;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          selector: {
+            type: 'string',
+            description: 'Wait for an element matching this CSS selector to appear.',
+          },
+          text: {
+            type: 'string',
+            description: 'Wait for this text to appear on the page.',
+          },
+          duration: {
+            type: 'number',
+            description: 'Wait for this many milliseconds.',
+          },
+          timeout: {
+            type: 'number',
+            description: 'Maximum wait time in milliseconds (default and max: 30000).',
+          },
+        },
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeBrowserWaitFor(input, context);
+  }
+}
+
+registerTool(new BrowserWaitForTool());
+
+// ── browser_extract ──────────────────────────────────────────────────
+
+const MAX_EXTRACT_LENGTH = 50_000;
+
+async function executeBrowserExtract(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const includeLinks = input.include_links === true;
+
+  try {
+    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const currentUrl = page.url();
+    const title = await page.title();
+
+    let textContent = (await page.evaluate(
+      `document.body?.innerText ?? ''`,
+    )) as string;
+
+    if (textContent.length > MAX_EXTRACT_LENGTH) {
+      textContent = textContent.slice(0, MAX_EXTRACT_LENGTH) + '\n... (truncated)';
+    }
+
+    const lines: string[] = [
+      `URL: ${currentUrl}`,
+      `Title: ${title || '(none)'}`,
+      '',
+      textContent || '(empty page)',
+    ];
+
+    if (includeLinks) {
+      const links = (await page.evaluate(`
+        (() => {
+          const anchors = Array.from(document.querySelectorAll('a[href]'));
+          return anchors.slice(0, 200).map(a => ({
+            text: (a.textContent || '').trim().slice(0, 80),
+            href: a.href,
+          }));
+        })()
+      `)) as Array<{ text: string; href: string }>;
+
+      if (links.length > 0) {
+        lines.push('');
+        lines.push('Links:');
+        for (const link of links) {
+          lines.push(`  [${link.text || '(no text)'}](${link.href})`);
+        }
+      }
+    }
+
+    return { content: lines.join('\n'), isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Extract failed');
+    return { content: `Error: Extract failed: ${msg}`, isError: true };
+  }
+}
+
+class BrowserExtractTool implements Tool {
+  name = 'browser_extract';
+  description = 'Extract the text content of the current page. Optionally include links. Output is capped to prevent excessive token usage.';
+  category = 'browser';
+  defaultRiskLevel = RiskLevel.Low;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          include_links: {
+            type: 'boolean',
+            description: 'If true, include a list of links found on the page (up to 200).',
+          },
+        },
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeBrowserExtract(input, context);
+  }
+}
+
+registerTool(new BrowserExtractTool());
+
 export {
   executeBrowserNavigate,
   executeBrowserSnapshot,
   executeBrowserClose,
   executeBrowserClick,
   executeBrowserType,
+  executeBrowserPressKey,
+  executeBrowserWaitFor,
+  executeBrowserExtract,
 };

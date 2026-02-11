@@ -26,6 +26,9 @@ function createMockPage(closed = false) {
     click: async () => {},
     fill: async () => {},
     press: async () => {},
+    waitForSelector: async () => null,
+    waitForFunction: async () => null,
+    keyboard: { press: async () => {} },
   };
 }
 

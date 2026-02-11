@@ -79,6 +79,14 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         return `Clicking ${String(input.element_id ?? input.selector ?? '').slice(0, 60)}...`;
       case 'browser_type':
         return `Typing into ${String(input.element_id ?? input.selector ?? '').slice(0, 60)}...`;
+      case 'browser_press_key':
+        return `Pressing "${String(input.key ?? '')}"...`;
+      case 'browser_wait_for':
+        if (input.selector) return `Waiting for ${String(input.selector).slice(0, 60)}...`;
+        if (input.text) return `Waiting for text "${String(input.text).slice(0, 40)}"...`;
+        return `Waiting ${input.duration ?? 0}ms...`;
+      case 'browser_extract':
+        return 'Extracting page content...';
       default:
         return `Running ${toolName}...`;
     }
@@ -126,6 +134,9 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
     if (req.toolName === 'browser_type') {
       return `type into ${req.input.element_id ?? req.input.selector ?? ''}`;
+    }
+    if (req.toolName === 'browser_press_key') {
+      return `press "${req.input.key ?? ''}"`;
     }
     return `${req.toolName}: ${JSON.stringify(req.input).slice(0, 80)}`;
   }
