@@ -31,7 +31,7 @@ Everything after stripping flags is the **feature description**.
 source .private/project-config.env
 ```
 
-This provides: `GH_PROJECT_ID`, `GH_STATUS_FIELD_ID`, `GH_STATUS_TRIAGE_ID`, `GH_STATUS_READY_ID`, `GH_STATUS_IN_PROGRESS_ID`, `GH_STATUS_IN_REVIEW_ID`, `GH_STATUS_DONE_ID`.
+This provides: `GH_PROJECT_NUMBER`, `GH_PROJECT_OWNER`, `GH_PROJECT_ID`, `GH_STATUS_FIELD_ID`, `GH_STATUS_TRIAGE_ID`, `GH_STATUS_READY_ID`, `GH_STATUS_IN_PROGRESS_ID`, `GH_STATUS_IN_REVIEW_ID`, `GH_STATUS_DONE_ID`.
 
 2. If `.private/project-config.env` doesn't exist, create the project and config:
 
@@ -53,13 +53,17 @@ gh api graphql -f query='mutation {
 }'
 ```
 
-Then query the field and option IDs and write them to `.private/project-config.env` in the same format shown above.
+Then query the field and option IDs and write them to `.private/project-config.env` in the same format shown above. Include `GH_PROJECT_NUMBER` (the human-readable number from the project URL).
 
 ## Phase 2: Plan & Spec
 
-**Skip this phase entirely if `--skip-plan` was passed.** Instead, fetch existing "Ready" issues from the project board and use those as the milestones.
+**If `--skip-plan` was passed**, skip issue creation. Instead:
 
-Otherwise:
+1. Fetch existing "Ready" issues from the project board and use those as the milestones.
+2. Identify the project-level issue (the epic). Look for an open issue in "In Progress" status that references milestones, or ask the user to provide the project issue number. This is required — Phase 6 needs it to close out the project.
+3. Proceed to Phase 3 with the fetched milestones.
+
+**Otherwise:**
 
 1. Analyze the feature description with extended thinking. Consider:
    - What the feature requires architecturally
@@ -161,7 +165,7 @@ gh api graphql -f query='mutation {
 Read and follow the instructions in `scripts/commands/swarm.md` with these modifications:
 
 - Pass the `--workers` count (or default 3) as the first argument.
-- **After each task completes and its PR merges**, update the corresponding GitHub issue:
+- **After each milestone task completes and its PR merges**, update the corresponding GitHub issue. Skip this for non-milestone tasks (e.g., "Address the feedback on ..." items from Phase 5 — those are PR-based and have no associated milestone issue):
   1. Set the project board status to "Done":
 
 ```bash
@@ -221,10 +225,10 @@ gh issue close <issue-number>
 gh issue close <project-issue-number>
 ```
 
-3. Get the project board URL:
+3. Get the project board URL using the persisted project number:
 
 ```bash
-gh project view <project-number> --owner "@me" --format json | jq -r '.url'
+gh project view "$GH_PROJECT_NUMBER" --owner "$GH_PROJECT_OWNER" --format json | jq -r '.url'
 ```
 
 4. Print a final summary:
