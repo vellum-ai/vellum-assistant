@@ -184,6 +184,19 @@ describe('abort tool result persistence', () => {
     // Both tu_1 and tu_2 must be persisted
     expect(persistedToolUseIds.has('tu_1')).toBe(true);
     expect(persistedToolUseIds.has('tu_2')).toBe(true);
+
+    // No tool_use_id should appear more than once (no duplicates)
+    const allToolUseIds: string[] = [];
+    for (const msg of toolResultUserMessages) {
+      const content = JSON.parse(msg.content) as Array<Record<string, unknown>>;
+      for (const block of content) {
+        if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+          allToolUseIds.push(block.tool_use_id);
+        }
+      }
+    }
+    const uniqueIds = new Set(allToolUseIds);
+    expect(allToolUseIds.length).toBe(uniqueIds.size);
   });
 
   test('restart/reload after abort does not reproduce provider ordering errors', async () => {

@@ -256,6 +256,7 @@ export class Session {
       let model = '';
       let runMessages = this.messages;
       const pendingToolResults = new Map<string, { content: string; isError: boolean }>();
+      const persistedToolUseIds = new Set<string>();
       const runtimeConfig = getConfig();
       const recallQuery = buildMemoryQuery(content, this.messages);
       const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig, {
@@ -344,6 +345,9 @@ export class Session {
                 'user',
                 JSON.stringify(toolResultBlocks),
               );
+              for (const id of pendingToolResults.keys()) {
+                persistedToolUseIds.add(id);
+              }
               pendingToolResults.clear();
             }
             // Save assistant message to DB
@@ -396,7 +400,7 @@ export class Session {
         const msg = updatedHistory[i];
         if (msg.role === 'user') {
           for (const block of msg.content) {
-            if (block.type === 'tool_result' && !pendingToolResults.has(block.tool_use_id)) {
+            if (block.type === 'tool_result' && !pendingToolResults.has(block.tool_use_id) && !persistedToolUseIds.has(block.tool_use_id)) {
               pendingToolResults.set(block.tool_use_id, {
                 content: block.content,
                 isError: block.is_error ?? false,
