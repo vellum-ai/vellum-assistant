@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Message, ContentBlock } from '../providers/types.js';
 import type { ServerMessage, UsageStats, UserMessageAttachment } from './ipc-protocol.js';
-import { repairHistory } from './history-repair.js';
+import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
 import { createUserMessage } from '../agent/message-types.js';
@@ -308,6 +308,7 @@ export class Session {
       }
 
       let orderingErrorDetected = false;
+      let deferredOrderingError: string | null = null;
       const preRunHistoryLength = runMessages.length;
 
       const buildEventHandler = () => (event: import('../agent/loop.js').AgentEvent) => {
@@ -332,8 +333,11 @@ export class Session {
           case 'error':
             if (isProviderOrderingError(event.error.message)) {
               orderingErrorDetected = true;
+              // Defer the error event — only forward if retry also fails
+              deferredOrderingError = event.error.message;
+            } else {
+              onEvent({ type: 'error', message: event.error.message });
             }
-            onEvent({ type: 'error', message: event.error.message });
             break;
           case 'message_complete': {
             // Save pending tool results as a user message before the next assistant message.
@@ -380,13 +384,15 @@ export class Session {
       );
 
       // One-shot self-heal retry: if the provider returned a strict ordering
-      // error and no messages were appended (error on first call), repair
-      // the history and retry exactly once.
+      // error and no messages were appended (error on first call), apply a
+      // deep repair (handles additional edge cases like consecutive same-role
+      // messages) and retry exactly once.
       if (orderingErrorDetected && updatedHistory.length === preRunHistoryLength) {
-        log.warn({ conversationId: this.conversationId, phase: 'retry' }, 'Provider ordering error detected, attempting one-shot repair retry');
-        const retryRepair = repairHistory(runMessages);
+        log.warn({ conversationId: this.conversationId, phase: 'retry' }, 'Provider ordering error detected, attempting one-shot deep-repair retry');
+        const retryRepair = deepRepairHistory(runMessages);
         runMessages = retryRepair.messages;
         orderingErrorDetected = false;
+        deferredOrderingError = null;
 
         updatedHistory = await this.agentLoop.run(
           runMessages,
@@ -395,8 +401,13 @@ export class Session {
         );
 
         if (orderingErrorDetected) {
-          log.error({ conversationId: this.conversationId, phase: 'retry' }, 'Repair retry also failed with ordering error');
+          log.error({ conversationId: this.conversationId, phase: 'retry' }, 'Deep-repair retry also failed with ordering error');
         }
+      }
+
+      // Forward the deferred ordering error to the client if retry failed or was not attempted
+      if (deferredOrderingError) {
+        onEvent({ type: 'error', message: deferredOrderingError });
       }
 
       // Reconcile synthesized cancellation tool_results from history tail.

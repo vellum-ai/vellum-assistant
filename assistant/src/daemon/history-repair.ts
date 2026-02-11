@@ -155,6 +155,37 @@ function buildResultMessage(
   };
 }
 
+/**
+ * Aggressive repair pass that handles edge cases beyond repairHistory:
+ * - Merges consecutive same-role messages
+ * - Ensures the first message is from the user
+ * - Removes empty messages
+ * Then applies the standard repairHistory on top.
+ */
+export function deepRepairHistory(messages: Message[]): RepairResult {
+  // 1. Remove messages with no content blocks
+  let cleaned = messages.filter((m) => m.content.length > 0);
+
+  // 2. Strip leading assistant messages (provider requires user-first)
+  while (cleaned.length > 0 && cleaned[0].role === 'assistant') {
+    cleaned = cleaned.slice(1);
+  }
+
+  // 3. Merge consecutive same-role messages
+  const merged: Message[] = [];
+  for (const msg of cleaned) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.role === msg.role) {
+      prev.content = [...prev.content, ...msg.content];
+    } else {
+      merged.push({ role: msg.role, content: [...msg.content] });
+    }
+  }
+
+  // 4. Apply standard tool-use/tool-result repair on top
+  return repairHistory(merged);
+}
+
 function downgradeToolResult(tr: ToolResultContent): ContentBlock {
   return {
     type: 'text',
