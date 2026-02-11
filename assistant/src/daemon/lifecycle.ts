@@ -190,6 +190,7 @@ export async function runDaemon(): Promise<void> {
           server.processMessage(assistantId, conversationId, content, attachmentIds, options),
         persistAndProcessMessage: (assistantId, conversationId, content, attachmentIds) =>
           server.persistAndProcessMessage(assistantId, conversationId, content, attachmentIds),
+        runOrchestrator: server.createRunOrchestrator(),
       });
       try {
         await runtimeHttp.start();

@@ -16,6 +16,7 @@ import * as attachmentsStore from '../memory/attachments-store.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import { renderHistoryContent, mergeToolResults } from '../daemon/handlers.js';
 import { getConfig } from '../config/loader.js';
+import type { RunOrchestrator } from './run-orchestrator.js';
 
 const log = getLogger('runtime-http');
 
@@ -46,6 +47,8 @@ export interface RuntimeHttpServerOptions {
   processMessage?: MessageProcessor;
   /** Non-blocking processor for POST /messages (persists + fires agent loop). */
   persistAndProcessMessage?: NonBlockingMessageProcessor;
+  /** Run orchestrator for the approval-flow run endpoints. */
+  runOrchestrator?: RunOrchestrator;
 }
 
 interface RuntimeMessagePayload {
@@ -64,6 +67,7 @@ export class RuntimeHttpServer {
   private port: number;
   private processMessage?: MessageProcessor;
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
+  private runOrchestrator?: RunOrchestrator;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
 
@@ -71,6 +75,7 @@ export class RuntimeHttpServer {
     this.port = options.port ?? DEFAULT_PORT;
     this.processMessage = options.processMessage;
     this.persistAndProcessMessage = options.persistAndProcessMessage;
+    this.runOrchestrator = options.runOrchestrator;
   }
 
   async start(): Promise<void> {
@@ -126,6 +131,22 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'suggestion' && req.method === 'GET') {
         return await this.handleGetSuggestion(assistantId, url);
+      }
+
+      if (endpoint === 'runs' && req.method === 'POST') {
+        return await this.handleCreateRun(assistantId, req);
+      }
+
+      // Match runs/:runId and runs/:runId/decision
+      const runsMatch = endpoint.match(/^runs\/([^/]+)(\/decision)?$/);
+      if (runsMatch) {
+        const runId = runsMatch[1];
+        if (runsMatch[2] === '/decision' && req.method === 'POST') {
+          return await this.handleRunDecision(assistantId, runId, req);
+        }
+        if (req.method === 'GET') {
+          return this.handleGetRun(assistantId, runId);
+        }
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
@@ -394,6 +415,123 @@ export class RuntimeHttpServer {
       throw err;
     }
   }
+
+  // ── Run endpoints ────────────────────────────────────────────────────
+
+  private async handleCreateRun(assistantId: string, req: Request): Promise<Response> {
+    if (!this.runOrchestrator) {
+      return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
+    }
+
+    const body = await req.json() as {
+      conversationKey?: string;
+      content?: string;
+      attachmentIds?: string[];
+    };
+
+    const { conversationKey, content, attachmentIds } = body;
+
+    if (!conversationKey) {
+      return Response.json({ error: 'conversationKey is required' }, { status: 400 });
+    }
+
+    if (content !== undefined && content !== null && typeof content !== 'string') {
+      return Response.json({ error: 'content must be a string' }, { status: 400 });
+    }
+
+    const trimmedContent = typeof content === 'string' ? content.trim() : '';
+    const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
+
+    if (trimmedContent.length === 0 && !hasAttachments) {
+      return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
+    }
+
+    if (hasAttachments) {
+      const resolved = attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds);
+      if (resolved.length !== attachmentIds.length) {
+        const resolvedIds = new Set(resolved.map((a) => a.id));
+        const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
+        return Response.json(
+          { error: `Attachment IDs not found: ${missing.join(', ')}` },
+          { status: 400 },
+        );
+      }
+    }
+
+    const mapping = getOrCreateConversation(assistantId, conversationKey);
+
+    try {
+      const run = await this.runOrchestrator.startRun(
+        assistantId,
+        mapping.conversationId,
+        content ?? '',
+        hasAttachments ? attachmentIds : undefined,
+      );
+      return Response.json({
+        id: run.id,
+        status: run.status,
+        messageId: run.messageId,
+        createdAt: new Date(run.createdAt).toISOString(),
+      }, { status: 201 });
+    } catch (err) {
+      if (err instanceof Error && err.message === 'Session is already processing a message') {
+        return Response.json(
+          { error: 'Session is busy processing another message. Please retry.' },
+          { status: 409 },
+        );
+      }
+      throw err;
+    }
+  }
+
+  private handleGetRun(_assistantId: string, runId: string): Response {
+    if (!this.runOrchestrator) {
+      return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
+    }
+
+    const run = this.runOrchestrator.getRun(runId);
+    if (!run) {
+      return Response.json({ error: 'Run not found' }, { status: 404 });
+    }
+
+    return Response.json({
+      id: run.id,
+      status: run.status,
+      messageId: run.messageId,
+      pendingConfirmation: run.pendingConfirmation,
+      error: run.error,
+      createdAt: new Date(run.createdAt).toISOString(),
+      updatedAt: new Date(run.updatedAt).toISOString(),
+    });
+  }
+
+  private async handleRunDecision(_assistantId: string, runId: string, req: Request): Promise<Response> {
+    if (!this.runOrchestrator) {
+      return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
+    }
+
+    const body = await req.json() as { decision?: string };
+    const { decision } = body;
+
+    if (decision !== 'allow' && decision !== 'deny') {
+      return Response.json(
+        { error: 'decision must be "allow" or "deny"' },
+        { status: 400 },
+      );
+    }
+
+    const applied = this.runOrchestrator.submitDecision(runId, decision);
+    if (!applied) {
+      return Response.json(
+        { error: 'No pending confirmation for this run' },
+        { status: 409 },
+      );
+    }
+
+    return Response.json({ accepted: true });
+  }
+
+  // ── Attachment endpoints ────────────────────────────────────────────
 
   private async handleUploadAttachment(assistantId: string, req: Request): Promise<Response> {
     const body = await req.json() as {

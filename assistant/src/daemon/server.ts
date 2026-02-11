@@ -21,6 +21,7 @@ import {
   type ServerMessage,
 } from './ipc-protocol.js';
 import { handleMessage, type HandlerContext } from './handlers.js';
+import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 
 const log = getLogger('server');
 
@@ -534,6 +535,23 @@ export class DaemonServer {
     }
 
     return { messageId };
+  }
+
+  /**
+   * Create a RunOrchestrator wired to this server's session management.
+   */
+  createRunOrchestrator(): RunOrchestrator {
+    return new RunOrchestrator({
+      getOrCreateSession: (conversationId) =>
+        this.getOrCreateSession(conversationId),
+      resolveAttachments: (assistantId, attachmentIds) =>
+        attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds).map((a) => ({
+          id: a.id,
+          filename: a.originalFilename,
+          mimeType: a.mimeType,
+          data: a.dataBase64,
+        })),
+    });
   }
 
 }
