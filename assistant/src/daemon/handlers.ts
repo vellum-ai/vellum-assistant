@@ -505,10 +505,18 @@ function handleCuSessionCreate(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  // Abort any existing session with the same ID to prevent zombies
+  // Abort any existing session with the same ID to prevent zombies,
+  // and remove it from the previous owner's socket set so disconnect
+  // cleanup doesn't accidentally abort the replacement session.
   const existingSession = ctx.cuSessions.get(msg.sessionId);
   if (existingSession) {
     existingSession.abort();
+    for (const [otherSocket, ids] of ctx.socketToCuSession) {
+      if (ids.delete(msg.sessionId)) {
+        if (ids.size === 0) ctx.socketToCuSession.delete(otherSocket);
+        break;
+      }
+    }
   }
 
   const config = getConfig();
