@@ -122,7 +122,7 @@ export interface AmbientObservation {
 
 // === Surface types ===
 
-export type SurfaceType = 'card' | 'form' | 'list' | 'confirmation';
+export type SurfaceType = 'card' | 'form' | 'list' | 'confirmation' | 'dynamic_page';
 
 export interface SurfaceAction {
   id: string;
@@ -174,7 +174,13 @@ export interface ConfirmationSurfaceData {
   destructive?: boolean;
 }
 
-export type SurfaceData = CardSurfaceData | FormSurfaceData | ListSurfaceData | ConfirmationSurfaceData;
+export interface DynamicPageSurfaceData {
+  html: string;
+  width?: number;
+  height?: number;
+}
+
+export type SurfaceData = CardSurfaceData | FormSurfaceData | ListSurfaceData | ConfirmationSurfaceData | DynamicPageSurfaceData;
 
 export interface UiSurfaceAction {
   type: 'ui_surface_action';
@@ -428,11 +434,17 @@ export interface UiSurfaceShowConfirmation extends UiSurfaceShowBase {
   data: ConfirmationSurfaceData;
 }
 
+export interface UiSurfaceShowDynamicPage extends UiSurfaceShowBase {
+  surfaceType: 'dynamic_page';
+  data: DynamicPageSurfaceData;
+}
+
 export type UiSurfaceShow =
   | UiSurfaceShowCard
   | UiSurfaceShowForm
   | UiSurfaceShowList
-  | UiSurfaceShowConfirmation;
+  | UiSurfaceShowConfirmation
+  | UiSurfaceShowDynamicPage;
 
 export interface UiSurfaceUpdate {
   type: 'ui_surface_update';
