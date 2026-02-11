@@ -162,6 +162,7 @@ struct CuCompleteMessage: Decodable, Sendable {
     let sessionId: String
     let summary: String
     let stepCount: Int
+    let isResponse: Bool?
 }
 
 /// Session-level error from the server.

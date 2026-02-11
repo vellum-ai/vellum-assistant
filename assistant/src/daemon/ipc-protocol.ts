@@ -301,6 +301,7 @@ export interface CuComplete {
   sessionId: string;
   summary: string;
   stepCount: number;
+  isResponse?: boolean;
 }
 
 export interface CuError {

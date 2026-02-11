@@ -185,6 +185,7 @@ export class ComputerUseSession {
           sessionId: this.sessionId,
           summary,
           stepCount: this.stepCount,
+          isResponse: toolName === 'cu_respond' ? true : undefined,
         });
         this.state = 'complete';
         return { content: 'Session complete', isError: false };
