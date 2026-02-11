@@ -30,6 +30,7 @@ mock.module('../tools/browser/browser-manager.js', () => {
   return {
     browserManager: {
       getOrCreateSessionPage: getOrCreateSessionPageMock,
+      clearSnapshotMap: mock(() => {}),
     },
   };
 });
@@ -174,5 +175,36 @@ describe('executeBrowserNavigate', () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Navigation failed');
     expect(result.content).toContain('ERR_CONNECTION_REFUSED');
+  });
+
+  test('returns security message when route handler blocks a redirect and goto throws', async () => {
+    parseUrlResult = new URL('https://public.example.com');
+    isPrivateResult = false;
+
+    // Capture the route handler when page.route is called
+    let capturedHandler: ((route: unknown, request: unknown) => Promise<void>) | null = null;
+    mockPage.route = mock(async (_pattern: string, handler: (route: unknown, request: unknown) => Promise<void>) => {
+      capturedHandler = handler;
+    });
+
+    // Make goto invoke the captured handler with a private redirect target, then throw
+    mockPage.goto = mock(async () => {
+      if (capturedHandler) {
+        // Temporarily make isPrivateOrLocalHost return true for the redirect target
+        isPrivateResult = true;
+        const mockRoute = { abort: mock(async () => {}), continue: mock(async () => {}) };
+        const mockRequest = { url: () => 'http://169.254.169.254/metadata' };
+        await capturedHandler(mockRoute, mockRequest);
+        isPrivateResult = false;
+      }
+      throw new Error('net::ERR_BLOCKED_BY_CLIENT');
+    });
+
+    const result = await executeBrowserNavigate({ url: 'https://public.example.com' }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Navigation blocked');
+    expect(result.content).toContain('allow_private_network=true');
+    // Should NOT contain the raw Playwright error
+    expect(result.content).not.toContain('ERR_BLOCKED_BY_CLIENT');
   });
 });

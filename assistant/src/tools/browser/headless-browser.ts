@@ -56,6 +56,7 @@ async function executeBrowserNavigate(
   }
 
   let routeHandler: RouteHandler | null = null;
+  let blockedUrl: string | null = null;
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
@@ -64,7 +65,6 @@ async function executeBrowserNavigate(
     // Install request interception to block redirects/sub-requests to private networks.
     // This prevents SSRF bypass via server-side redirects and DNS rebinding attacks,
     // since Playwright follows redirects internally and performs its own DNS resolution.
-    let blockedUrl: string | null = null;
     if (!allowPrivateNetwork) {
       routeHandler = async (route, request) => {
         const reqUrl = request.url();
@@ -151,6 +151,17 @@ async function executeBrowserNavigate(
         await page.unroute('**/*', routeHandler);
       } catch { /* ignore cleanup errors */ }
     }
+
+    // If the route handler blocked a redirect to a private network address,
+    // page.goto() throws. Return the clear security message instead of the
+    // raw Playwright error (which could leak credentials from the URL).
+    if (blockedUrl) {
+      return {
+        content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
+        isError: true,
+      };
+    }
+
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, url: safeRequestedUrl }, 'Navigation failed');
     return { content: `Error: Navigation failed: ${msg}`, isError: true };
