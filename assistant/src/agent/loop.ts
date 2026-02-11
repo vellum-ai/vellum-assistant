@@ -6,7 +6,7 @@ const log = getLogger('agent-loop');
 export interface AgentLoopConfig {
   maxTokens: number;
   thinking?: { enabled: boolean; budgetTokens: number };
-  toolChoice?: { type: 'auto' | 'any' | 'tool'; name?: string };
+  toolChoice?: { type: 'auto' } | { type: 'any' } | { type: 'tool'; name: string };
 }
 
 export type AgentEvent =
