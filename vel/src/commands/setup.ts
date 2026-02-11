@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync, readlinkSync, symlinkSync, unlinkSync } from 'fs';
 import { dirname, join } from 'path';
 
 import { exec, execOutput, runSteps } from '../lib/step-runner';
@@ -40,6 +40,31 @@ export async function setup(): Promise<void> {
         }
 
         await exec('docker', ['compose', 'down'], { cwd: legacyDir });
+      },
+    },
+    {
+      name: 'Symlinking AGENTS.md → CLAUDE.md',
+      run: async () => {
+        const agentsMd = join(repoRoot, 'AGENTS.md');
+        const claudeMd = join(repoRoot, 'CLAUDE.md');
+
+        if (existsSync(claudeMd)) {
+          try {
+            const target = readlinkSync(claudeMd);
+            if (target === 'AGENTS.md') {
+              return; // Already correctly symlinked
+            }
+          } catch {
+            // Not a symlink — remove the regular file so we can create the link
+          }
+          unlinkSync(claudeMd);
+        }
+
+        if (!existsSync(agentsMd)) {
+          throw new Error('AGENTS.md not found at repo root');
+        }
+
+        symlinkSync('AGENTS.md', claudeMd);
       },
     },
     {

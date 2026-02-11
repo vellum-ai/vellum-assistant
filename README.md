@@ -124,6 +124,44 @@ VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock open -a vellum-assistant
 
 Run `vellum doctor` for a full diagnostic check including socket path and autostart policy.
 
+## Claude Code Workflow
+
+This repo includes Claude Code slash commands (in `.claude/commands/`) for agent-driven development.
+
+### Single-task commands
+
+| Command | Purpose |
+|---------|---------|
+| `/do <description>` | Implement a change in an isolated worktree, create a PR, squash-merge it to main, and clean up. |
+| `/mainline` | Ship uncommitted changes already in your working tree to main via a squash-merged PR. |
+| `/work` | Pick up the next task from `.private/TODO.md` (or a task you specify), implement it, PR it, and merge it. |
+
+### Multi-task / parallel commands
+
+| Command | Purpose |
+|---------|---------|
+| `/brainstorm` | Deep-read the codebase, generate a prioritized list of improvements, and update `.private/TODO.md` after approval. |
+| `/swarm [workers] [max-tasks]` | Parallel execution — spawns a pool of agents (default 3) that work through `.private/TODO.md` concurrently, each in its own worktree. |
+| `/blitz <feature>` | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, sweeps for review feedback, addresses it, and reports. |
+| `/execute-plan <file>` | Sequential multi-PR rollout — reads a plan file from `.private/plans/`, executes each PR in order, mainlining each before moving to the next. |
+
+### Review
+
+| Command | Purpose |
+|---------|---------|
+| `/check-reviews` | Checks for review feedback on unreviewed PRs and creates follow-up tasks. |
+
+### Typical flow
+
+1. **`/brainstorm`** — generate ideas, approve them into `TODO.md`
+2. **`/swarm`** — burn through the TODO list in parallel
+3. **`/check-reviews`** — sweep for reviewer feedback
+4. **`/swarm`** again — address the feedback
+
+Or for a focused feature: **`/blitz <feature>`** handles all of the above in one shot (plan, issues, swarm, sweep, report).
+
+All workflows use squash-merge (no merge commits), worktree isolation for parallel work, and track state in `.private/TODO.md`, `.private/DONE.md`, and `.private/UNREVIEWED_PRS.md`.
+
 ## License
 
 Proprietary - Vellum AI
