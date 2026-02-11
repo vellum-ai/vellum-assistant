@@ -135,7 +135,17 @@ ITEM_ID=$(gh api graphql -f query='mutation {
 # Get the issue node ID first:
 # gh api repos/vellum-ai/vellum-assistant/issues/<number> --jq '.node_id'
 
-# Set status (use GH_STATUS_IN_PROGRESS_ID for project issue, GH_STATUS_READY_ID for milestones)
+# Set status — use GH_STATUS_IN_PROGRESS_ID for the project-level (epic) issue:
+gh api graphql -f query='mutation {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: "'"$GH_PROJECT_ID"'"
+    itemId: "'"$ITEM_ID"'"
+    fieldId: "'"$GH_STATUS_FIELD_ID"'"
+    value: {singleSelectOptionId: "'"$GH_STATUS_IN_PROGRESS_ID"'"}
+  }) { projectV2Item { id } }
+}'
+
+# Set status — use GH_STATUS_READY_ID for milestone issues:
 gh api graphql -f query='mutation {
   updateProjectV2ItemFieldValue(input: {
     projectId: "'"$GH_PROJECT_ID"'"
@@ -175,19 +185,33 @@ Read and follow the instructions in `scripts/commands/swarm.md` with these modif
   1. Set the project board status to "Done":
 
 ```bash
-# Get the item ID for this issue on the project board
-ITEM_ID=$(gh api graphql -f query='{
-  node(id: "'"$GH_PROJECT_ID"'") {
-    ... on ProjectV2 {
-      items(first: 100) {
-        nodes {
-          id
-          content { ... on Issue { number } }
+# Get the item ID for this issue on the project board (paginated to handle >100 items)
+ITEM_ID=""
+CURSOR=""
+while [ -z "$ITEM_ID" ]; do
+  if [ -z "$CURSOR" ]; then
+    AFTER_ARG=""
+  else
+    AFTER_ARG=", after: \"$CURSOR\""
+  fi
+  RESULT=$(gh api graphql -f query='{
+    node(id: "'"$GH_PROJECT_ID"'") {
+      ... on ProjectV2 {
+        items(first: 100'"$AFTER_ARG"') {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            id
+            content { ... on Issue { number } }
+          }
         }
       }
     }
-  }
-}' --jq '.data.node.items.nodes[] | select(.content.number == <issue-number>) | .id')
+  }')
+  ITEM_ID=$(echo "$RESULT" | jq -r '.data.node.items.nodes[] | select(.content.number == <issue-number>) | .id')
+  HAS_NEXT=$(echo "$RESULT" | jq -r '.data.node.items.pageInfo.hasNextPage')
+  CURSOR=$(echo "$RESULT" | jq -r '.data.node.items.pageInfo.endCursor')
+  if [ "$HAS_NEXT" != "true" ]; then break; fi
+done
 
 # Update status to Done
 gh api graphql -f query='mutation {
