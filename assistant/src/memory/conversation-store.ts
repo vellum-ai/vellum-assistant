@@ -147,6 +147,36 @@ export function updateConversationContextWindow(
  * that share the same millisecond timestamp.
  * Returns the number of messages deleted.
  */
+/**
+ * Delete all conversations, messages, and related data (tool invocations,
+ * memory segments, etc.) from the daemon database.
+ * Returns { conversations, messages } counts.
+ */
+export function clearAll(): { conversations: number; messages: number } {
+  const db = getDb();
+  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+
+  const msgCount = (raw.query('SELECT COUNT(*) AS c FROM messages').get() as { c: number }).c;
+  const convCount = (raw.query('SELECT COUNT(*) AS c FROM conversations').get() as { c: number }).c;
+
+  // Delete in dependency order. Cascades handle memory_segments,
+  // memory_item_sources, and tool_invocations, but we explicitly
+  // clear non-cascading memory tables too.
+  raw.exec('DELETE FROM memory_segment_fts');
+  raw.exec('DELETE FROM memory_item_sources');
+  raw.exec('DELETE FROM memory_segments');
+  raw.exec('DELETE FROM memory_items');
+  raw.exec('DELETE FROM memory_summaries');
+  raw.exec('DELETE FROM memory_embeddings');
+  raw.exec('DELETE FROM memory_jobs');
+  raw.exec('DELETE FROM memory_checkpoints');
+  raw.exec('DELETE FROM tool_invocations');
+  raw.exec('DELETE FROM messages');
+  raw.exec('DELETE FROM conversations');
+
+  return { conversations: convCount, messages: msgCount };
+}
+
 export function deleteLastExchange(conversationId: string): number {
   const db = getDb();
 

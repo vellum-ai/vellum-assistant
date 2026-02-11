@@ -41,6 +41,7 @@ import {
   getConversation,
   getMessages,
   listConversations,
+  clearAll as clearAllConversations,
 } from './memory/conversation-store.js';
 import { initializeDb } from './memory/db.js';
 import { formatMarkdown, formatJson } from './export/formatter.js';
@@ -246,6 +247,77 @@ sessions
     } else {
       process.stdout.write(output);
     }
+  });
+
+sessions
+  .command('clear')
+  .description('Clear all chat messages from both the daemon DB and the web Postgres DB (dev only)')
+  .action(async () => {
+    // ── Resolve DATABASE_URL ──────────────────────────────────────────
+    let databaseUrl = process.env.DATABASE_URL;
+    if (!databaseUrl) {
+      const { resolve } = await import('node:path');
+      const envLocalPath = resolve(import.meta.dirname, '../../web/.env.local');
+      try {
+        const envContent = readFileSync(envLocalPath, 'utf-8');
+        const match = envContent.match(/^DATABASE_URL=(.+)$/m);
+        if (match) databaseUrl = match[1].trim();
+      } catch {
+        // .env.local not found — will warn below
+      }
+    }
+
+    // ── Safety: only allow localhost ──────────────────────────────────
+    let pgAvailable = false;
+    if (databaseUrl) {
+      const hostMatch = databaseUrl.match(/@([^:/]+)/);
+      const host = hostMatch?.[1] ?? '';
+      const allowedHosts = ['localhost', '127.0.0.1', '0.0.0.0', 'host.docker.internal'];
+      if (!allowedHosts.includes(host)) {
+        console.error(`Error: DATABASE_URL points to '${host}' — refusing to run.`);
+        console.error('This command is dev-only and will only run against localhost databases.');
+        process.exit(1);
+      }
+      pgAvailable = true;
+    } else {
+      console.log('Warning: DATABASE_URL not set — will only clear daemon DB.');
+    }
+
+    // ── Confirmation prompt ──────────────────────────────────────────
+    const parts: string[] = ['daemon SQLite database'];
+    if (pgAvailable) parts.push('web Postgres database');
+    console.log(`This will permanently delete all conversations and messages from: ${parts.join(', ')}.`);
+
+    const readline = await import('node:readline');
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await new Promise<string>((resolve) => {
+      rl.question('Are you sure? (y/N) ', resolve);
+    });
+    rl.close();
+    if (answer.toLowerCase() !== 'y') {
+      console.log('Cancelled');
+      return;
+    }
+
+    // ── Clear daemon SQLite ──────────────────────────────────────────
+    initializeDb();
+    const result = clearAllConversations();
+    console.log(`Daemon DB: cleared ${result.conversations} conversations, ${result.messages} messages`);
+
+    // ── Clear web Postgres ───────────────────────────────────────────
+    if (pgAvailable && databaseUrl) {
+      const postgres = (await import('postgres')).default;
+      const sql = postgres(databaseUrl, { max: 1 });
+      try {
+        const msgs = await sql`DELETE FROM chat_messages`;
+        const attachments = await sql`DELETE FROM chat_attachments`;
+        console.log(`Postgres: cleared ${msgs.count} messages, ${attachments.count} attachments`);
+      } finally {
+        await sql.end();
+      }
+    }
+
+    console.log('Done.');
   });
 
 // --- Config commands ---
@@ -783,7 +855,7 @@ program
   .action((shell: string) => {
     const subcommands: Record<string, string[]> = {
       daemon: ['start', 'stop', 'restart', 'status'],
-      sessions: ['list', 'new', 'export'],
+      sessions: ['list', 'new', 'export', 'clear'],
       config: ['set', 'get', 'list'],
       keys: ['list', 'set', 'delete'],
       trust: ['list', 'remove', 'clear'],
