@@ -21,6 +21,7 @@ export type Page = {
   goto(url: string, options?: { waitUntil?: string; timeout?: number }): Promise<PageResponse | null>;
   title(): Promise<string>;
   url(): string;
+  evaluate(expression: string): Promise<unknown>;
 };
 
 type LaunchFn = (userDataDir: string, options: { headless: boolean }) => Promise<BrowserContext>;

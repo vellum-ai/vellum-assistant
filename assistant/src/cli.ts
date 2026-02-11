@@ -71,6 +71,10 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         return `Fetching ${sanitizeUrlForDisplay(input.url).slice(0, 80)}...`;
       case 'browser_navigate':
         return `Navigating to ${sanitizeUrlForDisplay(input.url).slice(0, 80)}...`;
+      case 'browser_snapshot':
+        return 'Taking page snapshot...';
+      case 'browser_close':
+        return 'Closing browser...';
       default:
         return `Running ${toolName}...`;
     }
@@ -109,6 +113,9 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
     if (req.toolName === 'browser_navigate') {
       return `navigate ${sanitizeUrlForDisplay(req.input.url ?? '')}`;
+    }
+    if (req.toolName === 'browser_close') {
+      return req.input.close_all_pages ? 'close all browser pages' : 'close browser page';
     }
     return `${req.toolName}: ${JSON.stringify(req.input).slice(0, 80)}`;
   }

@@ -176,6 +176,8 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   if (toolName === 'web_fetch' || toolName === 'browser_navigate') {
     return input.allow_private_network === true ? RiskLevel.Medium : RiskLevel.Low;
   }
+  if (toolName === 'browser_snapshot') return RiskLevel.Low;
+  if (toolName === 'browser_close') return RiskLevel.Medium;
   if (toolName === 'skill_load') return RiskLevel.Low;
 
   if (toolName === 'bash') {

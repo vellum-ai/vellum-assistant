@@ -22,6 +22,7 @@ function createMockPage(closed = false) {
     goto: async () => ({ status: () => 200, url: () => 'about:blank' }),
     title: async () => '',
     url: () => 'about:blank',
+    evaluate: async () => null,
   };
 }
 

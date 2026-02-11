@@ -120,4 +120,175 @@ class BrowserNavigateTool implements Tool {
 
 registerTool(new BrowserNavigateTool());
 
-export { executeBrowserNavigate };
+// ── browser_snapshot ─────────────────────────────────────────────────
+
+const MAX_SNAPSHOT_ELEMENTS = 500;
+
+const INTERACTIVE_SELECTOR = [
+  'a[href]',
+  'button',
+  'input',
+  'select',
+  'textarea',
+  '[role="button"]',
+  '[role="link"]',
+  '[role="checkbox"]',
+  '[role="radio"]',
+  '[role="tab"]',
+  '[role="menuitem"]',
+  '[contenteditable="true"]',
+].join(', ');
+
+type SnapshotElement = {
+  eid: string;
+  tag: string;
+  attrs: Record<string, string>;
+  text: string;
+};
+
+async function executeBrowserSnapshot(
+  _input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  try {
+    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const currentUrl = page.url();
+    const title = await page.title();
+
+    const elements = (await page.evaluate(`
+      (() => {
+        const SELECTOR = ${JSON.stringify(INTERACTIVE_SELECTOR)};
+        const MAX = ${MAX_SNAPSHOT_ELEMENTS};
+        const els = Array.from(document.querySelectorAll(SELECTOR));
+        const visible = els.filter(el => {
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        });
+        return visible.slice(0, MAX).map((el, i) => {
+          const eid = 'e' + (i + 1);
+          el.setAttribute('data-vellum-eid', eid);
+          const tag = el.tagName.toLowerCase();
+          const attrs = {};
+          for (const attr of ['type', 'name', 'placeholder', 'href', 'value', 'role', 'aria-label', 'id']) {
+            if (el.hasAttribute(attr)) attrs[attr] = el.getAttribute(attr);
+          }
+          const text = (el.textContent || '').trim().slice(0, 80);
+          return { eid, tag, attrs, text };
+        });
+      })()
+    `)) as SnapshotElement[];
+
+    // Build and store selector map
+    const selectorMap = new Map<string, string>();
+    for (const el of elements) {
+      selectorMap.set(el.eid, `[data-vellum-eid="${el.eid}"]`);
+    }
+    browserManager.storeSnapshotMap(context.sessionId, selectorMap);
+
+    // Format output
+    const lines: string[] = [
+      `URL: ${currentUrl}`,
+      `Title: ${title || '(none)'}`,
+      '',
+    ];
+
+    if (elements.length === 0) {
+      lines.push('(no interactive elements found)');
+    } else {
+      for (const el of elements) {
+        let desc = `<${el.tag}`;
+        for (const [key, val] of Object.entries(el.attrs)) {
+          desc += ` ${key}="${val}"`;
+        }
+        desc += '>';
+        if (el.text) {
+          desc += ` ${el.text}`;
+        }
+        lines.push(`[${el.eid}] ${desc}`);
+      }
+      lines.push('');
+      lines.push(`${elements.length} interactive element${elements.length === 1 ? '' : 's'} found.`);
+    }
+
+    return { content: lines.join('\n'), isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Snapshot failed');
+    return { content: `Error: Snapshot failed: ${msg}`, isError: true };
+  }
+}
+
+class BrowserSnapshotTool implements Tool {
+  name = 'browser_snapshot';
+  description = 'List interactive elements on the current page. Returns elements with unique IDs that can be used with browser_click and browser_type.';
+  category = 'browser';
+  defaultRiskLevel = RiskLevel.Low;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {},
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeBrowserSnapshot(input, context);
+  }
+}
+
+registerTool(new BrowserSnapshotTool());
+
+// ── browser_close ────────────────────────────────────────────────────
+
+async function executeBrowserClose(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  try {
+    if (input.close_all_pages === true) {
+      await browserManager.closeAllPages();
+      return { content: 'All browser pages and context closed.', isError: false };
+    }
+    await browserManager.closeSessionPage(context.sessionId);
+    return { content: 'Browser page closed for this session.', isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Close failed');
+    return { content: `Error: Close failed: ${msg}`, isError: true };
+  }
+}
+
+class BrowserCloseTool implements Tool {
+  name = 'browser_close';
+  description = 'Close the browser page for the current session, or all pages if close_all_pages is true.';
+  category = 'browser';
+  defaultRiskLevel = RiskLevel.Medium;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          close_all_pages: {
+            type: 'boolean',
+            description: 'If true, close all browser pages and the browser context. Default: false (close only the current session page).',
+          },
+        },
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeBrowserClose(input, context);
+  }
+}
+
+registerTool(new BrowserCloseTool());
+
+export { executeBrowserNavigate, executeBrowserSnapshot, executeBrowserClose };
