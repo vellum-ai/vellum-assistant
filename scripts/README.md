@@ -16,9 +16,10 @@ ln -s ../../scripts/commands/check-reviews.md check-reviews.md
 ln -s ../../scripts/commands/brainstorm.md brainstorm.md
 ln -s ../../scripts/commands/swarm.md swarm.md
 ln -s ../../scripts/commands/mainline.md mainline.md
+ln -s ../../scripts/commands/do.md do.md
 ```
 
-After symlinking, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, and `/mainline` in Claude Code.
+After symlinking, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, `/mainline`, and `/do` in Claude Code.
 
 ### 2. **IMPORTANT** Enable fast mode
 
@@ -104,6 +105,19 @@ Takes all uncommitted changes, creates a branch, commits, opens a PR, merges it 
 /mainline Fix login redirect bug   # uses the provided title
 ```
 
+### `/do` - Implement and ship a one-off task
+
+Takes a description of changes, creates an isolated git worktree, implements the changes, creates a PR, merges it, and cleans up the worktree. Like `/work` but for ad-hoc tasks that aren't in the backlog, and isolated in a worktree so it doesn't interfere with your working tree.
+
+**When to use:** When you want to describe a change and have it implemented and shipped end-to-end without touching your current working directory.
+
+**Frequency:** Whenever you have a self-contained task to ship.
+
+```
+/do Add input validation to the login form
+/do Refactor the logger to use structured output
+```
+
 ## Typical workflow
 
 3 shells with Claude Code open, one for each of work/swarm, check-reviews, and brainstorm.
@@ -180,4 +194,10 @@ Follow the instructions in scripts/commands/brainstorm.md
 
 ```
 Follow the instructions in scripts/commands/mainline.md
+```
+
+### Do prompt
+
+```
+Follow the instructions in scripts/commands/do.md
 ```
