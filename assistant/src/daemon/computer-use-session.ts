@@ -8,7 +8,7 @@
 
 import { v4 as uuid } from 'uuid';
 import type { Provider, Message, ContentBlock, ToolDefinition } from '../providers/types.js';
-import type { ServerMessage, CuObservation, SurfaceType, SurfaceData } from './ipc-protocol.js';
+import type { ServerMessage, CuObservation, SurfaceType, SurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import type { ToolExecutionResult } from '../tools/types.js';
 import { AgentLoop } from '../agent/loop.js';
 import { ToolExecutor } from '../tools/executor.js';
@@ -218,7 +218,7 @@ export class ComputerUseSession {
           title,
           data: data as unknown as SurfaceData,
           actions: actions?.map(a => ({ id: a.id, label: a.label, style: (a.style ?? 'secondary') as 'primary' | 'secondary' | 'destructive' })),
-        });
+        } as UiSurfaceShow);
 
         if (awaitAction) {
           return new Promise<ToolExecutionResult>((resolve) => {
