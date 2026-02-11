@@ -176,7 +176,22 @@ export class ToolExecutor {
       let execResult: ToolExecutionResult;
       if (tool.executionMode === 'proxy') {
         if (!context.proxyToolResolver) {
-          return { content: 'No proxy resolver configured for proxy tool', isError: true };
+          const msg = 'No proxy resolver configured for proxy tool';
+          const durationMs = Date.now() - startTime;
+          emitLifecycleEvent(context, {
+            type: 'error',
+            toolName: name,
+            input,
+            workingDir: context.workingDir,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            riskLevel,
+            decision: 'error',
+            durationMs,
+            errorMessage: msg,
+            isExpected: true,
+          });
+          return { content: msg, isError: true };
         }
         execResult = await context.proxyToolResolver(name, input);
       } else {
