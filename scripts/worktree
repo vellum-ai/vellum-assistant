@@ -8,13 +8,18 @@ usage() {
   echo "Usage: scripts/worktree <create|remove|list> [args]"
   echo ""
   echo "Commands:"
-  echo "  create <branch-name>   Create a worktree + branch and install deps"
-  echo "  remove <branch-name>   Remove a worktree and optionally delete the branch"
-  echo "  list                   List all worktrees"
+  echo "  create <branch-name>                Create a worktree + branch and install deps"
+  echo "  remove <branch-name> [options]      Remove a worktree and optionally delete the branch"
+  echo "  list                                List all worktrees"
+  echo ""
+  echo "Remove options:"
+  echo "  --delete-branch      Always delete the branch (no prompt)"
+  echo "  --no-delete-branch   Never delete the branch (no prompt)"
   echo ""
   echo "Examples:"
   echo "  scripts/worktree create feat/streaming"
   echo "  scripts/worktree remove feat/streaming"
+  echo "  scripts/worktree remove feat/streaming --delete-branch"
   echo "  scripts/worktree list"
 }
 
@@ -42,6 +47,16 @@ create() {
 
 remove() {
   local branch="$1"
+  local delete_branch=""
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --delete-branch) delete_branch="yes"; shift ;;
+      --no-delete-branch) delete_branch="no"; shift ;;
+      *) echo "Error: unknown option $1"; usage; exit 1 ;;
+    esac
+  done
+
   local slug="${branch//\//-}"
   local dir="$PARENT_DIR/vellum-wt-${slug}"
 
@@ -53,11 +68,17 @@ remove() {
   echo "Removing worktree at $dir..."
   git -C "$REPO_ROOT" worktree remove "$dir"
 
-  if [[ -t 0 ]]; then
+  if [[ "$delete_branch" == "yes" ]]; then
+    REPLY="y"
+  elif [[ "$delete_branch" == "no" ]]; then
+    REPLY="n"
+  elif [[ -t 0 ]]; then
     read -p "Delete branch $branch? [y/N] " -n 1 -r
     echo
   else
-    REPLY="y"
+    # Non-TTY: try to read piped input, default to "y" on EOF
+    read -r REPLY 2>/dev/null || REPLY="y"
+    REPLY="${REPLY:=y}"
   fi
   if [[ $REPLY =~ ^[Yy]$ ]]; then
     git -C "$REPO_ROOT" branch -d "$branch" 2>/dev/null || \
@@ -82,7 +103,8 @@ case "$1" in
     ;;
   remove)
     [ $# -lt 2 ] && { echo "Error: branch name required"; usage; exit 1; }
-    remove "$2"
+    shift
+    remove "$@"
     ;;
   list)
     list
