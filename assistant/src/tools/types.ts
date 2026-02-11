@@ -100,6 +100,8 @@ export interface Tool {
   description: string;
   category: string;
   defaultRiskLevel: RiskLevel;
+  /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. */
+  executionMode?: 'local' | 'proxy';
   getDefinition(): ToolDefinition;
   execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult>;
 }
