@@ -124,7 +124,7 @@ export class Session {
       });
 
     const { messages: repairedMessages, stats } = repairHistory(parsedMessages);
-    if (stats.assistantToolResultsRemoved > 0 || stats.missingToolResultsInserted > 0 || stats.orphanToolResultsDowngraded > 0) {
+    if (stats.assistantToolResultsMigrated > 0 || stats.missingToolResultsInserted > 0 || stats.orphanToolResultsDowngraded > 0) {
       log.warn({ conversationId: this.conversationId, phase: 'load', ...stats }, 'Repaired persisted history');
     }
     this.messages = repairedMessages;
@@ -294,7 +294,7 @@ export class Session {
 
       // Pre-run repair: fix any message ordering issues before sending to provider
       const preRunRepair = repairHistory(runMessages);
-      if (preRunRepair.stats.assistantToolResultsRemoved > 0 || preRunRepair.stats.missingToolResultsInserted > 0 || preRunRepair.stats.orphanToolResultsDowngraded > 0) {
+      if (preRunRepair.stats.assistantToolResultsMigrated > 0 || preRunRepair.stats.missingToolResultsInserted > 0 || preRunRepair.stats.orphanToolResultsDowngraded > 0) {
         log.warn({ conversationId: this.conversationId, phase: 'pre_run', ...preRunRepair.stats }, 'Repaired runtime history before provider call');
         runMessages = preRunRepair.messages;
       }

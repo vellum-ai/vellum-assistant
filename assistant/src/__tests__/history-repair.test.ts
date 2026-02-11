@@ -27,7 +27,7 @@ describe('repairHistory', () => {
     const { messages: repaired, stats } = repairHistory(messages);
 
     expect(repaired).toEqual(messages);
-    expect(stats.assistantToolResultsRemoved).toBe(0);
+    expect(stats.assistantToolResultsMigrated).toBe(0);
     expect(stats.missingToolResultsInserted).toBe(0);
     expect(stats.orphanToolResultsDowngraded).toBe(0);
   });
@@ -48,7 +48,7 @@ describe('repairHistory', () => {
 
     expect(repaired).toHaveLength(2);
     expect(repaired[1].content).toEqual([{ type: 'text', text: 'Sure' }]);
-    expect(stats.assistantToolResultsRemoved).toBe(1);
+    expect(stats.assistantToolResultsMigrated).toBe(1);
   });
 
   test('inserts missing tool_result when user message lacks it', () => {
@@ -217,7 +217,7 @@ describe('repairHistory', () => {
     const { messages: repaired, stats } = repairHistory(messages);
 
     expect(repaired).toEqual(messages);
-    expect(stats.assistantToolResultsRemoved).toBe(0);
+    expect(stats.assistantToolResultsMigrated).toBe(0);
     expect(stats.missingToolResultsInserted).toBe(0);
     expect(stats.orphanToolResultsDowngraded).toBe(0);
   });
@@ -248,7 +248,7 @@ describe('repairHistory', () => {
     const second = repairHistory(first.messages);
 
     expect(second.messages).toEqual(first.messages);
-    expect(second.stats.assistantToolResultsRemoved).toBe(0);
+    expect(second.stats.assistantToolResultsMigrated).toBe(0);
     expect(second.stats.missingToolResultsInserted).toBe(0);
     expect(second.stats.orphanToolResultsDowngraded).toBe(0);
   });
@@ -282,10 +282,82 @@ describe('repairHistory', () => {
     expect(userMsg.content[0]).toEqual({ type: 'text', text: 'next message' });
   });
 
+  test('migrates tool_result from assistant message to user message preserving content', () => {
+    // Legacy corruption: assistant has both tool_use and its own tool_result
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Go' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'tu_1', name: 'bash', input: { cmd: 'ls' } },
+          { type: 'tool_result', tool_use_id: 'tu_1', content: 'file1\nfile2' },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Here are the files.' }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.assistantToolResultsMigrated).toBe(1);
+    expect(stats.missingToolResultsInserted).toBe(0);
+
+    // assistant message should have tool_use only
+    expect(repaired[1].content).toEqual([
+      { type: 'tool_use', id: 'tu_1', name: 'bash', input: { cmd: 'ls' } },
+    ]);
+
+    // injected user message should carry the original result, not a synthetic error
+    expect(repaired[2].role).toBe('user');
+    expect(repaired[2].content).toEqual([
+      { type: 'tool_result', tool_use_id: 'tu_1', content: 'file1\nfile2' },
+    ]);
+
+    // original second assistant message follows
+    expect(repaired[3].content).toEqual([
+      { type: 'text', text: 'Here are the files.' },
+    ]);
+  });
+
+  test('migrates tool_result from assistant to following user message filling gap', () => {
+    // assistant has tool_use(tu_1) + tool_result(tu_1), user message has no tool_result
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Go' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'tu_1', name: 'bash', input: { cmd: 'ls' } },
+          { type: 'tool_result', tool_use_id: 'tu_1', content: 'success data' },
+        ],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'thanks' }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.assistantToolResultsMigrated).toBe(1);
+    expect(stats.missingToolResultsInserted).toBe(0);
+
+    // user message should now have both original text and the migrated tool_result
+    const userMsg = repaired[2];
+    expect(userMsg.content).toHaveLength(2);
+    expect(userMsg.content[0]).toEqual({ type: 'text', text: 'thanks' });
+    expect(userMsg.content[1]).toEqual({
+      type: 'tool_result',
+      tool_use_id: 'tu_1',
+      content: 'success data',
+    });
+  });
+
   test('handles empty message array', () => {
     const { messages, stats } = repairHistory([]);
     expect(messages).toEqual([]);
-    expect(stats.assistantToolResultsRemoved).toBe(0);
+    expect(stats.assistantToolResultsMigrated).toBe(0);
     expect(stats.missingToolResultsInserted).toBe(0);
     expect(stats.orphanToolResultsDowngraded).toBe(0);
   });

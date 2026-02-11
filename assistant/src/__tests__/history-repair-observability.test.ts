@@ -11,7 +11,7 @@ describe('history-repair observability', () => {
 
     const { stats } = repairHistory(messages);
 
-    expect(stats.assistantToolResultsRemoved).toBe(0);
+    expect(stats.assistantToolResultsMigrated).toBe(0);
     expect(stats.missingToolResultsInserted).toBe(0);
     expect(stats.orphanToolResultsDowngraded).toBe(0);
   });
@@ -36,8 +36,8 @@ describe('history-repair observability', () => {
 
     const { stats } = repairHistory(messages);
 
-    // assistantToolResultsRemoved: 1 (tu_bad in assistant message)
-    expect(stats.assistantToolResultsRemoved).toBe(1);
+    // assistantToolResultsMigrated: 1 (tu_bad migrated from assistant message)
+    expect(stats.assistantToolResultsMigrated).toBe(1);
     // missingToolResultsInserted: 1 (tu_1 had no matching result in next user msg)
     // but actually the orphan tu_orphan is downgraded, and tu_1 is injected
     expect(stats.missingToolResultsInserted).toBe(1);
@@ -46,7 +46,7 @@ describe('history-repair observability', () => {
 
     // All counters > 0 → log would be emitted
     const shouldLog =
-      stats.assistantToolResultsRemoved > 0 ||
+      stats.assistantToolResultsMigrated > 0 ||
       stats.missingToolResultsInserted > 0 ||
       stats.orphanToolResultsDowngraded > 0;
     expect(shouldLog).toBe(true);

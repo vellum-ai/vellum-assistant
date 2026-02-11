@@ -15,7 +15,7 @@ The history-repair system provides a multi-layered defense.
 
 | Rule | Trigger | Action |
 |------|---------|--------|
-| Strip assistant tool_result | `tool_result` block inside an assistant message | Remove the block |
+| Migrate assistant tool_result | `tool_result` block inside an assistant message | Strip from assistant, migrate to the next user message as a proper `tool_result` if it matches a pending `tool_use` ID |
 | Inject missing tool_result | `tool_use` in assistant with no matching `tool_result` in the next user message | Append a synthetic `tool_result` (is_error=true, content: `[synthesized: tool result missing from history]`) |
 | Downgrade orphan tool_result | `tool_result` in a user message whose `tool_use_id` doesn't match any pending `tool_use` | Convert to a `text` block: `[orphaned tool_result for <id>]: <content>` |
 
@@ -59,7 +59,7 @@ All repair activity is logged as structured JSON via the `session` logger module
 | Field | Type | Description |
 |-------|------|-------------|
 | `phase` | `load` / `pre_run` / `retry` | Which repair phase triggered the log |
-| `assistantToolResultsRemoved` | number | tool_result blocks stripped from assistant messages |
+| `assistantToolResultsMigrated` | number | tool_result blocks migrated from assistant to user messages |
 | `missingToolResultsInserted` | number | Synthetic tool_result blocks injected |
 | `orphanToolResultsDowngraded` | number | Orphan tool_result blocks converted to text |
 
@@ -71,7 +71,7 @@ All repair activity is logged as structured JSON via the `session` logger module
   "module": "session",
   "conversationId": "abc-123",
   "phase": "load",
-  "assistantToolResultsRemoved": 0,
+  "assistantToolResultsMigrated": 0,
   "missingToolResultsInserted": 2,
   "orphanToolResultsDowngraded": 0,
   "msg": "Repaired persisted history"
@@ -82,7 +82,7 @@ All repair activity is logged as structured JSON via the `session` logger module
 
 - **Healthy system**: All counters stay at 0 — no repair logs emitted.
 - **Post-crash recovery**: `missingToolResultsInserted > 0` during `phase=load`. Expected after daemon kill.
-- **Legacy data migration**: `assistantToolResultsRemoved > 0` during `phase=load`. Expected for sessions created before the tool_result fix.
+- **Legacy data migration**: `assistantToolResultsMigrated > 0` during `phase=load`. Expected for sessions with legacy tool_result blocks in assistant messages; content is preserved during migration.
 - **Runtime drift**: Any counter > 0 during `phase=pre_run`. Rare; indicates an in-memory corruption path that should be investigated.
 - **Retry triggered**: `phase=retry` log entry. The provider rejected the history despite pre-run repair. If the retry also fails, an error-level log follows.
 

@@ -6,7 +6,7 @@ import type {
 } from '../providers/types.js';
 
 export interface RepairStats {
-  assistantToolResultsRemoved: number;
+  assistantToolResultsMigrated: number;
   missingToolResultsInserted: number;
   orphanToolResultsDowngraded: number;
 }
@@ -20,28 +20,37 @@ const SYNTHETIC_RESULT = '[synthesized: tool result missing from history]';
 
 export function repairHistory(messages: Message[]): RepairResult {
   const stats: RepairStats = {
-    assistantToolResultsRemoved: 0,
+    assistantToolResultsMigrated: 0,
     missingToolResultsInserted: 0,
     orphanToolResultsDowngraded: 0,
   };
 
   const result: Message[] = [];
   let pendingToolUseIds = new Set<string>();
+  // tool_result blocks stripped from assistant messages, keyed by tool_use_id
+  let recoveredResults = new Map<string, ToolResultContent>();
 
   for (const msg of messages) {
     if (msg.role === 'assistant') {
-      // If previous assistant had unfulfilled tool_use, inject synthetic user message
+      // If previous assistant had unfulfilled tool_use, inject user message
+      // using recovered results where available, synthetic for the rest
       if (pendingToolUseIds.size > 0) {
-        result.push(buildSyntheticToolResultMessage(pendingToolUseIds));
-        stats.missingToolResultsInserted += pendingToolUseIds.size;
+        result.push(
+          buildResultMessage(pendingToolUseIds, recoveredResults, stats),
+        );
         pendingToolUseIds = new Set();
+        recoveredResults = new Map();
       }
 
-      // Strip tool_result blocks from assistant messages
+      // Strip tool_result blocks from assistant messages, preserving them
+      // so they can be migrated to the correct user message position
       const cleanedContent: ContentBlock[] = [];
+      const newRecovered = new Map<string, ToolResultContent>();
       for (const block of msg.content) {
         if (block.type === 'tool_result') {
-          stats.assistantToolResultsRemoved++;
+          const tr = block as ToolResultContent;
+          newRecovered.set(tr.tool_use_id, tr);
+          stats.assistantToolResultsMigrated++;
         } else {
           cleanedContent.push(block);
         }
@@ -55,6 +64,7 @@ export function repairHistory(messages: Message[]): RepairResult {
           .filter((b): b is ToolUseContent => b.type === 'tool_use')
           .map((b) => b.id),
       );
+      recoveredResults = newRecovered;
     } else {
       // User message
       if (pendingToolUseIds.size > 0) {
@@ -76,21 +86,28 @@ export function repairHistory(messages: Message[]): RepairResult {
           }
         }
 
-        // Inject synthetic tool_result for any unmatched IDs
+        // Fill unmatched IDs: use recovered results if available, otherwise synthesize
         for (const id of pendingToolUseIds) {
           if (!matchedIds.has(id)) {
-            stats.missingToolResultsInserted++;
-            newContent.push({
-              type: 'tool_result',
-              tool_use_id: id,
-              content: SYNTHETIC_RESULT,
-              is_error: true,
-            });
+            const recovered = recoveredResults.get(id);
+            if (recovered) {
+              newContent.push(recovered);
+              // Already counted in assistantToolResultsMigrated
+            } else {
+              stats.missingToolResultsInserted++;
+              newContent.push({
+                type: 'tool_result',
+                tool_use_id: id,
+                content: SYNTHETIC_RESULT,
+                is_error: true,
+              });
+            }
           }
         }
 
         result.push({ role: 'user', content: newContent });
         pendingToolUseIds = new Set();
+        recoveredResults = new Map();
       } else {
         // No pending tool_use — any tool_result here is orphaned
         const newContent: ContentBlock[] = msg.content.map((block) => {
@@ -108,22 +125,33 @@ export function repairHistory(messages: Message[]): RepairResult {
 
   // Trailing unfulfilled tool_use at end of history
   if (pendingToolUseIds.size > 0) {
-    result.push(buildSyntheticToolResultMessage(pendingToolUseIds));
-    stats.missingToolResultsInserted += pendingToolUseIds.size;
+    result.push(buildResultMessage(pendingToolUseIds, recoveredResults, stats));
   }
 
   return { messages: result, stats };
 }
 
-function buildSyntheticToolResultMessage(ids: Set<string>): Message {
+function buildResultMessage(
+  ids: Set<string>,
+  recovered: Map<string, ToolResultContent>,
+  stats: RepairStats,
+): Message {
   return {
     role: 'user',
-    content: Array.from(ids).map((id) => ({
-      type: 'tool_result' as const,
-      tool_use_id: id,
-      content: SYNTHETIC_RESULT,
-      is_error: true,
-    })),
+    content: Array.from(ids).map((id) => {
+      const rec = recovered.get(id);
+      if (rec) {
+        // Already counted in assistantToolResultsMigrated
+        return rec;
+      }
+      stats.missingToolResultsInserted++;
+      return {
+        type: 'tool_result' as const,
+        tool_use_id: id,
+        content: SYNTHETIC_RESULT,
+        is_error: true,
+      };
+    }),
   };
 }
 
