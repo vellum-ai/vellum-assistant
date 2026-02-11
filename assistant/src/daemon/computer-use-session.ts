@@ -82,8 +82,9 @@ export class ComputerUseSession {
     }
 
     // Track consecutive unchanged steps
+    const hadPreviousAXTree = this.previousAXTree != null;
     if (this.stepCount > 0) {
-      if (obs.axDiff == null && this.previousAXTree != null && obs.axTree != null) {
+      if (obs.axDiff == null && hadPreviousAXTree && obs.axTree != null) {
         this.consecutiveUnchangedSteps++;
       } else if (obs.axDiff != null) {
         this.consecutiveUnchangedSteps = 0;
@@ -97,7 +98,7 @@ export class ComputerUseSession {
 
     if (this.state === 'awaiting_observation' && this.pendingObservation) {
       // Resolve the pending proxy tool result with updated screen context
-      const content = this.buildObservationResultContent(obs);
+      const content = this.buildObservationResultContent(obs, hadPreviousAXTree);
       const result: ToolExecutionResult = obs.executionError
         ? { content: `Action failed: ${obs.executionError}\n\n${content}`, isError: true }
         : { content, isError: false };
@@ -304,7 +305,7 @@ export class ComputerUseSession {
   // updated screen state on each turn (not just "Action executed").
   // ---------------------------------------------------------------------------
 
-  private buildObservationResultContent(obs: CuObservation): string {
+  private buildObservationResultContent(obs: CuObservation, hadPreviousAXTree: boolean): string {
     const parts: string[] = [];
 
     if (obs.executionResult) {
@@ -316,7 +317,7 @@ export class ComputerUseSession {
     if (obs.axDiff) {
       parts.push(obs.axDiff);
       parts.push('');
-    } else if (this.previousAXTree != null && obs.axTree != null) {
+    } else if (hadPreviousAXTree && obs.axTree != null) {
       const lastAction = this.actionHistory[this.actionHistory.length - 1];
       const wasWait = lastAction?.toolName === 'cu_wait';
       if (this.consecutiveUnchangedSteps >= CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD) {
