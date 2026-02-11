@@ -191,6 +191,7 @@ export class Session {
     attachments: UserMessageAttachment[],
     onEvent: (msg: ServerMessage) => void,
     requestId?: string,
+    options?: { userMessageAlreadyPersisted?: boolean },
   ): Promise<string> {
     if (this.processing) {
       onEvent({ type: 'error', message: 'Already processing a message' });
@@ -211,21 +212,30 @@ export class Session {
         return '';
       }
 
-      // Add user message
-      const userMessage = createUserMessage(content, attachments.map((attachment) => ({
-        id: attachment.id,
-        filename: attachment.filename,
-        mimeType: attachment.mimeType,
-        data: attachment.data,
-        extractedText: attachment.extractedText,
-      })));
-      this.messages.push(userMessage);
-      const persistedUserMessage = conversationStore.addMessage(
-        this.conversationId,
-        'user',
-        JSON.stringify(userMessage.content),
-      );
-      userMessageId = persistedUserMessage.id;
+      if (options?.userMessageAlreadyPersisted) {
+        // The user message was already persisted (e.g. by channel inbound
+        // idempotency logic) and loaded into this.messages via loadFromDb().
+        // Find its ID from the DB for memory-recall exclusion.
+        const dbMessages = conversationStore.getMessages(this.conversationId);
+        const lastUserMsg = dbMessages.filter((m) => m.role === 'user').pop();
+        userMessageId = lastUserMsg?.id ?? '';
+      } else {
+        // Add user message
+        const userMessage = createUserMessage(content, attachments.map((attachment) => ({
+          id: attachment.id,
+          filename: attachment.filename,
+          mimeType: attachment.mimeType,
+          data: attachment.data,
+          extractedText: attachment.extractedText,
+        })));
+        this.messages.push(userMessage);
+        const persistedUserMessage = conversationStore.addMessage(
+          this.conversationId,
+          'user',
+          JSON.stringify(userMessage.content),
+        );
+        userMessageId = persistedUserMessage.id;
+      }
 
       const compacted = await this.contextWindowManager.maybeCompact(
         this.messages,
@@ -270,7 +280,7 @@ export class Session {
       const runtimeConfig = getConfig();
       const recallQuery = buildMemoryQuery(content, this.messages);
       const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig, {
-        excludeMessageIds: [persistedUserMessage.id],
+        excludeMessageIds: [userMessageId],
         signal: this.abortController.signal,
       });
 

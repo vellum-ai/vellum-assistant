@@ -467,7 +467,13 @@ export class DaemonServer {
    * Gets or creates a session and runs the agent loop.
    * Results are saved to the DB for the web UI to poll.
    */
-  async processMessage(assistantId: string, conversationId: string, content: string, attachmentIds?: string[]): Promise<{ messageId: string }> {
+  async processMessage(
+    assistantId: string,
+    conversationId: string,
+    content: string,
+    attachmentIds?: string[],
+    options?: { userMessageAlreadyPersisted?: boolean },
+  ): Promise<{ messageId: string }> {
     const session = await this.getOrCreateSession(conversationId);
 
     if (session.isProcessing()) {
@@ -484,7 +490,7 @@ export class DaemonServer {
         }))
       : [];
 
-    const messageId = await session.processMessage(content, attachments, () => {}, crypto.randomUUID());
+    const messageId = await session.processMessage(content, attachments, () => {}, crypto.randomUUID(), options);
 
     return { messageId };
   }
