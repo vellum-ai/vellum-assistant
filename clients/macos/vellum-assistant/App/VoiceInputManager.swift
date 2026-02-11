@@ -18,10 +18,11 @@ final class VoiceInputManager {
     private var holdTask: Task<Void, Never>?
     private static let holdDelay: UInt64 = 300_000_000 // 300ms in nanoseconds
 
-    private var activationFlag: NSEvent.ModifierFlags {
+    private var activationFlag: NSEvent.ModifierFlags? {
         let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
         switch stored {
         case "ctrl": return .control
+        case "none": return nil
         default: return .function // fn and globe are the same physical key
         }
     }
@@ -64,7 +65,7 @@ final class VoiceInputManager {
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
-        let flag = activationFlag
+        guard let flag = activationFlag else { return }
         let keyPressed = event.modifierFlags.contains(flag)
         var otherModifiers: NSEvent.ModifierFlags = [.command, .shift, .control, .option, .function]
         otherModifiers.remove(flag)

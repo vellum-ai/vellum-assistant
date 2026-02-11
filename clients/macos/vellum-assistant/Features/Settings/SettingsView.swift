@@ -15,6 +15,10 @@ struct SettingsView: View {
         return val == 0 ? 30 : val
     }()
     @State private var showingPrivacy = false
+    @State private var activationKey: ActivationKey = {
+        let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
+        return ActivationKey(rawValue: stored) ?? .fn
+    }()
     var ambientAgent: AmbientAgent
 
     // Re-check permissions every 2 seconds while the window is open
@@ -67,6 +71,21 @@ struct SettingsView: View {
                     .onChange(of: maxSteps) { _, newValue in
                         UserDefaults.standard.set(newValue, forKey: "maxStepsPerSession")
                     }
+            }
+
+            Section("Voice Activation") {
+                Picker("Activation key", selection: $activationKey) {
+                    ForEach(ActivationKey.allCases, id: \.self) { key in
+                        Text(key.displayName).tag(key)
+                    }
+                }
+                .onChange(of: activationKey) { _, newValue in
+                    UserDefaults.standard.set(newValue.rawValue, forKey: "activationKey")
+                }
+
+                Text("Hold the activation key to start voice input. Set to Off to disable voice activation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Ambient Agent") {

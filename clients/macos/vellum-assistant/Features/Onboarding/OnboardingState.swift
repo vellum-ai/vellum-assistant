@@ -8,14 +8,16 @@ enum OrbMood {
     case celebrating
 }
 
-enum ActivationKey: String {
+enum ActivationKey: String, CaseIterable {
     case fn
     case ctrl
+    case none
 
     var displayName: String {
         switch self {
         case .fn: return "fn"
         case .ctrl: return "ctrl"
+        case .none: return "Off"
         }
     }
 }
