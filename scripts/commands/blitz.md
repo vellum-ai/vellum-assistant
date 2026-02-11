@@ -35,13 +35,18 @@ This provides: `GH_PROJECT_NUMBER`, `GH_PROJECT_OWNER`, `GH_PROJECT_ID`, `GH_STA
 
 2. If `.private/project-config.env` doesn't exist, create the project and config:
 
+The project title follows the convention `<github-username>-vellum-assistant` where `<github-username>` is the current GitHub user's login (from `gh api user --jq '.login'`).
+
 ```bash
-# Create the project
-PROJECT_URL=$(gh project create --owner "@me" --title "vellum-assistant" --format json | jq -r '.url')
+# Get the current GitHub username
+GH_USERNAME=$(gh api user --jq '.login')
+
+# Create the project under the vellum-ai org
+PROJECT_URL=$(gh project create --owner "vellum-ai" --title "${GH_USERNAME}-vellum-assistant" --format json | jq -r '.url')
 PROJECT_NUMBER=$(echo "$PROJECT_URL" | grep -oE '[0-9]+$')
 
 # Get the project node ID
-GH_PROJECT_ID=$(gh project view "$PROJECT_NUMBER" --owner "@me" --format json | jq -r '.id')
+GH_PROJECT_ID=$(gh project view "$PROJECT_NUMBER" --owner "vellum-ai" --format json | jq -r '.id')
 
 # Add Status field (single select) with standard columns
 gh api graphql -f query='mutation {
@@ -53,7 +58,7 @@ gh api graphql -f query='mutation {
 }'
 ```
 
-Then query the field and option IDs and write them to `.private/project-config.env` in the same format shown above. Include `GH_PROJECT_NUMBER` (the human-readable number from the project URL).
+Then query the field and option IDs and write them to `.private/project-config.env` in the same format shown above. Include `GH_PROJECT_NUMBER` (the human-readable number from the project URL). Set `GH_PROJECT_OWNER=vellum-ai`.
 
 ## Phase 2: Plan & Spec
 
@@ -71,10 +76,11 @@ Then query the field and option IDs and write them to `.private/project-config.e
    - What the logical milestones are (ordered by dependency)
    - What can be parallelized
 
-2. Create a **project-level issue** — the epic/umbrella for this feature:
+2. Create a **project-level issue** — the epic/umbrella for this feature. Assign it to the current GitHub user:
 
 ```bash
-gh issue create --title "<Feature Title>" --body "$(cat <<'EOF'
+GH_USERNAME=$(gh api user --jq '.login')
+gh issue create --assignee "$GH_USERNAME" --title "<Feature Title>" --body "$(cat <<'EOF'
 ## Overview
 <what this feature does>
 
@@ -96,10 +102,10 @@ EOF
 )"
 ```
 
-3. Create **milestone issues** (M1, M2, ...) — one per PR-sized chunk of work:
+3. Create **milestone issues** (M1, M2, ...) — one per PR-sized chunk of work. Assign to the same GitHub user:
 
 ```bash
-gh issue create --title "M1: <milestone title>" --body "$(cat <<'EOF'
+gh issue create --assignee "$GH_USERNAME" --title "M1: <milestone title>" --body "$(cat <<'EOF'
 ## Context
 Part of #<project-issue-number>: <feature title>
 

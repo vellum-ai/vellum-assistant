@@ -18,9 +18,10 @@ ln -s ../../scripts/commands/swarm.md swarm.md
 ln -s ../../scripts/commands/mainline.md mainline.md
 ln -s ../../scripts/commands/do.md do.md
 ln -s ../../scripts/commands/execute-plan.md execute-plan.md
+ln -s ../../scripts/commands/blitz.md blitz.md
 ```
 
-After symlinking, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, `/mainline`, `/do`, and `/execute-plan` in Claude Code.
+After symlinking, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, `/mainline`, `/do`, `/blitz`, and `/execute-plan` in Claude Code.
 
 ### 2. **IMPORTANT** Enable fast mode
 
@@ -132,6 +133,28 @@ Reads a plan file from `.private/plans/`, then sequentially implements and mainl
 /execute-plan AUTH_REFACTOR.md   # executes .private/plans/AUTH_REFACTOR.md
 ```
 
+### `/blitz` - End-to-end feature execution
+
+Plans a feature from scratch, creates a GitHub project board and milestone issues, swarm-executes them in parallel, sweeps for review feedback, addresses it, and reports a final summary. Combines `/brainstorm` + `/swarm` + `/check-reviews` into a single end-to-end workflow.
+
+The project board is created under the `vellum-ai` org with the naming convention `<github-username>-vellum-assistant`. Milestone issues are added to the board and tracked through Ready → In Progress → In Review → Done.
+
+**When to use:** When you have a feature to build end-to-end and want the full plan → execute → review → fix cycle handled automatically.
+
+**Frequency:** Once per feature. The command manages the entire lifecycle.
+
+```
+/blitz Add WebSocket transport for daemon IPC    # plan + execute a feature
+/blitz --auto Refactor the logger                # skip pause between rounds
+/blitz --workers 5 Add dark mode support         # use 5 parallel workers
+/blitz --skip-plan                               # skip planning, use existing "Ready" issues on the board
+```
+
+**Flags:**
+- `--auto` — skip the pause between swarm and sweep phases (default: pause and ask)
+- `--workers N` — number of parallel swarm workers (default: 3)
+- `--skip-plan` — skip issue creation; use issues already in the "Ready" column of the project board
+
 ## Typical workflow
 
 3 shells with Claude Code open, one for each of work/swarm, check-reviews, and brainstorm.
@@ -220,4 +243,10 @@ Follow the instructions in scripts/commands/do.md
 
 ```
 Follow the instructions in scripts/commands/execute-plan.md
+```
+
+### Blitz prompt
+
+```
+Follow the instructions in scripts/commands/blitz.md <feature description>
 ```
