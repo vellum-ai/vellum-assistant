@@ -7,6 +7,7 @@
 
 import { getLogger } from '../util/logger.js';
 import {
+  getConversationByKey,
   getOrCreateConversation,
 } from '../memory/conversation-key-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
@@ -129,7 +130,10 @@ export class RuntimeHttpServer {
       );
     }
 
-    const mapping = getOrCreateConversation(assistantId, conversationKey);
+    const mapping = getConversationByKey(assistantId, conversationKey);
+    if (!mapping) {
+      return Response.json({ messages: [] });
+    }
     const rawMessages = conversationStore.getMessages(mapping.conversationId);
 
     // Parse content blocks and extract text + tool calls
