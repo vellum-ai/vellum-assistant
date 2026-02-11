@@ -13,14 +13,15 @@ git diff
 
 If there are no staged or unstaged changes, stop and tell the user there's nothing to mainline.
 
-### 2. Create a branch (if needed)
+### 2. Create a fresh branch
 
-If already on a non-main branch, skip this step and use the current branch.
-
-Otherwise, create a new branch from the changes:
+Always create a fresh branch from main so the PR only contains the uncommitted changes — never reuse an existing non-main branch, which could include unrelated commits.
 
 ```bash
+git stash --include-untracked
+git checkout main && git pull
 git checkout -b <user>/<slug-from-title>
+git stash pop
 ```
 
 ### 3. Stage and commit
