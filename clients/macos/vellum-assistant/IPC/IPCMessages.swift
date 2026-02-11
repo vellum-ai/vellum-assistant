@@ -124,6 +124,22 @@ struct AmbientObservationMessage: Encodable, Sendable {
     let timestamp: Double
 }
 
+/// Sent to create a new Q&A session.
+/// Wire type: `"session_create"`
+struct SessionCreateMessage: Encodable, Sendable {
+    let type: String = "session_create"
+    let title: String?
+}
+
+/// Sent to add a user message to an existing Q&A session.
+/// Wire type: `"user_message"`
+struct UserMessageMessage: Encodable, Sendable {
+    let type: String = "user_message"
+    let sessionId: String
+    let content: String
+    let attachments: [IPCAttachment]?
+}
+
 /// Keepalive ping.
 /// Wire type: `"ping"`
 struct PingMessage: Encodable, Sendable {
@@ -154,6 +170,29 @@ struct CuErrorMessage: Decodable, Sendable {
     let message: String
 }
 
+/// Streamed text delta from the assistant's response.
+struct AssistantTextDeltaMessage: Decodable, Sendable {
+    let sessionId: String
+    let text: String
+}
+
+/// Streamed thinking delta from the assistant's reasoning.
+struct AssistantThinkingDeltaMessage: Decodable, Sendable {
+    let sessionId: String
+    let thinking: String
+}
+
+/// Signals that the assistant's message is complete.
+struct MessageCompleteMessage: Decodable, Sendable {
+    let sessionId: String
+}
+
+/// Session metadata from the server (e.g. generated title).
+struct SessionInfoMessage: Decodable, Sendable {
+    let sessionId: String
+    let title: String
+}
+
 /// Result from ambient observation analysis.
 struct AmbientResultMessage: Decodable, Sendable {
     let decision: String
@@ -167,6 +206,10 @@ enum ServerMessage: Decodable, Sendable {
     case cuAction(CuActionMessage)
     case cuComplete(CuCompleteMessage)
     case cuError(CuErrorMessage)
+    case assistantTextDelta(AssistantTextDeltaMessage)
+    case assistantThinkingDelta(AssistantThinkingDeltaMessage)
+    case messageComplete(MessageCompleteMessage)
+    case sessionInfo(SessionInfoMessage)
     case ambientResult(AmbientResultMessage)
     case pong
     case unknown(String)
@@ -189,6 +232,18 @@ enum ServerMessage: Decodable, Sendable {
         case "cu_error":
             let message = try CuErrorMessage(from: decoder)
             self = .cuError(message)
+        case "assistant_text_delta":
+            let message = try AssistantTextDeltaMessage(from: decoder)
+            self = .assistantTextDelta(message)
+        case "assistant_thinking_delta":
+            let message = try AssistantThinkingDeltaMessage(from: decoder)
+            self = .assistantThinkingDelta(message)
+        case "message_complete":
+            let message = try MessageCompleteMessage(from: decoder)
+            self = .messageComplete(message)
+        case "session_info":
+            let message = try SessionInfoMessage(from: decoder)
+            self = .sessionInfo(message)
         case "ambient_result":
             let message = try AmbientResultMessage(from: decoder)
             self = .ambientResult(message)
