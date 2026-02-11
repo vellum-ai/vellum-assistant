@@ -54,7 +54,9 @@ export interface SendMessageParams {
 }
 
 export interface SendMessageResponse {
+  accepted: boolean;
   messageId: string;
+  runId?: string;
   assistantMessage?: RuntimeMessage;
 }
 

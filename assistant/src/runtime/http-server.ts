@@ -383,7 +383,7 @@ export class RuntimeHttpServer {
         content ?? '',
         hasAttachments ? attachmentIds : undefined,
       );
-      return Response.json({ messageId: result.messageId });
+      return Response.json({ accepted: true, messageId: result.messageId });
     } catch (err) {
       if (err instanceof Error && err.message === 'Session is already processing a message') {
         return Response.json(
