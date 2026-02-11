@@ -76,9 +76,9 @@ remove() {
     read -p "Delete branch $branch? [y/N] " -n 1 -r
     echo
   else
-    # Non-TTY: try to read piped input, default to "y" on EOF
-    read -r REPLY 2>/dev/null || { [ -z "$REPLY" ] && REPLY="y"; }
-    REPLY="${REPLY:=y}"
+    # Non-TTY: read piped input if available, default to "n" (safe)
+    read -r REPLY 2>/dev/null || REPLY=""
+    REPLY="${REPLY:-n}"
   fi
   if [[ $REPLY =~ ^[Yy]$ ]]; then
     git -C "$REPO_ROOT" branch -d "$branch" 2>/dev/null || \
