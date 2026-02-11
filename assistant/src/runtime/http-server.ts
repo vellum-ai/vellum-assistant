@@ -26,6 +26,7 @@ export type MessageProcessor = (
   conversationId: string,
   content: string,
   attachmentIds?: string[],
+  options?: { userMessageAlreadyPersisted?: boolean },
 ) => Promise<{ messageId: string }>;
 
 export interface RuntimeHttpServerOptions {
@@ -424,32 +425,42 @@ export class RuntimeHttpServer {
     );
 
     // For new (non-duplicate) messages, run the agent loop to generate a reply.
+    // Pass userMessageAlreadyPersisted so the session skips inserting a second
+    // user message (recordInbound already persisted it within its transaction).
+    let processingSucceeded = false;
     if (!result.duplicate && this.processMessage) {
       try {
-        await this.processMessage(assistantId, result.conversationId, content);
+        await this.processMessage(assistantId, result.conversationId, content, undefined, {
+          userMessageAlreadyPersisted: true,
+        });
+        processingSucceeded = true;
       } catch (err) {
         log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
       }
     }
 
-    // Look up the latest assistant message in the conversation to return it.
+    // Only look up the assistant reply when processing succeeded for a new
+    // (non-duplicate) message.  For duplicates or failed processing, returning
+    // a stale assistant message could cause the caller to resend old replies.
     let assistantMessage: RuntimeMessagePayload | undefined;
-    const msgs = conversationStore.getMessages(result.conversationId);
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].role === 'assistant') {
-        let parsed: unknown;
-        try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
-        const rendered = renderHistoryContent(parsed);
-        if (rendered.text) {
-          assistantMessage = {
-            id: msgs[i].id,
-            role: 'assistant',
-            content: rendered.text,
-            timestamp: new Date(msgs[i].createdAt).toISOString(),
-            attachments: [],
-          };
+    if (processingSucceeded) {
+      const msgs = conversationStore.getMessages(result.conversationId);
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === 'assistant') {
+          let parsed: unknown;
+          try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
+          const rendered = renderHistoryContent(parsed);
+          if (rendered.text) {
+            assistantMessage = {
+              id: msgs[i].id,
+              role: 'assistant',
+              content: rendered.text,
+              timestamp: new Date(msgs[i].createdAt).toISOString(),
+              attachments: [],
+            };
+          }
+          break;
         }
-        break;
       }
     }
 
