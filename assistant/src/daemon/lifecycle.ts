@@ -240,4 +240,12 @@ export async function runDaemon(): Promise<void> {
 
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
+
+  process.on('unhandledRejection', (reason) => {
+    log.error({ err: reason }, 'Unhandled promise rejection');
+  });
+
+  process.on('uncaughtException', (err) => {
+    log.error({ err }, 'Uncaught exception');
+  });
 }
