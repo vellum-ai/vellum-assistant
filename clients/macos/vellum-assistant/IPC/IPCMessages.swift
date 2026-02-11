@@ -118,6 +118,7 @@ struct CuObservationMessage: Encodable, Sendable {
 /// Wire type: `"ambient_observation"`
 struct AmbientObservationMessage: Encodable, Sendable {
     let type: String = "ambient_observation"
+    let requestId: String
     let ocrText: String
     let appName: String?
     let windowTitle: String?
@@ -193,6 +194,7 @@ struct SessionInfoMessage: Decodable, Sendable {
 
 /// Result from ambient observation analysis.
 struct AmbientResultMessage: Decodable, Sendable {
+    let requestId: String
     let decision: String
     let summary: String?
     let suggestion: String?

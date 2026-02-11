@@ -88,6 +88,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   ambient_observation: {
     type: 'ambient_observation',
+    requestId: 'req-amb-001',
     ocrText: 'Hello world visible on screen',
     appName: 'Safari',
     windowTitle: 'Google',
@@ -266,6 +267,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   ambient_result: {
     type: 'ambient_result',
+    requestId: 'req-amb-001',
     decision: 'suggest',
     summary: 'User appears to be debugging a test failure',
     suggestion: 'Try running the test with --verbose flag for more details',

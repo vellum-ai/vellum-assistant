@@ -20,6 +20,7 @@ export async function handleAmbientObservation(
 
     ctx.send(socket, {
       type: 'ambient_result',
+      requestId: msg.requestId,
       decision: result.decision,
       summary: result.summary,
       suggestion: result.suggestion,
@@ -28,6 +29,7 @@ export async function handleAmbientObservation(
     log.error({ err }, 'Error processing ambient observation');
     ctx.send(socket, {
       type: 'ambient_result',
+      requestId: msg.requestId,
       decision: 'ignore',
     });
   }

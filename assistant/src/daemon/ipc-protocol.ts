@@ -105,6 +105,7 @@ export interface CuObservation {
 
 export interface AmbientObservation {
   type: 'ambient_observation';
+  requestId: string;
   ocrText: string;
   appName?: string;
   windowTitle?: string;
@@ -312,6 +313,7 @@ export interface CuError {
 
 export interface AmbientResult {
   type: 'ambient_result';
+  requestId: string;
   decision: 'ignore' | 'observe' | 'suggest';
   summary?: string;
   suggestion?: string;

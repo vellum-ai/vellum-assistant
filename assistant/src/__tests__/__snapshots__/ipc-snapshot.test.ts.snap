@@ -118,6 +118,7 @@ exports[`IPC message snapshots ClientMessage types ambient_observation serialize
 {
   "appName": "Safari",
   "ocrText": "Hello world visible on screen",
+  "requestId": "req-amb-001",
   "timestamp": 1700000000,
   "type": "ambient_observation",
   "windowTitle": "Google",
@@ -398,6 +399,7 @@ exports[`IPC message snapshots ServerMessage types cu_error serializes to expect
 exports[`IPC message snapshots ServerMessage types ambient_result serializes to expected JSON 1`] = `
 {
   "decision": "suggest",
+  "requestId": "req-amb-001",
   "suggestion": "Try running the test with --verbose flag for more details",
   "summary": "User appears to be debugging a test failure",
   "type": "ambient_result",
