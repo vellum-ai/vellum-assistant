@@ -7,6 +7,7 @@ enum SurfaceType: String, Codable, Sendable {
     case form
     case list
     case confirmation
+    case dynamicPage = "dynamic_page"
 }
 
 enum SurfaceActionStyle: String, Codable, Sendable {
@@ -113,11 +114,18 @@ struct ConfirmationSurfaceData: Sendable {
     let destructive: Bool
 }
 
+struct DynamicPageSurfaceData: Sendable {
+    let html: String
+    let width: Int?
+    let height: Int?
+}
+
 enum SurfaceData: Sendable {
     case card(CardSurfaceData)
     case form(FormSurfaceData)
     case list(ListSurfaceData)
     case confirmation(ConfirmationSurfaceData)
+    case dynamicPage(DynamicPageSurfaceData)
 }
 
 struct SurfaceActionButton: Identifiable, Sendable {
@@ -200,6 +208,8 @@ extension Surface {
             return parseListData(dict).map { .list($0) }
         case .confirmation:
             return parseConfirmationData(dict).map { .confirmation($0) }
+        case .dynamicPage:
+            return parseDynamicPageData(dict).map { .dynamicPage($0) }
         }
     }
 
@@ -218,6 +228,8 @@ extension Surface {
             return .list(mergeListData(existing: list, update: update))
         case .confirmation(let confirmation):
             return .confirmation(mergeConfirmationData(existing: confirmation, update: update))
+        case .dynamicPage(let dp):
+            return .dynamicPage(mergeDynamicPageData(existing: dp, update: update))
         }
     }
 
@@ -303,6 +315,13 @@ extension Surface {
             cancelLabel: cancelLabel,
             destructive: destructive
         )
+    }
+
+    private static func mergeDynamicPageData(existing: DynamicPageSurfaceData, update: [String: Any?]) -> DynamicPageSurfaceData {
+        let html = (update["html"] as? String) ?? existing.html
+        let width: Int? = update.keys.contains("width") ? (update["width"] as? Int) : existing.width
+        let height: Int? = update.keys.contains("height") ? (update["height"] as? Int) : existing.height
+        return DynamicPageSurfaceData(html: html, width: width, height: height)
     }
 
     // MARK: - Field Parsing Helpers
@@ -416,6 +435,15 @@ extension Surface {
             confirmLabel: dict["confirmLabel"] as? String,
             cancelLabel: dict["cancelLabel"] as? String,
             destructive: dict["destructive"] as? Bool ?? false
+        )
+    }
+
+    private static func parseDynamicPageData(_ dict: [String: Any?]) -> DynamicPageSurfaceData? {
+        guard let html = dict["html"] as? String else { return nil }
+        return DynamicPageSurfaceData(
+            html: html,
+            width: dict["width"] as? Int,
+            height: dict["height"] as? Int
         )
     }
 }
