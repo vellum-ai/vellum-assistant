@@ -21,9 +21,9 @@ ln -s ../../scripts/commands/mainline.md mainline.md
 
 After symlinking, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, `/worktree-plan`, and `/mainline` in Claude Code.
 
-### 2. Enable fast mode
+### 2. **IMPORTANT** Enable fast mode
 
-Before running any command, type `/fast` in your Claude Code session. Fast mode uses the same Opus model but with massively reduced latency and increased cost.
+Type `/fast` in your Claude Code session in order to toggle fast mode. Fast mode uses the same Opus model but with massively reduced latency and increased cost.
 You should use this almost all the time for both running these scripts and adhoc work.
 The only exception is `/check-reviews` since that's not a time-sensitive command.
 
@@ -49,7 +49,6 @@ Explores the codebase and produces a prioritized list of improvements: features,
 **Frequency:** Occasionally, as needed.
 
 ```
-/fast
 /brainstorm                                             # generate a general task backlog for the entire project
 /brainstorm focus on ideas relating to the desktop app  # generate a task backlog focused on the desktop app
 ```
@@ -63,7 +62,6 @@ Picks the top item from `.private/TODO.md` (or a specific task if you pass an ar
 **Frequency:** As often as you want, but **one at a time**. Don't run multiple `/work` sessions in parallel -- they'll conflict on the same branch. Use `/swarm` for parallelism.
 
 ```
-/fast
 /work                            # picks the top TODO item
 /work Fix the broken login flow  # works on a specific task
 ```
@@ -77,7 +75,6 @@ Spawns a pool of agents that work through `.private/TODO.md` in parallel using i
 **Frequency:** On demand. Can run for extended periods.
 
 ```
-/fast
 /swarm       # 3 parallel workers, runs until TODO.md is empty
 /swarm 5     # 5 parallel workers
 /swarm 3 10  # 3 workers, stop after 10 tasks completed
@@ -117,7 +114,6 @@ Takes all uncommitted changes, creates a branch, commits, opens a PR, merges it 
 This is the main workflow.
 
 ```
-/fast
 /work
 /work
 /work
@@ -125,20 +121,17 @@ This is the main workflow.
 ```
 
 ```
-/fast
 /work Address the feedback on https://github.com/vellum-ai/vellum-assistant/pull/999
 ...
 ```
 
 ```
-/fast
-/swarm 4 # run 4 workers, never give up, never surrender
+/swarm 4 20 # run 4 workers, stop after 20 tasks
 ...
 ```
 
 ```
-/fast
-/swarm 4 20 # run 4 workers, stop after 20 tasks
+/swarm 4 # run 4 workers, never give up, never surrender
 ...
 ```
 
@@ -147,20 +140,17 @@ This is the main workflow.
 Run this periodically to make sure you're not missing any feedback on merged PRs.
 
 ```
-# No need to fast mode here unless you need this to run quickly for some reason
-/check-reviews # see if reviewers left feedback
+/check-reviews
 ...
 ```
 
 ### Brainstorm
 
 ```
-/fast                    # enable fast mode
 /brainstorm              # generate and approve a task backlog
 ```
 
 ```
-/fast
 /brainstorm focus on ideas relating to the desktop app
 ```
 
