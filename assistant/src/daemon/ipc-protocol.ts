@@ -82,6 +82,35 @@ export interface SandboxSetRequest {
   enabled: boolean;
 }
 
+export interface CuSessionCreate {
+  type: 'cu_session_create';
+  sessionId: string;
+  task: string;
+  screenWidth: number;
+  screenHeight: number;
+  attachments?: UserMessageAttachment[];
+}
+
+export interface CuObservation {
+  type: 'cu_observation';
+  sessionId: string;
+  axTree?: string;
+  previousAXTree?: string;
+  axDiff?: string;
+  secondaryWindows?: string;
+  screenshot?: string;
+  executionResult?: string;
+  executionError?: string;
+}
+
+export interface AmbientObservation {
+  type: 'ambient_observation';
+  ocrText: string;
+  appName?: string;
+  windowTitle?: string;
+  timestamp: number;
+}
+
 export type ClientMessage =
   | UserMessage
   | ConfirmationResponse
@@ -95,7 +124,10 @@ export type ClientMessage =
   | HistoryRequest
   | UndoRequest
   | UsageRequest
-  | SandboxSetRequest;
+  | SandboxSetRequest
+  | CuSessionCreate
+  | CuObservation
+  | AmbientObservation;
 
 // === Server → Client messages ===
 
@@ -255,6 +287,35 @@ export interface MemoryStatus {
   model?: string;
 }
 
+export interface CuAction {
+  type: 'cu_action';
+  sessionId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  reasoning?: string;
+  stepNumber: number;
+}
+
+export interface CuComplete {
+  type: 'cu_complete';
+  sessionId: string;
+  summary: string;
+  stepCount: number;
+}
+
+export interface CuError {
+  type: 'cu_error';
+  sessionId: string;
+  message: string;
+}
+
+export interface AmbientResult {
+  type: 'ambient_result';
+  decision: 'ignore' | 'observe' | 'suggest';
+  summary?: string;
+  suggestion?: string;
+}
+
 export type ServerMessage =
   | AssistantTextDelta
   | AssistantThinkingDelta
@@ -276,7 +337,11 @@ export type ServerMessage =
   | ContextCompacted
   | SecretDetected
   | MemoryRecalled
-  | MemoryStatus;
+  | MemoryStatus
+  | CuAction
+  | CuComplete
+  | CuError
+  | AmbientResult;
 
 // === Serialization ===
 

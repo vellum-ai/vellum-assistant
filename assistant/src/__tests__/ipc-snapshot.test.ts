@@ -69,6 +69,30 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'sandbox_set',
     enabled: true,
   },
+  cu_session_create: {
+    type: 'cu_session_create',
+    sessionId: 'cu-sess-001',
+    task: 'Open Safari and search for weather',
+    screenWidth: 1920,
+    screenHeight: 1080,
+  },
+  cu_observation: {
+    type: 'cu_observation',
+    sessionId: 'cu-sess-001',
+    axTree: '<ax-tree>...</ax-tree>',
+    previousAXTree: '<prev-ax-tree>...</prev-ax-tree>',
+    axDiff: '+ new element',
+    secondaryWindows: 'Finder, Terminal',
+    screenshot: 'base64-screenshot-data',
+    executionResult: 'click completed',
+  },
+  ambient_observation: {
+    type: 'ambient_observation',
+    ocrText: 'Hello world visible on screen',
+    appName: 'Safari',
+    windowTitle: 'Google',
+    timestamp: 1700000000,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -220,6 +244,31 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     degraded: false,
     provider: 'openai',
     model: 'text-embedding-3-small',
+  },
+  cu_action: {
+    type: 'cu_action',
+    sessionId: 'cu-sess-001',
+    toolName: 'click',
+    input: { x: 100, y: 200 },
+    reasoning: 'Clicking the search button',
+    stepNumber: 1,
+  },
+  cu_complete: {
+    type: 'cu_complete',
+    sessionId: 'cu-sess-001',
+    summary: 'Successfully opened Safari and searched for weather',
+    stepCount: 5,
+  },
+  cu_error: {
+    type: 'cu_error',
+    sessionId: 'cu-sess-001',
+    message: 'Session timed out after 30 steps',
+  },
+  ambient_result: {
+    type: 'ambient_result',
+    decision: 'suggest',
+    summary: 'User appears to be debugging a test failure',
+    suggestion: 'Try running the test with --verbose flag for more details',
   },
 };
 
