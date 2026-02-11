@@ -45,7 +45,7 @@ final class SurfaceManager: ObservableObject {
 
         activeSurfaces[surface.id] = surface
 
-        let view = SurfacePlaceholderView(
+        let view = SurfaceContainerView(
             surface: surface,
             onAction: { [weak self] actionId, data in
                 self?.onAction?(surface.sessionId, surface.id, actionId, data)
@@ -97,7 +97,7 @@ final class SurfaceManager: ObservableObject {
         // Rebuild the view in the existing panel.
         guard let panel = panels[message.surfaceId] else { return }
 
-        let view = SurfacePlaceholderView(
+        let view = SurfaceContainerView(
             surface: updated,
             onAction: { [weak self] actionId, data in
                 self?.onAction?(updated.sessionId, updated.id, actionId, data)
@@ -147,66 +147,3 @@ final class SurfaceManager: ObservableObject {
     }
 }
 
-// MARK: - Placeholder View
-
-/// Temporary placeholder view for surfaces. The actual type-specific renderers will be
-/// added in M4. This view displays the surface title, type, and action buttons using
-/// the project's design system.
-private struct SurfacePlaceholderView: View {
-    let surface: Surface
-    let onAction: (String, [String: Any]?) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Header
-            HStack(spacing: VSpacing.md) {
-                Image(systemName: iconName)
-                    .foregroundStyle(VColor.accent)
-                Text(surface.title ?? surface.type.rawValue.capitalized)
-                    .font(VFont.heading)
-                    .foregroundStyle(VColor.textPrimary)
-                Spacer()
-            }
-
-            // Type badge
-            Text(surface.type.rawValue.uppercased())
-                .font(VFont.small)
-                .foregroundStyle(VColor.textMuted)
-
-            // Actions
-            if !surface.actions.isEmpty {
-                HStack(spacing: VSpacing.md) {
-                    Spacer()
-                    ForEach(surface.actions) { action in
-                        VButton(
-                            label: action.label,
-                            style: buttonStyle(for: action.style)
-                        ) {
-                            onAction(action.id, nil)
-                        }
-                    }
-                }
-            }
-        }
-        .padding(VSpacing.xl)
-        .frame(width: 380)
-        .vPanelBackground()
-    }
-
-    private var iconName: String {
-        switch surface.type {
-        case .card: return "rectangle.portrait"
-        case .form: return "doc.text"
-        case .list: return "list.bullet"
-        case .confirmation: return "exclamationmark.triangle.fill"
-        }
-    }
-
-    private func buttonStyle(for style: SurfaceActionStyle) -> VButton.Style {
-        switch style {
-        case .primary: return .primary
-        case .secondary: return .ghost
-        case .destructive: return .danger
-        }
-    }
-}
