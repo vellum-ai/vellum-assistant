@@ -40,6 +40,7 @@ export class ComputerUseSession {
   private readonly screenHeight: number;
   private readonly provider: Provider;
   private sendToClient: (msg: ServerMessage) => void;
+  private readonly interactionType: 'computer_use' | 'text_qa';
 
   private state: SessionState = 'idle';
   private stepCount = 0;
@@ -62,6 +63,7 @@ export class ComputerUseSession {
     screenHeight: number,
     provider: Provider,
     sendToClient: (msg: ServerMessage) => void,
+    interactionType?: 'computer_use' | 'text_qa',
   ) {
     this.sessionId = sessionId;
     this.task = task;
@@ -69,6 +71,7 @@ export class ComputerUseSession {
     this.screenHeight = screenHeight;
     this.provider = provider;
     this.sendToClient = sendToClient;
+    this.interactionType = interactionType ?? 'computer_use';
   }
 
   // ---------------------------------------------------------------------------

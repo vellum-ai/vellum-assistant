@@ -537,6 +537,7 @@ function handleCuSessionCreate(
     msg.screenHeight,
     provider,
     sendToClient,
+    msg.interactionType,
   );
 
   ctx.cuSessions.set(msg.sessionId, session);
