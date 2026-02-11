@@ -88,8 +88,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     return NextResponse.json({
-      success: true,
+      accepted: result.accepted,
       messageId: result.messageId,
+      ...(result.runId ? { runId: result.runId } : {}),
       ...(result.assistantMessage ? { assistantMessage: result.assistantMessage } : {}),
     });
   } catch (error: unknown) {
