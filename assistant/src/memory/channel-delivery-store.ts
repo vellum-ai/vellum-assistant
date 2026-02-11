@@ -11,7 +11,6 @@ import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { channelInboundEvents } from './schema.js';
 import { getOrCreateConversation } from './conversation-key-store.js';
-import * as conversationStore from './conversation-store.js';
 
 export interface InboundResult {
   accepted: boolean;
@@ -29,7 +28,6 @@ export function recordInbound(
   sourceChannel: string,
   externalChatId: string,
   externalMessageId: string,
-  content: string,
 ): InboundResult {
   const db = getDb();
 
@@ -63,8 +61,8 @@ export function recordInbound(
   const now = Date.now();
   const eventId = uuid();
 
-  // Store the inbound message in the conversation
-  const msg = conversationStore.addMessage(mapping.conversationId, 'user', content);
+  // Don't store the user message here — Session.processMessage() will
+  // add it when the runtime processes the inbound through the agent loop.
 
   db.insert(channelInboundEvents)
     .values({
@@ -74,7 +72,7 @@ export function recordInbound(
       externalChatId,
       externalMessageId,
       conversationId: mapping.conversationId,
-      messageId: msg.id,
+      messageId: null,
       deliveryStatus: 'pending',
       createdAt: now,
       updatedAt: now,

@@ -17,8 +17,11 @@ const log = getLogger('runtime-http');
 
 const DEFAULT_PORT = 7821;
 
+export type MessageProcessor = (conversationId: string, content: string) => Promise<string | null>;
+
 export interface RuntimeHttpServerOptions {
   port?: number;
+  processMessage?: MessageProcessor;
 }
 
 interface RuntimeMessagePayload {
@@ -32,9 +35,11 @@ interface RuntimeMessagePayload {
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
+  private processMessage: MessageProcessor | null;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
+    this.processMessage = options.processMessage ?? null;
   }
 
   async start(): Promise<void> {
@@ -269,13 +274,30 @@ export class RuntimeHttpServer {
       sourceChannel,
       externalChatId,
       externalMessageId,
-      content,
     );
+
+    if (result.duplicate) {
+      return Response.json({
+        accepted: result.accepted,
+        duplicate: result.duplicate,
+        eventId: result.eventId,
+      });
+    }
+
+    // Run the agent loop to generate an AI response
+    let assistantMessage: { content: string } | undefined;
+    if (this.processMessage) {
+      const responseText = await this.processMessage(result.conversationId, content);
+      if (responseText) {
+        assistantMessage = { content: responseText };
+      }
+    }
 
     return Response.json({
       accepted: result.accepted,
       duplicate: result.duplicate,
       eventId: result.eventId,
+      assistantMessage,
     });
   }
 

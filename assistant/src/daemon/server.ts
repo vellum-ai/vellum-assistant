@@ -461,4 +461,38 @@ export class DaemonServer {
     handleMessage(msg, socket, this.handlerContext());
   }
 
+  /**
+   * Process a message through the agent loop and return the assistant's reply.
+   * Used by RuntimeHttpServer to generate AI responses.
+   */
+  async processMessage(conversationId: string, content: string): Promise<string | null> {
+    const session = await this.getOrCreateSession(conversationId, undefined, false);
+
+    return new Promise<string | null>((resolve) => {
+      let assistantText = '';
+      let resolved = false;
+
+      session.processMessage(content, [], (event) => {
+        if (event.type === 'assistant_text_delta') {
+          assistantText += (event as { text: string }).text;
+        }
+        if (event.type === 'message_complete' || event.type === 'generation_cancelled') {
+          if (!resolved) {
+            resolved = true;
+            resolve(assistantText || null);
+          }
+        }
+        if (event.type === 'error' && !resolved) {
+          resolved = true;
+          resolve(assistantText || null);
+        }
+      }).catch(() => {
+        if (!resolved) {
+          resolved = true;
+          resolve(null);
+        }
+      });
+    });
+  }
+
 }
