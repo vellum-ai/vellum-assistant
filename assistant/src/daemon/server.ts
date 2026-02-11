@@ -28,7 +28,7 @@ export class DaemonServer {
   private sessions = new Map<string, Session>();
   private socketToSession = new Map<net.Socket, string>();
   private cuSessions = new Map<string, ComputerUseSession>();
-  private socketToCuSession = new Map<net.Socket, string>();
+  private socketToCuSession = new Map<net.Socket, Set<string>>();
   private connectedSockets = new Set<net.Socket>();
   private socketSandboxOverride = new Map<net.Socket, boolean>();
   // Guards against duplicate session creation when multiple clients connect
@@ -332,12 +332,14 @@ export class DaemonServer {
         }
       }
       this.socketToSession.delete(socket);
-      const cuSessionId = this.socketToCuSession.get(socket);
-      if (cuSessionId) {
-        const cuSession = this.cuSessions.get(cuSessionId);
-        if (cuSession) {
-          cuSession.abort();
-          this.cuSessions.delete(cuSessionId);
+      const cuSessionIds = this.socketToCuSession.get(socket);
+      if (cuSessionIds) {
+        for (const cuSessionId of cuSessionIds) {
+          const cuSession = this.cuSessions.get(cuSessionId);
+          if (cuSession) {
+            cuSession.abort();
+            this.cuSessions.delete(cuSessionId);
+          }
         }
       }
       this.socketToCuSession.delete(socket);
@@ -445,6 +447,7 @@ export class DaemonServer {
       cuSessions: this.cuSessions,
       socketToCuSession: this.socketToCuSession,
       socketSandboxOverride: this.socketSandboxOverride,
+      sharedRequestTimestamps: this.sharedRequestTimestamps,
       debounceTimers: this.debounceTimers,
       suppressConfigReload: this.suppressConfigReload,
       setSuppressConfigReload: (value: boolean) => { this.suppressConfigReload = value; },
