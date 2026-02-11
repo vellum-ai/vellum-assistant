@@ -461,4 +461,14 @@ export class DaemonServer {
     handleMessage(msg, socket, this.handlerContext());
   }
 
+  /**
+   * Process a message from the HTTP runtime API.
+   * Gets or creates a session and runs the agent loop.
+   * Results are saved to the DB for the web UI to poll.
+   */
+  async processMessage(conversationId: string, content: string): Promise<void> {
+    const session = await this.getOrCreateSession(conversationId);
+    await session.processMessage(content, [], () => {}, crypto.randomUUID());
+  }
+
 }

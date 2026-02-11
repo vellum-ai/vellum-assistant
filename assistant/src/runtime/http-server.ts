@@ -17,8 +17,33 @@ const log = getLogger('runtime-http');
 
 const DEFAULT_PORT = 7821;
 
+/**
+ * Extract plain text from a DB content field.
+ * Content is stored as JSON (Anthropic content block array) or plain text.
+ */
+function extractTextContent(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((b: { type?: string }) => b.type === 'text')
+        .map((b: { text?: string }) => b.text ?? '')
+        .join('');
+    }
+    return raw;
+  } catch {
+    return raw;
+  }
+}
+
+export type MessageProcessor = (
+  conversationId: string,
+  content: string,
+) => Promise<void>;
+
 export interface RuntimeHttpServerOptions {
   port?: number;
+  processMessage?: MessageProcessor;
 }
 
 interface RuntimeMessagePayload {
@@ -32,9 +57,11 @@ interface RuntimeMessagePayload {
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
+  private processMessage?: MessageProcessor;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
+    this.processMessage = options.processMessage;
   }
 
   async start(): Promise<void> {
@@ -125,7 +152,7 @@ export class RuntimeHttpServer {
     const messages: RuntimeMessagePayload[] = rawMessages.map((msg) => ({
       id: msg.id,
       role: msg.role,
-      content: msg.content,
+      content: extractTextContent(msg.content),
       timestamp: new Date(msg.createdAt).toISOString(),
       attachments: [],
     }));
@@ -157,15 +184,17 @@ export class RuntimeHttpServer {
     }
 
     const mapping = getOrCreateConversation(assistantId, conversationKey);
-    const userMessage = conversationStore.addMessage(
-      mapping.conversationId,
-      'user',
-      content,
-    );
 
-    return Response.json({
-      messageId: userMessage.id,
-    });
+    // Trigger agent processing in the background. session.processMessage
+    // saves the user message and runs the agent loop; the web UI polls
+    // for results via GET /messages.
+    if (this.processMessage) {
+      this.processMessage(mapping.conversationId, content).catch((err) => {
+        log.error({ err, conversationId: mapping.conversationId }, 'Failed to process message');
+      });
+    }
+
+    return Response.json({ accepted: true });
   }
 
   private async handleUploadAttachment(assistantId: string, req: Request): Promise<Response> {
