@@ -264,7 +264,7 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
       lastAssistantMessageId !== undefined &&
       lastAssistantMessageId !== lastAlertedAssistantIdRef.current;
     if (wasWaitingRef.current && !isWaitingForResponse && hasNewAssistantMessage && !document.hasFocus()) {
-      const audio = new Audio("/wilhelm.mp3");
+      const audio = new Audio("/notification.mp3");
       audio.play().catch(() => {});
     }
     if (hasNewAssistantMessage) {
