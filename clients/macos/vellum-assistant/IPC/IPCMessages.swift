@@ -3,7 +3,7 @@ import Foundation
 // MARK: - AnyCodable
 
 /// Lightweight wrapper for arbitrary JSON values in tool input dictionaries.
-/// Supports String, Int, Double, Bool, and null.
+/// Supports String, Int, Double, Bool, null, arrays, and nested objects.
 struct AnyCodable: Codable, Equatable, @unchecked Sendable {
     let value: Any?
 
@@ -23,8 +23,12 @@ struct AnyCodable: Codable, Equatable, @unchecked Sendable {
             value = double
         } else if let string = try? container.decode(String.self) {
             value = string
+        } else if let array = try? container.decode([AnyCodable].self) {
+            value = array.map { $0.value }
+        } else if let dict = try? container.decode([String: AnyCodable].self) {
+            value = dict.mapValues { $0.value }
         } else {
-            value = nil
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported JSON value type")
         }
     }
 
@@ -40,6 +44,10 @@ struct AnyCodable: Codable, Equatable, @unchecked Sendable {
             try container.encode(double)
         } else if let string = value as? String {
             try container.encode(string)
+        } else if let array = value as? [Any?] {
+            try container.encode(array.map { AnyCodable($0) })
+        } else if let dict = value as? [String: Any?] {
+            try container.encode(dict.mapValues { AnyCodable($0) })
         } else {
             try container.encodeNil()
         }
@@ -57,6 +65,14 @@ struct AnyCodable: Codable, Equatable, @unchecked Sendable {
             return l == r
         case let (l as String, r as String):
             return l == r
+        case let (l as [Any?], r as [Any?]):
+            return l.count == r.count && zip(l, r).allSatisfy { AnyCodable($0) == AnyCodable($1) }
+        case let (l as [String: Any?], r as [String: Any?]):
+            guard l.count == r.count else { return false }
+            return l.allSatisfy { key, lVal in
+                guard let rVal = r[key] else { return false }
+                return AnyCodable(lVal) == AnyCodable(rVal)
+            }
         default:
             return false
         }
