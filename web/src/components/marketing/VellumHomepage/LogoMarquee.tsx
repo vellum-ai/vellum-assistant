@@ -28,11 +28,9 @@ export function LogoMarquee() {
   return (
     <div 
       style={{
-        background: "rgba(255, 255, 255, 0.1)",
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-        borderTop: "1px solid rgba(255, 255, 255, 0.15)",
-        padding: "0.5rem 0",
+        background: "#f6f9fc",
+        borderTop: "1px solid #e6ebf1",
+        padding: "2rem 0",
       }}
     >
       <style>{`
@@ -41,14 +39,26 @@ export function LogoMarquee() {
           100% { transform: translateX(-50%); }
         }
       `}</style>
-      <div style={{ textAlign: "center", marginBottom: "0.25rem" }}>
-        <span style={{ color: "rgba(255, 255, 255, 0.8)", fontSize: "0.75rem" }}>Used by people who value their time</span>
-      </div>
+      
       <div style={{ overflow: "hidden", maskImage: "linear-gradient(to right, transparent, black 10%, black 90%, transparent)", WebkitMaskImage: "linear-gradient(to right, transparent, black 10%, black 90%, transparent)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "2rem", flexWrap: "nowrap", padding: "0.25rem 0", width: "max-content", animation: "logo-marquee-scroll 30s linear infinite" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "3rem", flexWrap: "nowrap", padding: "0.5rem 0", width: "max-content", animation: "logo-marquee-scroll 40s linear infinite" }}>
           {[...logos, ...logos].map((logo, index) => (
             <div key={index} style={{ flexShrink: 0 }}>
-              <Image loading="lazy" src={logo.src} alt={logo.alt} width={100} height={20} unoptimized style={{ height: "16px", width: "auto", objectFit: "contain", opacity: 0.8, filter: "brightness(0) invert(1)" }} />
+              <Image 
+                loading="lazy" 
+                src={logo.src} 
+                alt={logo.alt} 
+                width={100} 
+                height={24} 
+                unoptimized 
+                style={{ 
+                  height: "24px", 
+                  width: "auto", 
+                  objectFit: "contain", 
+                  opacity: 0.6,
+                  filter: "grayscale(100%)",
+                }} 
+              />
             </div>
           ))}
         </div>
