@@ -42,12 +42,12 @@ struct OnboardingHatchView: View {
                 viewModel.handleEggTap()
             }
             // Wire completion to advance onboarding
-            viewModel.onComplete = {
-                state.hasHatched = true
+            viewModel.onComplete = { [weak state] in
+                state?.hasHatched = true
                 // Delay advance so the creature is visible in OnboardingHatchView
                 // before SwiftUI swaps to the standalone CreatureView at step 1
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    state.advance()
+                    state?.advance()
                 }
             }
         }
