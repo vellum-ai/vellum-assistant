@@ -110,10 +110,19 @@ export class Session {
 
     this.messages = dbMessages
       .slice(this.contextCompactedMessageCount)
-      .map((m) => ({
-        role: m.role as 'user' | 'assistant',
-        content: JSON.parse(m.content),
-      }));
+      .map((m) => {
+        const role = m.role as 'user' | 'assistant';
+        const content = JSON.parse(m.content);
+        // Strip tool_result blocks from assistant messages (legacy data from
+        // patchToolResults which injected them in the wrong role).
+        if (role === 'assistant' && Array.isArray(content)) {
+          const cleaned = content.filter(
+            (block: Record<string, unknown>) => block.type !== 'tool_result',
+          );
+          return { role, content: cleaned };
+        }
+        return { role, content };
+      });
 
     if (contextSummary) {
       this.messages.unshift(createContextSummaryMessage(contextSummary));
@@ -241,7 +250,6 @@ export class Session {
       let exchangeOutputTokens = 0;
       let model = '';
       let runMessages = this.messages;
-      let lastSavedMessageId: string | null = null;
       const pendingToolResults = new Map<string, { content: string; isError: boolean }>();
       const runtimeConfig = getConfig();
       const recallQuery = buildMemoryQuery(content, this.messages);
@@ -304,18 +312,30 @@ export class Session {
               onEvent({ type: 'error', message: event.error.message });
               break;
             case 'message_complete': {
-              // Patch the previously saved assistant message with tool results
-              if (lastSavedMessageId && pendingToolResults.size > 0) {
-                conversationStore.patchToolResults(this.conversationId, lastSavedMessageId, pendingToolResults);
+              // Save pending tool results as a user message before the next assistant message.
+              // tool_result blocks belong in user messages per the Anthropic API spec.
+              if (pendingToolResults.size > 0) {
+                const toolResultBlocks = Array.from(pendingToolResults.entries()).map(
+                  ([toolUseId, result]) => ({
+                    type: 'tool_result',
+                    tool_use_id: toolUseId,
+                    content: result.content,
+                    is_error: result.isError,
+                  }),
+                );
+                conversationStore.addMessage(
+                  this.conversationId,
+                  'user',
+                  JSON.stringify(toolResultBlocks),
+                );
                 pendingToolResults.clear();
               }
               // Save assistant message to DB
-              const saved = conversationStore.addMessage(
+              conversationStore.addMessage(
                 this.conversationId,
                 'assistant',
                 JSON.stringify(event.message.content),
               );
-              lastSavedMessageId = saved.id;
               break;
             }
             case 'usage':
@@ -328,9 +348,21 @@ export class Session {
         this.abortController.signal,
       );
 
-      // Flush any remaining tool results for the last saved assistant message
-      if (lastSavedMessageId && pendingToolResults.size > 0) {
-        conversationStore.patchToolResults(this.conversationId, lastSavedMessageId, pendingToolResults);
+      // Flush any remaining tool results as a user message
+      if (pendingToolResults.size > 0) {
+        const toolResultBlocks = Array.from(pendingToolResults.entries()).map(
+          ([toolUseId, result]) => ({
+            type: 'tool_result',
+            tool_use_id: toolUseId,
+            content: result.content,
+            is_error: result.isError,
+          }),
+        );
+        conversationStore.addMessage(
+          this.conversationId,
+          'user',
+          JSON.stringify(toolResultBlocks),
+        );
         pendingToolResults.clear();
       }
 
