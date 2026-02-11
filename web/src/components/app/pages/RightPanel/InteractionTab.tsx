@@ -12,6 +12,7 @@ import {
   Pause,
   Play,
   Send,
+  ShieldAlert,
   Terminal,
   User,
   X,
@@ -73,6 +74,13 @@ interface PendingAttachment {
   error?: string;
 }
 
+interface PendingRunConfirmation {
+  toolName: string;
+  toolUseId: string;
+  input: Record<string, unknown>;
+  riskLevel: string;
+}
+
 interface InteractionTabProps {
   assistantId: string;
   assistantName: string;
@@ -81,6 +89,7 @@ interface InteractionTabProps {
 
 const HEALTH_CHECK_INTERVAL = 10000;
 const MESSAGE_POLL_INTERVAL = 5000;
+const RUN_POLL_INTERVAL = 2000;
 const SETUP_GRACE_PERIOD_MS = 10 * 60 * 1000;
 
 function formatBytes(size: number): string {
@@ -162,6 +171,8 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadedPendingAttachmentIdsRef = useRef<string[]>([]);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingRunConfirmation | null>(null);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -324,6 +335,44 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   useEffect(() => {
     uploadedPendingAttachmentIdsRef.current = uploadedAttachmentIds;
   }, [uploadedAttachmentIds]);
+
+  useEffect(() => {
+    if (!activeRunId) return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/assistants/${assistantId}/runs/${activeRunId}`);
+        if (!res.ok || cancelled) return;
+        const run = await res.json() as {
+          status: string;
+          pendingConfirmation?: PendingRunConfirmation | null;
+          error?: string | null;
+        };
+
+        if (run.status === "needs_confirmation" && run.pendingConfirmation) {
+          setPendingConfirmation(run.pendingConfirmation);
+        } else if (run.status === "completed" || run.status === "failed") {
+          setActiveRunId(null);
+          setPendingConfirmation(null);
+          setIsLoading(false);
+          await fetchMessages();
+        } else {
+          setPendingConfirmation(null);
+        }
+      } catch {
+        // ignore polling errors
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, RUN_POLL_INTERVAL);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [activeRunId, assistantId, fetchMessages]);
 
   const deleteUploadedAttachments = useCallback(async (attachmentIds: string[]) => {
     if (attachmentIds.length === 0) {
@@ -585,7 +634,7 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
       setIsLoading(true);
 
       try {
-        const response = await fetch(`/api/assistants/${assistantId}/messages`, {
+        const response = await fetch(`/api/assistants/${assistantId}/runs`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ content: trimmedInput, attachment_ids: attachmentIds }),
@@ -596,18 +645,39 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
           throw new Error(data.error || "Failed to send message");
         }
 
-        await fetchMessages();
+        const data = await response.json() as { id?: string };
+        if (data.id) {
+          setActiveRunId(data.id);
+        }
         setPendingAttachments((prev) => prev.filter((attachment) => !attachmentIds.includes(attachment.attachmentId || "")));
       } catch (error) {
         console.error("Failed to send message:", error);
         setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
         setInput(trimmedInput);
-      } finally {
         setIsLoading(false);
       }
     },
     [assistantId, canSend, fetchMessages, input, pendingAttachments, uploadedAttachmentIds],
   );
+
+  const handleDecision = useCallback(async (decision: "allow" | "deny") => {
+    if (!activeRunId) return;
+
+    setPendingConfirmation(null);
+
+    try {
+      const res = await fetch(`/api/assistants/${assistantId}/runs/${activeRunId}/decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      if (!res.ok) {
+        console.error("Failed to submit decision");
+      }
+    } catch (error) {
+      console.error("Failed to submit decision:", error);
+    }
+  }, [activeRunId, assistantId]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -837,7 +907,7 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
                     )}
                   </div>
                 ))}
-                {(isLoading || isWaitingForResponse) && (
+                {(isLoading || isWaitingForResponse) && !pendingConfirmation && (
                   <div className="flex gap-3">
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-100 dark:bg-green-950">
                       <Bot className="h-4 w-4 text-green-600 dark:text-green-400" />
@@ -847,6 +917,46 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
                         <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400" />
                         <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:0.1s]" />
                         <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:0.2s]" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {pendingConfirmation && (
+                  <div className="flex gap-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950">
+                      <ShieldAlert className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <div className="max-w-[80%] rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/50">
+                      <div className="flex items-center gap-2 text-sm font-medium text-amber-800 dark:text-amber-300">
+                        <span>Permission required</span>
+                        <span className="rounded bg-amber-200 px-1.5 py-0.5 text-xs font-normal text-amber-700 dark:bg-amber-900 dark:text-amber-400">
+                          {pendingConfirmation.riskLevel}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">
+                        <span className="font-mono font-medium">{pendingConfirmation.toolName}</span>
+                      </p>
+                      {Object.keys(pendingConfirmation.input).length > 0 && (
+                        <p className="mt-1 max-w-[400px] truncate text-xs text-amber-600 dark:text-amber-500">
+                          {summarizeToolInput(pendingConfirmation.input)}
+                        </p>
+                      )}
+                      <div className="mt-3 flex gap-2">
+                        <Button
+                          onClick={() => handleDecision("allow")}
+                          size="sm"
+                          className="bg-green-600 text-white hover:bg-green-700"
+                        >
+                          Allow
+                        </Button>
+                        <Button
+                          onClick={() => handleDecision("deny")}
+                          size="sm"
+                          variant="ghost"
+                          className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+                        >
+                          Deny
+                        </Button>
                       </div>
                     </div>
                   </div>
