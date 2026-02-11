@@ -92,6 +92,13 @@ struct AccessibilityPermissionStepView: View {
                 }
                 return
             }
+            // Auto-advance if permission was already granted (e.g. after restart)
+            if PermissionManager.accessibilityStatus(prompt: false) == .granted {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    grantPermission()
+                }
+                return
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showContent = true

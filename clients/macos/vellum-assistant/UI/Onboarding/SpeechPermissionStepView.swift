@@ -82,6 +82,13 @@ struct SpeechPermissionStepView: View {
                 }
                 return
             }
+            // Auto-advance if permission was already granted (e.g. after restart)
+            if SFSpeechRecognizer.authorizationStatus() == .authorized {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    grantPermission()
+                }
+                return
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showCard = true
