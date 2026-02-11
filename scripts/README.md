@@ -29,15 +29,15 @@ Options: `--local-port PORT` and `--remote-port PORT` (both default to 7821).
 
 ## Automation Commands
 
-Slash commands for Claude Code that automate development workflows. They manage a shared task list (`.private/TODO.md`), create PRs, merge them, and track review status.
+Slash commands for Claude Code that automate development workflows. They live in `.claude/commands/` (committed to the repo) and manage a shared task list (`.private/TODO.md`), create PRs, merge them, and track review status.
 
 ## Setup
 
 ### 1. Run `vel setup`
 
-Run `vel setup` (or `./setup.sh`) to automatically symlink all commands into `.claude/commands/` and create the required `.private/` tracking files. Both directories are gitignored, so every developer needs to run this locally.
+Run `vel setup` (or `./setup.sh`) to create the required `.private/` tracking files. The `.private/` directory is gitignored, so every developer needs to run this locally.
 
-After setup, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, `/mainline`, `/do`, `/blitz`, and `/execute-plan` in Claude Code.
+The slash commands themselves are committed at `.claude/commands/` and available automatically — no setup needed.
 
 ### 2. **IMPORTANT** Enable fast mode
 
@@ -217,41 +217,41 @@ The swarm command specifically relies on Claude Code's Agent Teams, so you might
 ### Work prompt
 
 ```
-Follow the instructions in scripts/commands/work.md
+Follow the instructions in .claude/commands/work.md
 ```
 
 ### Check-reviews prompt
 
 ```
-Follow the instructions in scripts/commands/check-reviews.md
+Follow the instructions in .claude/commands/check-reviews.md
 ```
 
 ### Brainstorm prompt
 
 ```
-Follow the instructions in scripts/commands/brainstorm.md
+Follow the instructions in .claude/commands/brainstorm.md
 ```
 
 ### Mainline prompt
 
 ```
-Follow the instructions in scripts/commands/mainline.md
+Follow the instructions in .claude/commands/mainline.md
 ```
 
 ### Do prompt
 
 ```
-Follow the instructions in scripts/commands/do.md
+Follow the instructions in .claude/commands/do.md
 ```
 
 ### Execute-plan prompt
 
 ```
-Follow the instructions in scripts/commands/execute-plan.md
+Follow the instructions in .claude/commands/execute-plan.md
 ```
 
 ### Blitz prompt
 
 ```
-Follow the instructions in scripts/commands/blitz.md <feature description>
+Follow the instructions in .claude/commands/blitz.md <feature description>
 ```

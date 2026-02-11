@@ -29,7 +29,7 @@ The `vel` CLI provides common development operations. After running `./setup.sh`
 
 vel up              # Start development environment
 vel down            # Stop development environment
-vel setup           # Run initial setup (includes Claude Code commands)
+vel setup           # Run initial setup
 vel ps              # List running services
 vel help            # Show help
 ```
