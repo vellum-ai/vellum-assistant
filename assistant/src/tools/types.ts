@@ -68,6 +68,11 @@ export type ToolLifecycleEvent =
 
 export type ToolLifecycleEventHandler = (event: ToolLifecycleEvent) => void | Promise<void>;
 
+export type ProxyToolResolver = (
+  toolName: string,
+  input: Record<string, unknown>,
+) => Promise<ToolExecutionResult>;
+
 export interface ToolContext {
   workingDir: string;
   sessionId: string;
@@ -78,6 +83,8 @@ export interface ToolContext {
   sandboxOverride?: boolean;
   /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error/secret_detected). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
+  /** Optional resolver for proxy tools — delegates execution to an external client. */
+  proxyToolResolver?: ProxyToolResolver;
 }
 
 export interface DiffInfo {

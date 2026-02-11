@@ -172,8 +172,16 @@ export class ToolExecutor {
         }
       }
 
-      // Execute the tool
-      const execResult = await tool.execute(input, context);
+      // Execute the tool — proxy tools delegate to an external resolver
+      let execResult: ToolExecutionResult;
+      if (tool.executionMode === 'proxy') {
+        if (!context.proxyToolResolver) {
+          return { content: 'No proxy resolver configured for proxy tool', isError: true };
+        }
+        execResult = await context.proxyToolResolver(name, input);
+      } else {
+        execResult = await tool.execute(input, context);
+      }
 
       // Secret detection on tool output
       const sdConfig = getConfig().secretDetection;
