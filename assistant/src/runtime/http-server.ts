@@ -523,8 +523,8 @@ export class RuntimeHttpServer {
     const applied = this.runOrchestrator.submitDecision(runId, decision);
     if (!applied) {
       return Response.json(
-        { error: 'No pending confirmation for this run' },
-        { status: 409 },
+        { error: 'Run not found' },
+        { status: 404 },
       );
     }
 

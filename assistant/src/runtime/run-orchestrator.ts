@@ -48,6 +48,13 @@ export class RunOrchestrator {
 
   constructor(deps: RunOrchestratorDeps) {
     this.deps = deps;
+
+    // On startup, mark any runs left in non-terminal states as failed.
+    // These are orphans from a previous daemon process that was interrupted.
+    const recovered = runsStore.failOrphanedRuns();
+    if (recovered > 0) {
+      log.info({ count: recovered }, 'Recovered orphaned runs from previous session');
+    }
   }
 
   /**
@@ -113,19 +120,35 @@ export class RunOrchestrator {
 
   /**
    * Submit a permission decision for a pending confirmation.
-   * Returns true if the decision was applied, false if no pending
-   * confirmation exists for this run.
+   * Returns true if the decision was applied or was already handled
+   * (idempotent). Returns false only if the run doesn't exist.
    */
   submitDecision(runId: string, decision: UserDecision): boolean {
     const pendingState = this.pending.get(runId);
-    if (!pendingState) return false;
+    if (pendingState) {
+      runsStore.clearRunConfirmation(runId);
+      pendingState.session.handleConfirmationResponse(
+        pendingState.prompterRequestId,
+        decision,
+      );
+      this.pending.delete(runId);
+      return true;
+    }
 
-    runsStore.clearRunConfirmation(runId);
-    pendingState.session.handleConfirmationResponse(
-      pendingState.prompterRequestId,
-      decision,
-    );
-    this.pending.delete(runId);
+    // No in-memory pending state — check if the run exists.
+    // If it's in a terminal or running state, the decision was already
+    // handled (double-submit) or the prompter timed out. Either way,
+    // treat as idempotent success.
+    const run = runsStore.getRun(runId);
+    if (!run) return false;
+
+    // If the run is still needs_confirmation but there's no in-memory
+    // state, the prompter already timed out and auto-denied. Clear the
+    // stale confirmation to keep the stored state consistent.
+    if (run.status === 'needs_confirmation') {
+      runsStore.clearRunConfirmation(runId);
+    }
+
     return true;
   }
 }

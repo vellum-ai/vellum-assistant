@@ -173,6 +173,7 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const uploadedPendingAttachmentIdsRef = useRef<string[]>([]);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingRunConfirmation | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -336,6 +337,13 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
     uploadedPendingAttachmentIdsRef.current = uploadedAttachmentIds;
   }, [uploadedAttachmentIds]);
 
+  // Auto-dismiss run error after 8 seconds
+  useEffect(() => {
+    if (!runError) return;
+    const timer = setTimeout(() => setRunError(null), 8000);
+    return () => clearTimeout(timer);
+  }, [runError]);
+
   useEffect(() => {
     if (!activeRunId) return;
 
@@ -357,6 +365,9 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
           setActiveRunId(null);
           setPendingConfirmation(null);
           setIsLoading(false);
+          if (run.status === "failed" && run.error) {
+            setRunError(run.error);
+          }
           await fetchMessages();
         } else {
           setPendingConfirmation(null);
@@ -918,6 +929,24 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
                         <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:0.1s]" />
                         <div className="h-2 w-2 animate-bounce rounded-full bg-zinc-400 [animation-delay:0.2s]" />
                       </div>
+                    </div>
+                  </div>
+                )}
+                {runError && (
+                  <div className="flex gap-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-950">
+                      <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                    </div>
+                    <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 dark:border-red-800 dark:bg-red-950/50">
+                      <p className="text-sm text-red-700 dark:text-red-300">{runError}</p>
+                      <button
+                        type="button"
+                        onClick={() => setRunError(null)}
+                        className="ml-1 rounded p-0.5 text-red-400 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900"
+                        aria-label="Dismiss error"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
                 )}

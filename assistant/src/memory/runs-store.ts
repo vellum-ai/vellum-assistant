@@ -5,7 +5,7 @@
  *   running → needs_confirmation → running → completed | failed
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { messageRuns } from './schema.js';
@@ -165,4 +165,36 @@ export function failRun(runId: string, error: string): void {
     })
     .where(eq(messageRuns.id, runId))
     .run();
+}
+
+/**
+ * Mark all non-terminal runs as failed.
+ * Called on startup to recover from daemon restarts that left runs
+ * in running/needs_confirmation with no in-memory state to resolve them.
+ * Returns the number of rows affected.
+ */
+export function failOrphanedRuns(): number {
+  const db = getDb();
+  const now = Date.now();
+  const activeStatuses = ['running', 'needs_confirmation'];
+
+  // Count first so we can report how many were recovered.
+  const active = db.select({ id: messageRuns.id })
+    .from(messageRuns)
+    .where(inArray(messageRuns.status, activeStatuses))
+    .all();
+
+  if (active.length === 0) return 0;
+
+  db.update(messageRuns)
+    .set({
+      status: 'failed',
+      pendingConfirmation: null,
+      error: 'Run was interrupted (daemon restart)',
+      updatedAt: now,
+    })
+    .where(inArray(messageRuns.status, activeStatuses))
+    .run();
+
+  return active.length;
 }
