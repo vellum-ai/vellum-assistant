@@ -292,6 +292,13 @@ export class Session {
         }
       }
 
+      // Pre-run repair: fix any message ordering issues before sending to provider
+      const preRunRepair = repairHistory(runMessages);
+      if (preRunRepair.stats.assistantToolResultsRemoved > 0 || preRunRepair.stats.missingToolResultsInserted > 0 || preRunRepair.stats.orphanToolResultsDowngraded > 0) {
+        log.warn({ conversationId: this.conversationId, phase: 'pre_run', ...preRunRepair.stats }, 'Repaired runtime history before provider call');
+        runMessages = preRunRepair.messages;
+      }
+
       const updatedHistory = await this.agentLoop.run(
         runMessages,
         (event) => {
