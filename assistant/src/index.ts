@@ -925,6 +925,7 @@ _vellum() {
     local -a commands
     commands=(
         'daemon:Manage the daemon process'
+        'dev:Run daemon in dev mode with auto-restart'
         'sessions:Manage sessions'
         'config:Manage configuration'
         'keys:Manage API keys in secure storage'
