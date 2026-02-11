@@ -21,6 +21,10 @@ import type {
   ChannelInboundParams,
   ChannelInboundResponse,
   ChannelDeliveryAckParams,
+  CreateRunParams,
+  RunResponse,
+  RunDecisionParams,
+  RunDecisionResponse,
 } from "./types";
 
 function sanitizeUrl(url: string): string {
@@ -134,6 +138,24 @@ export function createRuntimeClient(
 
     channelDeliveryAck(params: ChannelDeliveryAckParams) {
       return request<void>("/channels/delivery-ack", {
+        method: "POST",
+        body: JSON.stringify(params),
+      });
+    },
+
+    createRun(params: CreateRunParams) {
+      return request<RunResponse>("/runs", {
+        method: "POST",
+        body: JSON.stringify(params),
+      });
+    },
+
+    getRun(runId: string) {
+      return request<RunResponse>(`/runs/${runId}`);
+    },
+
+    submitRunDecision(runId: string, params: RunDecisionParams) {
+      return request<RunDecisionResponse>(`/runs/${runId}/decision`, {
         method: "POST",
         body: JSON.stringify(params),
       });

@@ -122,6 +122,41 @@ export interface ChannelDeliveryAckParams {
 }
 
 // ---------------------------------------------------------------------------
+// Runs (approval flow)
+// ---------------------------------------------------------------------------
+
+export interface CreateRunParams {
+  conversationKey: string;
+  content: string;
+  attachmentIds?: string[];
+}
+
+export interface PendingConfirmation {
+  toolName: string;
+  toolUseId: string;
+  input: Record<string, unknown>;
+  riskLevel: string;
+}
+
+export interface RunResponse {
+  id: string;
+  status: "running" | "needs_confirmation" | "completed" | "failed";
+  messageId: string | null;
+  pendingConfirmation?: PendingConfirmation | null;
+  error?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface RunDecisionParams {
+  decision: "allow" | "deny";
+}
+
+export interface RunDecisionResponse {
+  accepted: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Client interface
 // ---------------------------------------------------------------------------
 
@@ -138,4 +173,8 @@ export interface RuntimeClient {
 
   channelInbound(params: ChannelInboundParams): Promise<ChannelInboundResponse>;
   channelDeliveryAck(params: ChannelDeliveryAckParams): Promise<void>;
+
+  createRun(params: CreateRunParams): Promise<RunResponse>;
+  getRun(runId: string): Promise<RunResponse>;
+  submitRunDecision(runId: string, params: RunDecisionParams): Promise<RunDecisionResponse>;
 }
