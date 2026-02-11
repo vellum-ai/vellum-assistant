@@ -76,10 +76,12 @@ export class AnthropicProvider implements Provider {
         ),
         model: response.model,
         usage: {
-          inputTokens: response.usage.input_tokens,
+          inputTokens: response.usage.input_tokens
+            + (response.usage.cache_creation_input_tokens ?? 0)
+            + (response.usage.cache_read_input_tokens ?? 0),
           outputTokens: response.usage.output_tokens,
-          cacheCreationInputTokens: (response.usage as any).cache_creation_input_tokens,
-          cacheReadInputTokens: (response.usage as any).cache_read_input_tokens,
+          cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? undefined,
+          cacheReadInputTokens: response.usage.cache_read_input_tokens ?? undefined,
         },
         stopReason: response.stop_reason ?? "unknown",
       };
