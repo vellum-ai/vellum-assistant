@@ -1,4 +1,3 @@
-import ScreenCaptureKit
 import SwiftUI
 
 struct ScreenPermissionStepView: View {
@@ -74,16 +73,14 @@ struct ScreenPermissionStepView: View {
                 }
                 return
             }
-            Task {
-                let status = await PermissionManager.screenRecordingStatus()
-                if status == .granted {
-                    grantPermission()
-                    return
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    withAnimation(.easeOut(duration: 0.5)) {
-                        showContent = true
-                    }
+            let status = PermissionManager.screenRecordingStatus()
+            if status == .granted {
+                grantPermission()
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                withAnimation(.easeOut(duration: 0.5)) {
+                    showContent = true
                 }
             }
         }
@@ -93,23 +90,15 @@ struct ScreenPermissionStepView: View {
     }
 
     private func requestScreenPermission() {
-        Task {
-            do {
-                _ = try await SCShareableContent.current
-                grantPermission()
-            } catch {
-                startPolling()
-            }
-        }
+        PermissionManager.requestScreenRecordingAccess()
+        startPolling()
     }
 
     private func startPolling() {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
-            Task { @MainActor in
-                let status = await PermissionManager.screenRecordingStatus()
-                if status == .granted {
-                    grantPermission()
-                }
+            let status = PermissionManager.screenRecordingStatus()
+            if status == .granted {
+                grantPermission()
             }
         }
     }
