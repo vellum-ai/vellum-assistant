@@ -14,6 +14,7 @@ struct VSplitView<Main: View, Panel: View>: View {
             if showPanel, let panel = panel {
                 Divider()
                     .background(VColor.surfaceBorder)
+                    .transition(.move(edge: .trailing))
 
                 panel
                     .frame(width: panelWidth)

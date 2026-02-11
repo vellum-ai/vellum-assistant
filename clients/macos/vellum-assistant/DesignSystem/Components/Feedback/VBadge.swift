@@ -20,7 +20,7 @@ struct VBadge: View {
                 .padding(.vertical, VSpacing.xxs)
                 .background(color)
                 .clipShape(Capsule())
-                .accessibilityLabel("\(count) items")
+                .accessibilityLabel("\(count) \(count == 1 ? "item" : "items")")
 
         case .dot:
             Circle()
