@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct VButton: View {
-    enum Style { case primary, ghost, danger }
+    enum Style: Hashable { case primary, ghost, danger }
 
     let label: String
     var style: Style = .primary
@@ -60,4 +60,19 @@ private struct VButtonPressStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(VAnimation.fast, value: configuration.isPressed)
     }
+}
+
+#Preview("VButton") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VStack(spacing: 16) {
+            VButton(label: "Primary", style: .primary) {}
+            VButton(label: "Ghost", style: .ghost) {}
+            VButton(label: "Danger", style: .danger) {}
+            VButton(label: "Disabled", style: .primary, isDisabled: true) {}
+            VButton(label: "Full Width", style: .primary, isFullWidth: true) {}
+        }
+        .padding()
+    }
+    .frame(width: 300, height: 300)
 }

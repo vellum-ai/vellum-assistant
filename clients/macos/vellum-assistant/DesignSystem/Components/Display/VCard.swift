@@ -15,3 +15,25 @@ struct VCard<Content: View>: View {
             )
     }
 }
+
+#Preview("VCard") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VStack(spacing: 16) {
+            VCard {
+                Text("Default padding")
+                    .foregroundColor(VColor.textPrimary)
+            }
+            VCard(padding: VSpacing.sm) {
+                Text("Small padding")
+                    .foregroundColor(VColor.textPrimary)
+            }
+            VCard(padding: VSpacing.xxxl) {
+                Text("Large padding")
+                    .foregroundColor(VColor.textPrimary)
+            }
+        }
+        .padding()
+    }
+    .frame(width: 300, height: 300)
+}

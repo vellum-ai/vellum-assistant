@@ -31,3 +31,26 @@ struct VListRow<Content: View>: View {
             }
     }
 }
+
+#Preview("VListRow") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VStack(spacing: 0) {
+            VListRow(onTap: {}) {
+                HStack {
+                    Image(systemName: "doc.text")
+                        .foregroundColor(VColor.accent)
+                    Text("Tappable row")
+                        .foregroundColor(VColor.textPrimary)
+                }
+            }
+            Divider()
+            VListRow {
+                Text("Static row")
+                    .foregroundColor(VColor.textSecondary)
+            }
+        }
+        .padding()
+    }
+    .frame(width: 300, height: 150)
+}

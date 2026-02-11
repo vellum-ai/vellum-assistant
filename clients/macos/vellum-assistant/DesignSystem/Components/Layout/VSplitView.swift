@@ -47,3 +47,25 @@ extension VSplitView where Panel == EmptyView {
         self.showPanel = false
     }
 }
+
+#Preview("VSplitView") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VSplitView(panelWidth: 200, showPanel: true) {
+            VStack {
+                Text("Main Content")
+                    .font(VFont.title)
+                    .foregroundColor(VColor.textPrimary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(VColor.surface)
+        } panel: {
+            VSidePanel(title: "Panel") {
+                Text("Side panel")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+            }
+        }
+    }
+    .frame(width: 600, height: 300)
+}

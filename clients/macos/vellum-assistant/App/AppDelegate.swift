@@ -33,6 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var onboardingWindow: OnboardingWindow?
     private var mainWindow: MainWindow?
+    #if DEBUG
+    private var galleryWindow: ComponentGalleryWindow?
+    #endif
     private var windowObserver: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -166,6 +169,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingItem.target = self
         menu.addItem(onboardingItem)
 
+        #if DEBUG
+        menu.addItem(NSMenuItem.separator())
+        let galleryItem = NSMenuItem(title: "Component Gallery", action: #selector(showComponentGallery), keyEquivalent: "")
+        galleryItem.target = self
+        menu.addItem(galleryItem)
+        #endif
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: 0), in: button)
@@ -175,6 +185,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ambientAgent.isEnabled = !ambientAgent.isEnabled
         updateMenuBarIcon()
     }
+
+    #if DEBUG
+    @objc private func showComponentGallery() {
+        if galleryWindow == nil { galleryWindow = ComponentGalleryWindow() }
+        galleryWindow?.show()
+    }
+    #endif
 
     // MARK: - Hotkey
 

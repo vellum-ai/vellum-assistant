@@ -27,3 +27,20 @@ struct VEmptyState: View {
         .accessibilityLabel("\(title). \(subtitle ?? "")")
     }
 }
+
+#Preview("VEmptyState") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VStack(spacing: 24) {
+            VEmptyState(
+                title: "No items yet",
+                subtitle: "Create your first item to get started",
+                icon: "tray"
+            )
+            Divider()
+            VEmptyState(title: "No results")
+        }
+        .padding()
+    }
+    .frame(width: 350, height: 400)
+}

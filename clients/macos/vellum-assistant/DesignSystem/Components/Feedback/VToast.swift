@@ -55,3 +55,17 @@ struct VToast: View {
         }
     }
 }
+
+#Preview("VToast") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VStack(spacing: 12) {
+            VToast(message: "Information message", style: .info)
+            VToast(message: "Success message", style: .success)
+            VToast(message: "Warning message", style: .warning)
+            VToast(message: "Error message", style: .error)
+        }
+        .padding()
+    }
+    .frame(width: 400, height: 300)
+}

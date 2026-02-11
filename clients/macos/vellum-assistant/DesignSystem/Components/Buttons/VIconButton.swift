@@ -31,3 +31,17 @@ struct VIconButton: View {
         .accessibilityLabel(label)
     }
 }
+
+#Preview("VIconButton") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        HStack(spacing: 12) {
+            VIconButton(label: "Settings", icon: "gear") {}
+            VIconButton(label: "Active", icon: "star.fill", isActive: true) {}
+            VIconButton(label: "Icon Only", icon: "plus", iconOnly: true) {}
+            VIconButton(label: "Active Icon", icon: "pencil", isActive: true, iconOnly: true) {}
+        }
+        .padding()
+    }
+    .frame(width: 400, height: 80)
+}

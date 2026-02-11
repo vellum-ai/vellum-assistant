@@ -37,3 +37,20 @@ struct VSidePanel<Content: View>: View {
         .background(VColor.backgroundSubtle)
     }
 }
+
+#Preview("VSidePanel") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VSidePanel(title: "Inspector", onClose: {}) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Panel content here")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Text("With scrollable content area")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+            }
+        }
+    }
+    .frame(width: 300, height: 300)
+}

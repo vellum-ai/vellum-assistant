@@ -24,3 +24,18 @@ struct VLoadingIndicator: View {
             }
     }
 }
+
+#Preview("VLoadingIndicator") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        HStack(spacing: 24) {
+            VLoadingIndicator(size: 14)
+            VLoadingIndicator()
+            VLoadingIndicator(size: 32)
+            VLoadingIndicator(color: VColor.success)
+            VLoadingIndicator(color: VColor.error)
+        }
+        .padding()
+    }
+    .frame(width: 350, height: 100)
+}

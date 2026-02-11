@@ -12,3 +12,17 @@ struct VToolbar<Content: View>: View {
         .background(VColor.backgroundSubtle)
     }
 }
+
+#Preview("VToolbar") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VToolbar {
+            VIconButton(label: "Home", icon: "house") {}
+            VIconButton(label: "Search", icon: "magnifyingglass") {}
+            VIconButton(label: "Settings", icon: "gear", isActive: true) {}
+            Spacer()
+            VIconButton(label: "Add", icon: "plus", iconOnly: true) {}
+        }
+    }
+    .frame(width: 500, height: 60)
+}

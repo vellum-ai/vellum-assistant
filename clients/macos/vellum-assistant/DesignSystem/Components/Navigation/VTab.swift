@@ -43,3 +43,16 @@ struct VTab: View {
         }
     }
 }
+
+#Preview("VTab") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        HStack(spacing: 8) {
+            VTab(label: "Dashboard", icon: "house", isSelected: true, onSelect: {})
+            VTab(label: "Settings", icon: "gear", onSelect: {})
+            VTab(label: "Not closeable", isCloseable: false, onSelect: {})
+        }
+        .padding()
+    }
+    .frame(width: 450, height: 80)
+}

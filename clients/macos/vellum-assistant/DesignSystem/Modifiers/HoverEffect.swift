@@ -17,3 +17,23 @@ extension View {
         modifier(HoverEffectModifier())
     }
 }
+
+#Preview("HoverEffect") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VStack(spacing: 4) {
+            Text("Hover over me")
+                .foregroundColor(VColor.textPrimary)
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .vHover()
+            Text("Hover here too")
+                .foregroundColor(VColor.textPrimary)
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .vHover()
+        }
+        .padding()
+    }
+    .frame(width: 300, height: 150)
+}
