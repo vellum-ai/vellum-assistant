@@ -17,9 +17,10 @@ ln -s ../../scripts/commands/brainstorm.md brainstorm.md
 ln -s ../../scripts/commands/swarm.md swarm.md
 ln -s ../../scripts/commands/mainline.md mainline.md
 ln -s ../../scripts/commands/do.md do.md
+ln -s ../../scripts/commands/execute-plan.md execute-plan.md
 ```
 
-After symlinking, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, `/mainline`, and `/do` in Claude Code.
+After symlinking, the commands are available as `/work`, `/check-reviews`, `/brainstorm`, `/swarm`, `/mainline`, `/do`, and `/execute-plan` in Claude Code.
 
 ### 2. **IMPORTANT** Enable fast mode
 
@@ -118,6 +119,19 @@ Takes a description of changes, creates an isolated git worktree, implements the
 /do Refactor the logger to use structured output
 ```
 
+### `/execute-plan` - Execute a multi-PR rollout plan
+
+Reads a plan file from `.private/plans/`, then sequentially implements and mainlines each PR described in the plan. Automatically detects which PRs have already been completed and picks up where it left off.
+
+**When to use:** When you have a large feature broken into an ordered sequence of PRs (created manually or via brainstorming) and want to execute them one by one.
+
+**Frequency:** Once per plan. Can be re-run to resume after interruption.
+
+```
+/execute-plan BROWSER_PLAN.md    # executes .private/plans/BROWSER_PLAN.md
+/execute-plan AUTH_REFACTOR.md   # executes .private/plans/AUTH_REFACTOR.md
+```
+
 ## Typical workflow
 
 3 shells with Claude Code open, one for each of work/swarm, check-reviews, and brainstorm.
@@ -200,4 +214,10 @@ Follow the instructions in scripts/commands/mainline.md
 
 ```
 Follow the instructions in scripts/commands/do.md
+```
+
+### Execute-plan prompt
+
+```
+Follow the instructions in scripts/commands/execute-plan.md
 ```
