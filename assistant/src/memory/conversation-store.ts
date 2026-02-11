@@ -142,6 +142,63 @@ export function updateConversationContextWindow(
 }
 
 /**
+ * Patch a saved assistant message's content to inject tool_result data
+ * alongside the corresponding tool_use blocks.
+ *
+ * The pendingResults map is keyed by tool_use_id with value { content, isError }.
+ * For each tool_use block in the saved message whose id matches a key in the map,
+ * a sibling tool_result block is appended immediately after it.
+ */
+export function patchToolResults(
+  conversationId: string,
+  messageId: string,
+  pendingResults: Map<string, { content: string; isError: boolean }>,
+): void {
+  if (pendingResults.size === 0) return;
+
+  const db = getDb();
+  const row = db
+    .select({ content: messages.content })
+    .from(messages)
+    .where(and(eq(messages.id, messageId), eq(messages.conversationId, conversationId)))
+    .get();
+  if (!row) return;
+
+  let blocks: unknown[];
+  try {
+    blocks = JSON.parse(row.content);
+    if (!Array.isArray(blocks)) return;
+  } catch {
+    return;
+  }
+
+  const patched: unknown[] = [];
+  for (const block of blocks) {
+    patched.push(block);
+    if (
+      typeof block === 'object' && block !== null &&
+      (block as Record<string, unknown>).type === 'tool_use'
+    ) {
+      const id = (block as Record<string, unknown>).id;
+      if (typeof id === 'string' && pendingResults.has(id)) {
+        const result = pendingResults.get(id)!;
+        patched.push({
+          type: 'tool_result',
+          tool_use_id: id,
+          content: result.content,
+          is_error: result.isError,
+        });
+      }
+    }
+  }
+
+  db.update(messages)
+    .set({ content: JSON.stringify(patched) })
+    .where(and(eq(messages.id, messageId), eq(messages.conversationId, conversationId)))
+    .run();
+}
+
+/**
  * Delete the last user message and any subsequent assistant messages.
  * Uses rowid comparison instead of timestamps to avoid deleting messages
  * that share the same millisecond timestamp.
