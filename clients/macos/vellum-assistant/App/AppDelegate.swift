@@ -285,6 +285,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 log.info("Daemon not connected, attempting to connect before session start")
                 do {
                     try await daemonClient.connect()
+                    // Start ambient agent if it was deferred due to missing daemon connection
+                    self.setupAmbientAgent()
                 } catch {
                     log.error("Failed to connect to daemon: \(error.localizedDescription)")
                     self.showDaemonConnectionError()
