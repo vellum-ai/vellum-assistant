@@ -49,25 +49,44 @@ function getProfileDir(): string {
 
 class BrowserManager {
   private context: BrowserContext | null = null;
+  private contextCreating: Promise<BrowserContext> | null = null;
   private pages = new Map<string, Page>();
   private snapshotMaps = new Map<string, Map<string, string>>();
 
-  async getOrCreateSessionPage(sessionId: string): Promise<Page> {
-    if (!this.context) {
+  private async ensureContext(): Promise<BrowserContext> {
+    if (this.context) return this.context;
+    if (this.contextCreating) return this.contextCreating;
+
+    this.contextCreating = (async () => {
       const profileDir = getProfileDir();
       mkdirSync(profileDir, { recursive: true });
 
       const launch = launchPersistentContext ?? await getDefaultLaunchFn();
-      this.context = await launch(profileDir, { headless: true });
+      const ctx = await launch(profileDir, { headless: true });
       log.info({ profileDir }, 'Browser context created');
+      return ctx;
+    })();
+
+    try {
+      this.context = await this.contextCreating;
+      return this.context;
+    } finally {
+      this.contextCreating = null;
     }
+  }
+
+  async getOrCreateSessionPage(sessionId: string): Promise<Page> {
+    const context = await this.ensureContext();
 
     const existing = this.pages.get(sessionId);
     if (existing && !existing.isClosed()) {
       return existing;
     }
 
-    const page = await this.context.newPage();
+    // Clear stale snapshot mappings when replacing a closed page
+    this.snapshotMaps.delete(sessionId);
+
+    const page = await context.newPage();
     this.pages.set(sessionId, page);
     log.debug({ sessionId }, 'Session page created');
     return page;
