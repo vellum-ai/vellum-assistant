@@ -91,6 +91,39 @@ exports[`IPC message snapshots ClientMessage types sandbox_set serializes to exp
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types cu_session_create serializes to expected JSON 1`] = `
+{
+  "screenHeight": 1080,
+  "screenWidth": 1920,
+  "sessionId": "cu-sess-001",
+  "task": "Open Safari and search for weather",
+  "type": "cu_session_create",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types cu_observation serializes to expected JSON 1`] = `
+{
+  "axDiff": "+ new element",
+  "axTree": "<ax-tree>...</ax-tree>",
+  "executionResult": "click completed",
+  "previousAXTree": "<prev-ax-tree>...</prev-ax-tree>",
+  "screenshot": "base64-screenshot-data",
+  "secondaryWindows": "Finder, Terminal",
+  "sessionId": "cu-sess-001",
+  "type": "cu_observation",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types ambient_observation serializes to expected JSON 1`] = `
+{
+  "appName": "Safari",
+  "ocrText": "Hello world visible on screen",
+  "timestamp": 1700000000,
+  "type": "ambient_observation",
+  "windowTitle": "Google",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
 {
   "text": "Here is some output",
@@ -328,5 +361,45 @@ exports[`IPC message snapshots ServerMessage types memory_status serializes to e
   "model": "text-embedding-3-small",
   "provider": "openai",
   "type": "memory_status",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types cu_action serializes to expected JSON 1`] = `
+{
+  "input": {
+    "x": 100,
+    "y": 200,
+  },
+  "reasoning": "Clicking the search button",
+  "sessionId": "cu-sess-001",
+  "stepNumber": 1,
+  "toolName": "click",
+  "type": "cu_action",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types cu_complete serializes to expected JSON 1`] = `
+{
+  "sessionId": "cu-sess-001",
+  "stepCount": 5,
+  "summary": "Successfully opened Safari and searched for weather",
+  "type": "cu_complete",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types cu_error serializes to expected JSON 1`] = `
+{
+  "message": "Session timed out after 30 steps",
+  "sessionId": "cu-sess-001",
+  "type": "cu_error",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types ambient_result serializes to expected JSON 1`] = `
+{
+  "decision": "suggest",
+  "suggestion": "Try running the test with --verbose flag for more details",
+  "summary": "User appears to be debugging a test failure",
+  "type": "ambient_result",
 }
 `;
