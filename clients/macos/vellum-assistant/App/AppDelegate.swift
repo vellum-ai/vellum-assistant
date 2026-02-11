@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var textResponseWindow: TextResponseWindow?
     private var voiceInput: VoiceInputManager?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
+    private var thinkingWindow: ThinkingIndicatorWindow?
     let ambientAgent = AmbientAgent()
     let daemonClient = DaemonClient()
 
@@ -293,7 +294,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
+            // Show thinking indicator IMMEDIATELY
+            let thinking = ThinkingIndicatorWindow()
+            thinking.show()
+            self.thinkingWindow = thinking
+
+            // Classify in background
             let interactionType = await self.classifyInteraction(effectiveTask)
+
+            // Dismiss thinking indicator
+            thinking.close()
+            self.thinkingWindow = nil
 
             switch interactionType {
             case .computerUse:
