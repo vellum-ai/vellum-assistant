@@ -17,16 +17,14 @@ mock.module('playwright', () => {
 
 // Mock fs.existsSync for Chromium path checks
 let mockFileExists = true;
-mock.module('node:fs', () => {
-  const actual = require('node:fs');
-  return {
-    ...actual,
-    existsSync: (path: string) => {
-      if (path === mockExecPath) return mockFileExists;
-      return actual.existsSync(path);
-    },
-  };
-});
+const actualFs = await import('node:fs');
+mock.module('node:fs', () => ({
+  ...actualFs,
+  existsSync: (path: string) => {
+    if (path === mockExecPath) return mockFileExists;
+    return actualFs.existsSync(path);
+  },
+}));
 
 // Re-import after mocks
 const { checkBrowserRuntime } = await import('../tools/browser/runtime-check.js');
