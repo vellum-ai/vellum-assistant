@@ -242,6 +242,29 @@ export const verification = pgTable(
   }
 );
 
+// Assistant auth tokens (hashed bearer tokens for assistant-initiated routes)
+export const assistantAuthTokensTable = pgTable(
+  "assistant_auth_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    assistantId: uuid("assistant_id")
+      .notNull()
+      .references(() => assistantsTable.id, { onDelete: "cascade" }),
+    tokenPrefix: varchar("token_prefix", { length: 8 }).notNull(),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    scopes: jsonb("scopes").default([]),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("idx_assistant_auth_tokens_assistant_id").on(table.assistantId),
+    index("idx_assistant_auth_tokens_token_prefix").on(table.tokenPrefix),
+  ]
+);
+
 // API Keys table
 export const apiKeysTable = pgTable(
   "api_keys",
