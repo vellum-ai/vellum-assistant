@@ -1,6 +1,5 @@
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { getDataDir } from '../../util/platform.js';
 import { getLogger } from '../../util/logger.js';
 import { checkBrowserRuntime } from './runtime-check.js';
@@ -81,15 +80,26 @@ class BrowserManager {
         const status = await checkBrowserRuntime();
         if (status.playwrightAvailable && !status.chromiumInstalled) {
           log.info('Chromium not installed, installing via playwright...');
-          const result = spawnSync('bunx', ['playwright', 'install', 'chromium'], {
-            stdio: 'pipe',
-            timeout: 120_000,
+          const proc = Bun.spawn(['bunx', 'playwright', 'install', 'chromium'], {
+            stdout: 'pipe',
+            stderr: 'pipe',
           });
-          if (result.status === 0) {
+          const timeoutMs = 120_000;
+          const exitCode = await Promise.race([
+            proc.exited,
+            new Promise<never>((_, reject) =>
+              setTimeout(() => {
+                proc.kill();
+                reject(new Error(`Chromium install timed out after ${timeoutMs / 1000}s`));
+              }, timeoutMs),
+            ),
+          ]);
+          if (exitCode === 0) {
             log.info('Chromium installed successfully');
           } else {
-            const stderr = result.stderr?.toString().trim();
-            log.error({ exitCode: result.status, stderr }, 'Failed to install Chromium');
+            const stderr = await new Response(proc.stderr).text();
+            const msg = stderr.trim() || `exited with code ${exitCode}`;
+            throw new Error(`Failed to install Chromium: ${msg}`);
           }
         }
       }
