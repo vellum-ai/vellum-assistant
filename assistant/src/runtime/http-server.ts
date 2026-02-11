@@ -223,19 +223,11 @@ export class RuntimeHttpServer {
             });
           }
         } catch (err) {
-          log.warn({ err }, 'LLM suggestion failed, falling back to heuristic');
+          log.warn({ err }, 'LLM suggestion failed');
         }
       }
 
-      // Heuristic fallback
-      const questionRe = /\?[\s"'`)*\]]*$/;
-      const suggestion = questionRe.test(text) ? 'Yes' : 'Tell me more';
-
-      return Response.json({
-        suggestion,
-        messageId: msg.id,
-        source: 'heuristic' as const,
-      });
+      return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
     }
 
     return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
