@@ -93,6 +93,17 @@ export function recordInbound(
 }
 
 /**
+ * Delete an idempotency event so that webhook retries can re-attempt
+ * processing after a failure.
+ */
+export function deleteEvent(eventId: string): void {
+  const db = getDb();
+  db.delete(channelInboundEvents)
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+/**
  * Acknowledge delivery of an outbound message for a channel event.
  */
 export function acknowledgeDelivery(

@@ -494,6 +494,10 @@ export class RuntimeHttpServer {
         processingSucceeded = true;
       } catch (err) {
         log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
+        // Remove the idempotency event so webhook retries can re-attempt
+        // processing. Without this, the message would be permanently lost
+        // because retries would see duplicate: true and skip.
+        channelDeliveryStore.deleteEvent(result.eventId);
       }
     }
 
