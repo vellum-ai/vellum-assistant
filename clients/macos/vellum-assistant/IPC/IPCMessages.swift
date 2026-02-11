@@ -1,0 +1,185 @@
+import Foundation
+
+// MARK: - AnyCodable
+
+/// Lightweight wrapper for arbitrary JSON values in tool input dictionaries.
+/// Supports String, Int, Double, Bool, and null.
+struct AnyCodable: Codable, Equatable, @unchecked Sendable {
+    let value: Any?
+
+    init(_ value: Any?) {
+        self.value = value
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            value = nil
+        } else if let bool = try? container.decode(Bool.self) {
+            value = bool
+        } else if let int = try? container.decode(Int.self) {
+            value = int
+        } else if let double = try? container.decode(Double.self) {
+            value = double
+        } else if let string = try? container.decode(String.self) {
+            value = string
+        } else {
+            value = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        if value == nil {
+            try container.encodeNil()
+        } else if let bool = value as? Bool {
+            try container.encode(bool)
+        } else if let int = value as? Int {
+            try container.encode(int)
+        } else if let double = value as? Double {
+            try container.encode(double)
+        } else if let string = value as? String {
+            try container.encode(string)
+        } else {
+            try container.encodeNil()
+        }
+    }
+
+    static func == (lhs: AnyCodable, rhs: AnyCodable) -> Bool {
+        switch (lhs.value, rhs.value) {
+        case (nil, nil):
+            return true
+        case let (l as Bool, r as Bool):
+            return l == r
+        case let (l as Int, r as Int):
+            return l == r
+        case let (l as Double, r as Double):
+            return l == r
+        case let (l as String, r as String):
+            return l == r
+        default:
+            return false
+        }
+    }
+}
+
+// MARK: - Client → Server Messages (Encodable)
+
+/// Attachment payload sent inline as base64. Mirrors `UserMessageAttachment` from ipc-protocol.ts.
+struct IPCAttachment: Codable, Sendable {
+    let filename: String
+    let mimeType: String
+    let data: String
+    let extractedText: String?
+}
+
+/// Sent to create a new computer-use session.
+/// Wire type: `"cu_session_create"`
+struct CuSessionCreateMessage: Encodable, Sendable {
+    let type: String = "cu_session_create"
+    let sessionId: String
+    let task: String
+    let screenWidth: Int
+    let screenHeight: Int
+    let attachments: [IPCAttachment]?
+}
+
+/// Sent after each perceive step with AX tree, screenshot, and execution results.
+/// Wire type: `"cu_observation"`
+struct CuObservationMessage: Encodable, Sendable {
+    let type: String = "cu_observation"
+    let sessionId: String
+    let axTree: String?
+    let previousAXTree: String?
+    let axDiff: String?
+    let secondaryWindows: String?
+    let screenshot: String?
+    let executionResult: String?
+    let executionError: String?
+}
+
+/// Sent by the ambient agent with OCR text from periodic screen captures.
+/// Wire type: `"ambient_observation"`
+struct AmbientObservationMessage: Encodable, Sendable {
+    let type: String = "ambient_observation"
+    let ocrText: String
+    let appName: String?
+    let windowTitle: String?
+    let timestamp: Double
+}
+
+/// Keepalive ping.
+/// Wire type: `"ping"`
+struct PingMessage: Encodable, Sendable {
+    let type: String = "ping"
+}
+
+// MARK: - Server → Client Messages (Decodable)
+
+/// Action to execute from the inference server.
+struct CuActionMessage: Decodable, Sendable {
+    let sessionId: String
+    let toolName: String
+    let input: [String: AnyCodable]
+    let reasoning: String?
+    let stepNumber: Int
+}
+
+/// Session completed successfully.
+struct CuCompleteMessage: Decodable, Sendable {
+    let sessionId: String
+    let summary: String
+    let stepCount: Int
+}
+
+/// Session-level error from the server.
+struct CuErrorMessage: Decodable, Sendable {
+    let sessionId: String
+    let message: String
+}
+
+/// Result from ambient observation analysis.
+struct AmbientResultMessage: Decodable, Sendable {
+    let decision: String
+    let summary: String?
+    let suggestion: String?
+}
+
+/// Discriminated union of all server → client message types relevant to the macOS client.
+/// Decodes via the `"type"` field in the JSON payload.
+enum ServerMessage: Decodable, Sendable {
+    case cuAction(CuActionMessage)
+    case cuComplete(CuCompleteMessage)
+    case cuError(CuErrorMessage)
+    case ambientResult(AmbientResultMessage)
+    case pong
+    case unknown(String)
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(String.self, forKey: .type)
+
+        switch type {
+        case "cu_action":
+            let message = try CuActionMessage(from: decoder)
+            self = .cuAction(message)
+        case "cu_complete":
+            let message = try CuCompleteMessage(from: decoder)
+            self = .cuComplete(message)
+        case "cu_error":
+            let message = try CuErrorMessage(from: decoder)
+            self = .cuError(message)
+        case "ambient_result":
+            let message = try AmbientResultMessage(from: decoder)
+            self = .ambientResult(message)
+        case "pong":
+            self = .pong
+        default:
+            self = .unknown(type)
+        }
+    }
+}
