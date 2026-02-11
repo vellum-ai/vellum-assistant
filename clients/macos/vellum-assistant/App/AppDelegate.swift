@@ -163,6 +163,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupAmbientAgent() {
         ambientAgent.appDelegate = self
+
+        let client = DaemonClient()
+        ambientAgent.daemonClient = client
+        Task {
+            try? await client.connect()
+        }
+
         if ambientAgent.isEnabled {
             ambientAgent.start()
             updateMenuBarIcon()
