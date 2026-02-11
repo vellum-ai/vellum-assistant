@@ -26,7 +26,7 @@ struct TaskInputView: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             HStack {
                 Text("vellum-assistant")
-                    .font(VFont.heading)
+                    .font(VFont.headline)
                     .foregroundStyle(.primary)
                 Spacer()
                 Button(action: {

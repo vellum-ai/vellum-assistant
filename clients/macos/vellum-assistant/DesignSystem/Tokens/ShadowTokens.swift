@@ -1,8 +1,27 @@
 import SwiftUI
 
+/// Shadow presets. Apply via `.vShadow(.md)` or `.shadow(color:radius:y:)`.
 enum VShadow {
-    static let sm = (color: Color.black.opacity(0.2), radius: CGFloat(4), y: CGFloat(2))
-    static let md = (color: Color.black.opacity(0.3), radius: CGFloat(8), y: CGFloat(4))
-    static let lg = (color: Color.black.opacity(0.4), radius: CGFloat(16), y: CGFloat(8))
-    static let glow = (color: Amber._500.opacity(0.3), radius: CGFloat(12), y: CGFloat(0))
+    struct Definition {
+        let color: Color
+        let radius: CGFloat
+        let x: CGFloat
+        let y: CGFloat
+    }
+
+    static let sm   = Definition(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+    static let md   = Definition(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
+    static let lg   = Definition(color: .black.opacity(0.4), radius: 16, x: 0, y: 8)
+
+    /// Amber glow effect for brand elements (orb, highlights)
+    static let glow = Definition(color: Amber._500.opacity(0.3), radius: 12, x: 0, y: 0)
+
+    /// Violet glow for accent elements (focused inputs, active buttons)
+    static let accentGlow = Definition(color: Violet._600.opacity(0.3), radius: 8, x: 0, y: 0)
+}
+
+extension View {
+    func vShadow(_ definition: VShadow.Definition) -> some View {
+        shadow(color: definition.color, radius: definition.radius, x: definition.x, y: definition.y)
+    }
 }

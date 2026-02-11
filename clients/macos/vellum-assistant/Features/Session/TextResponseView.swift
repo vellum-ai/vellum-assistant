@@ -10,7 +10,7 @@ struct TextResponseView: View {
                 Image(systemName: "text.bubble.fill")
                     .foregroundStyle(.blue)
                 Text("vellum-assistant")
-                    .font(VFont.heading)
+                    .font(VFont.headline)
                     .lineLimit(1)
             }
 

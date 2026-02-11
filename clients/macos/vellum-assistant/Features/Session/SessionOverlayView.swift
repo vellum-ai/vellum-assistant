@@ -10,7 +10,7 @@ struct SessionOverlayView: View {
                 Image(systemName: "cursorarrow.click.2")
                     .foregroundStyle(.blue)
                 Text("vellum-assistant is working...")
-                    .font(VFont.heading)
+                    .font(VFont.headline)
                     .lineLimit(1)
             }
 

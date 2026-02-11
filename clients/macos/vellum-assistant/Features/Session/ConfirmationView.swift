@@ -13,7 +13,7 @@ struct ConfirmationView: View {
                     .font(.title2)
                     .foregroundStyle(VColor.warning)
                 Text("Action Requires Confirmation")
-                    .font(VFont.heading)
+                    .font(VFont.headline)
             }
 
             Text(reason)
