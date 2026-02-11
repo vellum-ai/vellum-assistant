@@ -21,7 +21,7 @@ struct VToast: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+        .vShadow(VShadow.md)
     }
 
     private var iconName: String {

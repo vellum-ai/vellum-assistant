@@ -9,7 +9,7 @@ struct SurfaceContainerView: View {
             // Optional title
             if let title = surface.title {
                 Text(title)
-                    .font(VFont.heading)
+                    .font(VFont.headline)
                     .foregroundColor(VColor.textPrimary)
             }
 

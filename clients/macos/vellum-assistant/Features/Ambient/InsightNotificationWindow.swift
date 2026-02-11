@@ -80,7 +80,7 @@ private struct InsightNotificationView: View {
                 Image(systemName: "lightbulb.fill")
                     .foregroundStyle(Amber._600)
                 Text("Knowledge Insight")
-                    .font(VFont.heading)
+                    .font(VFont.headline)
                 Spacer()
                 categoryBadge
             }

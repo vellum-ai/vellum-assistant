@@ -12,7 +12,7 @@ struct ConfirmationSurfaceView: View {
                     .font(.title2)
                     .foregroundStyle(data.destructive ? VColor.error : VColor.warning)
                 Text(data.message)
-                    .font(VFont.heading)
+                    .font(VFont.headline)
                     .foregroundColor(VColor.textPrimary)
             }
 

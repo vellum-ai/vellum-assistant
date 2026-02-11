@@ -80,7 +80,7 @@ private struct AmbientSuggestionView: View {
                 Image(systemName: "eye.fill")
                     .foregroundStyle(.blue)
                 Text("Ambient Suggestion")
-                    .font(VFont.heading)
+                    .font(VFont.headline)
                 Spacer()
             }
 
