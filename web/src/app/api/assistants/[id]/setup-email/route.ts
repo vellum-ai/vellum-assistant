@@ -92,9 +92,8 @@ export async function POST(
     });
   } catch (error: unknown) {
     console.error("[Setup Email] Error:", error);
-    const message = error instanceof Error ? error.message : "Failed to setup email";
     return NextResponse.json(
-      { error: message },
+      { error: "Failed to setup email" },
       { status: 500 }
     );
   }
