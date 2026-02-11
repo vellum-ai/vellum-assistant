@@ -1,12 +1,12 @@
 # vellum-assistant
 
-A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by Claude via the Anthropic Messages API with tool use.
+A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection. All inference is routed through the assistant daemon (`assistant/`) over a local Unix socket — the desktop app does not call the Anthropic API directly.
 
 ## Requirements
 
 - macOS 14.0 (Sonoma) or later
 - Xcode 15+ (for building)
-- Anthropic API key
+- The assistant daemon running locally (see [Backend Setup](#backend-setup))
 
 ## Build
 
@@ -64,11 +64,24 @@ The app requires three macOS permissions:
 
 Grant these in System Settings → Privacy & Security.
 
+## Backend Setup
+
+The desktop app communicates with the assistant daemon via a Unix socket at `~/.vellum/vellum.sock`. You need to start the daemon before using the app.
+
+From the `assistant/` directory at the repo root:
+
+```bash
+bun install
+bun run src/index.ts daemon start
+```
+
+The daemon manages API keys, conversation history, and all LLM inference. See [assistant/README.md](../../assistant/README.md) for configuration details.
+
 ## Usage
 
-1. Launch the app — an onboarding flow guides you through permissions and setup on first run
-2. The app appears as a sparkles icon in your menu bar
-3. Open Settings (click icon → gear) and enter your Anthropic API key
+1. Start the assistant daemon (see [Backend Setup](#backend-setup))
+2. Launch the app — an onboarding flow guides you through permissions and setup on first run
+3. The app appears as a sparkles icon in your menu bar
 4. Click the menu bar icon or press `⌘⇧G` to open the task input
 5. Type a task (e.g., "Fill in the name field with John Smith") and press Go
 6. Or hold the Fn key to dictate a task via voice
@@ -87,10 +100,8 @@ ComputerUse/          Core perception + action pipeline
   ChromeAccessibilityHelper  Auto-restart Chrome with --force-renderer-accessibility
   ScreenCapture       ScreenCaptureKit screenshot capture
   Session             Main orchestration loop
-Inference/            AI action selection
-  AnthropicClient     Shared HTTP client with retry logic (used by KnowledgeCron)
-  ToolDefinitions     Tool schemas for function calling
-IPC/                  Daemon communication
+Inference/            Legacy HTTP client (used only by KnowledgeCron for local insight analysis)
+IPC/                  Daemon communication (all inference goes through here)
   DaemonClient        Unix domain socket IPC client (auto-reconnect, ping/pong)
   IPCMessages         Codable structs mirroring ipc-protocol.ts
 Ambient/              Background screen-watching agent
