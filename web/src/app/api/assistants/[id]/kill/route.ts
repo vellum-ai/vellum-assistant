@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 
+import { requireAssistantOwner, toAuthErrorResponse } from "@/lib/auth/server-session";
 import { deleteAssistantMailInbox, deleteAssistantMailWebhook } from "@/lib/agentmail";
 import { disconnectTelegramChannel } from "@/lib/channels/service";
-import { Assistant, getDb } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import { deleteInstance } from "@/lib/gcp";
 
 interface RouteParams {
@@ -12,15 +13,9 @@ interface RouteParams {
 export async function POST(request: Request, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
+    const { assistant } = await requireAssistantOwner(request, assistantId);
 
     const sql = getDb();
-    const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
-
-    if (result.length === 0) {
-      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
-    }
-
-    const assistant = result[0] as Assistant;
     const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
@@ -70,6 +65,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       message: "Assistant, compute instance, and email resources deleted",
     });
   } catch (error: unknown) {
+    if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
+      return toAuthErrorResponse(error);
+    }
     console.error("Error killing assistant:", error);
     return NextResponse.json(
       { error: "Failed to kill assistant" },

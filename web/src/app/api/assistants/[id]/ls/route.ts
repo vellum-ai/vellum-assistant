@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { requireAssistantOwner, toAuthErrorResponse } from "@/lib/auth/server-session";
 import { getAssistantConnectionMode } from "@/lib/assistant-connection";
-import { Assistant, getDb } from "@/lib/db";
 import { getInstanceExternalIp } from "@/lib/gcp";
 
 interface RouteParams {
@@ -42,12 +42,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const searchParams = request.nextUrl.searchParams;
     const path = searchParams.get("path") || "/opt/vellum-agent";
 
-    const sql = getDb();
-    const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
-
-    if (result.length === 0) {
-      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
-    }
+    const { assistant } = await requireAssistantOwner(request, assistantId);
 
     if (getAssistantConnectionMode() === "local") {
       return NextResponse.json(
@@ -62,7 +57,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const assistant = result[0] as Assistant;
     const computeConfig = (assistant.configuration as Record<string, unknown>)?.compute as
       | { instanceName?: string; zone?: string }
       | undefined;
@@ -97,6 +91,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const files = await fetchFilesFromAgentServer(externalIp, path);
     return NextResponse.json({ files, path });
   } catch (error: unknown) {
+    if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
+      return toAuthErrorResponse(error);
+    }
     console.error("Error listing files:", error);
     return NextResponse.json(
       { error: "Failed to list files" },
