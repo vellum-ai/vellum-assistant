@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, UiSurfaceShow } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
@@ -653,8 +653,11 @@ export class Session {
       const title = typeof input.title === 'string' ? input.title : undefined;
       const data = input.data as SurfaceData;
       const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
-      // Interactive surfaces (form, list, confirmation) default to awaiting user action
-      const isInteractive = ['form', 'list', 'confirmation'].includes(surfaceType);
+      // Interactive surfaces default to awaiting user action.
+      // Lists with selectionMode "none" are passive (no actions emitted) so they don't block.
+      const isInteractive = surfaceType === 'list'
+        ? (data as ListSurfaceData).selectionMode !== 'none'
+        : ['form', 'confirmation'].includes(surfaceType);
       const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
       // Track surface state for ui_update merging
