@@ -26,6 +26,18 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     @Published var isConnected: Bool = false
 
+    // MARK: - Surface Event Callbacks
+
+    /// Called when the daemon sends a `ui_surface_show` message.
+    /// Set by the app layer to forward to SurfaceManager without coupling DaemonClient to it.
+    var onSurfaceShow: ((UiSurfaceShowMessage) -> Void)?
+
+    /// Called when the daemon sends a `ui_surface_update` message.
+    var onSurfaceUpdate: ((UiSurfaceUpdateMessage) -> Void)?
+
+    /// Called when the daemon sends a `ui_surface_dismiss` message.
+    var onSurfaceDismiss: ((UiSurfaceDismissMessage) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -231,6 +243,20 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
         })
     }
 
+    // MARK: - Surface Actions
+
+    /// Convenience method for sending a surface action response to the daemon.
+    /// Keeps the IPC message construction co-located with the client.
+    func sendSurfaceAction(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
+        let message = UiSurfaceActionMessage(
+            sessionId: sessionId,
+            surfaceId: surfaceId,
+            actionId: actionId,
+            data: data
+        )
+        try send(message)
+    }
+
     // MARK: - Disconnect
 
     /// Disconnect from the daemon. Stops reconnect and ping timers.
@@ -332,6 +358,18 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
             awaitingPong = false
             pongTimeoutTask?.cancel()
             pongTimeoutTask = nil
+        }
+
+        // Forward surface messages to registered callbacks.
+        switch message {
+        case .uiSurfaceShow(let msg):
+            onSurfaceShow?(msg)
+        case .uiSurfaceUpdate(let msg):
+            onSurfaceUpdate?(msg)
+        case .uiSurfaceDismiss(let msg):
+            onSurfaceDismiss?(msg)
+        default:
+            break
         }
 
         // Broadcast to all subscribers.
