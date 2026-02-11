@@ -30,6 +30,11 @@ import {
 } from "react";
 
 import { Button } from "@/components/app/core/Button";
+import {
+  buildHeuristicSuggestion,
+  extractSuggestibleAssistantText,
+  shouldShowSuggestion,
+} from "@/lib/chat-suggestion";
 
 type AssistantStatus = "healthy" | "unhealthy" | "stopped" | "unreachable" | "unknown" | "checking" | "getting_set_up" | "setting_up" | "provisioning_failed";
 
@@ -250,6 +255,15 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
 
   const lastMessage = messages[messages.length - 1];
   const isWaitingForResponse = lastMessage?.role === "user";
+
+  const suggestion = useMemo(() => {
+    if (!shouldShowSuggestion({ input, lastRole: lastMessage?.role, isWaitingForResponse, isAlive })) {
+      return null;
+    }
+    const text = extractSuggestibleAssistantText(lastMessage);
+    if (!text) return null;
+    return buildHeuristicSuggestion(text);
+  }, [input, lastMessage, isWaitingForResponse, isAlive]);
 
   const uploadedAttachmentIds = useMemo(
     () => pendingAttachments
@@ -875,6 +889,16 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
                 className="bg-green-600 text-white hover:bg-green-700"
               />
             </div>
+            {suggestion && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-zinc-400 dark:text-zinc-500">
+                <span className="truncate">
+                  Suggestion: <span className="text-zinc-600 dark:text-zinc-300">{suggestion}</span>
+                </span>
+                <kbd className="shrink-0 rounded border border-zinc-200 bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
+                  Tab
+                </kbd>
+              </div>
+            )}
             {hasUploadingAttachments && (
               <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
                 Uploading attachments...
