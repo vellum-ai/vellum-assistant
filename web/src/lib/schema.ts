@@ -16,7 +16,7 @@ export const assistantsTable = pgTable("assistants", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   configuration: jsonb("configuration").default({}),
-  createdBy: varchar("created_by", { length: 255 }),
+  createdBy: varchar("created_by", { length: 255 }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
