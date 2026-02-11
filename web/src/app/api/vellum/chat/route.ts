@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 
+import { requireAssistantOwner, toAuthErrorResponse } from "@/lib/auth/server-session";
 import { getEditorPage, updateEditorPage } from "@/lib/gcp";
 
 interface ChatMessage {
@@ -138,6 +139,14 @@ export async function POST(request: Request) {
     console.log(`[Vellum Chat] 📥 [${requestId}] Parsing request body...`);
     const body: ChatRequest = await request.json();
     const { messages, assistantId, currentPage, username: chatUsername } = body;
+
+    if (assistantId) {
+      try {
+        await requireAssistantOwner(request, assistantId);
+      } catch (error) {
+        return toAuthErrorResponse(error);
+      }
+    }
 
     console.log(`[Vellum Chat] 📋 [${requestId}] Request parsed:`, {
       messageCount: messages?.length,
