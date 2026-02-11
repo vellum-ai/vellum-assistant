@@ -31,6 +31,7 @@ final class ComputerUseSession: ObservableObject {
     private var isCancelled = false
     private var isPaused = false
     private var confirmationContinuation: CheckedContinuation<Bool, Never>?
+    private var messageLoopTask: Task<Void, Never>?
 
     private let enumerator: AccessibilityTreeProviding
     private let screenCapture: ScreenCaptureProviding
@@ -127,38 +128,54 @@ final class ComputerUseSession: ObservableObject {
         state = .thinking(step: 1, maxSteps: maxSteps)
 
         // 3. Listen for daemon messages (filter by sessionId)
-        for await message in daemonClient.messages {
-            guard !isCancelled else { break }
+        // Wrap in a cancellable task so cancel() can interrupt the stream await.
+        let loopTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await message in daemonClient.messages {
+                guard !self.isCancelled else { break }
 
-            // Wait while paused
-            while isPaused && !isCancelled {
-                try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
-            }
-            if isCancelled { break }
+                // Wait while paused
+                while self.isPaused && !self.isCancelled {
+                    try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                }
+                if self.isCancelled { break }
 
-            switch message {
-            case .cuAction(let action) where action.sessionId == id:
-                await handleAction(action)
+                switch message {
+                case .cuAction(let action) where action.sessionId == self.id:
+                    await self.handleAction(action)
+                    // Check if handleAction set a terminal state
+                    if self.isCancelled { break }
 
-            case .cuComplete(let complete) where complete.sessionId == id:
-                state = .completed(summary: complete.summary, steps: complete.stepCount)
-                logger.finishSession(result: "completed: \(complete.summary)")
-                return
+                case .cuComplete(let complete) where complete.sessionId == self.id:
+                    self.state = .completed(summary: complete.summary, steps: complete.stepCount)
+                    self.logger.finishSession(result: "completed: \(complete.summary)")
+                    return
 
-            case .cuError(let error) where error.sessionId == id:
-                state = .failed(reason: error.message)
-                logger.finishSession(result: "failed: \(error.message)")
-                return
+                case .cuError(let error) where error.sessionId == self.id:
+                    self.state = .failed(reason: error.message)
+                    self.logger.finishSession(result: "failed: \(error.message)")
+                    return
 
-            default:
-                break // ignore messages for other sessions
+                default:
+                    break // ignore messages for other sessions
+                }
             }
         }
+        messageLoopTask = loopTask
+        await loopTask.value
 
-        // Stream ended or cancelled
-        if isCancelled {
-            state = .cancelled
-            logger.finishSession(result: "cancelled")
+        // Stream ended or cancelled — ensure terminal state is set
+        switch state {
+        case .completed, .failed, .cancelled:
+            break // already in terminal state
+        default:
+            if isCancelled {
+                state = .cancelled
+                logger.finishSession(result: "cancelled")
+            } else {
+                state = .failed(reason: "Connection to daemon lost")
+                logger.finishSession(result: "failed: stream ended unexpectedly")
+            }
         }
     }
 
@@ -213,6 +230,7 @@ final class ComputerUseSession: ObservableObject {
             confirmationContinuation = nil
 
             if !approved {
+                isCancelled = true
                 state = .cancelled
                 logger.finishSession(result: "cancelled: user rejected confirmation")
                 return
@@ -236,6 +254,7 @@ final class ComputerUseSession: ObservableObject {
             log.warning("[\(action.stepNumber)] BLOCKED: \(reason)")
             verifier.recordBlock()
             if verifier.consecutiveBlockCount >= 3 {
+                isCancelled = true
                 state = .failed(reason: "Session stopped: 3 consecutive actions blocked")
                 logger.finishSession(result: "failed: too many blocks")
                 return
@@ -606,6 +625,7 @@ final class ComputerUseSession: ObservableObject {
 
     func cancel() {
         isCancelled = true
+        messageLoopTask?.cancel()
         confirmationContinuation?.resume(returning: false)
         confirmationContinuation = nil
     }
