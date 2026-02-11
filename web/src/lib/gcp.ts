@@ -241,6 +241,13 @@ if ! bun install; then
   exit 1
 fi
 
+echo "Installing browser runtime..." > "$PROGRESS_FILE"
+if ! bunx playwright install --with-deps chromium; then
+  echo "playwright install failed" > /opt/vellum-agent/setup-error
+  echo "[STARTUP ERROR] playwright install failed" >&2
+  exit 1
+fi
+
 echo "Creating systemd service..." > "$PROGRESS_FILE"
 
 cat > /etc/systemd/system/vellum-agent.service << 'SYSTEMD_EOF'
