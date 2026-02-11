@@ -68,7 +68,8 @@ function parseTelegramInbound(payload: Record<string, unknown>): NormalizedInbou
       }
     | undefined;
 
-  if (!message?.text || !message.chat?.id || !message.message_id) {
+  const updateId = payload.update_id as number | undefined;
+  if (!message?.text || !message.chat?.id || !updateId) {
     return null;
   }
 
@@ -86,7 +87,7 @@ function parseTelegramInbound(payload: Record<string, unknown>): NormalizedInbou
   return {
     text: message.text,
     externalChatId: String(message.chat.id),
-    externalMessageId: String(message.message_id),
+    externalMessageId: String(updateId),
     sender: {
       externalUserId,
       username: message.from?.username,

@@ -510,7 +510,6 @@ export class DaemonServer {
     conversationId: string,
     content: string,
     attachmentIds?: string[],
-    options?: { userMessageAlreadyPersisted?: boolean },
   ): Promise<{ messageId: string }> {
     const session = await this.getOrCreateSession(conversationId);
 
@@ -528,7 +527,7 @@ export class DaemonServer {
         }))
       : [];
 
-    const messageId = await session.processMessage(content, attachments, () => {}, crypto.randomUUID(), options);
+    const messageId = await session.processMessage(content, attachments, () => {}, crypto.randomUUID());
 
     if (!messageId) {
       throw new Error('Failed to persist user message');
