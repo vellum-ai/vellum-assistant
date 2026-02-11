@@ -5,6 +5,7 @@ import { resolveSkillSelector } from '../config/skills.js';
 import { getTool } from '../tools/registry.js';
 import { dirname } from 'node:path';
 import { homedir } from 'node:os';
+import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
 
 // Low-risk shell programs that are read-only / informational
 const LOW_RISK_PROGRAMS = new Set([
@@ -59,17 +60,6 @@ function getStringField(input: Record<string, unknown>, ...keys: string[]): stri
     if (typeof value === 'string') return value;
   }
   return '';
-}
-
-function looksLikeHostPortShorthand(value: string): boolean {
-  if (/^\[[0-9a-fA-F:.%]+\]:\d+(?:[/?#]|$)/.test(value)) {
-    return true;
-  }
-  return /^[^/?#@\s:]+:\d+(?:[/?#]|$)/.test(value);
-}
-
-function looksLikePathOnlyInput(value: string): boolean {
-  return value.startsWith('/') || value.startsWith('./') || value.startsWith('../') || value.startsWith('?') || value.startsWith('#');
 }
 
 function canonicalizeWebFetchUrl(parsed: URL): URL {
