@@ -216,6 +216,11 @@ struct AmbientResultMessage: Decodable, Sendable {
     let suggestion: String?
 }
 
+/// Server-level error message.
+struct ErrorMessage: Decodable, Sendable {
+    let message: String
+}
+
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 enum ServerMessage: Decodable, Sendable {
@@ -227,6 +232,7 @@ enum ServerMessage: Decodable, Sendable {
     case messageComplete(MessageCompleteMessage)
     case sessionInfo(SessionInfoMessage)
     case taskRouted(TaskRoutedMessage)
+    case error(ErrorMessage)
     case ambientResult(AmbientResultMessage)
     case pong
     case unknown(String)
@@ -264,6 +270,9 @@ enum ServerMessage: Decodable, Sendable {
         case "task_routed":
             let message = try TaskRoutedMessage(from: decoder)
             self = .taskRouted(message)
+        case "error":
+            let message = try ErrorMessage(from: decoder)
+            self = .error(message)
         case "ambient_result":
             let message = try AmbientResultMessage(from: decoder)
             self = .ambientResult(message)

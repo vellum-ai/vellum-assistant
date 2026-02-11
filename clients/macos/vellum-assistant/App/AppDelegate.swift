@@ -322,7 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 attachments: ipcAttachments
             ))
 
-            // 3. Wait for task_routed response
+            // 3. Wait for task_routed response (or error)
             var routedMessage: TaskRoutedMessage?
             for await message in messageStream {
                 guard !Task.isCancelled else { break }
@@ -330,9 +330,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     routedMessage = routed
                     break
                 }
+                if case .error(let err) = message {
+                    log.error("Task routing failed: \(err.message)")
+                    break
+                }
             }
 
-            // Check if cancelled during classification (e.g. user pressed Escape)
+            // Check if cancelled or failed during classification
             guard !Task.isCancelled, let routed = routedMessage else {
                 thinking.close()
                 self.thinkingWindow = nil

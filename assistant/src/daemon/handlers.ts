@@ -537,6 +537,7 @@ async function handleTaskSubmit(
     } else {
       // Create text QA session and immediately start processing
       const conversation = conversationStore.createConversation(msg.task);
+      ctx.socketToSession.set(socket, conversation.id);
       const session = await ctx.getOrCreateSession(conversation.id, socket, true);
 
       ctx.send(socket, {
