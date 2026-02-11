@@ -23,6 +23,17 @@ import type {
   ChannelDeliveryAckParams,
 } from "./types";
 
+function sanitizeUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.username = "";
+    parsed.password = "";
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return url.replace(/\/\/[^@]*@/, "//[REDACTED]@");
+  }
+}
+
 export class RuntimeClientError extends Error {
   constructor(
     public readonly status: number,
@@ -49,10 +60,19 @@ export function createRuntimeClient(
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     };
 
-    const response = await fetch(`${prefix}${path}`, {
-      ...init,
-      headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${prefix}${path}`, {
+        ...init,
+        headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
+      });
+    } catch (err) {
+      const sanitized = sanitizeUrl(baseUrl);
+      throw new RuntimeClientError(
+        0,
+        `Failed to connect to runtime at ${sanitized}${path}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");

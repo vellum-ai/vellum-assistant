@@ -24,7 +24,7 @@ import {
 } from './daemon/ipc-protocol.js';
 import { IpcError } from './util/errors.js';
 import { timeAgo } from './util/time.js';
-import { shouldAutoStartDaemon } from './daemon/connection-policy.js';
+import { shouldAutoStartDaemon, hasSocketOverride } from './daemon/connection-policy.js';
 import {
   loadRawConfig,
   saveRawConfig,
@@ -153,6 +153,8 @@ daemon
     } else {
       console.log('Daemon is not running');
     }
+    console.log(`Socket path: ${getSocketPath()}${hasSocketOverride() ? ' (override)' : ''}`);
+    console.log(`Autostart: ${shouldAutoStartDaemon() ? 'enabled' : 'disabled'}`);
   });
 
 // --- Dev command ---
@@ -616,6 +618,13 @@ program
       console.log(`  \u2717 ${label}${detail ? ` — ${detail}` : ''}`);
 
     console.log('Vellum Doctor\n');
+
+    // 0. Connection policy info
+    const socketPath = getSocketPath();
+    const isOverride = hasSocketOverride();
+    const autostart = shouldAutoStartDaemon();
+    console.log(`  Socket:    ${socketPath}${isOverride ? ' (override via VELLUM_DAEMON_SOCKET)' : ''}`);
+    console.log(`  Autostart: ${autostart ? 'enabled' : 'disabled'}\n`);
 
     // 1. Bun installed
     try {
