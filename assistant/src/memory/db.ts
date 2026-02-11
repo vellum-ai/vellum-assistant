@@ -191,6 +191,17 @@ export function initializeDb(): void {
     END
   `);
 
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS conversation_keys (
+      id TEXT PRIMARY KEY,
+      assistant_id TEXT NOT NULL,
+      conversation_key TEXT NOT NULL,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      UNIQUE (assistant_id, conversation_key)
+    )
+  `);
+
   // Migrations — ALTER TABLE ADD COLUMN throws if column already exists
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN total_input_tokens INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN total_output_tokens INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
@@ -213,6 +224,7 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_provider_model ON memory_embeddings(provider, model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_jobs_status_run_after ON memory_jobs(status, run_after)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_summaries_scope_time ON memory_summaries(scope, end_at DESC)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversation_keys_assistant_key ON conversation_keys(assistant_id, conversation_key)`);
 
   migrateMemoryFtsBackfill(database);
 }

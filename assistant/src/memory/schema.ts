@@ -113,6 +113,16 @@ export const memoryJobs = sqliteTable('memory_jobs', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+export const conversationKeys = sqliteTable('conversation_keys', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull(),
+  conversationKey: text('conversation_key').notNull(),
+  conversationId: text('conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+});
+
 export const memoryCheckpoints = sqliteTable('memory_checkpoints', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
