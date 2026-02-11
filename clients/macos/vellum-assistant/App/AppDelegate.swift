@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let surfaceManager = SurfaceManager()
 
     private var onboardingWindow: OnboardingWindow?
+    private var mainWindow: MainWindow?
     private var windowObserver: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -57,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupSurfaceManager()
         setupWindowObserver()
         setupNotifications()
+        showMainWindow()
     }
 
     private func setupDaemonClient() {
@@ -281,10 +283,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.setupWindowObserver()
             self?.setupNotifications()
 
-            NSApp.setActivationPolicy(.accessory)
+            self?.showMainWindow()
         }
         onboarding.show()
         onboardingWindow = onboarding
+    }
+
+    private func showMainWindow() {
+        let main = MainWindow()
+        main.show()
+        mainWindow = main
     }
 
     // MARK: - Popover
