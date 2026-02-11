@@ -23,6 +23,13 @@ const MAX_HISTORY_ENTRIES = 10;
 const LOOP_DETECTION_WINDOW = 3;
 const CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD = 2;
 
+/** Number of most-recent AX tree snapshots to keep in conversation history. */
+const MAX_AX_TREES_IN_HISTORY = 2;
+
+/** Regex that matches the `<ax-tree>…</ax-tree>` markers injected by buildObservationResultContent. */
+const AX_TREE_PATTERN = /<ax-tree>[\s\S]*?<\/ax-tree>/g;
+const AX_TREE_PLACEHOLDER = '[Previous screen state omitted for brevity]';
+
 type SessionState = 'idle' | 'awaiting_observation' | 'inferring' | 'complete' | 'error';
 
 interface ActionRecord {
@@ -236,8 +243,20 @@ export class ComputerUseSession {
       });
     };
 
+    // Wrap the provider so that old AX tree snapshots are stripped from
+    // conversation history before each API call, keeping only the most recent
+    // MAX_AX_TREES_IN_HISTORY entries.  This prevents TTFT from growing
+    // linearly with step count.
+    const compactingProvider: Provider = {
+      name: this.provider.name,
+      sendMessage: (msgs, tools, sys, opts) => {
+        const compacted = ComputerUseSession.compactHistory(msgs);
+        return this.provider.sendMessage(compacted, tools, sys, opts);
+      },
+    };
+
     const agentLoop = new AgentLoop(
-      this.provider,
+      compactingProvider,
       systemPrompt,
       {
         maxTokens: 4096,
@@ -305,6 +324,61 @@ export class ComputerUseSession {
   }
 
   // ---------------------------------------------------------------------------
+  // History compaction — strip old AX tree snapshots from tool results
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns a shallow copy of `messages` where all but the most recent
+   * `MAX_AX_TREES_IN_HISTORY` `<ax-tree>` blocks have been replaced with a
+   * short placeholder.  This keeps the conversation context small so that
+   * TTFT does not grow linearly with step count.
+   */
+  static compactHistory(messages: Message[]): Message[] {
+    // Collect indices of user messages that contain an <ax-tree> block
+    const indicesWithAxTree: number[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (msg.role !== 'user') continue;
+      for (const block of msg.content) {
+        if (
+          block.type === 'tool_result' &&
+          typeof block.content === 'string' &&
+          block.content.includes('<ax-tree>')
+        ) {
+          indicesWithAxTree.push(i);
+          break;
+        }
+      }
+    }
+
+    if (indicesWithAxTree.length <= MAX_AX_TREES_IN_HISTORY) {
+      return messages;
+    }
+
+    const toStrip = new Set(indicesWithAxTree.slice(0, -MAX_AX_TREES_IN_HISTORY));
+
+    return messages.map((msg, idx) => {
+      if (!toStrip.has(idx)) return msg;
+      return {
+        ...msg,
+        content: msg.content.map((block) => {
+          if (
+            block.type === 'tool_result' &&
+            typeof block.content === 'string' &&
+            block.content.includes('<ax-tree>')
+          ) {
+            return {
+              ...block,
+              content: block.content.replace(AX_TREE_PATTERN, AX_TREE_PLACEHOLDER),
+            };
+          }
+          return block;
+        }),
+      };
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // Build rich tool-result content from an observation so the model sees
   // updated screen state on each turn (not just "Action executed").
   // ---------------------------------------------------------------------------
@@ -334,10 +408,12 @@ export class ComputerUseSession {
       parts.push('');
     }
 
-    // Current screen state
+    // Current screen state — wrapped in markers so compactHistory can strip old snapshots
     if (obs.axTree) {
+      parts.push('<ax-tree>');
       parts.push('CURRENT SCREEN STATE:');
       parts.push(obs.axTree);
+      parts.push('</ax-tree>');
     }
 
     return parts.join('\n').trim() || 'Action executed';
