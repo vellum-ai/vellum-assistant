@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { repairHistory } from '../daemon/history-repair.js';
+import { repairHistory, deepRepairHistory } from '../daemon/history-repair.js';
 import type { Message } from '../providers/types.js';
 
 describe('repairHistory', () => {
@@ -357,6 +357,90 @@ describe('repairHistory', () => {
   test('handles empty message array', () => {
     const { messages, stats } = repairHistory([]);
     expect(messages).toEqual([]);
+    expect(stats.assistantToolResultsMigrated).toBe(0);
+    expect(stats.missingToolResultsInserted).toBe(0);
+    expect(stats.orphanToolResultsDowngraded).toBe(0);
+  });
+});
+
+describe('deepRepairHistory', () => {
+  test('merges consecutive same-role messages', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+      { role: 'user', content: [{ type: 'text', text: 'World' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'Hi' }] },
+    ];
+
+    const { messages: repaired } = deepRepairHistory(messages);
+
+    expect(repaired).toHaveLength(2);
+    expect(repaired[0].role).toBe('user');
+    expect(repaired[0].content).toHaveLength(2);
+    expect(repaired[1].role).toBe('assistant');
+  });
+
+  test('strips leading assistant messages', () => {
+    const messages: Message[] = [
+      { role: 'assistant', content: [{ type: 'text', text: 'Stale' }] },
+      { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'Hi' }] },
+    ];
+
+    const { messages: repaired } = deepRepairHistory(messages);
+
+    expect(repaired).toHaveLength(2);
+    expect(repaired[0].role).toBe('user');
+  });
+
+  test('removes empty messages', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+      { role: 'assistant', content: [] },
+      { role: 'assistant', content: [{ type: 'text', text: 'Hi' }] },
+    ];
+
+    const { messages: repaired } = deepRepairHistory(messages);
+
+    expect(repaired).toHaveLength(2);
+    expect(repaired[0].role).toBe('user');
+    expect(repaired[1].role).toBe('assistant');
+    expect(repaired[1].content[0]).toEqual({ type: 'text', text: 'Hi' });
+  });
+
+  test('applies standard repair after deep pass', () => {
+    // Consecutive assistant messages with tool_use but missing tool_result
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Go' }] },
+      { role: 'user', content: [{ type: 'text', text: 'more context' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'tu_1', name: 'bash', input: { cmd: 'ls' } },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Done' }],
+      },
+    ];
+
+    const { messages: repaired, stats } = deepRepairHistory(messages);
+
+    // User messages merged, then tool_result inserted between assistants
+    expect(repaired[0].role).toBe('user');
+    expect(repaired[0].content).toHaveLength(2);
+    expect(stats.missingToolResultsInserted).toBe(1);
+  });
+
+  test('no-op for already-valid history', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'Hi' }] },
+    ];
+
+    const { messages: repaired, stats } = deepRepairHistory(messages);
+
+    expect(repaired).toEqual(messages);
     expect(stats.assistantToolResultsMigrated).toBe(0);
     expect(stats.missingToolResultsInserted).toBe(0);
     expect(stats.orphanToolResultsDowngraded).toBe(0);

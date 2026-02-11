@@ -152,7 +152,7 @@ describe('provider ordering error retry', () => {
     expect(agentLoopRunCount).toBe(2);
   });
 
-  test('retry succeeds with repaired history', async () => {
+  test('retry succeeds with repaired history and no spurious error event', async () => {
     agentLoopRunCount = 0;
     shouldEmitOrderingError = true;
 
@@ -165,6 +165,10 @@ describe('provider ordering error retry', () => {
     // Should have a message_complete event (from successful retry)
     const messageComplete = events.find((e) => e.type === 'message_complete');
     expect(messageComplete).toBeDefined();
+
+    // Ordering error should be suppressed when retry succeeds — no error events
+    const errorEvents = events.filter((e) => e.type === 'error');
+    expect(errorEvents.length).toBe(0);
 
     // Should also have the assistant response in memory
     const messages = session.getMessages();
