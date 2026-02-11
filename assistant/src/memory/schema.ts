@@ -123,6 +123,29 @@ export const conversationKeys = sqliteTable('conversation_keys', {
   createdAt: integer('created_at').notNull(),
 });
 
+export const attachments = sqliteTable('attachments', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull(),
+  originalFilename: text('original_filename').notNull(),
+  mimeType: text('mime_type').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  kind: text('kind').notNull(),
+  dataBase64: text('data_base64').notNull(),
+  createdAt: integer('created_at').notNull(),
+});
+
+export const messageAttachments = sqliteTable('message_attachments', {
+  id: text('id').primaryKey(),
+  messageId: text('message_id')
+    .notNull()
+    .references(() => messages.id, { onDelete: 'cascade' }),
+  attachmentId: text('attachment_id')
+    .notNull()
+    .references(() => attachments.id, { onDelete: 'cascade' }),
+  position: integer('position').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+});
+
 export const memoryCheckpoints = sqliteTable('memory_checkpoints', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),

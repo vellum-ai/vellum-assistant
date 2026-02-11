@@ -10,6 +10,7 @@ import {
   getOrCreateConversation,
 } from '../memory/conversation-key-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import * as attachmentsStore from '../memory/attachments-store.js';
 
 const log = getLogger('runtime-http');
 
@@ -76,6 +77,14 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'messages' && req.method === 'POST') {
         return await this.handleSendMessage(assistantId, req);
+      }
+
+      if (endpoint === 'attachments' && req.method === 'POST') {
+        return await this.handleUploadAttachment(assistantId, req);
+      }
+
+      if (endpoint === 'attachments' && req.method === 'DELETE') {
+        return await this.handleDeleteAttachment(assistantId, req);
       }
 
       return Response.json({ error: 'Not found' }, { status: 404 });
@@ -148,5 +157,77 @@ export class RuntimeHttpServer {
     return Response.json({
       messageId: userMessage.id,
     });
+  }
+
+  private async handleUploadAttachment(assistantId: string, req: Request): Promise<Response> {
+    const body = await req.json() as {
+      filename?: string;
+      mimeType?: string;
+      data?: string;
+    };
+
+    const { filename, mimeType, data } = body;
+
+    if (!filename || typeof filename !== 'string') {
+      return Response.json(
+        { error: 'filename is required' },
+        { status: 400 },
+      );
+    }
+
+    if (!mimeType || typeof mimeType !== 'string') {
+      return Response.json(
+        { error: 'mimeType is required' },
+        { status: 400 },
+      );
+    }
+
+    if (!data || typeof data !== 'string') {
+      return Response.json(
+        { error: 'data (base64) is required' },
+        { status: 400 },
+      );
+    }
+
+    const attachment = attachmentsStore.uploadAttachment(
+      assistantId,
+      filename,
+      mimeType,
+      data,
+    );
+
+    return Response.json({
+      id: attachment.id,
+      original_filename: attachment.originalFilename,
+      mime_type: attachment.mimeType,
+      size_bytes: attachment.sizeBytes,
+      kind: attachment.kind,
+    });
+  }
+
+  private async handleDeleteAttachment(assistantId: string, req: Request): Promise<Response> {
+    const body = await req.json() as {
+      attachmentId?: string;
+    };
+
+    const { attachmentId } = body;
+
+    if (!attachmentId || typeof attachmentId !== 'string') {
+      return Response.json(
+        { error: 'attachmentId is required' },
+        { status: 400 },
+      );
+    }
+
+    const deleted = attachmentsStore.deleteAttachment(assistantId, attachmentId);
+
+    if (!deleted) {
+      return Response.json(
+        { error: 'Attachment not found' },
+        { status: 404 },
+      );
+    }
+
+    return new Response(null, { status: 204 });
   }
 }

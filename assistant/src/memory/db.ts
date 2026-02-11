@@ -158,6 +158,29 @@ export function initializeDb(): void {
     )
   `);
 
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS attachments (
+      id TEXT PRIMARY KEY,
+      assistant_id TEXT NOT NULL,
+      original_filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      data_base64 TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS message_attachments (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      attachment_id TEXT NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
   // FTS table for lexical retrieval over memory_segments.text.
   database.run(/*sql*/ `
     CREATE VIRTUAL TABLE IF NOT EXISTS memory_segment_fts USING fts5(
@@ -225,6 +248,9 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_jobs_status_run_after ON memory_jobs(status, run_after)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_summaries_scope_time ON memory_summaries(scope, end_at DESC)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversation_keys_assistant_key ON conversation_keys(assistant_id, conversation_key)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_attachments_assistant_id ON attachments(assistant_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_message_id ON message_attachments(message_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment_id ON message_attachments(attachment_id)`);
 
   migrateMemoryFtsBackfill(database);
 }
