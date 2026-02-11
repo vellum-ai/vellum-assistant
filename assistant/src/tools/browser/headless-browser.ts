@@ -609,8 +609,8 @@ async function executeBrowserWaitFor(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const selector = typeof input.selector === 'string' ? input.selector : null;
-  const text = typeof input.text === 'string' ? input.text : null;
+  const selector = typeof input.selector === 'string' && input.selector ? input.selector : null;
+  const text = typeof input.text === 'string' && input.text ? input.text : null;
   const duration = typeof input.duration === 'number' ? input.duration : null;
 
   const modeCount = [selector, text, duration].filter((v) => v !== null).length;
