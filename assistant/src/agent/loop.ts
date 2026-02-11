@@ -17,7 +17,7 @@ export type AgentEvent =
   | { type: 'tool_output_chunk'; toolUseId: string; chunk: string }
   | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string }
   | { type: 'error'; error: Error }
-  | { type: 'usage'; inputTokens: number; outputTokens: number; model: string };
+  | { type: 'usage'; inputTokens: number; outputTokens: number; cacheCreationInputTokens?: number; cacheReadInputTokens?: number; model: string };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxTokens: 64000,
@@ -121,6 +121,8 @@ export class AgentLoop {
             stopReason: response.stopReason,
             inputTokens: response.usage.inputTokens,
             outputTokens: response.usage.outputTokens,
+            cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
+            cacheReadInputTokens: response.usage.cacheReadInputTokens,
             contentBlocks: response.content.map((b) => ({
               type: b.type,
               ...(b.type === 'text' ? { text: truncateForLog(b.text, 200) } : {}),
@@ -133,6 +135,8 @@ export class AgentLoop {
           type: 'usage',
           inputTokens: response.usage.inputTokens,
           outputTokens: response.usage.outputTokens,
+          cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
+          cacheReadInputTokens: response.usage.cacheReadInputTokens,
           model: response.model,
         });
 

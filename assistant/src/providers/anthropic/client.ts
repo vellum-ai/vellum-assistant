@@ -38,14 +38,23 @@ export class AnthropicProvider implements Provider {
       };
 
       if (systemPrompt) {
-        params.system = systemPrompt;
+        params.system = [
+          {
+            type: 'text' as const,
+            text: systemPrompt,
+            cache_control: { type: 'ephemeral' as const },
+          },
+        ];
       }
 
       if (tools && tools.length > 0) {
-        params.tools = tools.map((t) => ({
+        params.tools = tools.map((t, i) => ({
           name: t.name,
           description: t.description,
           input_schema: t.input_schema as Anthropic.Tool["input_schema"],
+          ...(i === tools.length - 1
+            ? { cache_control: { type: 'ephemeral' as const } }
+            : {}),
         }));
       }
 
@@ -69,6 +78,8 @@ export class AnthropicProvider implements Provider {
         usage: {
           inputTokens: response.usage.input_tokens,
           outputTokens: response.usage.output_tokens,
+          cacheCreationInputTokens: (response.usage as any).cache_creation_input_tokens,
+          cacheReadInputTokens: (response.usage as any).cache_read_input_tokens,
         },
         stopReason: response.stop_reason ?? "unknown",
       };
