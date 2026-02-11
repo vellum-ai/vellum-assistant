@@ -43,10 +43,10 @@ export async function POST(
 ) {
   const { id: assistantId } = await params;
 
-  const authError = await authenticateAssistant(request, assistantId);
-  if (authError) return authError;
-
   try {
+    const authError = await authenticateAssistant(request, assistantId);
+    if (authError) return authError;
+
     const sql = getDb();
 
     const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
@@ -157,10 +157,10 @@ export async function GET(
 ) {
   const { id: assistantId } = await params;
 
-  const authError = await authenticateAssistant(request, assistantId);
-  if (authError) return authError;
-
   try {
+    const authError = await authenticateAssistant(request, assistantId);
+    if (authError) return authError;
+
     const sql = getDb();
 
     const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
@@ -199,10 +199,10 @@ export async function DELETE(
 ) {
   const { id: assistantId } = await params;
 
-  const authError = await authenticateAssistant(request, assistantId);
-  if (authError) return authError;
-
   try {
+    const authError = await authenticateAssistant(request, assistantId);
+    if (authError) return authError;
+
     const sql = getDb();
 
     const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
