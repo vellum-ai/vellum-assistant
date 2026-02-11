@@ -22,7 +22,6 @@ import type {
   CuSessionCreate,
   CuObservation,
   TaskSubmit,
-  UiSurfaceAction,
 } from './ipc-protocol.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
