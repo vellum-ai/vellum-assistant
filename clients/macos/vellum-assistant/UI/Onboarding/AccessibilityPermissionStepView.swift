@@ -14,21 +14,21 @@ struct AccessibilityPermissionStepView: View {
     ]
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: VellumSpacing.xxl) {
             if permissionGranted {
                 ReactionBubble(text: "I can take action now.", delay: 0)
             } else {
                 ReactionBubble(text: Self.reactions.randomElement()!)
             }
 
-            VStack(spacing: 8) {
+            VStack(spacing: VellumSpacing.md) {
                 Text("Now teach me to act.")
-                    .font(.system(.title2, design: .serif))
-                    .foregroundColor(.white)
+                    .font(VellumFont.onboardingTitle)
+                    .foregroundColor(VellumTheme.textPrimary)
 
                 Text("I can hear you, but I can\u{2019}t do anything yet. Let me control your Mac so I can take action on what you ask.")
-                    .font(.system(size: 15))
-                    .foregroundColor(.white.opacity(0.5))
+                    .font(VellumFont.onboardingSubtitle)
+                    .foregroundColor(VellumTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 360)
             }
@@ -36,48 +36,48 @@ struct AccessibilityPermissionStepView: View {
             .offset(y: showContent ? 0 : 8)
 
             // Permission card
-            VStack(spacing: 16) {
+            VStack(spacing: VellumSpacing.xl) {
                 Text("\u{1F932}")
-                    .font(.system(size: 32))
+                    .font(VellumFont.cardEmoji)
 
                 Text("Give me hands")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.white)
+                    .font(VellumFont.cardTitle)
+                    .foregroundColor(VellumTheme.textPrimary)
 
                 Text("Accessibility access lets \(state.assistantName) click, type, and navigate your Mac for you. macOS will ask you to flip a switch in System Settings.")
-                    .font(.system(size: 13))
-                    .foregroundColor(.white.opacity(0.5))
+                    .font(VellumFont.caption)
+                    .foregroundColor(VellumTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 280)
 
                 if permissionGranted {
-                    HStack(spacing: 8) {
+                    HStack(spacing: VellumSpacing.md) {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                            .foregroundColor(VellumTheme.success)
                         Text("I can take action now")
-                            .foregroundColor(.green)
-                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(VellumTheme.success)
+                            .font(VellumFont.bodyMedium)
                     }
                     .transition(.scale.combined(with: .opacity))
                 } else {
-                    VStack(spacing: 8) {
+                    VStack(spacing: VellumSpacing.md) {
                         OnboardingButton(title: "Let me help", style: .primary) {
                             requestAccessibilityPermission()
                         }
 
                         Text("You\u{2019}ll be sent to System Settings \u{2014} come back here after.")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.35))
+                            .font(VellumFont.small)
+                            .foregroundColor(VellumTheme.textMuted)
                     }
                 }
             }
-            .padding(24)
+            .padding(VellumSpacing.xxl)
             .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.05))
+                RoundedRectangle(cornerRadius: VellumRadius.lg)
+                    .fill(VellumTheme.surface.opacity(0.4))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color(hex: 0xD4A843).opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: VellumRadius.lg)
+                            .stroke(VellumTheme.onboardingAccent.opacity(0.3), lineWidth: 1)
                     )
             )
             .opacity(showContent ? 1 : 0)
@@ -92,7 +92,6 @@ struct AccessibilityPermissionStepView: View {
                 }
                 return
             }
-            // Auto-advance if permission was already granted (e.g. after restart)
             if PermissionManager.accessibilityStatus(prompt: false) == .granted {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     grantPermission()

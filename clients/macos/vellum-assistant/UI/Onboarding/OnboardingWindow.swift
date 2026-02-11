@@ -43,7 +43,7 @@ final class OnboardingWindow {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.backgroundColor = NSColor(red: 14/255, green: 14/255, blue: 17/255, alpha: 1)
+        window.backgroundColor = NSColor(VellumTheme.background)
         window.isReleasedWhenClosed = false
 
         // Fix the content size so the hosting controller doesn't resize the window after centering

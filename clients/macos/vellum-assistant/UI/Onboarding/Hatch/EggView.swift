@@ -34,7 +34,7 @@ struct EggView: View {
                 .fill(
                     RadialGradient(
                         colors: [
-                            Color(red: 1, green: 0.835, blue: 0.31).opacity(glowOpacity),
+                            Amber._500.opacity(glowOpacity),
                             Color.clear
                         ],
                         center: .center,
@@ -51,20 +51,20 @@ struct EggView: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(red: 1.0, green: 0.92, blue: 0.65),
-                            Color(red: 0.93, green: 0.82, blue: 0.45),
-                            Color(red: 0.85, green: 0.72, blue: 0.35),
-                            Color(red: 0.77, green: 0.66, blue: 0.24)
+                            Amber._300,
+                            Amber._400,
+                            Amber._500,
+                            Amber._600
                         ],
                         startPoint: .top, endPoint: .bottom
                     )
                 )
                 .overlay(
                     EggShape()
-                        .stroke(Color(red: 0.77, green: 0.66, blue: 0.24), lineWidth: 2)
+                        .stroke(Amber._600, lineWidth: 2)
                 )
                 .frame(width: 200, height: 260)
-                .shadow(color: Color(red: 1, green: 0.835, blue: 0.31).opacity(0.5), radius: 20)
+                .shadow(color: Amber._500.opacity(0.5), radius: 20)
 
             // Crack overlays
             CrackOverlay(crackLevel: crackLevel)
@@ -188,8 +188,8 @@ struct CrackOverlay: View {
                 CGPoint(x: x * scaleX, y: y * scaleY)
             }
 
-            let crackColor = Color(red: 1, green: 0.976, blue: 0.769) // #fff9c4
-            let crackColor2 = Color(red: 1, green: 0.835, blue: 0.31) // #ffd54f
+            let crackColor = Amber._200
+            let crackColor2 = Amber._500
 
             // Crack level 1
             if crackLevel >= 1 {

@@ -7,33 +7,33 @@ struct NamingStepView: View {
     @State private var showInput = false
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: VellumSpacing.xxl) {
             ReactionBubble(text: "Oh\u{2026} I\u{2019}m here! Who are you?")
 
-            VStack(spacing: 8) {
+            VStack(spacing: VellumSpacing.md) {
                 Text("Every creature needs a name.")
-                    .font(.system(.title2, design: .serif))
-                    .foregroundColor(.white)
+                    .font(VellumFont.onboardingTitle)
+                    .foregroundColor(VellumTheme.textPrimary)
 
                 Text("What should this one be called?")
-                    .font(.system(size: 15))
-                    .foregroundColor(.white.opacity(0.6))
+                    .font(VellumFont.onboardingSubtitle)
+                    .foregroundColor(VellumTheme.textSecondary)
             }
             .opacity(showInput ? 1 : 0)
 
             TextField("Name your agent\u{2026}", text: $state.assistantName)
                 .textFieldStyle(.plain)
                 .font(.system(size: 18, weight: .medium))
-                .foregroundColor(.white)
+                .foregroundColor(VellumTheme.textPrimary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+                .padding(.vertical, VellumSpacing.lg)
                 .background(
                     Capsule()
-                        .fill(Color.white.opacity(0.06))
+                        .fill(VellumTheme.surface.opacity(0.5))
                         .overlay(
                             Capsule()
-                                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                                .stroke(VellumTheme.surfaceBorder.opacity(0.5), lineWidth: 1)
                         )
                 )
                 .frame(maxWidth: 280)

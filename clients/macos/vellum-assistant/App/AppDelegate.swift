@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 import SwiftUI
 import HotKey
 import UserNotifications
@@ -31,6 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowObserver: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        registerBundledFonts()
+
         #if DEBUG
         let skipOnboarding = CommandLine.arguments.contains("--skip-onboarding")
         #else
@@ -457,6 +460,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             intentIdentifiers: []
         )
         center.setNotificationCategories([automationCategory])
+    }
+
+    private func registerBundledFonts() {
+        for name in ["Silkscreen-Regular", "Silkscreen-Bold"] {
+            guard let url = Bundle.module.url(forResource: name, withExtension: "ttf") else {
+                log.warning("Font file \(name).ttf not found in bundle")
+                continue
+            }
+            var error: Unmanaged<CFError>?
+            if !CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) {
+                log.warning("Failed to register font \(name): \(error?.takeRetainedValue().localizedDescription ?? "unknown")")
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

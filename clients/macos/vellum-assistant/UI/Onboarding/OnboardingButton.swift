@@ -19,10 +19,10 @@ struct OnboardingButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 15, weight: .medium))
+                .font(VellumFont.bodyMedium)
                 .foregroundColor(foregroundColor)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 10)
+                .padding(.horizontal, VellumSpacing.xxl)
+                .padding(.vertical, VellumSpacing.md + VellumSpacing.xxs)
                 .background(background)
                 .clipShape(Capsule())
                 .overlay(
@@ -55,23 +55,23 @@ struct OnboardingButton: View {
     private var foregroundColor: Color {
         switch style {
         case .primary:
-            return disabled ? Color.white.opacity(0.4) : Color(hex: 0x0E0E11)
+            return disabled ? VellumTheme.textPrimary.opacity(0.4) : VellumTheme.background
         case .ghost:
-            return disabled ? Color.white.opacity(0.3) : Color.white.opacity(0.85)
+            return disabled ? VellumTheme.textPrimary.opacity(0.3) : VellumTheme.textPrimary.opacity(0.85)
         }
     }
 
     private var background: some ShapeStyle {
         switch style {
         case .primary:
-            return AnyShapeStyle(disabled ? Color(hex: 0xD4A843).opacity(0.3) : Color(hex: 0xD4A843))
+            return AnyShapeStyle(disabled ? VellumTheme.onboardingAccent.opacity(0.3) : VellumTheme.onboardingAccent)
         case .ghost:
             return AnyShapeStyle(Color.clear)
         }
     }
 
     private var borderColor: Color {
-        style == .ghost ? Color.white.opacity(disabled ? 0.1 : 0.25) : .clear
+        style == .ghost ? VellumTheme.textPrimary.opacity(disabled ? 0.1 : 0.25) : .clear
     }
 
     private var opacity: Double {
@@ -81,8 +81,8 @@ struct OnboardingButton: View {
 
 #Preview {
     ZStack {
-        Color(hex: 0x0E0E11)
-        VStack(spacing: 16) {
+        VellumTheme.background
+        VStack(spacing: VellumSpacing.xl) {
             OnboardingButton(title: "Say hello", style: .primary) {}
             OnboardingButton(title: "Skip", style: .ghost) {}
             OnboardingButton(title: "Disabled", style: .primary, disabled: true) {}

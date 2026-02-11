@@ -300,9 +300,9 @@ private struct InsightsListView: View {
 
     private func categoryColor(_ category: InsightCategory) -> Color {
         switch category {
-        case .pattern: return .blue
-        case .automation: return .green
-        case .insight: return .orange
+        case .pattern: return Indigo._600
+        case .automation: return Emerald._600
+        case .insight: return Amber._600
         }
     }
 }

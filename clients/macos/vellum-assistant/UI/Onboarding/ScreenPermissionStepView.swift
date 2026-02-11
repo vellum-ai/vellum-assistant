@@ -9,15 +9,15 @@ struct ScreenPermissionStepView: View {
     @State private var pollTimer: Timer?
 
     var body: some View {
-        VStack(spacing: 24) {
-            VStack(spacing: 8) {
+        VStack(spacing: VellumSpacing.xxl) {
+            VStack(spacing: VellumSpacing.md) {
                 Text("One more thing \u{2014} let me see.")
-                    .font(.system(.title2, design: .serif))
-                    .foregroundColor(.white)
+                    .font(VellumFont.onboardingTitle)
+                    .foregroundColor(VellumTheme.textPrimary)
 
                 Text("I can hear you and act for you, but I\u{2019}m working blind. Let me see your screen so I know what\u{2019}s happening.")
-                    .font(.system(size: 15))
-                    .foregroundColor(.white.opacity(0.5))
+                    .font(VellumFont.onboardingSubtitle)
+                    .foregroundColor(VellumTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 360)
             }
@@ -25,27 +25,27 @@ struct ScreenPermissionStepView: View {
             .offset(y: showContent ? 0 : 8)
 
             // Permission card
-            VStack(spacing: 16) {
+            VStack(spacing: VellumSpacing.xl) {
                 Text("\u{1F441}")
-                    .font(.system(size: 32))
+                    .font(VellumFont.cardEmoji)
 
                 Text("Help me see")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.white)
+                    .font(VellumFont.cardTitle)
+                    .foregroundColor(VellumTheme.textPrimary)
 
                 Text("Screen access lets \(state.assistantName) see what you\u{2019}re working on and respond to what\u{2019}s on screen. You can turn this off anytime.")
-                    .font(.system(size: 13))
-                    .foregroundColor(.white.opacity(0.5))
+                    .font(VellumFont.caption)
+                    .foregroundColor(VellumTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 280)
 
                 if permissionGranted {
-                    HStack(spacing: 8) {
+                    HStack(spacing: VellumSpacing.md) {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                            .foregroundColor(VellumTheme.success)
                         Text("I can see your screen now")
-                            .foregroundColor(.green)
-                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(VellumTheme.success)
+                            .font(VellumFont.bodyMedium)
                     }
                     .transition(.scale.combined(with: .opacity))
                 } else {
@@ -54,13 +54,13 @@ struct ScreenPermissionStepView: View {
                     }
                 }
             }
-            .padding(24)
+            .padding(VellumSpacing.xxl)
             .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.05))
+                RoundedRectangle(cornerRadius: VellumRadius.lg)
+                    .fill(VellumTheme.surface.opacity(0.4))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color(hex: 0xD4A843).opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: VellumRadius.lg)
+                            .stroke(VellumTheme.onboardingAccent.opacity(0.3), lineWidth: 1)
                     )
             )
             .opacity(showContent ? 1 : 0)
@@ -74,7 +74,6 @@ struct ScreenPermissionStepView: View {
                 }
                 return
             }
-            // Auto-advance if permission was already granted (e.g. after restart)
             Task {
                 let status = await PermissionManager.screenRecordingStatus()
                 if status == .granted {
@@ -94,13 +93,11 @@ struct ScreenPermissionStepView: View {
     }
 
     private func requestScreenPermission() {
-        // Calling SCShareableContent.current triggers the system permission dialog
         Task {
             do {
                 _ = try await SCShareableContent.current
                 grantPermission()
             } catch {
-                // Permission denied or dialog shown — start polling
                 startPolling()
             }
         }

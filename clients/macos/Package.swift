@@ -24,6 +24,7 @@ let package = Package(
             resources: [
                 .process("Resources/Assets.xcassets"),
                 .process("Resources/dino.webp"),
+                .process("Resources/Fonts"),
                 .copy("Resources/Recipes")
             ],
             linkerSettings: [

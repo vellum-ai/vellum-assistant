@@ -75,17 +75,17 @@ private struct AmbientSuggestionView: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: VellumSpacing.lg) {
             HStack {
                 Image(systemName: "eye.fill")
                     .foregroundStyle(.blue)
                 Text("Ambient Suggestion")
-                    .font(.headline)
+                    .font(VellumFont.heading)
                 Spacer()
             }
 
             Text(suggestion)
-                .font(.body)
+                .font(VellumFont.body)
                 .lineLimit(3)
                 .foregroundStyle(.secondary)
 

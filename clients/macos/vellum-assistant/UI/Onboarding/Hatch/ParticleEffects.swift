@@ -42,12 +42,12 @@ private struct FireflyDot: View {
         Circle()
             .fill(
                 RadialGradient(
-                    colors: [Color(red: 1, green: 0.835, blue: 0.31), .clear],
+                    colors: [Amber._500, .clear],
                     center: .center, startRadius: 0, endRadius: 4
                 )
             )
             .frame(width: 8, height: 8)
-            .shadow(color: Color(red: 1, green: 0.835, blue: 0.31).opacity(0.4), radius: 3)
+            .shadow(color: Amber._500.opacity(0.4), radius: 3)
             .opacity(opacity)
             .offset(offset)
             .position(x: config.x * parentSize.width, y: config.y * parentSize.height)
@@ -88,9 +88,7 @@ private struct PetalParticle: View {
     @State private var opacity: Double = 0
 
     private var color: Color {
-        index % 2 == 0
-            ? Color(red: 0.973, green: 0.733, blue: 0.816) // #f8bbd0
-            : Color(red: 0.957, green: 0.561, blue: 0.694) // #f48fb1
+        index % 2 == 0 ? Rose._300 : Rose._500
     }
 
     var body: some View {
@@ -129,12 +127,12 @@ struct ShellPieces: View {
     ]
 
     private let colors: [Color] = [
-        Color(red: 0.91, green: 0.78, blue: 0.48),
-        Color(red: 0.83, green: 0.66, blue: 0.33),
-        Color(red: 0.77, green: 0.60, blue: 0.24),
-        Color(red: 0.91, green: 0.78, blue: 0.48),
-        Color(red: 0.83, green: 0.66, blue: 0.33),
-        Color(red: 0.77, green: 0.60, blue: 0.24),
+        Amber._400,
+        Amber._500,
+        Amber._600,
+        Amber._400,
+        Amber._500,
+        Amber._600,
     ]
 
     var body: some View {
@@ -164,7 +162,7 @@ private struct ShellPiece: View {
     var body: some View {
         ShellShape(variant: shapeVariant)
             .fill(color)
-            .overlay(ShellShape(variant: shapeVariant).stroke(Color(red: 0.77, green: 0.60, blue: 0.24), lineWidth: 0.5))
+            .overlay(ShellShape(variant: shapeVariant).stroke(Amber._600, lineWidth: 0.5))
             .frame(width: 16, height: 16)
             .opacity(opacity)
             .rotationEffect(.degrees(rotation))
@@ -217,7 +215,7 @@ struct EnergyRing: View {
     var body: some View {
         if visible {
             Circle()
-                .stroke(Color(red: 1, green: 0.92, blue: 0.23), lineWidth: 2) // yellow-300
+                .stroke(Amber._400, lineWidth: 2)
                 .frame(width: 80, height: 80)
                 .scaleEffect(scale)
                 .opacity(opacity)
@@ -260,7 +258,7 @@ private struct BurstSparkleParticle: View {
 
     var body: some View {
         SparkleShape()
-            .fill(Color(red: 1, green: 0.835, blue: 0.31))
+            .fill(Amber._500)
             .frame(width: 12, height: 12)
             .scaleEffect(scale)
             .opacity(opacity)
@@ -304,7 +302,7 @@ private struct RevealSparkleParticle: View {
 
     var body: some View {
         SparkleShape()
-            .fill(Color(red: 1, green: 0.835, blue: 0.31))
+            .fill(Amber._500)
             .frame(width: 10, height: 10)
             .scaleEffect(scale)
             .rotationEffect(.degrees(rotation))

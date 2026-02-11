@@ -21,23 +21,23 @@ struct FnKeyStepView: View {
     ]
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: VellumSpacing.xxl) {
             ReactionBubble(text: nameReaction)
 
-            VStack(spacing: 8) {
+            VStack(spacing: VellumSpacing.md) {
                 Text("Let\u{2019}s find your voice.")
-                    .font(.system(.title2, design: .serif))
-                    .foregroundColor(.white)
+                    .font(VellumFont.onboardingTitle)
+                    .foregroundColor(VellumTheme.textPrimary)
 
                 Text("To call \(state.assistantName), you\u{2019}ll hold down a key. Try pressing it now \u{2014} which of these lights up?")
-                    .font(.system(size: 15))
-                    .foregroundColor(.white.opacity(0.6))
+                    .font(VellumFont.onboardingSubtitle)
+                    .foregroundColor(VellumTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 360)
             }
             .opacity(showButtons ? 1 : 0)
 
-            HStack(spacing: 12) {
+            HStack(spacing: VellumSpacing.lg) {
                 ForEach(keyOptions, id: \.key) { option in
                     keyButton(option.key, label: option.label)
                 }
@@ -46,8 +46,8 @@ struct FnKeyStepView: View {
 
             if let hint = wrongKeyHint {
                 Text(hint)
-                    .font(.system(size: 13))
-                    .foregroundColor(.white.opacity(0.5))
+                    .font(VellumFont.caption)
+                    .foregroundColor(VellumTheme.textMuted)
                     .transition(.opacity)
             }
 
@@ -86,16 +86,16 @@ struct FnKeyStepView: View {
             selectKey(key)
         } label: {
             Text(label)
-                .font(.system(size: 16, weight: .medium, design: .monospaced))
-                .foregroundColor(highlightedKey == key ? Color(hex: 0x0E0E11) : .white.opacity(0.85))
+                .font(VellumFont.mono)
+                .foregroundColor(highlightedKey == key ? VellumTheme.background : VellumTheme.textPrimary.opacity(0.85))
                 .frame(width: 64, height: 44)
                 .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(highlightedKey == key ? Color(hex: 0xD4A843) : Color.white.opacity(0.08))
+                    RoundedRectangle(cornerRadius: VellumRadius.md)
+                        .fill(highlightedKey == key ? VellumTheme.onboardingAccent : VellumTheme.surface.opacity(0.5))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(highlightedKey == key ? Color.clear : Color.white.opacity(0.15), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: VellumRadius.md)
+                        .stroke(highlightedKey == key ? Color.clear : VellumTheme.surfaceBorder.opacity(0.5), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -111,7 +111,6 @@ struct FnKeyStepView: View {
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if flags.contains(.function) {
-                // fn / globe key (same physical key on modern Macs)
                 selectKey(.fn)
             } else if flags.contains(.control) {
                 selectKey(.ctrl)

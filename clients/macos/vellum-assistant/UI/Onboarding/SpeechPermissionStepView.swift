@@ -10,7 +10,7 @@ struct SpeechPermissionStepView: View {
     @State private var pollTimer: Timer?
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: VellumSpacing.xxl) {
             if permissionGranted {
                 ReactionBubble(text: "I can understand you now.", delay: 0)
             } else if permissionDenied {
@@ -25,27 +25,27 @@ struct SpeechPermissionStepView: View {
             }
 
             // Permission card
-            VStack(spacing: 16) {
+            VStack(spacing: VellumSpacing.xl) {
                 Text("\u{1F399}")
-                    .font(.system(size: 32))
+                    .font(VellumFont.cardEmoji)
 
                 Text("Help me hear")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.white)
+                    .font(VellumFont.cardTitle)
+                    .foregroundColor(VellumTheme.textPrimary)
 
                 Text("To understand you when you hold \(state.chosenKey.displayName), \(state.assistantName) needs speech recognition access. Your Mac will ask \u{2014} just tap Allow.")
-                    .font(.system(size: 13))
-                    .foregroundColor(.white.opacity(0.5))
+                    .font(VellumFont.caption)
+                    .foregroundColor(VellumTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 280)
 
                 if permissionGranted {
-                    HStack(spacing: 8) {
+                    HStack(spacing: VellumSpacing.md) {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                            .foregroundColor(VellumTheme.success)
                         Text("I can understand you now")
-                            .foregroundColor(.green)
-                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(VellumTheme.success)
+                            .font(VellumFont.bodyMedium)
                     }
                     .transition(.scale.combined(with: .opacity))
                 } else {
@@ -54,13 +54,13 @@ struct SpeechPermissionStepView: View {
                     }
                 }
             }
-            .padding(24)
+            .padding(VellumSpacing.xxl)
             .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.05))
+                RoundedRectangle(cornerRadius: VellumRadius.lg)
+                    .fill(VellumTheme.surface.opacity(0.4))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color(hex: 0xD4A843).opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: VellumRadius.lg)
+                            .stroke(VellumTheme.onboardingAccent.opacity(0.3), lineWidth: 1)
                     )
             )
             .opacity(showCard ? 1 : 0)
@@ -82,7 +82,6 @@ struct SpeechPermissionStepView: View {
                 }
                 return
             }
-            // Auto-advance if permission was already granted (e.g. after restart)
             if SFSpeechRecognizer.authorizationStatus() == .authorized {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     grantPermission()

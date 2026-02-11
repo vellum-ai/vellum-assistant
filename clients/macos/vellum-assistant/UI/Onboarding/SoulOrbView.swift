@@ -16,7 +16,7 @@ struct SoulOrbView: View {
             if mood == .celebrating {
                 ForEach(0..<3, id: \.self) { i in
                     Circle()
-                        .stroke(Color(hex: 0xD4A843).opacity(celebrateOpacities[i]), lineWidth: 2)
+                        .stroke(VellumTheme.onboardingAccent.opacity(celebrateOpacities[i]), lineWidth: 2)
                         .frame(width: size, height: size)
                         .scaleEffect(celebrateRings[i])
                 }
@@ -25,7 +25,7 @@ struct SoulOrbView: View {
             // Listening pulse ring
             if mood == .listening {
                 Circle()
-                    .stroke(Color(hex: 0xD4A843).opacity(ringOpacity), lineWidth: 1.5)
+                    .stroke(VellumTheme.onboardingAccent.opacity(ringOpacity), lineWidth: 1.5)
                     .frame(width: size, height: size)
                     .scaleEffect(ringScale)
             }
@@ -35,9 +35,9 @@ struct SoulOrbView: View {
                 .fill(
                     RadialGradient(
                         gradient: Gradient(colors: [
-                            Color(hex: 0xD4A843),
-                            Color(hex: 0xB8922E),
-                            Color(hex: 0x8B6914),
+                            VellumTheme.onboardingAccent,
+                            VellumTheme.onboardingAccentDark,
+                            VellumTheme.onboardingAccentDarker,
                         ]),
                         center: .center,
                         startRadius: 0,
@@ -45,7 +45,7 @@ struct SoulOrbView: View {
                     )
                 )
                 .frame(width: size, height: size)
-                .shadow(color: Color(hex: 0xD4A843).opacity(shadowOpacity), radius: shadowRadius)
+                .shadow(color: VellumTheme.onboardingAccent.opacity(shadowOpacity), radius: shadowRadius)
                 .scaleEffect(scale)
         }
         .onChange(of: mood, initial: true) { _, newMood in
@@ -123,21 +123,9 @@ struct SoulOrbView: View {
     }
 }
 
-extension Color {
-    init(hex: UInt, alpha: Double = 1.0) {
-        self.init(
-            .sRGB,
-            red: Double((hex >> 16) & 0xFF) / 255,
-            green: Double((hex >> 8) & 0xFF) / 255,
-            blue: Double(hex & 0xFF) / 255,
-            opacity: alpha
-        )
-    }
-}
-
 #Preview("Breathing") {
     ZStack {
-        Color(hex: 0x0E0E11)
+        VellumTheme.background
         SoulOrbView(mood: .breathing)
     }
     .frame(width: 200, height: 200)
@@ -145,7 +133,7 @@ extension Color {
 
 #Preview("Listening") {
     ZStack {
-        Color(hex: 0x0E0E11)
+        VellumTheme.background
         SoulOrbView(mood: .listening)
     }
     .frame(width: 200, height: 200)
@@ -153,7 +141,7 @@ extension Color {
 
 #Preview("Celebrating") {
     ZStack {
-        Color(hex: 0x0E0E11)
+        VellumTheme.background
         SoulOrbView(mood: .celebrating)
     }
     .frame(width: 200, height: 200)

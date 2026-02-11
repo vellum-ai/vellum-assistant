@@ -8,16 +8,16 @@ struct ReactionBubble: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 15))
-            .foregroundColor(.white.opacity(0.9))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .font(VellumFont.body)
+            .foregroundColor(VellumTheme.textPrimary.opacity(0.9))
+            .padding(.horizontal, VellumSpacing.xl)
+            .padding(.vertical, VellumSpacing.md + VellumSpacing.xxs)
             .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.08))
+                RoundedRectangle(cornerRadius: VellumRadius.lg)
+                    .fill(VellumTheme.surface.opacity(0.5))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: VellumRadius.lg)
+                            .stroke(VellumTheme.surfaceBorder.opacity(0.4), lineWidth: 1)
                     )
             )
             .opacity(visible ? 1 : 0)
@@ -34,7 +34,7 @@ struct ReactionBubble: View {
 
 #Preview {
     ZStack {
-        Color(hex: 0x0E0E11)
+        VellumTheme.background
         ReactionBubble(text: "Nice to meet you!")
     }
     .frame(width: 400, height: 200)

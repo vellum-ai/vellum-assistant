@@ -75,23 +75,23 @@ private struct InsightNotificationView: View {
     let onViewAll: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: VellumSpacing.lg) {
             HStack {
                 Image(systemName: "lightbulb.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Amber._600)
                 Text("Knowledge Insight")
-                    .font(.headline)
+                    .font(VellumFont.heading)
                 Spacer()
                 categoryBadge
             }
 
             Text(insight.title)
-                .font(.body)
+                .font(VellumFont.body)
                 .fontWeight(.bold)
                 .lineLimit(2)
 
             Text(insight.description)
-                .font(.callout)
+                .font(VellumFont.caption)
                 .lineLimit(3)
                 .foregroundStyle(.secondary)
 
@@ -125,9 +125,9 @@ private struct InsightNotificationView: View {
 
     private var categoryColor: Color {
         switch insight.category {
-        case .pattern: return .blue
-        case .automation: return .green
-        case .insight: return .orange
+        case .pattern: return Indigo._600
+        case .automation: return Emerald._600
+        case .insight: return Amber._600
         }
     }
 }
