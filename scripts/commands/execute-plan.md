@@ -8,7 +8,7 @@ If `$ARGUMENTS` is empty, stop and tell the user to provide the plan filename. E
 
 ### 1. Read the plan
 
-Read `.private/plans/$ARGUMENTS`. If the file doesn't exist, stop and tell the user.
+Sanitize `$ARGUMENTS` by stripping any path separators (use only the basename). Then read `.private/plans/<sanitized name>`. If the file doesn't exist, stop and tell the user.
 
 Parse the plan to identify the ordered list of PRs. Plans typically have numbered PR sections (e.g. "## PR 1", "## PR 2") each describing: branch name, title, scope, files to modify, implementation steps, tests to run, and acceptance criteria.
 
@@ -57,11 +57,14 @@ Then proceed to the next PR.
 
 ### 4. Archive the plan
 
-After all PRs are mainlined, move the plan file to `.private/plans/archived/`:
+After all PRs are mainlined, move the plan file to `.private/plans/archived/`.
+
+Strip any path separators from `$ARGUMENTS` to use only the basename, and quote it to prevent word splitting or glob expansion:
 
 ```bash
+PLAN_FILE="$(basename "$ARGUMENTS")"
 mkdir -p .private/plans/archived
-mv .private/plans/$ARGUMENTS .private/plans/archived/$ARGUMENTS
+mv ".private/plans/$PLAN_FILE" ".private/plans/archived/$PLAN_FILE"
 ```
 
 ### 5. Completion
