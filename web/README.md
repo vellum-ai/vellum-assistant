@@ -42,6 +42,16 @@ bun run db:push
 bun run db:push:preview
 ```
 
+## Cloud Provisioning
+
+When deploying assistant instances to cloud compute (GCP), the startup script automatically installs:
+
+- **Bun** runtime
+- **Node packages** via `bun install`
+- **Chromium browser** via `bunx playwright install --with-deps chromium` (for headless browser tools)
+
+The cloud compute provisioning path is currently mostly disabled in routes, but the startup script is ready for when it is re-enabled. See [headless browser tools docs](../assistant/docs/headless-browser-tools.md) for details.
+
 ## Tech Stack
 
 - **Framework**: Next.js 16 (App Router)
