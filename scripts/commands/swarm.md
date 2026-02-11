@@ -67,8 +67,9 @@ ALL work happens here. Do NOT touch the main repo.
 1. Make the changes in your worktree.
 2. Type-check: cd <worktree>/assistant && bunx tsc --noEmit
 3. Commit with a descriptive message.
-4. Push and create a PR:
-   gh pr create --base main --title "<concise title>" --body "<what changed and why>"
+4. Push and create a PR (assign to current GitHub user):
+   GH_USERNAME=$(gh api user --jq '.login')
+   gh pr create --base main --title "<concise title>" --body "<what changed and why>" --assignee "$GH_USERNAME"
 5. Merge immediately: gh pr merge <number> --squash
 6. Send a message to "lead" with:
    - The PR link
