@@ -2,6 +2,7 @@ import { RiskLevel } from '../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from './types.js';
 import type { ToolDefinition } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
+import { registerComputerUseTools } from './computer-use/registry.js';
 
 const log = getLogger('tool-registry');
 
@@ -83,7 +84,11 @@ export function getAllTools(): Tool[] {
 }
 
 export function getAllToolDefinitions(): ToolDefinition[] {
-  return getAllTools().map((t) => t.getDefinition());
+  // Exclude proxy tools (e.g. cu_* computer-use tools) — they are only used
+  // by ComputerUseSession which builds its own tool definitions list.
+  return getAllTools()
+    .filter((t) => t.executionMode !== 'proxy')
+    .map((t) => t.getDefinition());
 }
 
 export async function initializeTools(): Promise<void> {
@@ -95,6 +100,11 @@ export async function initializeTools(): Promise<void> {
   await import('./network/web-search.js');
   await import('./network/web-fetch.js');
   await import('./skills/load.js');
+
+  // Computer-use proxy tools — registered so ToolExecutor can look them up
+  // and forward execution to the connected macOS client.  They are excluded
+  // from getAllToolDefinitions() since regular chat sessions don't use them.
+  registerComputerUseTools();
 
   // The bash tool loads web-tree-sitter WASM for command parsing, which is
   // expensive.  Register it lazily so the WASM is only loaded on first use.
