@@ -11,6 +11,7 @@ import {
 } from '../memory/conversation-key-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
+import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 
 const log = getLogger('runtime-http');
 
@@ -85,6 +86,14 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'attachments' && req.method === 'DELETE') {
         return await this.handleDeleteAttachment(assistantId, req);
+      }
+
+      if (endpoint === 'channels/inbound' && req.method === 'POST') {
+        return await this.handleChannelInbound(assistantId, req);
+      }
+
+      if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {
+        return await this.handleChannelDeliveryAck(assistantId, req);
       }
 
       return Response.json({ error: 'Not found' }, { status: 404 });
@@ -226,6 +235,78 @@ export class RuntimeHttpServer {
         { error: 'Attachment not found' },
         { status: 404 },
       );
+    }
+
+    return new Response(null, { status: 204 });
+  }
+
+  private async handleChannelInbound(assistantId: string, req: Request): Promise<Response> {
+    const body = await req.json() as {
+      sourceChannel?: string;
+      externalChatId?: string;
+      externalMessageId?: string;
+      content?: string;
+      senderName?: string;
+    };
+
+    const { sourceChannel, externalChatId, externalMessageId, content } = body;
+
+    if (!sourceChannel || typeof sourceChannel !== 'string') {
+      return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
+    }
+    if (!externalChatId || typeof externalChatId !== 'string') {
+      return Response.json({ error: 'externalChatId is required' }, { status: 400 });
+    }
+    if (!externalMessageId || typeof externalMessageId !== 'string') {
+      return Response.json({ error: 'externalMessageId is required' }, { status: 400 });
+    }
+    if (!content || typeof content !== 'string') {
+      return Response.json({ error: 'content is required' }, { status: 400 });
+    }
+
+    const result = channelDeliveryStore.recordInbound(
+      assistantId,
+      sourceChannel,
+      externalChatId,
+      externalMessageId,
+      content,
+    );
+
+    return Response.json({
+      accepted: result.accepted,
+      duplicate: result.duplicate,
+      eventId: result.eventId,
+    });
+  }
+
+  private async handleChannelDeliveryAck(assistantId: string, req: Request): Promise<Response> {
+    const body = await req.json() as {
+      sourceChannel?: string;
+      externalChatId?: string;
+      externalMessageId?: string;
+    };
+
+    const { sourceChannel, externalChatId, externalMessageId } = body;
+
+    if (!sourceChannel || typeof sourceChannel !== 'string') {
+      return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
+    }
+    if (!externalChatId || typeof externalChatId !== 'string') {
+      return Response.json({ error: 'externalChatId is required' }, { status: 400 });
+    }
+    if (!externalMessageId || typeof externalMessageId !== 'string') {
+      return Response.json({ error: 'externalMessageId is required' }, { status: 400 });
+    }
+
+    const acked = channelDeliveryStore.acknowledgeDelivery(
+      assistantId,
+      sourceChannel,
+      externalChatId,
+      externalMessageId,
+    );
+
+    if (!acked) {
+      return Response.json({ error: 'Inbound event not found' }, { status: 404 });
     }
 
     return new Response(null, { status: 204 });

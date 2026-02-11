@@ -146,6 +146,22 @@ export const messageAttachments = sqliteTable('message_attachments', {
   createdAt: integer('created_at').notNull(),
 });
 
+export const channelInboundEvents = sqliteTable('channel_inbound_events', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull(),
+  sourceChannel: text('source_channel').notNull(),
+  externalChatId: text('external_chat_id').notNull(),
+  externalMessageId: text('external_message_id').notNull(),
+  conversationId: text('conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  messageId: text('message_id')
+    .references(() => messages.id, { onDelete: 'cascade' }),
+  deliveryStatus: text('delivery_status').notNull().default('pending'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export const memoryCheckpoints = sqliteTable('memory_checkpoints', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),

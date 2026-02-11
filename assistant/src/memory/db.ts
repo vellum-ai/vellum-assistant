@@ -181,6 +181,22 @@ export function initializeDb(): void {
     )
   `);
 
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS channel_inbound_events (
+      id TEXT PRIMARY KEY,
+      assistant_id TEXT NOT NULL,
+      source_channel TEXT NOT NULL,
+      external_chat_id TEXT NOT NULL,
+      external_message_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+      delivery_status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (assistant_id, source_channel, external_chat_id, external_message_id)
+    )
+  `);
+
   // FTS table for lexical retrieval over memory_segments.text.
   database.run(/*sql*/ `
     CREATE VIRTUAL TABLE IF NOT EXISTS memory_segment_fts USING fts5(
@@ -251,6 +267,8 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_attachments_assistant_id ON attachments(assistant_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_message_id ON message_attachments(message_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment_id ON message_attachments(attachment_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_lookup ON channel_inbound_events(assistant_id, source_channel, external_chat_id, external_message_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_conversation ON channel_inbound_events(conversation_id)`);
 
   migrateMemoryFtsBackfill(database);
 }
