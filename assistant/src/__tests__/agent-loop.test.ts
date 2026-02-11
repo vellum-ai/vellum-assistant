@@ -490,4 +490,97 @@ describe('AgentLoop', () => {
     // Final history: user, assistant(3 tool_use), user(3 tool_result), assistant(text)
     expect(history).toHaveLength(4);
   });
+
+  // 14. Abort before parallel tool execution synthesizes cancelled results
+  test('synthesizes cancelled results when aborted before tool execution', async () => {
+    const controller = new AbortController();
+
+    const { provider } = createMockProvider([
+      {
+        content: [
+          { type: 'tool_use' as const, id: 't1', name: 'read_file', input: { path: '/a.txt' } },
+          { type: 'tool_use' as const, id: 't2', name: 'read_file', input: { path: '/b.txt' } },
+        ],
+        model: 'mock-model',
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: 'tool_use' as const,
+      },
+    ]);
+
+    // Abort during the provider call so the signal is already aborted
+    // before tool execution begins
+    const originalSendMessage = provider.sendMessage.bind(provider);
+    provider.sendMessage = async (...args: Parameters<typeof provider.sendMessage>) => {
+      const result = await originalSendMessage(...args);
+      controller.abort();
+      return result;
+    };
+
+    const toolCalls: string[] = [];
+    const toolExecutor = async (_name: string, input: Record<string, unknown>) => {
+      toolCalls.push((input as { path: string }).path);
+      return { content: 'data', isError: false };
+    };
+
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events), controller.signal);
+
+    // No tools should have been executed
+    expect(toolCalls).toHaveLength(0);
+
+    // History should contain cancelled tool_result blocks
+    const lastMsg = history[history.length - 1];
+    expect(lastMsg.role).toBe('user');
+    const toolResultBlocks = lastMsg.content.filter(
+      (b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result',
+    );
+    expect(toolResultBlocks).toHaveLength(2);
+    expect(toolResultBlocks[0].tool_use_id).toBe('t1');
+    expect(toolResultBlocks[0].content).toBe('Cancelled by user');
+    expect(toolResultBlocks[0].is_error).toBe(true);
+    expect(toolResultBlocks[1].tool_use_id).toBe('t2');
+    expect(toolResultBlocks[1].content).toBe('Cancelled by user');
+    expect(toolResultBlocks[1].is_error).toBe(true);
+  });
+
+  // 15. Parallel tool_result events are emitted in deterministic tool_use order
+  test('emits tool_result events in tool_use order regardless of completion timing', async () => {
+    const { provider } = createMockProvider([
+      {
+        content: [
+          { type: 'tool_use' as const, id: 't1', name: 'read_file', input: { path: '/slow.txt' } },
+          { type: 'tool_use' as const, id: 't2', name: 'read_file', input: { path: '/fast.txt' } },
+          { type: 'tool_use' as const, id: 't3', name: 'read_file', input: { path: '/medium.txt' } },
+        ],
+        model: 'mock-model',
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: 'tool_use' as const,
+      },
+      textResponse('Done'),
+    ]);
+
+    // Tools complete in different order than they were called: t2 first, t3 second, t1 last
+    const toolExecutor = async (_name: string, input: Record<string, unknown>) => {
+      const path = (input as { path: string }).path;
+      const delays: Record<string, number> = { '/slow.txt': 80, '/fast.txt': 10, '/medium.txt': 40 };
+      await new Promise(resolve => setTimeout(resolve, delays[path] ?? 10));
+      return { content: `contents of ${path}`, isError: false };
+    };
+
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+    const events: AgentEvent[] = [];
+    await loop.run([userMessage], collectEvents(events));
+
+    // Collect tool_result events in order
+    const toolResultEvents = events.filter(
+      (e): e is Extract<AgentEvent, { type: 'tool_result' }> => e.type === 'tool_result',
+    );
+    expect(toolResultEvents).toHaveLength(3);
+
+    // Results must be in tool_use order (t1, t2, t3), NOT completion order (t2, t3, t1)
+    expect(toolResultEvents[0].toolUseId).toBe('t1');
+    expect(toolResultEvents[1].toolUseId).toBe('t2');
+    expect(toolResultEvents[2].toolUseId).toBe('t3');
+  });
 });

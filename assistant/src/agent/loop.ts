@@ -176,6 +176,18 @@ export class AgentLoop {
           }
         }
 
+        // If already cancelled, synthesize cancelled results and stop
+        if (signal?.aborted) {
+          const cancelledBlocks: ContentBlock[] = toolUseBlocks.map((toolUse) => ({
+            type: 'tool_result' as const,
+            tool_use_id: toolUse.id,
+            content: 'Cancelled by user',
+            is_error: true,
+          }));
+          history.push({ role: 'user', content: cancelledBlocks });
+          break;
+        }
+
         // Execute all tools concurrently for reduced latency
         const toolResults = await Promise.all(
           toolUseBlocks.map(async (toolUse) => {
@@ -196,18 +208,21 @@ export class AgentLoop {
               }, 'Tool execution complete');
             }
 
-            onEvent({
-              type: 'tool_result',
-              toolUseId: toolUse.id,
-              content: result.content,
-              isError: result.isError,
-              diff: result.diff,
-              status: result.status,
-            });
-
             return { toolUse, result };
           }),
         );
+
+        // Emit tool_result events in deterministic tool_use order after all complete
+        for (const { toolUse, result } of toolResults) {
+          onEvent({
+            type: 'tool_result',
+            toolUseId: toolUse.id,
+            content: result.content,
+            isError: result.isError,
+            diff: result.diff,
+            status: result.status,
+          });
+        }
 
         // Collect result blocks preserving tool_use order (Promise.all maintains order)
         const resultBlocks: ContentBlock[] = toolResults.map(({ toolUse, result }) => ({
