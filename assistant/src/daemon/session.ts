@@ -300,7 +300,7 @@ export class Session {
       // tool_result blocks that repair may inject.  Leaking those blocks would
       // break undo semantics (isUndoableUserMessage skips user messages
       // containing tool_result).
-      const preRepairMessages = runMessages;
+      let preRepairMessages = runMessages;
       const preRunRepair = repairHistory(runMessages);
       if (preRunRepair.stats.assistantToolResultsMigrated > 0 || preRunRepair.stats.missingToolResultsInserted > 0 || preRunRepair.stats.orphanToolResultsDowngraded > 0) {
         log.warn({ conversationId: this.conversationId, phase: 'pre_run', ...preRunRepair.stats }, 'Repaired runtime history before provider call');
@@ -309,7 +309,7 @@ export class Session {
 
       let orderingErrorDetected = false;
       let deferredOrderingError: string | null = null;
-      const preRunHistoryLength = runMessages.length;
+      let preRunHistoryLength = runMessages.length;
 
       const buildEventHandler = () => (event: import('../agent/loop.js').AgentEvent) => {
         switch (event.type) {
@@ -391,6 +391,8 @@ export class Session {
         log.warn({ conversationId: this.conversationId, phase: 'retry' }, 'Provider ordering error detected, attempting one-shot deep-repair retry');
         const retryRepair = deepRepairHistory(runMessages);
         runMessages = retryRepair.messages;
+        preRunHistoryLength = runMessages.length;
+        preRepairMessages = runMessages;
         orderingErrorDetected = false;
         deferredOrderingError = null;
 
