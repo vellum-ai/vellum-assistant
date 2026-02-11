@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { getAssistantById } from "@/lib/db";
 import { createRuntimeClient, RuntimeClientError } from "@/lib/runtime/client";
 import { resolveRuntime } from "@/lib/runtime/resolver";
+
+const MAX_FILES_PER_UPLOAD = 10;
+const MAX_TOTAL_BUFFERED_BYTES = 50 * 1024 * 1024;
+const MAX_TOTAL_BUFFERED_MIB = MAX_TOTAL_BUFFERED_BYTES / (1024 * 1024);
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -41,11 +46,30 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
 
+    const assistant = await getAssistantById(assistantId);
+    if (!assistant) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+
     const formData = await request.formData();
     const files = getFilesFromFormData(formData);
     if (files.length === 0) {
       return NextResponse.json(
         { error: "At least one file is required under the 'files' field" },
+        { status: 400 },
+      );
+    }
+    if (files.length > MAX_FILES_PER_UPLOAD) {
+      return NextResponse.json(
+        { error: `A maximum of ${MAX_FILES_PER_UPLOAD} files can be uploaded at once` },
+        { status: 400 },
+      );
+    }
+
+    const declaredTotalBytes = files.reduce((total, file) => total + file.size, 0);
+    if (declaredTotalBytes > MAX_TOTAL_BUFFERED_BYTES) {
+      return NextResponse.json(
+        { error: `Total attachment size cannot exceed ${MAX_TOTAL_BUFFERED_MIB}MB per request` },
         { status: 400 },
       );
     }
@@ -85,6 +109,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
+
+    const assistant = await getAssistantById(assistantId);
+    if (!assistant) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
 
     const body = await request.json().catch(() => ({})) as { attachment_ids?: unknown };
     const attachmentIds = normalizeAttachmentIds(body.attachment_ids);
