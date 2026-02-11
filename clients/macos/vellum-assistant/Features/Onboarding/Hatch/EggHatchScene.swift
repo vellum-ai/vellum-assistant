@@ -141,7 +141,7 @@ final class EggHatchScene: SKScene {
     // MARK: - Public API
 
     func setCrackProgress(_ progress: CGFloat, animated: Bool) {
-        guard !hasFullyHatched else { return }
+        guard !hasFullyHatched, let eggNode, let glowSpriteNode else { return }
         let oldProgress = currentProgress
         currentProgress = progress
 

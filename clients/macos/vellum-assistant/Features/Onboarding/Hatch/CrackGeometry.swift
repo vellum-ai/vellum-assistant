@@ -143,12 +143,12 @@ enum CrackGeometry {
     static func sets(for progress: CGFloat) -> [CrackSet] {
         var result: [CrackSet] = []
         if progress > 0.0 { result.append(set1) }
-        if progress > 0.15 { result.append(set2) }
-        if progress > 0.25 { result.append(set3) }
-        if progress > 0.35 { result.append(set4) }
-        if progress > 0.55 { result.append(set5) }
-        if progress > 0.75 { result.append(set6) }
-        if progress > 0.95 { result.append(set7) }
+        if progress >= 0.15 { result.append(set2) }
+        if progress >= 0.25 { result.append(set3) }
+        if progress >= 0.35 { result.append(set4) }
+        if progress >= 0.55 { result.append(set5) }
+        if progress >= 0.75 { result.append(set6) }
+        if progress >= 0.95 { result.append(set7) }
         return result
     }
 }
