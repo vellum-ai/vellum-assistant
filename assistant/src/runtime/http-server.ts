@@ -5,6 +5,7 @@
  * `RUNTIME_HTTP_PORT` is set (default: disabled).
  */
 
+import Anthropic from '@anthropic-ai/sdk';
 import { getLogger } from '../util/logger.js';
 import {
   getConversationByKey,
@@ -102,7 +103,7 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'suggestion' && req.method === 'GET') {
-        return this.handleGetSuggestion(assistantId, url);
+        return await this.handleGetSuggestion(assistantId, url);
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
@@ -173,7 +174,7 @@ export class RuntimeHttpServer {
     return Response.json({ messages });
   }
 
-  private handleGetSuggestion(assistantId: string, url: URL): Response {
+  private async handleGetSuggestion(assistantId: string, url: URL): Promise<Response> {
     const conversationKey = url.searchParams.get('conversationKey');
     if (!conversationKey) {
       return Response.json(
@@ -203,13 +204,30 @@ export class RuntimeHttpServer {
       const text = rendered.text.trim();
       if (!text) continue;
 
-      // Optional: skip if a specific messageId was requested and doesn't match
+      // Skip if a specific messageId was requested and doesn't match
       const requestedMessageId = url.searchParams.get('messageId');
       if (requestedMessageId && msg.id !== requestedMessageId) {
         return Response.json({ suggestion: null, messageId: null, source: 'none' as const, stale: true });
       }
 
-      // Heuristic: if last text ends with a question, suggest "Yes", else "Tell me more"
+      // Try LLM suggestion if ANTHROPIC_API_KEY is available
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (apiKey) {
+        try {
+          const llmSuggestion = await this.generateLlmSuggestion(apiKey, text);
+          if (llmSuggestion) {
+            return Response.json({
+              suggestion: llmSuggestion,
+              messageId: msg.id,
+              source: 'llm' as const,
+            });
+          }
+        } catch (err) {
+          log.warn({ err }, 'LLM suggestion failed, falling back to heuristic');
+        }
+      }
+
+      // Heuristic fallback
       const questionRe = /\?[\s"'`)*\]]*$/;
       const suggestion = questionRe.test(text) ? 'Yes' : 'Tell me more';
 
@@ -221,6 +239,34 @@ export class RuntimeHttpServer {
     }
 
     return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
+  }
+
+  private async generateLlmSuggestion(apiKey: string, assistantText: string): Promise<string | null> {
+    const client = new Anthropic({ apiKey });
+
+    const truncated = assistantText.length > 2000
+      ? assistantText.slice(-2000)
+      : assistantText;
+
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 60,
+      messages: [
+        {
+          role: 'user',
+          content: `The AI assistant just said the following to the user. Suggest a single short follow-up message (max 200 chars) the user might want to send next. Reply with ONLY the suggested message text, nothing else.\n\nAssistant's message:\n${truncated}`,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((b) => b.type === 'text');
+    const raw = textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
+
+    if (!raw || raw.length > 200) return null;
+
+    // Take first line only
+    const firstLine = raw.split('\n')[0].trim();
+    return firstLine || null;
   }
 
   private async handleSendMessage(assistantId: string, req: Request): Promise<Response> {
