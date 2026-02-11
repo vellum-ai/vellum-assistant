@@ -60,7 +60,7 @@ final class MockAccessibilityTreeEnumerator: AccessibilityTreeProviding {
     }
 }
 
-final class MockScreenCapture: ScreenCaptureProviding {
+final class MockScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
     var captureCallCount = 0
 
     func captureScreen(maxWidth: Int, maxHeight: Int) async throws -> Data {
