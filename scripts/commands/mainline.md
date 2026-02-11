@@ -20,7 +20,7 @@ Always create a fresh branch from main so the PR only contains the uncommitted c
 ```bash
 git stash --include-untracked
 git checkout main && git pull
-git checkout -b <user>/<slug-from-title>
+git checkout -B <user>/<slug-from-title>
 git stash pop
 ```
 
