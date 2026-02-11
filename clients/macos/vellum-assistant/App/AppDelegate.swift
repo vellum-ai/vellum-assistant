@@ -26,7 +26,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     let ambientAgent = AmbientAgent()
     let daemonClient = DaemonClient()
-    private let interactionClassifier = InteractionClassifier()
 
     private var onboardingWindow: OnboardingWindow?
     private var windowObserver: Any?
@@ -276,7 +275,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let sessionTask = submission.task.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveTask = !sessionTask.isEmpty ? sessionTask : "Use the attached files as context."
-        let interactionType = classifyInteraction(effectiveTask)
 
         // Ensure daemon connection before starting any session
         Task { @MainActor in
@@ -295,6 +293,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
+            let interactionType = await self.classifyInteraction(effectiveTask)
+
             switch interactionType {
             case .computerUse:
                 guard ActionExecutor.checkAccessibilityPermission(prompt: true) else { return }
@@ -304,7 +304,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     task: effectiveTask,
                     daemonClient: self.daemonClient,
                     maxSteps: maxSteps,
-                    attachments: submission.attachments
+                    attachments: submission.attachments,
+                    interactionType: interactionType
                 )
                 self.currentSession = session
                 let overlay = SessionOverlayWindow(session: session)
@@ -359,12 +360,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func classifyInteraction(_ task: String) -> InteractionType {
-        if let classifier = interactionClassifier {
-            return classifier.classify(task)
+    private func classifyInteraction(_ task: String) async -> InteractionType {
+        guard let apiKey = APIKeyManager.getKey(), !apiKey.isEmpty else {
+            log.warning("No API key available, falling back to heuristic classification")
+            return classifyInteractionHeuristic(task)
         }
-        log.warning("InteractionClassifier unavailable, falling back to heuristic")
-        return classifyInteractionHeuristic(task)
+
+        let client = AnthropicClient(apiKey: apiKey)
+        let system = "You are a classifier. Determine whether the user's request requires computer use (controlling the mouse/keyboard/apps) or is a text Q&A (answerable with text only)."
+        let tools: [[String: Any]] = [[
+            "name": "classify_interaction",
+            "description": "Classify the user interaction type",
+            "input_schema": [
+                "type": "object",
+                "properties": [
+                    "interaction_type": [
+                        "type": "string",
+                        "enum": ["computer_use", "text_qa"],
+                        "description": "The type of interaction"
+                    ],
+                    "reasoning": [
+                        "type": "string",
+                        "description": "Brief reasoning for the classification"
+                    ]
+                ],
+                "required": ["interaction_type", "reasoning"]
+            ] as [String: Any]
+        ]]
+        let toolChoice: [String: Any] = ["type": "tool", "name": "classify_interaction"]
+        let messages: [[String: Any]] = [["role": "user", "content": task]]
+
+        do {
+            let result = try await client.sendToolUseRequest(
+                model: "claude-haiku-4-5-20251001",
+                maxTokens: 128,
+                system: system,
+                tools: tools,
+                toolChoice: toolChoice,
+                messages: messages,
+                timeout: 5
+            )
+            let interactionTypeStr = result.input["interaction_type"] as? String ?? "computer_use"
+            let reasoning = result.input["reasoning"] as? String ?? ""
+            log.info("Haiku classification: \(interactionTypeStr) — \(reasoning)")
+            return interactionTypeStr == "text_qa" ? .textQA : .computerUse
+        } catch {
+            log.warning("Haiku classification failed: \(error.localizedDescription), falling back to heuristic")
+            return classifyInteractionHeuristic(task)
+        }
     }
 
     private func classifyInteractionHeuristic(_ task: String) -> InteractionType {

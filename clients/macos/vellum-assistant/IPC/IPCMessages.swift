@@ -98,6 +98,7 @@ struct CuSessionCreateMessage: Encodable, Sendable {
     let screenWidth: Int
     let screenHeight: Int
     let attachments: [IPCAttachment]?
+    let interactionType: String?
 }
 
 /// Sent after each perceive step with AX tree, screenshot, and execution results.

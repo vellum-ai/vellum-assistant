@@ -89,6 +89,7 @@ export interface CuSessionCreate {
   screenWidth: number;
   screenHeight: number;
   attachments?: UserMessageAttachment[];
+  interactionType?: 'computer_use' | 'text_qa';
 }
 
 export interface CuObservation {

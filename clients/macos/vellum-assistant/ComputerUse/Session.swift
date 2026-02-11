@@ -28,6 +28,7 @@ final class ComputerUseSession: ObservableObject {
     private let attachments: [TaskAttachment]
     private let daemonClient: DaemonClientProtocol
     private let maxSteps: Int
+    private let interactionType: InteractionType
 
     private var isCancelled = false
     private var isPaused = false
@@ -61,6 +62,7 @@ final class ComputerUseSession: ObservableObject {
         executor: ActionExecuting = ActionExecutor(),
         maxSteps: Int = 50,
         attachments: [TaskAttachment] = [],
+        interactionType: InteractionType = .computerUse,
         initialDelayMs: UInt64 = 300,
         adaptiveDelay: Bool = true
     ) {
@@ -68,6 +70,7 @@ final class ComputerUseSession: ObservableObject {
         self.task = task
         self.attachments = attachments
         self.daemonClient = daemonClient
+        self.interactionType = interactionType
         self.enumerator = enumerator
         self.screenCapture = screenCapture
         self.executor = executor
@@ -111,12 +114,17 @@ final class ComputerUseSession: ObservableObject {
                 extractedText: $0.extractedText
             )
         }
+        let interactionTypeString: String = switch interactionType {
+        case .computerUse: "computer_use"
+        case .textQA: "text_qa"
+        }
         try? daemonClient.send(CuSessionCreateMessage(
             sessionId: id,
             task: task,
             screenWidth: Int(screenSize.width),
             screenHeight: Int(screenSize.height),
-            attachments: ipcAttachments
+            attachments: ipcAttachments,
+            interactionType: interactionTypeString
         ))
 
         // 3. Initial perceive + send first observation
