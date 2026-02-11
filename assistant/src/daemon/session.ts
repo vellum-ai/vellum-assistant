@@ -213,10 +213,24 @@ export class Session {
     let userMessageId = '';
 
     if (options?.userMessageAlreadyPersisted) {
+      // The user message was already persisted (e.g. by channel inbound
+      // idempotency logic). Find its ID from the DB for memory-recall
+      // exclusion, and always add to in-memory array so the LLM sees it
+      // (cached sessions skip loadFromDb on subsequent messages).
       const dbMessages = conversationStore.getMessages(this.conversationId);
       const lastUserMsg = dbMessages.filter((m) => m.role === 'user').pop();
       userMessageId = lastUserMsg?.id ?? '';
+
+      const userMessage = createUserMessage(content, attachments.map((attachment) => ({
+        id: attachment.id,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        data: attachment.data,
+        extractedText: attachment.extractedText,
+      })));
+      this.messages.push(userMessage);
     } else {
+      // Add user message
       const userMessage = createUserMessage(content, attachments.map((attachment) => ({
         id: attachment.id,
         filename: attachment.filename,
