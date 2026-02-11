@@ -251,6 +251,15 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const lastMessage = messages[messages.length - 1];
   const isWaitingForResponse = lastMessage?.role === "user";
 
+  const wasWaitingRef = useRef(false);
+  useEffect(() => {
+    if (wasWaitingRef.current && !isWaitingForResponse && !document.hasFocus()) {
+      const audio = new Audio("/wilhelm.mp3");
+      audio.play().catch(() => {});
+    }
+    wasWaitingRef.current = isWaitingForResponse;
+  }, [isWaitingForResponse]);
+
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const lastMessageId = lastMessage?.id;
   const lastMessageRole = lastMessage?.role;
