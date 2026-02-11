@@ -19,6 +19,9 @@ final class SurfaceManager: ObservableObject {
 
     private var panels: [String: NSPanel] = [:]
 
+    /// Ordered list of surface IDs for deterministic stacking positions.
+    private var surfaceOrder: [String] = []
+
     /// Vertical offset counter to stack multiple surfaces.
     private let panelWidth: CGFloat = 380
     private let panelMargin: CGFloat = 20
@@ -44,6 +47,7 @@ final class SurfaceManager: ObservableObject {
         }
 
         activeSurfaces[surface.id] = surface
+        surfaceOrder.append(surface.id)
 
         let view = SurfaceContainerView(
             surface: surface,
@@ -71,7 +75,9 @@ final class SurfaceManager: ObservableObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
         // Position bottom-right of screen, stacked above existing panels.
-        positionPanel(panel)
+        // The index is the last position in surfaceOrder (just appended above).
+        let panelIndex = surfaceOrder.count - 1
+        positionPanel(panel, at: panelIndex)
 
         panel.orderFront(nil)
         panels[surface.id] = panel
@@ -118,32 +124,45 @@ final class SurfaceManager: ObservableObject {
     func dismissAll() {
         let ids = Array(panels.keys)
         for id in ids {
-            dismissSurfaceById(id)
+            panels[id]?.close()
+            panels.removeValue(forKey: id)
+            activeSurfaces.removeValue(forKey: id)
+            log.info("Dismissed surface: id=\(id)")
         }
+        surfaceOrder.removeAll()
     }
 
     private func dismissSurfaceById(_ surfaceId: String) {
         panels[surfaceId]?.close()
         panels.removeValue(forKey: surfaceId)
         activeSurfaces.removeValue(forKey: surfaceId)
+        surfaceOrder.removeAll { $0 == surfaceId }
+        repositionAllPanels()
         log.info("Dismissed surface: id=\(surfaceId)")
     }
 
     // MARK: - Positioning
 
-    private func positionPanel(_ panel: NSPanel) {
+    private func positionPanel(_ panel: NSPanel, at index: Int) {
         guard let screen = NSScreen.main else { return }
         let screenFrame = screen.visibleFrame
 
-        // Count existing panels to determine vertical offset for stacking.
-        let existingCount = panels.count
         let estimatedPanelHeight: CGFloat = 140
-        let yOffset = CGFloat(existingCount) * (estimatedPanelHeight + panelSpacing)
+        let yOffset = CGFloat(index) * (estimatedPanelHeight + panelSpacing)
 
         let x = screenFrame.maxX - panelWidth - panelMargin
         let y = screenFrame.minY + panelMargin + yOffset
 
         panel.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+
+    /// Reposition all visible panels based on their order in `surfaceOrder`.
+    private func repositionAllPanels() {
+        for (index, surfaceId) in surfaceOrder.enumerated() {
+            if let panel = panels[surfaceId] {
+                positionPanel(panel, at: index)
+            }
+        }
     }
 }
 
