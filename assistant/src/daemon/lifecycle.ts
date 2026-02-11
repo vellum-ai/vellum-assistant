@@ -16,6 +16,7 @@ import { getLogger } from '../util/logger.js';
 import { DaemonError } from '../util/errors.js';
 import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
 import { browserManager } from '../tools/browser/browser-manager.js';
+import { RuntimeHttpServer } from '../runtime/http-server.js';
 
 const log = getLogger('lifecycle');
 
@@ -177,6 +178,17 @@ export async function runDaemon(): Promise<void> {
   await server.start();
   const memoryWorker = startMemoryJobsWorker();
 
+  // Start optional runtime HTTP server when RUNTIME_HTTP_PORT is set
+  let runtimeHttp: RuntimeHttpServer | null = null;
+  const httpPortEnv = process.env.RUNTIME_HTTP_PORT;
+  if (httpPortEnv) {
+    const port = parseInt(httpPortEnv, 10);
+    if (!isNaN(port) && port > 0) {
+      runtimeHttp = new RuntimeHttpServer({ port });
+      await runtimeHttp.start();
+    }
+  }
+
   writePid(process.pid);
   log.info({ pid: process.pid }, 'Daemon started');
 
@@ -207,6 +219,7 @@ export async function runDaemon(): Promise<void> {
     forceTimer.unref();
 
     await server.stop();
+    if (runtimeHttp) await runtimeHttp.stop();
     await browserManager.closeAllPages();
     memoryWorker.stop();
     cleanupPidFile();
