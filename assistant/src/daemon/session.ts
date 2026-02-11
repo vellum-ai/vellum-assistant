@@ -157,10 +157,6 @@ export class Session {
     this.sandboxOverride = enabled;
   }
 
-  setAutoApprove(enabled: boolean): void {
-    this.prompter.setAutoApprove(enabled);
-  }
-
   isProcessing(): boolean {
     return this.processing;
   }
