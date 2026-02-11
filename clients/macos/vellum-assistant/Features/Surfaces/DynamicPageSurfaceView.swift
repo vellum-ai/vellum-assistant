@@ -6,7 +6,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     let onAction: (String, Any?) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onAction: onAction)
+        Coordinator(onAction: onAction, currentHTML: data.html)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -38,17 +38,28 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        // Reload if the HTML content has changed.
         context.coordinator.onAction = onAction
+
+        // Reload if the HTML content has changed.
+        if data.html != context.coordinator.currentHTML {
+            context.coordinator.currentHTML = data.html
+            webView.loadHTMLString(data.html, baseURL: nil)
+        }
+    }
+
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "vellumBridge")
     }
 
     // MARK: - Coordinator
 
     class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var onAction: (String, Any?) -> Void
+        var currentHTML: String
 
-        init(onAction: @escaping (String, Any?) -> Void) {
+        init(onAction: @escaping (String, Any?) -> Void, currentHTML: String) {
             self.onAction = onAction
+            self.currentHTML = currentHTML
         }
 
         func userContentController(
