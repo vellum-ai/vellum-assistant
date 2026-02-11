@@ -15,6 +15,7 @@ import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import { renderHistoryContent, mergeToolResults } from '../daemon/handlers.js';
+import { getConfig } from '../config/loader.js';
 
 const log = getLogger('runtime-http');
 
@@ -210,8 +211,8 @@ export class RuntimeHttpServer {
         return Response.json({ suggestion: null, messageId: null, source: 'none' as const, stale: true });
       }
 
-      // Try LLM suggestion if ANTHROPIC_API_KEY is available
-      const apiKey = process.env.ANTHROPIC_API_KEY;
+      // Try LLM suggestion if an Anthropic API key is configured
+      const apiKey = getConfig().apiKeys.anthropic;
       if (apiKey) {
         try {
           const llmSuggestion = await this.generateLlmSuggestion(apiKey, text);
