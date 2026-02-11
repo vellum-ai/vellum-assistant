@@ -26,7 +26,15 @@ function getFilesFromFormData(formData: FormData): File[] {
   if (directFiles.length > 0) {
     return directFiles;
   }
-  return [...formData.values()].filter((value): value is File => value instanceof File);
+  const files: File[] = [];
+  for (const key of formData.keys()) {
+    for (const value of formData.getAll(key)) {
+      if (value instanceof File) {
+        files.push(value);
+      }
+    }
+  }
+  return files;
 }
 
 function normalizeAttachmentIds(value: unknown): string[] {
