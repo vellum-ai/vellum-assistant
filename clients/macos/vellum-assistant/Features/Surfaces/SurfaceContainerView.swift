@@ -1,8 +1,9 @@
 import SwiftUI
 
 struct SurfaceContainerView: View {
-    let surface: Surface
-    let onAction: (String, [String: Any]?) -> Void
+    @ObservedObject var viewModel: SurfaceViewModel
+
+    private var surface: Surface { viewModel.surface }
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -19,16 +20,21 @@ struct SurfaceContainerView: View {
                 CardSurfaceView(data: data)
             case .form(let data):
                 FormSurfaceView(data: data, onSubmit: { values in
-                    onAction("submit", values)
+                    let actionId = surface.actions.first?.id ?? "submit"
+                    viewModel.onAction(actionId, values)
                 })
             case .list(let data):
                 ListSurfaceView(data: data, onSelect: { selectedIds in
-                    onAction("select", ["selectedIds": selectedIds])
+                    viewModel.onAction("select", ["selectedIds": selectedIds])
                 })
             case .confirmation(let data):
-                ConfirmationSurfaceView(data: data, onAction: { actionId in
-                    onAction(actionId, nil)
-                })
+                ConfirmationSurfaceView(
+                    data: data,
+                    actions: surface.actions,
+                    onAction: { actionId in
+                        viewModel.onAction(actionId, nil)
+                    }
+                )
             }
 
             // Action buttons for card/list surfaces
@@ -60,7 +66,7 @@ struct SurfaceContainerView: View {
                     label: action.label,
                     style: buttonStyle(for: action.style)
                 ) {
-                    onAction(action.id, nil)
+                    viewModel.onAction(action.id, nil)
                 }
             }
         }
