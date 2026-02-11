@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getAssistantById } from "@/lib/db";
+import { requireAssistantOwner, toAuthErrorResponse } from "@/lib/auth/server-session";
 import { createRuntimeClient, RuntimeClientError } from "@/lib/runtime/client";
 import { resolveRuntime } from "@/lib/runtime/resolver";
 
@@ -10,14 +10,10 @@ interface RouteParams {
 
 export const runtime = "nodejs";
 
-export async function GET(_request: Request, { params }: RouteParams) {
+export async function GET(request: Request, { params }: RouteParams) {
   try {
     const { id: assistantId } = await params;
-
-    const assistant = await getAssistantById(assistantId);
-    if (!assistant) {
-      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
-    }
+    await requireAssistantOwner(request, assistantId);
 
     const { baseUrl, mode } = resolveRuntime(assistantId);
     const client = createRuntimeClient(baseUrl, assistantId);
@@ -29,6 +25,9 @@ export async function GET(_request: Request, { params }: RouteParams) {
       connectionMode: mode,
     });
   } catch (error: unknown) {
+    if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
+      return toAuthErrorResponse(error);
+    }
     console.error("Error checking assistant health:", error);
 
     if (error instanceof RuntimeClientError) {
