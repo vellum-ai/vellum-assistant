@@ -179,7 +179,7 @@ export const cronJobs = sqliteTable('cron_jobs', {
   message: text('message').notNull(),
   nextRunAt: integer('next_run_at').notNull(),
   lastRunAt: integer('last_run_at'),
-  lastStatus: text('last_status'),                     // CronJobStatus: 'ok' | 'error' | 'skipped'
+  lastStatus: text('last_status'),                     // 'ok' | 'error'
   retryCount: integer('retry_count').notNull().default(0),
   createdBy: text('created_by').notNull(),             // 'agent' | 'user'
   createdAt: integer('created_at').notNull(),
@@ -191,7 +191,7 @@ export const cronRuns = sqliteTable('cron_runs', {
   jobId: text('job_id')
     .notNull()
     .references(() => cronJobs.id, { onDelete: 'cascade' }),
-  status: text('status').notNull(),                    // CronJobStatus: 'ok' | 'error' | 'skipped'
+  status: text('status').notNull(),                    // 'ok' | 'error'
   startedAt: integer('started_at').notNull(),
   finishedAt: integer('finished_at'),
   durationMs: integer('duration_ms'),
