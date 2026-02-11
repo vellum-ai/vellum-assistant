@@ -23,15 +23,9 @@ After symlinking, the commands are available as `/work`, `/check-reviews`, `/bra
 
 ### 2. Enable fast mode
 
-Before running any command, type `/fast` in your Claude Code session. Fast mode uses the same Opus model but with faster output.
-
-It's the exact same model but with massively reduced latency (2.5x faster) and increased cost (6x cost).
-
-However, time is money, so please use it generously for anything that's not meant to be asynchronous.
-You should use this almost all the time.
-
-If you have trouble rationalizing this, remember that even at 600% the price, it's still an order of magnitude cheaper than you sitting there and waiting for a response.
-If you don't use it, you're wasting money and making Akash sad.
+Before running any command, type `/fast` in your Claude Code session. Fast mode uses the same Opus model but with massively reduced latency and increased cost.
+You should use this almost all the time for both running these scripts and adhoc work.
+The only exception is `/check-reviews` since that's not a time-sensitive command.
 
 ### 3. Required files
 
@@ -89,6 +83,18 @@ Spawns a pool of agents that work through `.private/TODO.md` in parallel using i
 /swarm 3 10  # 3 workers, stop after 10 tasks completed
 ```
 
+### `/check-reviews` - Process PR review feedback
+
+Checks every PR in `.private/UNREVIEWED_PRS.md` for reviews from the automated reviewers (Codex and Devin bots). If reviewers requested changes, it adds "Address the feedback on \<PR>" tasks to the top of `.private/TODO.md`. Fully reviewed PRs are removed from the unreviewed list. PRs waiting 30+ minutes for a single reviewer are skipped (implicit approval).
+
+**When to use:** Run periodically after merging PRs to see if reviewers flagged anything. The feedback tasks it creates are then picked up by `/work` or `/swarm`.
+
+**Frequency:** Every 30-60 minutes while PRs are pending review, or whenever you want a status check.
+
+```
+/check-reviews
+```
+
 ### `/mainline` - Ship current changes to main
 
 Takes all uncommitted changes, creates a branch, commits, opens a PR, merges it via squash, adds the PR to the unreviewed list, and switches back to main. A one-shot command for shipping adhoc work.
@@ -100,18 +106,6 @@ Takes all uncommitted changes, creates a branch, commits, opens a PR, merges it 
 ```
 /mainline                          # infers PR title from the changes
 /mainline Fix login redirect bug   # uses the provided title
-```
-
-### `/check-reviews` - Process PR review feedback
-
-Checks every PR in `.private/UNREVIEWED_PRS.md` for reviews from the automated reviewers (Codex and Devin bots). If reviewers requested changes, it adds "Address the feedback on \<PR>" tasks to the top of `.private/TODO.md`. Fully reviewed PRs are removed from the unreviewed list. PRs waiting 30+ minutes for a single reviewer are skipped (implicit approval).
-
-**When to use:** Run periodically after merging PRs to see if reviewers flagged anything. The feedback tasks it creates are then picked up by `/work` or `/swarm`.
-
-**Frequency:** Every 30-60 minutes while PRs are pending review, or whenever you want a status check.
-
-```
-/check-reviews
 ```
 
 ## Typical workflow
@@ -187,14 +181,14 @@ Follow the instructions in scripts/commands/work.md
 Follow the instructions in scripts/commands/check-reviews.md
 ```
 
-### Mainline prompt
-
-```
-Follow the instructions in scripts/commands/mainline.md
-```
-
 ### Brainstorm prompt
 
 ```
 Follow the instructions in scripts/commands/brainstorm.md
+```
+
+### Mainline prompt
+
+```
+Follow the instructions in scripts/commands/mainline.md
 ```
