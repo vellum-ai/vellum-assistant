@@ -74,6 +74,8 @@ export interface ProviderResponse {
   usage: {
     inputTokens: number;
     outputTokens: number;
+    cacheCreationInputTokens?: number;
+    cacheReadInputTokens?: number;
   };
   stopReason: string;
 }
