@@ -26,7 +26,7 @@ export type MessageProcessor = (
   conversationId: string,
   content: string,
   attachmentIds?: string[],
-) => Promise<void>;
+) => Promise<{ messageId: string }>;
 
 export interface RuntimeHttpServerOptions {
   port?: number;
@@ -290,16 +290,27 @@ export class RuntimeHttpServer {
 
     const mapping = getOrCreateConversation(assistantId, conversationKey);
 
-    // Trigger agent processing in the background. session.processMessage
-    // saves the user message and runs the agent loop; the web UI polls
-    // for results via GET /messages.
-    if (this.processMessage) {
-      this.processMessage(assistantId, mapping.conversationId, content ?? '', hasAttachments ? attachmentIds : undefined).catch((err) => {
-        log.error({ err, conversationId: mapping.conversationId }, 'Failed to process message');
-      });
+    if (!this.processMessage) {
+      return Response.json({ error: 'Message processing not configured' }, { status: 503 });
     }
 
-    return Response.json({ accepted: true });
+    try {
+      const result = await this.processMessage(
+        assistantId,
+        mapping.conversationId,
+        content ?? '',
+        hasAttachments ? attachmentIds : undefined,
+      );
+      return Response.json({ messageId: result.messageId });
+    } catch (err) {
+      if (err instanceof Error && err.message === 'Session is already processing a message') {
+        return Response.json(
+          { error: 'Session is busy processing another message. Please retry.' },
+          { status: 409 },
+        );
+      }
+      throw err;
+    }
   }
 
   private async handleUploadAttachment(assistantId: string, req: Request): Promise<Response> {
