@@ -137,9 +137,10 @@ extension Surface {
     }
 
     /// Update only the data payload of an existing surface from a `UiSurfaceUpdateMessage`.
+    /// Performs a proper merge: only fields present in the update dictionary override existing values.
     func updated(with message: UiSurfaceUpdateMessage) -> Surface? {
         let dict = message.data.value as? [String: Any?] ?? [:]
-        guard let newData = Self.parseSurfaceData(type: self.type, dict: dict) else {
+        guard let mergedData = Self.mergeSurfaceData(existing: self.data, update: dict) else {
             return nil
         }
         return Surface(
@@ -147,7 +148,7 @@ extension Surface {
             sessionId: self.sessionId,
             type: self.type,
             title: self.title,
-            data: newData,
+            data: mergedData,
             actions: self.actions
         )
     }
@@ -164,6 +165,142 @@ extension Surface {
             return parseListData(dict).map { .list($0) }
         case .confirmation:
             return parseConfirmationData(dict).map { .confirmation($0) }
+        }
+    }
+
+    // MARK: - Merge Helpers (for partial updates)
+
+    /// Merge an update dictionary into the existing `SurfaceData`, keeping current values for
+    /// any fields not present in the update.
+    private static func mergeSurfaceData(existing: SurfaceData, update: [String: Any?]) -> SurfaceData? {
+        switch existing {
+        case .card(let card):
+            return .card(mergeCardData(existing: card, update: update))
+        case .form(let form):
+            return .form(mergeFormData(existing: form, update: update))
+        case .list(let list):
+            return .list(mergeListData(existing: list, update: update))
+        case .confirmation(let conf):
+            return .confirmation(mergeConfirmationData(existing: conf, update: update))
+        }
+    }
+
+    private static func mergeCardData(existing: CardSurfaceData, update: [String: Any?]) -> CardSurfaceData {
+        let title = (update["title"] as? String) ?? existing.title
+        let body = (update["body"] as? String) ?? existing.body
+        let subtitle: String? = update.keys.contains("subtitle") ? update["subtitle"] as? String : existing.subtitle
+
+        var metadata = existing.metadata
+        if update.keys.contains("metadata") {
+            if let metaArray = update["metadata"] as? [[String: Any?]] {
+                metadata = metaArray.compactMap { item in
+                    guard let label = item["label"] as? String,
+                          let value = item["value"] as? String else { return nil }
+                    return (label: label, value: value)
+                }
+            } else {
+                metadata = nil
+            }
+        }
+
+        return CardSurfaceData(title: title, subtitle: subtitle, body: body, metadata: metadata)
+    }
+
+    private static func mergeFormData(existing: FormSurfaceData, update: [String: Any?]) -> FormSurfaceData {
+        let description: String? = update.keys.contains("description") ? update["description"] as? String : existing.description
+        let submitLabel: String? = update.keys.contains("submitLabel") ? update["submitLabel"] as? String : existing.submitLabel
+
+        var fields = existing.fields
+        if let fieldsArray = update["fields"] as? [[String: Any?]] {
+            fields = parseFormFields(fieldsArray)
+        }
+
+        return FormSurfaceData(description: description, fields: fields, submitLabel: submitLabel)
+    }
+
+    private static func mergeListData(existing: ListSurfaceData, update: [String: Any?]) -> ListSurfaceData {
+        var selectionMode = existing.selectionMode
+        if let modeStr = update["selectionMode"] as? String, let mode = SelectionMode(rawValue: modeStr) {
+            selectionMode = mode
+        }
+
+        var items = existing.items
+        if let itemsArray = update["items"] as? [[String: Any?]] {
+            items = itemsArray.compactMap { itemDict in
+                guard let id = itemDict["id"] as? String,
+                      let title = itemDict["title"] as? String else { return nil }
+                return ListItemData(
+                    id: id,
+                    title: title,
+                    subtitle: itemDict["subtitle"] as? String,
+                    icon: itemDict["icon"] as? String,
+                    selected: itemDict["selected"] as? Bool ?? false
+                )
+            }
+        }
+
+        return ListSurfaceData(items: items, selectionMode: selectionMode)
+    }
+
+    private static func mergeConfirmationData(existing: ConfirmationSurfaceData, update: [String: Any?]) -> ConfirmationSurfaceData {
+        let message = (update["message"] as? String) ?? existing.message
+        let detail: String? = update.keys.contains("detail") ? update["detail"] as? String : existing.detail
+        let confirmLabel: String? = update.keys.contains("confirmLabel") ? update["confirmLabel"] as? String : existing.confirmLabel
+        let cancelLabel: String? = update.keys.contains("cancelLabel") ? update["cancelLabel"] as? String : existing.cancelLabel
+        let destructive = (update["destructive"] as? Bool) ?? existing.destructive
+
+        return ConfirmationSurfaceData(
+            message: message,
+            detail: detail,
+            confirmLabel: confirmLabel,
+            cancelLabel: cancelLabel,
+            destructive: destructive
+        )
+    }
+
+    // MARK: - Field Parsing Helpers
+
+    private static func parseFormFields(_ fieldsArray: [[String: Any?]]) -> [FormField] {
+        return fieldsArray.compactMap { fieldDict in
+            guard let id = fieldDict["id"] as? String,
+                  let typeStr = fieldDict["type"] as? String,
+                  let fieldType = FormFieldType(rawValue: typeStr),
+                  let label = fieldDict["label"] as? String else {
+                return nil
+            }
+
+            var options: [FormFieldOption]?
+            if let optionsArray = fieldDict["options"] as? [[String: Any?]] {
+                options = optionsArray.compactMap { optDict in
+                    guard let label = optDict["label"] as? String,
+                          let value = optDict["value"] as? String else { return nil }
+                    return FormFieldOption(label: label, value: value)
+                }
+            }
+
+            // defaultValue can be string, number, or boolean — coerce to String.
+            let defaultValue: String?
+            if let s = fieldDict["defaultValue"] as? String {
+                defaultValue = s
+            } else if let n = fieldDict["defaultValue"] as? NSNumber {
+                if CFGetTypeID(n) == CFBooleanGetTypeID() {
+                    defaultValue = n.boolValue ? "true" : "false"
+                } else {
+                    defaultValue = n.stringValue
+                }
+            } else {
+                defaultValue = nil
+            }
+
+            return FormField(
+                id: id,
+                type: fieldType,
+                label: label,
+                placeholder: fieldDict["placeholder"] as? String,
+                required: fieldDict["required"] as? Bool ?? false,
+                defaultValue: defaultValue,
+                options: options
+            )
         }
     }
 
@@ -199,34 +336,7 @@ extension Surface {
 
         let description = dict["description"] as? String
         let submitLabel = dict["submitLabel"] as? String
-
-        let fields: [FormField] = fieldsArray.compactMap { fieldDict in
-            guard let id = fieldDict["id"] as? String,
-                  let typeStr = fieldDict["type"] as? String,
-                  let fieldType = FormFieldType(rawValue: typeStr),
-                  let label = fieldDict["label"] as? String else {
-                return nil
-            }
-
-            var options: [FormFieldOption]?
-            if let optionsArray = fieldDict["options"] as? [[String: Any?]] {
-                options = optionsArray.compactMap { optDict in
-                    guard let label = optDict["label"] as? String,
-                          let value = optDict["value"] as? String else { return nil }
-                    return FormFieldOption(label: label, value: value)
-                }
-            }
-
-            return FormField(
-                id: id,
-                type: fieldType,
-                label: label,
-                placeholder: fieldDict["placeholder"] as? String,
-                required: fieldDict["required"] as? Bool ?? false,
-                defaultValue: fieldDict["defaultValue"] as? String,
-                options: options
-            )
-        }
+        let fields = parseFormFields(fieldsArray)
 
         return FormSurfaceData(
             description: description,
