@@ -144,7 +144,7 @@ final class ComputerUseSession: ObservableObject {
                 case .cuAction(let action) where action.sessionId == self.id:
                     await self.handleAction(action)
                     // Check if handleAction set a terminal state
-                    if self.isCancelled { break }
+                    if self.isCancelled { return }
 
                 case .cuComplete(let complete) where complete.sessionId == self.id:
                     self.state = .completed(summary: complete.summary, steps: complete.stepCount)
