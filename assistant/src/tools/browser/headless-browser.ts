@@ -11,6 +11,7 @@ import {
   sanitizeUrlForOutput,
 } from '../network/url-safety.js';
 import { browserManager } from './browser-manager.js';
+import type { RouteHandler } from './browser-manager.js';
 
 const log = getLogger('headless-browser');
 
@@ -54,22 +55,79 @@ async function executeBrowserNavigate(
     }
   }
 
+  let routeHandler: RouteHandler | null = null;
+
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
     log.debug({ url: safeRequestedUrl, sessionId: context.sessionId }, 'Navigating');
+
+    // Install request interception to block redirects/sub-requests to private networks.
+    // This prevents SSRF bypass via server-side redirects and DNS rebinding attacks,
+    // since Playwright follows redirects internally and performs its own DNS resolution.
+    let blockedUrl: string | null = null;
+    if (!allowPrivateNetwork) {
+      routeHandler = async (route, request) => {
+        const reqUrl = request.url();
+        let reqParsed: URL;
+        try {
+          reqParsed = new URL(reqUrl);
+        } catch {
+          await route.continue();
+          return;
+        }
+
+        // Check hostname against private/local patterns
+        if (isPrivateOrLocalHost(reqParsed.hostname)) {
+          blockedUrl = sanitizeUrlForOutput(reqParsed);
+          log.warn({ blockedUrl }, 'Blocked navigation to private network target via redirect');
+          await route.abort('blockedbyclient');
+          return;
+        }
+
+        // Resolve DNS and check resolved addresses
+        const resolution = await resolveRequestAddress(
+          reqParsed.hostname,
+          resolveHostAddresses,
+          false,
+        );
+        if (resolution.blockedAddress) {
+          blockedUrl = sanitizeUrlForOutput(reqParsed);
+          log.warn({ blockedUrl, resolvedTo: resolution.blockedAddress }, 'Blocked navigation: DNS resolves to private address');
+          await route.abort('blockedbyclient');
+          return;
+        }
+
+        await route.continue();
+      };
+      await page.route('**/*', routeHandler);
+    }
 
     const response = await page.goto(parsedUrl.href, {
       waitUntil: 'domcontentloaded',
       timeout: NAVIGATE_TIMEOUT_MS,
     });
 
+    // Remove the route handler now that navigation is complete
+    if (routeHandler) {
+      await page.unroute('**/*', routeHandler);
+      routeHandler = null;
+    }
+
+    if (blockedUrl) {
+      return {
+        content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
+        isError: true,
+      };
+    }
+
     const finalUrl = page.url();
+    const safeFinalUrl = sanitizeUrlForOutput(new URL(finalUrl));
     const title = await page.title();
     const status = response?.status() ?? null;
 
     const lines: string[] = [
       `Requested URL: ${safeRequestedUrl}`,
-      `Final URL: ${finalUrl}`,
+      `Final URL: ${safeFinalUrl}`,
       `Status: ${status ?? 'unknown'}`,
       `Title: ${title || '(none)'}`,
     ];
@@ -80,6 +138,13 @@ async function executeBrowserNavigate(
 
     return { content: lines.join('\n'), isError: false };
   } catch (err) {
+    // Best-effort cleanup of route handler on error
+    if (routeHandler) {
+      try {
+        const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+        await page.unroute('**/*', routeHandler);
+      } catch { /* ignore cleanup errors */ }
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, url: safeRequestedUrl }, 'Navigation failed');
     return { content: `Error: Navigation failed: ${msg}`, isError: true };

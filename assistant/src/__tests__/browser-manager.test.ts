@@ -28,6 +28,8 @@ function createMockPage(closed = false) {
     press: async () => {},
     waitForSelector: async () => null,
     waitForFunction: async () => null,
+    route: async () => {},
+    unroute: async () => {},
     keyboard: { press: async () => {} },
   };
 }

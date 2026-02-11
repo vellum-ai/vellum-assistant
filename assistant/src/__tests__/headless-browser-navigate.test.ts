@@ -17,6 +17,8 @@ let mockPage: {
   goto: ReturnType<typeof mock>;
   title: ReturnType<typeof mock>;
   url: ReturnType<typeof mock>;
+  route: ReturnType<typeof mock>;
+  unroute: ReturnType<typeof mock>;
   close: () => Promise<void>;
   isClosed: () => boolean;
 };
@@ -59,6 +61,8 @@ function resetMockPage() {
     goto: mock(async () => ({ status: () => 200, url: () => 'https://example.com/' })),
     title: mock(async () => 'Example'),
     url: mock(() => 'https://example.com/'),
+    route: mock(async () => {}),
+    unroute: mock(async () => {}),
     close: async () => {},
     isClosed: () => false,
   };

@@ -15,6 +15,17 @@ export type PageResponse = {
   url(): string;
 };
 
+export type RouteHandler = (route: PageRoute, request: PageRequest) => Promise<void> | void;
+
+export type PageRoute = {
+  abort(errorCode?: string): Promise<void>;
+  continue(options?: Record<string, unknown>): Promise<void>;
+};
+
+export type PageRequest = {
+  url(): string;
+};
+
 export type Page = {
   close(): Promise<void>;
   isClosed(): boolean;
@@ -27,6 +38,8 @@ export type Page = {
   press(selector: string, key: string): Promise<void>;
   waitForSelector(selector: string, options?: { timeout?: number }): Promise<unknown>;
   waitForFunction(expression: string, options?: { timeout?: number }): Promise<unknown>;
+  route(pattern: string, handler: RouteHandler): Promise<void>;
+  unroute(pattern: string, handler?: RouteHandler): Promise<void>;
   keyboard: { press(key: string): Promise<void> };
 };
 
