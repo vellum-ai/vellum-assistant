@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { Message } from '../providers/types.js';
+import type { Message, ContentBlock } from '../providers/types.js';
 import type { ServerMessage, UsageStats, UserMessageAttachment } from './ipc-protocol.js';
+import { repairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
 import { createUserMessage } from '../agent/message-types.js';
@@ -108,21 +109,25 @@ export class Session {
       Math.min(conv?.contextCompactedMessageCount ?? 0, dbMessages.length),
     );
 
-    this.messages = dbMessages
+    const parsedMessages: Message[] = dbMessages
       .slice(this.contextCompactedMessageCount)
       .map((m) => {
         const role = m.role as 'user' | 'assistant';
-        const content = JSON.parse(m.content);
-        // Strip tool_result blocks from assistant messages (legacy data from
-        // patchToolResults which injected them in the wrong role).
-        if (role === 'assistant' && Array.isArray(content)) {
-          const cleaned = content.filter(
-            (block: Record<string, unknown>) => block.type !== 'tool_result',
-          );
-          return { role, content: cleaned };
+        let content: ContentBlock[];
+        try {
+          content = JSON.parse(m.content);
+        } catch {
+          log.warn({ conversationId: this.conversationId, messageId: m.id }, 'Invalid JSON in persisted message content, replacing with safe text block');
+          content = [{ type: 'text', text: m.content }];
         }
         return { role, content };
       });
+
+    const { messages: repairedMessages, stats } = repairHistory(parsedMessages);
+    if (stats.assistantToolResultsRemoved > 0 || stats.missingToolResultsInserted > 0 || stats.orphanToolResultsDowngraded > 0) {
+      log.warn({ conversationId: this.conversationId, phase: 'load', ...stats }, 'Repaired persisted history');
+    }
+    this.messages = repairedMessages;
 
     if (contextSummary) {
       this.messages.unshift(createContextSummaryMessage(contextSummary));
