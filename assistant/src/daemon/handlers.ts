@@ -208,11 +208,13 @@ export function handleMessage(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const handler = handlers[msg.type] as (
-    msg: ClientMessage,
-    socket: net.Socket,
-    ctx: HandlerContext,
-  ) => void;
+  const handler = handlers[msg.type] as
+    | ((msg: ClientMessage, socket: net.Socket, ctx: HandlerContext) => void)
+    | undefined;
+  if (!handler) {
+    log.warn({ type: msg.type }, 'Unknown message type, ignoring');
+    return;
+  }
   handler(msg, socket, ctx);
 }
 
