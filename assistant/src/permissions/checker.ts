@@ -143,7 +143,7 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
     return [...new Set(targets)].map((target) => `${toolName}:${target}`);
   }
 
-  if (toolName === 'web_fetch') {
+  if (toolName === 'web_fetch' || toolName === 'browser_navigate') {
     const rawUrl = getStringField(input, 'url').trim();
     const candidates: string[] = [];
 
@@ -173,7 +173,7 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   if (toolName === 'file_write') return RiskLevel.Medium;
   if (toolName === 'file_edit') return RiskLevel.Medium;
   if (toolName === 'web_search') return RiskLevel.Low;
-  if (toolName === 'web_fetch') {
+  if (toolName === 'web_fetch' || toolName === 'browser_navigate') {
     return input.allow_private_network === true ? RiskLevel.Medium : RiskLevel.Low;
   }
   if (toolName === 'skill_load') return RiskLevel.Low;
@@ -332,7 +332,7 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     return options;
   }
 
-  if (toolName === 'web_fetch') {
+  if (toolName === 'web_fetch' || toolName === 'browser_navigate') {
     const rawUrl = getStringField(input, 'url').trim();
     const normalized = normalizeWebFetchUrl(rawUrl);
     const exact = normalized?.href ?? rawUrl;
