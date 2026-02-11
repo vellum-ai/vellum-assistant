@@ -16,9 +16,19 @@ interface PendingPrompt {
 export class PermissionPrompter {
   private pending = new Map<string, PendingPrompt>();
   private sendToClient: (msg: ServerMessage) => void;
+  private _autoApprove = false;
 
   constructor(sendToClient: (msg: ServerMessage) => void) {
     this.sendToClient = sendToClient;
+  }
+
+  /**
+   * When enabled, all permission prompts are immediately approved without
+   * waiting for a client response. Used for HTTP API sessions where there
+   * is no IPC client to respond to prompts.
+   */
+  setAutoApprove(enabled: boolean): void {
+    this._autoApprove = enabled;
   }
 
   updateSender(sendToClient: (msg: ServerMessage) => void): void {
@@ -34,6 +44,11 @@ export class PermissionPrompter {
     diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean },
     sandboxed?: boolean,
   ): Promise<{ decision: UserDecision; selectedPattern?: string; selectedScope?: string }> {
+    if (this._autoApprove) {
+      log.info({ toolName, riskLevel }, 'Auto-approving tool (no IPC client)');
+      return { decision: 'allow' };
+    }
+
     const requestId = uuid();
 
     return new Promise((resolve, reject) => {
