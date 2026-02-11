@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   getAssistantConnectionMode,
-  getLocalDaemonSocketPath,
 } from "@/lib/assistant-connection";
 import {
   Assistant,
@@ -18,14 +17,8 @@ import {
 } from "@/lib/db";
 import { buildAttachmentFallbackText } from "@/lib/attachments";
 import { getInstanceExternalIp } from "@/lib/gcp";
-import {
-  type DaemonUserMessageAttachment,
-  LocalDaemonClient,
-  LocalDaemonError,
-  describeLocalDaemonError,
-  isLocalDaemonErrorWithCode,
-} from "@/lib/local-daemon-ipc";
-import { getStorage } from "@/lib/storage";
+import { createRuntimeClient, RuntimeClientError } from "@/lib/runtime/client";
+import { resolveRuntime } from "@/lib/runtime/resolver";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -52,15 +45,6 @@ interface PostMessageBody {
   sourceChannel?: unknown;
 }
 
-interface LinkedAttachmentRow {
-  attachment_id: string;
-}
-
-interface AttachmentStorageRow {
-  id: string;
-  storage_key: string | null;
-}
-
 interface MessageAttachmentPayload {
   id: string;
   original_filename: string;
@@ -78,8 +62,6 @@ interface MessagePayload {
 }
 
 const GREETING_MESSAGE = "Hey there! I just hatched 🐣\n\nWhat's your name? And while we're at it — what should I call myself?";
-const ATTACHMENTS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || "vellum-ai-prod-vellum-assistant";
-
 const GITHUB_APP_HTML = `<div style="border:1px solid #d0d7de;border-radius:12px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;max-width:600px;background:#fff">
   <div style="background:#24292f;padding:16px 24px;display:flex;align-items:center;gap:12px">
     <svg height="32" viewBox="0 0 16 16" width="32" fill="#fff"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -105,216 +87,6 @@ const GITHUB_APP_HTML = `<div style="border:1px solid #d0d7de;border-radius:12px
   </div>
 </div>`;
 
-type AssistantConfig = Record<string, unknown>;
-
-function getAssistantConfig(assistant: Assistant): AssistantConfig {
-  const config = assistant.configuration as Record<string, unknown> | null;
-  return config ?? {};
-}
-
-function toAssistantConfig(rawConfig: unknown): AssistantConfig {
-  if (!rawConfig || typeof rawConfig !== "object") {
-    return {};
-  }
-  return rawConfig as AssistantConfig;
-}
-
-function getStoredLocalDaemonSessionId(config: AssistantConfig): string | null {
-  const localDaemonConfig = config.localDaemon;
-  if (!localDaemonConfig || typeof localDaemonConfig !== "object") {
-    return null;
-  }
-
-  const sessionId = (localDaemonConfig as { sessionId?: unknown }).sessionId;
-  if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
-    return null;
-  }
-
-  return sessionId;
-}
-
-async function ensureLocalDaemonSession(
-  daemon: LocalDaemonClient,
-  storedSessionId: string | null
-): Promise<string> {
-  if (storedSessionId) {
-    try {
-      await daemon.switchSession(storedSessionId);
-      return storedSessionId;
-    } catch (error: unknown) {
-      if (!isLocalDaemonErrorWithCode(error, "SESSION_NOT_FOUND")) {
-        throw error;
-      }
-    }
-  }
-
-  const createdSession = await daemon.createSession("Web Assistant Session");
-  return createdSession.sessionId;
-}
-
-function withLocalDaemonSessionId(
-  config: AssistantConfig,
-  sessionId: string
-): AssistantConfig {
-  const existingLocalDaemon =
-    config.localDaemon && typeof config.localDaemon === "object"
-      ? (config.localDaemon as Record<string, unknown>)
-      : {};
-
-  return {
-    ...config,
-    localDaemon: {
-      ...existingLocalDaemon,
-      sessionId,
-    },
-  };
-}
-
-async function loadAssistantConfig(
-  sql: ReturnType<typeof getDb>,
-  assistantId: string
-): Promise<AssistantConfig> {
-  const rows = await sql.unsafe<{ configuration: unknown }[]>(
-    `
-      SELECT configuration
-      FROM assistants
-      WHERE id = $1
-    `,
-    [assistantId]
-  );
-
-  if (rows.length === 0) {
-    throw new Error("Agent not found");
-  }
-
-  return toAssistantConfig(rows[0]?.configuration);
-}
-
-async function tryPersistLocalDaemonSessionId(
-  sql: ReturnType<typeof getDb>,
-  assistantId: string,
-  expectedSessionId: string | null,
-  nextSessionId: string
-): Promise<boolean> {
-  return sql.begin(async (tx) => {
-    const rows = await tx.unsafe<{ configuration: unknown }[]>(
-      `
-        SELECT configuration
-        FROM assistants
-        WHERE id = $1
-        FOR UPDATE
-      `,
-      [assistantId]
-    );
-
-    if (rows.length === 0) {
-      throw new Error("Agent not found");
-    }
-
-    const lockedConfig = toAssistantConfig(rows[0]?.configuration);
-    const lockedSessionId = getStoredLocalDaemonSessionId(lockedConfig);
-
-    if (lockedSessionId !== expectedSessionId) {
-      return false;
-    }
-
-    if (lockedSessionId === nextSessionId) {
-      return true;
-    }
-
-    const nextConfig = withLocalDaemonSessionId(lockedConfig, nextSessionId);
-    await tx.unsafe(
-      `
-        UPDATE assistants
-        SET configuration = $1::jsonb,
-            updated_at = NOW()
-        WHERE id = $2
-      `,
-      [JSON.stringify(nextConfig), assistantId]
-    );
-
-    return true;
-  });
-}
-
-const MAX_LOCAL_DAEMON_SESSION_ATTEMPTS = 5;
-
-async function ensurePersistedLocalDaemonSessionId(
-  sql: ReturnType<typeof getDb>,
-  daemon: LocalDaemonClient,
-  assistantId: string,
-  initialConfig?: AssistantConfig
-): Promise<string> {
-  let expectedSessionId = getStoredLocalDaemonSessionId(
-    initialConfig ?? (await loadAssistantConfig(sql, assistantId))
-  );
-
-  for (let attempt = 0; attempt < MAX_LOCAL_DAEMON_SESSION_ATTEMPTS; attempt += 1) {
-    const sessionId = await ensureLocalDaemonSession(daemon, expectedSessionId);
-
-    if (sessionId === expectedSessionId) {
-      return sessionId;
-    }
-
-    const didPersist = await tryPersistLocalDaemonSessionId(
-      sql,
-      assistantId,
-      expectedSessionId,
-      sessionId
-    );
-
-    if (didPersist) {
-      return sessionId;
-    }
-
-    const latestConfig = await loadAssistantConfig(sql, assistantId);
-    expectedSessionId = getStoredLocalDaemonSessionId(latestConfig);
-  }
-
-  throw new LocalDaemonError(
-    "DAEMON_ERROR",
-    "Failed to establish a stable local daemon session"
-  );
-}
-
-function localDaemonErrorStatus(error: unknown): number {
-  if (!(error instanceof LocalDaemonError)) {
-    return 500;
-  }
-
-  switch (error.code) {
-    case "UNREACHABLE":
-      return 503;
-    case "TIMEOUT":
-      return 504;
-    case "BUSY":
-      return 409;
-    case "SESSION_NOT_FOUND":
-      return 409;
-    case "DAEMON_ERROR":
-      return 502;
-    case "PROTOCOL_ERROR":
-      return 502;
-    default:
-      return 500;
-  }
-}
-
-function localDaemonErrorResponse(
-  error: unknown,
-  fallbackMessage: string
-): NextResponse {
-  const status = localDaemonErrorStatus(error);
-  const detail = describeLocalDaemonError(error);
-
-  return NextResponse.json(
-    {
-      error: detail || fallbackMessage,
-      connectionMode: "local",
-    },
-    { status }
-  );
-}
 
 function getCannedResponse(assistantMessageCount: number): { content: string; action?: string } {
   switch (assistantMessageCount) {
@@ -391,100 +163,6 @@ async function buildMessagePayloads(messages: ChatMessage[]): Promise<MessagePay
   }));
 }
 
-async function buildLocalDaemonAttachments(
-  attachments: ChatAttachment[]
-): Promise<DaemonUserMessageAttachment[]> {
-  if (attachments.length === 0) {
-    return [];
-  }
-
-  const bucket = getStorage().bucket(ATTACHMENTS_BUCKET_NAME);
-  return Promise.all(
-    attachments.map(async (attachment) => {
-      const [buffer] = await bucket.file(attachment.storageKey).download();
-      return {
-        id: attachment.id,
-        filename: attachment.originalFilename,
-        mimeType: attachment.mimeType,
-        data: buffer.toString("base64"),
-        extractedText: attachment.extractedText ?? undefined,
-      };
-    })
-  );
-}
-
-async function cleanupUnlinkedLocalAttachments(
-  sql: ReturnType<typeof getDb>,
-  assistantId: string,
-  attachmentIds: string[],
-): Promise<{ deletedIds: string[]; failedIds: string[] }> {
-  if (attachmentIds.length === 0) {
-    return { deletedIds: [], failedIds: [] };
-  }
-
-  const linkedRows = await sql.unsafe<LinkedAttachmentRow[]>(
-    `
-      SELECT DISTINCT attachment_id
-      FROM chat_message_attachments
-      WHERE attachment_id = ANY($1::uuid[])
-    `,
-    [attachmentIds],
-  );
-
-  const linkedIds = new Set(linkedRows.map((row) => row.attachment_id));
-  const candidateIds = attachmentIds.filter((attachmentId) => !linkedIds.has(attachmentId));
-  if (candidateIds.length === 0) {
-    return { deletedIds: [], failedIds: [] };
-  }
-
-  const rows = await sql.unsafe<AttachmentStorageRow[]>(
-    `
-      SELECT id, storage_key
-      FROM chat_attachments
-      WHERE assistant_id = $1
-        AND id = ANY($2::uuid[])
-    `,
-    [assistantId, candidateIds],
-  );
-
-  if (rows.length === 0) {
-    return { deletedIds: [], failedIds: [] };
-  }
-
-  const bucket = getStorage().bucket(ATTACHMENTS_BUCKET_NAME);
-  const deletedIds: string[] = [];
-  const failedIds: string[] = [];
-
-  for (const row of rows) {
-    const storageKey = row.storage_key;
-    if (typeof storageKey === "string" && storageKey.length > 0) {
-      try {
-        await bucket.file(storageKey).delete();
-      } catch (error: unknown) {
-        failedIds.push(row.id);
-        console.warn(
-          "Failed to delete unlinked local-mode attachment object:",
-          { attachmentId: row.id, storageKey, error },
-        );
-        continue;
-      }
-    }
-    deletedIds.push(row.id);
-  }
-
-  if (deletedIds.length > 0) {
-    await sql.unsafe(
-      `
-        DELETE FROM chat_attachments
-        WHERE assistant_id = $1
-          AND id = ANY($2::uuid[])
-      `,
-      [assistantId, deletedIds],
-    );
-  }
-
-  return { deletedIds, failedIds };
-}
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -501,44 +179,24 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const connectionMode = getAssistantConnectionMode();
 
     if (connectionMode === "local") {
-      const socketPath = getLocalDaemonSocketPath();
-      const storedSessionId = getStoredLocalDaemonSessionId(
-        getAssistantConfig(assistant)
-      );
-
-      if (!storedSessionId) {
-        return NextResponse.json({
-          messages: [],
-          errors: [],
-          connectionMode: "local",
-        });
-      }
-
-      let daemon: LocalDaemonClient | null = null;
       try {
-        daemon = await LocalDaemonClient.connect(socketPath);
-        const history = await daemon.getHistory(storedSessionId);
-        const formattedMessages = history.map((msg, index) => ({
-          id: `local-${msg.timestamp}-${index}`,
-          role: msg.role,
-          content: msg.text,
-          timestamp: new Date(msg.timestamp).toISOString(),
-          ...(msg.toolCalls && msg.toolCalls.length > 0 ? { toolCalls: msg.toolCalls } : {}),
-        }));
+        const { baseUrl } = resolveRuntime(assistantId);
+        const client = createRuntimeClient(baseUrl, assistantId);
+        const conversationKey = assistantId; // use assistant ID as default conversation key
+        const result = await client.listMessages({ conversationKey });
 
         return NextResponse.json({
-          messages: formattedMessages,
+          messages: result.messages,
           errors: [],
           connectionMode: "local",
         });
       } catch (error: unknown) {
-        console.error("Error fetching local daemon messages:", error);
-        return localDaemonErrorResponse(
-          error,
-          "Failed to fetch messages from local daemon"
+        console.error("Error fetching local runtime messages:", error);
+        const status = error instanceof RuntimeClientError ? error.status : 502;
+        return NextResponse.json(
+          { error: "Failed to fetch messages from local runtime", connectionMode: "local" },
+          { status },
         );
-      } finally {
-        daemon?.close();
       }
     }
 
@@ -709,120 +367,31 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const connectionMode = getAssistantConnectionMode();
 
     if (connectionMode === "local") {
-      const socketPath = getLocalDaemonSocketPath();
-      const assistantConfig = getAssistantConfig(assistant);
-
-      let daemon: LocalDaemonClient | null = null;
       try {
-        daemon = await LocalDaemonClient.connect(socketPath);
-        const sessionId = await ensurePersistedLocalDaemonSessionId(
-          sql,
-          daemon,
-          assistantId,
-          assistantConfig
-        );
+        const { baseUrl } = resolveRuntime(assistantId);
+        const client = createRuntimeClient(baseUrl, assistantId);
+        const conversationKey = assistantId; // use assistant ID as default conversation key
 
-        const userMessage = await createChatMessage({
-          assistantId,
-          role: "user",
+        const result = await client.sendMessage({
+          conversationKey,
           content,
-          status: "sending",
+          attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
         });
 
-        try {
-          const daemonAttachments = await buildLocalDaemonAttachments(attachments);
-          const localResponse = await daemon.sendUserMessage(
-            sessionId,
-            content,
-            daemonAttachments
-          );
-
-          try {
-            await sql`
-              UPDATE chat_messages
-              SET status = 'sent', updated_at = NOW()
-              WHERE id = ${userMessage.id}
-            `;
-          } catch (statusError: unknown) {
-            console.warn(
-              "Failed to mark local-mode message as sent after daemon success:",
-              statusError
-            );
-          }
-          let attachmentWarning: string | null = null;
-          if (attachmentIds.length > 0) {
-            try {
-              await linkAttachmentsToMessage(userMessage.id, attachmentIds);
-            } catch (linkError: unknown) {
-              console.error(
-                "Failed to link local-mode attachments after daemon success. Attempting cleanup.",
-                linkError,
-              );
-              try {
-                const cleanup = await cleanupUnlinkedLocalAttachments(
-                  sql,
-                  assistantId,
-                  attachmentIds,
-                );
-                if (cleanup.failedIds.length > 0) {
-                  attachmentWarning = "Message was processed, but some attachment metadata could not be persisted.";
-                } else {
-                  attachmentWarning = "Message was processed, but attachments could not be linked and were removed.";
-                }
-              } catch (cleanupError: unknown) {
-                console.error(
-                  "Failed to clean up unlinked local-mode attachments:",
-                  cleanupError,
-                );
-                attachmentWarning = "Message was processed, but attachment metadata could not be persisted.";
-              }
-            }
-          }
-
-          const timestamp = new Date().toISOString();
-          const hasContent = localResponse.assistantText.length > 0 || localResponse.toolCalls.length > 0;
-          const assistantMessage = hasContent
-              ? {
-                  id: `local-${sessionId}-${Date.now()}`,
-                  role: "assistant" as const,
-                  content: localResponse.assistantText,
-                  timestamp,
-                  ...(localResponse.toolCalls.length > 0 ? { toolCalls: localResponse.toolCalls } : {}),
-                }
-              : null;
-
-          return NextResponse.json({
-            success: true,
-            connectionMode: "local",
-            sessionId,
-            messageId: userMessage.id,
-            ...(assistantMessage ? { assistantMessage } : {}),
-            ...(attachmentWarning ? { attachmentWarning } : {}),
-            message: "Message processed by local daemon",
-          });
-        } catch (daemonError: unknown) {
-          try {
-            await sql`
-              UPDATE chat_messages
-              SET status = 'failed', updated_at = NOW()
-              WHERE id = ${userMessage.id}
-            `;
-          } catch (statusError: unknown) {
-            console.warn(
-              "Failed to mark local-mode message as failed after daemon error:",
-              statusError
-            );
-          }
-          throw daemonError;
-        }
+        return NextResponse.json({
+          success: true,
+          connectionMode: "local",
+          messageId: result.messageId,
+          ...(result.assistantMessage ? { assistantMessage: result.assistantMessage } : {}),
+          message: "Message processed by local runtime",
+        });
       } catch (error: unknown) {
-        console.error("Error sending local daemon message:", error);
-        return localDaemonErrorResponse(
-          error,
-          "Failed to send message to local daemon"
+        console.error("Error sending local runtime message:", error);
+        const status = error instanceof RuntimeClientError ? error.status : 502;
+        return NextResponse.json(
+          { error: "Failed to send message to local runtime", connectionMode: "local" },
+          { status },
         );
-      } finally {
-        daemon?.close();
       }
     }
 
