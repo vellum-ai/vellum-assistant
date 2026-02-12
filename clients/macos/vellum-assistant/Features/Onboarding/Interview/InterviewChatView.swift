@@ -152,6 +152,7 @@ private struct MessageBubble: View {
 
 private struct TypingIndicator: View {
     @State private var phase: Int = 0
+    @State private var timer: Timer?
 
     var body: some View {
         HStack {
@@ -173,6 +174,7 @@ private struct TypingIndicator: View {
             Spacer()
         }
         .onAppear { startAnimation() }
+        .onDisappear { timer?.invalidate() }
     }
 
     private func dotOpacity(for index: Int) -> Double {
@@ -180,7 +182,7 @@ private struct TypingIndicator: View {
     }
 
     private func startAnimation() {
-        Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
             withAnimation(.easeInOut(duration: 0.3)) {
                 phase = (phase + 1) % 3
             }

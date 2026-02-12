@@ -7,6 +7,7 @@ struct InterviewStepView: View {
 
     @State private var viewModel: InterviewViewModel
     @State private var showControls = false
+    @State private var streamingMessageId = UUID()
 
     init(state: OnboardingState, daemonClient: DaemonClientProtocol, onComplete: @escaping () -> Void) {
         self.state = state
@@ -22,7 +23,7 @@ struct InterviewStepView: View {
     private var displayedMessages: [InterviewMessage] {
         var msgs = viewModel.messages
         if !viewModel.streamingText.isEmpty {
-            msgs.append(InterviewMessage(role: .assistant, text: viewModel.streamingText))
+            msgs.append(InterviewMessage(id: streamingMessageId, role: .assistant, text: viewModel.streamingText))
         }
         return msgs
     }

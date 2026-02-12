@@ -54,6 +54,9 @@ final class InterviewViewModel {
         isThinking = true
         streamingText = ""
 
+        currentTask?.cancel()
+        currentTask = nil
+
         currentTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
@@ -170,6 +173,9 @@ final class InterviewViewModel {
         isThinking = true
         streamingText = ""
 
+        currentTask?.cancel()
+        currentTask = nil
+
         currentTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
@@ -253,6 +259,7 @@ final class InterviewViewModel {
         isComplete = true
         currentTask?.cancel()
         currentTask = nil
+        sessionId = nil
         isThinking = false
         streamingText = ""
     }
@@ -263,5 +270,6 @@ final class InterviewViewModel {
     func cancel() {
         currentTask?.cancel()
         currentTask = nil
+        sessionId = nil
     }
 }

@@ -260,6 +260,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func updateMenuBarIcon() {
+        guard statusItem != nil else { return }
         let isAmbientActive = ambientAgent.state == .watching || ambientAgent.state == .analyzing
         let iconName = isAmbientActive ? "eye" : "sparkles"
         statusItem.button?.image = NSImage(
@@ -271,6 +272,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func replayOnboarding() {
         guard onboardingWindow == nil else { return }
         popover.performClose(nil)
+
+        // Ensure daemon connectivity for the interview step
+        if !daemonClient.isConnected {
+            setupDaemonClient()
+        }
 
         let onboarding = OnboardingWindow(daemonClient: daemonClient)
         onboarding.onComplete = { [weak self] state in
