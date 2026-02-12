@@ -38,16 +38,16 @@ struct VToggle: View {
     private var toggleTrack: some View {
         ZStack(alignment: isOn ? .trailing : .leading) {
             // Track background
-            RoundedRectangle(cornerRadius: VRadius.pill)
+            RoundedRectangle(cornerRadius: VRadius.sm + 2)
                 .fill(isOn ? Emerald._500 : Slate._700)
                 .frame(width: trackWidth, height: trackHeight)
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.pill)
+                    RoundedRectangle(cornerRadius: VRadius.sm + 2)
                         .stroke(Slate._600, lineWidth: 1)
                 )
 
             // Knob
-            Circle()
+            RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(Color.white)
                 .frame(width: knobSize, height: knobSize)
                 .padding(.horizontal, knobPadding)
