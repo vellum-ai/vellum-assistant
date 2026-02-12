@@ -337,11 +337,21 @@ final class ChatViewModel: ObservableObject {
             isThinking = false
             isSending = false
             isCancelling = false
+            // Mark current assistant message as no longer streaming
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].isStreaming = false
+            }
             currentAssistantMessageId = nil
+            pendingQueuedCount = 0
+            pendingMessageIds = []
+            requestIdToMessageId = [:]
             errorText = err.message
-            // Reset processing messages to sent
+            // Reset processing/queued messages to sent
             for i in messages.indices {
-                if messages[i].role == .user && messages[i].status == .processing {
+                if case .queued = messages[i].status, messages[i].role == .user {
+                    messages[i].status = .sent
+                } else if messages[i].role == .user && messages[i].status == .processing {
                     messages[i].status = .sent
                 }
             }
@@ -379,8 +389,13 @@ final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
+            pendingQueuedCount = 0
+            pendingMessageIds = []
+            requestIdToMessageId = [:]
             for i in messages.indices {
-                if messages[i].role == .user && messages[i].status == .processing {
+                if case .queued = messages[i].status, messages[i].role == .user {
+                    messages[i].status = .sent
+                } else if messages[i].role == .user && messages[i].status == .processing {
                     messages[i].status = .sent
                 }
             }
@@ -402,9 +417,14 @@ final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
-            // Reset processing messages to sent
+            pendingQueuedCount = 0
+            pendingMessageIds = []
+            requestIdToMessageId = [:]
+            // Reset processing/queued messages to sent
             for i in messages.indices {
-                if messages[i].role == .user && messages[i].status == .processing {
+                if case .queued = messages[i].status, messages[i].role == .user {
+                    messages[i].status = .sent
+                } else if messages[i].role == .user && messages[i].status == .processing {
                     messages[i].status = .sent
                 }
             }
