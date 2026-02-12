@@ -40,6 +40,7 @@ export interface SessionCreateRequest {
   title?: string;
   systemPromptOverride?: string;
   maxResponseTokens?: number;
+  correlationId?: string;
 }
 
 export interface SessionSwitchRequest {
@@ -293,6 +294,7 @@ export interface SessionInfo {
   type: 'session_info';
   sessionId: string;
   title: string;
+  correlationId?: string;
 }
 
 export interface SessionListResponse {

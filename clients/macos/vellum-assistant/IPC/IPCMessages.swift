@@ -132,11 +132,16 @@ struct SessionCreateMessage: Encodable, Sendable {
     let title: String?
     let systemPromptOverride: String?
     let maxResponseTokens: Int?
+    /// Client-generated nonce echoed back in `session_info` so the caller can
+    /// correlate the response to its specific request. Prevents multiple
+    /// ChatViewModels sharing one DaemonClient from stealing each other's sessions.
+    let correlationId: String?
 
-    init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil) {
+    init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil) {
         self.title = title
         self.systemPromptOverride = systemPromptOverride
         self.maxResponseTokens = maxResponseTokens
+        self.correlationId = correlationId
     }
 }
 
@@ -255,6 +260,15 @@ struct MessageCompleteMessage: Decodable, Sendable {
 struct SessionInfoMessage: Decodable, Sendable {
     let sessionId: String
     let title: String
+    /// Echoed from the `session_create` request so the caller can match
+    /// this response to its specific request.
+    let correlationId: String?
+
+    init(sessionId: String, title: String, correlationId: String? = nil) {
+        self.sessionId = sessionId
+        self.title = title
+        self.correlationId = correlationId
+    }
 }
 
 /// Daemon response after classifying and routing a task_submit.
