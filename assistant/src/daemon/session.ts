@@ -302,8 +302,6 @@ export class Session {
     this.processing = true;
     this.abortController = new AbortController();
 
-    let userMessageId = '';
-
     const userMessage = createUserMessage(content, attachments.map((attachment) => ({
       id: attachment.id,
       filename: attachment.filename,
@@ -312,21 +310,26 @@ export class Session {
       extractedText: attachment.extractedText,
     })));
     this.messages.push(userMessage);
-    const persistedUserMessage = conversationStore.addMessage(
-      this.conversationId,
-      'user',
-      JSON.stringify(userMessage.content),
-    );
-    userMessageId = persistedUserMessage.id;
 
-    if (!userMessageId) {
+    try {
+      const persistedUserMessage = conversationStore.addMessage(
+        this.conversationId,
+        'user',
+        JSON.stringify(userMessage.content),
+      );
+
+      if (!persistedUserMessage.id) {
+        throw new Error('Failed to persist user message');
+      }
+
+      return persistedUserMessage.id;
+    } catch (err) {
+      this.messages.pop();
       this.processing = false;
       this.abortController = null;
       this.currentRequestId = undefined;
-      throw new Error('Failed to persist user message');
+      throw err;
     }
-
-    return userMessageId;
   }
 
   /**
