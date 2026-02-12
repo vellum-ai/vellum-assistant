@@ -497,6 +497,98 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.messages[6].isStreaming, "Third assistant message should be finalized")
     }
 
+    // MARK: - Queue Badges / Status Transitions (handoff → dequeue → complete)
+
+    func testQueueBadgesStatusTransitionsReflectHandoffDequeueComplete() {
+        // Set up viewModel with a session
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+
+        // Send message A (direct — not queued)
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+        // greeting(0), A(1)
+        XCTAssertEqual(viewModel.messages.count, 2)
+        XCTAssertTrue(viewModel.isSending)
+        XCTAssertTrue(viewModel.isThinking)
+
+        // Send messages B and C while busy (both get queued status)
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+        viewModel.inputText = "Message C"
+        viewModel.sendMessage()
+        // greeting(0), A(1), B(2), C(3)
+        XCTAssertEqual(viewModel.messages.count, 4)
+
+        // Both B and C should have .queued status (position 0 initially)
+        if case .queued = viewModel.messages[2].status {
+            // expected
+        } else {
+            XCTFail("Message B should have queued status")
+        }
+        if case .queued = viewModel.messages[3].status {
+            // expected
+        } else {
+            XCTFail("Message C should have queued status")
+        }
+
+        // Simulate daemon confirming B and C are queued
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-C", position: 2)))
+        XCTAssertEqual(viewModel.pendingQueuedCount, 2)
+
+        // Verify positions were updated
+        if case .queued(let pos) = viewModel.messages[2].status {
+            XCTAssertEqual(pos, 1)
+        } else {
+            XCTFail("Message B should be queued at position 1")
+        }
+        if case .queued(let pos) = viewModel.messages[3].status {
+            XCTAssertEqual(pos, 2)
+        } else {
+            XCTFail("Message C should be queued at position 2")
+        }
+
+        // Assistant responds to A with text delta, then generation_handoff
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
+        // greeting(0), A(1), B(2), C(3), assistantA(4)
+        XCTAssertEqual(viewModel.messages.count, 5)
+
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 2)))
+
+        // After handoff: isSending stays true, isThinking cleared, streaming finalized
+        XCTAssertTrue(viewModel.isSending, "isSending must stay true during handoff")
+        XCTAssertFalse(viewModel.isThinking, "isThinking cleared after handoff")
+        XCTAssertFalse(viewModel.messages[4].isStreaming, "Assistant message for A should be finalized")
+
+        // B and C remain queued
+        XCTAssertEqual(viewModel.pendingQueuedCount, 2)
+
+        // Simulate messageDequeued for B — first queued goes to .processing
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        XCTAssertEqual(viewModel.messages[2].status, .processing, "Message B should now be processing")
+        XCTAssertTrue(viewModel.isSending)
+        XCTAssertTrue(viewModel.isThinking, "isThinking restored after dequeue")
+        XCTAssertEqual(viewModel.pendingQueuedCount, 1)
+
+        // Assistant responds to B, then another handoff
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to B")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        XCTAssertTrue(viewModel.isSending, "isSending stays true — C is still queued")
+
+        // Simulate messageDequeued for C
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-C")))
+        XCTAssertEqual(viewModel.messages[3].status, .processing, "Message C should now be processing")
+        XCTAssertEqual(viewModel.pendingQueuedCount, 0)
+
+        // Assistant responds to C, then message_complete (no more queued)
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to C")))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+
+        // isSending should clear when queue is empty and message completes
+        XCTAssertFalse(viewModel.isSending, "isSending should be false — no more queued messages")
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
     // MARK: - Full Conversation Flow
 
     func testFullConversationFlow() {

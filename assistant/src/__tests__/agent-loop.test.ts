@@ -793,7 +793,69 @@ describe('AgentLoop', () => {
     expect(checkpoints[0].hasToolUse).toBe(true);
   });
 
-  // 23. Yield on second turn — first turn proceeds, second stops
+  // 23. Multiple checkpoints across a multi-turn run with selective yield on turn 3
+  test('multiple checkpoints with selective yield — executes turns 0-2, yields at turn 3, never runs 4+', async () => {
+    // Mock provider to return tool_use for 5 turns, then text
+    const responses: ProviderResponse[] = [];
+    for (let i = 0; i < 5; i++) {
+      responses.push(toolUseResponse(`t${i}`, 'read_file', { path: `/file${i}.txt` }));
+    }
+    responses.push(textResponse('Should never reach this'));
+
+    const { provider, calls } = createMockProvider(responses);
+    const toolExecutor = async () => ({ content: 'data', isError: false });
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+
+    const checkpoints: CheckpointInfo[] = [];
+    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+      checkpoints.push(checkpoint);
+      // Yield on turn 3 (0-indexed)
+      return checkpoint.turnIndex === 3 ? 'yield' : 'continue';
+    };
+
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events), undefined, undefined, onCheckpoint);
+
+    // Turns 0, 1, 2, 3 execute (4 provider calls). Turn 3 yields, so turns 4+ never execute.
+    expect(calls).toHaveLength(4);
+
+    // Checkpoints should have been called for turns 0 through 3
+    expect(checkpoints).toHaveLength(4);
+    expect(checkpoints[0].turnIndex).toBe(0);
+    expect(checkpoints[1].turnIndex).toBe(1);
+    expect(checkpoints[2].turnIndex).toBe(2);
+    expect(checkpoints[3].turnIndex).toBe(3);
+
+    // History should contain results from turns 0-3:
+    // user, assistant(t0), user(result0), assistant(t1), user(result1),
+    // assistant(t2), user(result2), assistant(t3), user(result3)
+    // = 1 original + 4*(assistant + user) = 9
+    expect(history).toHaveLength(9);
+
+    // Verify the last two messages are from turn 3
+    expect(history[7].role).toBe('assistant');
+    const lastAssistantToolUse = history[7].content.find((b) => b.type === 'tool_use');
+    expect(lastAssistantToolUse).toBeDefined();
+    if (lastAssistantToolUse && lastAssistantToolUse.type === 'tool_use') {
+      expect(lastAssistantToolUse.id).toBe('t3');
+    }
+    expect(history[8].role).toBe('user');
+    const lastToolResult = history[8].content.find(
+      (b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result',
+    );
+    expect(lastToolResult).toBeDefined();
+    expect(lastToolResult!.tool_use_id).toBe('t3');
+
+    // Verify turns 4+ never executed — no tool_use event for t4
+    const toolUseEvents = events.filter(
+      (e): e is Extract<AgentEvent, { type: 'tool_use' }> => e.type === 'tool_use',
+    );
+    const toolUseNames = toolUseEvents.map((e) => e.id);
+    expect(toolUseNames).toEqual(['t0', 't1', 't2', 't3']);
+    expect(toolUseNames).not.toContain('t4');
+  });
+
+  // 24. Yield on second turn — first turn proceeds, second stops
   test('yield on second turn lets first turn proceed and stops on second', async () => {
     const { provider, calls } = createMockProvider([
       toolUseResponse('t1', 'read_file', { path: '/a.txt' }),
