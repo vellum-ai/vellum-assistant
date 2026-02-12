@@ -150,19 +150,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] notification in
             // Queue is .main so we're already on the main thread
             MainActor.assumeIsolated {
+                guard let self else { return }
                 guard let window = notification.object as? NSWindow,
                       window.title.contains("Settings") || window.title.contains("vellum") else { return }
                 // Keep .regular if MainWindow exists; only revert for legacy menu-bar-only mode
-                guard self?.mainWindow == nil else { return }
-                // Revert to accessory (no dock icon) after settings closes
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    MainActor.assumeIsolated {
-                        let hasVisibleWindows = NSApp.windows.contains { $0.isVisible && $0 !== self?.statusItem.button?.window }
-                        if !hasVisibleWindows {
-                            NSApp.setActivationPolicy(.accessory)
-                        }
-                    }
-                }
+                guard self.mainWindow == nil else { return }
+                self.scheduleActivationPolicyRevert()
+            }
+        }
+    }
+
+    /// Revert to accessory activation policy after a short delay if no visible windows remain.
+    private func scheduleActivationPolicyRevert() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard let self else { return }
+            let hasVisibleWindows = NSApp.windows.contains { $0.isVisible && $0 !== self.statusItem.button?.window }
+            if !hasVisibleWindows {
+                NSApp.setActivationPolicy(.accessory)
             }
         }
     }
