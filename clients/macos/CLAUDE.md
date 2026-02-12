@@ -32,6 +32,32 @@ log stream --predicate 'subsystem == "com.vellum.vellum-assistant"' --level debu
 
 ## Architecture
 
+### Feature Modules (`Features/`)
+
+All UI and feature code lives in `Features/`, organized by domain:
+
+| Module | Purpose |
+|--------|---------|
+| `Chat/` | ChatView, ChatViewModel (multi-turn messaging), ChatMessage model |
+| `MainWindow/` | MainWindowView shell, ThreadTabBar, NavigationToolbar, ThreadManager, 6 side panels |
+| `Onboarding/` | Multi-step first-launch flow (OnboardingFlowView → OnboardingState) |
+| `Session/` | Session overlay UI for computer-use task execution |
+| `Settings/` | API key entry, hotkey config, permission status |
+| `Ambient/` | Background screen monitoring UI |
+| `Voice/` | Voice input UI (VoiceTranscriptionWindow) |
+| `MenuBar/` | NSStatusItem and popover lifecycle |
+| `Surfaces/` | Daemon surface rendering (HTML/JSON overlays) |
+| `TaskInput/` | Quick task input popover |
+
+**Main window layout** (`MainWindowView`):
+```
+ThreadTabBar          (row 1 — thread tabs, extends into titlebar)
+NavigationToolbar     (row 2 — Chat tab + panel toggle buttons)
+VSplitView            (row 3 — ChatView + optional side panel)
+```
+
+**Data flow**: `ThreadManager` (`@MainActor ObservableObject`) owns `[ThreadModel]` and a dictionary of `ChatViewModel` instances keyed by thread ID. `MainWindowView` binds to the active `ChatViewModel` via `threadManager.activeViewModel`. ThreadManager subscribes to each nested ChatViewModel's `objectWillChange` and forwards it via Combine so SwiftUI picks up changes.
+
 ### Session Loop (`Session.swift`)
 
 The core orchestration cycle runs per-task in `ComputerUseSession` (`@MainActor`):
@@ -77,12 +103,11 @@ The package is split into two targets for Xcode Preview support:
 - **`VellumAssistantLib`** (library) — all app code, resources, and linker settings. Previews work on any SwiftUI view here.
 - **`vellum-assistant`** (executable) — thin `@main` entry point in `vellum-assistant-app/` that imports `VellumAssistantLib`.
 
-
 `AppDelegate` sets up: NSStatusItem with NSPopover, global hotkey (Cmd+Shift+G via HotKey package), global Escape monitor, voice input, ambient agent, and onboarding flow. `VellumAssistantApp` is the `@main` entry point with `@NSApplicationDelegateAdaptor`.
 
 ### Onboarding
 
-`UI/Onboarding/` — multi-step flow (`OnboardingFlowView` → `OnboardingState`) covering wake-up animation, naming, permissions (screen recording, microphone), Fn key setup, and an alive-check step. Shown on first launch; skip with `--skip-onboarding` in debug.
+`Features/Onboarding/` — multi-step flow (`OnboardingFlowView` → `OnboardingState`) covering wake-up animation, naming, permissions (screen recording, microphone), Fn key setup, and an alive-check step. Shown on first launch; skip with `--skip-onboarding` in debug.
 
 ## Design System (`DesignSystem/`)
 
@@ -101,7 +126,7 @@ DesignSystem/
 │   ├── Navigation/      (VTabBar, VSegmentedControl)
 │   ├── Layout/          (VSidePanel, VSplitView, VToolbar)
 │   └── Display/         (VCard)
-├── Modifiers/           (ViewModifier extensions: .vShadow, .hoverEffect, etc.)
+├── Modifiers/           (.vCard(), .vHover(), .vPanelBackground())
 └── Gallery/             (ComponentGalleryView — visual catalog of all tokens/components)
 ```
 
@@ -111,6 +136,60 @@ DesignSystem/
 
 All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Always use design tokens instead of raw values — `VFont.body` not `Font.system(size: 13)`, `VColor.accent` not `Color.purple`.
 
+### Token Reference
+
+**VColor** — Semantic color tokens mapped to Tailwind-style scales (Slate, Violet, Emerald, Rose, Amber, Indigo):
+- Backgrounds: `background` (Slate._950), `backgroundSubtle` (Slate._800), `surface` (Slate._800), `surfaceBorder` (Slate._700)
+- Text: `textPrimary` (Slate._50), `textSecondary` (Slate._400), `textMuted` (Slate._500)
+- Accent: `accent` (Violet._600), `accentSubtle` (Violet._100)
+- Status: `success` (Emerald._600), `error` (Rose._600), `warning` (Amber._600)
+- Use raw scales (e.g. `Slate._300`, `Violet._700`) only when semantic tokens don't cover the need.
+
+**VFont** — macOS HIG-aligned type scale:
+- `largeTitle` (26pt bold), `title` (22pt semibold), `headline` (13pt bold)
+- `body` (13pt), `bodyMedium` (13pt medium), `bodyBold` (13pt semibold)
+- `caption` (11pt), `captionMedium` (11pt medium), `small` (10pt)
+- `mono` (13pt monospaced), `monoSmall` (11pt monospaced)
+- `display` (18pt black monospaced — for panel headers like "AGENT", "GENERATED CONTENT")
+- `cardTitle` (17pt semibold), `cardEmoji` (32pt)
+
+**VSpacing** — 4pt grid: `xxs`(2), `xs`(4), `sm`(8), `md`(12), `lg`(16), `xl`(24), `xxl`(32), `xxxl`(48). Semantic aliases: `inline`=sm, `content`=lg, `section`=xl, `page`=xxl.
+
+**VRadius** — `xs`(2), `sm`(4), `md`(8), `lg`(12), `xl`(16), `pill`(999).
+
+**VAnimation** — `fast` (0.15s easeOut), `standard` (0.25s easeInOut), `slow` (0.4s easeInOut), `spring`, `panel` (gentle spring for panels), `bouncy` (celebratory spring).
+
+**VShadow** — `sm`, `md`, `lg`, `glow` (Amber), `accentGlow` (Violet). Applied via `.vShadow()` modifier.
+
+## SwiftUI & Swift Conventions
+
+### State Management
+
+| Pattern | When to use |
+|---------|-------------|
+| `@State` | Local, view-scoped transient state (hover, drag, focus, form fields) |
+| `@Binding` | Pass mutable state from parent to child view |
+| `@StateObject` | Own an ObservableObject for the view's lifetime (e.g. ThreadManager in MainWindowView) |
+| `@ObservedObject` | Observe an ObservableObject owned elsewhere |
+| `@AppStorage` | Persistent user preferences backed by UserDefaults |
+| `@Observable` | Modern Observation framework (used by OnboardingState) |
+
+### Rules
+
+- **`@MainActor` on all ObservableObject classes** — all view models and managers that touch UI must be `@MainActor`.
+- **Nested ObservableObject**: When a view reads properties from a nested ObservableObject (e.g. `threadManager.activeViewModel.messages`), the parent must subscribe to the child's `objectWillChange` and forward it. See `ThreadManager.subscribeToActiveViewModel()`.
+- **Dependency injection**: Pass dependencies (DaemonClient, AmbientAgent) through init parameters, not singletons. Session dependencies use protocols for testability.
+- **Previews**: Add `#Preview("ComponentName")` blocks to every new view. Wrap in `ZStack { VColor.background.ignoresSafeArea() ... }` to match the dark theme. Use `#if DEBUG` guards for preview-only code. Keep preview frames reasonable (400-600pt wide).
+- **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.
+- **Accessibility**: Add `.accessibilityLabel()` to icon-only buttons, `.accessibilityHidden(true)` to decorative elements, and `.accessibilityValue()` to stateful controls. See existing components for patterns.
+
+### Naming & File Placement
+
+- Design system types: `V` prefix (VButton, VColor, VTab, etc.)
+- Feature views: Place in `Features/<Module>/`. New feature modules get their own directory.
+- New `.swift` files are auto-picked up by SPM — no project file edits needed.
+- Panel views: Place in `Features/MainWindow/Panels/` and add a case to `SidePanelType`.
+
 ## Key Constraints
 
 - **LSUIElement app** — no dock icon; uses `.accessory` activation policy. Must temporarily switch to `.regular` when showing Settings window.
@@ -119,6 +198,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - **Chrome special handling** — `ChromeAccessibilityHelper` detects when Chrome's AX tree lacks web content and auto-restarts Chrome with `--force-renderer-accessibility`.
 - **Popover close delay** — 300ms initial delay before session starts to let the popover close and target app regain focus.
 - **SessionState enum** must stay in sync with `SessionOverlayView` pattern matching.
+- **SourceKit false positives** — SourceKit may report "Cannot find X in scope" for design system types (VColor, VFont, etc.) due to SPM module resolution. These are false positives — `swift build` succeeds. Do not "fix" these by adding imports or changing code.
 
 ## Permissions
 
