@@ -247,6 +247,21 @@ export function initializeDb(): void {
     )
   `);
 
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS accounts (
+      id TEXT PRIMARY KEY,
+      service TEXT NOT NULL,
+      username TEXT,
+      email TEXT,
+      display_name TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      credential_ref TEXT,
+      metadata_json TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
   // FTS table for lexical retrieval over memory_segments.text.
   database.run(/*sql*/ `
     CREATE VIRTUAL TABLE IF NOT EXISTS memory_segment_fts USING fts5(
@@ -325,6 +340,9 @@ export function initializeDb(): void {
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled_next_run ON cron_jobs(enabled, next_run_at)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_cron_runs_job_id ON cron_runs(job_id)`);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_accounts_service ON accounts(service)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status)`);
   migrateMemoryFtsBackfill(database);
 }
 
