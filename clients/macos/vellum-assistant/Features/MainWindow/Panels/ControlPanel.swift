@@ -8,7 +8,7 @@ struct ControlPanel: View {
     @State private var apiKeyText: String = ""
     @State private var hasKey: Bool = false
     @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
-    @State private var ambientEnabled: Bool = false
+    @AppStorage("ambientAgentEnabled") private var ambientEnabled: Bool = false
 
     private enum ControlTab: String, CaseIterable {
         case profile, settings, channels, overview
@@ -62,7 +62,6 @@ struct ControlPanel: View {
         }
         .onAppear {
             hasKey = APIKeyManager.getKey() != nil
-            ambientEnabled = UserDefaults.standard.bool(forKey: "ambientAgentEnabled")
         }
     }
 
