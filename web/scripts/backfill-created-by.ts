@@ -23,13 +23,28 @@ async function main() {
   const sql = postgres(connectionString);
 
   try {
+    // Check for assistants with NULL or empty created_by — these must be
+    // resolved before the NOT NULL constraint can be applied.
+    const nullOrEmpty = await sql`
+      SELECT id FROM assistants
+      WHERE created_by IS NULL OR created_by = ''
+    `;
+
+    if (nullOrEmpty.length > 0) {
+      const ids = nullOrEmpty.map((r) => r.id as string);
+      console.error(
+        `ERROR: ${nullOrEmpty.length} assistant(s) have NULL or empty created_by.\n` +
+        `These must be resolved before applying the NOT NULL constraint.\n` +
+        `Assistant IDs: ${ids.join(", ")}`
+      );
+      process.exit(1);
+    }
+
     // Find assistants whose created_by is not already a user.id
     const nonCanonical = await sql`
       SELECT a.id, a.created_by
       FROM assistants a
-      WHERE a.created_by IS NOT NULL
-        AND a.created_by != ''
-        AND NOT EXISTS (
+      WHERE NOT EXISTS (
           SELECT 1 FROM "user" u WHERE u.id = a.created_by
         )
     `;
