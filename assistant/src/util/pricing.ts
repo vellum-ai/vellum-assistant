@@ -131,6 +131,9 @@ export function resolvePricingWithOverrides(
  * Estimate cost in USD for the given token counts, provider, and model.
  * Returns 0 if the provider/model combination is not in the pricing table
  * (e.g. Ollama local models).
+ *
+ * @deprecated Prefer resolvePricing() or resolvePricingWithOverrides() for
+ * provider-aware pricing with explicit priced/unpriced status.
  */
 export function estimateCost(
   inputTokens: number,
