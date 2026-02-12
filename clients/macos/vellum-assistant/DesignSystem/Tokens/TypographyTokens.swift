@@ -14,8 +14,8 @@ enum VFont {
     static let headline   = Font.system(size: 13, weight: .bold)
     static let body       = Font.system(size: 13)
     static let bodyMedium = Font.system(size: 13, weight: .medium)
-    static let caption    = Font.system(size: 10)
-    static let captionMedium = Font.system(size: 10, weight: .medium)
+    static let caption    = Font.system(size: 11)
+    static let captionMedium = Font.system(size: 11, weight: .medium)
     static let small      = Font.system(size: 10)
 
     // MARK: - Specialized
