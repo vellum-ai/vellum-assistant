@@ -48,6 +48,7 @@ interface QueuedMessage {
 }
 
 export class Session {
+  private static readonly MAX_QUEUE_DEPTH = 10;
   public readonly conversationId: string;
   private messages: Message[] = [];
   private agentLoop: AgentLoop;
@@ -231,6 +232,11 @@ export class Session {
     requestId: string,
   ): { queued: boolean; requestId: string } {
     if (!this.processing) {
+      return { queued: false, requestId };
+    }
+
+    if (this.messageQueue.length >= Session.MAX_QUEUE_DEPTH) {
+      onEvent({ type: 'error', message: 'Message queue is full. Please wait for current messages to complete.' });
       return { queued: false, requestId };
     }
 
@@ -601,6 +607,11 @@ export class Session {
   /**
    * Process the next message in the queue, if any.
    * Called from the `runAgentLoop` finally block after processing completes.
+   *
+   * Uses `.catch` to report errors and `.finally` to ensure the drain chain
+   * continues even when `processMessage` resolves without calling
+   * `runAgentLoop` (e.g. when `persistUserMessage` throws internally and
+   * `processMessage` catches it, returning `''`).
    */
   private drainQueue(): void {
     const next = this.messageQueue.shift();
@@ -615,11 +626,23 @@ export class Session {
 
     // Fire-and-forget: processMessage sets this.processing = true synchronously
     // so subsequent messages will still be enqueued.
-    this.processMessage(next.content, next.attachments, next.onEvent, next.requestId).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Error processing queued message');
-      next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
-    });
+    this.processMessage(next.content, next.attachments, next.onEvent, next.requestId)
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Error processing queued message');
+        next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
+      })
+      .finally(() => {
+        // If processMessage failed before calling runAgentLoop (e.g.
+        // persistUserMessage threw), processing will already be false and
+        // runAgentLoop's finally block never ran — so we must continue
+        // draining here.  When runAgentLoop DID run, its own finally block
+        // calls drainQueue, and processing will be true at this point, so
+        // this becomes a no-op.
+        if (!this.processing) {
+          this.drainQueue();
+        }
+      });
   }
 
   /**
