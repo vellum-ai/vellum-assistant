@@ -146,8 +146,8 @@ final class RecipeExecutor {
 
     private func loadRecipeMarkdown(_ name: String) -> String? {
         #if SWIFT_PACKAGE
-            // SPM builds: recipes are copied into Bundle.module via .copy("Resources/Recipes")
-            if let url = Bundle.module.url(forResource: name, withExtension: "md", subdirectory: "Recipes") {
+            // SPM builds: recipes are copied into the resource bundle via .copy("Resources/Recipes")
+            if let url = ResourceBundle.bundle.url(forResource: name, withExtension: "md", subdirectory: "Recipes") {
                 return try? String(contentsOf: url, encoding: .utf8)
             }
         #endif

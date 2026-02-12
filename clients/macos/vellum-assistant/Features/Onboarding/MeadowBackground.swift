@@ -6,7 +6,7 @@ struct MeadowBackground: View {
         ZStack {
             VColor.background
 
-            if let url = Bundle.module.url(forResource: "meadow", withExtension: "svg"),
+            if let url = ResourceBundle.bundle.url(forResource: "meadow", withExtension: "svg"),
                let nsImage = NSImage(contentsOf: url) {
                 Image(nsImage: nsImage)
                     .resizable()

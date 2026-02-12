@@ -47,7 +47,7 @@ struct OnboardingStageImage: View {
                     .blur(radius: 8)
 
                 // Stage sprite
-                if let url = Bundle.module.url(forResource: "stage-\(displayedStage)", withExtension: "png"),
+                if let url = ResourceBundle.bundle.url(forResource: "stage-\(displayedStage)", withExtension: "png"),
                    let nsImage = NSImage(contentsOf: url) {
                     Image(nsImage: nsImage)
                         .interpolation(.none)
