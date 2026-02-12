@@ -87,10 +87,31 @@ fi
 # 2. Create .app bundle structure
 echo "Packaging $APP_NAME.app..."
 rm -rf "$APP_DIR"
-mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
+FRAMEWORKS_DIR="$CONTENTS/Frameworks"
+mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 
-# Copy executable
+# Copy executable and add Frameworks rpath for bundled dynamic frameworks
 cp "$EXECUTABLE" "$MACOS_DIR/$APP_NAME"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$APP_NAME" 2>/dev/null || true
+
+# Copy Sparkle.framework into bundle (required — it's a dynamic framework)
+SPARKLE_FW="$BIN_PATH/Sparkle.framework"
+if [ -d "$SPARKLE_FW" ]; then
+    echo "Bundling Sparkle.framework..."
+    cp -R "$SPARKLE_FW" "$FRAMEWORKS_DIR/"
+else
+    echo "WARNING: Sparkle.framework not found at $SPARKLE_FW"
+fi
+
+# Copy bundled daemon binary (if available — built by CI or locally)
+DAEMON_BIN="$SCRIPT_DIR/daemon-bin/vellum-daemon"
+if [ -f "$DAEMON_BIN" ]; then
+    echo "Bundling daemon binary..."
+    cp "$DAEMON_BIN" "$MACOS_DIR/vellum-daemon"
+    chmod +x "$MACOS_DIR/vellum-daemon"
+else
+    echo "No daemon binary at $DAEMON_BIN — skipping (dev mode)"
+fi
 
 # 3. Generate Info.plist with resolved values
 cat > "$CONTENTS/Info.plist" <<PLIST
@@ -126,6 +147,12 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <string>vellum-assistant needs microphone access to transcribe voice commands.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>vellum-assistant uses speech recognition to convert voice commands into tasks.</string>
+    <key>SUFeedURL</key>
+    <string>https://github.com/alex-nork/vellum-assistant-macos-updates/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>${SU_PUBLIC_ED_KEY:-}</string>
+    <key>SUAutomaticallyUpdate</key>
+    <true/>
 </dict>
 </plist>
 PLIST
@@ -151,6 +178,17 @@ fi
 
 # 6. Code sign
 echo "Signing with: $SIGN_IDENTITY"
+
+# Sign daemon binary separately with its own entitlements (JIT, network)
+if [ -f "$MACOS_DIR/vellum-daemon" ]; then
+    DAEMON_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/daemon-entitlements.plist")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        DAEMON_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    codesign "${DAEMON_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-daemon"
+    echo "Daemon binary signed"
+fi
+
 CODESIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --deep)
 if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     CODESIGN_FLAGS+=(--timestamp --options runtime)

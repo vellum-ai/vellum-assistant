@@ -31,6 +31,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let daemonClient = DaemonClient()
     let surfaceManager = SurfaceManager()
     let toolConfirmationManager = ToolConfirmationManager()
+    private let daemonLauncher = DaemonLauncher()
+    private let updateManager = UpdateManager()
 
     private var onboardingWindow: OnboardingWindow?
     private var mainWindow: MainWindow?
@@ -63,17 +65,27 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupToolConfirmationManager()
         setupWindowObserver()
         setupNotifications()
+        setupAutoUpdate()
         showMainWindow()
     }
 
     private func setupDaemonClient() {
         Task {
+            // Launch the bundled daemon if present (release builds)
+            try? await daemonLauncher.launchIfNeeded()
             try? await daemonClient.connect()
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {
                 setupAmbientAgent()
             }
         }
+    }
+
+    private func setupAutoUpdate() {
+        updateManager.onWillInstallUpdate = { [weak self] in
+            self?.daemonLauncher.stop()
+        }
+        updateManager.startAutomaticChecks()
     }
 
     private func setupSurfaceManager() {
@@ -197,6 +209,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         ambientItem.target = self
         menu.addItem(ambientItem)
 
+        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        updateItem.isEnabled = updateManager.canCheckForUpdates
+        menu.addItem(updateItem)
+
         let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
         onboardingItem.target = self
         menu.addItem(onboardingItem)
@@ -211,6 +228,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: 0), in: button)
+    }
+
+    @objc private func checkForUpdates() {
+        updateManager.checkForUpdates()
     }
 
     @objc private func toggleAmbientAgent() {
@@ -367,6 +388,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.setupToolConfirmationManager()
             self?.setupWindowObserver()
             self?.setupNotifications()
+            self?.setupAutoUpdate()
 
             self?.showMainWindow()
         }
@@ -595,6 +617,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         ambientAgent.stop()
         surfaceManager.dismissAll()
         toolConfirmationManager.dismissAll()
+        daemonLauncher.stop()
     }
 }
 

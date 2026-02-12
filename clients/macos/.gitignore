@@ -9,3 +9,4 @@ DerivedData/
 .DS_Store
 context.md
 Local.xcconfig
+daemon-bin/

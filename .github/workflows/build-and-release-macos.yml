@@ -70,10 +70,26 @@ jobs:
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
 
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build daemon binary
+        working-directory: assistant
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
+            --outfile ../clients/macos/daemon-bin/vellum-daemon
+          chmod +x ../clients/macos/daemon-bin/vellum-daemon
+          echo "Daemon binary built:"
+          ls -lh ../clients/macos/daemon-bin/vellum-daemon
+
       - name: Build release .app
         run: |
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
+          SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
           SIGN_IDENTITY="Developer ID Application" \
           ./build.sh release
 
@@ -173,6 +189,50 @@ jobs:
           xcrun stapler validate "$DMG_PATH"
           echo "Notarization ticket stapled and validated"
 
+      - name: Build ZIP for Sparkle auto-update
+        run: |
+          cd dist
+          ditto -c -k --keepParent vellum-assistant.app vellum-assistant.zip
+          echo "Sparkle ZIP created:"
+          ls -lh vellum-assistant.zip
+
+      - name: Install Sparkle sign_update tool
+        run: |
+          brew install sparkle
+          echo "Sparkle tools installed"
+
+      - name: Generate appcast.xml
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}"
+          BUILD_VERSION="${{ steps.version.outputs.build_version }}"
+
+          # Sign the ZIP with Sparkle EdDSA key
+          SIGNATURE=$(echo "$SPARKLE_ED_PRIVATE_KEY" | sign_update dist/vellum-assistant.zip)
+          SIZE=$(stat -f%z dist/vellum-assistant.zip)
+
+          cat > dist/appcast.xml << EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>vellum-assistant</title>
+              <item>
+                <title>${DISPLAY_VERSION}</title>
+                <sparkle:version>${BUILD_VERSION}</sparkle:version>
+                <sparkle:shortVersionString>${DISPLAY_VERSION}</sparkle:shortVersionString>
+                <enclosure
+                  url="https://github.com/alex-nork/vellum-assistant-macos-updates/releases/latest/download/vellum-assistant.zip"
+                  sparkle:edSignature="${SIGNATURE}"
+                  length="${SIZE}"
+                  type="application/octet-stream" />
+              </item>
+            </channel>
+          </rss>
+          EOF
+
+          echo "Appcast generated with signature"
+
       - name: Create GitHub Release on public repo
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
@@ -187,16 +247,20 @@ jobs:
           gh release delete latest --repo "$REPO" --yes 2>/dev/null || true
           gh api "repos/$REPO/git/refs/tags/latest" -X DELETE 2>/dev/null || true
 
-          # Create new release with the DMG attached
+          # Create new release with DMG + ZIP + appcast
           RELEASE_NOTES="**Build:** \`$VERSION\`
           **Commit:** [\`$SHORT_SHA\`](https://github.com/${{ github.repository }}/commit/$FULL_SHA)
           **Built at:** $TIMESTAMP
 
           ---
 
-          Download the DMG, open it, and drag vellum-assistant to your Applications folder."
+          Download the DMG, open it, and drag vellum-assistant to your Applications folder.
+          Existing installations will auto-update via Sparkle."
 
-          gh release create latest "$DMG_PATH" \
+          gh release create latest \
+            "$DMG_PATH" \
+            dist/vellum-assistant.zip \
+            dist/appcast.xml \
             --repo "$REPO" \
             --title "vellum-assistant $VERSION" \
             --notes "$RELEASE_NOTES" \

@@ -18,11 +18,12 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/soffes/HotKey", from: "0.2.1"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
     ],
     targets: [
         .target(
             name: "VellumAssistantLib",
-            dependencies: ["HotKey"],
+            dependencies: ["HotKey", "Sparkle"],
             path: "vellum-assistant",
             exclude: ["Resources/Info.plist"],
             resources: [
