@@ -4,10 +4,11 @@ AI-powered assistant platform by Vellum.
 
 ## Architecture
 
-The platform has two main components:
+The platform has three main components:
 
-- **Assistant runtime** (`assistant/`): Bun + TypeScript daemon that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes an HTTP API consumed by the web app.
+- **Assistant runtime** (`assistant/`): Bun + TypeScript daemon that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes an HTTP API consumed by the web app and gateway.
 - **Web app** (`web/`): Next.js frontend and API layer. Stores assistant metadata, auth, and channel config in Postgres. All chat operations proxy through the assistant runtime via a unified `RuntimeClient`.
+- **Gateway** (`gateway/`): Standalone Bun + TypeScript service that owns Telegram integration end-to-end. Receives Telegram webhooks, routes to the correct assistant via static settings, forwards to the assistant runtime, and sends replies back to Telegram.
 
 ## Repository Structure
 
@@ -15,6 +16,7 @@ The platform has two main components:
 /
 ├── web/               # Next.js web application
 ├── assistant/         # Bun-based assistant runtime
+├── gateway/           # Telegram gateway service
 ├── platform/          # Terraform infrastructure
 ├── vel/               # Development toolkit CLI
 └── .github/           # GitHub Actions workflows
