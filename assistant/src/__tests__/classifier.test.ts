@@ -43,9 +43,9 @@ describe('classifyHeuristic', () => {
     expect(classifyHeuristic('Copy this paragraph')).toBe('computer_use');
     expect(classifyHeuristic('Paste it here')).toBe('computer_use');
     expect(classifyHeuristic('Press enter')).toBe('computer_use');
-    expect(classifyHeuristic('Show me the file')).toBe('computer_use');
     expect(classifyHeuristic('Find the settings menu')).toBe('computer_use');
     expect(classifyHeuristic('Search for cats')).toBe('computer_use');
+    expect(classifyHeuristic('Show me the file')).toBe('computer_use');
     expect(classifyHeuristic('Run the build script')).toBe('computer_use');
   });
 

@@ -24,7 +24,7 @@ export async function classifyInteraction(task: string): Promise<InteractionType
       client.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 128,
-        system: 'You are a classifier. Determine whether the user\'s request requires computer use (controlling the mouse/keyboard/apps) or is a text Q&A (answerable with text only).',
+        system: 'You are a classifier. Determine whether the user\'s request requires computer use (controlling the GUI — clicking, scrolling, typing into app windows, navigating between apps) or can be handled with local tools (answering questions, running terminal commands, creating/editing/reading files, web searches, writing code). GUI tasks → computer_use. Everything else → text_qa.',
         tools: [{
           name: 'classify_interaction',
           description: 'Classify the user interaction type',
