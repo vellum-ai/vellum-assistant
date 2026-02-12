@@ -2,6 +2,7 @@ import SwiftUI
 
 struct VCircleButton: View {
     let icon: String              // SF Symbol name
+    let label: String             // Human-readable accessibility label
     var fillColor: Color = Emerald._600
     var iconColor: Color = .white
     var size: CGFloat = 36
@@ -24,7 +25,7 @@ struct VCircleButton: View {
             NSCursor.pointingHand.set()
             if !hovering { NSCursor.arrow.set() }
         }
-        .accessibilityLabel(icon)
+        .accessibilityLabel(label)
     }
 }
 
@@ -32,9 +33,9 @@ struct VCircleButton: View {
     ZStack {
         VColor.background.ignoresSafeArea()
         HStack(spacing: 12) {
-            VCircleButton(icon: "phone.fill") {}
-            VCircleButton(icon: "phone.fill", fillColor: Emerald._600.opacity(0.5)) {}
-            VCircleButton(icon: "plus", fillColor: Violet._500, size: 28, iconSize: 12) {}
+            VCircleButton(icon: "phone.fill", label: "Phone") {}
+            VCircleButton(icon: "phone.fill", label: "Phone", fillColor: Emerald._600.opacity(0.5)) {}
+            VCircleButton(icon: "plus", label: "Add", fillColor: Violet._500, size: 28, iconSize: 12) {}
         }
         .padding()
     }

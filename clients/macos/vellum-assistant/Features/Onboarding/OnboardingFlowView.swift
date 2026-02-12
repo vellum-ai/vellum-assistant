@@ -149,7 +149,7 @@ struct OnboardingFlowView: View {
 
     private var mockInputBar: some View {
         HStack(spacing: VSpacing.md) {
-            VCircleButton(icon: "phone.fill", fillColor: Emerald._600.opacity(0.5)) { }
+            VCircleButton(icon: "phone.fill", label: "Phone", fillColor: Emerald._600.opacity(0.5)) { }
 
             Text("What you need chef?")
                 .font(VFont.body)
