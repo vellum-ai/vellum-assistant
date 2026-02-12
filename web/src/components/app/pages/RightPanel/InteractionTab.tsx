@@ -352,7 +352,13 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
     const poll = async () => {
       try {
         const res = await fetch(`/api/assistants/${assistantId}/runs/${activeRunId}`);
-        if (!res.ok || cancelled) return;
+        if (cancelled) return;
+        if (!res.ok) {
+          setActiveRunId(null);
+          setIsLoading(false);
+          await fetchMessages();
+          return;
+        }
         const run = await res.json() as {
           status: string;
           pendingConfirmation?: PendingRunConfirmation | null;
@@ -659,6 +665,9 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
         const data = await response.json() as { id?: string };
         if (data.id) {
           setActiveRunId(data.id);
+        } else {
+          setIsLoading(false);
+          await fetchMessages();
         }
         setPendingAttachments((prev) => prev.filter((attachment) => !attachmentIds.includes(attachment.attachmentId || "")));
       } catch (error) {
