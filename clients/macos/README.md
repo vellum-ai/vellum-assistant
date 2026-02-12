@@ -74,6 +74,11 @@ Grant these in System Settings → Privacy & Security.
 6. Or hold the Fn key to dictate a task via voice
 7. Watch the overlay as vellum-assistant works through the task
 8. Press Escape at any time to cancel
+9. The main window shows a chat interface — type a message to start a conversation
+10. Responses stream in real-time from the daemon
+11. Click the stop button to cancel an in-progress generation
+
+**Current limitations:** Single active generation at a time, text-only messages, no conversation history browser.
 
 ## Xcode Previews
 
@@ -162,6 +167,10 @@ Ambient/              Background screen-watching agent
   KnowledgeCron       Triggers periodic insight analysis
   InsightStore        Higher-level insights derived from observations
   ScreenOCR           Vision framework OCR
+Features/Chat/        Main window chat interface
+  ChatMessage         Message model (role, text, streaming state)
+  ChatView            Presentational view (bubbles, composer, thinking, error banner)
+  ChatViewModel       Session bootstrap, streaming, cancel via daemon IPC
 UI/                   SwiftUI views + overlay windows
   Onboarding/         First-launch setup flow (permissions, naming, Fn key)
 Logging/              Session recording to JSON
