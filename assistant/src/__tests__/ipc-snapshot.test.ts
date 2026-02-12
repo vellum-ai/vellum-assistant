@@ -326,13 +326,13 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   message_queued: {
     type: 'message_queued',
     sessionId: 'sess-001',
-    requestId: 'req-003',
+    requestId: 'req-queue-001',
     position: 1,
   },
   message_dequeued: {
     type: 'message_dequeued',
     sessionId: 'sess-001',
-    requestId: 'req-003',
+    requestId: 'req-queue-001',
   },
 };
 

@@ -263,9 +263,22 @@ async function handleUserMessage(
   try {
     ctx.socketToSession.set(socket, msg.sessionId);
     const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
-    rlog.info('Processing user message');
-    const sendEvent = (event: ServerMessage) => { ctx.send(socket, event); };
 
+    const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+
+    const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId);
+    if (result.queued) {
+      rlog.info({ position: session.getQueueDepth() }, 'Message queued (session busy)');
+      ctx.send(socket, {
+        type: 'message_queued',
+        sessionId: msg.sessionId,
+        requestId,
+        position: session.getQueueDepth(),
+      });
+      return; // Don't await — message will be processed when current one finishes
+    }
+
+    rlog.info('Processing user message');
     // Fire-and-forget: don't block the IPC handler so the connection can
     // continue receiving messages (e.g. cancel, confirmations, or
     // additional user_message that will be queued by the session).

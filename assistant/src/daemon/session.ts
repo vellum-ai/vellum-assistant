@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, DynamicPageSurfaceData, UiSurfaceShow, MessageQueued, MessageDequeued } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, DynamicPageSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
@@ -209,7 +209,37 @@ export class Session {
       }
       this.pendingSurfaceActions.clear();
       this.surfaceState.clear();
+
+      // Clear queued messages and notify each caller
+      for (const queued of this.messageQueue) {
+        queued.onEvent({ type: 'error', message: 'Session aborted — queued message discarded' });
+      }
+      this.messageQueue = [];
     }
+  }
+
+  /**
+   * Enqueue a message if the session is busy, or indicate it should be
+   * processed immediately. Returns `{ queued: true }` if the message was
+   * added to the queue, or `{ queued: false }` if the caller should invoke
+   * `processMessage` directly.
+   */
+  enqueueMessage(
+    content: string,
+    attachments: UserMessageAttachment[],
+    onEvent: (msg: ServerMessage) => void,
+    requestId: string,
+  ): { queued: boolean; requestId: string } {
+    if (!this.processing) {
+      return { queued: false, requestId };
+    }
+
+    this.messageQueue.push({ content, attachments, requestId, onEvent });
+    return { queued: true, requestId };
+  }
+
+  getQueueDepth(): number {
+    return this.messageQueue.length;
   }
 
   handleConfirmationResponse(
@@ -225,37 +255,21 @@ export class Session {
    * Persist a user message and mark the session as processing.
    * Returns the messageId immediately without running the agent loop.
    * After calling this, call `runAgentLoop` to continue processing.
-   *
-   * If the session is already processing, the message is enqueued and
-   * will be processed after the current message completes.  Returns an
-   * empty string in that case (no messageId yet) and emits a
-   * `message_queued` event to the client.
    */
   persistUserMessage(
     content: string,
     attachments: UserMessageAttachment[],
     requestId?: string,
-    onEvent?: (msg: ServerMessage) => void,
   ): string {
+    if (this.processing) {
+      throw new Error('Session is already processing a message');
+    }
+
     if (!content.trim() && attachments.length === 0) {
       throw new Error('Message content or attachments are required');
     }
 
     const reqId = requestId ?? uuid();
-
-    if (this.processing) {
-      this.messageQueue.push({ content, attachments, requestId: reqId, onEvent: onEvent ?? this.sendToClient });
-      const position = this.messageQueue.length;
-      log.info({ conversationId: this.conversationId, requestId: reqId, position }, 'Message enqueued');
-      this.sendToClient({
-        type: 'message_queued',
-        sessionId: this.conversationId,
-        requestId: reqId,
-        position,
-      } as MessageQueued);
-      return '';
-    }
-
     this.currentRequestId = reqId;
     this.processing = true;
     this.abortController = new AbortController();
@@ -593,11 +607,11 @@ export class Session {
     if (!next) return;
 
     log.info({ conversationId: this.conversationId, requestId: next.requestId }, 'Dequeuing message');
-    this.sendToClient({
+    next.onEvent({
       type: 'message_dequeued',
       sessionId: this.conversationId,
       requestId: next.requestId,
-    } as MessageDequeued);
+    });
 
     // Fire-and-forget: processMessage sets this.processing = true synchronously
     // so subsequent messages will still be enqueued.
@@ -620,16 +634,10 @@ export class Session {
   ): Promise<string> {
     let userMessageId: string;
     try {
-      userMessageId = this.persistUserMessage(content, attachments, requestId, onEvent);
+      userMessageId = this.persistUserMessage(content, attachments, requestId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       onEvent({ type: 'error', message });
-      return '';
-    }
-
-    // Empty string means the message was enqueued (session busy).
-    // It will be processed later via drainQueue().
-    if (!userMessageId) {
       return '';
     }
 

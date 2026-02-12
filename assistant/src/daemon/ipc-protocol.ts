@@ -443,6 +443,19 @@ export interface AppDataResponse {
   error?: string;
 }
 
+export interface MessageQueued {
+  type: 'message_queued';
+  sessionId: string;
+  requestId: string;
+  position: number;
+}
+
+export interface MessageDequeued {
+  type: 'message_dequeued';
+  sessionId: string;
+  requestId: string;
+}
+
 /** Common fields shared by all UiSurfaceShow variants. */
 interface UiSurfaceShowBase {
   type: 'ui_surface_show';

@@ -79,6 +79,11 @@ struct InterviewStepView: View {
                         title: viewModel.isFinished ? "Let\u{2019}s get started!" : "I\u{2019}m ready to go!",
                         style: .primary
                     ) {
+                        let messages = viewModel.messages
+                        let extractor = ProfileExtractor(daemonClient: daemonClient)
+                        Task {
+                            await extractor.extractProfile(from: messages, assistantName: state.assistantName)
+                        }
                         state.interviewCompleted = true
                         viewModel.endInterview()
                         onComplete()
@@ -89,6 +94,13 @@ struct InterviewStepView: View {
 
                 if !viewModel.isFinished && hasAssistantMessage {
                     Button {
+                        let messages = viewModel.messages
+                        if !messages.isEmpty {
+                            let extractor = ProfileExtractor(daemonClient: daemonClient)
+                            Task {
+                                await extractor.extractProfile(from: messages, assistantName: state.assistantName)
+                            }
+                        }
                         viewModel.endInterview()
                         onComplete()
                     } label: {
