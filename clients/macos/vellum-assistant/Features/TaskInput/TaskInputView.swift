@@ -7,15 +7,12 @@ struct TaskInputView: View {
     private static let maxTotalAttachmentBytes = 50 * 1024 * 1024
     let onSubmit: (TaskSubmission) -> Void
     @State private var taskText = ""
+    @State private var hasAPIKey = APIKeyManager.getKey() != nil
     @State private var attachments: [TaskAttachment] = []
     @State private var attachmentError: String?
     @State private var isDropTargeted = false
     @FocusState private var isTextFieldFocused: Bool
     @Environment(\.openSettings) private var openSettings
-
-    private var hasAPIKey: Bool {
-        APIKeyManager.getKey() != nil
-    }
 
     private var canSubmit: Bool {
         let trimmed = taskText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -130,7 +127,11 @@ struct TaskInputView: View {
         .padding()
         .frame(width: 320)
         .onAppear {
+            refreshAPIKeyState()
             isTextFieldFocused = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshAPIKeyState()
         }
     }
 
@@ -146,6 +147,10 @@ struct TaskInputView: View {
 
     private func removeAttachment(id: UUID) {
         attachments.removeAll { $0.id == id }
+    }
+
+    private func refreshAPIKeyState() {
+        hasAPIKey = APIKeyManager.getKey() != nil
     }
 
     private func pickerTypes() -> [UTType] {
