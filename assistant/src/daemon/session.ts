@@ -93,7 +93,7 @@ export class Session {
     const toolDefs = [
       ...getAllToolDefinitions(),
       ...allUiSurfaceTools.map((t) => t.getDefinition()),
-      ...allAppTools.map((t) => t.getDefinition()),
+      ...allAppTools.filter((t) => t.executionMode === 'proxy').map((t) => t.getDefinition()),
     ];
     const toolExecutor = async (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => {
       return this.executor.execute(name, input, {
