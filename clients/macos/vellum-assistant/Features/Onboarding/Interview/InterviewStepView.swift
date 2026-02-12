@@ -10,7 +10,7 @@ struct InterviewStepView: View {
     @State private var streamingMessageId = UUID()
     @State private var isRecording = false
 
-    private let voiceInputManager = VoiceInputManager()
+    @State private var voiceInputManager = VoiceInputManager()
     private let profileExtractor: ProfileExtractor
 
     init(state: OnboardingState, daemonClient: DaemonClientProtocol, onComplete: @escaping () -> Void) {
@@ -66,6 +66,7 @@ struct InterviewStepView: View {
                 onSend: { viewModel.sendMessage() },
                 onVoiceToggle: { toggleVoice() },
                 isRecording: isRecording,
+                isStreaming: !viewModel.streamingText.isEmpty,
                 onChipTap: { chip in
                     viewModel.inputText = chip
                     viewModel.sendMessage()
@@ -154,11 +155,7 @@ struct InterviewStepView: View {
     }
 
     private func toggleVoice() {
-        if isRecording {
-            voiceInputManager.stop()
-        } else {
-            voiceInputManager.start()
-        }
+        voiceInputManager.toggleRecording()
     }
 }
 
