@@ -18,7 +18,7 @@ struct ChatView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Image("bg", bundle: .module)
+            Image("bg", bundle: ResourceBundle.bundle)
                 .resizable()
                 .scaledToFit()
                 .opacity(0.3)
