@@ -211,7 +211,7 @@ For each task being handed off:
 1. Create a worktree **from the feature branch** (not main):
 
 ```bash
-git worktree add .worktrees/swarm/task-<counter> -b swarm/task-<counter> origin/<feature-branch-name>
+.claude/worktree create swarm/task-<counter> origin/<feature-branch-name>
 ```
 
 2. Create a `TaskCreate` entry for tracking.
