@@ -107,6 +107,13 @@ final class ProfileExtractor {
         // Wait for session creation, send the transcript, and accumulate the response.
         var sessionId: String?
         var accumulated = ""
+        // Track whether we've sent the user message and received at least one
+        // text delta back. Since `assistant_text_delta` and `message_complete`
+        // don't carry a sessionId, we use this flag to avoid acting on events
+        // from unrelated concurrent sessions (e.g., a chat the user starts
+        // while extraction is running in the background).
+        var messageSent = false
+        var receivedDelta = false
 
         for await message in stream {
             switch message {
@@ -120,18 +127,30 @@ final class ProfileExtractor {
                         content: "Here is the interview transcript to analyze:\n\n\(transcript)",
                         attachments: nil
                     ))
+                    messageSent = true
                 }
 
-            case .assistantTextDelta(let delta) where sessionId != nil:
+            case .assistantTextDelta(let delta) where messageSent:
                 accumulated += delta.text
+                receivedDelta = true
 
-            case .assistantThinkingDelta where sessionId != nil:
-                break
+            case .assistantThinkingDelta where messageSent:
+                if !receivedDelta {
+                    // Thinking deltas from our session also count as evidence
+                    // that this session's response has started.
+                    receivedDelta = true
+                }
 
-            case .messageComplete where sessionId != nil:
+            case .messageComplete where receivedDelta:
                 log.info("Extraction response complete (\(accumulated.count) chars)")
                 processExtractionResponse(accumulated)
                 return
+
+            case .messageComplete where messageSent && !receivedDelta:
+                // A message_complete arrived after we sent our message but
+                // before we received any deltas — this belongs to another
+                // session (e.g., the interview finishing). Ignore it.
+                log.debug("Ignoring message_complete from unrelated session")
 
             case .cuError(let error) where error.sessionId == sessionId:
                 log.error("Extraction session error: \(error.message)")
