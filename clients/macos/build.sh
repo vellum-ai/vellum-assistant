@@ -78,6 +78,17 @@ echo "Building ($CONFIG)..."
 swift build $SWIFT_FLAGS
 
 BIN_PATH=$(swift build $SWIFT_FLAGS --show-bin-path)
+
+# Patch SPM's generated resource_bundle_accessor to use Bundle.main.resourceURL
+# (points to Contents/Resources/) instead of Bundle.main.bundleURL (points to .app root).
+# macOS codesigning requires all contents inside Contents/.
+ACCESSOR=$(find "$BIN_PATH" -path "*/VellumAssistantLib.build/DerivedSources/resource_bundle_accessor.swift" 2>/dev/null | head -1)
+if [ -n "$ACCESSOR" ] && grep -q 'Bundle.main.bundleURL' "$ACCESSOR"; then
+    sed -i '' 's/Bundle\.main\.bundleURL/Bundle.main.resourceURL!/' "$ACCESSOR"
+    echo "Patched resource_bundle_accessor.swift for .app bundle layout"
+    swift build $SWIFT_FLAGS
+fi
+
 EXECUTABLE="$BIN_PATH/$APP_NAME"
 
 if [ ! -f "$EXECUTABLE" ]; then
@@ -163,8 +174,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 PLIST
 
 # 4. Copy SPM resource bundle (contains Recipes, processed assets)
-LIB_TARGET="VellumAssistantLib"
-SPM_BUNDLE="$BIN_PATH/${LIB_TARGET}_${LIB_TARGET}.bundle"
+# SPM names the bundle as <product>_<target>.bundle
+SPM_BUNDLE="$BIN_PATH/${APP_NAME}_VellumAssistantLib.bundle"
 if [ -d "$SPM_BUNDLE" ]; then
     cp -R "$SPM_BUNDLE" "$RESOURCES_DIR/"
 fi
