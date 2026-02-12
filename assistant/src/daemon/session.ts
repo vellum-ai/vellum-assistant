@@ -83,7 +83,7 @@ export class Session {
   private currentRequestId?: string;
   private messageQueue: QueuedMessage[] = [];
   private pendingSurfaceActions = new Map<string, {
-    resolve: (result: ToolExecutionResult) => void;
+    surfaceType: SurfaceType;
   }>();
   private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
 
@@ -214,10 +214,6 @@ export class Session {
       log.info({ conversationId: this.conversationId }, 'Aborting in-flight processing');
       this.abortController?.abort();
       this.prompter.dispose();
-      // Resolve any pending surface actions
-      for (const [, pending] of this.pendingSurfaceActions) {
-        pending.resolve({ content: 'Session aborted', isError: true });
-      }
       this.pendingSurfaceActions.clear();
       this.surfaceState.clear();
 
@@ -725,9 +721,41 @@ export class Session {
       return;
     }
     this.pendingSurfaceActions.delete(surfaceId);
-    pending.resolve({
-      content: JSON.stringify({ actionId, data: data ?? {} }),
-      isError: false,
+
+    const content = JSON.stringify({
+      surfaceAction: true,
+      surfaceId,
+      surfaceType: pending.surfaceType,
+      actionId,
+      data: data ?? {},
+    });
+
+    const requestId = uuid();
+    const onEvent = (msg: ServerMessage) => this.sendToClient(msg);
+
+    const result = this.enqueueMessage(content, [], onEvent, requestId);
+    if (result.queued) {
+      log.info({ surfaceId, actionId, requestId }, 'Surface action queued (session busy)');
+      onEvent({
+        type: 'message_queued',
+        sessionId: this.conversationId,
+        requestId,
+        position: this.getQueueDepth(),
+      });
+      return;
+    }
+
+    if (result.rejected) {
+      log.error({ surfaceId, actionId }, 'Surface action rejected — queue full');
+      onEvent({ type: 'error', message: 'Surface action rejected — session queue is full' });
+      return;
+    }
+
+    log.info({ surfaceId, actionId, requestId }, 'Processing surface action as follow-up');
+    this.processMessage(content, [], onEvent, requestId).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error({ err, surfaceId, actionId }, 'Error processing surface action');
+      onEvent({ type: 'error', message: `Failed to process surface action: ${message}` });
     });
   }
 
@@ -792,10 +820,16 @@ export class Session {
         data,
       } as UiSurfaceShow);
 
-      // Always await — file upload is interactive
-      return new Promise<ToolExecutionResult>((resolve) => {
-        this.pendingSurfaceActions.set(surfaceId, { resolve });
-      });
+      // Non-blocking: return immediately, user action arrives as follow-up message
+      this.pendingSurfaceActions.set(surfaceId, { surfaceType: 'file_upload' as SurfaceType });
+      return {
+        content: JSON.stringify({
+          surfaceId,
+          status: 'awaiting_user_action',
+          message: 'File upload dialog displayed. The uploaded file data will arrive as a follow-up message.',
+        }),
+        isError: false,
+      };
     }
 
     if (toolName === 'ui_show') {
@@ -825,9 +859,15 @@ export class Session {
       } as unknown as UiSurfaceShow);
 
       if (awaitAction) {
-        return new Promise<ToolExecutionResult>((resolve) => {
-          this.pendingSurfaceActions.set(surfaceId, { resolve });
-        });
+        this.pendingSurfaceActions.set(surfaceId, { surfaceType });
+        return {
+          content: JSON.stringify({
+            surfaceId,
+            status: 'awaiting_user_action',
+            message: 'Surface displayed. The user\'s response will arrive as a follow-up message.',
+          }),
+          isError: false,
+        };
       }
       return { content: JSON.stringify({ surfaceId }), isError: false };
     }
