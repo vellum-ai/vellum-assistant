@@ -5,6 +5,7 @@ import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
 import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, DynamicPageSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
+import type { CheckpointDecision } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
 import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
@@ -347,6 +348,7 @@ export class Session {
     const abortController = this.abortController;
     const reqId = this.currentRequestId ?? uuid();
     const rlog = log.child({ conversationId: this.conversationId, requestId: reqId });
+    let yieldedForHandoff = false;
 
     try {
       const isFirstMessage = this.messages.length === 1;
@@ -510,11 +512,20 @@ export class Session {
         }
       };
 
+      const onCheckpoint = (): CheckpointDecision => {
+        if (this.canHandoffAtCheckpoint()) {
+          yieldedForHandoff = true;
+          return 'yield';
+        }
+        return 'continue';
+      };
+
       let updatedHistory = await this.agentLoop.run(
         runMessages,
         buildEventHandler(),
         abortController.signal,
         reqId,
+        onCheckpoint,
       );
 
       // One-shot self-heal retry: if the provider returned a strict ordering
@@ -539,6 +550,7 @@ export class Session {
           buildEventHandler(),
           abortController.signal,
           reqId,
+          onCheckpoint,
         );
 
         if (orderingErrorDetected) {
@@ -597,7 +609,9 @@ export class Session {
 
       this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent);
 
-      if (abortController.signal.aborted) {
+      if (yieldedForHandoff) {
+        onEvent({ type: 'message_complete', sessionId: this.conversationId });
+      } else if (abortController.signal.aborted) {
         onEvent({ type: 'generation_cancelled' });
       } else {
         onEvent({ type: 'message_complete', sessionId: this.conversationId });
@@ -625,7 +639,7 @@ export class Session {
       this.currentRequestId = undefined;
 
       // Drain the next queued message, if any
-      this.drainQueue();
+      this.drainQueue(yieldedForHandoff ? 'checkpoint_handoff' : 'loop_complete');
     }
   }
 
@@ -639,11 +653,11 @@ export class Session {
    * block, we must explicitly continue draining on failure — otherwise
    * remaining queued messages would be stranded.
    */
-  private drainQueue(): void {
+  private drainQueue(reason: QueueDrainReason = 'loop_complete'): void {
     const next = this.messageQueue.shift();
     if (!next) return;
 
-    log.info({ conversationId: this.conversationId, requestId: next.requestId }, 'Dequeuing message');
+    log.info({ conversationId: this.conversationId, requestId: next.requestId, reason }, 'Dequeuing message');
     next.onEvent({
       type: 'message_dequeued',
       sessionId: this.conversationId,

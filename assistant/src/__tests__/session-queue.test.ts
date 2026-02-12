@@ -1,6 +1,6 @@
 import { describe, expect, mock, test, beforeEach } from 'bun:test';
 import type { Message, ProviderResponse } from '../providers/types.js';
-import type { AgentEvent } from '../agent/loop.js';
+import type { AgentEvent, CheckpointInfo, CheckpointDecision } from '../agent/loop.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 
 // ---------------------------------------------------------------------------
@@ -111,6 +111,7 @@ interface PendingRun {
   reject: (err: Error) => void;
   messages: Message[];
   onEvent: (event: AgentEvent) => void;
+  onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision;
 }
 
 let pendingRuns: PendingRun[] = [];
@@ -122,9 +123,11 @@ mock.module('../agent/loop.js', () => ({
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
       _signal?: AbortSignal,
+      _requestId?: string,
+      onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
     ): Promise<Message[]> {
       return new Promise<Message[]>((resolve, reject) => {
-        pendingRuns.push({ resolve, reject, messages, onEvent });
+        pendingRuns.push({ resolve, reject, messages, onEvent, onCheckpoint });
       });
     }
   },
@@ -545,5 +548,187 @@ describe('Session queue policy helpers', () => {
 
     const disabledPolicy: QueuePolicy = { checkpointHandoffEnabled: false };
     expect(disabledPolicy.checkpointHandoffEnabled).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Checkpoint handoff tests
+// ---------------------------------------------------------------------------
+
+describe('Session checkpoint handoff', () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test('onCheckpoint yields when there is a queued message', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+
+    // Start processing first message
+    const p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
+    await waitForPendingRun(1);
+
+    // Enqueue a second message while the first is processing
+    session.enqueueMessage('msg-2', [], () => {}, 'req-2');
+    expect(session.hasQueuedMessages()).toBe(true);
+
+    // The pending run should have received an onCheckpoint callback.
+    // Simulate the agent loop calling it at a turn boundary.
+    const run = pendingRuns[0];
+    expect(run.onCheckpoint).toBeDefined();
+    const decision = run.onCheckpoint!({
+      turnIndex: 0,
+      toolCount: 1,
+      hasToolUse: true,
+    });
+
+    // Because there is a queued message, the callback should return 'yield'
+    expect(decision).toBe('yield');
+
+    // Complete the run so the session finishes cleanly
+    resolveRun(0);
+    await p1;
+
+    // After yield, the first message should emit message_complete
+    expect(events1.some((e) => e.type === 'message_complete')).toBe(true);
+
+    // The queued message should now be draining (second run started)
+    await waitForPendingRun(2);
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  test('onCheckpoint returns continue when queue is empty', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // Start processing — no enqueued messages
+    const p1 = session.processMessage('msg-1', [], () => {}, 'req-1');
+    await waitForPendingRun(1);
+
+    expect(session.hasQueuedMessages()).toBe(false);
+
+    // The pending run should have an onCheckpoint callback
+    const run = pendingRuns[0];
+    expect(run.onCheckpoint).toBeDefined();
+    const decision = run.onCheckpoint!({
+      turnIndex: 0,
+      toolCount: 1,
+      hasToolUse: true,
+    });
+
+    // No queued messages → continue
+    expect(decision).toBe('continue');
+
+    // Cleanup
+    resolveRun(0);
+    await p1;
+  });
+
+  test('FIFO ordering is preserved through checkpoint handoff', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const processedOrder: string[] = [];
+
+    const makeHandler = (label: string) => (e: ServerMessage) => {
+      if (e.type === 'message_complete') processedOrder.push(label);
+    };
+
+    // Start first message
+    const p1 = session.processMessage('msg-1', [], makeHandler('msg-1'), 'req-1');
+    await waitForPendingRun(1);
+
+    // Enqueue two messages
+    session.enqueueMessage('msg-2', [], makeHandler('msg-2'), 'req-2');
+    session.enqueueMessage('msg-3', [], makeHandler('msg-3'), 'req-3');
+    expect(session.getQueueDepth()).toBe(2);
+
+    // Simulate the agent loop yielding at the checkpoint (first run)
+    const run0 = pendingRuns[0];
+    expect(run0.onCheckpoint).toBeDefined();
+    const decision = run0.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true });
+    expect(decision).toBe('yield');
+
+    // Complete first run
+    resolveRun(0);
+    await p1;
+
+    // msg-2 should be draining next
+    await waitForPendingRun(2);
+
+    // Complete second run (msg-2)
+    resolveRun(1);
+    await waitForPendingRun(3);
+
+    // Complete third run (msg-3)
+    resolveRun(2);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // FIFO order: msg-1 completes first, then msg-2, then msg-3
+    expect(processedOrder).toEqual(['msg-1', 'msg-2', 'msg-3']);
+  });
+
+  test('queue-full rejection still works during checkpoint handoff', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // Start processing
+    session.processMessage('msg-1', [], () => {}, 'req-1');
+    await waitForPendingRun(1);
+
+    // Fill the queue to MAX_QUEUE_DEPTH
+    for (let i = 0; i < MAX_QUEUE_DEPTH; i++) {
+      const result = session.enqueueMessage(`queued-${i}`, [], () => {}, `req-q-${i}`);
+      expect(result.queued).toBe(true);
+    }
+    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
+
+    // Verify checkpoint would yield (there are queued messages)
+    const run = pendingRuns[0];
+    expect(run.onCheckpoint).toBeDefined();
+    expect(run.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true })).toBe('yield');
+
+    // Next enqueue should still be rejected
+    const rejected = session.enqueueMessage('overflow', [], () => {}, 'req-overflow');
+    expect(rejected.queued).toBe(false);
+    expect(rejected.rejected).toBe(true);
+
+    // Queue depth unchanged
+    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
+  });
+
+  test('onCheckpoint callback is passed to both initial and retry runs', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // Start processing
+    const p1 = session.processMessage('msg-1', [], () => {}, 'req-1');
+    await waitForPendingRun(1);
+
+    // The first run should have onCheckpoint
+    expect(pendingRuns[0].onCheckpoint).toBeDefined();
+
+    // Simulate an ordering error: emit error + resolve with same length
+    // to trigger the retry path
+    const run0 = pendingRuns[0];
+    run0.onEvent({
+      type: 'error',
+      error: new Error('tool_result block not immediately after tool_use block'),
+    });
+    // Resolve with the same messages (no new messages appended = ordering error)
+    run0.resolve([...run0.messages]);
+
+    // Wait for the retry run
+    await waitForPendingRun(2);
+
+    // The retry run should also have onCheckpoint
+    expect(pendingRuns[1].onCheckpoint).toBeDefined();
+
+    // Complete retry cleanly
+    resolveRun(1);
+    await p1;
   });
 });
