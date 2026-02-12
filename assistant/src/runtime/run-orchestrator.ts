@@ -138,11 +138,13 @@ export class RunOrchestrator {
 
   /**
    * Submit a permission decision for a pending confirmation.
-   * Returns true if the decision was applied or was already handled
-   * (idempotent). Returns false if the run doesn't exist or is in
-   * a state where no confirmation is pending.
+   *
+   * Returns:
+   * - `'applied'`         – decision was applied or already handled (idempotent)
+   * - `'run_not_found'`   – no run exists with the given ID
+   * - `'no_pending_decision'` – run exists but is not awaiting a confirmation
    */
-  submitDecision(runId: string, decision: UserDecision): boolean {
+  submitDecision(runId: string, decision: UserDecision): 'applied' | 'run_not_found' | 'no_pending_decision' {
     const pendingState = this.pending.get(runId);
     if (pendingState) {
       runsStore.clearRunConfirmation(runId);
@@ -151,12 +153,12 @@ export class RunOrchestrator {
         decision,
       );
       this.pending.delete(runId);
-      return true;
+      return 'applied';
     }
 
     // No in-memory pending state — check if the run exists.
     const run = runsStore.getRun(runId);
-    if (!run) return false;
+    if (!run) return 'run_not_found';
 
     // If the run is still needs_confirmation but there's no in-memory
     // state, the prompter already timed out and auto-denied. Fail the
@@ -164,18 +166,18 @@ export class RunOrchestrator {
     // to complete it.
     if (run.status === 'needs_confirmation') {
       runsStore.failRun(runId, 'Prompter timed out (no active handler)');
-      return true;
+      return 'applied';
     }
 
     // Terminal states (completed/failed) mean the decision was already
     // handled (double-submit). Treat as idempotent success.
     if (run.status === 'completed' || run.status === 'failed') {
-      return true;
+      return 'applied';
     }
 
     // Run is in 'running' state with no pending confirmation — the
     // agent loop hasn't reached a confirmation point yet. Reject so
     // the client doesn't mistakenly treat the decision as accepted.
-    return false;
+    return 'no_pending_decision';
   }
 }
