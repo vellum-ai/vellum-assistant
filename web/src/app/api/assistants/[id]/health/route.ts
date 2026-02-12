@@ -32,7 +32,7 @@ export async function GET(request: Request, { params }: RouteParams) {
           status: "unhealthy",
           message: `Runtime health check returned ${error.status}`,
         },
-        { status: error.status },
+        { status: error.httpStatus },
       );
     }
     if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
