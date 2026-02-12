@@ -240,8 +240,6 @@ export const cronRuns = sqliteTable('cron_runs', {
   createdAt: integer('created_at').notNull(),
 });
 
-// ── LLM Usage Events (cost tracking ledger) ─────────────────────────
-
 // ── Entity Graph ─────────────────────────────────────────────────────
 
 export const memoryEntities = sqliteTable('memory_entities', {
@@ -269,6 +267,8 @@ export const memoryItemEntities = sqliteTable('memory_item_entities', {
   memoryItemId: text('memory_item_id').notNull(),
   entityId: text('entity_id').notNull(),
 });
+
+// ── LLM Usage Events (cost tracking ledger) ─────────────────────────
 
 export const llmUsageEvents = sqliteTable('llm_usage_events', {
   id: text('id').primaryKey(),
