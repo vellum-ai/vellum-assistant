@@ -80,8 +80,18 @@ final class SurfaceManager: ObservableObject {
 
         let hostingController = NSHostingController(rootView: view)
 
+        let surfacePanelWidth: CGFloat
+        let surfacePanelHeight: CGFloat
+        if case .dynamicPage(let dpData) = surface.data {
+            surfacePanelWidth = CGFloat(dpData.width ?? Int(panelWidth))
+            surfacePanelHeight = CGFloat(dpData.height ?? 500)
+        } else {
+            surfacePanelWidth = panelWidth
+            surfacePanelHeight = 140
+        }
+
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: 140),
+            contentRect: NSRect(x: 0, y: 0, width: surfacePanelWidth, height: surfacePanelHeight),
             styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow],
             backing: .buffered,
             defer: false
@@ -157,14 +167,26 @@ final class SurfaceManager: ObservableObject {
 
     // MARK: - Positioning
 
+    private func centerPanel(_ panel: NSPanel) {
+        guard let screen = NSScreen.main else { return }
+        let screenFrame = screen.visibleFrame
+        let panelFrame = panel.frame
+
+        let x = screenFrame.midX - panelFrame.width / 2
+        let y = screenFrame.midY - panelFrame.height / 2
+
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+
     private func positionPanel(_ panel: NSPanel, at index: Int) {
         guard let screen = NSScreen.main else { return }
         let screenFrame = screen.visibleFrame
 
+        let actualWidth = panel.frame.width
         let estimatedPanelHeight: CGFloat = 140
         let yOffset = CGFloat(index) * (estimatedPanelHeight + panelSpacing)
 
-        let x = screenFrame.maxX - panelWidth - panelMargin
+        let x = screenFrame.maxX - actualWidth - panelMargin
         let y = screenFrame.minY + panelMargin + yOffset
 
         panel.setFrameOrigin(NSPoint(x: x, y: y))
@@ -173,9 +195,14 @@ final class SurfaceManager: ObservableObject {
     /// Reposition all visible panels based on their order in `surfaceOrder`.
     /// Called after show and dismiss to prevent gaps and overlaps.
     private func repositionAllPanels() {
-        for (index, surfaceId) in surfaceOrder.enumerated() {
-            if let panel = panels[surfaceId] {
-                positionPanel(panel, at: index)
+        var stackIndex = 0
+        for surfaceId in surfaceOrder {
+            guard let panel = panels[surfaceId] else { continue }
+            if case .dynamicPage = activeSurfaces[surfaceId]?.data {
+                centerPanel(panel)
+            } else {
+                positionPanel(panel, at: stackIndex)
+                stackIndex += 1
             }
         }
     }

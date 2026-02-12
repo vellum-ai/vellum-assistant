@@ -9,7 +9,7 @@ struct TextResponseView: View {
             HStack(spacing: VSpacing.sm) {
                 Image(systemName: "text.bubble.fill")
                     .foregroundStyle(.blue)
-                Text("vellum-assistant")
+                Text(UserDefaults.standard.string(forKey: "assistantName") ?? "vellum-assistant")
                     .font(VFont.headline)
                     .lineLimit(1)
             }

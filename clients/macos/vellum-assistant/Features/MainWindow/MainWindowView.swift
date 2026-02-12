@@ -7,7 +7,7 @@ struct MainWindowView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: VSpacing.lg) {
-                Text("vellum-assistant")
+                Text(UserDefaults.standard.string(forKey: "assistantName") ?? "vellum-assistant")
                     .font(VFont.display)
                     .foregroundStyle(VColor.textPrimary)
 

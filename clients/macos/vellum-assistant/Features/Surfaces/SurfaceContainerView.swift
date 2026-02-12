@@ -60,11 +60,18 @@ struct SurfaceContainerView: View {
             }
         }
         .padding(VSpacing.xl)
-        .frame(width: 380)
+        .frame(width: surfaceWidth)
         .vPanelBackground()
     }
 
     // MARK: - Helpers
+
+    private var surfaceWidth: CGFloat {
+        if case .dynamicPage(let data) = surface.data {
+            return CGFloat(data.width ?? 380)
+        }
+        return 380
+    }
 
     private var isFormOrConfirmation: Bool {
         switch surface.data {
