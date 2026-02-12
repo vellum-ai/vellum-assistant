@@ -21,6 +21,12 @@ struct VToggle: View {
                     .foregroundColor(VColor.textPrimary)
             }
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(VAnimation.fast) {
+                isOn.toggle()
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityValue(isOn ? "On" : "Off")
@@ -45,11 +51,6 @@ struct VToggle: View {
                 .fill(Color.white)
                 .frame(width: knobSize, height: knobSize)
                 .padding(.horizontal, knobPadding)
-        }
-        .onTapGesture {
-            withAnimation(VAnimation.fast) {
-                isOn.toggle()
-            }
         }
     }
 }
