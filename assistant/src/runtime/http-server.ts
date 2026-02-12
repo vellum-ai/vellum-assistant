@@ -638,9 +638,10 @@ export class RuntimeHttpServer {
       externalMessageId?: string;
       content?: string;
       senderName?: string;
+      attachmentIds?: string[];
     };
 
-    const { sourceChannel, externalChatId, externalMessageId, content } = body;
+    const { sourceChannel, externalChatId, externalMessageId, content, attachmentIds } = body;
 
     if (!sourceChannel || typeof sourceChannel !== 'string') {
       return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
@@ -651,8 +652,23 @@ export class RuntimeHttpServer {
     if (!externalMessageId || typeof externalMessageId !== 'string') {
       return Response.json({ error: 'externalMessageId is required' }, { status: 400 });
     }
-    if (!content || typeof content !== 'string') {
-      return Response.json({ error: 'content is required' }, { status: 400 });
+
+    const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
+
+    if ((!content || typeof content !== 'string') && !hasAttachments) {
+      return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
+    }
+
+    if (hasAttachments) {
+      const resolved = attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds);
+      if (resolved.length !== attachmentIds.length) {
+        const resolvedIds = new Set(resolved.map((a) => a.id));
+        const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
+        return Response.json(
+          { error: `Attachment IDs not found: ${missing.join(', ')}` },
+          { status: 400 },
+        );
+      }
     }
 
     const result = channelDeliveryStore.recordInbound(
@@ -666,7 +682,7 @@ export class RuntimeHttpServer {
     let processingSucceeded = false;
     if (!result.duplicate && this.processMessage) {
       try {
-        await this.processMessage(assistantId, result.conversationId, content);
+        await this.processMessage(assistantId, result.conversationId, content ?? '', hasAttachments ? attachmentIds : undefined);
         processingSucceeded = true;
       } catch (err) {
         log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');

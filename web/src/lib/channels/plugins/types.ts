@@ -41,11 +41,18 @@ export interface ChannelSender {
   displayName?: string;
 }
 
+export interface InboundAttachment {
+  filename: string;
+  mimeType: string;
+  data: string; // base64-encoded
+}
+
 export interface NormalizedInboundMessage {
   text: string;
   externalChatId: string;
   externalMessageId: string;
   sender: ChannelSender;
+  attachments?: InboundAttachment[];
   raw: Record<string, unknown>;
 }
 

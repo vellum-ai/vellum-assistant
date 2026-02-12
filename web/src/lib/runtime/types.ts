@@ -108,6 +108,7 @@ export interface ChannelInboundParams {
   externalMessageId: string;
   content: string;
   senderName?: string;
+  attachmentIds?: string[];
 }
 
 export interface ChannelInboundResponse {

@@ -1,5 +1,6 @@
 import {
   ChannelPlugin,
+  InboundAttachment,
   NormalizedInboundMessage,
 } from "@/lib/channels/plugins/types";
 
@@ -58,18 +59,79 @@ function splitText(text: string): string[] {
   return chunks;
 }
 
+export interface TelegramPhoto {
+  file_id: string;
+  file_unique_id: string;
+  file_size?: number;
+  width: number;
+  height: number;
+}
+
+interface TelegramGetFileResult {
+  file_id: string;
+  file_path?: string;
+}
+
+export async function downloadTelegramPhoto(
+  botToken: string,
+  photos: TelegramPhoto[]
+): Promise<InboundAttachment | null> {
+  // Pick the largest resolution (last in the array).
+  const best = photos[photos.length - 1];
+  if (!best) return null;
+
+  try {
+    const fileInfo = await callTelegramApi<TelegramGetFileResult>(
+      botToken,
+      "getFile",
+      { file_id: best.file_id }
+    );
+
+    if (!fileInfo.file_path) return null;
+
+    const fileUrl = `${TELEGRAM_API_BASE}/file/bot${botToken}/${fileInfo.file_path}`;
+    const response = await fetch(fileUrl);
+    if (!response.ok) return null;
+
+    const buffer = await response.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString("base64");
+
+    // Derive mime type from the file extension.
+    const ext = fileInfo.file_path.split(".").pop()?.toLowerCase();
+    const mimeMap: Record<string, string> = {
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      png: "image/png",
+      gif: "image/gif",
+      webp: "image/webp",
+      bmp: "image/bmp",
+    };
+    const mimeType = (ext && mimeMap[ext]) || "image/jpeg";
+    const filename = fileInfo.file_path.split("/").pop() ?? `photo.${ext || "jpg"}`;
+
+    return { filename, mimeType, data: base64 };
+  } catch {
+    return null;
+  }
+}
+
 function parseTelegramInbound(payload: Record<string, unknown>): NormalizedInboundMessage | null {
   const message = payload.message as
     | {
         message_id?: number;
         text?: string;
+        caption?: string;
+        photo?: TelegramPhoto[];
         chat?: { id?: number; type?: string };
         from?: { id?: number; username?: string; first_name?: string; last_name?: string };
       }
     | undefined;
 
   const updateId = payload.update_id as number | undefined;
-  if (!message?.text || !message.chat?.id || !updateId) {
+  const hasText = Boolean(message?.text);
+  const hasPhoto = Array.isArray(message?.photo) && message!.photo!.length > 0;
+
+  if ((!hasText && !hasPhoto) || !message?.chat?.id || !updateId) {
     return null;
   }
 
@@ -84,8 +146,11 @@ function parseTelegramInbound(payload: Record<string, unknown>): NormalizedInbou
     .join(" ")
     .trim();
 
+  // Use text for text messages, caption for photo messages.
+  const text = message.text ?? message.caption ?? "";
+
   return {
-    text: message.text,
+    text,
     externalChatId: String(message.chat.id),
     externalMessageId: String(updateId),
     sender: {
@@ -108,7 +173,7 @@ export const telegramPlugin: ChannelPlugin = {
     dm: true,
     groups: false,
     channels: false,
-    media: false,
+    media: true,
   },
   setup: {
     async connect(input) {
