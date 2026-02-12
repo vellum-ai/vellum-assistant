@@ -37,10 +37,17 @@ final class ChatViewModel: ObservableObject {
         if isSending && sessionId == nil { return }
 
         // Append user message immediately for responsive UX
-        let status: ChatMessageStatus = isSending ? .queued(position: 0) : .sent
+        let willBeQueued = isSending && sessionId != nil
+        let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
         let userMessage = ChatMessage(role: .user, text: text, status: status)
         messages.append(userMessage)
-        pendingMessageIds.append(userMessage.id)
+        // Only track in pendingMessageIds when the message will actually be
+        // queued by the daemon (i.e. sent while another message is processing).
+        // Messages processed immediately never receive a messageQueued event,
+        // so adding them would corrupt the FIFO mapping.
+        if willBeQueued {
+            pendingMessageIds.append(userMessage.id)
+        }
         inputText = ""
         errorText = nil
 
