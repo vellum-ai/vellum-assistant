@@ -45,13 +45,6 @@ struct MainWindowView: View {
             }, panel: {
                 panelContent
             })
-            .background(alignment: .bottom) {
-                Image("bg", bundle: .module)
-                    .resizable()
-                    .scaledToFill()
-                    .clipped()
-                    .allowsHitTesting(false)
-            }
         }
         .background(VColor.background.ignoresSafeArea())
         .frame(minWidth: 800, minHeight: 600)

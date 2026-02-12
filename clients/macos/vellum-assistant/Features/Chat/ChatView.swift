@@ -17,13 +17,21 @@ struct ChatView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            messageList
-            if let errorText {
-                errorBanner(errorText)
+        ZStack(alignment: .bottom) {
+            Image("bg", bundle: .module)
+                .resizable()
+                .scaledToFit()
+                .opacity(0.3)
+                .allowsHitTesting(false)
+
+            VStack(spacing: 0) {
+                messageList
+                if let errorText {
+                    errorBanner(errorText)
+                }
+                queueSummary
+                composerArea
             }
-            queueSummary
-            composerArea
         }
     }
 
