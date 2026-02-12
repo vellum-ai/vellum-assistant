@@ -352,6 +352,151 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isThinking)
     }
 
+    // MARK: - Generation Handoff
+
+    func testGenerationHandoffKeepsSendingTrue() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Start streaming an assistant message
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial response")))
+
+        // Handoff: generation cut short, queued messages waiting
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+
+        XCTAssertTrue(viewModel.isSending, "isSending must stay true during handoff")
+        XCTAssertFalse(viewModel.isThinking)
+        XCTAssertFalse(viewModel.messages[1].isStreaming, "Streaming message should be finalized")
+    }
+
+    func testGenerationHandoffWithoutStreamingMessage() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Handoff without any prior text deltas
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+
+        XCTAssertTrue(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    func testGenerationHandoffClearsCurrentAssistantMessageId() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // First text delta creates assistant message
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "First response")))
+        XCTAssertEqual(viewModel.messages.count, 2) // greeting + first assistant
+
+        // Handoff clears currentAssistantMessageId
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+
+        // Second text delta should create a NEW assistant message
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Second response")))
+        XCTAssertEqual(viewModel.messages.count, 3, "Second delta should create a new message, not append to first")
+        XCTAssertEqual(viewModel.messages[1].text, "First response")
+        XCTAssertEqual(viewModel.messages[2].text, "Second response")
+    }
+
+    func testThreeMessageBurstWithHandoffTransitions() {
+        // Set up session
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // 1. User sends message A (processed immediately — already in flight)
+        //    We just simulate the user message being in messages array
+        let messageA = ChatMessage(role: .user, text: "Message A", status: .sent)
+        viewModel.messages.append(messageA)
+
+        // 2-3. User sends messages B and C (queued)
+        let messageB = ChatMessage(role: .user, text: "Message B", status: .queued(position: 0))
+        let messageC = ChatMessage(role: .user, text: "Message C", status: .queued(position: 0))
+        viewModel.messages.append(messageB)
+        viewModel.messages.append(messageC)
+
+        // 4. Daemon confirms B and C are queued
+        //    We need to set up pendingMessageIds so the FIFO mapping works
+        // Simulate what sendMessage() would have done for queued messages
+        // Since we manually added them, we manually set up the pending IDs
+        // Instead, use the messageQueued handler which maps requestId -> messageId
+        // We need pendingMessageIds populated for messageQueued to map correctly
+        // Let's add them to the pending queue manually
+        // viewModel.pendingMessageIds is private, so we simulate via messageQueued
+        // Actually, we need to work around private access. Let's use a different approach:
+        // The messageQueued handler pops from pendingMessageIds. Since that's private,
+        // we can simulate the full flow by sending messages through sendMessage().
+
+        // Let's restart with a cleaner approach using sendMessage for B and C
+        viewModel.messages.removeAll()
+        let greeting = ChatMessage(role: .assistant, text: "Hello!")
+        viewModel.messages.append(greeting)
+
+        // Message A: sent while not busy (direct processing)
+        viewModel.isSending = false
+        viewModel.isThinking = false
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+        // Now isSending=true, isThinking=true (from sendUserMessage)
+
+        // Messages B and C: sent while busy (will be queued)
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+        viewModel.inputText = "Message C"
+        viewModel.sendMessage()
+
+        // greeting(0), A(1), B(2), C(3)
+        XCTAssertEqual(viewModel.messages.count, 4)
+
+        // 4. Daemon sends messageQueued for B (position 1) and C (position 2)
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-C", position: 2)))
+        XCTAssertEqual(viewModel.pendingQueuedCount, 2)
+        if case .queued(let pos) = viewModel.messages[2].status {
+            XCTAssertEqual(pos, 1)
+        } else {
+            XCTFail("Message B should be queued")
+        }
+
+        // 5. Assistant responds to A, then generation_handoff
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 2)))
+
+        XCTAssertTrue(viewModel.isSending, "isSending stays true after handoff")
+        XCTAssertFalse(viewModel.isThinking, "isThinking cleared after handoff")
+        // Assistant message for A should be finalized
+        XCTAssertFalse(viewModel.messages[4].isStreaming, "First assistant message should be finalized")
+
+        // 6. Daemon dequeues B
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        XCTAssertEqual(viewModel.messages[2].status, .processing, "Message B should be processing")
+        XCTAssertTrue(viewModel.isThinking, "isThinking restored after dequeue")
+        XCTAssertTrue(viewModel.isSending)
+        XCTAssertEqual(viewModel.pendingQueuedCount, 1)
+
+        // 7. Text delta for B, then generation_handoff
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to B")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+
+        // Second assistant message finalized
+        XCTAssertFalse(viewModel.messages[5].isStreaming, "Second assistant message should be finalized")
+        XCTAssertTrue(viewModel.isSending, "isSending stays true — C is still queued")
+
+        // 8. Daemon dequeues C
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-C")))
+        XCTAssertEqual(viewModel.messages[3].status, .processing, "Message C should be processing")
+        XCTAssertEqual(viewModel.pendingQueuedCount, 0)
+
+        // 9. Text delta for C, then message_complete
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to C")))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+
+        XCTAssertFalse(viewModel.isSending, "isSending should be false — no more queued messages")
+        XCTAssertFalse(viewModel.messages[6].isStreaming, "Third assistant message should be finalized")
+    }
+
     // MARK: - Full Conversation Flow
 
     func testFullConversationFlow() {

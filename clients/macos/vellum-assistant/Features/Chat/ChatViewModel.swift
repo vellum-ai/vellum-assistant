@@ -228,6 +228,15 @@ final class ChatViewModel: ObservableObject {
             isThinking = true
             isSending = true
 
+        case .generationHandoff:
+            isThinking = false
+            // Keep isSending = true — daemon is handing off to next queued message
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].isStreaming = false
+            }
+            currentAssistantMessageId = nil
+
         case .error(let err):
             log.error("Server error: \(err.message)")
             isThinking = false
