@@ -11,11 +11,24 @@ final class SurfaceViewModel: ObservableObject {
     @Published var surface: Surface
     let onAction: (String, [String: Any]?) -> Void
     let onDismiss: () -> Void
+    let appId: String?
+    let onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
+    let onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)?
 
-    init(surface: Surface, onAction: @escaping (String, [String: Any]?) -> Void, onDismiss: @escaping () -> Void) {
+    init(
+        surface: Surface,
+        onAction: @escaping (String, [String: Any]?) -> Void,
+        onDismiss: @escaping () -> Void,
+        appId: String? = nil,
+        onDataRequest: ((String, String, String?, [String: Any]?) -> Void)? = nil,
+        onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)? = nil
+    ) {
         self.surface = surface
         self.onAction = onAction
         self.onDismiss = onDismiss
+        self.appId = appId
+        self.onDataRequest = onDataRequest
+        self.onCoordinatorReady = onCoordinatorReady
     }
 }
 
@@ -35,6 +48,12 @@ final class SurfaceManager: ObservableObject {
     private var panels: [String: NSPanel] = [:]
     private var viewModels: [String: SurfaceViewModel] = [:]
 
+    /// Tracks appId per surface for persistent app RPC routing.
+    var surfaceAppIds: [String: String] = [:]
+
+    /// Tracks Coordinator per surface for routing data responses back to WebView.
+    var surfaceCoordinators: [String: DynamicPageSurfaceView.Coordinator] = [:]
+
     /// Ordered list of surface IDs for deterministic stacking positions.
     private var surfaceOrder: [String] = []
 
@@ -47,6 +66,10 @@ final class SurfaceManager: ObservableObject {
     /// Called when a user interacts with a surface action button.
     /// Parameters: sessionId, surfaceId, actionId, optional data dictionary.
     var onAction: ((String, String, String, [String: Any]?) -> Void)?
+
+    /// Called when a persistent app's JS makes a data request via the RPC bridge.
+    /// Parameters: surfaceId, callId, method, appId, recordId, data.
+    var onDataRequest: ((String, String, String, String, String?, [String: Any]?) -> Void)?
 
     // MARK: - Show
 
@@ -64,6 +87,14 @@ final class SurfaceManager: ObservableObject {
         activeSurfaces[surface.id] = surface
         surfaceOrder.append(surface.id)
 
+        // Extract and track appId for persistent app RPC routing.
+        let dict = message.data.value as? [String: Any?] ?? [:]
+        if let appId = dict["appId"] as? String {
+            surfaceAppIds[surface.id] = appId
+        }
+
+        let appId = surfaceAppIds[surface.id]
+
         let viewModel = SurfaceViewModel(
             surface: surface,
             onAction: { [weak self] actionId, data in
@@ -72,7 +103,15 @@ final class SurfaceManager: ObservableObject {
             onDismiss: { [weak self] in
                 self?.onAction?(surface.sessionId, surface.id, "dismiss", nil)
                 self?.dismissSurfaceById(surface.id)
-            }
+            },
+            appId: appId,
+            onDataRequest: appId != nil ? { [weak self] callId, method, recordId, data in
+                guard let appId = self?.surfaceAppIds[surface.id] else { return }
+                self?.onDataRequest?(surface.id, callId, method, appId, recordId, data)
+            } : nil,
+            onCoordinatorReady: appId != nil ? { [weak self] coordinator in
+                self?.surfaceCoordinators[surface.id] = coordinator
+            } : nil
         )
         viewModels[surface.id] = viewModel
 
@@ -153,6 +192,8 @@ final class SurfaceManager: ObservableObject {
             log.info("Dismissed surface: id=\(id)")
         }
         surfaceOrder.removeAll()
+        surfaceAppIds.removeAll()
+        surfaceCoordinators.removeAll()
     }
 
     private func dismissSurfaceById(_ surfaceId: String) {
@@ -160,9 +201,18 @@ final class SurfaceManager: ObservableObject {
         panels.removeValue(forKey: surfaceId)
         viewModels.removeValue(forKey: surfaceId)
         activeSurfaces.removeValue(forKey: surfaceId)
+        surfaceAppIds.removeValue(forKey: surfaceId)
+        surfaceCoordinators.removeValue(forKey: surfaceId)
         surfaceOrder.removeAll { $0 == surfaceId }
         repositionAllPanels()
         log.info("Dismissed surface: id=\(surfaceId)")
+    }
+
+    // MARK: - Data Response Routing
+
+    /// Routes a data response from the daemon back to the correct WebView coordinator.
+    func resolveDataResponse(surfaceId: String, response: AppDataResponseMessage) {
+        surfaceCoordinators[surfaceId]?.resolveDataResponse(response)
     }
 
     // MARK: - Positioning
