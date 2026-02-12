@@ -46,15 +46,15 @@ struct ThreadTabBar: View {
 }
 
 #Preview("ThreadTabBar") {
+    @Previewable @State var threads = [
+        ThreadModel(title: "New Thread"),
+    ]
+
     ZStack {
         VColor.background.ignoresSafeArea()
         ThreadTabBar(
-            threads: [
-                ThreadModel(title: "New Thread"),
-                ThreadModel(title: "Debug Session"),
-                ThreadModel(title: "Research"),
-            ],
-            activeThreadId: nil,
+            threads: threads,
+            activeThreadId: threads.first?.id,
             onSelect: { _ in },
             onClose: { _ in },
             onCreate: {}
