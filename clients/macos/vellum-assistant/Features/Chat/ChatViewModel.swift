@@ -43,6 +43,9 @@ final class ChatViewModel: ObservableObject {
     /// Tracks the current in-flight suggestion request so stale responses are ignored.
     private var pendingSuggestionRequestId: String?
 
+    /// Called when an inline confirmation is responded to, so the floating panel can be dismissed.
+    var onInlineConfirmationResponse: ((String) -> Void)?
+
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
         // Add initial greeting
@@ -600,6 +603,23 @@ final class ChatViewModel: ObservableObject {
             try daemonClient.sendConfirmationResponse(requestId: requestId, decision: decision)
         } catch {
             log.error("Failed to send confirmation response: \(error.localizedDescription)")
+        }
+        // Dismiss the corresponding floating panel if one exists
+        onInlineConfirmationResponse?(requestId)
+    }
+
+    /// Update the inline confirmation message state without sending a response to the daemon.
+    /// Used when the floating panel handles the response.
+    func updateConfirmationState(requestId: String, decision: String) {
+        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+            switch decision {
+            case "allow":
+                messages[index].confirmation?.state = .approved
+            case "deny":
+                messages[index].confirmation?.state = .denied
+            default:
+                break
+            }
         }
     }
 

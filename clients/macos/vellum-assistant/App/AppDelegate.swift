@@ -179,10 +179,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupToolConfirmationManager() {
         daemonClient.onConfirmationRequest = { [weak self] msg in
-            self?.toolConfirmationManager.showConfirmation(msg)
+            // Only show floating panel if app is NOT focused
+            if !NSApp.isActive {
+                self?.toolConfirmationManager.showConfirmation(msg)
+            }
         }
         toolConfirmationManager.onResponse = { [weak self] requestId, decision in
+            // Send the response to daemon
             try? self?.daemonClient.sendConfirmationResponse(
+                requestId: requestId,
+                decision: decision
+            )
+            // Sync the inline message state in the active ChatViewModel
+            self?.mainWindow?.activeViewModel?.updateConfirmationState(
                 requestId: requestId,
                 decision: decision
             )
@@ -478,6 +487,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let main = MainWindow(daemonClient: daemonClient, ambientAgent: ambientAgent)
+        // Wire inline confirmation dismiss to close the corresponding floating panel
+        main.threadManager.confirmationDismissHandler = { [weak self] requestId in
+            self?.toolConfirmationManager.dismissConfirmation(requestId: requestId)
+        }
         main.show()
         mainWindow = main
     }
