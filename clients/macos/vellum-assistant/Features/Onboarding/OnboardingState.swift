@@ -62,7 +62,7 @@ final class OnboardingState {
     }
 
     func advance() {
-        withAnimation(.easeOut(duration: 0.8)) {
+        withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
             currentStep += 1
         }
         persist()

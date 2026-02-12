@@ -107,7 +107,6 @@ struct OnboardingFlowView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.spring(duration: 0.6, bounce: 0.15), value: state.currentStep)
     }
 
     // MARK: - Mock Chrome
