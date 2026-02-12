@@ -23,7 +23,8 @@ cd "$SCRIPT_DIR"
 
 BUNDLE_ID="com.vellum.vellum-assistant"
 APP_NAME="vellum-assistant"
-APP_DIR="$SCRIPT_DIR/dist/$APP_NAME.app"
+BUNDLE_DISPLAY_NAME="Vellum"
+APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES_DIR="$CONTENTS/Resources"
@@ -85,7 +86,7 @@ if [ ! -f "$EXECUTABLE" ]; then
 fi
 
 # 2. Create .app bundle structure
-echo "Packaging $APP_NAME.app..."
+echo "Packaging $BUNDLE_DISPLAY_NAME.app..."
 rm -rf "$APP_DIR"
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
@@ -124,6 +125,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key>
     <string>$BUNDLE_ID</string>
     <key>CFBundleName</key>
+    <string>Vellum</string>
+    <key>CFBundleDisplayName</key>
     <string>Vellum</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
