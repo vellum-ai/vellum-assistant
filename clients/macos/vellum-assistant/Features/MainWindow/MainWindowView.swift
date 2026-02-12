@@ -25,26 +25,35 @@ struct MainWindowView: View {
             NavigationToolbar(activePanel: $activePanel)
 
             // Row 3 — chat content with optional side panel
-            VSplitView(panelWidth: 420, showPanel: activePanel != nil, main: {
-                if let viewModel = threadManager.activeViewModel {
-                    ChatView(
-                        messages: viewModel.messages,
-                        inputText: Binding(
-                            get: { viewModel.inputText },
-                            set: { viewModel.inputText = $0 }
-                        ),
-                        isThinking: viewModel.isThinking,
-                        isSending: viewModel.isSending,
-                        errorText: viewModel.errorText,
-                        pendingQueuedCount: viewModel.pendingQueuedCount,
-                        onSend: viewModel.sendMessage,
-                        onStop: viewModel.stopGenerating,
-                        onDismissError: viewModel.dismissError
-                    )
-                }
-            }, panel: {
-                panelContent
-            })
+            ZStack(alignment: .bottom) {
+                // Botanical background decoration
+                Image("bg", bundle: .module)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity)
+                    .allowsHitTesting(false)
+
+                VSplitView(panelWidth: 420, showPanel: activePanel != nil, main: {
+                    if let viewModel = threadManager.activeViewModel {
+                        ChatView(
+                            messages: viewModel.messages,
+                            inputText: Binding(
+                                get: { viewModel.inputText },
+                                set: { viewModel.inputText = $0 }
+                            ),
+                            isThinking: viewModel.isThinking,
+                            isSending: viewModel.isSending,
+                            errorText: viewModel.errorText,
+                            pendingQueuedCount: viewModel.pendingQueuedCount,
+                            onSend: viewModel.sendMessage,
+                            onStop: viewModel.stopGenerating,
+                            onDismissError: viewModel.dismissError
+                        )
+                    }
+                }, panel: {
+                    panelContent
+                })
+            }
         }
         .background(VColor.background.ignoresSafeArea())
         .frame(minWidth: 800, minHeight: 600)

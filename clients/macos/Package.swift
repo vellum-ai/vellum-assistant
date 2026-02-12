@@ -31,6 +31,7 @@ let package = Package(
                 .process("Resources/egg.jpg"),
                 .process("Resources/egg_svg.svg"),
                 .process("Resources/meadow.svg"),
+                .process("Resources/bg@2x.png"),
                 .process("Resources/Fonts"),
                 .copy("Resources/Recipes")
             ],
