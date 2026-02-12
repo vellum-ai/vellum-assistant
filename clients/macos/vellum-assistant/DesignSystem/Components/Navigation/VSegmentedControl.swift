@@ -28,6 +28,7 @@ struct VSegmentedControl: View {
     }
 }
 
+#if DEBUG
 #Preview("VSegmentedControl") {
     @Previewable @State var selection = 0
     ZStack {
@@ -37,3 +38,4 @@ struct VSegmentedControl: View {
     }
     .frame(width: 400, height: 80)
 }
+#endif

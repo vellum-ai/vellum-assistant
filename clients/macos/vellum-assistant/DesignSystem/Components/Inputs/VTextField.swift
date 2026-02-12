@@ -44,6 +44,7 @@ struct VTextField: View {
     }
 }
 
+#if DEBUG
 #Preview("VTextField") {
     @Previewable @State var text = ""
     ZStack {
@@ -58,3 +59,4 @@ struct VTextField: View {
     }
     .frame(width: 350, height: 280)
 }
+#endif

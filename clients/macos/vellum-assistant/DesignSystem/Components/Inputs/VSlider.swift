@@ -133,6 +133,7 @@ struct VSlider: View {
 
 // MARK: - Preview
 
+#if DEBUG
 #Preview("VSlider") {
     @Previewable @State var value1: Double = 50
     @Previewable @State var value2: Double = 30
@@ -166,3 +167,4 @@ struct VSlider: View {
     }
     .frame(width: 400, height: 300)
 }
+#endif

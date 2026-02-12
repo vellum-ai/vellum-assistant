@@ -315,6 +315,7 @@ private struct ThinkingIndicator: View {
 
 // MARK: - Preview
 
+#if DEBUG
 #Preview("ChatView") {
     @Previewable @State var text = ""
 
@@ -344,3 +345,4 @@ private struct ThinkingIndicator: View {
     }
     .frame(width: 600, height: 500)
 }
+#endif

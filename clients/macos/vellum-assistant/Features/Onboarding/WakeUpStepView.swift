@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct WakeUpStepView: View {
     @Bindable var state: OnboardingState
 

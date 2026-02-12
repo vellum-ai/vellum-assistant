@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct AccessibilityPermissionStepView: View {
     @Bindable var state: OnboardingState
 

@@ -50,8 +50,10 @@ struct NavigationToolbar: View {
     }
 }
 
+#if DEBUG
 #Preview("NavigationToolbar") {
     @Previewable @State var panel: SidePanelType? = .control
     NavigationToolbar(activePanel: $panel)
         .frame(width: 700)
 }
+#endif

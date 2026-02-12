@@ -219,6 +219,7 @@ private struct TypingIndicator: View {
 
 // MARK: - Preview
 
+#if DEBUG
 #Preview("InterviewChatView") {
     @Previewable @State var text = ""
 
@@ -246,3 +247,4 @@ private struct TypingIndicator: View {
     }
     .frame(width: 600, height: 600)
 }
+#endif
