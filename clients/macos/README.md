@@ -8,7 +8,33 @@ A native macOS menu bar app that controls your Mac via accessibility APIs and CG
 - Xcode 15+ (for building)
 - Anthropic API key
 
+## Quick Run
+
+The fastest way to build and launch the app locally:
+
+```bash
+./build.sh run
+```
+
+This builds a debug `.app` bundle, codesigns it, and launches it immediately.
+
 ## Build
+
+```bash
+# Build debug .app bundle (→ dist/Vellum.app)
+./build.sh
+
+# Build + launch
+./build.sh run
+
+# Build release
+./build.sh release
+
+# Run all tests
+./build.sh test
+```
+
+The raw SwiftPM commands also work if you prefer:
 
 ```bash
 # Resolve dependencies
@@ -54,6 +80,22 @@ scripts/run-dev.sh --clean
 # Override team ID
 scripts/run-dev.sh --team YOUR_TEAM_ID
 ```
+
+## Daemon
+
+The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **daemon**, a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to the daemon via a Unix domain socket at `~/.vellum/vellum.sock`.
+
+**You must start the daemon before using the app.** Without it, the app will connect but get no responses.
+
+```bash
+# Start the daemon (from the repo root)
+cd assistant && bun run dev
+
+# Or use the CLI
+cd assistant && bun run src/index.ts daemon start
+```
+
+The app will auto-reconnect if the daemon restarts. For development, `bun run dev` runs in the foreground with auto-restart on file changes.
 
 ## Permissions
 
