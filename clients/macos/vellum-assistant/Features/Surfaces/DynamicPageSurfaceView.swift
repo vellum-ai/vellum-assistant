@@ -182,8 +182,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             ) { result, _ in
                 guard let json = result as? String,
                       let data = json.data(using: .utf8),
-                      let size = try? JSONSerialization.jsonObject(with: data) as? [String: CGFloat],
-                      let w = size["w"], let h = size["h"],
+                      let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let w = (dict["w"] as? NSNumber).map({ CGFloat($0.doubleValue) }),
+                      let h = (dict["h"] as? NSNumber).map({ CGFloat($0.doubleValue) }),
                       let window = webView.window else { return }
 
                 let screen = NSScreen.main?.visibleFrame ?? window.screen?.visibleFrame
