@@ -1,5 +1,7 @@
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import Anthropic from '@anthropic-ai/sdk';
+import { getConfig } from './loader.js';
 import { getDataDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 
@@ -14,6 +16,7 @@ export interface SkillSummary {
   directoryPath: string;
   skillFilePath: string;
   bundled?: boolean;
+  icon?: string;
 }
 
 export interface SkillDefinition extends SkillSummary {
@@ -424,4 +427,60 @@ export function loadSkillBySelector(selector: string): SkillLookupResult {
     return { error: resolved.error ?? 'Failed to resolve skill selector.' };
   }
   return loadSkillDefinition(resolved.skill);
+}
+
+// ─── Icon generation ─────────────────────────────────────────────────────────
+
+async function generateSkillIcon(name: string, description: string): Promise<string> {
+  const config = getConfig();
+  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error('No Anthropic API key available for icon generation');
+  }
+
+  const client = new Anthropic({ apiKey });
+  const response = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 1024,
+    system: 'You are a pixel art icon designer. When asked, return ONLY a single <svg> element — no explanation, no markdown, no code fences. The SVG must be a 16x16 grid pixel art icon using <rect> elements. Use a limited palette (3-5 colors). Keep it under 2KB. The viewBox should be "0 0 16 16" with each pixel being a 1x1 rect.',
+    messages: [{
+      role: 'user',
+      content: `Create a 16x16 pixel art SVG icon representing this skill:\nName: ${name}\nDescription: ${description}`,
+    }],
+  });
+
+  const text = response.content
+    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+    .map((block) => block.text)
+    .join('');
+
+  const svgMatch = text.match(/<svg[\s\S]*<\/svg>/i);
+  if (!svgMatch) {
+    throw new Error('No <svg> element found in response');
+  }
+
+  return svgMatch[0];
+}
+
+export async function ensureSkillIcon(directoryPath: string, name: string, description: string): Promise<string | undefined> {
+  const iconPath = join(directoryPath, 'icon.svg');
+
+  if (existsSync(iconPath)) {
+    try {
+      return readFileSync(iconPath, 'utf-8');
+    } catch {
+      log.warn({ iconPath }, 'Failed to read existing icon.svg');
+      return undefined;
+    }
+  }
+
+  try {
+    const svg = await generateSkillIcon(name, description);
+    writeFileSync(iconPath, svg, 'utf-8');
+    log.info({ iconPath }, 'Generated skill icon');
+    return svg;
+  } catch (err) {
+    log.warn({ err, iconPath }, 'Failed to generate skill icon');
+    return undefined;
+  }
 }

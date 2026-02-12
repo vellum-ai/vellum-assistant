@@ -481,13 +481,14 @@ export interface AppDataResponse {
 
 export interface SkillsListResponse {
   type: 'skills_list_response';
-  skills: Array<{ id: string; name: string; description: string }>;
+  skills: Array<{ id: string; name: string; description: string; icon?: string }>;
 }
 
 export interface SkillDetailResponse {
   type: 'skill_detail_response';
   skillId: string;
   body: string;
+  icon?: string;
   error?: string;
 }
 

@@ -27,7 +27,7 @@ import type {
   AppDataRequest,
   SkillDetailRequest,
 } from './ipc-protocol.js';
-import { loadSkillCatalog, loadSkillBySelector } from '../config/skills.js';
+import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../config/skills.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } from '../memory/app-store.js';
@@ -575,25 +575,30 @@ function handleUsageRequest(
 
 // ─── Skills handlers ─────────────────────────────────────────────────────────
 
-function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
+async function handleSkillsList(socket: net.Socket, ctx: HandlerContext): Promise<void> {
   const catalog = loadSkillCatalog();
-  ctx.send(socket, {
-    type: 'skills_list_response',
-    skills: catalog.map((s) => ({ id: s.id, name: s.name, description: s.description })),
-  });
+  const skills = await Promise.all(
+    catalog.map(async (s) => {
+      const icon = await ensureSkillIcon(s.directoryPath, s.name, s.description);
+      return { id: s.id, name: s.name, description: s.description, ...(icon ? { icon } : {}) };
+    }),
+  );
+  ctx.send(socket, { type: 'skills_list_response', skills });
 }
 
-function handleSkillDetail(
+async function handleSkillDetail(
   msg: SkillDetailRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   const result = loadSkillBySelector(msg.skillId);
   if (result.skill) {
+    const icon = await ensureSkillIcon(result.skill.directoryPath, result.skill.name, result.skill.description);
     ctx.send(socket, {
       type: 'skill_detail_response',
       skillId: result.skill.id,
       body: result.skill.body,
+      ...(icon ? { icon } : {}),
     });
   } else {
     ctx.send(socket, {

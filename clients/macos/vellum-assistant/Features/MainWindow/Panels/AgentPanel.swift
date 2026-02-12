@@ -74,6 +74,9 @@ struct AgentPanel: View {
                         .frame(width: 12)
                         .padding(.top, 3)
 
+                    skillIcon(skill.icon)
+                        .padding(.top, 1)
+
                     VStack(alignment: .leading, spacing: 2) {
                         Text(skill.name)
                             .font(VFont.bodyMedium)
@@ -114,6 +117,23 @@ struct AgentPanel: View {
             ProgressView()
                 .controlSize(.small)
                 .padding(.vertical, VSpacing.sm)
+        }
+    }
+
+    @ViewBuilder
+    private func skillIcon(_ svgString: String?) -> some View {
+        if let svgString,
+           let data = svgString.data(using: .utf8),
+           let nsImage = NSImage(data: data) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .interpolation(.none)
+                .frame(width: 16, height: 16)
+        } else {
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 12))
+                .foregroundColor(VColor.textMuted)
+                .frame(width: 16, height: 16)
         }
     }
 
