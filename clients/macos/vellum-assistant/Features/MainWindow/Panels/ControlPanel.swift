@@ -206,6 +206,35 @@ struct ControlPanel: View {
             }
             .padding(VSpacing.lg)
             .vCard()
+
+            // ABOUT section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("ABOUT")
+                    .font(VFont.display)
+                    .foregroundColor(VColor.textPrimary)
+
+                HStack {
+                    Text("Version")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
+                    Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                HStack {
+                    Text("Build")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
+                    Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard()
         }
     }
 
