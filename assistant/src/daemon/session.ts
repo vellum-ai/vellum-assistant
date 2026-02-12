@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, DynamicPageSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, DynamicPageSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
@@ -773,6 +773,37 @@ export class Session {
       } as UiSurfaceShow);
 
       return { content: JSON.stringify({ surfaceId, appId }), isError: false };
+    }
+
+    if (toolName === 'request_file') {
+      const prompt = input.prompt as string;
+      const acceptedTypes = input.accepted_types as string[] | undefined;
+      const maxFiles = (input.max_files as number | undefined) ?? 1;
+
+      const surfaceId = uuid();
+      const surfaceData: FileUploadSurfaceData = {
+        prompt,
+        acceptedTypes,
+        maxFiles,
+      };
+
+      this.surfaceState.set(surfaceId, {
+        surfaceType: 'file_upload',
+        data: surfaceData,
+      });
+
+      this.sendToClient({
+        type: 'ui_surface_show',
+        sessionId: this.conversationId,
+        surfaceId,
+        surfaceType: 'file_upload',
+        data: surfaceData,
+      } as UiSurfaceShow);
+
+      // Wait for the user to upload files (interactive surface pattern)
+      return new Promise<ToolExecutionResult>((resolve) => {
+        this.pendingSurfaceActions.set(surfaceId, { resolve });
+      });
     }
 
     return { content: `Unknown proxy tool: ${toolName}`, isError: true };

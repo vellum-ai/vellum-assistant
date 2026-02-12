@@ -158,6 +158,48 @@ export const uiDismissTool: Tool = {
 };
 
 // ---------------------------------------------------------------------------
+// request_file
+// ---------------------------------------------------------------------------
+
+export const requestFileTool: Tool = {
+  name: 'request_file',
+  description:
+    'Request one or more files or images from the user. Shows a file upload surface and waits for the user to provide files. ' +
+    'Returns an array of uploaded files with their filename, MIME type, and base64-encoded data.',
+  category: 'ui-surface',
+  defaultRiskLevel: RiskLevel.Low,
+  executionMode: 'proxy',
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'What to ask the user for (e.g. "Please upload a screenshot of the error")',
+          },
+          accepted_types: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'MIME type filters (e.g. ["image/*", "application/pdf"]). If omitted, all file types are accepted.',
+          },
+          max_files: {
+            type: 'number',
+            description: 'Maximum number of files to accept. Defaults to 1.',
+          },
+        },
+        required: ['prompt'],
+      },
+    };
+  },
+
+  execute: proxyExecute,
+};
+
+// ---------------------------------------------------------------------------
 // All tools exported as array for convenience
 // ---------------------------------------------------------------------------
 
@@ -165,4 +207,5 @@ export const allUiSurfaceTools: Tool[] = [
   uiShowTool,
   uiUpdateTool,
   uiDismissTool,
+  requestFileTool,
 ];
