@@ -30,6 +30,11 @@ graph TB
             TEXT_WIN["TextResponseWindow"]
         end
 
+        subgraph "Main Window Chat"
+            CHAT_VM["ChatViewModel<br/>session bootstrap + streaming"]
+            CHAT_VIEW["ChatView<br/>bubbles + composer + stop"]
+        end
+
         VOICE["VoiceInputManager<br/>Fn hold → SFSpeechRecognizer"]
         ATTACH["Attachment System<br/>images, PDFs, text<br/>drag/drop, paste, picker"]
         PERM["PermissionManager<br/>Accessibility, Screen Recording,<br/>Microphone"]
@@ -119,6 +124,11 @@ graph TB
     %% Text Q&A flow
     TEXT_SESS -->|"SessionCreate +<br/>UserMessage"| IPC_SERVER
     IPC_SERVER -->|"AssistantTextDelta<br/>stream"| TEXT_WIN
+
+    %% Main Window Chat flow
+    CHAT_VM -->|"session_create +<br/>user_message +<br/>cancel"| IPC_SERVER
+    IPC_SERVER -->|"session_info +<br/>text deltas +<br/>message_complete"| CHAT_VM
+    CHAT_VIEW --> CHAT_VM
 
     %% Ambient flow
     WATCH --> AX_CAP
@@ -529,6 +539,7 @@ graph LR
         S8["confirmation_request<br/>tool, risk_level"]
         S9["memory_recalled<br/>context segments"]
         S10["usage_update / error"]
+        S11["generation_cancelled"]
     end
 
     C1 --> SOCKET
@@ -551,6 +562,7 @@ graph LR
     SOCKET --> S8
     SOCKET --> S9
     SOCKET --> S10
+    SOCKET --> S11
 ```
 
 ---
