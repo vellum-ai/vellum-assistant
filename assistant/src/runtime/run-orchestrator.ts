@@ -139,7 +139,8 @@ export class RunOrchestrator {
   /**
    * Submit a permission decision for a pending confirmation.
    * Returns true if the decision was applied or was already handled
-   * (idempotent). Returns false only if the run doesn't exist.
+   * (idempotent). Returns false if the run doesn't exist or is in
+   * a state where no confirmation is pending.
    */
   submitDecision(runId: string, decision: UserDecision): boolean {
     const pendingState = this.pending.get(runId);
@@ -154,19 +155,27 @@ export class RunOrchestrator {
     }
 
     // No in-memory pending state — check if the run exists.
-    // If it's in a terminal or running state, the decision was already
-    // handled (double-submit) or the prompter timed out. Either way,
-    // treat as idempotent success.
     const run = runsStore.getRun(runId);
     if (!run) return false;
 
     // If the run is still needs_confirmation but there's no in-memory
-    // state, the prompter already timed out and auto-denied. Clear the
-    // stale confirmation to keep the stored state consistent.
+    // state, the prompter already timed out and auto-denied. Fail the
+    // run rather than clearing to 'running', since no agent loop exists
+    // to complete it.
     if (run.status === 'needs_confirmation') {
-      runsStore.clearRunConfirmation(runId);
+      runsStore.failRun(runId, 'Prompter timed out (no active handler)');
+      return true;
     }
 
-    return true;
+    // Terminal states (completed/failed) mean the decision was already
+    // handled (double-submit). Treat as idempotent success.
+    if (run.status === 'completed' || run.status === 'failed') {
+      return true;
+    }
+
+    // Run is in 'running' state with no pending confirmation — the
+    // agent loop hasn't reached a confirmation point yet. Reject so
+    // the client doesn't mistakenly treat the decision as accepted.
+    return false;
   }
 }
