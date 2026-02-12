@@ -36,7 +36,9 @@ export const uiShowTool: Tool = {
     '- confirmation: Yes/no confirmation dialog. ' +
     'data shape: { message: string, detail?: string, confirmLabel?: string, cancelLabel?: string, destructive?: boolean }\n' +
     '- dynamic_page: Custom HTML page rendered in a sandboxed container. ' +
-    'data shape: { html: string, width?: number, height?: number }',
+    'data shape: { html: string, width?: number, height?: number }\n' +
+    '- file_upload: File upload dialog where the user can drag-and-drop or browse for files. ' +
+    'data shape: { prompt: string, acceptedTypes?: string[], maxFiles?: number }',
   category: 'ui-surface',
   defaultRiskLevel: RiskLevel.Low,
   executionMode: 'proxy',
@@ -50,7 +52,7 @@ export const uiShowTool: Tool = {
         properties: {
           surface_type: {
             type: 'string',
-            enum: ['card', 'form', 'list', 'confirmation', 'dynamic_page'],
+            enum: ['card', 'form', 'list', 'confirmation', 'dynamic_page', 'file_upload'],
             description: 'The type of surface to display',
           },
           title: {
@@ -158,6 +160,49 @@ export const uiDismissTool: Tool = {
 };
 
 // ---------------------------------------------------------------------------
+// request_file
+// ---------------------------------------------------------------------------
+
+export const requestFileTool: Tool = {
+  name: 'request_file',
+  description:
+    'Request a file or image from the user. Shows a file upload dialog where the user can drag-and-drop or browse for files. ' +
+    'Use this when you need the user to share a file (image, document, PDF, etc.) to continue the conversation. ' +
+    'The result contains the uploaded file data including base64 content and MIME type.',
+  category: 'ui-surface',
+  defaultRiskLevel: RiskLevel.Low,
+  executionMode: 'proxy',
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'What to ask the user for, e.g. "Please share the design file you\'d like me to review"',
+          },
+          accepted_types: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'MIME type filters, e.g. ["image/*", "application/pdf"]. If omitted, all supported file types are accepted.',
+          },
+          max_files: {
+            type: 'number',
+            description: 'Maximum number of files to accept. Defaults to 1.',
+          },
+        },
+        required: ['prompt'],
+      },
+    };
+  },
+
+  execute: proxyExecute,
+};
+
+// ---------------------------------------------------------------------------
 // All tools exported as array for convenience
 // ---------------------------------------------------------------------------
 
@@ -165,4 +210,5 @@ export const allUiSurfaceTools: Tool[] = [
   uiShowTool,
   uiUpdateTool,
   uiDismissTool,
+  requestFileTool,
 ];

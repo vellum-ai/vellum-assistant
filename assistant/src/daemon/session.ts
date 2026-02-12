@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, DynamicPageSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, DynamicPageSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
@@ -696,6 +696,35 @@ export class Session {
     toolName: string,
     input: Record<string, unknown>,
   ): Promise<ToolExecutionResult> {
+    if (toolName === 'request_file') {
+      const surfaceId = uuid();
+      const prompt = typeof input.prompt === 'string' ? input.prompt : 'Please share a file';
+      const acceptedTypes = Array.isArray(input.accepted_types) ? input.accepted_types as string[] : undefined;
+      const maxFiles = typeof input.max_files === 'number' ? input.max_files : 1;
+
+      const data: FileUploadSurfaceData = {
+        prompt,
+        acceptedTypes,
+        maxFiles,
+      };
+
+      this.surfaceState.set(surfaceId, { surfaceType: 'file_upload', data });
+
+      this.sendToClient({
+        type: 'ui_surface_show',
+        sessionId: this.conversationId,
+        surfaceId,
+        surfaceType: 'file_upload',
+        title: 'File Request',
+        data,
+      } as UiSurfaceShow);
+
+      // Always await — file upload is interactive
+      return new Promise<ToolExecutionResult>((resolve) => {
+        this.pendingSurfaceActions.set(surfaceId, { resolve });
+      });
+    }
+
     if (toolName === 'ui_show') {
       const surfaceId = uuid();
       const surfaceType = input.surface_type as SurfaceType;
