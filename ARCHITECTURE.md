@@ -78,6 +78,15 @@ graph TB
         HTTP_SERVER["RuntimeHttpServer<br/>(optional, RUNTIME_HTTP_PORT)"]
     end
 
+    subgraph "Gateway (Bun + TypeScript)"
+        GW_WEBHOOK["Telegram Webhook<br/>/webhooks/telegram"]
+        GW_VERIFY["Verify Secret<br/>x-telegram-bot-api-secret-token"]
+        GW_NORMALIZE["Normalize Message<br/>DM text only (v1)"]
+        GW_ROUTE["Route Resolver<br/>chat_id → user_id → default"]
+        GW_FORWARD["Runtime Client<br/>POST /channels/inbound"]
+        GW_REPLY["Send Reply<br/>Telegram sendMessage"]
+    end
+
     subgraph "Web Server (Next.js + React)"
         WEB_UI["Web Dashboard<br/>React 19"]
         WEB_API["API Routes"]
@@ -87,7 +96,7 @@ graph TB
             PG_CHAN["assistant_channel_accounts"]
             PG_CONTACT["assistant_channel_contacts"]
             PG_USER["user / session / account"]
-            PG_TOKENS["assistant_auth_tokens"]
+            PG_TOKENS["assistant_api_tokens"]
             PG_APIKEYS["api_keys"]
         end
 
@@ -166,6 +175,14 @@ graph TB
     RECALL --> DB_FTS
     RECALL --> DB_EMB
 
+    %% Gateway flow
+    GW_WEBHOOK --> GW_VERIFY
+    GW_VERIFY --> GW_NORMALIZE
+    GW_NORMALIZE --> GW_ROUTE
+    GW_ROUTE --> GW_FORWARD
+    GW_FORWARD -->|"HTTP"| HTTP_SERVER
+    GW_REPLY -->|"Telegram API"| GW_WEBHOOK
+
     %% Web server
     WEB_API -->|"local mode"| LOCAL_IPC
     LOCAL_IPC -->|"Unix socket"| IPC_SERVER
@@ -234,7 +251,7 @@ graph LR
     end
 
     subgraph "PostgreSQL (Web Server Only)"
-        PG["assistants, users,<br/>channel_accounts,<br/>channel_contacts,<br/>auth_tokens, api_keys<br/>───────────────<br/>Multi-tenant management<br/>Billing & provisioning"]
+        PG["assistants, users,<br/>channel_accounts,<br/>channel_contacts,<br/>api_tokens, api_keys<br/>───────────────<br/>Multi-tenant management<br/>Billing & provisioning"]
     end
 ```
 
