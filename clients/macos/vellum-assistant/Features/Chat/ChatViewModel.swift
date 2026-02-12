@@ -325,8 +325,15 @@ final class ChatViewModel: ObservableObject {
             log.error("Server error: \(err.message)")
             isThinking = false
             isSending = false
+            isCancelling = false
             currentAssistantMessageId = nil
             errorText = err.message
+            // Reset processing messages to sent
+            for i in messages.indices {
+                if messages[i].role == .user && messages[i].status == .processing {
+                    messages[i].status = .sent
+                }
+            }
 
         default:
             break
@@ -352,6 +359,24 @@ final class ChatViewModel: ObservableObject {
             try daemonClient.send(CancelMessage(sessionId: sessionId!))
         } catch {
             log.error("Failed to send cancel: \(error.localizedDescription)")
+            // Cancel failed to send, so no generationCancelled or
+            // messageComplete event will arrive from the daemon. Reset
+            // all transient state now to avoid stuck UI.
+            isSending = false
+            isThinking = false
+            // Mark current assistant message as stopped
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].isStreaming = false
+            }
+            currentAssistantMessageId = nil
+            // Reset processing messages to sent
+            for i in messages.indices {
+                if messages[i].role == .user && messages[i].status == .processing {
+                    messages[i].status = .sent
+                }
+            }
+            return
         }
 
         // Set cancelling flag so late-arriving deltas are suppressed.
