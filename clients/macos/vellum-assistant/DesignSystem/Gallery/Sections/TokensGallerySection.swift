@@ -102,7 +102,7 @@ struct TokensGallerySection: View {
                     typographySample("bodyBold", font: VFont.bodyBold)
                     typographySample("caption", font: VFont.caption)
                     typographySample("captionMedium", font: VFont.captionMedium)
-                    typographySample("small", font: VFont.caption)
+                    typographySample("small", font: VFont.small)
                     typographySample("mono", font: VFont.mono)
                     typographySample("monoSmall", font: VFont.monoSmall)
                     typographySample("display", font: VFont.display)
