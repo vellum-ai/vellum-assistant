@@ -43,7 +43,9 @@ struct MainWindowView: View {
                         onSend: viewModel.sendMessage,
                         onStop: viewModel.stopGenerating,
                         onDismissError: viewModel.dismissError,
-                        onAcceptSuggestion: viewModel.acceptSuggestion
+                        onAcceptSuggestion: viewModel.acceptSuggestion,
+                        onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
+                        onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") }
                     )
                 }
             }, panel: {
