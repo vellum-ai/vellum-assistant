@@ -2,145 +2,343 @@ import SwiftUI
 
 struct TextResponseView: View {
     @ObservedObject var session: TextSession
+    @State private var inputText = ""
+    @State private var isRecording = false
+
+    /// Whether the session is actively processing (thinking or streaming).
+    private var isActiveState: Bool {
+        switch session.state {
+        case .thinking, .streaming:
+            return true
+        default:
+            return false
+        }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md + VSpacing.xxs) {
+        VStack(spacing: 0) {
             // Header
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "text.bubble.fill")
-                    .foregroundStyle(.blue)
-                Text(UserDefaults.standard.string(forKey: "assistantName") ?? "vellum-assistant")
-                    .font(VFont.headline)
-                    .lineLimit(1)
-            }
-
-            // Task text
-            Text(session.task)
-                .font(VFont.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
+            header
 
             Divider()
 
-            // State-dependent content
-            stateContent
+            // Scrollable message list
+            messageList
 
-            // Controls
-            controlButtons
+            // Input area (only when ready)
+            if session.state == .ready {
+                inputArea
+            }
+
+            // Thinking indicator (bouncing dots)
+            if case .thinking = session.state {
+                thinkingIndicator
+            }
+
+            // Stop button (when thinking or streaming)
+            if isActiveState {
+                stopButton
+            }
         }
-        .padding(14)
-        .frame(width: 400, alignment: .leading)
+        .frame(width: 400)
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack(spacing: VSpacing.sm) {
+            Image(systemName: "text.bubble.fill")
+                .foregroundStyle(.blue)
+            Text(UserDefaults.standard.string(forKey: "assistantName") ?? "vellum-assistant")
+                .font(VFont.headline)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+    }
+
+    // MARK: - Message List
+
+    private var messageList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: VSpacing.md) {
+                    ForEach(session.messages) { message in
+                        ConversationBubble(message: message)
+                            .id(message.id)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+
+                    // Streaming bubble — show accumulated text as it arrives
+                    if case .streaming(let text) = session.state {
+                        streamingBubble(text: text)
+                            .id("streaming-bubble")
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.md)
+            }
+            .frame(maxHeight: 350)
+            .onChange(of: session.messages.count) {
+                withAnimation(VAnimation.standard) {
+                    if let lastMessage = session.messages.last {
+                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                    }
+                }
+            }
+            .onChange(of: session.state) {
+                withAnimation(VAnimation.standard) {
+                    switch session.state {
+                    case .streaming:
+                        proxy.scrollTo("streaming-bubble", anchor: .bottom)
+                    case .thinking:
+                        proxy.scrollTo("typing-indicator", anchor: .bottom)
+                    default:
+                        if let lastMessage = session.messages.last {
+                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Streaming Bubble
+
+    private func streamingBubble(text: String) -> some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            assistantAvatar
+
+            Text(text)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .textSelection(.enabled)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(VColor.surface.opacity(0.5))
+                )
+                .frame(maxWidth: 320, alignment: .leading)
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: - Thinking Indicator
+
+    private var thinkingIndicator: some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            assistantAvatar
+
+            BouncingDots()
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(VColor.surface.opacity(0.5))
+                )
+
+            Spacer(minLength: 0)
+        }
+        .id("typing-indicator")
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+    }
+
+    // MARK: - Input Area
+
+    private var inputArea: some View {
+        HStack(spacing: VSpacing.sm) {
+            VTextField(
+                placeholder: "Reply...",
+                text: $inputText,
+                onSubmit: sendMessage
+            )
+
+            // Mic toggle (placeholder for M3)
+            VIconButton(
+                label: "Voice",
+                icon: "mic.fill",
+                isActive: isRecording,
+                iconOnly: true
+            ) {
+                isRecording.toggle()
+            }
+
+            // Send button
+            Button(action: sendMessage) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        Circle()
+                            .fill(inputText.isEmpty ? Violet._600.opacity(0.4) : Violet._600)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(inputText.isEmpty)
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
+    }
+
+    // MARK: - Stop Button
+
+    private var stopButton: some View {
+        HStack {
+            Spacer()
+            Button("Stop") {
+                session.cancel()
+            }
+            .buttonStyle(.bordered)
+            .tint(.red)
+            .controlSize(.small)
+            Spacer()
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.bottom, VSpacing.md)
+    }
+
+    // MARK: - Assistant Avatar
+
+    private var assistantAvatar: some View {
+        Group {
+            if let url = Bundle.module.url(forResource: "dino", withExtension: "webp"),
+               let nsImage = NSImage(contentsOf: url) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable()
+                    .foregroundColor(VColor.textSecondary)
+            }
+        }
+        .frame(width: 24, height: 24)
+        .clipShape(Circle())
+    }
+
+    // MARK: - Helpers
+
+    private func sendMessage() {
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        inputText = ""
+        session.sendFollowUp(text: text)
+    }
+}
+
+// MARK: - Conversation Bubble
+
+private struct ConversationBubble: View {
+    let message: ConversationMessage
+
+    private var isAssistant: Bool { message.role == .assistant }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            if isAssistant {
+                assistantAvatar
+            } else {
+                Spacer(minLength: 0)
+            }
+
+            Text(message.text)
+                .font(VFont.body)
+                .foregroundColor(isAssistant ? VColor.textPrimary : .white)
+                .if(isAssistant) { view in
+                    view.textSelection(.enabled)
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(bubbleFill)
+                )
+                .if(!isAssistant) { view in
+                    view.vShadow(VShadow.accentGlow)
+                }
+                .frame(maxWidth: 320, alignment: isAssistant ? .leading : .trailing)
+
+            if isAssistant {
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var bubbleFill: some ShapeStyle {
+        if isAssistant {
+            return AnyShapeStyle(VColor.surface.opacity(0.5))
+        } else {
+            return AnyShapeStyle(
+                LinearGradient(
+                    colors: [Meadow.userBubbleGradientStart, Meadow.userBubbleGradientEnd],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+        }
     }
 
     @ViewBuilder
-    private var stateContent: some View {
-        switch session.state {
-        case .idle:
-            Text("Initializing...")
-                .foregroundStyle(.secondary)
-
-        case .thinking:
-            HStack(spacing: 6) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Thinking...")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-        case .streaming(let text):
-            ScrollViewReader { proxy in
-                ScrollView {
-                    Text(text)
-                        .font(.system(.caption, design: .default))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .id("streamingText")
-                }
-                .frame(maxHeight: 300)
-                .onChange(of: text) {
-                    proxy.scrollTo("streamingText", anchor: .bottom)
-                }
-            }
-
-        case .completed(let text):
-            ScrollView {
-                Text(text)
-                    .font(.system(.caption, design: .default))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-            }
-            .frame(maxHeight: 300)
-
-        case .ready:
-            ScrollView {
-                Text(session.messages.last?.text ?? "")
-                    .font(.system(.caption, design: .default))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-            }
-            .frame(maxHeight: 300)
-
-        case .failed(let reason):
-            HStack(spacing: 6) {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.red)
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-            }
-
-        case .cancelled:
-            Text("Cancelled")
-                .font(.caption.bold())
-                .foregroundStyle(.orange)
+    private var assistantAvatar: some View {
+        if let url = Bundle.module.url(forResource: "dino", withExtension: "webp"),
+           let nsImage = NSImage(contentsOf: url) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 24, height: 24)
+                .clipShape(Circle())
+        } else {
+            Image(systemName: "person.crop.circle.fill")
+                .resizable()
+                .foregroundColor(VColor.textSecondary)
+                .frame(width: 24, height: 24)
+                .clipShape(Circle())
         }
     }
+}
 
+// MARK: - Bouncing Dots
+
+private struct BouncingDots: View {
+    @State private var phase: Int = 0
+    @State private var timer: Timer?
+
+    var body: some View {
+        HStack(spacing: VSpacing.xs) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(VColor.textSecondary)
+                    .frame(width: 6, height: 6)
+                    .opacity(phase == index ? 1.0 : 0.4)
+            }
+        }
+        .onAppear { startAnimation() }
+        .onDisappear { timer?.invalidate() }
+    }
+
+    private func startAnimation() {
+        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
+            withAnimation(.easeInOut(duration: 0.3)) {
+                phase = (phase + 1) % 3
+            }
+        }
+    }
+}
+
+// MARK: - Conditional Modifier
+
+private extension View {
     @ViewBuilder
-    private var controlButtons: some View {
-        switch session.state {
-        case .thinking, .streaming:
-            HStack {
-                Spacer()
-                Button("Stop") {
-                    session.cancel()
-                }
-                .buttonStyle(.bordered)
-                .tint(.red)
-                .controlSize(.small)
-            }
-
-        case .completed(let text):
-            HStack {
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                Spacer()
-            }
-
-        case .ready:
-            HStack {
-                Button {
-                    let lastText = session.messages.last?.text ?? ""
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(lastText, forType: .string)
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                Spacer()
-            }
-
-        default:
-            EmptyView()
+    func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
         }
     }
 }
