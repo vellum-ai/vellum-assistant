@@ -8,14 +8,14 @@ struct VSlider: View {
 
     // MARK: - Layout Constants
 
-    private let trackHeight: CGFloat = 6
+    private let trackHeight: CGFloat = 10
     private let thumbWidth: CGFloat = 20
-    private let thumbHeight: CGFloat = 24
+    private let thumbHeight: CGFloat = 10
     private let tickMarkHeight: CGFloat = 8
     private let tickMarkWidth: CGFloat = 1
     private let gripLineCount: Int = 3
     private let gripLineWidth: CGFloat = 1
-    private let gripLineHeight: CGFloat = 10
+    private let gripLineHeight: CGFloat = 6
     private let gripLineSpacing: CGFloat = 2.5
 
     // MARK: - State
@@ -68,13 +68,13 @@ struct VSlider: View {
     private func trackView(thumbOffset: CGFloat, trackWidth: CGFloat) -> some View {
         ZStack(alignment: .leading) {
             // Unfilled track
-            Capsule()
-                .fill(Slate._700)
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .fill(Slate._800)
                 .frame(height: trackHeight)
                 .padding(.horizontal, thumbWidth / 2)
 
             // Filled track
-            Capsule()
+            RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(VColor.accent)
                 .frame(width: thumbOffset, height: trackHeight)
                 .padding(.leading, thumbWidth / 2)
@@ -85,20 +85,19 @@ struct VSlider: View {
 
     private var thumbView: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(Slate._200)
+            RoundedRectangle(cornerRadius: VRadius.xs)
+                .fill(Slate._600)
                 .frame(width: thumbWidth, height: thumbHeight)
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(Slate._400, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: VRadius.xs)
+                        .stroke(Slate._700, lineWidth: 1)
                 )
-                .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
 
             // Grip lines
             HStack(spacing: gripLineSpacing) {
                 ForEach(0..<gripLineCount, id: \.self) { _ in
                     RoundedRectangle(cornerRadius: 0.5)
-                        .fill(Slate._500)
+                        .fill(Slate._400)
                         .frame(width: gripLineWidth, height: gripLineHeight)
                 }
             }
