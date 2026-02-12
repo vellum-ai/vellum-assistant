@@ -96,7 +96,7 @@ graph TB
             PG_CHAN["assistant_channel_accounts"]
             PG_CONTACT["assistant_channel_contacts"]
             PG_USER["user / session / account"]
-            PG_TOKENS["assistant_api_tokens"]
+            PG_TOKENS["assistant_auth_tokens"]
             PG_APIKEYS["api_keys"]
         end
 
