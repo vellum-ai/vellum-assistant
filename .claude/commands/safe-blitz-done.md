@@ -1,8 +1,8 @@
-Merge a safe-blitz feature branch PR into main, close out the project, and clean up.
+Finalize a safe-blitz: merge the feature branch PR into main, close out the project issue, and clean up locally.
 
 The user passed: `$ARGUMENTS`
 
-If `$ARGUMENTS` is empty, auto-detect the feature branch PR (see Step 1). Example usage: `/safe-blitz-merge`, `/safe-blitz-merge 1136`, `/safe-blitz-merge feature/vslider-restyle`.
+If `$ARGUMENTS` is empty, auto-detect the feature branch PR (see Step 1). Example usage: `/safe-blitz-done`, `/safe-blitz-done 1136`, `/safe-blitz-done feature/vslider-restyle`.
 
 ## Parsing arguments
 
@@ -170,7 +170,7 @@ If `-d` fails (unmerged warning), use `-D` since the PR was already squash-merge
 Print a summary:
 
 ```
-## Safe Blitz Merged
+## Safe Blitz Done
 
 **PR:** #<number> — <title> (<url>)
 **Project issue:** #<epic-number> — closed
