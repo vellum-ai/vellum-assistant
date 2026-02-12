@@ -156,7 +156,7 @@ struct ChatView: View {
     }
 
     private var canSend: Bool {
-        !isSending && !inputText.trimmingCharacters(in: .whitespaces).isEmpty
+        !inputText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 }
 
@@ -178,17 +178,27 @@ private struct ChatBubble: View {
     }
 
     private var bubbleContent: some View {
-        Text(message.text)
-            .font(VFont.body)
-            .foregroundColor(isUser ? .white : VColor.textPrimary)
-            .textSelection(.enabled)
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
-            )
-            .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
+        VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.xs) {
+            Text(message.text)
+                .font(VFont.body)
+                .foregroundColor(isUser ? .white : VColor.textPrimary)
+                .textSelection(.enabled)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
+                )
+                .opacity(message.isQueued ? 0.7 : 1.0)
+
+            if message.isQueued {
+                Text("Queued")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .padding(.horizontal, VSpacing.sm)
+            }
+        }
+        .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
     }
 }
 

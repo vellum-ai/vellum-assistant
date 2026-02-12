@@ -10,12 +10,17 @@ final class ChatViewModel: ObservableObject {
     @Published var isThinking: Bool = false
     @Published var isSending: Bool = false
     @Published var errorText: String?
+    @Published var queuedMessageIds: Set<String> = []
 
     private let daemonClient: DaemonClient
     var sessionId: String?
     private var pendingUserMessage: String?
     private var messageLoopTask: Task<Void, Never>?
     private var currentAssistantMessageId: UUID?
+    /// Maps daemon requestId to the user message UUID in the messages array.
+    private var requestIdToMessageId: [String: UUID] = [:]
+    /// FIFO queue of user message UUIDs awaiting requestId assignment from the daemon.
+    private var pendingMessageIds: [UUID] = []
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -26,10 +31,15 @@ final class ChatViewModel: ObservableObject {
 
     func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty, !isSending else { return }
+        guard !text.isEmpty else { return }
+        // Allow sending while previous message is processing (daemon will queue it)
+        // Only block if we haven't bootstrapped a session yet and one is in progress
+        if isSending && sessionId == nil { return }
 
         // Append user message immediately for responsive UX
-        messages.append(ChatMessage(role: .user, text: text))
+        let userMessage = ChatMessage(role: .user, text: text)
+        messages.append(userMessage)
+        pendingMessageIds.append(userMessage.id)
         inputText = ""
         errorText = nil
 
@@ -156,7 +166,10 @@ final class ChatViewModel: ObservableObject {
 
         case .messageComplete:
             isThinking = false
-            isSending = false
+            // Only clear isSending if no messages are still queued
+            if queuedMessageIds.isEmpty {
+                isSending = false
+            }
             // Mark the current assistant message as complete
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -166,12 +179,38 @@ final class ChatViewModel: ObservableObject {
 
         case .generationCancelled:
             isThinking = false
-            isSending = false
+            if queuedMessageIds.isEmpty {
+                isSending = false
+            }
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
+
+        case .messageQueued(let msg):
+            log.info("Message queued: requestId=\(msg.requestId) position=\(msg.position)")
+            queuedMessageIds.insert(msg.requestId)
+            // Associate this requestId with the oldest pending user message
+            if let messageId = pendingMessageIds.first {
+                pendingMessageIds.removeFirst()
+                requestIdToMessageId[msg.requestId] = messageId
+                if let index = messages.firstIndex(where: { $0.id == messageId }) {
+                    messages[index].isQueued = true
+                }
+            }
+
+        case .messageDequeued(let msg):
+            log.info("Message dequeued: requestId=\(msg.requestId)")
+            queuedMessageIds.remove(msg.requestId)
+            // Mark the associated user message as no longer queued
+            if let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId),
+               let index = messages.firstIndex(where: { $0.id == messageId }) {
+                messages[index].isQueued = false
+            }
+            // The dequeued message is now being processed
+            isThinking = true
+            isSending = true
 
         case .error(let err):
             log.error("Server error: \(err.message)")

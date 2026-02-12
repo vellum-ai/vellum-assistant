@@ -41,6 +41,12 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `app_data_response` message.
     var onAppDataResponse: ((AppDataResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `message_queued` message.
+    var onMessageQueued: ((MessageQueuedMessage) -> Void)?
+
+    /// Called when the daemon sends a `message_dequeued` message.
+    var onMessageDequeued: ((MessageDequeuedMessage) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -373,6 +379,10 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSurfaceDismiss?(msg)
         case .appDataResponse(let msg):
             onAppDataResponse?(msg)
+        case .messageQueued(let msg):
+            onMessageQueued?(msg)
+        case .messageDequeued(let msg):
+            onMessageDequeued?(msg)
         default:
             break
         }
