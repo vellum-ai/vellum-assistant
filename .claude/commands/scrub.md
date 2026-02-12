@@ -8,8 +8,8 @@ Kill the running Vellum app, delete all persistent data so the next launch behav
 
 1. Kill any running Vellum processes (including the legacy process name):
    ```bash
-   pkill -x "Vellum"
-   pkill -x "vellum-assistant"
+   pkill -x "Vellum" || true
+   pkill -x "vellum-assistant" || true
    ```
 
 2. Remove session logs and knowledge store:
