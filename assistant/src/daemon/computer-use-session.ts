@@ -200,7 +200,9 @@ export class ComputerUseSession {
     const systemPrompt = buildComputerUseSystemPrompt(this.screenWidth, this.screenHeight);
     const toolDefs: ToolDefinition[] = [
       ...allComputerUseTools.map((t) => t.getDefinition()),
-      ...allUiSurfaceTools.map((t) => t.getDefinition()),
+      ...allUiSurfaceTools
+        .filter((t) => t.name !== 'request_file')
+        .map((t) => t.getDefinition()),
     ];
 
     const prompter = new PermissionPrompter(this.sendToClient);
