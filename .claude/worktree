@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"  # .claude/ → repo root
 PARENT_DIR="$(dirname "$REPO_ROOT")"
 
 usage() {
-  echo "Usage: scripts/worktree <create|remove|list> [args]"
+  echo "Usage: .claude/worktree <create|remove|list> [args]"
   echo ""
   echo "Commands:"
   echo "  create <branch-name> [start-point]  Create a worktree + branch and install deps"
@@ -17,10 +17,10 @@ usage() {
   echo "  --no-delete-branch   Never delete the branch (no prompt)"
   echo ""
   echo "Examples:"
-  echo "  scripts/worktree create feat/streaming"
-  echo "  scripts/worktree remove feat/streaming"
-  echo "  scripts/worktree remove feat/streaming --delete-branch"
-  echo "  scripts/worktree list"
+  echo "  .claude/worktree create feat/streaming"
+  echo "  .claude/worktree remove feat/streaming"
+  echo "  .claude/worktree remove feat/streaming --delete-branch"
+  echo "  .claude/worktree list"
 }
 
 create() {

@@ -1,10 +1,20 @@
-# Scripts
+# Claude Code Configuration
 
-This directory contains automation commands for Claude Code and helper scripts for development workflows.
+This directory contains Claude Code slash commands, helper scripts, and documentation for development workflows.
 
 ## Utility Scripts
 
-### `vellum-runtime-tunnel.sh` — SSH tunnel for remote runtime access
+### `worktree` — Git worktree management
+
+Creates and removes isolated git worktrees for parallel development. Used by `/swarm`, `/do`, and `/blitz` commands.
+
+```bash
+.claude/worktree create feat/streaming
+.claude/worktree remove feat/streaming --delete-branch
+.claude/worktree list
+```
+
+### `scripts/vellum-runtime-tunnel.sh` — SSH tunnel for remote runtime access
 
 Forwards a local TCP port to a remote Vellum runtime HTTP server via SSH. Use this when running the web app in local mode against a remote assistant daemon.
 
@@ -17,9 +27,6 @@ scripts/vellum-runtime-tunnel.sh status
 
 # Print env vars for web local mode
 scripts/vellum-runtime-tunnel.sh print-env
-# Output:
-#   ASSISTANT_CONNECTION_MODE=local
-#   LOCAL_RUNTIME_URL=http://127.0.0.1:7821
 
 # Stop the tunnel
 scripts/vellum-runtime-tunnel.sh stop
@@ -27,7 +34,7 @@ scripts/vellum-runtime-tunnel.sh stop
 
 Options: `--local-port PORT` and `--remote-port PORT` (both default to 7821).
 
-## Automation Commands
+## Slash Commands
 
 Slash commands for Claude Code that automate development workflows. They live in `.claude/commands/` (committed to the repo) and manage a shared task list (`.private/TODO.md`), create PRs, merge them, and track review status.
 

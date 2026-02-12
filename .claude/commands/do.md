@@ -21,7 +21,7 @@ Fetch the latest main and create the worktree based on `origin/main` so the bran
 
 ```bash
 git fetch origin main
-scripts/worktree create do/<slug> origin/main
+.claude/worktree create do/<slug> origin/main
 ```
 
 Remember the worktree path printed by the script. ALL work happens in the worktree — do NOT modify files in the main repo.
@@ -87,7 +87,7 @@ Change back to the main repo directory first (you may still be inside the worktr
 
 ```bash
 cd <main-repo>
-scripts/worktree remove do/<slug> --delete-branch
+.claude/worktree remove do/<slug> --delete-branch
 ```
 
 ### 8. Pull main

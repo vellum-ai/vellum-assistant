@@ -285,4 +285,4 @@ gh project view "$GH_PROJECT_NUMBER" --owner "$GH_PROJECT_OWNER" --format json |
 - Don't sleep for more than 15 seconds at a time while waiting for agents to finish.
 - If an agent reports failure, put the item back in TODO.md and note the failure.
 - If an agent hits merge conflicts, tell it to rebase: `git pull --rebase origin main`.
-- Use `scripts/worktree` for isolation (same as swarm).
+- Use `.claude/worktree` for isolation (same as swarm).

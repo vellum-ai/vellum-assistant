@@ -26,6 +26,8 @@ dist
 *.pem
 .claude/*
 !.claude/commands/
+!.claude/README.md
+!.claude/worktree
 .private/
 temp.sh
 context.md
