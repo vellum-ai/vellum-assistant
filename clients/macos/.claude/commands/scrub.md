@@ -33,13 +33,13 @@ Kill the running vellum-assistant app, delete all persistent data so the next la
    ```
    If it's NOT running, start it in the background from the assistant repo:
    ```bash
-   cd /Users/jasonzhou/Vellum/vellum-assistant/assistant && bun run src/index.ts daemon start
+   cd assistant && export PATH="$HOME/.bun/bin:$PATH" && bun run src/index.ts daemon start
    ```
    If it IS already running, skip this step and report that the daemon is already up.
 
 7. Build and launch the macOS app:
    ```bash
-   cd /Users/jasonzhou/Vellum/vellum-assistant/clients/macos && ./build.sh run
+   cd clients/macos && ./build.sh run
    ```
    Run this in the background so it doesn't block.
 
