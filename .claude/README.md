@@ -106,6 +106,20 @@ Checks every PR in `.private/UNREVIEWED_PRS.md` for reviews from the automated r
 /check-reviews
 ```
 
+### `/check-reviews-and-swarm` - Check reviews then address feedback
+
+Combines `/check-reviews` and `/swarm` into a single command. First triages all pending PR reviews, then immediately swarms on any feedback items that were added. Short-circuits if no feedback was found. Arguments are passed through to `/swarm`.
+
+**When to use:** When you want to check for review feedback and address it all in one step, instead of running `/check-reviews` then `/swarm` separately.
+
+**Frequency:** Every 30-60 minutes while PRs are pending review.
+
+```
+/check-reviews-and-swarm       # check reviews, then swarm with 3 workers
+/check-reviews-and-swarm 5     # check reviews, then swarm with 5 workers
+/check-reviews-and-swarm 3 10  # check reviews, then swarm with 3 workers, max 10 tasks
+```
+
 ### `/mainline` - Ship current changes to main
 
 Takes all uncommitted changes, creates a branch, commits, opens a PR, merges it via squash, adds the PR to the unreviewed list, and switches back to main. A one-shot command for shipping adhoc work.
@@ -218,6 +232,13 @@ Run this periodically to make sure you're not missing any feedback on merged PRs
 ...
 ```
 
+Or use `/check-reviews-and-swarm` to check and address feedback in one step:
+
+```
+/check-reviews-and-swarm
+...
+```
+
 ### Brainstorm
 
 ```
@@ -243,6 +264,12 @@ Follow the instructions in .claude/commands/work.md
 
 ```
 Follow the instructions in .claude/commands/check-reviews.md
+```
+
+### Check-reviews-and-swarm prompt
+
+```
+Follow the instructions in .claude/commands/check-reviews-and-swarm.md
 ```
 
 ### Brainstorm prompt
