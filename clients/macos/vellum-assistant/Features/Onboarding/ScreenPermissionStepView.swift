@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct ScreenPermissionStepView: View {
     @Bindable var state: OnboardingState
 
@@ -111,7 +112,7 @@ struct ScreenPermissionStepView: View {
         }
     }
 
-    @MainActor private func grantPermission() {
+    private func grantPermission() {
         pollTimer?.invalidate()
         permissionGranted = true
         state.screenGranted = true

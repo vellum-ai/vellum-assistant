@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct InterviewStepView: View {
     @Bindable var state: OnboardingState
     let daemonClient: DaemonClientProtocol
@@ -178,7 +179,7 @@ struct InterviewStepView: View {
 
     // MARK: - Voice Input
 
-    @MainActor private func setupVoiceCallbacks() {
+    private func setupVoiceCallbacks() {
         voiceInputManager.onTranscription = { text in
             viewModel.inputText = text
             viewModel.sendMessage()
@@ -191,7 +192,7 @@ struct InterviewStepView: View {
         }
     }
 
-    @MainActor private func toggleVoice() {
+    private func toggleVoice() {
         voiceInputManager.toggleRecording()
     }
 }

@@ -1,6 +1,7 @@
 import Speech
 import SwiftUI
 
+@MainActor
 struct SpeechPermissionStepView: View {
     @Bindable var state: OnboardingState
 
@@ -126,7 +127,7 @@ struct SpeechPermissionStepView: View {
         }
     }
 
-    @MainActor private func grantPermission() {
+    private func grantPermission() {
         pollTimer?.invalidate()
         permissionGranted = true
         permissionDenied = false

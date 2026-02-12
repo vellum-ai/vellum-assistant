@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct NamingStepView: View {
     @Bindable var state: OnboardingState
 
@@ -62,7 +63,7 @@ struct NamingStepView: View {
         }
     }
 
-    @MainActor private func confirmName() {
+    private func confirmName() {
         guard !state.assistantName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         state.advance()
     }

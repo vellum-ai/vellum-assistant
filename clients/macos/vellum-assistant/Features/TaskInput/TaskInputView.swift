@@ -12,7 +12,10 @@ struct TaskInputView: View {
     @State private var attachmentError: String?
     @State private var isDropTargeted = false
     @FocusState private var isTextFieldFocused: Bool
-    @Environment(\.openSettings) private var openSettings
+    // Use NSApp action instead of @Environment(\.openSettings) for Xcode 16.2 compatibility
+    private func openSettings() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    }
 
     private var canSubmit: Bool {
         let trimmed = taskText.trimmingCharacters(in: .whitespacesAndNewlines)
