@@ -7,13 +7,15 @@ struct InterviewChatView: View {
     let onSend: () -> Void
     let onVoiceToggle: () -> Void
     let isRecording: Bool
+    let isStreaming: Bool
     var onChipTap: ((String) -> Void)? = nil
 
     /// Whether suggestion chips should be visible.
+    /// Only show after the first assistant greeting has fully completed (not while streaming).
     private var showSuggestionChips: Bool {
         let hasGreeting = messages.contains { $0.role == .assistant }
         let hasUserMessage = messages.contains { $0.role == .user }
-        return hasGreeting && !hasUserMessage && inputText.isEmpty
+        return hasGreeting && !hasUserMessage && inputText.isEmpty && !isStreaming
     }
 
     var body: some View {
@@ -264,7 +266,8 @@ private struct TypingIndicator: View {
                 isThinking: true,
                 onSend: {},
                 onVoiceToggle: {},
-                isRecording: false
+                isRecording: false,
+                isStreaming: false
             )
             .frame(height: 400)
         }

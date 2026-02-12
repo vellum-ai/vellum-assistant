@@ -59,7 +59,7 @@ final class InterviewViewModel {
 
         STRICT RULES:
         - NEVER exceed 2-3 sentences per response. Brevity is warmth.
-        - ALWAYS end with a follow-up question that shows you were actually listening.
+        - ALWAYS end with a follow-up question that shows you were actually listening (except during the closing phase — see below).
         - Mirror their specific words back. Ask about the feeling behind what they said. Notice what they emphasize.
 
         NEVER do any of these:
@@ -218,7 +218,7 @@ final class InterviewViewModel {
         case 3...4:
             contentToSend += "\n\n[Deep-dive phase: Follow up on what they've shared. Ask about the WHY behind what they told you. Show you were listening by referencing specific things they said.]"
         default:
-            contentToSend += "\n\n[Closing phase: This is your final response. In 2-3 sentences, reflect back ONE specific thing you learned about them that stood out. Express genuine forward-looking excitement about that ONE thing, not everything. End warmly.]"
+            contentToSend += "\n\n[Closing phase: This is your final response. In 2-3 sentences, reflect back ONE specific thing you learned about them that stood out. Express genuine forward-looking excitement about that ONE thing, not everything. End warmly. Do NOT ask a follow-up question — the conversation is wrapping up.]"
         }
 
         let isLastTurn = nextTurn >= maxTurns

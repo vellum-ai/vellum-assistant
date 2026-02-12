@@ -48,6 +48,15 @@ final class VoiceInputManager {
         stopRecording()
     }
 
+    /// Directly toggle recording on/off — used by UI mic buttons that bypass the Fn-key hold flow.
+    func toggleRecording() {
+        if isRecording {
+            stopRecording()
+        } else {
+            beginRecording()
+        }
+    }
+
     // MARK: - Fn Key Detection
 
     private func setupFnKeyMonitors() {
