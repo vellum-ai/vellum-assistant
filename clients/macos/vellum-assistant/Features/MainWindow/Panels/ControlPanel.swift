@@ -29,8 +29,6 @@ struct ControlPanel: View {
                 .frame(width: 100)
                 .padding(.top, VSpacing.md)
 
-                Divider()
-
                 // Right content
                 ScrollView {
                     Group {
@@ -132,7 +130,7 @@ struct ControlPanel: View {
                 }
             }
             .padding(VSpacing.lg)
-            .vCard()
+            .vCard(background: Slate._900)
 
             // COMPUTER USAGE section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -156,7 +154,7 @@ struct ControlPanel: View {
                 VSlider(value: $maxSteps, range: 10...100, step: 10, showTickMarks: true)
             }
             .padding(VSpacing.lg)
-            .vCard()
+            .vCard(background: Slate._900)
 
             // AMBIENT AGENT section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -179,7 +177,7 @@ struct ControlPanel: View {
                 }
             }
             .padding(VSpacing.lg)
-            .vCard()
+            .vCard(background: Slate._900)
 
             // PERMISSIONS section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -193,7 +191,7 @@ struct ControlPanel: View {
                     granted: PermissionManager.accessibilityStatus() == .granted
                 )
                 .padding(VSpacing.md)
-                .vCard()
+                .vCard(background: Slate._900)
 
                 permissionRow(
                     icon: "record.circle",
@@ -201,7 +199,7 @@ struct ControlPanel: View {
                     granted: PermissionManager.screenRecordingStatus() == .granted
                 )
                 .padding(VSpacing.md)
-                .vCard()
+                .vCard(background: Slate._900)
 
                 permissionRow(
                     icon: "key",
@@ -209,10 +207,10 @@ struct ControlPanel: View {
                     granted: APIKeyManager.getKey() != nil
                 )
                 .padding(VSpacing.md)
-                .vCard()
+                .vCard(background: Slate._900)
             }
             .padding(VSpacing.lg)
-            .vCard()
+            .vCard(background: Slate._900)
 
             // ABOUT section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -241,7 +239,7 @@ struct ControlPanel: View {
                 }
             }
             .padding(VSpacing.lg)
-            .vCard()
+            .vCard(background: Slate._900)
         }
     }
 
