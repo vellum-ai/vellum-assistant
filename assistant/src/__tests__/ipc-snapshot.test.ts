@@ -76,6 +76,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     screenWidth: 1920,
     screenHeight: 1080,
   },
+  cu_session_abort: {
+    type: 'cu_session_abort',
+    sessionId: 'cu-sess-001',
+  },
   cu_observation: {
     type: 'cu_observation',
     sessionId: 'cu-sess-001',

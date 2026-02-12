@@ -101,6 +101,13 @@ exports[`IPC message snapshots ClientMessage types cu_session_create serializes 
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types cu_session_abort serializes to expected JSON 1`] = `
+{
+  "sessionId": "cu-sess-001",
+  "type": "cu_session_abort",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types cu_observation serializes to expected JSON 1`] = `
 {
   "axDiff": "+ new element",
