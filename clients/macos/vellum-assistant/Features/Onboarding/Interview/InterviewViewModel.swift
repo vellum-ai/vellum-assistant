@@ -30,6 +30,7 @@ final class InterviewViewModel {
     private let maxTurns = 5
     private var sessionId: String?
     private var currentTask: Task<Void, Never>?
+    private var startTime: Date?
 
     /// Number of completed assistant responses (greeting counts as turn 1).
     var turnCount: Int {
@@ -80,6 +81,7 @@ final class InterviewViewModel {
         what the person's day-to-day looks like. No feature descriptions. No filler.
         """
 
+        startTime = Date()
         isThinking = true
         streamingText = ""
 
@@ -302,6 +304,13 @@ final class InterviewViewModel {
 
     /// Marks the interview as complete and cancels any in-progress streaming.
     func endInterview() {
+        if let startTime {
+            let duration = Date().timeIntervalSince(startTime)
+            let turns = self.turnCount
+            let finished = self.isFinished
+            log.info("Interview completed: turns=\(turns), finished=\(finished), duration=\(String(format: "%.1f", duration))s")
+        }
+
         isComplete = true
         currentTask?.cancel()
         currentTask = nil
