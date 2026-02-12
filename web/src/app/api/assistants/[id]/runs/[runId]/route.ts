@@ -30,7 +30,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     return NextResponse.json(result);
   } catch (error: unknown) {
     console.error("Error fetching run:", error);
-    const status = error instanceof RuntimeClientError ? error.status : 500;
+    const status = error instanceof RuntimeClientError ? error.httpStatus : 500;
     return NextResponse.json(
       { error: "Failed to fetch run" },
       { status },

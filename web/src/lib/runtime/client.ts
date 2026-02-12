@@ -46,6 +46,11 @@ export class RuntimeClientError extends Error {
     super(message);
     this.name = "RuntimeClientError";
   }
+
+  /** Return a status safe to use in an HTTP response (200–599). Connection failures set status to 0, which is invalid. */
+  get httpStatus(): number {
+    return this.status >= 200 && this.status <= 599 ? this.status : 502;
+  }
 }
 
 export function createRuntimeClient(

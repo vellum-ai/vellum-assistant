@@ -116,7 +116,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
       return toAuthErrorResponse(error);
     }
-    const status = error instanceof RuntimeClientError ? error.status : 500;
+    const status = error instanceof RuntimeClientError ? error.httpStatus : 500;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to upload attachments" },
       { status },
@@ -150,7 +150,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
       return toAuthErrorResponse(error);
     }
-    const status = error instanceof RuntimeClientError ? error.status : 500;
+    const status = error instanceof RuntimeClientError ? error.httpStatus : 500;
     return NextResponse.json(
       { error: "Failed to delete attachments" },
       { status },
