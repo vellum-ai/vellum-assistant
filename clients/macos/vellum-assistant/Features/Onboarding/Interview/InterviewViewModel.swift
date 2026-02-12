@@ -150,8 +150,7 @@ final class InterviewViewModel {
                     // Stay in thinking state while the model reasons.
                     break
 
-                case .messageComplete where self.sessionId != nil,
-                     .generationHandoff where self.sessionId != nil:
+                case .messageComplete where self.sessionId != nil:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated
@@ -160,6 +159,17 @@ final class InterviewViewModel {
                         text: finalText
                     ))
                     log.info("Interview greeting complete (\(accumulated.count) chars)")
+                    return
+
+                case .generationHandoff(let handoff) where handoff.sessionId == self.sessionId:
+                    self.isThinking = false
+                    self.streamingText = ""
+                    let finalText = accumulated.isEmpty ? "(No response)" : accumulated
+                    self.messages.append(InterviewMessage(
+                        role: .assistant,
+                        text: finalText
+                    ))
+                    log.info("Interview greeting complete via handoff (\(accumulated.count) chars)")
                     return
 
                 case .cuError(let error) where error.sessionId == self.sessionId:
@@ -263,8 +273,7 @@ final class InterviewViewModel {
                     // Stay in thinking state while the model reasons.
                     break
 
-                case .messageComplete,
-                     .generationHandoff:
+                case .messageComplete:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated
@@ -276,6 +285,20 @@ final class InterviewViewModel {
                         self.isFinished = true
                     }
                     log.info("Follow-up response complete (\(accumulated.count) chars)")
+                    return
+
+                case .generationHandoff(let handoff) where handoff.sessionId == sessionId:
+                    self.isThinking = false
+                    self.streamingText = ""
+                    let finalText = accumulated.isEmpty ? "(No response)" : accumulated
+                    self.messages.append(InterviewMessage(
+                        role: .assistant,
+                        text: finalText
+                    ))
+                    if isLastTurn {
+                        self.isFinished = true
+                    }
+                    log.info("Follow-up response complete via handoff (\(accumulated.count) chars)")
                     return
 
                 case .cuError(let error) where error.sessionId == sessionId:

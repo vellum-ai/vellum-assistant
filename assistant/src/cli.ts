@@ -399,10 +399,14 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
       }
 
       case 'generation_handoff': {
-        // Treat handoff the same as message_complete from the CLI's perspective:
-        // the generation for the current request is done.
+        // The current request's generation is done; show usage and re-prompt.
+        // However, only clear `generating` when no queued work remains —
+        // otherwise SIGINT should still send `cancel` to stop the next
+        // queued generation instead of detaching.
         spinner.stop();
-        generating = false;
+        if (msg.queuedCount === 0) {
+          generating = false;
+        }
         if (lastUsage) {
           const cost = lastUsage.estimatedCost > 0
             ? ` ~$${lastUsage.estimatedCost.toFixed(4)}`
