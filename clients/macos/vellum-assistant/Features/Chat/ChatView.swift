@@ -5,11 +5,21 @@ struct ChatView: View {
     @Binding var inputText: String
     let isThinking: Bool
     let isSending: Bool
+    let errorText: String?
     let onSend: () -> Void
+    let onDismissError: () -> Void
+
+    /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
+    private var streamingScrollTrigger: Int {
+        messages.last?.text.count ?? 0
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             messageList
+            if let errorText {
+                errorBanner(errorText)
+            }
             composerArea
         }
     }
@@ -49,7 +59,42 @@ struct ChatView: View {
                     }
                 }
             }
+            .onChange(of: streamingScrollTrigger) {
+                withAnimation(VAnimation.fast) {
+                    if let lastMessage = messages.last {
+                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                    }
+                }
+            }
         }
+    }
+
+    // MARK: - Error Banner
+
+    private func errorBanner(_ text: String) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(VFont.small)
+
+            Text(text)
+                .font(VFont.small)
+                .lineLimit(2)
+
+            Spacer()
+
+            Button {
+                onDismissError()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(VFont.caption)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss error")
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+        .background(VColor.error)
     }
 
     // MARK: - Composer Area
@@ -115,19 +160,24 @@ private struct ChatBubble: View {
         HStack {
             if isUser { Spacer(minLength: 0) }
 
-            Text(message.text)
-                .font(VFont.body)
-                .foregroundColor(isUser ? .white : VColor.textPrimary)
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.vertical, VSpacing.md)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
-                )
-                .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
+            bubbleContent
 
             if !isUser { Spacer(minLength: 0) }
         }
+    }
+
+    private var bubbleContent: some View {
+        Text(message.text)
+            .font(VFont.body)
+            .foregroundColor(isUser ? .white : VColor.textPrimary)
+            .textSelection(.enabled)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
+            )
+            .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
     }
 }
 
@@ -199,7 +249,9 @@ private struct ThinkingIndicator: View {
             inputText: $text,
             isThinking: true,
             isSending: false,
-            onSend: {}
+            errorText: nil,
+            onSend: {},
+            onDismissError: {}
         )
     }
     .frame(width: 600, height: 500)

@@ -176,6 +176,10 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
+    func dismissError() {
+        errorText = nil
+    }
+
     deinit {
         messageLoopTask?.cancel()
     }
