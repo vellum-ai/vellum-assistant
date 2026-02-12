@@ -92,7 +92,6 @@ ENV LD_LIBRARY_PATH="/data/usr/lib:/data/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_P
 
 USER assistant
 
-# Expose ports:
 EXPOSE 3001
 
 ENV RUNTIME_HTTP_PORT=3001
