@@ -42,6 +42,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowObserver: Any?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         registerBundledFonts()
 
         #if DEBUG
