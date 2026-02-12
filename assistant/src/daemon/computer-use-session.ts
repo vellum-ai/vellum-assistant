@@ -9,7 +9,7 @@
 import { v4 as uuid } from 'uuid';
 import type { Provider, Message, ContentBlock, ToolDefinition } from '../providers/types.js';
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
-import type { ServerMessage, CuObservation, SurfaceType, SurfaceData, ListSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
+import type { ServerMessage, CuObservation, SurfaceType, SurfaceData, ListSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import type { ToolExecutionResult } from '../tools/types.js';
 import { AgentLoop } from '../agent/loop.js';
 import { ToolExecutor } from '../tools/executor.js';
@@ -278,6 +278,36 @@ export class ComputerUseSession {
         this.pendingSurfaceActions.delete(surfaceId);
         this.surfaceState.delete(surfaceId);
         return { content: 'Surface dismissed', isError: false };
+      }
+
+      // ── File request proxying ──────────────────────────────────────
+      if (toolName === 'request_file') {
+        const surfaceId = uuid();
+        const prompt = typeof input.prompt === 'string' ? input.prompt : 'Please share a file';
+        const acceptedTypes = Array.isArray(input.accepted_types) ? input.accepted_types as string[] : undefined;
+        const maxFiles = typeof input.max_files === 'number' ? input.max_files : 1;
+
+        const data: FileUploadSurfaceData = {
+          prompt,
+          acceptedTypes,
+          maxFiles,
+        };
+
+        this.surfaceState.set(surfaceId, { surfaceType: 'file_upload', data });
+
+        this.sendToClient({
+          type: 'ui_surface_show',
+          sessionId: this.sessionId,
+          surfaceId,
+          surfaceType: 'file_upload',
+          title: 'File Request',
+          data,
+        } as UiSurfaceShow);
+
+        // Always await — file upload is interactive
+        return new Promise<ToolExecutionResult>((resolve) => {
+          this.pendingSurfaceActions.set(surfaceId, { resolve });
+        });
       }
 
       // ── Computer-use tool proxying ─────────────────────────────────
