@@ -847,37 +847,6 @@ export class Session {
       return { content: JSON.stringify({ surfaceId, appId }), isError: false };
     }
 
-    if (toolName === 'request_file') {
-      const prompt = input.prompt as string;
-      const acceptedTypes = input.accepted_types as string[] | undefined;
-      const maxFiles = (input.max_files as number | undefined) ?? 1;
-
-      const surfaceId = uuid();
-      const surfaceData: FileUploadSurfaceData = {
-        prompt,
-        acceptedTypes,
-        maxFiles,
-      };
-
-      this.surfaceState.set(surfaceId, {
-        surfaceType: 'file_upload',
-        data: surfaceData,
-      });
-
-      this.sendToClient({
-        type: 'ui_surface_show',
-        sessionId: this.conversationId,
-        surfaceId,
-        surfaceType: 'file_upload',
-        data: surfaceData,
-      } as UiSurfaceShow);
-
-      // Wait for the user to upload files (interactive surface pattern)
-      return new Promise<ToolExecutionResult>((resolve) => {
-        this.pendingSurfaceActions.set(surfaceId, { resolve });
-      });
-    }
-
     return { content: `Unknown proxy tool: ${toolName}`, isError: true };
   }
 
