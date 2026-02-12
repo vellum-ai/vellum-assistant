@@ -272,7 +272,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         guard onboardingWindow == nil else { return }
         popover.performClose(nil)
 
-        let onboarding = OnboardingWindow()
+        let onboarding = OnboardingWindow(daemonClient: daemonClient)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
@@ -289,7 +289,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Onboarding
 
     private func showOnboarding() {
-        let onboarding = OnboardingWindow()
+        setupDaemonClient()
+
+        let onboarding = OnboardingWindow(daemonClient: daemonClient)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
@@ -299,7 +301,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding.close()
             self?.onboardingWindow = nil
 
-            self?.setupDaemonClient()
             self?.setupMenuBar()
             self?.setupHotKey()
             self?.setupEscapeMonitor()

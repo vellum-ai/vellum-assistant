@@ -25,6 +25,7 @@ final class OnboardingState {
     var screenGranted: Bool = false
     var skipPermissionChecks: Bool = false
     var hasHatched: Bool = false
+    var interviewCompleted: Bool = false
 
     var anyPermissionDenied: Bool {
         !speechGranted || !accessibilityGranted || !screenGranted
@@ -40,7 +41,7 @@ final class OnboardingState {
         case 4: return accessibilityGranted ? 0.75 : 0.60
         case 5: return screenGranted ? 0.95 : 0.80
         case 6: return 1.0
-        default: return 0.0
+        default: return 1.0
         }
     }
 
@@ -56,6 +57,7 @@ final class OnboardingState {
                 chosenKey = key
             }
             hasHatched = UserDefaults.standard.bool(forKey: "onboarding.hatched")
+            interviewCompleted = UserDefaults.standard.bool(forKey: "onboarding.interviewCompleted")
         }
     }
 
@@ -72,10 +74,11 @@ final class OnboardingState {
         UserDefaults.standard.set(assistantName, forKey: "onboarding.name")
         UserDefaults.standard.set(chosenKey.rawValue, forKey: "onboarding.key")
         UserDefaults.standard.set(hasHatched, forKey: "onboarding.hatched")
+        UserDefaults.standard.set(interviewCompleted, forKey: "onboarding.interviewCompleted")
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }

@@ -51,7 +51,7 @@ struct AliveStepView: View {
                     title: "Start using \(state.assistantName.isEmpty ? "your agent" : state.assistantName)",
                     style: .primary
                 ) {
-                    onComplete()
+                    state.advance()
                 }
                 .font(VFont.cardTitle)
 

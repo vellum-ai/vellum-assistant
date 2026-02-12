@@ -5,7 +5,12 @@ import SwiftUI
 final class OnboardingWindow {
     private var window: NSWindow?
     let state = OnboardingState()
+    let daemonClient: DaemonClientProtocol
     var onComplete: ((OnboardingState) -> Void)?
+
+    init(daemonClient: DaemonClientProtocol) {
+        self.daemonClient = daemonClient
+    }
 
     func show() {
         #if DEBUG
@@ -16,6 +21,7 @@ final class OnboardingWindow {
 
         let flowView = OnboardingFlowView(
             state: state,
+            daemonClient: daemonClient,
             onComplete: { [weak self] in
                 guard let self else { return }
                 self.onComplete?(self.state)
