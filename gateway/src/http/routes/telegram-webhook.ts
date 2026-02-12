@@ -1,17 +1,20 @@
 import pino from "pino";
 import type { GatewayConfig } from "../../config.js";
+import type { GatewayInboundEventV1 } from "../../types.js";
 import { verifyWebhookSecret } from "../../telegram/verify.js";
 import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
+import { handleInbound, type InboundResult } from "../../handlers/handle-inbound.js";
 
 const log = pino({ name: "gateway:telegram-webhook" });
 
-export type InboundHandler = (
-  event: import("../../types.js").GatewayInboundEventV1,
+export type OnReply = (
+  chatId: string,
+  result: InboundResult,
 ) => Promise<void>;
 
 export function createTelegramWebhookHandler(
   config: GatewayConfig,
-  onInbound: InboundHandler,
+  onReply?: OnReply,
 ) {
   return async (req: Request): Promise<Response> => {
     if (req.method !== "POST") {
@@ -39,16 +42,13 @@ export function createTelegramWebhookHandler(
     }
 
     // Return 200 immediately, process async
-    // We need routing to build the full event, but that's wired up in PR 3.
-    // For now, fire-and-forget the processing.
     const processAsync = async () => {
       try {
-        // Routing placeholder — will be filled in PR 3
-        const event = {
-          ...normalized,
-          routing: { assistantId: "", routeSource: "default" as const },
-        };
-        await onInbound(event);
+        const result = await handleInbound(config, normalized);
+
+        if (onReply && !result.rejected && result.runtimeResponse?.assistantMessage) {
+          await onReply(normalized.message.externalChatId, result);
+        }
       } catch (err) {
         log.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
       }
