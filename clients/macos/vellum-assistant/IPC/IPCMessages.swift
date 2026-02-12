@@ -420,15 +420,15 @@ struct ConfirmationRequestMessage: Decodable, Sendable {
     let diff: ConfirmationDiffInfo?
     let sandboxed: Bool?
 
-    struct ConfirmationAllowlistOption: Decodable, Sendable {
+    struct ConfirmationAllowlistOption: Decodable, Sendable, Equatable {
         let label: String
         let pattern: String
     }
-    struct ConfirmationScopeOption: Decodable, Sendable {
+    struct ConfirmationScopeOption: Decodable, Sendable, Equatable {
         let label: String
         let scope: String
     }
-    struct ConfirmationDiffInfo: Decodable, Sendable {
+    struct ConfirmationDiffInfo: Decodable, Sendable, Equatable {
         let filePath: String
         let oldContent: String
         let newContent: String
