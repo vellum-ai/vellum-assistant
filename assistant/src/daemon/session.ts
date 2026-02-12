@@ -19,7 +19,7 @@ import { allAppTools } from '../tools/apps/definitions.js';
 import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
-import { estimateCost } from '../util/pricing.js';
+import { estimateCost, resolvePricing } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
@@ -37,6 +37,8 @@ import {
   injectMemoryRecallIntoUserMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
+import { recordUsageEvent } from '../memory/llm-usage-store.js';
+import type { UsageActor } from '../usage/actors.js';
 
 const log = getLogger('session');
 
@@ -67,6 +69,7 @@ export interface QueuePolicy {
 
 export class Session {
   public readonly conversationId: string;
+  private provider: Provider;
   private messages: Message[] = [];
   private agentLoop: AgentLoop;
   private processing = false;
@@ -98,6 +101,7 @@ export class Session {
     workingDir: string,
   ) {
     this.conversationId = conversationId;
+    this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
     this.prompter = new PermissionPrompter(sendToClient);
@@ -393,6 +397,7 @@ export class Session {
           compacted.summaryOutputTokens,
           compacted.summaryModel,
           onEvent,
+          'context_compactor',
         );
       }
 
@@ -618,7 +623,7 @@ export class Session {
       const restoredHistory = [...preRepairMessages, ...newMessages];
       this.messages = stripMemoryRecallMessages(restoredHistory, recall.injectedText);
 
-      this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent);
+      this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent');
 
       if (yieldedForHandoff) {
         onEvent({
@@ -974,6 +979,7 @@ export class Session {
     outputTokens: number,
     model: string,
     onEvent: (msg: ServerMessage) => void,
+    actor: UsageActor,
   ): void {
     if (inputTokens <= 0 && outputTokens <= 0) return;
 
@@ -998,6 +1004,29 @@ export class Session {
       estimatedCost,
       model,
     });
+
+    // Dual-write: persist per-turn usage event to the new ledger table
+    try {
+      const pricing = resolvePricing(this.provider.name, model, inputTokens, outputTokens);
+      recordUsageEvent(
+        {
+          actor,
+          provider: this.provider.name,
+          model,
+          inputTokens,
+          outputTokens,
+          cacheCreationInputTokens: null,
+          cacheReadInputTokens: null,
+          assistantId: null,
+          conversationId: this.conversationId,
+          runId: null,
+          requestId: null,
+        },
+        pricing,
+      );
+    } catch (err) {
+      log.warn({ err, conversationId: this.conversationId }, 'Failed to persist usage event (non-fatal)');
+    }
   }
 
   private async generateTitle(userMessage: string, assistantResponse: string): Promise<void> {
