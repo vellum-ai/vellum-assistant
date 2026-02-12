@@ -73,15 +73,17 @@ final class TextResponseWindow {
         resizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: panel, queue: .main
         ) { notification in
-            guard let window = notification.object as? NSPanel else { return }
-            UserDefaults.standard.set(Double(window.frame.width), forKey: "textResponsePanelWidth")
+            Task { @MainActor in
+                guard let window = notification.object as? NSPanel else { return }
+                UserDefaults.standard.set(Double(window.frame.width), forKey: "textResponsePanelWidth")
+            }
         }
 
         // Fire onClose when the panel is closed by the user
         closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: panel, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
+        ) { _ in
+            Task { @MainActor [weak self] in
                 self?.onClose?()
             }
         }

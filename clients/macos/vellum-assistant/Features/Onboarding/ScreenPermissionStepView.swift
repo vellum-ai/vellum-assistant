@@ -102,9 +102,11 @@ struct ScreenPermissionStepView: View {
 
     private func startPolling() {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
-            let status = PermissionManager.screenRecordingStatus()
-            if status == .granted {
-                grantPermission()
+            Task { @MainActor in
+                let status = PermissionManager.screenRecordingStatus()
+                if status == .granted {
+                    grantPermission()
+                }
             }
         }
     }

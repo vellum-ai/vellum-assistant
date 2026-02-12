@@ -101,7 +101,7 @@ struct SpeechPermissionStepView: View {
 
     private func requestSpeechPermission() {
         SFSpeechRecognizer.requestAuthorization { status in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 switch status {
                 case .authorized:
                     grantPermission()
@@ -118,7 +118,7 @@ struct SpeechPermissionStepView: View {
     private func startPolling() {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             let status = SFSpeechRecognizer.authorizationStatus()
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 if status == .authorized {
                     grantPermission()
                 }
