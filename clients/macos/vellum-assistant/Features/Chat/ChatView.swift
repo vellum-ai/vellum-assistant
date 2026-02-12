@@ -53,8 +53,10 @@ struct ChatView: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
                 }
-                .padding(.horizontal, VSpacing.lg)
+                .padding(.horizontal, VSpacing.xl)
                 .padding(.vertical, VSpacing.md)
+                .frame(maxWidth: 700)
+                .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
             .onChange(of: messages.count) {
