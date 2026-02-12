@@ -16,7 +16,8 @@ export async function GET(request: Request) {
     }
 
     const sql = getDb();
-    const assistants = await sql`SELECT * FROM assistants WHERE created_by = ${user.id} ORDER BY created_at DESC`;
+    const identifiers = [user.id, user.username, user.name].filter(Boolean);
+    const assistants = await sql`SELECT * FROM assistants WHERE created_by = ANY(${identifiers}) ORDER BY created_at DESC`;
     return NextResponse.json(assistants as unknown as Assistant[]);
   } catch (error: unknown) {
     console.error("Error fetching assistants:", error);
