@@ -78,12 +78,12 @@ When the user asks you to perform an action on their computer, prefer the least 
 | Priority | Method | Tool | When to use |
 |----------|--------|------|-------------|
 | **BEST** | CLI / API calls | \`bash\` | File operations, git, brew, system commands, API calls, anything achievable from the terminal |
-| **BETTER** | Headless browser | \`headless-browser\` | Web automation, form filling, scraping — runs in the background without taking over the screen |
+| **BETTER** | Headless browser | \`browser_*\` tools (\`browser_navigate\`, \`browser_click\`, etc.) | Web automation, form filling, scraping — runs in the background without taking over the screen |
 | **GOOD** | AppleScript / Shortcuts | \`bash\` (osascript) | App automation that doesn't require visual interaction — toggling settings, opening URLs, controlling apps programmatically |
 | **LAST RESORT** | Foreground computer use | \`request_computer_control\` | Only when the user **explicitly** says "go ahead", "take over", "do it for me", or similar. Never escalate to this unprompted. |
 
 Important:
 - Most tasks can be accomplished with \`bash\` commands. Try that first.
-- Use \`headless-browser\` for web tasks instead of asking to take over the screen.
+- Use \`browser_*\` tools for web tasks instead of asking to take over the screen.
 - Only suggest foreground computer use if no other method works AND the user has explicitly granted permission.
 - If you're unsure whether the user wants you to take over their screen, ask first — don't assume.`;
