@@ -18,12 +18,11 @@ struct ScreenPermissionStepView: View {
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 360)
+                    .frame(maxWidth: 320)
             }
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 8)
 
-            // Permission card
             VStack(spacing: VSpacing.xl) {
                 Text("\u{1F441}")
                     .font(VFont.cardEmoji)
@@ -36,7 +35,7 @@ struct ScreenPermissionStepView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 280)
+                    .frame(maxWidth: 260)
 
                 if permissionGranted {
                     HStack(spacing: VSpacing.md) {
@@ -107,9 +106,7 @@ struct ScreenPermissionStepView: View {
         pollTimer?.invalidate()
         permissionGranted = true
         state.screenGranted = true
-        state.orbMood = .celebrating
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            state.orbMood = .breathing
             state.advance()
         }
     }
@@ -117,16 +114,12 @@ struct ScreenPermissionStepView: View {
 
 #Preview {
     ZStack {
-        OnboardingBackground()
-        VStack {
-            SoulOrbView(mood: .breathing)
-                .padding(.bottom, 20)
-            ScreenPermissionStepView(state: {
-                let s = OnboardingState()
-                s.currentStep = 4
-                return s
-            }())
-        }
+        MeadowBackground()
+        ScreenPermissionStepView(state: {
+            let s = OnboardingState()
+            s.currentStep = 5
+            return s
+        }())
     }
     .frame(width: 1366, height: 849)
 }

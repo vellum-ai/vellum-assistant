@@ -7,82 +7,59 @@ struct OnboardingFlowView: View {
 
     var body: some View {
         ZStack {
-            OnboardingBackground()
+            MeadowBackground()
 
-            VStack(spacing: 0) {
-                // Orb area — egg hatch on step 0, dino after hatch, fallback orb
-                Group {
-                    if state.currentStep == 0 {
-                        OnboardingHatchView(state: state)
-                    } else if state.hasHatched {
-                        CreatureView(visible: true, animated: false)
-                            .scaleEffect(creatureScale)
-                            .frame(width: 200, height: 180)
-                            .clipped()
-                    } else {
-                        SoulOrbView(mood: state.orbMood, size: orbSize)
+            // Centered egg + panel
+            HStack(alignment: .center, spacing: VSpacing.xxxl) {
+                // LEFT: SpriteKit egg scene
+                EggSceneView(state: state)
+                    .frame(width: 260, height: 380)
+
+                // RIGHT: Compact floating panel
+                OnboardingPanel {
+                    Group {
+                        switch state.currentStep {
+                        case 0:
+                            WakeUpStepView(state: state)
+                        case 1:
+                            NamingStepView(state: state)
+                        case 2:
+                            FnKeyStepView(state: state)
+                        case 3:
+                            SpeechPermissionStepView(state: state)
+                        case 4:
+                            AccessibilityPermissionStepView(state: state)
+                        case 5:
+                            ScreenPermissionStepView(state: state)
+                        case 6:
+                            AliveStepView(
+                                state: state,
+                                onComplete: onComplete,
+                                onOpenSettings: onOpenSettings
+                            )
+                        default:
+                            EmptyView()
+                        }
                     }
+                    .transition(
+                        .opacity.combined(with: .scale(scale: 0.97))
+                    )
+                    .id(state.currentStep)
                 }
-                    .animation(nil, value: state.currentStep)
-                    .padding(.top, 40)
-                    .padding(.bottom, 20)
+            }
+            .padding(.horizontal, VSpacing.xxxl)
 
-                // Step content — bottom area
-                Group {
-                    switch state.currentStep {
-                    case 0:
-                        WakeUpStepView(state: state)
-                    case 1:
-                        NamingStepView(state: state)
-                    case 2:
-                        FnKeyStepView(state: state)
-                    case 3:
-                        SpeechPermissionStepView(state: state)
-                    case 4:
-                        AccessibilityPermissionStepView(state: state)
-                    case 5:
-                        ScreenPermissionStepView(state: state)
-                    case 6:
-                        AliveStepView(
-                            state: state,
-                            onComplete: onComplete,
-                            onOpenSettings: onOpenSettings
-                        )
-                    default:
-                        EmptyView()
-                    }
-                }
-                .transition(
-                    .opacity.combined(with: .scale(scale: 0.97))
-                )
-                .id(state.currentStep)
-
+            // Bottom caption
+            VStack {
                 Spacer()
+                Text("Let\u{2019}s hatch this assistant by giving it enough permissions to live")
+                    .font(VFont.onboardingSubtitle)
+                    .foregroundColor(Meadow.captionText)
+                    .padding(.bottom, VSpacing.lg)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeOut(duration: 0.8), value: state.currentStep)
-    }
-
-    private var orbSize: CGFloat {
-        switch state.currentStep {
-        case 0: return 44
-        case 1: return 52
-        case 2: return 56
-        case 3...5: return 60
-        case 6: return 72
-        default: return 56
-        }
-    }
-
-    private var creatureScale: CGFloat {
-        switch state.currentStep {
-        case 0...1: return 0.30
-        case 2: return 0.32
-        case 3...5: return 0.34
-        case 6: return 0.38
-        default: return 0.32
-        }
     }
 }
 

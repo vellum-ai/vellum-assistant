@@ -30,12 +30,11 @@ struct AccessibilityPermissionStepView: View {
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 360)
+                    .frame(maxWidth: 320)
             }
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 8)
 
-            // Permission card
             VStack(spacing: VSpacing.xl) {
                 Text("\u{1F932}")
                     .font(VFont.cardEmoji)
@@ -48,7 +47,7 @@ struct AccessibilityPermissionStepView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 280)
+                    .frame(maxWidth: 260)
 
                 if permissionGranted {
                     HStack(spacing: VSpacing.md) {
@@ -85,7 +84,6 @@ struct AccessibilityPermissionStepView: View {
         }
         .animation(.easeOut(duration: 0.5), value: permissionGranted)
         .onAppear {
-            state.orbMood = .listening
             if state.skipPermissionChecks {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     grantPermission()
@@ -131,9 +129,7 @@ struct AccessibilityPermissionStepView: View {
         pollTimer?.invalidate()
         permissionGranted = true
         state.accessibilityGranted = true
-        state.orbMood = .celebrating
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            state.orbMood = .breathing
             state.advance()
         }
     }
@@ -141,17 +137,13 @@ struct AccessibilityPermissionStepView: View {
 
 #Preview {
     ZStack {
-        OnboardingBackground()
-        VStack {
-            SoulOrbView(mood: .listening)
-                .padding(.bottom, 20)
-            AccessibilityPermissionStepView(state: {
-                let s = OnboardingState()
-                s.assistantName = "Vellum"
-                s.currentStep = 4
-                return s
-            }())
-        }
+        MeadowBackground()
+        AccessibilityPermissionStepView(state: {
+            let s = OnboardingState()
+            s.assistantName = "Vellum"
+            s.currentStep = 4
+            return s
+        }())
     }
     .frame(width: 1366, height: 849)
 }

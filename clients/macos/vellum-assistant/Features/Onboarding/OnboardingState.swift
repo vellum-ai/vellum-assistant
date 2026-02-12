@@ -1,13 +1,5 @@
 import SwiftUI
 
-enum OrbMood {
-    case egg
-    case dormant
-    case breathing
-    case listening
-    case celebrating
-}
-
 enum ActivationKey: String, CaseIterable {
     case fn
     case ctrl
@@ -28,16 +20,28 @@ final class OnboardingState {
     var currentStep: Int = 0
     var assistantName: String = ""
     var chosenKey: ActivationKey = .fn
-    var orbMood: OrbMood = .dormant
     var speechGranted: Bool = false
     var accessibilityGranted: Bool = false
     var screenGranted: Bool = false
     var skipPermissionChecks: Bool = false
     var hasHatched: Bool = false
-    var hatchTrigger: (() -> Void)?
 
     var anyPermissionDenied: Bool {
         !speechGranted || !accessibilityGranted || !screenGranted
+    }
+
+    /// Continuous crack progress (0.0–1.0) derived from step and permission state.
+    var crackProgress: CGFloat {
+        switch currentStep {
+        case 0: return hasHatched ? 0.15 : 0.0
+        case 1: return 0.25
+        case 2: return 0.35
+        case 3: return speechGranted ? 0.55 : 0.40
+        case 4: return accessibilityGranted ? 0.75 : 0.60
+        case 5: return screenGranted ? 0.95 : 0.80
+        case 6: return 1.0
+        default: return 0.0
+        }
     }
 
     /// Restore onboarding progress from a previous session (e.g. after macOS

@@ -38,10 +38,9 @@ struct WakeUpStepView: View {
 
             OnboardingButton(title: "Hatch it!", style: .primary) {
                 guard !isHatching else { return }
-                if let trigger = state.hatchTrigger {
-                    isHatching = true
-                    trigger()
-                } else {
+                isHatching = true
+                state.hasHatched = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     state.advance()
                 }
             }
@@ -49,15 +48,12 @@ struct WakeUpStepView: View {
             .offset(y: showButton ? 0 : 8)
             .disabled(isHatching)
         }
-        .onAppear {
-            state.orbMood = .egg
-        }
     }
 }
 
 #Preview {
     ZStack {
-        OnboardingBackground()
+        MeadowBackground()
         WakeUpStepView(state: OnboardingState())
     }
     .frame(width: 1366, height: 849)

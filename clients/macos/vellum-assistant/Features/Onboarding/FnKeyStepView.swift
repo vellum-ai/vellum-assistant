@@ -33,7 +33,7 @@ struct FnKeyStepView: View {
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 360)
+                    .frame(maxWidth: 320)
             }
             .opacity(showButtons ? 1 : 0)
 
@@ -63,11 +63,6 @@ struct FnKeyStepView: View {
         .onAppear {
             let format = Self.nameReactions.randomElement()!
             nameReaction = String(format: format, state.assistantName)
-
-            state.orbMood = .celebrating
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                state.orbMood = .breathing
-            }
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.5)) {
@@ -147,7 +142,7 @@ struct FnKeyStepView: View {
 
 #Preview {
     ZStack {
-        OnboardingBackground()
+        MeadowBackground()
         FnKeyStepView(state: {
             let s = OnboardingState()
             s.assistantName = "Alex"

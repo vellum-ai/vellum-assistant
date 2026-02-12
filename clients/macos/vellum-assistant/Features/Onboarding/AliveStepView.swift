@@ -1,13 +1,5 @@
 import SwiftUI
 
-struct SparkleParticle: Identifiable {
-    let id = UUID()
-    var x: CGFloat
-    var y: CGFloat
-    var opacity: Double
-    var scale: CGFloat
-}
-
 struct AliveStepView: View {
     @Bindable var state: OnboardingState
     var onComplete: () -> Void
@@ -15,8 +7,6 @@ struct AliveStepView: View {
 
     @State private var showAbilities = false
     @State private var showButtons = false
-    @State private var particles: [SparkleParticle] = []
-    @State private var particlesLaunched = false
 
     private var abilities: [(String, String)] {
         [
@@ -29,19 +19,6 @@ struct AliveStepView: View {
 
     var body: some View {
         VStack(spacing: VSpacing.xxxl) {
-            ZStack {
-                // Sparkle particles
-                ForEach(particles) { particle in
-                    Circle()
-                        .fill(VColor.onboardingAccent)
-                        .frame(width: 4, height: 4)
-                        .scaleEffect(particle.scale)
-                        .opacity(particle.opacity)
-                        .offset(x: particle.x, y: particle.y)
-                }
-            }
-            .frame(width: 140, height: 140)
-
             VStack(spacing: VSpacing.md) {
                 Text("\(state.assistantName.isEmpty ? "It" : state.assistantName) has hatched.")
                     .font(VFont.onboardingTitle)
@@ -100,14 +77,8 @@ struct AliveStepView: View {
                     .multilineTextAlignment(.center)
                     .opacity(showButtons ? 1 : 0)
             }
-
-            Spacer()
-                .frame(height: VSpacing.xxl)
         }
         .onAppear {
-            state.orbMood = .celebrating
-            launchSparkles()
-
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 showAbilities = true
             }
@@ -138,44 +109,15 @@ struct AliveStepView: View {
                 )
         )
     }
-
-    private func launchSparkles() {
-        guard !particlesLaunched else { return }
-        particlesLaunched = true
-
-        for _ in 0..<16 {
-            let angle = Double.random(in: 0...(2 * .pi))
-            let distance = CGFloat.random(in: 40...80)
-            let particle = SparkleParticle(
-                x: 0,
-                y: 0,
-                opacity: 0.9,
-                scale: CGFloat.random(in: 0.5...1.8)
-            )
-            particles.append(particle)
-
-            let index = particles.count - 1
-            withAnimation(.easeOut(duration: 1.2)) {
-                particles[index].x = cos(angle) * distance
-                particles[index].y = sin(angle) * distance
-                particles[index].opacity = 0
-                particles[index].scale = 0.2
-            }
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
-            particles.removeAll()
-        }
-    }
 }
 
 #Preview {
     ZStack {
-        OnboardingBackground()
+        MeadowBackground()
         AliveStepView(
             state: {
                 let s = OnboardingState()
-                s.currentStep = 5
+                s.currentStep = 6
                 s.assistantName = "Alex"
                 return s
             }(),

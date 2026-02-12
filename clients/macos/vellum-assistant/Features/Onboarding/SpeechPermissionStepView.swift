@@ -24,7 +24,6 @@ struct SpeechPermissionStepView: View {
                 )
             }
 
-            // Permission card
             VStack(spacing: VSpacing.xl) {
                 Text("\u{1F399}")
                     .font(VFont.cardEmoji)
@@ -37,7 +36,7 @@ struct SpeechPermissionStepView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 280)
+                    .frame(maxWidth: 260)
 
                 if permissionGranted {
                     HStack(spacing: VSpacing.md) {
@@ -75,7 +74,6 @@ struct SpeechPermissionStepView: View {
         .animation(.easeOut(duration: 0.5), value: permissionGranted)
         .animation(.easeOut(duration: 0.3), value: permissionDenied)
         .onAppear {
-            state.orbMood = .listening
             if state.skipPermissionChecks {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     grantPermission()
@@ -131,9 +129,7 @@ struct SpeechPermissionStepView: View {
         permissionGranted = true
         permissionDenied = false
         state.speechGranted = true
-        state.orbMood = .celebrating
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            state.orbMood = .breathing
             state.advance()
         }
     }
@@ -141,17 +137,13 @@ struct SpeechPermissionStepView: View {
 
 #Preview {
     ZStack {
-        OnboardingBackground()
-        VStack {
-            SoulOrbView(mood: .listening)
-                .padding(.bottom, 20)
-            SpeechPermissionStepView(state: {
-                let s = OnboardingState()
-                s.assistantName = "Vellum"
-                s.currentStep = 3
-                return s
-            }())
-        }
+        MeadowBackground()
+        SpeechPermissionStepView(state: {
+            let s = OnboardingState()
+            s.assistantName = "Vellum"
+            s.currentStep = 3
+            return s
+        }())
     }
     .frame(width: 1366, height: 849)
 }
