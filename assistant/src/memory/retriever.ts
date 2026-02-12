@@ -187,14 +187,9 @@ export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
     if (message.role !== 'user' || message.content.length === 0) continue;
-    let foundBlock = -1;
-    for (let bi = message.content.length - 1; bi >= 0; bi--) {
-      const block = message.content[bi];
-      if (block.type === 'text' && block.text === recallText) {
-        foundBlock = bi;
-        break;
-      }
-    }
+    const foundBlock = message.content.findIndex(
+      (block) => block.type === 'text' && block.text === recallText,
+    );
     if (foundBlock !== -1) {
       targetIndex = index;
       blockIndex = foundBlock;
