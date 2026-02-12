@@ -17,6 +17,9 @@ final class ChatViewModel: ObservableObject {
     private var pendingUserMessage: String?
     private var messageLoopTask: Task<Void, Never>?
     private var currentAssistantMessageId: UUID?
+    /// When true, incoming deltas are suppressed until the daemon acknowledges
+    /// the cancellation (via `generation_cancelled` or `message_complete`).
+    private var isCancelling: Bool = false
     /// Maps daemon requestId to the user message UUID in the messages array.
     private var requestIdToMessageId: [String: UUID] = [:]
     /// FIFO queue of user message UUIDs awaiting requestId assignment from the daemon.
@@ -195,6 +198,8 @@ final class ChatViewModel: ObservableObject {
 
         case .assistantTextDelta(let delta):
             guard belongsToSession(delta.sessionId) else { return }
+            // Suppress late-arriving deltas after the user clicked stop.
+            guard !isCancelling else { return }
             isThinking = false
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -209,6 +214,7 @@ final class ChatViewModel: ObservableObject {
 
         case .messageComplete(let complete):
             guard belongsToSession(complete.sessionId) else { return }
+            isCancelling = false
             isThinking = false
             // Only clear isSending if no messages are still queued
             if pendingQueuedCount == 0 {
@@ -229,6 +235,7 @@ final class ChatViewModel: ObservableObject {
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
+            isCancelling = false
             isThinking = false
             if pendingQueuedCount == 0 {
                 isSending = false
@@ -304,24 +311,37 @@ final class ChatViewModel: ObservableObject {
     }
 
     func stopGenerating() {
-        guard isSending, let sessionId else { return }
+        guard isSending else { return }
+
+        // If we're still bootstrapping (no session yet), cancel locally:
+        // discard the pending message so it won't be sent when session_info
+        // arrives, and reset UI state immediately since there's nothing to
+        // cancel on the daemon side.
+        if sessionId == nil {
+            pendingUserMessage = nil
+            isThinking = false
+            isSending = false
+            return
+        }
 
         do {
-            try daemonClient.send(CancelMessage(sessionId: sessionId))
+            try daemonClient.send(CancelMessage(sessionId: sessionId!))
         } catch {
             log.error("Failed to send cancel: \(error.localizedDescription)")
         }
 
-        // Immediately update UI state
+        // Set cancelling flag so late-arriving deltas are suppressed.
+        // isSending stays true until the daemon acknowledges the cancel
+        // (via generation_cancelled or message_complete) to prevent the
+        // user from sending a new message before the daemon has stopped.
+        isCancelling = true
         isThinking = false
-        isSending = false
 
         // Mark current assistant message as stopped
         if let existingId = currentAssistantMessageId,
            let index = messages.firstIndex(where: { $0.id == existingId }) {
             messages[index].isStreaming = false
         }
-        currentAssistantMessageId = nil
     }
 
     func dismissError() {

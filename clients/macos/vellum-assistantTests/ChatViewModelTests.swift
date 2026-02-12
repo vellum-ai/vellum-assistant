@@ -224,7 +224,7 @@ final class ChatViewModelTests: XCTestCase {
 
     // MARK: - Stop Generating
 
-    func testStopGeneratingResetsState() {
+    func testStopGeneratingKeepsSendingUntilAcknowledged() {
         // Set up as if we're in a streaming session
         viewModel.isSending = true
         viewModel.isThinking = true
@@ -233,9 +233,75 @@ final class ChatViewModelTests: XCTestCase {
 
         viewModel.stopGenerating()
 
-        XCTAssertFalse(viewModel.isSending)
+        // isSending stays true until daemon acknowledges
+        XCTAssertTrue(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
         XCTAssertFalse(viewModel.messages[1].isStreaming)
+
+        // Daemon acknowledges cancellation
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+        XCTAssertFalse(viewModel.isSending)
+    }
+
+    func testStopGeneratingSuppressesLateDeltas() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+        viewModel.sessionId = "test-session"
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
+
+        viewModel.stopGenerating()
+
+        // Late-arriving delta after stop should be suppressed
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " late text")))
+
+        // Should still only have the original partial text, no new message
+        XCTAssertEqual(viewModel.messages.count, 2) // greeting + 1 assistant
+        XCTAssertEqual(viewModel.messages[1].text, "Partial")
+
+        // Daemon acknowledges cancellation — clears isCancelling
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+        XCTAssertFalse(viewModel.isSending)
+
+        // After acknowledgment, new deltas should work normally
+        viewModel.isSending = true
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "New response")))
+        XCTAssertEqual(viewModel.messages.count, 3)
+        XCTAssertEqual(viewModel.messages[2].text, "New response")
+    }
+
+    func testStopGeneratingSuppressedByMessageComplete() {
+        // If a message_complete arrives instead of generation_cancelled
+        // (race between cancel and normal completion), it should also
+        // reset the cancelling state.
+        viewModel.isSending = true
+        viewModel.isThinking = true
+        viewModel.sessionId = "test-session"
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response")))
+
+        viewModel.stopGenerating()
+
+        // Late delta suppressed
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " extra")))
+        XCTAssertEqual(viewModel.messages[1].text, "Response")
+
+        // message_complete arrives instead of generation_cancelled
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        XCTAssertFalse(viewModel.isSending)
+    }
+
+    func testStopGeneratingDuringBootstrapCancelsLocally() {
+        // Simulate bootstrap: isSending is true but sessionId is nil
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+
+        XCTAssertTrue(viewModel.isSending)
+        XCTAssertNil(viewModel.sessionId)
+
+        viewModel.stopGenerating()
+
+        // Should reset immediately since there's no daemon session to cancel
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
     }
 
     func testStopGeneratingWithNoSessionDoesNothing() {
