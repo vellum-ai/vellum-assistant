@@ -327,7 +327,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             existing.show()
             return
         }
-        let main = MainWindow()
+        let main = MainWindow(daemonClient: daemonClient)
         main.show()
         mainWindow = main
     }
