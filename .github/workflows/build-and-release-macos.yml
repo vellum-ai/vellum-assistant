@@ -222,7 +222,13 @@ jobs:
           BUILD_VERSION="${{ steps.version.outputs.build_version }}"
 
           # Sign the ZIP with Sparkle EdDSA key
-          SIGNATURE=$(echo "$SPARKLE_ED_PRIVATE_KEY" | sign_update dist/vellum-assistant.zip)
+          echo "sign_update location: $(which sign_update || echo 'NOT FOUND')"
+          SIGNATURE=$(sign_update dist/vellum-assistant.zip -s "$SPARKLE_ED_PRIVATE_KEY" 2>&1) || {
+            echo "sign_update failed with exit code $?"
+            echo "Output: $SIGNATURE"
+            exit 1
+          }
+          echo "Signature obtained: ${SIGNATURE:0:20}..."
           SIZE=$(stat -f%z dist/vellum-assistant.zip)
 
           cat > dist/appcast.xml << EOF
