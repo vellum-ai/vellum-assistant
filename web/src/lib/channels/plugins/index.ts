@@ -1,9 +1,6 @@
-import { telegramPlugin } from "@/lib/channels/plugins/telegram";
 import { ChannelId, ChannelPlugin } from "@/lib/channels/plugins/types";
 
-const PLUGINS: Record<string, ChannelPlugin> = {
-  telegram: telegramPlugin,
-};
+const PLUGINS: Record<string, ChannelPlugin> = {};
 
 export function listChannelPlugins(): ChannelPlugin[] {
   return Object.values(PLUGINS);
