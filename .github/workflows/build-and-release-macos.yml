@@ -106,7 +106,7 @@ jobs:
       - name: Free disk space
         run: |
           rm -rf .build daemon-bin
-          rm -rf ../assistant/node_modules
+          rm -rf ../../assistant/node_modules
           # Clear Xcode caches
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
@@ -239,9 +239,8 @@ jobs:
           echo "sign_update location: $(which sign_update || echo 'NOT FOUND')"
           ED_KEY_FILE=$(mktemp)
           echo "$SPARKLE_ED_PRIVATE_KEY" > "$ED_KEY_FILE"
-          SIGNATURE=$(sign_update dist/vellum-assistant.zip --ed-key-file "$ED_KEY_FILE" 2>&1) || {
+          SIGNATURE=$(sign_update dist/vellum-assistant.zip --ed-key-file "$ED_KEY_FILE") || {
             echo "sign_update failed with exit code $?"
-            echo "Output: $SIGNATURE"
             rm -f "$ED_KEY_FILE"
             exit 1
           }
