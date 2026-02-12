@@ -113,7 +113,11 @@ export class RunOrchestrator {
       session.updateClient(() => {});
     };
 
-    session.runAgentLoop(content, messageId, () => {}).then(() => {
+    session.runAgentLoop(content, messageId, (msg: ServerMessage) => {
+      if (msg.type === 'error') {
+        lastError = msg.message;
+      }
+    }).then(() => {
       if (lastError) {
         log.error({ runId: run.id, error: lastError }, 'Run failed (error event from agent loop)');
         runsStore.failRun(run.id, lastError);
