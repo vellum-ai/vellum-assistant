@@ -148,12 +148,15 @@ struct ControlPanel: View {
                         .font(.system(size: 12))
                         .foregroundColor(VColor.textMuted)
                     Spacer()
-                    Text("\(Int(maxSteps))")
+                    Text("\(max(1, Int(maxSteps)))")
                         .font(VFont.mono)
                         .foregroundColor(VColor.textSecondary)
                 }
 
-                VSlider(value: $maxSteps, range: 1...100, step: 10, showTickMarks: true)
+                VSlider(value: $maxSteps, range: 0...100, step: 10, showTickMarks: true)
+                    .onChange(of: maxSteps) { _, newValue in
+                        if newValue < 1 { maxSteps = 1 }
+                    }
             }
             .padding(VSpacing.lg)
             .vCard()
