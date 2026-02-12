@@ -19,6 +19,9 @@ final class ChatViewModel: ObservableObject {
     /// Used to ensure this ChatViewModel only claims its own session.
     private var bootstrapCorrelationId: String?
     private var messageLoopTask: Task<Void, Never>?
+    /// Monotonically increasing ID used to distinguish successive message-loop
+    /// tasks so that a cancelled loop's cleanup doesn't clear a newer replacement.
+    private var messageLoopGeneration: UInt64 = 0
     private var currentAssistantMessageId: UUID?
     /// When true, incoming deltas are suppressed until the daemon acknowledges
     /// the cancellation (via `generation_cancelled` or `message_complete`).
@@ -153,6 +156,9 @@ final class ChatViewModel: ObservableObject {
         messageLoopTask?.cancel()
         let messageStream = daemonClient.subscribe()
 
+        messageLoopGeneration &+= 1
+        let generation = messageLoopGeneration
+
         messageLoopTask = Task { @MainActor [weak self] in
             for await message in messageStream {
                 guard let self, !Task.isCancelled else { break }
@@ -160,7 +166,12 @@ final class ChatViewModel: ObservableObject {
             }
             // Stream ended (e.g. daemon disconnected) — clear the task reference
             // so the next sendUserMessage() call will re-subscribe.
-            self?.messageLoopTask = nil
+            // Only nil out if this task is still the current one; a cancelled
+            // loop that finishes after its replacement must not wipe the new
+            // task reference, which would cause duplicate subscriptions.
+            if self?.messageLoopGeneration == generation {
+                self?.messageLoopTask = nil
+            }
         }
     }
 
