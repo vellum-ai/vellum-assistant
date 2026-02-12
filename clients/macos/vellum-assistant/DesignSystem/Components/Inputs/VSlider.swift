@@ -52,7 +52,7 @@ struct VSlider: View {
                         let newFraction = (drag.location.x - thumbWidth / 2) / trackWidth
                         let clampedFraction = min(max(newFraction, 0), 1)
                         let rawValue = range.lowerBound + clampedFraction * (range.upperBound - range.lowerBound)
-                        value = round(rawValue / step) * step
+                        value = range.lowerBound + round((rawValue - range.lowerBound) / step) * step
                         value = min(max(value, range.lowerBound), range.upperBound)
                     }
                     .onEnded { _ in
@@ -76,7 +76,7 @@ struct VSlider: View {
             // Filled track
             Capsule()
                 .fill(VColor.accent)
-                .frame(width: thumbOffset + thumbWidth / 2, height: trackHeight)
+                .frame(width: thumbOffset, height: trackHeight)
                 .padding(.leading, thumbWidth / 2)
         }
     }
