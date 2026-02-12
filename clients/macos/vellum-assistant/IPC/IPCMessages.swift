@@ -289,6 +289,8 @@ struct SessionInfoMessage: Decodable, Sendable {
 struct TaskRoutedMessage: Decodable, Sendable {
     let sessionId: String
     let interactionType: String
+    /// Set when a text_qa session escalates to computer_use via request_computer_control.
+    let escalatedFrom: String?
 }
 
 /// Result from ambient observation analysis.

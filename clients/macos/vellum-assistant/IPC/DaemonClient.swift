@@ -53,6 +53,9 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `confirmation_request` message for tool permission approval.
     var onConfirmationRequest: ((ConfirmationRequestMessage) -> Void)?
 
+    /// Called when the daemon sends a `task_routed` message (e.g. escalation from text_qa to CU).
+    var onTaskRouted: ((TaskRoutedMessage) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -410,6 +413,8 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onGenerationHandoff?(msg)
         case .confirmationRequest(let msg):
             onConfirmationRequest?(msg)
+        case .taskRouted(let msg):
+            onTaskRouted?(msg)
         default:
             break
         }

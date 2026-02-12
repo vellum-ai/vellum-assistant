@@ -71,6 +71,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupDaemonClient() {
+        // Handle escalation: text_qa -> computer_use via request_computer_control
+        daemonClient.onTaskRouted = { [weak self] routed in
+            guard let self else { return }
+            // Only handle escalation messages (those with escalatedFrom set)
+            guard routed.escalatedFrom != nil,
+                  routed.interactionType == "computer_use" else { return }
+            self.handleEscalationToComputerUse(routed: routed)
+        }
+
         Task {
             // Launch the bundled daemon if present (release builds)
             try? await daemonLauncher.launchIfNeeded()
@@ -79,6 +88,42 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             if daemonClient.isConnected {
                 setupAmbientAgent()
             }
+        }
+    }
+
+    /// Handle escalation from an active text_qa session to foreground computer use.
+    private func handleEscalationToComputerUse(routed: TaskRoutedMessage) {
+        guard ActionExecutor.checkAccessibilityPermission(prompt: true) else { return }
+
+        let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
+        let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
+        let session = ComputerUseSession(
+            task: "",
+            daemonClient: self.daemonClient,
+            maxSteps: maxSteps,
+            sessionId: routed.sessionId,
+            skipSessionCreate: true
+        )
+        self.currentSession = session
+
+        let overlay = SessionOverlayWindow(session: session)
+        overlay.show()
+        self.overlayWindow = overlay
+        self.ambientAgent.pause()
+
+        // Close the text response window but keep the text session reference
+        // (no de-escalation for MVP — text session is effectively done)
+        self.textResponseWindow?.close()
+        self.textResponseWindow = nil
+
+        Task { @MainActor in
+            await session.run()
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            overlay.close()
+            self.overlayWindow = nil
+            self.currentSession = nil
+            self.currentTextSession = nil
+            self.ambientAgent.resume()
         }
     }
 
