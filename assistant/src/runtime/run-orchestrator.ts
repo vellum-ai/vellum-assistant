@@ -81,12 +81,9 @@ export class RunOrchestrator {
     const messageId = session.persistUserMessage(content, attachments, requestId);
     const run = runsStore.createRun(assistantId, conversationId, messageId);
 
-    // Hook into session to intercept confirmation_request and error events.
+    // Hook into session to intercept confirmation_request events.
     // When the prompter sends a confirmation_request, we record it in the
     // run store so the web UI can poll and submit a decision.
-    // We also track error events because session.runAgentLoop catches
-    // internal errors and resolves normally — without tracking these,
-    // the run would be marked as completed even when errors occurred.
     let lastError: string | null = null;
     session.updateClient((msg: ServerMessage) => {
       if (msg.type === 'confirmation_request') {
@@ -100,8 +97,6 @@ export class RunOrchestrator {
           prompterRequestId: msg.requestId,
           session,
         });
-      } else if (msg.type === 'error') {
-        lastError = msg.message;
       }
     });
 
@@ -113,7 +108,11 @@ export class RunOrchestrator {
       session.updateClient(() => {});
     };
 
-    session.runAgentLoop(content, messageId, () => {}).then(() => {
+    session.runAgentLoop(content, messageId, (msg: ServerMessage) => {
+      if (msg.type === 'error') {
+        lastError = msg.message;
+      }
+    }).then(() => {
       if (lastError) {
         log.error({ runId: run.id, error: lastError }, 'Run failed (error event from agent loop)');
         runsStore.failRun(run.id, lastError);
