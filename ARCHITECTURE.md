@@ -288,14 +288,16 @@ sequenceDiagram
         AD->>DC: send(SessionCreate + UserMessage)
         Note over DC: Unix socket<br/>~/.vellum/vellum.sock
         DC->>Daemon: IPC
-        Note over Daemon: Creates conversation in SQLite<br/>Wires escalation handler<br/>Starts streaming immediately
+        Note over Daemon: Creates conversation in SQLite<br/>Wires escalation handler
+        Daemon-->>DC: task_routed(text_qa)
+        DC-->>AD: route to text_qa UI
+        Note over Daemon: Starts streaming immediately
         Daemon->>Claude: API call with text prompt
         Claude-->>Daemon: streaming text response
         Daemon-->>DC: assistant_text_delta (stream)
         DC-->>TextSess: text deltas
         TextSess-->>TW: display streaming response
         Daemon-->>DC: message_complete
-        DC-->>AD: task_routed(text_qa)
 
     else source === 'text' or nil → computer_use path
         Note over CLS: Haiku-4.5 direct call<br/>5s timeout, heuristic fallback
