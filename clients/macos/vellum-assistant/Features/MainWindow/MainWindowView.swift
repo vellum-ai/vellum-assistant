@@ -76,5 +76,5 @@ struct MainWindowView: View {
 
 #Preview {
     let dc = DaemonClient()
-    MainWindowView(threadManager: ThreadManager(daemonClient: dc), daemonClient: dc, ambientAgent: AmbientAgent())
+    return MainWindowView(threadManager: ThreadManager(daemonClient: dc), daemonClient: dc, ambientAgent: AmbientAgent())
 }
