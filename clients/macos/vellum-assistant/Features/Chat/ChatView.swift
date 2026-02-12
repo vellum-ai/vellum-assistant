@@ -146,15 +146,6 @@ struct ChatView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Stop generation")
             }
-
-            // Attachment button
-            Button(action: { /* future: open file picker */ }) {
-                Image(systemName: "paperclip")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(VColor.textMuted)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Attach file")
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
