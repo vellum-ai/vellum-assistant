@@ -242,24 +242,41 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         voiceInput?.onTranscription = { [weak self] text in
             self?.voiceTranscriptionWindow?.close()
             self?.voiceTranscriptionWindow = nil
-            self?.startSession(task: text)
+            // Route to active conversation if one exists and is ready
+            if let textSession = self?.currentTextSession, textSession.state == .ready {
+                textSession.sendFollowUp(text: text)
+            } else {
+                self?.startSession(task: text)
+            }
         }
         voiceInput?.onPartialTranscription = { [weak self] text in
-            self?.voiceTranscriptionWindow?.updateText(text)
+            // Route partial text to active conversation's input field if available
+            if let textSession = self?.currentTextSession, textSession.state == .ready {
+                self?.textResponseWindow?.updatePartialTranscription(text)
+            } else {
+                self?.voiceTranscriptionWindow?.updateText(text)
+            }
         }
         voiceInput?.onRecordingStateChanged = { [weak self] isRecording in
+            // If there's an active conversation in ready state, route recording state there
+            let hasActiveConvo = self?.currentTextSession?.state == .ready
+
             if isRecording {
                 self?.statusItem.button?.image = NSImage(
                     systemSymbolName: "mic.fill",
                     accessibilityDescription: "vellum-assistant"
                 )
-                let window = VoiceTranscriptionWindow()
-                window.show()
-                self?.voiceTranscriptionWindow = window
+                if !hasActiveConvo {
+                    let window = VoiceTranscriptionWindow()
+                    window.show()
+                    self?.voiceTranscriptionWindow = window
+                }
+                self?.textResponseWindow?.updateRecordingState(true)
             } else {
                 self?.voiceTranscriptionWindow?.close()
                 self?.voiceTranscriptionWindow = nil
                 self?.updateMenuBarIcon()
+                self?.textResponseWindow?.updateRecordingState(false)
             }
         }
         voiceInput?.start()
@@ -477,16 +494,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     existingStream: messageStream
                 )
                 self.currentTextSession = session
-                let window = TextResponseWindow(session: session)
+                let inputState = ConversationInputState()
+                let window = TextResponseWindow(session: session, inputState: inputState)
                 window.show()
                 self.textResponseWindow = window
                 self.ambientAgent.pause()
+
+                // Clean up when the user closes the panel
+                window.onClose = { [weak self] in
+                    self?.textResponseWindow = nil
+                    self?.currentTextSession = nil
+                    self?.ambientAgent.resume()
+                }
+
                 await session.run()
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                window.close()
-                self.textResponseWindow = nil
-                self.currentTextSession = nil
-                self.ambientAgent.resume()
             }
         }
     }

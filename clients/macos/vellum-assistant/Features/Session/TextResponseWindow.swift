@@ -2,23 +2,45 @@ import AppKit
 import Combine
 import SwiftUI
 
+/// Shared state for routing voice input into an active conversation panel.
+@MainActor
+final class ConversationInputState: ObservableObject {
+    @Published var inputText: String = ""
+    @Published var isRecording: Bool = false
+
+    nonisolated init() {
+        // Properties are initialized with defaults above
+    }
+}
+
 @MainActor
 final class TextResponseWindow {
     private var panel: NSPanel?
     private let session: TextSession
+    let inputState: ConversationInputState
     private var stateCancellable: AnyCancellable?
+    private var resizeObserver: Any?
+    private var closeObserver: Any?
+    private var hasBeenPositioned = false
 
-    init(session: TextSession) {
+    /// Called when the user closes the panel (X button or programmatic close).
+    var onClose: (() -> Void)?
+
+    init(session: TextSession, inputState: ConversationInputState = ConversationInputState()) {
         self.session = session
+        self.inputState = inputState
     }
 
     func show() {
-        let view = TextResponseView(session: session)
+        let savedWidth = UserDefaults.standard.double(forKey: "textResponsePanelWidth")
+        let initialWidth = savedWidth > 0 ? savedWidth : 400.0
+
+        let view = TextResponseView(session: session, inputState: inputState)
         let hostingController = NSHostingController(rootView: view)
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
-            styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow],
+            contentRect: NSRect(x: 0, y: 0, width: initialWidth, height: 200),
+            styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -30,30 +52,75 @@ final class TextResponseWindow {
         panel.titlebarAppearsTransparent = true
         panel.alphaValue = 0.9
         panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        panel.collectionBehavior = [.canJoinAllSpaces]
+        panel.minSize = NSSize(width: 300, height: 200)
+        panel.maxSize = NSSize(width: 600, height: 10000)
 
-        // Size window to fit SwiftUI content and resize on every state change
+        // Initial size and position
         sizeAndPosition(panel)
+        hasBeenPositioned = true
+
+        // Resize on state change — only adjust height, keep user's position
         stateCancellable = session.$state
             .sink { [weak self, weak panel] _ in
                 guard let self, let panel else { return }
-                self.sizeAndPosition(panel)
+                self.resizeHeight(panel)
             }
+
+        // Persist width on resize
+        resizeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification, object: panel, queue: .main
+        ) { notification in
+            guard let window = notification.object as? NSPanel else { return }
+            UserDefaults.standard.set(Double(window.frame.width), forKey: "textResponsePanelWidth")
+        }
+
+        // Fire onClose when the panel is closed by the user
+        closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: panel, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.onClose?()
+            }
+        }
 
         panel.orderFront(nil)
         self.panel = panel
     }
 
+    /// Called when partial transcription arrives during Fn-hold in an active conversation.
+    func updatePartialTranscription(_ text: String) {
+        inputState.inputText = text
+    }
+
+    /// Called when recording state changes.
+    func updateRecordingState(_ isRecording: Bool) {
+        inputState.isRecording = isRecording
+    }
+
     func close() {
         stateCancellable?.cancel()
         stateCancellable = nil
+        if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) }
+        resizeObserver = nil
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver = nil
         panel?.close()
         panel = nil
     }
 
+    /// Full size-and-position: used only on initial show.
     private func sizeAndPosition(_ panel: NSPanel) {
         if let fittingSize = panel.contentView?.fittingSize {
-            panel.setContentSize(fittingSize)
+            let width = panel.frame.width // keep the initial/saved width
+            let maxHeight: CGFloat
+            if let screen = NSScreen.main {
+                maxHeight = screen.visibleFrame.height - 40
+            } else {
+                maxHeight = 800
+            }
+            let height = min(fittingSize.height, maxHeight)
+            panel.setContentSize(NSSize(width: width, height: height))
         }
         // Pin to bottom-right of screen
         if let screen = NSScreen.main {
@@ -63,5 +130,25 @@ final class TextResponseWindow {
             let y = screenFrame.minY + 20
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
+    }
+
+    /// Resize height only — keep the bottom edge fixed and the user's horizontal position.
+    private func resizeHeight(_ panel: NSPanel) {
+        guard let fittingSize = panel.contentView?.fittingSize else { return }
+        let maxHeight: CGFloat
+        if let screen = NSScreen.main {
+            maxHeight = screen.visibleFrame.height - 40
+        } else {
+            maxHeight = 800
+        }
+        let newHeight = min(fittingSize.height, maxHeight)
+        let currentFrame = panel.frame
+        // Grow upward: keep bottom edge fixed
+        let newOriginY = currentFrame.minY + currentFrame.height - newHeight
+        panel.setFrame(
+            NSRect(x: currentFrame.minX, y: newOriginY, width: currentFrame.width, height: newHeight),
+            display: true,
+            animate: false
+        )
     }
 }

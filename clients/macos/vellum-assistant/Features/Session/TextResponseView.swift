@@ -2,8 +2,7 @@ import SwiftUI
 
 struct TextResponseView: View {
     @ObservedObject var session: TextSession
-    @State private var inputText = ""
-    @State private var isRecording = false
+    @ObservedObject var inputState: ConversationInputState
 
     /// Whether the session is actively processing (thinking or streaming).
     private var isActiveState: Bool {
@@ -40,7 +39,7 @@ struct TextResponseView: View {
                 stopButton
             }
         }
-        .frame(width: 400)
+        .frame(minWidth: 300, maxWidth: 600)
     }
 
     // MARK: - Header
@@ -79,7 +78,7 @@ struct TextResponseView: View {
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)
             }
-            .frame(maxHeight: 350)
+            .frame(maxHeight: .infinity)
             .onChange(of: session.messages.count) {
                 withAnimation(VAnimation.standard) {
                     if let lastMessage = session.messages.last {
@@ -153,18 +152,16 @@ struct TextResponseView: View {
         HStack(spacing: VSpacing.sm) {
             VTextField(
                 placeholder: "Reply...",
-                text: $inputText,
+                text: $inputState.inputText,
                 onSubmit: sendMessage
             )
 
-            // Mic toggle (placeholder for M3)
-            VIconButton(
-                label: "Voice",
-                icon: "mic.fill",
-                isActive: isRecording,
-                iconOnly: true
-            ) {
-                isRecording.toggle()
+            // Mic indicator — shows when Fn-hold voice input is active
+            if inputState.isRecording {
+                Image(systemName: "mic.fill")
+                    .foregroundStyle(.red)
+                    .font(.system(size: 14))
+                    .symbolEffect(.pulse)
             }
 
             // Send button
@@ -175,11 +172,11 @@ struct TextResponseView: View {
                     .frame(width: 28, height: 28)
                     .background(
                         Circle()
-                            .fill(inputText.isEmpty ? Violet._600.opacity(0.4) : Violet._600)
+                            .fill(inputState.inputText.isEmpty ? Violet._600.opacity(0.4) : Violet._600)
                     )
             }
             .buttonStyle(.plain)
-            .disabled(inputText.isEmpty)
+            .disabled(inputState.inputText.isEmpty)
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
@@ -224,9 +221,9 @@ struct TextResponseView: View {
     // MARK: - Helpers
 
     private func sendMessage() {
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = inputState.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        inputText = ""
+        inputState.inputText = ""
         session.sendFollowUp(text: text)
     }
 }
