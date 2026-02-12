@@ -73,8 +73,9 @@ final class ToolConfirmationManager {
     }
 
     func dismissAll() {
-        for (_, panel) in panels {
+        for (requestId, panel) in panels {
             panel.close()
+            onResponse?(requestId, "deny")
         }
         panels.removeAll()
     }
