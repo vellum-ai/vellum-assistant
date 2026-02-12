@@ -6,6 +6,9 @@ struct InputsGallerySection: View {
     @State private var textEditorValue = ""
     @State private var minHeight: CGFloat = 80
     @State private var maxHeight: CGFloat = 200
+    @State private var sliderValue: Double = 50
+    @State private var sliderSteppedValue: Double = 25
+    @State private var sliderSmallValue: Double = 5
     @State private var toggleA: Bool = true
     @State private var toggleB: Bool = false
 
@@ -56,6 +59,41 @@ struct InputsGallerySection: View {
                             leadingIcon: "magnifyingglass",
                             trailingIcon: "xmark.circle"
                         )
+                    }
+                }
+            }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
+            // MARK: - VSlider
+            GallerySectionHeader(
+                title: "VSlider",
+                description: "Custom slider with rounded capsule track, grip-line thumb, and optional tick marks."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    Text("Live value: \(Int(sliderValue))")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textMuted)
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Default (0–100, step 1)").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VSlider(value: $sliderValue)
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("With tick marks (0–100, step 5): \(Int(sliderSteppedValue))")
+                            .font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VSlider(value: $sliderSteppedValue, range: 0...100, step: 5, showTickMarks: true)
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Small range (1–10, step 1): \(Int(sliderSmallValue))")
+                            .font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VSlider(value: $sliderSmallValue, range: 1...10, step: 1, showTickMarks: true)
                     }
                 }
             }

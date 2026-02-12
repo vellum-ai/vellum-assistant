@@ -152,8 +152,7 @@ struct ControlPanel: View {
                         .foregroundColor(VColor.textSecondary)
                 }
 
-                Slider(value: $maxSteps, in: 1...100, step: 1)
-                    .tint(VColor.accent)
+                VSlider(value: $maxSteps, range: 1...100, step: 1)
             }
             .padding(VSpacing.lg)
             .vCard()
