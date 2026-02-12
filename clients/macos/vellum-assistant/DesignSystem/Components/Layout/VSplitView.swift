@@ -12,13 +12,11 @@ struct VSplitView<Main: View, Panel: View>: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if showPanel, let panel = panel {
-                Divider()
-                    .background(VColor.surfaceBorder)
-                    .transition(.move(edge: .trailing))
-
                 panel
                     .frame(width: panelWidth)
                     .background(VColor.backgroundSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    .padding(VSpacing.sm)
                     .transition(.move(edge: .trailing))
             }
         }

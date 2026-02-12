@@ -2,10 +2,11 @@ import SwiftUI
 
 struct CardModifier: ViewModifier {
     var radius: CGFloat = VRadius.md
+    var background: Color = VColor.surface
 
     func body(content: Content) -> some View {
         content
-            .background(VColor.surface)
+            .background(background)
             .clipShape(RoundedRectangle(cornerRadius: radius))
             .overlay(
                 RoundedRectangle(cornerRadius: radius)
@@ -15,8 +16,8 @@ struct CardModifier: ViewModifier {
 }
 
 extension View {
-    func vCard(radius: CGFloat = VRadius.md) -> some View {
-        modifier(CardModifier(radius: radius))
+    func vCard(radius: CGFloat = VRadius.md, background: Color = VColor.surface) -> some View {
+        modifier(CardModifier(radius: radius, background: background))
     }
 }
 

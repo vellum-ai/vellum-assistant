@@ -29,8 +29,6 @@ struct ControlPanel: View {
                 .frame(width: 100)
                 .padding(.top, VSpacing.md)
 
-                Divider()
-
                 // Right content
                 ScrollView {
                     Group {
@@ -78,7 +76,7 @@ struct ControlPanel: View {
                 .padding(.vertical, VSpacing.xs)
         }
         .buttonStyle(.plain)
-        .background(selected ? VColor.surface : Color.clear)
+        .background(selected ? Slate._700 : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .vHover()
     }
@@ -132,7 +130,7 @@ struct ControlPanel: View {
                 }
             }
             .padding(VSpacing.lg)
-            .vCard()
+            .vCard(background: Slate._900)
 
             // COMPUTER USAGE section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -156,7 +154,7 @@ struct ControlPanel: View {
                 VSlider(value: $maxSteps, range: 1...100, step: 10, showTickMarks: true)
             }
             .padding(VSpacing.lg)
-            .vCard()
+            .vCard(background: Slate._900)
 
             // AMBIENT AGENT section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -164,18 +162,22 @@ struct ControlPanel: View {
                     .font(VFont.display)
                     .foregroundColor(VColor.textPrimary)
 
-                HStack(spacing: VSpacing.xs) {
-                    VToggle(isOn: $ambientEnabled, label: "Enable ambient screen watching")
+                HStack {
+                    Text("Enable ambient screen watching")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
                     Image(systemName: "info.circle")
                         .font(.system(size: 12))
                         .foregroundColor(VColor.textMuted)
+                    Spacer()
+                    VToggle(isOn: $ambientEnabled)
                 }
                 .onChange(of: ambientEnabled) { _, newValue in
                     ambientAgent.isEnabled = newValue
                 }
             }
             .padding(VSpacing.lg)
-            .vCard()
+            .vCard(background: Slate._900)
 
             // PERMISSIONS section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -188,21 +190,27 @@ struct ControlPanel: View {
                     label: "Accessibility",
                     granted: PermissionManager.accessibilityStatus() == .granted
                 )
+                .padding(VSpacing.md)
+                .vCard(background: Slate._900)
 
                 permissionRow(
                     icon: "record.circle",
                     label: "Screen Recording",
                     granted: PermissionManager.screenRecordingStatus() == .granted
                 )
+                .padding(VSpacing.md)
+                .vCard(background: Slate._900)
 
                 permissionRow(
                     icon: "key",
                     label: "API Key",
                     granted: APIKeyManager.getKey() != nil
                 )
+                .padding(VSpacing.md)
+                .vCard(background: Slate._900)
             }
             .padding(VSpacing.lg)
-            .vCard()
+            .vCard(background: Slate._900)
 
             // ABOUT section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -231,7 +239,7 @@ struct ControlPanel: View {
                 }
             }
             .padding(VSpacing.lg)
-            .vCard()
+            .vCard(background: Slate._900)
         }
     }
 
