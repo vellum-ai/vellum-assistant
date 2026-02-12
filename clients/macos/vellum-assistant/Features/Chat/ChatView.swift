@@ -139,10 +139,11 @@ struct ChatView: View {
                 .foregroundColor(VColor.accent)
 
             // Text field
-            TextField("What you need chef?", text: $inputText)
+            TextField("What you need chef?", text: $inputText, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(VFont.mono)
                 .foregroundColor(VColor.textPrimary)
+                .lineLimit(1...3)
                 .onSubmit { if canSend { onSend() } }
 
             // Attachment / Stop button
