@@ -124,7 +124,8 @@ struct SurfaceContainerView: View {
                     SurfaceActionButton(id: "continue", label: "Continue", style: .primary),
                 ]
             ),
-            onAction: { _, _ in }
+            onAction: { _, _ in },
+            onDismiss: {}
         )
     )
 }
