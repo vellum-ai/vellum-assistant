@@ -13,43 +13,45 @@ struct MainWindowView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Row 1 — thread tab bar
-            ThreadTabBar(
-                threads: threadManager.threads,
-                activeThreadId: threadManager.activeThreadId,
-                onSelect: { threadManager.selectThread(id: $0) },
-                onClose: { threadManager.closeThread(id: $0) },
-                onCreate: { threadManager.createThread() }
-            )
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                // Row 1 — thread tab bar
+                ThreadTabBar(
+                    threads: threadManager.threads,
+                    activeThreadId: threadManager.activeThreadId,
+                    onSelect: { threadManager.selectThread(id: $0) },
+                    onClose: { threadManager.closeThread(id: $0) },
+                    onCreate: { threadManager.createThread() }
+                )
 
-            // Row 2 — navigation toolbar
-            NavigationToolbar(activePanel: $activePanel)
+                // Row 2 — navigation toolbar
+                NavigationToolbar(activePanel: $activePanel)
 
-            // Row 3 — chat content with optional side panel
-            VSplitView(panelWidth: 420, showPanel: activePanel != nil, main: {
-                if let viewModel = threadManager.activeViewModel {
-                    ChatView(
-                        messages: viewModel.messages,
-                        inputText: Binding(
-                            get: { viewModel.inputText },
-                            set: { viewModel.inputText = $0 }
-                        ),
-                        isThinking: viewModel.isThinking,
-                        isSending: viewModel.isSending,
-                        errorText: viewModel.errorText,
-                        pendingQueuedCount: viewModel.pendingQueuedCount,
-                        onSend: viewModel.sendMessage,
-                        onStop: viewModel.stopGenerating,
-                        onDismissError: viewModel.dismissError
-                    )
-                }
-            }, panel: {
-                panelContent
-            })
+                // Row 3 — chat content with optional side panel
+                VSplitView(panelWidth: geometry.size.width * 0.5, showPanel: activePanel != nil, main: {
+                    if let viewModel = threadManager.activeViewModel {
+                        ChatView(
+                            messages: viewModel.messages,
+                            inputText: Binding(
+                                get: { viewModel.inputText },
+                                set: { viewModel.inputText = $0 }
+                            ),
+                            isThinking: viewModel.isThinking,
+                            isSending: viewModel.isSending,
+                            errorText: viewModel.errorText,
+                            pendingQueuedCount: viewModel.pendingQueuedCount,
+                            onSend: viewModel.sendMessage,
+                            onStop: viewModel.stopGenerating,
+                            onDismissError: viewModel.dismissError
+                        )
+                    }
+                }, panel: {
+                    panelContent
+                })
+            }
+            .ignoresSafeArea(edges: .top)
+            .background(VColor.background.ignoresSafeArea())
         }
-        .ignoresSafeArea(edges: .top)
-        .background(VColor.background.ignoresSafeArea())
         .frame(minWidth: 800, minHeight: 600)
     }
 
