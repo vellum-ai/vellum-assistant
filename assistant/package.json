@@ -19,6 +19,7 @@
     "@qdrant/js-client-rest": "^1.16.2",
     "@sentry/node": "^10.38.0",
     "commander": "^13.1.0",
+    "croner": "^10.0.1",
     "drizzle-orm": "^0.38.4",
     "minimatch": "^10.1.2",
     "openai": "^6.18.0",

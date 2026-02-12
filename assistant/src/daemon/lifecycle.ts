@@ -20,6 +20,7 @@ import { DaemonError } from '../util/errors.js';
 import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
 import { QdrantManager } from '../memory/qdrant-manager.js';
 import { initQdrantClient } from '../memory/qdrant-client.js';
+import { startCronScheduler } from '../cron/cron-scheduler.js';
 import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 
@@ -199,6 +200,9 @@ export async function runDaemon(): Promise<void> {
   const server = new DaemonServer();
   await server.start();
   const memoryWorker = startMemoryJobsWorker();
+  const cronScheduler = startCronScheduler(async (conversationId, message) => {
+    await server.processMessage('cron', conversationId, message);
+  });
 
   // Start optional runtime HTTP server when RUNTIME_HTTP_PORT is set
   let runtimeHttp: RuntimeHttpServer | null = null;
@@ -255,6 +259,7 @@ export async function runDaemon(): Promise<void> {
     await server.stop();
     if (runtimeHttp) await runtimeHttp.stop();
     await browserManager.closeAllPages();
+    cronScheduler.stop();
     memoryWorker.stop();
     await qdrantManager.stop();
     await Sentry.flush(2000);
