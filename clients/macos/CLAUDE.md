@@ -84,6 +84,33 @@ The package is split into two targets for Xcode Preview support:
 
 `UI/Onboarding/` — multi-step flow (`OnboardingFlowView` → `OnboardingState`) covering wake-up animation, naming, permissions (screen recording, microphone), Fn key setup, and an alive-check step. Shown on first launch; skip with `--skip-onboarding` in debug.
 
+## Design System (`DesignSystem/`)
+
+The design system uses a two-tier architecture with functional subgrouping:
+
+```
+DesignSystem/
+├── Tokens/              (VColor, VFont, VSpacing, VRadius, VShadow, VAnimation)
+├── Primitives/          (atomic, single-element wrappers)
+│   ├── Buttons/         (VButton, VIconButton, VCircleButton)
+│   ├── Inputs/          (VSlider, VTextEditor, VTextField, VToggle)
+│   ├── Feedback/        (VBadge, VLoadingIndicator, VToast)
+│   ├── Display/         (VEmptyState, VListRow)
+│   └── Navigation/      (VTab)
+├── Components/          (composed from primitives, feature-aware)
+│   ├── Navigation/      (VTabBar, VSegmentedControl)
+│   ├── Layout/          (VSidePanel, VSplitView, VToolbar)
+│   └── Display/         (VCard)
+├── Modifiers/           (ViewModifier extensions: .vShadow, .hoverEffect, etc.)
+└── Gallery/             (ComponentGalleryView — visual catalog of all tokens/components)
+```
+
+**Classification rule:**
+- **Primitive** = wraps a single native SwiftUI element (Button, Toggle, Slider, TextField, Circle). Place in `Primitives/`.
+- **Component** = composes multiple primitives or has internal layout logic (VTabBar arranges VTabs, VCard has header/body slots). Place in `Components/`.
+
+All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Always use design tokens instead of raw values — `VFont.body` not `Font.system(size: 13)`, `VColor.accent` not `Color.purple`.
+
 ## Key Constraints
 
 - **LSUIElement app** — no dock icon; uses `.accessory` activation policy. Must temporarily switch to `.regular` when showing Settings window.
