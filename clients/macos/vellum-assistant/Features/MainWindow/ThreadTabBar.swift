@@ -41,6 +41,7 @@ struct ThreadTabBar: View {
             .frame(height: 36)
             .background(VColor.background)
         }
+        .ignoresSafeArea(edges: .top)
     }
 }
 
