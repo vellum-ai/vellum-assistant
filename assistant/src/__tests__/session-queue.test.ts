@@ -135,6 +135,7 @@ mock.module('../agent/loop.js', () => ({
 // ---------------------------------------------------------------------------
 
 import { Session, MAX_QUEUE_DEPTH } from '../daemon/session.js';
+import type { QueueDrainReason, QueuePolicy } from '../daemon/session.js';
 
 function makeSession(): Session {
   const provider = {
@@ -445,5 +446,104 @@ describe('Session message queue', () => {
 
     // Queue depth should not have increased
     expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Queue policy primitives
+// ---------------------------------------------------------------------------
+
+describe('Session queue policy helpers', () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test('hasQueuedMessages() returns false on a fresh session', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+    expect(session.hasQueuedMessages()).toBe(false);
+  });
+
+  test('hasQueuedMessages() returns true after enqueuing while processing', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // Start processing to make the session busy
+    session.processMessage('msg-1', [], () => {}, 'req-1');
+    await waitForPendingRun(1);
+
+    // Enqueue a message while processing
+    session.enqueueMessage('msg-2', [], () => {}, 'req-2');
+    expect(session.hasQueuedMessages()).toBe(true);
+
+    // Cleanup: resolve the pending run
+    resolveRun(0);
+    await waitForPendingRun(2);
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  test('canHandoffAtCheckpoint() returns false when not processing', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // Not processing, no queued messages
+    expect(session.canHandoffAtCheckpoint()).toBe(false);
+  });
+
+  test('canHandoffAtCheckpoint() returns false when processing but no queued messages', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // Start processing — but don't enqueue anything
+    session.processMessage('msg-1', [], () => {}, 'req-1');
+    await waitForPendingRun(1);
+
+    expect(session.isProcessing()).toBe(true);
+    expect(session.hasQueuedMessages()).toBe(false);
+    expect(session.canHandoffAtCheckpoint()).toBe(false);
+
+    // Cleanup
+    resolveRun(0);
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  test('canHandoffAtCheckpoint() returns true when processing and queue has messages', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // Start processing
+    session.processMessage('msg-1', [], () => {}, 'req-1');
+    await waitForPendingRun(1);
+
+    // Enqueue a message
+    session.enqueueMessage('msg-2', [], () => {}, 'req-2');
+
+    expect(session.isProcessing()).toBe(true);
+    expect(session.hasQueuedMessages()).toBe(true);
+    expect(session.canHandoffAtCheckpoint()).toBe(true);
+
+    // Cleanup
+    resolveRun(0);
+    await waitForPendingRun(2);
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  test('QueueDrainReason type accepts expected values', () => {
+    // Compile-time verification that these are valid QueueDrainReason values
+    const reason1: QueueDrainReason = 'loop_complete';
+    const reason2: QueueDrainReason = 'checkpoint_handoff';
+    expect(reason1).toBe('loop_complete');
+    expect(reason2).toBe('checkpoint_handoff');
+  });
+
+  test('QueuePolicy type accepts expected shape', () => {
+    // Compile-time verification that the QueuePolicy interface works
+    const policy: QueuePolicy = { checkpointHandoffEnabled: true };
+    expect(policy.checkpointHandoffEnabled).toBe(true);
+
+    const disabledPolicy: QueuePolicy = { checkpointHandoffEnabled: false };
+    expect(disabledPolicy.checkpointHandoffEnabled).toBe(false);
   });
 });
