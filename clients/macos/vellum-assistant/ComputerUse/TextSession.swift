@@ -58,6 +58,8 @@ final class TextSession: ObservableObject {
             // Daemon already created the session and started streaming
             daemonSessionId = id
             messageStream = existingStream ?? daemonClient.subscribe()
+            // Track the initial user message for the skipSessionCreate path
+            messages.append(ConversationMessage(role: .user, text: task))
         } else {
             daemonSessionId = nil
             messageStream = daemonClient.subscribe()
@@ -108,7 +110,6 @@ final class TextSession: ObservableObject {
                 case .messageComplete(_) where self.daemonSessionId != nil:
                     let responseText = self.accumulatedText.isEmpty ? "(No response)" : self.accumulatedText
                     self.messages.append(ConversationMessage(role: .assistant, text: responseText))
-                    self.state = .completed(text: responseText)
                     self.state = .ready
                     return
 
@@ -174,7 +175,6 @@ final class TextSession: ObservableObject {
                 case .messageComplete(_):
                     let responseText = self.accumulatedText.isEmpty ? "(No response)" : self.accumulatedText
                     self.messages.append(ConversationMessage(role: .assistant, text: responseText))
-                    self.state = .completed(text: responseText)
                     self.state = .ready
                     return
 
@@ -188,5 +188,21 @@ final class TextSession: ObservableObject {
             }
         }
         messageLoopTask = loopTask
+
+        // Await the loop and ensure terminal state on unexpected disconnection
+        Task { @MainActor [weak self] in
+            await loopTask.value
+            guard let self else { return }
+            switch self.state {
+            case .completed, .ready, .failed, .cancelled:
+                break
+            default:
+                if self.isCancelled {
+                    self.state = .cancelled
+                } else {
+                    self.state = .failed(reason: "Connection to daemon lost")
+                }
+            }
+        }
     }
 }
