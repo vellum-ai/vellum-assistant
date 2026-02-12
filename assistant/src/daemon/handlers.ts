@@ -681,6 +681,23 @@ async function handleTaskSubmit(
 
 // ─── Computer-use handlers ──────────────────────────────────────────────────
 
+function removeCuSessionReferences(
+  ctx: HandlerContext,
+  sessionId: string,
+  expectedSession?: ComputerUseSession,
+): void {
+  const current = ctx.cuSessions.get(sessionId);
+  if (expectedSession && current && current !== expectedSession) {
+    return;
+  }
+  ctx.cuSessions.delete(sessionId);
+  for (const [sock, ids] of ctx.socketToCuSession) {
+    if (ids.delete(sessionId) && ids.size === 0) {
+      ctx.socketToCuSession.delete(sock);
+    }
+  }
+}
+
 function handleCuSessionCreate(
   msg: CuSessionCreate,
   socket: net.Socket,
@@ -692,12 +709,7 @@ function handleCuSessionCreate(
   const existingSession = ctx.cuSessions.get(msg.sessionId);
   if (existingSession) {
     existingSession.abort();
-    for (const [otherSocket, ids] of ctx.socketToCuSession) {
-      if (ids.delete(msg.sessionId)) {
-        if (ids.size === 0) ctx.socketToCuSession.delete(otherSocket);
-        break;
-      }
-    }
+    removeCuSessionReferences(ctx, msg.sessionId, existingSession);
   }
 
   const config = getConfig();
@@ -711,6 +723,12 @@ function handleCuSessionCreate(
     ctx.send(socket, serverMsg);
   };
 
+  let sessionRef: ComputerUseSession | undefined;
+  const onTerminal = (sessionId: string) => {
+    removeCuSessionReferences(ctx, sessionId, sessionRef);
+    log.info({ sessionId }, 'Computer-use session cleaned up after terminal state');
+  };
+
   const session = new ComputerUseSession(
     msg.sessionId,
     msg.task,
@@ -719,7 +737,9 @@ function handleCuSessionCreate(
     provider,
     sendToClient,
     msg.interactionType,
+    onTerminal,
   );
+  sessionRef = session;
 
   ctx.cuSessions.set(msg.sessionId, session);
 
@@ -745,14 +765,7 @@ function handleCuSessionAbort(
     return;
   }
   session.abort();
-  ctx.cuSessions.delete(msg.sessionId);
-  // Clean up socketToCuSession so disconnect handler doesn't see stale ID
-  for (const [sock, ids] of ctx.socketToCuSession) {
-    if (ids.delete(msg.sessionId)) {
-      if (ids.size === 0) ctx.socketToCuSession.delete(sock);
-      break;
-    }
-  }
+  removeCuSessionReferences(ctx, msg.sessionId, session);
   log.info({ sessionId: msg.sessionId }, 'Computer-use session aborted by client');
 }
 

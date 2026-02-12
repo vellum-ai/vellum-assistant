@@ -7,6 +7,7 @@ export interface AgentLoopConfig {
   maxTokens: number;
   thinking?: { enabled: boolean; budgetTokens: number };
   toolChoice?: { type: 'auto' } | { type: 'any' } | { type: 'tool'; name: string };
+  maxToolUseTurns?: number;
 }
 
 export type AgentEvent =
@@ -21,6 +22,7 @@ export type AgentEvent =
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxTokens: 64000,
+  maxToolUseTurns: 30,
 };
 
 const PROGRESS_CHECK_INTERVAL = 5;
@@ -240,6 +242,16 @@ export class AgentLoop {
 
         // Track tool-use turns and inject progress reminder every N turns
         toolUseTurns++;
+        if (this.config.maxToolUseTurns && this.config.maxToolUseTurns > 0 && toolUseTurns >= this.config.maxToolUseTurns) {
+          const limitMessage = `Tool-use turn limit reached (${this.config.maxToolUseTurns}). Stopping to prevent runaway loops; ask the user for guidance.`;
+          onEvent({ type: 'error', error: new Error(limitMessage) });
+          resultBlocks.push({
+            type: 'text',
+            text: `[System: ${limitMessage}]`,
+          });
+          history.push({ role: 'user', content: resultBlocks });
+          break;
+        }
         if (toolUseTurns % PROGRESS_CHECK_INTERVAL === 0) {
           resultBlocks.push({
             type: 'text',

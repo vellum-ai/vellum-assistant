@@ -52,6 +52,7 @@ export class ComputerUseSession {
   private readonly provider: Provider;
   private sendToClient: (msg: ServerMessage) => void;
   private readonly interactionType: 'computer_use' | 'text_qa';
+  private readonly onTerminal?: (sessionId: string) => void;
 
   private state: SessionState = 'idle';
   private stepCount = 0;
@@ -69,6 +70,7 @@ export class ComputerUseSession {
     resolve: (result: ToolExecutionResult) => void;
   }>();
   private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
+  private terminalNotified = false;
 
   // Tracks the agent loop promise so callers can await session completion
   private loopPromise: Promise<void> | null = null;
@@ -81,6 +83,7 @@ export class ComputerUseSession {
     provider: Provider,
     sendToClient: (msg: ServerMessage) => void,
     interactionType?: 'computer_use' | 'text_qa',
+    onTerminal?: (sessionId: string) => void,
   ) {
     this.sessionId = sessionId;
     this.task = task;
@@ -89,6 +92,7 @@ export class ComputerUseSession {
     this.provider = provider;
     this.sendToClient = sendToClient;
     this.interactionType = interactionType ?? 'computer_use';
+    this.onTerminal = onTerminal;
   }
 
   // ---------------------------------------------------------------------------
@@ -175,6 +179,7 @@ export class ComputerUseSession {
       sessionId: this.sessionId,
       message: 'Session aborted by user',
     });
+    this.notifyTerminal();
   }
 
   isComplete(): boolean {
@@ -344,6 +349,9 @@ export class ComputerUseSession {
           isResponse: toolName === 'cu_respond' ? true : undefined,
         });
         this.state = 'complete';
+        // Stop AgentLoop immediately so terminal tools cannot trigger extra provider calls.
+        this.abortController?.abort();
+        this.notifyTerminal();
         return { content: 'Session complete', isError: false };
       }
 
@@ -358,6 +366,7 @@ export class ComputerUseSession {
           message: `Step limit (${MAX_STEPS}) exceeded`,
         });
         this.abortController?.abort();
+        this.notifyTerminal();
         return { content: `Step limit (${MAX_STEPS}) exceeded`, isError: true };
       }
 
@@ -408,6 +417,7 @@ export class ComputerUseSession {
       {
         maxTokens: 4096,
         toolChoice: { type: 'any' },
+        maxToolUseTurns: MAX_STEPS,
       },
       toolDefs,
       toolExecutor,
@@ -427,6 +437,7 @@ export class ComputerUseSession {
                   sessionId: this.sessionId,
                   message: event.error.message,
                 });
+                this.notifyTerminal();
               }
               break;
             case 'usage':
@@ -451,6 +462,7 @@ export class ComputerUseSession {
           sessionId: this.sessionId,
           message: 'Agent loop ended unexpectedly',
         });
+        this.notifyTerminal();
       }
     } catch (err) {
       if (this.abortController?.signal.aborted) {
@@ -466,6 +478,7 @@ export class ComputerUseSession {
           sessionId: this.sessionId,
           message,
         });
+        this.notifyTerminal();
       }
     } finally {
       // Always clear session timer to prevent resource leaks
@@ -474,6 +487,12 @@ export class ComputerUseSession {
         this.sessionTimer = null;
       }
     }
+  }
+
+  private notifyTerminal(): void {
+    if (this.terminalNotified) return;
+    this.terminalNotified = true;
+    this.onTerminal?.(this.sessionId);
   }
 
   // ---------------------------------------------------------------------------
