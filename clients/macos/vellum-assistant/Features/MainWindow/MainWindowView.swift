@@ -3,9 +3,11 @@ import SwiftUI
 struct MainWindowView: View {
     @StateObject private var threadManager: ThreadManager
     @State private var activePanel: SidePanelType?
+    let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
 
     init(daemonClient: DaemonClient, ambientAgent: AmbientAgent) {
+        self.daemonClient = daemonClient
         _threadManager = StateObject(wrappedValue: ThreadManager(daemonClient: daemonClient))
         self.ambientAgent = ambientAgent
     }
@@ -57,7 +59,7 @@ struct MainWindowView: View {
             case .generated:
                 GeneratedPanel(onClose: { activePanel = nil })
             case .agent:
-                AgentPanel(onClose: { activePanel = nil })
+                AgentPanel(onClose: { activePanel = nil }, daemonClient: daemonClient)
             case .control:
                 ControlPanel(onClose: { activePanel = nil }, ambientAgent: ambientAgent)
             case .directory:

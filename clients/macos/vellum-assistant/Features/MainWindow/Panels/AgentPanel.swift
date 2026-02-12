@@ -2,13 +2,22 @@ import SwiftUI
 
 struct AgentPanel: View {
     var onClose: () -> Void
+    let daemonClient: DaemonClient
+
+    @StateObject private var skillsManager: SkillsManager
+    @State private var expandedSkillId: String?
+
+    init(onClose: @escaping () -> Void, daemonClient: DaemonClient) {
+        self.onClose = onClose
+        self.daemonClient = daemonClient
+        _skillsManager = StateObject(wrappedValue: SkillsManager(daemonClient: daemonClient))
+    }
 
     var body: some View {
         VSidePanel(title: "Agent", onClose: onClose) {
             VStack(alignment: .leading, spacing: VSpacing.xl) {
                 sectionHeader("Skills")
-                VEmptyState(title: "No skills", subtitle: "Agent skills will appear here", icon: "bolt.fill")
-                    .frame(height: 150)
+                skillsContent
 
                 Divider()
 
@@ -16,6 +25,95 @@ struct AgentPanel: View {
                 VEmptyState(title: "No nodes", subtitle: "Agent nodes will appear here", icon: "point.3.connected.trianglepath.dotted")
                     .frame(height: 150)
             }
+        }
+        .onAppear {
+            skillsManager.fetchSkills()
+        }
+    }
+
+    @ViewBuilder
+    private var skillsContent: some View {
+        if skillsManager.isLoading {
+            HStack {
+                Spacer()
+                ProgressView()
+                    .controlSize(.small)
+                Spacer()
+            }
+            .frame(height: 150)
+        } else if skillsManager.skills.isEmpty {
+            VEmptyState(title: "No skills", subtitle: "Agent skills will appear here", icon: "bolt.fill")
+                .frame(height: 150)
+        } else {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                ForEach(skillsManager.skills) { skill in
+                    skillRow(skill)
+                }
+            }
+        }
+    }
+
+    private func skillRow(_ skill: SkillSummaryItem) -> some View {
+        let isExpanded = expandedSkillId == skill.id
+
+        return VStack(alignment: .leading, spacing: 0) {
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if isExpanded {
+                        expandedSkillId = nil
+                    } else {
+                        expandedSkillId = skill.id
+                        skillsManager.fetchSkillBody(skillId: skill.id)
+                    }
+                }
+            }) {
+                HStack(alignment: .top, spacing: VSpacing.sm) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 12)
+                        .padding(.top, 3)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(skill.name)
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(VColor.textPrimary)
+                        Text(skill.description)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                            .lineLimit(isExpanded ? nil : 2)
+                    }
+
+                    Spacer()
+                }
+                .padding(.vertical, VSpacing.sm)
+                .padding(.horizontal, VSpacing.md)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                skillBody(for: skill.id)
+                    .padding(.leading, 12 + VSpacing.sm)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.bottom, VSpacing.sm)
+            }
+        }
+        .background(isExpanded ? VColor.surface.opacity(0.5) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+    }
+
+    @ViewBuilder
+    private func skillBody(for skillId: String) -> some View {
+        if let body = skillsManager.loadedBodies[skillId] {
+            Text(body)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .textSelection(.enabled)
+        } else {
+            ProgressView()
+                .controlSize(.small)
+                .padding(.vertical, VSpacing.sm)
         }
     }
 
@@ -27,5 +125,5 @@ struct AgentPanel: View {
 }
 
 #Preview {
-    AgentPanel(onClose: {})
+    AgentPanel(onClose: {}, daemonClient: DaemonClient())
 }
