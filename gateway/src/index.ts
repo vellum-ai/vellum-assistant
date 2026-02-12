@@ -1,6 +1,7 @@
 import pino from "pino";
 import { loadConfig } from "./config.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
+import { sendTelegramReply } from "./telegram/send.js";
 
 const log = pino({ name: "gateway" });
 
@@ -9,7 +10,19 @@ function main() {
 
   const config = loadConfig();
 
-  const handleTelegramWebhook = createTelegramWebhookHandler(config);
+  const handleTelegramWebhook = createTelegramWebhookHandler(
+    config,
+    async (chatId, result) => {
+      const content = result.runtimeResponse?.assistantMessage?.content;
+      if (!content) return;
+
+      try {
+        await sendTelegramReply(config, chatId, content);
+      } catch (err) {
+        log.error({ err, chatId }, "Failed to send Telegram reply");
+      }
+    },
+  );
 
   const server = Bun.serve({
     port: config.port,
