@@ -6,10 +6,22 @@ final class MainWindow {
     private let daemonClient: DaemonClient
     private let ambientAgent: AmbientAgent
     private var window: NSWindow?
+    let threadManager: ThreadManager
+
+    /// Whether the main window is currently visible on screen.
+    var isVisible: Bool {
+        window?.isVisible ?? false
+    }
+
+    /// The active ChatViewModel from the current thread, if any.
+    var activeViewModel: ChatViewModel? {
+        threadManager.activeViewModel
+    }
 
     init(daemonClient: DaemonClient, ambientAgent: AmbientAgent) {
         self.daemonClient = daemonClient
         self.ambientAgent = ambientAgent
+        self.threadManager = ThreadManager(daemonClient: daemonClient)
     }
 
     func show() {
@@ -17,14 +29,14 @@ final class MainWindow {
         if let existing = window {
             // Rebuild the SwiftUI view hierarchy so it picks up any
             // UserDefaults changes (e.g. assistantName set during onboarding replay)
-            existing.contentViewController = NSHostingController(rootView: MainWindowView(daemonClient: daemonClient, ambientAgent: ambientAgent))
+            existing.contentViewController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, daemonClient: daemonClient, ambientAgent: ambientAgent))
             existing.makeKeyAndOrderFront(nil)
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let hostingController = NSHostingController(rootView: MainWindowView(daemonClient: daemonClient, ambientAgent: ambientAgent))
+        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, daemonClient: daemonClient, ambientAgent: ambientAgent))
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1366, height: 849),

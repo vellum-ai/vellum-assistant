@@ -289,16 +289,34 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         voiceInput?.onTranscription = { [weak self] text in
             self?.voiceTranscriptionWindow?.close()
             self?.voiceTranscriptionWindow = nil
-            // Route to active conversation if one exists and is ready
+
+            // Priority 1: Route to main window ChatView if visible
+            if let mainWindow = self?.mainWindow, mainWindow.isVisible,
+               let viewModel = mainWindow.activeViewModel {
+                viewModel.inputText = text
+                viewModel.sendMessage()
+                return
+            }
+
+            // Priority 2: Route to active TextResponseWindow conversation
             if let textSession = self?.currentTextSession, textSession.state == .ready {
                 textSession.sendFollowUp(text: text)
                 self?.textResponseWindow?.updatePartialTranscription("")
-            } else {
-                self?.startSession(task: text, source: "voice")
+                return
             }
+
+            // Priority 3: Fall back to creating a new session
+            self?.startSession(task: text, source: "voice")
         }
         voiceInput?.onPartialTranscription = { [weak self] text in
-            // Route partial text to active conversation's input field if available
+            // Priority 1: Route partial text to main window ChatView input if visible
+            if let mainWindow = self?.mainWindow, mainWindow.isVisible,
+               let viewModel = mainWindow.activeViewModel {
+                viewModel.inputText = text
+                return
+            }
+
+            // Priority 2: Route to active TextResponseWindow conversation
             if let textSession = self?.currentTextSession, textSession.state == .ready {
                 self?.textResponseWindow?.updatePartialTranscription(text)
             } else {
@@ -306,6 +324,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         voiceInput?.onRecordingStateChanged = { [weak self] isRecording in
+            // Check if main window ChatView is the target
+            let mainWindowVisible = self?.mainWindow?.isVisible ?? false
             // If there's an active conversation in ready state, route recording state there
             let hasActiveConvo = self?.currentTextSession?.state == .ready
 
@@ -314,7 +334,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     systemSymbolName: "mic.fill",
                     accessibilityDescription: "Vellum"
                 )
-                if !hasActiveConvo {
+                if !mainWindowVisible && !hasActiveConvo {
                     let window = VoiceTranscriptionWindow()
                     window.show()
                     self?.voiceTranscriptionWindow = window

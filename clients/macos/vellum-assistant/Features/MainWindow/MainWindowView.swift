@@ -1,14 +1,14 @@
 import SwiftUI
 
 struct MainWindowView: View {
-    @StateObject private var threadManager: ThreadManager
+    @ObservedObject var threadManager: ThreadManager
     @State private var activePanel: SidePanelType?
     let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
 
-    init(daemonClient: DaemonClient, ambientAgent: AmbientAgent) {
+    init(threadManager: ThreadManager, daemonClient: DaemonClient, ambientAgent: AmbientAgent) {
+        self.threadManager = threadManager
         self.daemonClient = daemonClient
-        _threadManager = StateObject(wrappedValue: ThreadManager(daemonClient: daemonClient))
         self.ambientAgent = ambientAgent
     }
 
@@ -75,5 +75,6 @@ struct MainWindowView: View {
 }
 
 #Preview {
-    MainWindowView(daemonClient: DaemonClient(), ambientAgent: AmbientAgent())
+    let dc = DaemonClient()
+    MainWindowView(threadManager: ThreadManager(daemonClient: dc), daemonClient: dc, ambientAgent: AmbientAgent())
 }
