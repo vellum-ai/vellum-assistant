@@ -235,9 +235,9 @@ jobs:
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}"
           BUILD_VERSION="${{ steps.version.outputs.build_version }}"
 
-          # Sign the ZIP with Sparkle EdDSA key
+          # Sign the ZIP with Sparkle EdDSA key (pipe key via stdin — -s flag is deprecated)
           echo "sign_update location: $(which sign_update || echo 'NOT FOUND')"
-          SIGNATURE=$(sign_update dist/vellum-assistant.zip -s "$SPARKLE_ED_PRIVATE_KEY" 2>&1) || {
+          SIGNATURE=$(echo "$SPARKLE_ED_PRIVATE_KEY" | sign_update dist/vellum-assistant.zip 2>&1) || {
             echo "sign_update failed with exit code $?"
             echo "Output: $SIGNATURE"
             exit 1
