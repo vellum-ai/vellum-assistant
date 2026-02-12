@@ -127,9 +127,6 @@ export function DownloadBody() {
 .download-owl-img {
   position: relative;
   border-radius: 28px;
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.4),
-    0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 .download-heading {
   font-family: "Playfair Display", serif;
