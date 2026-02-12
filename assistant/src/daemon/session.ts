@@ -720,8 +720,6 @@ export class Session {
       log.warn({ surfaceId, actionId }, 'No pending surface action found');
       return;
     }
-    this.pendingSurfaceActions.delete(surfaceId);
-
     const content = JSON.stringify({
       surfaceAction: true,
       surfaceId,
@@ -735,6 +733,7 @@ export class Session {
 
     const result = this.enqueueMessage(content, [], onEvent, requestId);
     if (result.queued) {
+      this.pendingSurfaceActions.delete(surfaceId);
       log.info({ surfaceId, actionId, requestId }, 'Surface action queued (session busy)');
       onEvent({
         type: 'message_queued',
@@ -751,6 +750,7 @@ export class Session {
       return;
     }
 
+    this.pendingSurfaceActions.delete(surfaceId);
     log.info({ surfaceId, actionId, requestId }, 'Processing surface action as follow-up');
     this.processMessage(content, [], onEvent, requestId).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
