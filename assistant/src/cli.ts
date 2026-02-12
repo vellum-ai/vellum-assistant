@@ -1,6 +1,7 @@
 import * as net from 'node:net';
 import * as readline from 'node:readline';
-import { readFileSync, appendFileSync } from 'node:fs';
+import { readFileSync, appendFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { getSocketPath, getHistoryPath } from './util/platform.js';
 import {
   serialize,
@@ -95,11 +96,13 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
   }
 
   const historyPath = getHistoryPath();
+  const MAX_HISTORY = 1000;
   let savedHistory: string[] = [];
   try {
     savedHistory = readFileSync(historyPath, 'utf-8')
       .split('\n')
       .filter(Boolean)
+      .slice(-MAX_HISTORY)
       .reverse();
   } catch {
     // No history file yet — start fresh
@@ -109,7 +112,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     input: process.stdin,
     output: process.stdout,
     history: savedHistory,
-    historySize: 1000,
+    historySize: MAX_HISTORY,
   });
 
   function prompt(): void {
@@ -686,8 +689,11 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     if (pendingConfirmation) return;
     if (reconnecting) return;
 
-    // Persist to history file
-    try { appendFileSync(historyPath, content + '\n'); } catch { /* ignore */ }
+    // Persist to history file (ensure parent directory exists)
+    try {
+      mkdirSync(dirname(historyPath), { recursive: true });
+      appendFileSync(historyPath, content + '\n');
+    } catch { /* ignore */ }
 
     if (content === '/copy') {
       if (!lastResponse) {

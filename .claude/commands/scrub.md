@@ -1,12 +1,14 @@
-# Scrub — Kill, Wipe, and Relaunch vellum-assistant
+# Scrub — Kill, Wipe, and Relaunch Vellum
 
-Kill the running vellum-assistant app, delete all persistent data so the next launch behaves like a first run (including onboarding), then start the daemon and rebuild/launch the app.
+Kill the running Vellum app, delete all persistent data so the next launch behaves like a first run (including onboarding), then start the daemon and rebuild/launch the app.
+
+**Important:** Before scrubbing, make sure the Vellum mac app is fully quit (not just closed — right-click the dock icon and Quit, or use Cmd+Q). The app must not be running when TCC/Launch Services state is reset, otherwise macOS will re-cache stale data.
 
 ## Steps
 
-1. Kill any running `vellum-assistant` processes:
+1. Kill any running Vellum processes:
    ```bash
-   pkill -f "vellum-assistant"
+   pkill -x "Vellum"
    ```
 
 2. Remove session logs and knowledge store:

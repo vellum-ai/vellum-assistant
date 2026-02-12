@@ -94,7 +94,11 @@ export class DaemonServer {
     const serverClosed = new Promise<void>((resolve) => {
       if (this.server) {
         this.server.close(() => {
-          removeSocketFile(this.socketPath);
+          try {
+            removeSocketFile(this.socketPath);
+          } catch (err) {
+            log.warn({ err, socketPath: this.socketPath }, 'Failed to remove socket file during shutdown');
+          }
           resolve();
         });
       } else {

@@ -108,7 +108,7 @@ The macOS app also supports `VELLUM_DAEMON_SOCKET`. Launch it from the terminal:
 
 ```bash
 ssh -L ~/.vellum/remote.sock:/home/user/.vellum/vellum.sock user@remote-host -N &
-VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock open -a vellum-assistant
+VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock open -a Vellum
 ```
 
 ### Troubleshooting
@@ -149,7 +149,7 @@ This repo includes Claude Code slash commands (in `.claude/commands/`) for agent
 
 | Command | Purpose |
 |---------|---------|
-| `/scrub` | Kill the running vellum-assistant app, wipe all persistent data, and relaunch the daemon and macOS app for a clean first-run experience. |
+| `/scrub` | Kill the running Vellum app, wipe all persistent data, and relaunch the daemon and macOS app for a clean first-run experience. |
 
 ### Review
 

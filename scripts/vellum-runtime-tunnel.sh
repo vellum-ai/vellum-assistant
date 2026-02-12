@@ -35,8 +35,10 @@ read_pid() {
 
 is_tunnel_process() {
   local pid="$1"
-  # Verify the PID is an ssh process to avoid acting on reused PIDs
-  ps -p "$pid" -o comm= 2>/dev/null | grep -q '^ssh$'
+  # Verify the PID is an ssh process to avoid acting on reused PIDs.
+  # On macOS, `ps -o comm=` returns the full path (e.g. /usr/bin/ssh),
+  # while on Linux it returns just the command name (ssh).
+  ps -p "$pid" -o comm= 2>/dev/null | grep -qE '(^|/)ssh$'
 }
 
 is_running() {
@@ -79,13 +81,37 @@ cmd_start() {
   ensure_dir
 
   echo "Starting SSH tunnel: localhost:${local_port} -> ${ssh_host}:${remote_port} ..."
-  ssh -N -L "127.0.0.1:${local_port}:127.0.0.1:${remote_port}" "$ssh_host" &
+  ssh -N \
+    -o ExitOnForwardFailure=yes \
+    -o ServerAliveInterval=15 \
+    -o ServerAliveCountMax=3 \
+    -L "127.0.0.1:${local_port}:127.0.0.1:${remote_port}" \
+    "$ssh_host" &
   local pid=$!
 
-  # Verify the SSH process is still alive after a brief pause
-  sleep 1
+  # Wait for the tunnel to become usable. ExitOnForwardFailure=yes ensures SSH
+  # exits if it cannot bind the local port, but we also need to wait for the
+  # connection to be fully established before declaring success.
+  local attempts=0
+  local max_attempts=10
+  while (( attempts < max_attempts )); do
+    sleep 0.5
+    if ! kill -0 "$pid" 2>/dev/null; then
+      die "SSH tunnel process exited — check SSH connectivity and port availability"
+    fi
+    # Try connecting to the forwarded local port to confirm the tunnel is ready
+    if (echo > /dev/tcp/127.0.0.1/"${local_port}") 2>/dev/null; then
+      break
+    fi
+    (( ++attempts ))
+  done
+
   if ! kill -0 "$pid" 2>/dev/null; then
-    die "SSH tunnel process exited immediately"
+    die "SSH tunnel process exited — check SSH connectivity and port availability"
+  fi
+
+  if (( attempts == max_attempts )); then
+    echo "warning: tunnel process is running but forwarded port ${local_port} is not responding yet" >&2
   fi
 
   echo "$pid" > "$PID_FILE"

@@ -94,7 +94,7 @@ jobs:
           SIGN_IDENTITY="Developer ID Application" \
           ./build.sh release
 
-          APP_PATH="dist/vellum-assistant.app"
+          APP_PATH="dist/Vellum.app"
 
           # Verify the app exists
           ls -la "$APP_PATH"
@@ -115,8 +115,8 @@ jobs:
 
       - name: Create DMG
         run: |
-          APP_PATH="dist/vellum-assistant.app"
-          APP_NAME="vellum-assistant.app"
+          APP_PATH="dist/Vellum.app"
+          APP_NAME="Vellum.app"
 
           # Create staging directory for DMG contents
           DMG_STAGING="build/dmg-staging"
@@ -130,7 +130,7 @@ jobs:
           # Two-step DMG creation to avoid auto-sizing issues:
           # 1. Create read-write image (auto-sizes more generously)
           hdiutil create \
-            -volname "vellum-assistant" \
+            -volname "Vellum" \
             -srcfolder "$DMG_STAGING" \
             -ov \
             -format UDRW \
@@ -214,7 +214,7 @@ jobs:
       - name: Build ZIP for Sparkle auto-update
         run: |
           cd dist
-          ditto -c -k --keepParent vellum-assistant.app vellum-assistant.zip
+          ditto -c -k --keepParent Vellum.app vellum-assistant.zip
           echo "Sparkle ZIP created:"
           ls -lh vellum-assistant.zip
 
@@ -253,7 +253,7 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
             <channel>
-              <title>vellum-assistant</title>
+              <title>Vellum</title>
               <item>
                 <title>${DISPLAY_VERSION}</title>
                 <sparkle:version>${BUILD_VERSION}</sparkle:version>
@@ -291,7 +291,7 @@ jobs:
 
           ---
 
-          Download the DMG, open it, and drag vellum-assistant to your Applications folder.
+          Download the DMG, open it, and drag Vellum to your Applications folder.
           Existing installations will auto-update via Sparkle."
 
           gh release create latest \
@@ -299,7 +299,7 @@ jobs:
             dist/vellum-assistant.zip \
             dist/appcast.xml \
             --repo "$REPO" \
-            --title "vellum-assistant $VERSION" \
+            --title "Vellum $VERSION" \
             --notes "$RELEASE_NOTES" \
             --latest
 

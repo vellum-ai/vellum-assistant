@@ -3,6 +3,17 @@ import { NextResponse } from "next/server";
 import { Assistant, getDb } from "@/lib/db";
 import { auth } from "@/lib/auth/better-auth";
 
+/**
+ * Error subclass for user-safe domain errors whose message can be returned
+ * in API responses without leaking internal details.
+ */
+export class DomainError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DomainError";
+  }
+}
+
 export interface RequestUser {
   id: string | null;
   username: string | null;
@@ -82,15 +93,12 @@ export async function requireAssistantOwner(
     return { assistant, user };
   }
 
-  // Backward compatibility: created_by may store a username or display name.
-  if (
-    createdBy &&
-    ((user.username && createdBy === user.username) ||
-      (user.name && createdBy === user.name))
-  ) {
+  // Backward compatibility: created_by may store a username.
+  if (createdBy && user.username && createdBy === user.username) {
     // Migrate to canonical user ID for future lookups.
     await sql`UPDATE assistants SET created_by = ${user.id} WHERE id = ${assistantId}`;
-    return { assistant, user };
+    const updatedResult = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
+    return { assistant: updatedResult[0] as Assistant, user };
   }
 
   throw new Error("FORBIDDEN");
@@ -110,5 +118,8 @@ export function toAuthErrorResponse(error: unknown): NextResponse {
   if (message === "Contact not found") {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
-  return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  return NextResponse.json(
+    { error: error instanceof DomainError ? error.message : "Internal server error" },
+    { status: 500 }
+  );
 }

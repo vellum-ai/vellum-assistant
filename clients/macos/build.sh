@@ -23,7 +23,8 @@ cd "$SCRIPT_DIR"
 
 BUNDLE_ID="com.vellum.vellum-assistant"
 APP_NAME="vellum-assistant"
-APP_DIR="$SCRIPT_DIR/dist/$APP_NAME.app"
+BUNDLE_DISPLAY_NAME="Vellum"
+APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES_DIR="$CONTENTS/Resources"
@@ -85,14 +86,14 @@ if [ ! -f "$EXECUTABLE" ]; then
 fi
 
 # 2. Create .app bundle structure
-echo "Packaging $APP_NAME.app..."
+echo "Packaging $BUNDLE_DISPLAY_NAME.app..."
 rm -rf "$APP_DIR"
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 
-# Copy executable and add Frameworks rpath for bundled dynamic frameworks
-cp "$EXECUTABLE" "$MACOS_DIR/$APP_NAME"
-install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$APP_NAME" 2>/dev/null || true
+# Copy executable (renamed to match display name) and add Frameworks rpath
+cp "$EXECUTABLE" "$MACOS_DIR/$BUNDLE_DISPLAY_NAME"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
 
 # Copy Sparkle.framework into bundle (required — it's a dynamic framework)
 SPARKLE_FW="$BIN_PATH/Sparkle.framework"
@@ -120,11 +121,13 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>$APP_NAME</string>
+    <string>$BUNDLE_DISPLAY_NAME</string>
     <key>CFBundleIdentifier</key>
     <string>$BUNDLE_ID</string>
     <key>CFBundleName</key>
-    <string>$APP_NAME</string>
+    <string>Vellum</string>
+    <key>CFBundleDisplayName</key>
+    <string>Vellum</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -142,11 +145,11 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>NSScreenRecordingUsageDescription</key>
-    <string>vellum-assistant needs Screen Recording access to see what's on your screen during computer use tasks.</string>
+    <string>Vellum needs Screen Recording access to see what's on your screen during computer use tasks.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>vellum-assistant needs microphone access to transcribe voice commands.</string>
+    <string>Vellum needs microphone access to transcribe voice commands.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>vellum-assistant uses speech recognition to convert voice commands into tasks.</string>
+    <string>Vellum uses speech recognition to convert voice commands into tasks.</string>
     <key>SUFeedURL</key>
     <string>https://github.com/alex-nork/vellum-assistant-macos-updates/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key>
@@ -203,7 +206,9 @@ echo "Built: $APP_DIR"
 if [ "$CMD" = "run" ]; then
     echo "Launching..."
     # Kill existing instance if running
-    pkill -x "$APP_NAME" 2>/dev/null || true
+    pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
+    # Also kill legacy pre-rename process name if still running
+    pkill -x "vellum-assistant" 2>/dev/null || true
     sleep 0.3
     # Launch via `open` so Launch Services registers the bundle —
     # this is required for macOS TCC to associate the app with its

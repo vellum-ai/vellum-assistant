@@ -15,6 +15,7 @@ import {
   upsertAssistantChannelContact,
 } from "@/lib/channels/db";
 import { getChannelPlugin } from "@/lib/channels/plugins";
+import { DomainError } from "@/lib/auth/server-session";
 import { createRuntimeClient } from "@/lib/runtime/client";
 import { resolveRuntime } from "@/lib/runtime/resolver";
 
@@ -82,7 +83,7 @@ export async function connectTelegramChannel(params: {
 }) {
   const plugin = getChannelPlugin("telegram");
   if (!plugin) {
-    throw new Error("Telegram channel plugin is not registered");
+    throw new DomainError("Telegram channel plugin is not registered");
   }
 
   const existing = await getAssistantChannelAccount(params.assistantId, "telegram");
@@ -160,7 +161,7 @@ export async function connectTelegramChannel(params: {
             config: (existing.config || {}) as Record<string, unknown>,
             lastError: `${message} (rollback unavailable; channel disabled)`,
           });
-          throw new Error(
+          throw new DomainError(
             `Telegram connection failed: ${message} (rollback unavailable; disabled account ${disabled.id})`
           );
         }
@@ -186,7 +187,7 @@ export async function connectTelegramChannel(params: {
             config: (existing.config || {}) as Record<string, unknown>,
             lastError: `${message} (rollback failed: ${rollbackMessage})`,
           });
-          throw new Error(
+          throw new DomainError(
             `Telegram connection failed: ${message} (rollback failed: ${rollbackMessage}; disabled account ${disabled.id})`
           );
         }
@@ -202,7 +203,7 @@ export async function connectTelegramChannel(params: {
         lastError: message,
       });
 
-      throw new Error(
+      throw new DomainError(
         `Telegram connection failed: ${message} (kept existing active channel)`
       );
     }
@@ -216,7 +217,7 @@ export async function connectTelegramChannel(params: {
       config: provisionalConfig,
       lastError: message,
     });
-    throw new Error(
+    throw new DomainError(
       `Telegram connection failed: ${message} (account ${failed.id})`
     );
   }
@@ -225,7 +226,7 @@ export async function connectTelegramChannel(params: {
 export async function disconnectTelegramChannel(assistantId: string) {
   const plugin = getChannelPlugin("telegram");
   if (!plugin) {
-    throw new Error("Telegram channel plugin is not registered");
+    throw new DomainError("Telegram channel plugin is not registered");
   }
 
   const account = await getAssistantChannelAccount(assistantId, "telegram");
@@ -298,12 +299,12 @@ async function updateTelegramContactStatus(params: {
 }) {
   const account = await getAssistantChannelAccount(params.assistantId, "telegram");
   if (!account) {
-    throw new Error("Telegram channel is not configured for this assistant");
+    throw new DomainError("Telegram channel is not configured for this assistant");
   }
 
   const contact = await getAssistantChannelContactById(params.contactId);
   if (!contact || contact.assistant_channel_account_id !== account.id) {
-    throw new Error("Contact not found");
+    throw new DomainError("Contact not found");
   }
 
   const updated = await updateAssistantChannelContactStatus({
@@ -311,7 +312,7 @@ async function updateTelegramContactStatus(params: {
     status: params.status,
   });
   if (!updated) {
-    throw new Error("Failed to update contact status");
+    throw new DomainError("Failed to update contact status");
   }
 
   return updated;
@@ -353,7 +354,7 @@ export async function handleTelegramWebhook(params: {
 }) {
   const plugin = getChannelPlugin("telegram");
   if (!plugin) {
-    throw new Error("Telegram channel plugin is not registered");
+    throw new DomainError("Telegram channel plugin is not registered");
   }
 
   const account = await getAssistantChannelAccountById(params.channelAccountId);

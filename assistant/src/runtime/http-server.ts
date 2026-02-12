@@ -534,11 +534,17 @@ export class RuntimeHttpServer {
       );
     }
 
-    const applied = this.runOrchestrator.submitDecision(runId, decision);
-    if (!applied) {
+    const result = this.runOrchestrator.submitDecision(runId, decision);
+    if (result === 'run_not_found') {
       return Response.json(
         { error: 'Run not found' },
         { status: 404 },
+      );
+    }
+    if (result === 'no_pending_decision') {
+      return Response.json(
+        { error: 'No confirmation pending for this run' },
+        { status: 409 },
       );
     }
 
