@@ -136,9 +136,7 @@ struct ChatView: View {
     private var composerArea: some View {
         HStack(spacing: VSpacing.sm) {
             // Leading chat icon
-            Image(systemName: "phone.fill")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(VColor.accent)
+            VCircleButton(icon: "phone.fill") { }
 
             // Text field
             TextField("What you need chef?", text: $inputText, axis: .vertical)
@@ -166,11 +164,11 @@ struct ChatView: View {
                 Image(systemName: "paperclip")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(VColor.textSecondary)
+                    .padding(10)
                     .accessibilityHidden(true)
             }
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.md)
+        .padding(VSpacing.xs)
         .background(VColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
         .overlay(

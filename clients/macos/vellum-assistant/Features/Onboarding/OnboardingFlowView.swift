@@ -150,14 +150,7 @@ struct OnboardingFlowView: View {
 
     private var mockInputBar: some View {
         HStack(spacing: VSpacing.md) {
-            Circle()
-                .fill(Emerald._600.opacity(0.5))
-                .frame(width: 36, height: 36)
-                .overlay(
-                    Image(systemName: "phone.fill")
-                        .foregroundColor(.white)
-                        .font(.system(size: 14))
-                )
+            VCircleButton(icon: "phone.fill", fillColor: Emerald._600.opacity(0.5)) { }
 
             Text("What you need chef?")
                 .font(VFont.body)
