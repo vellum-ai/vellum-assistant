@@ -17,7 +17,9 @@ struct MainWindowView: View {
                 inputText: $viewModel.inputText,
                 isThinking: viewModel.isThinking,
                 isSending: viewModel.isSending,
-                onSend: viewModel.sendMessage
+                errorText: viewModel.errorText,
+                onSend: viewModel.sendMessage,
+                onDismissError: viewModel.dismissError
             )
         }
         .frame(minWidth: 800, minHeight: 600)
