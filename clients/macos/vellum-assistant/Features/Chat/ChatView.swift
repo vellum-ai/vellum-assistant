@@ -48,6 +48,7 @@ struct ChatView: View {
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)
             }
+            .scrollContentBackground(.hidden)
             .onChange(of: messages.count) {
                 withAnimation(VAnimation.standard) {
                     if let lastMessage = messages.last {
@@ -212,24 +213,40 @@ private struct ChatBubble: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(message.text)
-                .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
-                .textSelection(.enabled)
-                .opacity(bubbleOpacity)
+        HStack {
+            if isUser { Spacer(minLength: 0) }
 
-            if let label = statusLabel {
-                Text(label)
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 2) {
+                bubbleContent
+
+                if let label = statusLabel {
+                    Text(label)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+
+                Text(formattedTimestamp)
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
             }
 
-            Text(formattedTimestamp)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+            if !isUser { Spacer(minLength: 0) }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var bubbleContent: some View {
+        Text(message.text)
+            .font(VFont.mono)
+            .foregroundColor(isUser ? .white : VColor.textPrimary)
+            .textSelection(.enabled)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
+            )
+            .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
+            .opacity(bubbleOpacity)
     }
 
     private func ordinal(_ n: Int) -> String {
