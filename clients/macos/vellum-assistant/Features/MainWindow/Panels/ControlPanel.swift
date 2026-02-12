@@ -231,6 +231,7 @@ struct ControlPanel: View {
             Text(emoji)
                 .font(.system(size: 14))
                 .frame(width: 20)
+                .accessibilityLabel(label)
 
             Text(label)
                 .font(VFont.body)
