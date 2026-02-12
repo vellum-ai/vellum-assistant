@@ -67,14 +67,34 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 1) // Just greeting
     }
 
-    func testSendWhileSendingDoesNothing() {
+    func testSendWhileBootstrappingDoesNothing() {
+        // When no session exists yet (bootstrapping), rapid-fire is blocked
         viewModel.inputText = "First"
         viewModel.sendMessage()
 
         viewModel.inputText = "Second"
-        viewModel.sendMessage() // Should be ignored since isSending is set by bootstrapSession
+        viewModel.sendMessage() // Should be ignored since isSending is set by bootstrapSession and sessionId is nil
 
         XCTAssertEqual(viewModel.messages.count, 2) // greeting + first only
+    }
+
+    func testSendWhileSendingWithSessionAppendsMessage() {
+        // When a session exists, sending while isSending is allowed (daemon queues)
+        viewModel.sessionId = "test-session"
+        viewModel.isSending = true
+
+        viewModel.inputText = "Queued message"
+        viewModel.sendMessage()
+
+        XCTAssertEqual(viewModel.messages.count, 2) // greeting + queued message
+        XCTAssertEqual(viewModel.messages[1].role, .user)
+        XCTAssertEqual(viewModel.messages[1].text, "Queued message")
+        // Message should have queued status since isSending was true
+        if case .queued = viewModel.messages[1].status {
+            // Expected
+        } else {
+            XCTFail("Expected message to have queued status")
+        }
     }
 
     func testSendMessageClearsExistingError() {
@@ -239,6 +259,76 @@ final class ChatViewModelTests: XCTestCase {
     func testThinkingDeltaDoesNotCreateMessage() {
         viewModel.handleServerMessage(.assistantThinkingDelta(AssistantThinkingDeltaMessage(thinking: "Hmm...")))
         XCTAssertEqual(viewModel.messages.count, 1) // Only the greeting
+    }
+
+    // MARK: - Message Queue
+
+    func testMessageQueuedIncrementsPendingCount() {
+        XCTAssertEqual(viewModel.pendingQueuedCount, 0)
+
+        let queued = MessageQueuedMessage(sessionId: "sess-1", requestId: "req-1", position: 1)
+        viewModel.handleServerMessage(.messageQueued(queued))
+
+        XCTAssertEqual(viewModel.pendingQueuedCount, 1)
+    }
+
+    func testMessageDequeuedDecrementsPendingCount() {
+        // Start with some queued
+        let queued1 = MessageQueuedMessage(sessionId: "sess-1", requestId: "req-1", position: 1)
+        let queued2 = MessageQueuedMessage(sessionId: "sess-1", requestId: "req-2", position: 2)
+        viewModel.handleServerMessage(.messageQueued(queued1))
+        viewModel.handleServerMessage(.messageQueued(queued2))
+        XCTAssertEqual(viewModel.pendingQueuedCount, 2)
+
+        let dequeued = MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-1")
+        viewModel.handleServerMessage(.messageDequeued(dequeued))
+
+        XCTAssertEqual(viewModel.pendingQueuedCount, 1)
+    }
+
+    func testMessageDequeuedDoesNotGoBelowZero() {
+        XCTAssertEqual(viewModel.pendingQueuedCount, 0)
+
+        let dequeued = MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-1")
+        viewModel.handleServerMessage(.messageDequeued(dequeued))
+
+        XCTAssertEqual(viewModel.pendingQueuedCount, 0)
+    }
+
+    func testMessageQueuedUpdatesMessageStatus() {
+        // Add a user message with queued status
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+
+        // Daemon confirms it's queued at position 2
+        let queued = MessageQueuedMessage(sessionId: "sess-1", requestId: "req-1", position: 2)
+        viewModel.handleServerMessage(.messageQueued(queued))
+
+        // The user message should have its position updated
+        if case .queued(let position) = viewModel.messages[1].status {
+            XCTAssertEqual(position, 2)
+        } else {
+            XCTFail("Expected message to have queued status with position 2")
+        }
+    }
+
+    func testMessageDequeuedUpdatesMessageStatusToProcessing() {
+        // Add a user message with queued status
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+
+        // Daemon confirms queued then dequeued
+        let queued = MessageQueuedMessage(sessionId: "sess-1", requestId: "req-1", position: 1)
+        viewModel.handleServerMessage(.messageQueued(queued))
+
+        let dequeued = MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-1")
+        viewModel.handleServerMessage(.messageDequeued(dequeued))
+
+        XCTAssertEqual(viewModel.messages[1].status, .processing)
     }
 
     // MARK: - Full Conversation Flow

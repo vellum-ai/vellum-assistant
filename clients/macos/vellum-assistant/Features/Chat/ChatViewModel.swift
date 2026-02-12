@@ -10,6 +10,7 @@ final class ChatViewModel: ObservableObject {
     @Published var isThinking: Bool = false
     @Published var isSending: Bool = false
     @Published var errorText: String?
+    @Published var pendingQueuedCount: Int = 0
 
     private let daemonClient: DaemonClient
     var sessionId: String?
@@ -26,10 +27,14 @@ final class ChatViewModel: ObservableObject {
 
     func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty, !isSending else { return }
+        guard !text.isEmpty else { return }
+
+        // Block rapid-fire only when bootstrapping (no session yet)
+        if isSending && sessionId == nil { return }
 
         // Append user message immediately for responsive UX
-        messages.append(ChatMessage(role: .user, text: text))
+        let status: ChatMessageStatus = isSending ? .queued(position: 0) : .sent
+        messages.append(ChatMessage(role: .user, text: text, status: status))
         inputText = ""
         errorText = nil
 
@@ -37,7 +42,7 @@ final class ChatViewModel: ObservableObject {
             // First message: need to bootstrap session
             bootstrapSession(userMessage: text)
         } else {
-            // Subsequent messages: send directly
+            // Subsequent messages: send directly (daemon queues if busy)
             sendUserMessage(text)
         }
     }
@@ -172,6 +177,24 @@ final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
+
+        case .messageQueued(let queued):
+            pendingQueuedCount += 1
+            // Update the most recent user message that's in queued state with its position
+            if let index = messages.lastIndex(where: { $0.role == .user && $0.status != .sent && $0.status != .processing }) {
+                messages[index].status = .queued(position: queued.position)
+            }
+
+        case .messageDequeued:
+            pendingQueuedCount = max(0, pendingQueuedCount - 1)
+            // Mark the oldest queued user message as processing
+            if let index = messages.firstIndex(where: { msg in
+                guard msg.role == .user else { return false }
+                if case .queued = msg.status { return true }
+                return false
+            }) {
+                messages[index].status = .processing
+            }
 
         case .error(let err):
             log.error("Server error: \(err.message)")

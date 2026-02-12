@@ -305,6 +305,21 @@ struct AppDataResponseMessage: Decodable, Sendable {
     let error: String?
 }
 
+/// Confirms a message has been queued by the daemon.
+/// Wire type: `"message_queued"`
+struct MessageQueuedMessage: Decodable, Sendable {
+    let sessionId: String
+    let requestId: String
+    let position: Int
+}
+
+/// Confirms a queued message has been dequeued and is being processed.
+/// Wire type: `"message_dequeued"`
+struct MessageDequeuedMessage: Decodable, Sendable {
+    let sessionId: String
+    let requestId: String
+}
+
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 enum ServerMessage: Decodable, Sendable {
@@ -323,6 +338,8 @@ enum ServerMessage: Decodable, Sendable {
     case uiSurfaceDismiss(UiSurfaceDismissMessage)
     case generationCancelled(GenerationCancelledMessage)
     case appDataResponse(AppDataResponseMessage)
+    case messageQueued(MessageQueuedMessage)
+    case messageDequeued(MessageDequeuedMessage)
     case pong
     case unknown(String)
 
@@ -380,6 +397,12 @@ enum ServerMessage: Decodable, Sendable {
         case "app_data_response":
             let message = try AppDataResponseMessage(from: decoder)
             self = .appDataResponse(message)
+        case "message_queued":
+            let message = try MessageQueuedMessage(from: decoder)
+            self = .messageQueued(message)
+        case "message_dequeued":
+            let message = try MessageDequeuedMessage(from: decoder)
+            self = .messageDequeued(message)
         case "pong":
             self = .pong
         default:

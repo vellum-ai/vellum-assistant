@@ -6,6 +6,7 @@ struct ChatView: View {
     let isThinking: Bool
     let isSending: Bool
     let errorText: String?
+    let pendingQueuedCount: Int
     let onSend: () -> Void
     let onStop: () -> Void
     let onDismissError: () -> Void
@@ -127,20 +128,20 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Stop generation")
-            } else {
-                Button(action: {
-                    if canSend {
-                        onSend()
-                    }
-                }) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 24, weight: .medium))
-                        .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
-                }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .accessibilityLabel("Send message")
             }
+
+            Button(action: {
+                if canSend {
+                    onSend()
+                }
+            }) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSend)
+            .accessibilityLabel("Send message")
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
@@ -156,7 +157,7 @@ struct ChatView: View {
     }
 
     private var canSend: Bool {
-        !isSending && !inputText.trimmingCharacters(in: .whitespaces).isEmpty
+        !inputText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 }
 
@@ -167,11 +168,31 @@ private struct ChatBubble: View {
 
     private var isUser: Bool { message.role == .user }
 
+    private var isQueued: Bool {
+        if case .queued = message.status { return true }
+        return false
+    }
+
+    private var queueLabel: String? {
+        if case .queued(let position) = message.status {
+            return position > 0 ? "Queued (\(ordinal(position)) in line)" : "Queued"
+        }
+        return nil
+    }
+
     var body: some View {
         HStack {
             if isUser { Spacer(minLength: 0) }
 
-            bubbleContent
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 2) {
+                bubbleContent
+
+                if let label = queueLabel {
+                    Text(label)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
 
             if !isUser { Spacer(minLength: 0) }
         }
@@ -189,6 +210,24 @@ private struct ChatBubble: View {
                     .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
             )
             .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
+            .opacity(isQueued ? 0.7 : 1.0)
+    }
+
+    private func ordinal(_ n: Int) -> String {
+        let suffix: String
+        let ones = n % 10
+        let tens = (n / 10) % 10
+        if tens == 1 {
+            suffix = "th"
+        } else {
+            switch ones {
+            case 1: suffix = "st"
+            case 2: suffix = "nd"
+            case 3: suffix = "rd"
+            default: suffix = "th"
+            }
+        }
+        return "\(n)\(suffix)"
     }
 }
 
@@ -261,6 +300,7 @@ private struct ThinkingIndicator: View {
             isThinking: true,
             isSending: false,
             errorText: nil,
+            pendingQueuedCount: 0,
             onSend: {},
             onStop: {},
             onDismissError: {}
