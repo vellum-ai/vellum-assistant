@@ -30,7 +30,16 @@ If you can implement it in a single PR:
 - Create a PR for it (output a link to the PR)
 - Append the link to only this new PR to .private/UNREVIEWED_PRS.md
 - CRITICAL: Merge it immediately with `gh pr merge <N> --squash` and switch back to the main branch
-- If this task was addressing feedback on a previous PR (either "Address the feedback on <PR URL>" or a sub-task with "(feedback from <PR URL>)"), leave a comment on that original PR linking to the new PR. Use: `gh pr comment <original-PR-number> --body "Addressed in <new-PR-URL>"`
+- If this task was addressing feedback on a previous PR (either "Address the feedback on <PR URL>" or a sub-task with "(feedback from <PR URL>)"), leave a paper trail on the original PR:
+  1. **Comment on the original PR** linking to the new PR: `gh pr comment <original-PR-number> --body "Addressed in <new-PR-URL>"`
+  2. **Reply to each review thread** on the original PR with a link to the followup PR, then resolve the thread. For each review thread:
+     - Fetch all review threads: `gh api graphql -f query='query { repository(owner:"vellum-ai", name:"vellum-assistant") { pullRequest(number:<original-PR-number>) { reviewThreads(first:100) { nodes { id isResolved comments(first:1) { nodes { body author { login } } } } } } } }'`
+     - For each unresolved thread from a reviewer bot, reply and resolve it:
+       ```
+       gh api graphql -f query='mutation { addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:"<thread-id>", body:"Addressed in <new-PR-URL>"}) { comment { id } } }'
+       gh api graphql -f query='mutation { resolveReviewThread(input:{threadId:"<thread-id>"}) { thread { isResolved } } }'
+       ```
+     - Only reply to and resolve threads from `chatgpt-codex-connector[bot]` and `devin-ai-integration[bot]`. Leave human review threads untouched.
 
 After you've handled the item:
 
