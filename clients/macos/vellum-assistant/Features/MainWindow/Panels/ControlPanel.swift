@@ -77,6 +77,7 @@ struct ControlPanel: View {
                 .padding(.vertical, VSpacing.xs)
         }
         .buttonStyle(.plain)
+        .background(selected ? VColor.surface : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .vHover()
     }
@@ -104,11 +105,16 @@ struct ControlPanel: View {
                         }
                     }
                 } else {
-                    Text("Enter API Key")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Enter API Key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.textMuted)
+                    }
 
-                    SecureField("Enter API key", text: $apiKeyText)
+                    SecureField("This is your private generated key", text: $apiKeyText)
                         .textFieldStyle(.roundedBorder)
 
                     Text("Get your API key at console.anthropic.com")
@@ -137,6 +143,9 @@ struct ControlPanel: View {
                     Text("Max Steps per Session")
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 12))
+                        .foregroundColor(VColor.textMuted)
                     Spacer()
                     Text("\(Int(maxSteps))")
                         .font(VFont.mono)
@@ -155,13 +164,20 @@ struct ControlPanel: View {
                     .font(VFont.display)
                     .foregroundColor(VColor.textPrimary)
 
-                Toggle("Enable ambient screen watching", isOn: $ambientEnabled)
-                    .tint(VColor.accent)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .onChange(of: ambientEnabled) { _, newValue in
-                        ambientAgent.isEnabled = newValue
+                Toggle(isOn: $ambientEnabled) {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Enable ambient screen watching")
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.textMuted)
                     }
+                }
+                .tint(VColor.accent)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .onChange(of: ambientEnabled) { _, newValue in
+                    ambientAgent.isEnabled = newValue
+                }
             }
             .padding(VSpacing.lg)
             .vCard()
@@ -173,7 +189,7 @@ struct ControlPanel: View {
                     .foregroundColor(VColor.textPrimary)
 
                 permissionRow(
-                    icon: "hand.raised",
+                    emoji: "\u{1F47B}",
                     label: "Accessibility",
                     granted: PermissionManager.accessibilityStatus() == .granted
                 )
@@ -202,6 +218,24 @@ struct ControlPanel: View {
             Image(systemName: icon)
                 .font(.system(size: 14))
                 .foregroundColor(VColor.textSecondary)
+                .frame(width: 20)
+
+            Text(label)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+
+            Spacer()
+
+            Image(systemName: granted ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(granted ? VColor.success : VColor.error)
+        }
+    }
+
+    private func permissionRow(emoji: String, label: String, granted: Bool) -> some View {
+        HStack(spacing: VSpacing.md) {
+            Text(emoji)
+                .font(.system(size: 14))
                 .frame(width: 20)
 
             Text(label)
