@@ -10,7 +10,7 @@ struct VSidePanel<Content: View>: View {
             // Header
             HStack {
                 Text(title.uppercased())
-                    .font(VFont.mono)
+                    .font(VFont.display)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
                 if let onClose = onClose {

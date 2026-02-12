@@ -15,17 +15,17 @@ struct VTab: View {
             HStack(spacing: VSpacing.xs) {
                 if let icon = icon {
                     Image(systemName: icon)
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                 }
                 Text(label)
-                    .font(VFont.caption)
+                    .font(VFont.body)
                     .lineLimit(1)
             }
             .foregroundColor(isSelected ? VColor.textPrimary : VColor.textSecondary)
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
             .background(isSelected ? VColor.surfaceBorder : (isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear))
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
         .buttonStyle(.plain)
         .onHover { hovering in isHovered = hovering }
@@ -33,7 +33,7 @@ struct VTab: View {
             if isCloseable, let onClose = onClose, isHovered {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundColor(VColor.textMuted)
                         .padding(.trailing, VSpacing.xs)
                 }

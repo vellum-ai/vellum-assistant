@@ -21,10 +21,10 @@ struct VIconButton: View {
             .padding(.horizontal, iconOnly ? VSpacing.md : VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
             .background(isActive ? VColor.surfaceBorder : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(isActive ? VColor.surfaceBorder : VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(isActive ? VColor.textSecondary : VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
