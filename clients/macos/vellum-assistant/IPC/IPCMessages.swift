@@ -206,6 +206,19 @@ struct AppDataRequestMessage: Encodable, Sendable {
     let data: [String: AnyCodable]?
 }
 
+/// Sent to request the list of available skills.
+/// Wire type: `"skills_list"`
+struct SkillsListRequestMessage: Encodable, Sendable {
+    let type: String = "skills_list"
+}
+
+/// Sent to request the full body of a specific skill.
+/// Wire type: `"skill_detail"`
+struct SkillDetailRequestMessage: Encodable, Sendable {
+    let type: String = "skill_detail"
+    let skillId: String
+}
+
 // MARK: - Server → Client Messages (Decodable)
 
 /// Action to execute from the inference server.
@@ -360,6 +373,27 @@ struct AppDataResponseMessage: Decodable, Sendable {
     let error: String?
 }
 
+/// A single skill summary item from the daemon's skill catalog.
+struct SkillSummaryItem: Decodable, Sendable, Identifiable {
+    let id: String
+    let name: String
+    let description: String
+}
+
+/// Response containing the list of available skills.
+/// Wire type: `"skills_list_response"`
+struct SkillsListResponseMessage: Decodable, Sendable {
+    let skills: [SkillSummaryItem]
+}
+
+/// Response containing the full body of a specific skill.
+/// Wire type: `"skill_detail_response"`
+struct SkillDetailResponseMessage: Decodable, Sendable {
+    let skillId: String
+    let body: String
+    let error: String?
+}
+
 /// Permission confirmation request from daemon.
 /// Wire type: `"confirmation_request"`
 struct ConfirmationRequestMessage: Decodable, Sendable {
@@ -420,6 +454,8 @@ enum ServerMessage: Decodable, Sendable {
     case appDataResponse(AppDataResponseMessage)
     case messageQueued(MessageQueuedMessage)
     case messageDequeued(MessageDequeuedMessage)
+    case skillsListResponse(SkillsListResponseMessage)
+    case skillDetailResponse(SkillDetailResponseMessage)
     case pong
     case unknown(String)
 
@@ -489,6 +525,12 @@ enum ServerMessage: Decodable, Sendable {
         case "message_dequeued":
             let message = try MessageDequeuedMessage(from: decoder)
             self = .messageDequeued(message)
+        case "skills_list_response":
+            let message = try SkillsListResponseMessage(from: decoder)
+            self = .skillsListResponse(message)
+        case "skill_detail_response":
+            let message = try SkillDetailResponseMessage(from: decoder)
+            self = .skillDetailResponse(message)
         case "pong":
             self = .pong
         default:
