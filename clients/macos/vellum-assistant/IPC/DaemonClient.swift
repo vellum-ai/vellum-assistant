@@ -47,6 +47,9 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `message_dequeued` message.
     var onMessageDequeued: ((MessageDequeuedMessage) -> Void)?
 
+    /// Called when the daemon sends a `generation_handoff` message.
+    var onGenerationHandoff: ((GenerationHandoffMessage) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -383,6 +386,8 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onMessageQueued?(msg)
         case .messageDequeued(let msg):
             onMessageDequeued?(msg)
+        case .generationHandoff(let msg):
+            onGenerationHandoff?(msg)
         default:
             break
         }

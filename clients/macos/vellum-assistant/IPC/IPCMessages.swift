@@ -308,6 +308,14 @@ struct GenerationCancelledMessage: Decodable, Sendable {
     let sessionId: String?
 }
 
+/// Notifies client that active generation yielded to queued work at a checkpoint.
+/// Wire type: `"generation_handoff"`
+struct GenerationHandoffMessage: Decodable, Sendable {
+    let sessionId: String
+    let requestId: String?
+    let queuedCount: Int
+}
+
 /// Notifies client that a message has been queued for processing.
 /// Wire type: `"message_queued"`
 struct MessageQueuedMessage: Decodable, Sendable {
@@ -355,6 +363,7 @@ enum ServerMessage: Decodable, Sendable {
     case uiSurfaceUpdate(UiSurfaceUpdateMessage)
     case uiSurfaceDismiss(UiSurfaceDismissMessage)
     case generationCancelled(GenerationCancelledMessage)
+    case generationHandoff(GenerationHandoffMessage)
     case appDataResponse(AppDataResponseMessage)
     case messageQueued(MessageQueuedMessage)
     case messageDequeued(MessageDequeuedMessage)
@@ -412,6 +421,9 @@ enum ServerMessage: Decodable, Sendable {
         case "generation_cancelled":
             let message = try GenerationCancelledMessage(from: decoder)
             self = .generationCancelled(message)
+        case "generation_handoff":
+            let message = try GenerationHandoffMessage(from: decoder)
+            self = .generationHandoff(message)
         case "app_data_response":
             let message = try AppDataResponseMessage(from: decoder)
             self = .appDataResponse(message)
