@@ -138,6 +138,18 @@ Reads a plan file from `.private/plans/`, then sequentially implements and mainl
 /execute-plan AUTH_REFACTOR.md   # executes .private/plans/AUTH_REFACTOR.md
 ```
 
+### `/scrub` - Kill, wipe, and relaunch the macOS app
+
+Kills the running vellum-assistant app, deletes all persistent data (logs, knowledge store, caches, UserDefaults) so the next launch behaves like a first run (including onboarding), then starts the daemon and rebuilds/launches the app.
+
+**When to use:** When you want a clean slate — fresh onboarding, no cached state, no leftover logs.
+
+**Frequency:** As needed during development/debugging.
+
+```
+/scrub
+```
+
 ### `/blitz` - End-to-end feature execution
 
 Plans a feature from scratch, creates a GitHub project board and milestone issues, swarm-executes them in parallel, sweeps for review feedback, addresses it, and reports a final summary. Combines `/brainstorm` + `/swarm` + `/check-reviews` into a single end-to-end workflow.
