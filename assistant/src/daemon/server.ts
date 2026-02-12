@@ -1,7 +1,7 @@
 import * as net from 'node:net';
-import { unlinkSync, existsSync, chmodSync, readdirSync, watch, type FSWatcher } from 'node:fs';
+import { existsSync, chmodSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
-import { getSocketPath, getDataDir } from '../util/platform.js';
+import { getSocketPath, getDataDir, removeSocketFile } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
@@ -52,10 +52,8 @@ export class DaemonServer {
   }
 
   async start(): Promise<void> {
-    // Clean up stale socket
-    if (existsSync(this.socketPath)) {
-      unlinkSync(this.socketPath);
-    }
+    // Clean up stale socket (only if it's actually a Unix socket)
+    removeSocketFile(this.socketPath);
 
     this.startFileWatchers();
 
@@ -96,9 +94,7 @@ export class DaemonServer {
     const serverClosed = new Promise<void>((resolve) => {
       if (this.server) {
         this.server.close(() => {
-          if (existsSync(this.socketPath)) {
-            unlinkSync(this.socketPath);
-          }
+          removeSocketFile(this.socketPath);
           resolve();
         });
       } else {

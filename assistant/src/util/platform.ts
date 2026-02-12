@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -49,6 +49,22 @@ function expandHomePath(p: string): string {
   if (p === '~') return homedir();
   if (p.startsWith('~/')) return join(homedir(), p.slice(2));
   return p;
+}
+
+/**
+ * Remove a socket file only if it is actually a Unix socket.
+ * Refuses to delete regular files, directories, etc. to prevent
+ * accidental data loss when VELLUM_DAEMON_SOCKET points to a non-socket path.
+ */
+export function removeSocketFile(socketPath: string): void {
+  if (!existsSync(socketPath)) return;
+  const stat = statSync(socketPath);
+  if (!stat.isSocket()) {
+    throw new Error(
+      `Refusing to remove ${socketPath}: not a Unix socket (found ${stat.isFile() ? 'regular file' : stat.isDirectory() ? 'directory' : 'non-socket'})`,
+    );
+  }
+  unlinkSync(socketPath);
 }
 
 export function getPidPath(): string {

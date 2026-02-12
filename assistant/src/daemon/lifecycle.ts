@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
+
 import { resolve } from 'node:path';
 import {
   getSocketPath,
   getPidPath,
   ensureDataDir,
+  removeSocketFile,
 } from '../util/platform.js';
 import { initializeDb } from '../memory/db.js';
 import { rotateToolInvocations } from '../memory/tool-usage-store.js';
@@ -83,11 +85,9 @@ export async function startDaemon(): Promise<{
 
   ensureDataDir();
 
-  // Clean up stale socket
+  // Clean up stale socket (only if it's actually a Unix socket)
   const socketPath = getSocketPath();
-  if (existsSync(socketPath)) {
-    unlinkSync(socketPath);
-  }
+  removeSocketFile(socketPath);
 
   // Spawn the daemon as a detached child process
   const mainPath = resolve(
