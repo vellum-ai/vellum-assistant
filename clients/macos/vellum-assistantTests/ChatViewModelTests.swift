@@ -352,6 +352,90 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isThinking)
     }
 
+    // MARK: - Processing Status Reset
+
+    func testProcessingStatusResetToSentOnMessageComplete() {
+        // Set up session and send a message while busy (gets queued)
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+        // greeting(0), A(1)
+
+        // Send message B while busy (will be queued)
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+        // greeting(0), A(1), B(2)
+        XCTAssertEqual(viewModel.messages.count, 3)
+
+        // Daemon confirms B is queued
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+
+        // Assistant responds to A, then handoff
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+
+        // Daemon dequeues B — status becomes .processing
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        XCTAssertEqual(viewModel.messages[2].status, .processing, "Message B should be processing after dequeue")
+
+        // Assistant responds to B, then message_complete
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to B")))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+
+        // After message_complete, the processing user message should be reset to .sent
+        XCTAssertEqual(viewModel.messages[2].status, .sent, "Message B should be .sent after messageComplete, not .processing")
+    }
+
+    func testProcessingStatusResetToSentOnGenerationCancelled() {
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+
+        // Daemon confirms B is queued, then dequeued
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        XCTAssertEqual(viewModel.messages[2].status, .processing)
+
+        // Generation is cancelled
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+
+        XCTAssertEqual(viewModel.messages[2].status, .sent, "Message B should be .sent after generationCancelled, not .processing")
+    }
+
+    func testProcessingStatusResetToSentOnGenerationHandoff() {
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+
+        viewModel.inputText = "Message C"
+        viewModel.sendMessage()
+
+        // Queue B and C
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-C", position: 2)))
+
+        // A completes via handoff, B is dequeued and becomes processing
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 2)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        XCTAssertEqual(viewModel.messages[2].status, .processing)
+
+        // B completes via handoff (C is still queued)
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to B")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+
+        // B should be reset to .sent after generationHandoff
+        XCTAssertEqual(viewModel.messages[2].status, .sent, "Message B should be .sent after generationHandoff, not .processing")
+    }
+
     // MARK: - Generation Handoff
 
     func testGenerationHandoffKeepsSendingTrue() {

@@ -188,6 +188,12 @@ final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
+            // Reset processing messages to sent
+            for i in messages.indices {
+                if messages[i].role == .user && messages[i].status == .processing {
+                    messages[i].status = .sent
+                }
+            }
 
         case .generationCancelled:
             isThinking = false
@@ -199,6 +205,12 @@ final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
+            // Reset processing messages to sent
+            for i in messages.indices {
+                if messages[i].role == .user && messages[i].status == .processing {
+                    messages[i].status = .sent
+                }
+            }
 
         case .messageQueued(let queued):
             pendingQueuedCount += 1
@@ -236,6 +248,12 @@ final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
+            // Reset processing messages to sent
+            for i in messages.indices {
+                if messages[i].role == .user && messages[i].status == .processing {
+                    messages[i].status = .sent
+                }
+            }
 
         case .error(let err):
             log.error("Server error: \(err.message)")
