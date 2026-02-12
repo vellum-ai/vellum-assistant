@@ -164,6 +164,7 @@ struct ChatView: View {
                 Image(systemName: "paperclip")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(VColor.textSecondary)
+                    .padding(10)
                     .accessibilityHidden(true)
             }
         }
