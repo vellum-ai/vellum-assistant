@@ -14,6 +14,8 @@ import type { ToolLifecycleEventHandler, ToolExecutionResult } from '../tools/ty
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { registerUiSurfaceTools } from '../tools/ui-surface/registry.js';
+import { allAppTools } from '../tools/apps/definitions.js';
+import { registerAppTools } from '../tools/apps/registry.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
 import { estimateCost } from '../util/pricing.js';
@@ -85,10 +87,12 @@ export class Session {
     // Registration is done here (not at daemon startup) so that surface tools
     // are only available in sessions that have surface proxy infrastructure.
     registerUiSurfaceTools();
+    registerAppTools();
 
     const toolDefs = [
       ...getAllToolDefinitions(),
       ...allUiSurfaceTools.map((t) => t.getDefinition()),
+      ...allAppTools.map((t) => t.getDefinition()),
     ];
     const toolExecutor = async (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => {
       return this.executor.execute(name, input, {
