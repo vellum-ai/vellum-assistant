@@ -38,6 +38,29 @@ struct TextResponseView: View {
             if isActiveState {
                 stopButton
             }
+
+            // Error state
+            if case .failed(let reason) = session.state {
+                HStack(spacing: 6) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.red)
+                    Text(reason)
+                        .font(VFont.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.md)
+            }
+
+            // Cancelled state
+            if case .cancelled = session.state {
+                Text("Cancelled")
+                    .font(VFont.caption.bold())
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.md)
+            }
         }
         .frame(minWidth: 300, maxWidth: 600)
     }
@@ -92,7 +115,9 @@ struct TextResponseView: View {
                     case .streaming:
                         proxy.scrollTo("streaming-bubble", anchor: .bottom)
                     case .thinking:
-                        proxy.scrollTo("typing-indicator", anchor: .bottom)
+                        if let lastMessage = session.messages.last {
+                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                        }
                     default:
                         if let lastMessage = session.messages.last {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
