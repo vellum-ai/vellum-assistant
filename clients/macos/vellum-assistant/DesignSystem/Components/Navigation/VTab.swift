@@ -30,7 +30,7 @@ struct VTab: View {
         .buttonStyle(.plain)
         .onHover { hovering in isHovered = hovering }
         .overlay(alignment: .trailing) {
-            if isCloseable, let onClose = onClose, isHovered {
+            if isCloseable, let onClose = onClose {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .bold))
