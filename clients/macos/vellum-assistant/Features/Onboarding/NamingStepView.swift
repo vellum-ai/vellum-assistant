@@ -62,7 +62,7 @@ struct NamingStepView: View {
         }
     }
 
-    private func confirmName() {
+    @MainActor private func confirmName() {
         guard !state.assistantName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         state.advance()
     }

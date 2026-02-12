@@ -12,7 +12,7 @@ struct TaskInputView: View {
     @State private var attachmentError: String?
     @State private var isDropTargeted = false
     @FocusState private var isTextFieldFocused: Bool
-    @Environment(\.openSettings) private var openSettings: OpenSettingsAction
+    @Environment(\.openSettings) private var openSettings
 
     private var canSubmit: Bool {
         let trimmed = taskText.trimmingCharacters(in: .whitespacesAndNewlines)
