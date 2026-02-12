@@ -2,6 +2,8 @@
 
 Kill the running Vellum app, delete all persistent data so the next launch behaves like a first run (including onboarding), then start the daemon and rebuild/launch the app.
 
+**Important:** Before scrubbing, make sure the Vellum mac app is fully quit (not just closed — right-click the dock icon and Quit, or use Cmd+Q). The app must not be running when TCC/Launch Services state is reset, otherwise macOS will re-cache stale data.
+
 ## Steps
 
 1. Kill any running Vellum processes:
