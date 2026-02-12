@@ -38,6 +38,9 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `ui_surface_dismiss` message.
     var onSurfaceDismiss: ((UiSurfaceDismissMessage) -> Void)?
 
+    /// Called when the daemon sends an `app_data_response` message.
+    var onAppDataResponse: ((AppDataResponseMessage) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -368,6 +371,8 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSurfaceUpdate?(msg)
         case .uiSurfaceDismiss(let msg):
             onSurfaceDismiss?(msg)
+        case .appDataResponse(let msg):
+            onAppDataResponse?(msg)
         default:
             break
         }

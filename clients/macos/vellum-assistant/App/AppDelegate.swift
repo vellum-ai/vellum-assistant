@@ -97,6 +97,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 data: codableData
             )
         }
+
+        // Data request: JS -> Swift -> daemon
+        surfaceManager.onDataRequest = { [weak self] surfaceId, callId, method, appId, recordId, data in
+            let codableData = data?.mapValues { AnyCodable($0) }
+            try? self?.daemonClient.send(AppDataRequestMessage(
+                surfaceId: surfaceId,
+                callId: callId,
+                method: method,
+                appId: appId,
+                recordId: recordId,
+                data: codableData
+            ))
+        }
+
+        // Data response: daemon -> Swift -> JS
+        daemonClient.onAppDataResponse = { [weak self] msg in
+            self?.surfaceManager.resolveDataResponse(surfaceId: msg.surfaceId, response: msg)
+        }
     }
 
     private func setupWindowObserver() {

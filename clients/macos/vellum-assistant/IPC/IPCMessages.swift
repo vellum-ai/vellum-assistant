@@ -174,6 +174,18 @@ struct UiSurfaceActionMessage: Encodable, Sendable {
     let data: [String: AnyCodable]?
 }
 
+/// Sent when a persistent app's JS makes a data request via the RPC bridge.
+/// Wire type: `"app_data_request"`
+struct AppDataRequestMessage: Encodable, Sendable {
+    let type: String = "app_data_request"
+    let surfaceId: String
+    let callId: String
+    let method: String
+    let appId: String
+    let recordId: String?
+    let data: [String: AnyCodable]?
+}
+
 // MARK: - Server → Client Messages (Decodable)
 
 /// Action to execute from the inference server.
@@ -275,6 +287,16 @@ struct ErrorMessage: Decodable, Sendable {
     let message: String
 }
 
+/// Response from the daemon for a persistent app data request.
+/// Wire type: `"app_data_response"`
+struct AppDataResponseMessage: Decodable, Sendable {
+    let surfaceId: String
+    let callId: String
+    let success: Bool
+    let result: AnyCodable?
+    let error: String?
+}
+
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 enum ServerMessage: Decodable, Sendable {
@@ -292,6 +314,7 @@ enum ServerMessage: Decodable, Sendable {
     case uiSurfaceUpdate(UiSurfaceUpdateMessage)
     case uiSurfaceDismiss(UiSurfaceDismissMessage)
     case generationCancelled(GenerationCancelledMessage)
+    case appDataResponse(AppDataResponseMessage)
     case pong
     case unknown(String)
 
@@ -346,6 +369,9 @@ enum ServerMessage: Decodable, Sendable {
         case "generation_cancelled":
             let message = try GenerationCancelledMessage(from: decoder)
             self = .generationCancelled(message)
+        case "app_data_response":
+            let message = try AppDataResponseMessage(from: decoder)
+            self = .appDataResponse(message)
         case "pong":
             self = .pong
         default:

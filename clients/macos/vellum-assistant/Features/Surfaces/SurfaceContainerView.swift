@@ -45,9 +45,15 @@ struct SurfaceContainerView: View {
                     }
                 )
             case .dynamicPage(let data):
-                DynamicPageSurfaceView(data: data, onAction: { actionId, actionData in
-                    viewModel.onAction(actionId, actionData as? [String: Any])
-                })
+                DynamicPageSurfaceView(
+                    data: data,
+                    onAction: { actionId, actionData in
+                        viewModel.onAction(actionId, actionData as? [String: Any])
+                    },
+                    appId: viewModel.appId,
+                    onDataRequest: viewModel.onDataRequest,
+                    onCoordinatorReady: viewModel.onCoordinatorReady
+                )
                 .frame(
                     width: CGFloat(data.width ?? 380),
                     height: CGFloat(data.height ?? 500)
