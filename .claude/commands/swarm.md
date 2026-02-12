@@ -68,7 +68,7 @@ ALL work happens here. Do NOT touch the main repo.
 2. Type-check: cd <worktree>/assistant && bunx tsc --noEmit
 3. Commit with a descriptive message.
 4. Push and create a PR:
-   gh pr create --base main --title "<concise title>" --body "<what changed and why>"
+   gh pr create --base main --title "<concise title>" --body "<what changed and why>" --assignee @me
 5. Merge immediately: gh pr merge <number> --squash
 6. Send a message to "lead" with:
    - The PR link
