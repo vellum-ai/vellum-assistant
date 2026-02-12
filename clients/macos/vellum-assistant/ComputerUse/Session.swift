@@ -656,6 +656,8 @@ final class ComputerUseSession: ObservableObject {
         messageLoopTask?.cancel()
         confirmationContinuation?.resume(returning: false)
         confirmationContinuation = nil
+        // Tell the daemon to abort the server-side CU session so it stops burning tokens
+        try? daemonClient.send(CuSessionAbortMessage(sessionId: id))
     }
 
     func approveConfirmation() {

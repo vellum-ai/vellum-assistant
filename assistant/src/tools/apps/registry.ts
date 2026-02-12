@@ -1,9 +1,7 @@
 /**
  * Registers all app tools with the daemon's tool registry.
  *
- * Called per-session by Session (not at daemon startup) so that app tools
- * including the proxy tool (app_open) are only available in contexts where
- * a surfaceProxyResolver is wired up to handle them.
+ * Called once at daemon startup via initializeTools().
  */
 
 import { registerTool } from '../registry.js';

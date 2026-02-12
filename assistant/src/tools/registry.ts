@@ -3,6 +3,8 @@ import type { Tool, ToolContext, ToolExecutionResult } from './types.js';
 import type { ToolDefinition } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import { registerComputerUseTools } from './computer-use/registry.js';
+import { registerUiSurfaceTools } from './ui-surface/registry.js';
+import { registerAppTools } from './apps/registry.js';
 
 const log = getLogger('tool-registry');
 
@@ -63,7 +65,9 @@ class LazyTool implements Tool {
 }
 
 export function registerTool(tool: Tool): void {
-  if (tools.has(tool.name)) {
+  const existing = tools.get(tool.name);
+  if (existing) {
+    if (existing === tool) return; // same object, skip
     log.warn({ name: tool.name }, 'Tool already registered, overwriting');
   }
   tools.set(tool.name, tool);
@@ -108,15 +112,8 @@ export async function initializeTools(): Promise<void> {
   // and forward execution to the connected macOS client.  They are excluded
   // from getAllToolDefinitions() since regular chat sessions don't use them.
   registerComputerUseTools();
-
-  // NOTE: UI surface proxy tools (ui_show, ui_update, ui_dismiss) are NOT
-  // registered here.  They are registered per-session by Session and
-  // ComputerUseSession, which both wire up a surfaceProxyResolver that
-  // explicitly handles ui_show/ui_update/ui_dismiss BEFORE falling through
-  // to CU tool handling.  This ensures surface tools never reach the
-  // cu_action dispatch path and cannot stall waiting for a cu_observation
-  // that would never arrive.  See surfaceProxyResolver in session.ts and
-  // the proxyResolver in computer-use-session.ts.
+  registerUiSurfaceTools();
+  registerAppTools();
 
   // The bash tool loads web-tree-sitter WASM for command parsing, which is
   // expensive.  Register it lazily so the WASM is only loaded on first use.

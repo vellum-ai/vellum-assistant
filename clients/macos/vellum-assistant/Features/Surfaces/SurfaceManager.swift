@@ -57,6 +57,10 @@ final class SurfaceManager: ObservableObject {
     /// Ordered list of surface IDs for deterministic stacking positions.
     private var surfaceOrder: [String] = []
 
+    /// Surfaces that have already sent an action to the daemon.
+    /// Prevents duplicate actions (e.g. submit followed by dismiss) from racing.
+    private var respondedSurfaces: Set<String> = []
+
     private let panelWidth: CGFloat = 380
     private let panelMargin: CGFloat = 20
     private let panelSpacing: CGFloat = 10
@@ -98,11 +102,18 @@ final class SurfaceManager: ObservableObject {
         let viewModel = SurfaceViewModel(
             surface: surface,
             onAction: { [weak self] actionId, data in
-                self?.onAction?(surface.sessionId, surface.id, actionId, data)
+                guard let self, !self.respondedSurfaces.contains(surface.id) else { return }
+                self.respondedSurfaces.insert(surface.id)
+                self.onAction?(surface.sessionId, surface.id, actionId, data)
             },
             onDismiss: { [weak self] in
-                self?.onAction?(surface.sessionId, surface.id, "dismiss", nil)
-                self?.dismissSurfaceById(surface.id)
+                guard let self, !self.respondedSurfaces.contains(surface.id) else {
+                    self?.dismissSurfaceById(surface.id)
+                    return
+                }
+                self.respondedSurfaces.insert(surface.id)
+                self.onAction?(surface.sessionId, surface.id, "dismiss", nil)
+                self.dismissSurfaceById(surface.id)
             },
             appId: appId,
             onDataRequest: appId != nil ? { [weak self] callId, method, recordId, data in
@@ -194,6 +205,7 @@ final class SurfaceManager: ObservableObject {
         surfaceOrder.removeAll()
         surfaceAppIds.removeAll()
         surfaceCoordinators.removeAll()
+        respondedSurfaces.removeAll()
     }
 
     private func dismissSurfaceById(_ surfaceId: String) {
@@ -203,6 +215,7 @@ final class SurfaceManager: ObservableObject {
         activeSurfaces.removeValue(forKey: surfaceId)
         surfaceAppIds.removeValue(forKey: surfaceId)
         surfaceCoordinators.removeValue(forKey: surfaceId)
+        respondedSurfaces.remove(surfaceId)
         surfaceOrder.removeAll { $0 == surfaceId }
         repositionAllPanels()
         log.info("Dismissed surface: id=\(surfaceId)")
