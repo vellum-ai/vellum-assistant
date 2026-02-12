@@ -42,15 +42,24 @@ export function createTelegramWebhookHandler(
     }
 
     // Process inbound and only acknowledge after successful delivery
+    let result: InboundResult;
     try {
-      const result = await handleInbound(config, normalized);
-
-      if (onReply && !result.rejected && result.runtimeResponse?.assistantMessage) {
-        await onReply(normalized.message.externalChatId, result);
-      }
+      result = await handleInbound(config, normalized);
     } catch (err) {
       log.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
       return Response.json({ error: "Internal error" }, { status: 500 });
+    }
+
+    if (!result.forwarded && !result.rejected) {
+      log.error({ updateId: payload.update_id }, "Failed to forward inbound event");
+      return Response.json({ error: "Internal error" }, { status: 500 });
+    }
+
+    // Fire reply asynchronously so webhook ack is not blocked by outbound send
+    if (onReply && !result.rejected && result.runtimeResponse?.assistantMessage) {
+      onReply(normalized.message.externalChatId, result).catch((err) => {
+        log.error({ err, updateId: payload.update_id }, "Failed to send reply");
+      });
     }
 
     return Response.json({ ok: true });
