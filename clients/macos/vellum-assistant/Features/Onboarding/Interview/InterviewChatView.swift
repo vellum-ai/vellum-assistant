@@ -71,33 +71,22 @@ struct InterviewChatView: View {
     // MARK: - Suggestion Chips
 
     private static let chipTexts = [
-        "What I do for work",
-        "Something I need help with",
-        "Just exploring for now",
+        "Automate repetitive tasks",
+        "Research & summarize faster",
+        "Help me write & edit",
+        "Just exploring what\u{2019}s possible",
     ]
 
     private var suggestionChips: some View {
-        HStack(spacing: VSpacing.sm) {
-            ForEach(Self.chipTexts, id: \.self) { chip in
-                Button {
-                    onChipTap?(chip)
-                } label: {
-                    Text(chip)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .background(VColor.surface)
-                        .clipShape(Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
+        VStack(spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                ForEach(Self.chipTexts.prefix(2), id: \.self) { chip in
+                    chipButton(chip)
                 }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.set() }
-                    else { NSCursor.arrow.set() }
+            }
+            HStack(spacing: VSpacing.sm) {
+                ForEach(Self.chipTexts.suffix(2), id: \.self) { chip in
+                    chipButton(chip)
                 }
             }
         }
@@ -105,26 +94,42 @@ struct InterviewChatView: View {
         .padding(.vertical, VSpacing.sm)
     }
 
+    private func chipButton(_ chip: String) -> some View {
+        Button {
+            onChipTap?(chip)
+        } label: {
+            Text(chip)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+                .background(VColor.surface)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering { NSCursor.pointingHand.set() }
+            else { NSCursor.arrow.set() }
+        }
+    }
+
     // MARK: - Input Area
 
     private var inputArea: some View {
         HStack(spacing: VSpacing.sm) {
-            TextField("Type a message\u{2026}", text: $inputText)
-                .textFieldStyle(.plain)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.md)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
-                .onSubmit {
+            VTextField(
+                placeholder: "Type a message\u{2026}",
+                text: $inputText,
+                onSubmit: {
                     if !inputText.trimmingCharacters(in: .whitespaces).isEmpty {
                         onSend()
                     }
                 }
+            )
 
             VIconButton(
                 label: "Voice",
@@ -139,9 +144,14 @@ struct InterviewChatView: View {
                     onSend()
                 }
             }) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(sendButtonDisabled ? VColor.textMuted : VColor.accent)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Circle()
+                            .fill(sendButtonDisabled ? VColor.textMuted : Violet._600)
+                    )
             }
             .buttonStyle(.plain)
             .disabled(sendButtonDisabled)
@@ -165,6 +175,26 @@ struct InterviewChatView: View {
     }
 }
 
+// MARK: - Assistant Avatar
+
+private struct AssistantAvatar: View {
+    let size: CGFloat
+
+    var body: some View {
+        if let url = Bundle.module.url(forResource: "dino", withExtension: "webp"),
+           let nsImage = NSImage(contentsOf: url) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+        } else {
+            Text("\u{1f995}")
+                .font(.system(size: size * 0.6))
+                .frame(width: size, height: size)
+        }
+    }
+}
+
 // MARK: - Message Bubble
 
 private struct MessageBubble: View {
@@ -173,7 +203,11 @@ private struct MessageBubble: View {
     private var isAssistant: Bool { message.role == .assistant }
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            if isAssistant {
+                AssistantAvatar(size: 28)
+            }
+
             if !isAssistant { Spacer(minLength: 0) }
 
             Text(message.text)
@@ -183,20 +217,46 @@ private struct MessageBubble: View {
                 .padding(.vertical, VSpacing.md)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(isAssistant
-                              ? VColor.surface.opacity(0.5)
-                              : VColor.accent)
+                        .fill(bubbleFill)
                 )
+                .if(!isAssistant) { view in
+                    view.vShadow(VShadow.accentGlow)
+                }
                 .frame(maxWidth: maxBubbleWidth, alignment: isAssistant ? .leading : .trailing)
 
             if isAssistant { Spacer(minLength: 0) }
         }
     }
 
+    private var bubbleFill: some ShapeStyle {
+        if isAssistant {
+            return AnyShapeStyle(VColor.surface.opacity(0.5))
+        } else {
+            return AnyShapeStyle(
+                LinearGradient(
+                    colors: [Meadow.userBubbleGradientStart, Meadow.userBubbleGradientEnd],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+        }
+    }
+
     private var maxBubbleWidth: CGFloat {
-        // Approximate 75% of a typical container width.
-        // GeometryReader-based approach is used in the parent if needed.
         340
+    }
+}
+
+// MARK: - Conditional Modifier
+
+private extension View {
+    @ViewBuilder
+    func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
     }
 }
 
@@ -207,7 +267,9 @@ private struct TypingIndicator: View {
     @State private var timer: Timer?
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            AssistantAvatar(size: 28)
+
             HStack(spacing: VSpacing.xs) {
                 ForEach(0..<3, id: \.self) { index in
                     Circle()

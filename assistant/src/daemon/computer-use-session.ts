@@ -449,12 +449,6 @@ export class ComputerUseSession {
         this.abortController?.signal,
       );
 
-      // Clear session timer on natural completion
-      if (this.sessionTimer) {
-        clearTimeout(this.sessionTimer);
-        this.sessionTimer = null;
-      }
-
       // If the loop exits without completing, treat as error
       if (this.state !== 'complete' && this.state !== 'error') {
         this.state = 'error';
@@ -478,6 +472,12 @@ export class ComputerUseSession {
           sessionId: this.sessionId,
           message,
         });
+      }
+    } finally {
+      // Always clear session timer to prevent resource leaks
+      if (this.sessionTimer) {
+        clearTimeout(this.sessionTimer);
+        this.sessionTimer = null;
       }
     }
   }

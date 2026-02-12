@@ -9,6 +9,8 @@ struct InterviewStepView: View {
     @State private var showControls = false
     @State private var streamingMessageId = UUID()
     @State private var isRecording = false
+    @State private var headerCollapsed = false
+    @State private var floatOffset: CGFloat = 0
 
     @State private var voiceInputManager = VoiceInputManager()
     private let profileExtractor: ProfileExtractor
@@ -38,25 +40,14 @@ struct InterviewStepView: View {
         viewModel.messages.filter { $0.role == .assistant }.count >= 2
     }
 
-    /// Show the skip link once the first assistant greeting has fully completed.
-    private var hasAssistantMessage: Bool {
-        viewModel.messages.contains { $0.role == .assistant }
+    private var displayName: String {
+        state.assistantName.isEmpty ? "your assistant" : state.assistantName
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Title area
-            VStack(spacing: VSpacing.xs) {
-                Text("Meet \(state.assistantName.isEmpty ? "your assistant" : state.assistantName)")
-                    .font(VFont.onboardingTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                Text("Say hi \u{2014} it\u{2019}ll only take a minute")
-                    .font(VFont.onboardingSubtitle)
-                    .foregroundColor(VColor.textSecondary)
-            }
-            .padding(.top, VSpacing.xl)
-            .padding(.bottom, VSpacing.md)
+            // Title area — collapses after first user message
+            header
 
             // Chat area
             InterviewChatView(
@@ -79,20 +70,19 @@ struct InterviewStepView: View {
             VStack(spacing: VSpacing.md) {
                 if hasEnoughExchanges && showControls {
                     OnboardingButton(
-                        title: viewModel.isFinished ? "Let\u{2019}s get started!" : "I\u{2019}m ready to go!",
+                        title: "Let\u{2019}s get started \u{2192}",
                         style: .primary
                     ) {
                         completeInterview()
                     }
-                    .scaleEffect(viewModel.isFinished ? 1.05 : 1.0)
-                    .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: viewModel.isFinished)
+                    .transition(.opacity)
                 }
 
-                if !viewModel.isFinished && hasAssistantMessage {
+                if !viewModel.isFinished && showControls {
                     Button {
                         completeInterview()
                     } label: {
-                        Text("I\u{2019}m good, let\u{2019}s go")
+                        Text("Skip setup for now")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
@@ -101,13 +91,27 @@ struct InterviewStepView: View {
                         NSCursor.pointingHand.set()
                         if !hovering { NSCursor.arrow.set() }
                     }
+                    .transition(.opacity)
                 }
             }
             .padding(.vertical, VSpacing.lg)
+            .animation(.easeOut(duration: 0.5), value: hasEnoughExchanges)
+        }
+        .onChange(of: displayedMessages.count) {
+            let hasUserMessage = displayedMessages.contains { $0.role == .user }
+            if hasUserMessage && !headerCollapsed {
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    headerCollapsed = true
+                }
+            }
         }
         .onAppear {
             viewModel.startInterview()
             setupVoiceCallbacks()
+            // Gentle floating animation for the avatar
+            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
+                floatOffset = -6
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showControls = true
@@ -117,6 +121,55 @@ struct InterviewStepView: View {
         .onDisappear {
             voiceInputManager.stop()
             viewModel.cancel()
+        }
+    }
+
+    // MARK: - Header
+
+    @ViewBuilder
+    private var header: some View {
+        if headerCollapsed {
+            // Collapsed: just the title, smaller
+            Text("Meet \(displayName)")
+                .font(Font.custom("Silkscreen-Regular", size: 18))
+                .foregroundColor(VColor.textPrimary)
+                .padding(.top, VSpacing.lg)
+                .padding(.bottom, VSpacing.sm)
+        } else {
+            // Expanded: avatar + title + subtitle + divider
+            VStack(spacing: VSpacing.xs) {
+                headerAvatar
+                    .offset(y: floatOffset)
+
+                Text("Meet \(displayName)")
+                    .font(VFont.onboardingTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                Text("Say hi \u{2014} it\u{2019}ll only take a minute")
+                    .font(VFont.onboardingSubtitle)
+                    .foregroundColor(VColor.textSecondary)
+
+                Divider()
+                    .background(VColor.surfaceBorder.opacity(0.3))
+                    .padding(.horizontal, VSpacing.xl)
+            }
+            .padding(.top, VSpacing.xl)
+            .padding(.bottom, VSpacing.md)
+        }
+    }
+
+    @ViewBuilder
+    private var headerAvatar: some View {
+        if let url = Bundle.module.url(forResource: "dino", withExtension: "webp"),
+           let nsImage = NSImage(contentsOf: url) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 48, height: 48)
+        } else {
+            Text("\u{1f995}")
+                .font(.system(size: 32))
+                .frame(width: 48, height: 48)
         }
     }
 

@@ -16,4 +16,10 @@ enum Meadow {
 
     // Pixel scaling factor
     static let pixelScale: CGFloat = 2.0
+
+    // Interview palette
+    static let avatarGradientStart = Violet._600
+    static let avatarGradientEnd = Violet._400
+    static let userBubbleGradientStart = Violet._600
+    static let userBubbleGradientEnd = Violet._400
 }

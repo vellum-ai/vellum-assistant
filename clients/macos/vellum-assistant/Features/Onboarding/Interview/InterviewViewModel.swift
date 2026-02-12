@@ -99,7 +99,7 @@ final class InterviewViewModel {
                 try self.daemonClient.send(SessionCreateMessage(
                     title: "Getting to know you",
                     systemPromptOverride: interviewPrompt,
-                    maxResponseTokens: 200
+                    maxResponseTokens: 100
                 ))
             } catch {
                 log.error("Failed to send session create: \(error.localizedDescription)")
