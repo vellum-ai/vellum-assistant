@@ -107,7 +107,7 @@ final class TextSession: ObservableObject {
                     // Stay in thinking state while receiving thinking deltas
                     log.debug("Thinking: \(delta.thinking)")
 
-                case .messageComplete(let complete) where complete.sessionId == self.daemonSessionId:
+                case .messageComplete(let complete) where complete.sessionId == self.daemonSessionId && self.daemonSessionId != nil:
                     let responseText = self.accumulatedText.isEmpty ? "(No response)" : self.accumulatedText
                     // Set state before appending to messages — the $state Combine sink
                     // triggers a layout pass, and if state is still .streaming when the
@@ -117,13 +117,13 @@ final class TextSession: ObservableObject {
                     self.messages.append(ConversationMessage(role: .assistant, text: responseText))
                     return
 
-                case .generationHandoff(let handoff) where handoff.sessionId == self.daemonSessionId:
+                case .generationHandoff(let handoff) where handoff.sessionId == self.daemonSessionId && self.daemonSessionId != nil:
                     let responseText = self.accumulatedText.isEmpty ? "(No response)" : self.accumulatedText
                     self.state = .ready
                     self.messages.append(ConversationMessage(role: .assistant, text: responseText))
                     return
 
-                case .cuError(let error) where error.sessionId == self.daemonSessionId:
+                case .cuError(let error) where error.sessionId == self.daemonSessionId && self.daemonSessionId != nil:
                     self.state = .failed(reason: error.message)
                     return
 
