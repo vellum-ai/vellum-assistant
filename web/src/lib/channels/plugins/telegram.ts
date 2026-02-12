@@ -67,24 +67,32 @@ export interface TelegramPhoto {
   height: number;
 }
 
+export interface TelegramDocument {
+  file_id: string;
+  file_unique_id: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+}
+
 interface TelegramGetFileResult {
   file_id: string;
   file_path?: string;
 }
 
-export async function downloadTelegramPhoto(
+/**
+ * Download a file from Telegram by file_id, returning base64 data.
+ */
+async function downloadTelegramFile(
   botToken: string,
-  photos: TelegramPhoto[]
+  fileId: string,
+  hint?: { filename?: string; mimeType?: string },
 ): Promise<InboundAttachment | null> {
-  // Pick the largest resolution (last in the array).
-  const best = photos[photos.length - 1];
-  if (!best) return null;
-
   try {
     const fileInfo = await callTelegramApi<TelegramGetFileResult>(
       botToken,
       "getFile",
-      { file_id: best.file_id }
+      { file_id: fileId }
     );
 
     if (!fileInfo.file_path) return null;
@@ -96,23 +104,34 @@ export async function downloadTelegramPhoto(
     const buffer = await response.arrayBuffer();
     const base64 = Buffer.from(buffer).toString("base64");
 
-    // Derive mime type from the file extension.
-    const ext = fileInfo.file_path.split(".").pop()?.toLowerCase();
-    const mimeMap: Record<string, string> = {
-      jpg: "image/jpeg",
-      jpeg: "image/jpeg",
-      png: "image/png",
-      gif: "image/gif",
-      webp: "image/webp",
-      bmp: "image/bmp",
-    };
-    const mimeType = (ext && mimeMap[ext]) || "image/jpeg";
-    const filename = fileInfo.file_path.split("/").pop() ?? `photo.${ext || "jpg"}`;
+    const contentType = response.headers.get("content-type")?.split(";")[0].trim();
+    const mimeType = hint?.mimeType || contentType || "application/octet-stream";
+    const filename = hint?.filename || fileInfo.file_path.split("/").pop()!;
 
     return { filename, mimeType, data: base64 };
-  } catch {
+  } catch (err) {
+    console.error("[TG] Failed to download file:", err);
     return null;
   }
+}
+
+export async function downloadTelegramPhoto(
+  botToken: string,
+  photos: TelegramPhoto[]
+): Promise<InboundAttachment | null> {
+  const best = photos[photos.length - 1];
+  if (!best) return null;
+  return downloadTelegramFile(botToken, best.file_id);
+}
+
+export async function downloadTelegramDocument(
+  botToken: string,
+  doc: TelegramDocument
+): Promise<InboundAttachment | null> {
+  return downloadTelegramFile(botToken, doc.file_id, {
+    filename: doc.file_name,
+    mimeType: doc.mime_type,
+  });
 }
 
 function parseTelegramInbound(payload: Record<string, unknown>): NormalizedInboundMessage | null {
@@ -122,6 +141,7 @@ function parseTelegramInbound(payload: Record<string, unknown>): NormalizedInbou
         text?: string;
         caption?: string;
         photo?: TelegramPhoto[];
+        document?: TelegramDocument;
         chat?: { id?: number; type?: string };
         from?: { id?: number; username?: string; first_name?: string; last_name?: string };
       }
@@ -130,8 +150,9 @@ function parseTelegramInbound(payload: Record<string, unknown>): NormalizedInbou
   const updateId = payload.update_id as number | undefined;
   const hasText = Boolean(message?.text);
   const hasPhoto = Array.isArray(message?.photo) && message!.photo!.length > 0;
+  const hasDocument = Boolean(message?.document?.file_id);
 
-  if ((!hasText && !hasPhoto) || !message?.chat?.id || !updateId) {
+  if ((!hasText && !hasPhoto && !hasDocument) || !message?.chat?.id || !updateId) {
     return null;
   }
 

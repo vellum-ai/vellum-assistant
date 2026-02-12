@@ -1,5 +1,6 @@
-import { describe, test, expect } from "bun:test";
-import { telegramPlugin } from "@/lib/channels/plugins/telegram";
+import { describe, test, expect, afterEach, mock } from "bun:test";
+import { telegramPlugin, downloadTelegramPhoto, downloadTelegramDocument } from "@/lib/channels/plugins/telegram";
+import type { TelegramPhoto, TelegramDocument } from "@/lib/channels/plugins/telegram";
 
 // ---------------------------------------------------------------------------
 // Helpers — Telegram webhook payload builders
@@ -29,6 +30,25 @@ function makePhotoPayload(overrides?: Record<string, unknown>) {
         { file_id: "medium_id", file_unique_id: "m1", width: 320, height: 320 },
         { file_id: "large_id", file_unique_id: "l1", width: 800, height: 800 },
       ],
+      chat: { id: 42, type: "private" },
+      from: { id: 99, username: "alice", first_name: "Alice" },
+      ...overrides,
+    },
+  };
+}
+
+function makeDocumentPayload(overrides?: Record<string, unknown>) {
+  return {
+    update_id: 300,
+    message: {
+      message_id: 3,
+      document: {
+        file_id: "doc_id",
+        file_unique_id: "du1",
+        file_name: "report.pdf",
+        mime_type: "application/pdf",
+        file_size: 12345,
+      },
       chat: { id: 42, type: "private" },
       from: { id: 99, username: "alice", first_name: "Alice" },
       ...overrides,
@@ -70,6 +90,32 @@ describe("telegramPlugin.inbound.normalizeMessage", () => {
 
     expect(result).not.toBeNull();
     expect(result!.text).toBe("");
+  });
+
+  test("normalizes a document message", () => {
+    const result = telegramPlugin.inbound.normalizeMessage(makeDocumentPayload());
+
+    expect(result).not.toBeNull();
+    expect(result!.text).toBe("");
+    expect(result!.externalChatId).toBe("42");
+    expect(result!.externalMessageId).toBe("300");
+  });
+
+  test("normalizes a document message with caption", () => {
+    const result = telegramPlugin.inbound.normalizeMessage(
+      makeDocumentPayload({ caption: "here is the report" }),
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.text).toBe("here is the report");
+  });
+
+  test("returns null for document without file_id", () => {
+    const payload = makeDocumentPayload();
+    (payload.message as Record<string, unknown>).document = { file_unique_id: "du1" };
+
+    const result = telegramPlugin.inbound.normalizeMessage(payload);
+    expect(result).toBeNull();
   });
 
   test("returns null for group messages", () => {
@@ -173,5 +219,107 @@ describe("telegramPlugin.inbound.verifyWebhook", () => {
 describe("telegramPlugin.capabilities", () => {
   test("media is enabled", () => {
     expect(telegramPlugin.capabilities.media).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// downloadTelegramPhoto
+// ---------------------------------------------------------------------------
+
+describe("downloadTelegramPhoto", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  test("downloads the largest photo size", async () => {
+    globalThis.fetch = mock((url: string) => {
+      if (url.includes("/getFile")) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ ok: true, result: { file_id: "big", file_path: "photos/file_1.jpg" } }),
+          { headers: { "content-type": "application/json" } },
+        ));
+      }
+      return Promise.resolve(new Response(
+        new Uint8Array([0xFF, 0xD8, 0xFF]),
+        { headers: { "content-type": "image/jpeg" } },
+      ));
+    }) as unknown as typeof fetch;
+
+    const photos: TelegramPhoto[] = [
+      { file_id: "small", file_unique_id: "s1", width: 100, height: 100 },
+      { file_id: "big", file_unique_id: "s2", width: 800, height: 600 },
+    ];
+
+    const result = await downloadTelegramPhoto("bot-token", photos);
+    expect(result).not.toBeNull();
+    expect(result!.filename).toBe("file_1.jpg");
+    expect(result!.mimeType).toBe("image/jpeg");
+    expect(result!.data).toBe(Buffer.from([0xFF, 0xD8, 0xFF]).toString("base64"));
+  });
+
+  test("returns null for empty photo array", async () => {
+    const result = await downloadTelegramPhoto("bot-token", []);
+    expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// downloadTelegramDocument
+// ---------------------------------------------------------------------------
+
+describe("downloadTelegramDocument", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  test("downloads a document using hint metadata", async () => {
+    globalThis.fetch = mock((url: string) => {
+      if (url.includes("/getFile")) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ ok: true, result: { file_id: "doc1", file_path: "documents/file_2.pdf" } }),
+          { headers: { "content-type": "application/json" } },
+        ));
+      }
+      return Promise.resolve(new Response(
+        new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+        { headers: { "content-type": "application/pdf" } },
+      ));
+    }) as unknown as typeof fetch;
+
+    const doc: TelegramDocument = {
+      file_id: "doc1",
+      file_unique_id: "du1",
+      file_name: "report.pdf",
+      mime_type: "application/pdf",
+    };
+
+    const result = await downloadTelegramDocument("bot-token", doc);
+    expect(result).not.toBeNull();
+    expect(result!.filename).toBe("report.pdf");
+    expect(result!.mimeType).toBe("application/pdf");
+    expect(result!.data).toBe(Buffer.from([0x25, 0x50, 0x44, 0x46]).toString("base64"));
+  });
+
+  test("falls back to content-type and file_path when no hints", async () => {
+    globalThis.fetch = mock((url: string) => {
+      if (url.includes("/getFile")) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ ok: true, result: { file_id: "doc2", file_path: "documents/file_3.bin" } }),
+          { headers: { "content-type": "application/json" } },
+        ));
+      }
+      return Promise.resolve(new Response(
+        new Uint8Array([0x00]),
+        { headers: { "content-type": "application/octet-stream" } },
+      ));
+    }) as unknown as typeof fetch;
+
+    const doc: TelegramDocument = {
+      file_id: "doc2",
+      file_unique_id: "du2",
+    };
+
+    const result = await downloadTelegramDocument("bot-token", doc);
+    expect(result).not.toBeNull();
+    expect(result!.filename).toBe("file_3.bin");
+    expect(result!.mimeType).toBe("application/octet-stream");
   });
 });

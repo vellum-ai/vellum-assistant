@@ -15,7 +15,7 @@ import {
   upsertAssistantChannelContact,
 } from "@/lib/channels/db";
 import { getChannelPlugin } from "@/lib/channels/plugins";
-import { downloadTelegramPhoto } from "@/lib/channels/plugins/telegram";
+import { downloadTelegramPhoto, downloadTelegramDocument } from "@/lib/channels/plugins/telegram";
 import { DomainError } from "@/lib/auth/server-session";
 import { createRuntimeClient } from "@/lib/runtime/client";
 import { resolveRuntime } from "@/lib/runtime/resolver";
@@ -404,20 +404,26 @@ export async function handleTelegramWebhook(params: {
 
   const client = getRuntimeClient(account.assistant_id);
 
-  // Upload any photo attachments from the Telegram payload.
+  // Upload any file attachments from the Telegram payload.
   const attachmentIds: string[] = [];
   const rawMessage = params.payload.message as Record<string, unknown> | undefined;
   const photos = rawMessage?.photo as Array<{ file_id: string; file_unique_id: string; file_size?: number; width: number; height: number }> | undefined;
+  const document = rawMessage?.document as { file_id: string; file_unique_id: string; file_name?: string; mime_type?: string; file_size?: number } | undefined;
+
+  let attachment = null;
   if (Array.isArray(photos) && photos.length > 0 && config.botToken) {
-    const attachment = await downloadTelegramPhoto(config.botToken, photos);
-    if (attachment) {
-      const uploaded = await client.uploadAttachment({
-        filename: attachment.filename,
-        mimeType: attachment.mimeType,
-        data: attachment.data,
-      });
-      attachmentIds.push(uploaded.id);
-    }
+    attachment = await downloadTelegramPhoto(config.botToken, photos);
+  } else if (document?.file_id && config.botToken) {
+    attachment = await downloadTelegramDocument(config.botToken, document);
+  }
+
+  if (attachment) {
+    const uploaded = await client.uploadAttachment({
+      filename: attachment.filename,
+      mimeType: attachment.mimeType,
+      data: attachment.data,
+    });
+    attachmentIds.push(uploaded.id);
   }
 
   // If there is no text and no attachments (e.g. photo download failed),

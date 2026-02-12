@@ -123,6 +123,16 @@ export class AnthropicProvider implements Provider {
           },
         };
       case "file":
+        if (block.source.media_type === "application/pdf") {
+          return {
+            type: "document",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: block.source.data,
+            },
+          };
+        }
         return {
           type: "text",
           text: this.fileBlockToText(block),
