@@ -423,7 +423,7 @@ export class Session {
       const buildEventHandler = () => (event: import('../agent/loop.js').AgentEvent) => {
         switch (event.type) {
           case 'text_delta':
-            onEvent({ type: 'assistant_text_delta', text: event.text });
+            onEvent({ type: 'assistant_text_delta', text: event.text, sessionId: this.conversationId });
             if (isFirstMessage) firstAssistantText += event.text;
             break;
           case 'thinking_delta':
@@ -576,7 +576,7 @@ export class Session {
       if (abortController.signal.aborted) {
         onEvent({ type: 'generation_cancelled' });
       } else {
-        onEvent({ type: 'message_complete' });
+        onEvent({ type: 'message_complete', sessionId: this.conversationId });
       }
 
       // Auto-generate conversation title after first exchange
