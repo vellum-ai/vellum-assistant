@@ -323,6 +323,8 @@ Here is a full example showing the exact `schema_json` and `html` values for a t
   <ul class="todo-list" id="todoList"></ul>
 
   <script>
+    let allRecords = [];
+
     document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('newTodo').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') addTodo();
@@ -340,6 +342,7 @@ Here is a full example showing the exact `schema_json` and `html` values for a t
     }
 
     function renderTodos(records) {
+      allRecords = records;
       const list = document.getElementById('todoList');
       if (records.length === 0) {
         list.innerHTML = '<div class="empty-state">No todos yet. Add one above!</div>';
@@ -350,7 +353,7 @@ Here is a full example showing the exact `schema_json` and `html` values for a t
         .map(r => `
           <li class="todo-item">
             <input type="checkbox" ${r.data.completed ? 'checked' : ''}
-              onchange="toggleTodo('${r.id}', ${!r.data.completed}, '${r.data.title.replace(/'/g, "\\'")}')">
+              onchange="toggleTodo('${r.id}')">
             <span class="title ${r.data.completed ? 'completed' : ''}">${escapeHtml(r.data.title)}</span>
             <button class="delete-btn" onclick="deleteTodo('${r.id}')">&#x2715;</button>
           </li>
@@ -370,9 +373,11 @@ Here is a full example showing the exact `schema_json` and `html` values for a t
       }
     }
 
-    async function toggleTodo(id, completed, title) {
+    async function toggleTodo(id) {
+      const record = allRecords.find(r => r.id === id);
+      if (!record) return;
       try {
-        await window.vellum.data.update(id, { title, completed });
+        await window.vellum.data.update(id, { title: record.data.title, completed: !record.data.completed });
         await loadTodos();
       } catch (err) {
         console.error('Failed to toggle todo:', err);
