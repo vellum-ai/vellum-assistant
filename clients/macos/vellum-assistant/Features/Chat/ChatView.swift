@@ -153,7 +153,7 @@ struct ChatView: View {
 
             // Text field with ghost suffix overlay
             ZStack(alignment: .leading) {
-                TextField("What you need chef?", text: $inputText, axis: .vertical)
+                TextField("", text: $inputText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(VFont.mono)
                     .foregroundColor(VColor.textPrimary)
