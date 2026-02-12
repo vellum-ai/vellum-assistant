@@ -1,0 +1,206 @@
+import SwiftUI
+
+struct ChatView: View {
+    let messages: [ChatMessage]
+    @Binding var inputText: String
+    let isThinking: Bool
+    let isSending: Bool
+    let onSend: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            messageList
+            composerArea
+        }
+    }
+
+    // MARK: - Message List
+
+    private var messageList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: VSpacing.md) {
+                    ForEach(messages) { message in
+                        ChatBubble(message: message)
+                            .id(message.id)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+
+                    if isThinking {
+                        ThinkingIndicator()
+                            .id("thinking-indicator")
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.md)
+            }
+            .onChange(of: messages.count) {
+                withAnimation(VAnimation.standard) {
+                    if let lastMessage = messages.last {
+                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                    }
+                }
+            }
+            .onChange(of: isThinking) {
+                if isThinking {
+                    withAnimation(VAnimation.standard) {
+                        proxy.scrollTo("thinking-indicator", anchor: .bottom)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Composer Area
+
+    private var composerArea: some View {
+        HStack(spacing: VSpacing.sm) {
+            TextField("Type a message\u{2026}", text: $inputText)
+                .textFieldStyle(.plain)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .padding(VSpacing.md)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                )
+                .onSubmit {
+                    if canSend {
+                        onSend()
+                    }
+                }
+
+            Button(action: {
+                if canSend {
+                    onSend()
+                }
+            }) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSend)
+            .accessibilityLabel("Send message")
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
+        .background(
+            VColor.surface.opacity(0.5)
+                .overlay(
+                    VStack {
+                        Divider().background(VColor.surfaceBorder.opacity(0.4))
+                        Spacer()
+                    }
+                )
+        )
+    }
+
+    private var canSend: Bool {
+        !isSending && !inputText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+}
+
+// MARK: - Chat Bubble
+
+private struct ChatBubble: View {
+    let message: ChatMessage
+
+    private var isUser: Bool { message.role == .user }
+
+    var body: some View {
+        HStack {
+            if isUser { Spacer(minLength: 0) }
+
+            Text(message.text)
+                .font(VFont.body)
+                .foregroundColor(isUser ? .white : VColor.textPrimary)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
+                )
+                .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
+
+            if !isUser { Spacer(minLength: 0) }
+        }
+    }
+}
+
+// MARK: - Thinking Indicator
+
+private struct ThinkingIndicator: View {
+    @State private var phase: Int = 0
+    @State private var timer: Timer?
+
+    var body: some View {
+        HStack {
+            HStack(spacing: VSpacing.xs) {
+                Text("Thinking")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(VColor.textSecondary)
+                        .frame(width: 5, height: 5)
+                        .opacity(dotOpacity(for: index))
+                }
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surface.opacity(0.5))
+            )
+
+            Spacer()
+        }
+        .onAppear { startAnimation() }
+        .onDisappear { timer?.invalidate() }
+    }
+
+    private func dotOpacity(for index: Int) -> Double {
+        phase == index ? 1.0 : 0.4
+    }
+
+    private func startAnimation() {
+        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
+            withAnimation(.easeInOut(duration: 0.3)) {
+                phase = (phase + 1) % 3
+            }
+        }
+    }
+}
+
+// MARK: - Preview
+
+#Preview("ChatView") {
+    @Previewable @State var text = ""
+
+    let sampleMessages: [ChatMessage] = [
+        ChatMessage(role: .assistant, text: "Hello! How can I help you today?"),
+        ChatMessage(role: .user, text: "Can you tell me about SwiftUI?"),
+        ChatMessage(
+            role: .assistant,
+            text: "SwiftUI is a declarative framework for building user interfaces across Apple platforms. It uses a reactive data-binding model and composable view hierarchy."
+        ),
+        ChatMessage(role: .user, text: "That sounds great, thanks!"),
+    ]
+
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        ChatView(
+            messages: sampleMessages,
+            inputText: $text,
+            isThinking: true,
+            isSending: false,
+            onSend: {}
+        )
+    }
+    .frame(width: 600, height: 500)
+}
