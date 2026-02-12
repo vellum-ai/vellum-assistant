@@ -56,7 +56,7 @@ final class ChatViewModel: ObservableObject {
             bootstrapSession(userMessage: text)
         } else {
             // Subsequent messages: send directly (daemon queues if busy)
-            sendUserMessage(text)
+            sendUserMessage(text, queuedMessageId: willBeQueued ? userMessage.id : nil)
         }
     }
 
@@ -94,7 +94,7 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func sendUserMessage(_ text: String) {
+    private func sendUserMessage(_ text: String, queuedMessageId: UUID? = nil) {
         guard let sessionId else { return }
         isSending = true
         isThinking = true
@@ -115,6 +115,10 @@ final class ChatViewModel: ObservableObject {
             isSending = false
             isThinking = false
             errorText = "Failed to send message."
+            // Remove the queued message ID to prevent stale FIFO entries
+            if let queuedMessageId {
+                pendingMessageIds.removeAll { $0 == queuedMessageId }
+            }
         }
     }
 
