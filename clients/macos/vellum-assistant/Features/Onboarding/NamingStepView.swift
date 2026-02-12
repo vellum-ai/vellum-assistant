@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct NamingStepView: View {
     @Bindable var state: OnboardingState
 

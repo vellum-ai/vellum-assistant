@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct ScreenPermissionStepView: View {
     @Bindable var state: OnboardingState
 

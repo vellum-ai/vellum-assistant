@@ -81,8 +81,9 @@ final class TextResponseWindow {
         closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: panel, queue: .main
         ) { [weak self] _ in
+            let onClose = self?.onClose
             Task { @MainActor in
-                self?.onClose?()
+                onClose?()
             }
         }
 

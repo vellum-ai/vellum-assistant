@@ -29,10 +29,9 @@ struct VSegmentedControl: View {
 }
 
 #Preview("VSegmentedControl") {
-    @Previewable @State var selection = 0
     ZStack {
         VColor.background.ignoresSafeArea()
-        VSegmentedControl(items: ["All", "Active", "Archived"], selection: $selection)
+        VSegmentedControl(items: ["All", "Active", "Archived"], selection: .constant(0))
             .padding()
     }
     .frame(width: 400, height: 80)

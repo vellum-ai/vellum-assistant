@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct InterviewStepView: View {
     @Bindable var state: OnboardingState
     let daemonClient: DaemonClientProtocol

@@ -291,23 +291,19 @@ private struct ThinkingIndicator: View {
 // MARK: - Preview
 
 #Preview("ChatView") {
-    @Previewable @State var text = ""
-
-    let sampleMessages: [ChatMessage] = [
-        ChatMessage(role: .assistant, text: "Hello! How can I help you today?"),
-        ChatMessage(role: .user, text: "Can you tell me about SwiftUI?"),
-        ChatMessage(
-            role: .assistant,
-            text: "SwiftUI is a declarative framework for building user interfaces across Apple platforms. It uses a reactive data-binding model and composable view hierarchy."
-        ),
-        ChatMessage(role: .user, text: "That sounds great, thanks!"),
-    ]
-
     ZStack {
         VColor.background.ignoresSafeArea()
         ChatView(
-            messages: sampleMessages,
-            inputText: $text,
+            messages: [
+                ChatMessage(role: .assistant, text: "Hello! How can I help you today?"),
+                ChatMessage(role: .user, text: "Can you tell me about SwiftUI?"),
+                ChatMessage(
+                    role: .assistant,
+                    text: "SwiftUI is a declarative framework for building user interfaces across Apple platforms. It uses a reactive data-binding model and composable view hierarchy."
+                ),
+                ChatMessage(role: .user, text: "That sounds great, thanks!"),
+            ],
+            inputText: .constant(""),
             isThinking: true,
             isSending: false,
             errorText: nil,

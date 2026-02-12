@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct FnKeyStepView: View {
     @Bindable var state: OnboardingState
 

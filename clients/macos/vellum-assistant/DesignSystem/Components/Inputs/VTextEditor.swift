@@ -38,12 +38,11 @@ struct VTextEditor: View {
 }
 
 #Preview("VTextEditor") {
-    @Previewable @State var text = ""
     ZStack {
         VColor.background.ignoresSafeArea()
         VStack(spacing: 16) {
-            VTextEditor(placeholder: "Write something...", text: $text)
-            VTextEditor(placeholder: "Short editor", text: $text, minHeight: 40, maxHeight: 80)
+            VTextEditor(placeholder: "Write something...", text: .constant(""))
+            VTextEditor(placeholder: "Short editor", text: .constant(""), minHeight: 40, maxHeight: 80)
         }
         .padding()
     }

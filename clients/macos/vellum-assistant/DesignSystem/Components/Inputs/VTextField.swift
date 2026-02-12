@@ -45,14 +45,13 @@ struct VTextField: View {
 }
 
 #Preview("VTextField") {
-    @Previewable @State var text = ""
     ZStack {
         VColor.background.ignoresSafeArea()
         VStack(spacing: 16) {
-            VTextField(placeholder: "Plain text field", text: $text)
-            VTextField(placeholder: "With leading icon", text: $text, leadingIcon: "magnifyingglass")
-            VTextField(placeholder: "With trailing icon", text: $text, trailingIcon: "envelope")
-            VTextField(placeholder: "Both icons", text: $text, leadingIcon: "magnifyingglass", trailingIcon: "xmark.circle")
+            VTextField(placeholder: "Plain text field", text: .constant(""))
+            VTextField(placeholder: "With leading icon", text: .constant(""), leadingIcon: "magnifyingglass")
+            VTextField(placeholder: "With trailing icon", text: .constant(""), trailingIcon: "envelope")
+            VTextField(placeholder: "Both icons", text: .constant(""), leadingIcon: "magnifyingglass", trailingIcon: "xmark.circle")
         }
         .padding()
     }

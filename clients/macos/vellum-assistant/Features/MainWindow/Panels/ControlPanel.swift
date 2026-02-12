@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct ControlPanel: View {
     var onClose: () -> Void
     var ambientAgent: AmbientAgent

@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+@MainActor
 struct TaskInputView: View {
     private static let maxAttachmentCount = 10
     private static let maxTotalAttachmentBytes = 50 * 1024 * 1024

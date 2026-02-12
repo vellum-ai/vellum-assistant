@@ -1,6 +1,7 @@
 import Speech
 import SwiftUI
 
+@MainActor
 struct SpeechPermissionStepView: View {
     @Bindable var state: OnboardingState
 

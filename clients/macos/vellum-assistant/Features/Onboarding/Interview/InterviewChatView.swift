@@ -220,24 +220,20 @@ private struct TypingIndicator: View {
 // MARK: - Preview
 
 #Preview("InterviewChatView") {
-    @Previewable @State var text = ""
-
-    let sampleMessages: [InterviewMessage] = [
-        InterviewMessage(role: .assistant, text: "Hi there! I just hatched and I am so excited to meet you."),
-        InterviewMessage(role: .user, text: "Welcome! What can you do?"),
-        InterviewMessage(
-            role: .assistant,
-            text: "I can help you with all sorts of things -- voice conversations, taking actions on your computer, and context-aware assistance!"
-        ),
-        InterviewMessage(role: .user, text: "That sounds great, tell me more."),
-    ]
-
     ZStack {
         MeadowBackground()
         OnboardingPanel {
             InterviewChatView(
-                messages: sampleMessages,
-                inputText: text,
+                messages: [
+                    InterviewMessage(role: .assistant, text: "Hi there! I just hatched and I am so excited to meet you."),
+                    InterviewMessage(role: .user, text: "Welcome! What can you do?"),
+                    InterviewMessage(
+                        role: .assistant,
+                        text: "I can help you with all sorts of things -- voice conversations, taking actions on your computer, and context-aware assistance!"
+                    ),
+                    InterviewMessage(role: .user, text: "That sounds great, tell me more."),
+                ],
+                inputText: "",
                 isThinking: true,
                 isStreaming: false
             )

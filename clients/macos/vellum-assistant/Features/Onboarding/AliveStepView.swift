@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct AliveStepView: View {
     @Bindable var state: OnboardingState
     var onComplete: () -> Void
