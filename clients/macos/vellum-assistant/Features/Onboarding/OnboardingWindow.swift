@@ -40,7 +40,7 @@ final class OnboardingWindow {
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1366, height: 849),
-            styleMask: [.titled, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -52,20 +52,14 @@ final class OnboardingWindow {
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
 
-        // Set preferred size, clamped to screen
-        let preferredSize = NSSize(width: 1366, height: 849)
-        let minSize = NSSize(width: 800, height: 600)
-        window.contentMinSize = minSize
+        window.contentMinSize = NSSize(width: 800, height: 600)
 
-        if let screen = NSScreen.main {
-            let visibleFrame = screen.visibleFrame
-            let clampedWidth = min(preferredSize.width, visibleFrame.width)
-            let clampedHeight = min(preferredSize.height, visibleFrame.height)
-            window.setContentSize(NSSize(width: clampedWidth, height: clampedHeight))
+        if let visibleFrame = Self.visibleScreenFrame() {
+            window.setFrame(visibleFrame, display: true)
         } else {
-            window.setContentSize(preferredSize)
+            window.setContentSize(NSSize(width: 1366, height: 849))
+            window.center()
         }
-        window.center()
 
         // Make the app a regular app so the window gets focus
         NSApp.setActivationPolicy(.regular)
@@ -79,5 +73,12 @@ final class OnboardingWindow {
     func close() {
         window?.close()
         window = nil
+    }
+
+    private static func visibleScreenFrame() -> NSRect? {
+        if let screen = NSScreen.main {
+            return screen.visibleFrame
+        }
+        return NSScreen.screens.first?.visibleFrame
     }
 }
