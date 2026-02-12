@@ -837,4 +837,49 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.messages[1].isStreaming)
     }
+
+    // MARK: - Session Isolation (Correlation ID)
+
+    func testSessionInfoWithWrongCorrelationIdIsIgnored() {
+        // Simulate a ChatViewModel that has sent a session_create with a correlation ID.
+        // A session_info with a different correlation ID should be ignored.
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+        // At this point the VM is bootstrapping and has a correlationId set internally.
+        XCTAssertNil(viewModel.sessionId)
+        XCTAssertTrue(viewModel.isSending)
+
+        // A session_info from a different ChatViewModel's request (different correlation ID)
+        let foreignInfo = SessionInfoMessage(sessionId: "foreign-session", title: "Foreign", correlationId: "wrong-id")
+        viewModel.handleServerMessage(.sessionInfo(foreignInfo))
+
+        // Should NOT have claimed the foreign session
+        XCTAssertNil(viewModel.sessionId, "Should not claim session_info with non-matching correlationId")
+    }
+
+    func testSessionInfoWithNilCorrelationIdIsIgnoredWhenBootstrapping() {
+        // When a ChatViewModel is bootstrapping (has a correlationId), a session_info
+        // without any correlationId should also be rejected to prevent cross-contamination.
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+        XCTAssertNil(viewModel.sessionId)
+
+        // Legacy session_info without correlationId
+        let legacyInfo = SessionInfoMessage(sessionId: "legacy-session", title: "Legacy")
+        viewModel.handleServerMessage(.sessionInfo(legacyInfo))
+
+        // Should NOT have claimed the legacy session
+        XCTAssertNil(viewModel.sessionId, "Should not claim session_info without correlationId when bootstrapping with one")
+    }
+
+    func testSessionInfoWithoutCorrelationIdAcceptedWhenNoBootstrap() {
+        // When a ChatViewModel has no bootstrap correlationId (e.g., backwards compat),
+        // it should still accept session_info without a correlationId.
+        // Simulate the old behavior: directly set up state without going through
+        // bootstrapSession (which would generate a correlationId)
+        let info = SessionInfoMessage(sessionId: "test-session", title: "Test")
+        viewModel.handleServerMessage(.sessionInfo(info))
+
+        XCTAssertEqual(viewModel.sessionId, "test-session", "Should accept session_info when no correlationId was set")
+    }
 }
