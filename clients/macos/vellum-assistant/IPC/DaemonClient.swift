@@ -50,6 +50,9 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `generation_handoff` message.
     var onGenerationHandoff: ((GenerationHandoffMessage) -> Void)?
 
+    /// Called when the daemon sends a `confirmation_request` message for tool permission approval.
+    var onConfirmationRequest: ((ConfirmationRequestMessage) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -269,6 +272,23 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(message)
     }
 
+    // MARK: - Confirmation Response
+
+    /// Send a confirmation response for a tool permission request.
+    func sendConfirmationResponse(
+        requestId: String,
+        decision: String,
+        selectedPattern: String? = nil,
+        selectedScope: String? = nil
+    ) throws {
+        try send(ConfirmationResponseMessage(
+            requestId: requestId,
+            decision: decision,
+            selectedPattern: selectedPattern,
+            selectedScope: selectedScope
+        ))
+    }
+
     // MARK: - Disconnect
 
     /// Disconnect from the daemon. Stops reconnect and ping timers.
@@ -388,6 +408,8 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onMessageDequeued?(msg)
         case .generationHandoff(let msg):
             onGenerationHandoff?(msg)
+        case .confirmationRequest(let msg):
+            onConfirmationRequest?(msg)
         default:
             break
         }
