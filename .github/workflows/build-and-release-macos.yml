@@ -235,13 +235,17 @@ jobs:
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}"
           BUILD_VERSION="${{ steps.version.outputs.build_version }}"
 
-          # Sign the ZIP with Sparkle EdDSA key (pipe key via stdin — -s flag is deprecated)
+          # Sign the ZIP with Sparkle EdDSA key (write to temp file — CLI arg is deprecated)
           echo "sign_update location: $(which sign_update || echo 'NOT FOUND')"
-          SIGNATURE=$(echo "$SPARKLE_ED_PRIVATE_KEY" | sign_update dist/vellum-assistant.zip 2>&1) || {
+          ED_KEY_FILE=$(mktemp)
+          echo "$SPARKLE_ED_PRIVATE_KEY" > "$ED_KEY_FILE"
+          SIGNATURE=$(sign_update dist/vellum-assistant.zip --ed-key-file "$ED_KEY_FILE" 2>&1) || {
             echo "sign_update failed with exit code $?"
             echo "Output: $SIGNATURE"
+            rm -f "$ED_KEY_FILE"
             exit 1
           }
+          rm -f "$ED_KEY_FILE"
           echo "Signature obtained: ${SIGNATURE:0:20}..."
           SIZE=$(stat -f%z dist/vellum-assistant.zip)
 
