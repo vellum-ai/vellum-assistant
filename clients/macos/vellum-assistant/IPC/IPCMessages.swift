@@ -162,6 +162,7 @@ struct TaskSubmitMessage: Encodable, Sendable {
     let screenWidth: Int
     let screenHeight: Int
     let attachments: [IPCAttachment]?
+    let source: String?
 }
 
 /// Sent to cancel the active generation.

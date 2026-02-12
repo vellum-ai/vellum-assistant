@@ -118,6 +118,7 @@ export interface TaskSubmit {
   screenWidth: number;
   screenHeight: number;
   attachments?: UserMessageAttachment[];
+  source?: 'voice' | 'text';
 }
 
 export interface AmbientObservation {

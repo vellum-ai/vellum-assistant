@@ -677,7 +677,7 @@ async function handleTaskSubmit(
   const rlog = log.child({ requestId });
 
   try {
-    const interactionType = await classifyInteraction(msg.task);
+    const interactionType = await classifyInteraction(msg.task, msg.source);
     rlog.info({ interactionType, task: msg.task }, 'Task classified');
 
     if (interactionType === 'computer_use') {

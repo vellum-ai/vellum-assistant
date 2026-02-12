@@ -294,7 +294,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 textSession.sendFollowUp(text: text)
                 self?.textResponseWindow?.updatePartialTranscription("")
             } else {
-                self?.startSession(task: text)
+                self?.startSession(task: text, source: "voice")
             }
         }
         voiceInput?.onPartialTranscription = { [weak self] text in
@@ -431,8 +431,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Session
 
-    func startSession(task: String) {
-        startSession(submission: TaskSubmission(task: task, attachments: []))
+    func startSession(task: String, source: String? = nil) {
+        startSession(submission: TaskSubmission(task: task, attachments: [], source: source))
     }
 
     func startSession(submission: TaskSubmission) {
@@ -481,7 +481,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 task: effectiveTask,
                 screenWidth: Int(screenBounds.width),
                 screenHeight: Int(screenBounds.height),
-                attachments: ipcAttachments
+                attachments: ipcAttachments,
+                source: submission.source
             ))
 
             // 3. Wait for task_routed response (or error)

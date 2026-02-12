@@ -226,4 +226,11 @@ struct TaskAttachment: Identifiable {
 struct TaskSubmission {
     let task: String
     let attachments: [TaskAttachment]
+    let source: String?
+
+    init(task: String, attachments: [TaskAttachment], source: String? = nil) {
+        self.task = task
+        self.attachments = attachments
+        self.source = source
+    }
 }
