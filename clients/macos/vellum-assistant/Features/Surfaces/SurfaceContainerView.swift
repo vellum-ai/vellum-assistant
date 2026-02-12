@@ -5,6 +5,11 @@ struct SurfaceContainerView: View {
 
     private var surface: Surface { viewModel.surface }
 
+    private var isDynamicPage: Bool {
+        if case .dynamicPage = surface.data { return true }
+        return false
+    }
+
     var body: some View {
         Group {
             if case .dynamicPage = surface.data {
@@ -18,26 +23,28 @@ struct SurfaceContainerView: View {
             }
         }
         .frame(minWidth: 280, maxWidth: .infinity)
-        .vPanelBackground()
+        .modifier(ConditionalPanelBackground(apply: !isDynamicPage))
     }
 
     @ViewBuilder
     private var innerContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Title row with dismiss button
-            HStack(alignment: .top) {
-                if let title = surface.title {
-                    Text(title)
-                        .font(VFont.headline)
-                        .foregroundColor(VColor.textPrimary)
+            if !isDynamicPage {
+                // Title row with dismiss button
+                HStack(alignment: .top) {
+                    if let title = surface.title {
+                        Text(title)
+                            .font(VFont.headline)
+                            .foregroundColor(VColor.textPrimary)
+                    }
+                    Spacer()
+                    Button(action: { viewModel.onDismiss() }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                    .buttonStyle(.plain)
                 }
-                Spacer()
-                Button(action: { viewModel.onDismiss() }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(VColor.textSecondary)
-                }
-                .buttonStyle(.plain)
             }
 
             // Type-specific content
@@ -90,7 +97,7 @@ struct SurfaceContainerView: View {
                 actionButtons
             }
         }
-        .padding(VSpacing.xl)
+        .padding(isDynamicPage ? 0 : VSpacing.xl)
     }
 
     // MARK: - Helpers
@@ -123,6 +130,18 @@ struct SurfaceContainerView: View {
         case .primary: return .primary
         case .secondary: return .ghost
         case .destructive: return .danger
+        }
+    }
+}
+
+private struct ConditionalPanelBackground: ViewModifier {
+    let apply: Bool
+
+    func body(content: Content) -> some View {
+        if apply {
+            content.vPanelBackground()
+        } else {
+            content
         }
     }
 }

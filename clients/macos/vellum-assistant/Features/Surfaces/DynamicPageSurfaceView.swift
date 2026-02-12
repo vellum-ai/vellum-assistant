@@ -189,11 +189,10 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
 
                 let screen = NSScreen.main?.visibleFrame ?? window.screen?.visibleFrame
                     ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-                let maxW = min(screen.width * 0.85, 1200)
-                let maxH = min(screen.height * 0.85, 1000)
-                // Add padding for title bar and container chrome
-                let targetW = min(max(w + 40, window.frame.width), maxW)
-                let targetH = min(max(h + 80, window.frame.height), maxH)
+                let maxW = min(screen.width * 0.6, 1200)
+                let maxH = min(screen.height * 0.75, 1000)
+                let targetW = min(max(w, window.frame.width), maxW)
+                let targetH = min(max(h, window.frame.height), maxH)
 
                 // Resize keeping center position
                 let currentCenter = NSPoint(x: window.frame.midX, y: window.frame.midY)

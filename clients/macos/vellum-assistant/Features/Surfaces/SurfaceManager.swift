@@ -134,16 +134,25 @@ final class SurfaceManager: ObservableObject {
         let surfacePanelHeight: CGFloat
         if case .dynamicPage(let dpData) = surface.data {
             let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-            surfacePanelWidth = CGFloat(dpData.width ?? Int(min(screen.width * 0.5, 800)))
+            surfacePanelWidth = CGFloat(dpData.width ?? Int(min(screen.width * 0.6, 800)))
             surfacePanelHeight = CGFloat(dpData.height ?? Int(min(screen.height * 0.75, 900)))
         } else {
             surfacePanelWidth = panelWidth
             surfacePanelHeight = 300
         }
 
+        let isDynamicPage: Bool
+        if case .dynamicPage = surface.data {
+            isDynamicPage = true
+        } else {
+            isDynamicPage = false
+        }
+
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: surfacePanelWidth, height: surfacePanelHeight),
-            styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow, .resizable],
+            styleMask: isDynamicPage
+                ? [.titled, .closable, .miniaturizable, .resizable]
+                : [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -158,13 +167,27 @@ final class SurfaceManager: ObservableObject {
             let newHeight = min(max(fittingSize.height, 150), maxH)
             panel.setContentSize(NSSize(width: surfacePanelWidth, height: newHeight))
         }
-        panel.level = .floating
+        if isDynamicPage {
+            // Normal window level for apps
+        } else {
+            panel.level = .floating
+        }
         panel.isMovableByWindowBackground = true
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
+        if isDynamicPage {
+            panel.titleVisibility = .visible
+            panel.titlebarAppearsTransparent = false
+            panel.title = surface.title ?? "App"
+        } else {
+            panel.titleVisibility = .hidden
+            panel.titlebarAppearsTransparent = true
+        }
         panel.alphaValue = 0.95
         panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        if isDynamicPage {
+            panel.collectionBehavior = [.canJoinAllSpaces]
+        } else {
+            panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        }
 
         if case .dynamicPage = surface.data {
             panel.minSize = NSSize(width: 280, height: 200)
@@ -172,6 +195,19 @@ final class SurfaceManager: ObservableObject {
         } else {
             panel.minSize = NSSize(width: 280, height: 100)
             panel.maxSize = NSSize(width: 600, height: 10000)
+        }
+
+        if isDynamicPage {
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: panel,
+                queue: .main
+            ) { [weak self] _ in
+                guard let self else { return }
+                Task { @MainActor in
+                    self.viewModels[surface.id]?.onDismiss()
+                }
+            }
         }
 
         panels[surface.id] = panel
