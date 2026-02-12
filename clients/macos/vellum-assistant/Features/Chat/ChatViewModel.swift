@@ -164,6 +164,15 @@ final class ChatViewModel: ObservableObject {
             }
             currentAssistantMessageId = nil
 
+        case .generationCancelled:
+            isThinking = false
+            isSending = false
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].isStreaming = false
+            }
+            currentAssistantMessageId = nil
+
         case .error(let err):
             log.error("Server error: \(err.message)")
             isThinking = false
@@ -174,6 +183,27 @@ final class ChatViewModel: ObservableObject {
         default:
             break
         }
+    }
+
+    func stopGenerating() {
+        guard isSending, let sessionId else { return }
+
+        do {
+            try daemonClient.send(CancelMessage(sessionId: sessionId))
+        } catch {
+            log.error("Failed to send cancel: \(error.localizedDescription)")
+        }
+
+        // Immediately update UI state
+        isThinking = false
+        isSending = false
+
+        // Mark current assistant message as stopped
+        if let existingId = currentAssistantMessageId,
+           let index = messages.firstIndex(where: { $0.id == existingId }) {
+            messages[index].isStreaming = false
+        }
+        currentAssistantMessageId = nil
     }
 
     func dismissError() {

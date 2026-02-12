@@ -151,6 +151,13 @@ struct TaskSubmitMessage: Encodable, Sendable {
     let attachments: [IPCAttachment]?
 }
 
+/// Sent to cancel the active generation.
+/// Wire type: `"cancel"`
+struct CancelMessage: Encodable, Sendable {
+    let type: String = "cancel"
+    let sessionId: String
+}
+
 /// Keepalive ping.
 /// Wire type: `"ping"`
 struct PingMessage: Encodable, Sendable {
@@ -258,6 +265,11 @@ struct UiSurfaceDismissMessage: Decodable, Sendable {
     let surfaceId: String
 }
 
+/// Confirms generation was cancelled.
+struct GenerationCancelledMessage: Decodable, Sendable {
+    let sessionId: String?
+}
+
 /// Server-level error message.
 struct ErrorMessage: Decodable, Sendable {
     let message: String
@@ -279,6 +291,7 @@ enum ServerMessage: Decodable, Sendable {
     case uiSurfaceShow(UiSurfaceShowMessage)
     case uiSurfaceUpdate(UiSurfaceUpdateMessage)
     case uiSurfaceDismiss(UiSurfaceDismissMessage)
+    case generationCancelled(GenerationCancelledMessage)
     case pong
     case unknown(String)
 
@@ -330,6 +343,9 @@ enum ServerMessage: Decodable, Sendable {
         case "ui_surface_dismiss":
             let message = try UiSurfaceDismissMessage(from: decoder)
             self = .uiSurfaceDismiss(message)
+        case "generation_cancelled":
+            let message = try GenerationCancelledMessage(from: decoder)
+            self = .generationCancelled(message)
         case "pong":
             self = .pong
         default:

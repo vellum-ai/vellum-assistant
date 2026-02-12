@@ -19,6 +19,7 @@ struct MainWindowView: View {
                 isSending: viewModel.isSending,
                 errorText: viewModel.errorText,
                 onSend: viewModel.sendMessage,
+                onStop: viewModel.stopGenerating,
                 onDismissError: viewModel.dismissError
             )
         }
