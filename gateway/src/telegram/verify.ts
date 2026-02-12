@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "crypto";
+
 export function verifyWebhookSecret(
   headers: Headers,
   expectedSecret: string,
@@ -6,5 +8,10 @@ export function verifyWebhookSecret(
   if (!provided || !expectedSecret) {
     return false;
   }
-  return provided === expectedSecret;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expectedSecret);
+  if (a.length !== b.length) {
+    return false;
+  }
+  return timingSafeEqual(a, b);
 }
