@@ -417,7 +417,9 @@ export class ComputerUseSession {
       {
         maxTokens: 4096,
         toolChoice: { type: 'any' },
-        maxToolUseTurns: MAX_STEPS,
+        // Allow MAX_STEPS non-terminal actions plus one terminal turn
+        // (cu_done/cu_respond), since AgentLoop caps tool turns globally.
+        maxToolUseTurns: MAX_STEPS + 1,
       },
       toolDefs,
       toolExecutor,
