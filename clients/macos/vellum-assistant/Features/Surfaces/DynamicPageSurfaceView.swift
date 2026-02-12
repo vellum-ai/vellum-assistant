@@ -176,6 +176,35 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             )
         }
 
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            webView.evaluateJavaScript(
+                "JSON.stringify({w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight})"
+            ) { result, _ in
+                guard let json = result as? String,
+                      let data = json.data(using: .utf8),
+                      let size = try? JSONSerialization.jsonObject(with: data) as? [String: CGFloat],
+                      let w = size["w"], let h = size["h"],
+                      let window = webView.window else { return }
+
+                let screen = NSScreen.main?.visibleFrame ?? window.screen?.visibleFrame
+                    ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+                let maxW = min(screen.width * 0.85, 1200)
+                let maxH = min(screen.height * 0.85, 1000)
+                // Add padding for title bar and container chrome
+                let targetW = min(max(w + 40, window.frame.width), maxW)
+                let targetH = min(max(h + 80, window.frame.height), maxH)
+
+                // Resize keeping center position
+                let currentCenter = NSPoint(x: window.frame.midX, y: window.frame.midY)
+                let newOrigin = NSPoint(x: currentCenter.x - targetW / 2, y: currentCenter.y - targetH / 2)
+                window.setFrame(
+                    NSRect(x: newOrigin.x, y: newOrigin.y, width: targetW, height: targetH),
+                    display: true,
+                    animate: true
+                )
+            }
+        }
+
         func webView(
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction,

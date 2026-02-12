@@ -9,6 +9,8 @@ struct SurfaceContainerView: View {
         Group {
             if case .dynamicPage = surface.data {
                 innerContent
+            } else if case .list = surface.data {
+                innerContent
             } else {
                 ScrollView(.vertical) {
                     innerContent

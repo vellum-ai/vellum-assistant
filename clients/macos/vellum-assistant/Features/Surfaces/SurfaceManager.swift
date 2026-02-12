@@ -133,12 +133,12 @@ final class SurfaceManager: ObservableObject {
         let surfacePanelWidth: CGFloat
         let surfacePanelHeight: CGFloat
         if case .dynamicPage(let dpData) = surface.data {
-            surfacePanelWidth = CGFloat(dpData.width ?? Int(panelWidth))
-            surfacePanelHeight = CGFloat(dpData.height ?? 500)
+            let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            surfacePanelWidth = CGFloat(dpData.width ?? Int(min(screen.width * 0.5, 800)))
+            surfacePanelHeight = CGFloat(dpData.height ?? Int(min(screen.height * 0.75, 900)))
         } else {
             surfacePanelWidth = panelWidth
-            let fittingHeight = hostingController.view.fittingSize.height
-            surfacePanelHeight = max(fittingHeight, 100)
+            surfacePanelHeight = 300
         }
 
         let panel = NSPanel(
@@ -149,6 +149,15 @@ final class SurfaceManager: ObservableObject {
         )
 
         panel.contentViewController = hostingController
+
+        // Re-measure fittingSize for non-dynamic panels now that the view is attached to a window.
+        if case .dynamicPage = surface.data {
+            // Dynamic pages handle their own sizing via webView didFinish.
+        } else if let fittingSize = panel.contentView?.fittingSize {
+            let maxH = (NSScreen.main?.visibleFrame.height ?? 800) - 40
+            let newHeight = min(max(fittingSize.height, 150), maxH)
+            panel.setContentSize(NSSize(width: surfacePanelWidth, height: newHeight))
+        }
         panel.level = .floating
         panel.isMovableByWindowBackground = true
         panel.titleVisibility = .hidden
