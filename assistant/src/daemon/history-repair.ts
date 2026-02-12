@@ -9,6 +9,7 @@ export interface RepairStats {
   assistantToolResultsMigrated: number;
   missingToolResultsInserted: number;
   orphanToolResultsDowngraded: number;
+  consecutiveSameRoleMerged: number;
 }
 
 export interface RepairResult {
@@ -23,6 +24,7 @@ export function repairHistory(messages: Message[]): RepairResult {
     assistantToolResultsMigrated: 0,
     missingToolResultsInserted: 0,
     orphanToolResultsDowngraded: 0,
+    consecutiveSameRoleMerged: 0,
   };
 
   const result: Message[] = [];
@@ -128,7 +130,21 @@ export function repairHistory(messages: Message[]): RepairResult {
     result.push(buildResultMessage(pendingToolUseIds, recoveredResults, stats));
   }
 
-  return { messages: result, stats };
+  // Merge consecutive same-role messages. This can occur after a checkpoint
+  // handoff where a user(tool_result) message is followed by a user(new_message),
+  // or from other history reconstruction artifacts.
+  const merged: Message[] = [];
+  for (const msg of result) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.role === msg.role) {
+      prev.content = [...prev.content, ...msg.content];
+      stats.consecutiveSameRoleMerged++;
+    } else {
+      merged.push({ role: msg.role, content: [...msg.content] });
+    }
+  }
+
+  return { messages: merged, stats };
 }
 
 function buildResultMessage(
@@ -157,10 +173,11 @@ function buildResultMessage(
 
 /**
  * Aggressive repair pass that handles edge cases beyond repairHistory:
- * - Merges consecutive same-role messages
- * - Ensures the first message is from the user
  * - Removes empty messages
- * Then applies the standard repairHistory on top.
+ * - Ensures the first message is from the user
+ * - Merges consecutive same-role messages (before tool-use/result repair)
+ * Then applies the standard repairHistory on top (which also merges any
+ * consecutive same-role messages introduced by tool-use/result repair).
  */
 export function deepRepairHistory(messages: Message[]): RepairResult {
   // 1. Remove messages with no content blocks

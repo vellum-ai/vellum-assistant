@@ -354,12 +354,70 @@ describe('repairHistory', () => {
     });
   });
 
+  test('merges consecutive user messages (checkpoint handoff scenario)', () => {
+    // After a checkpoint handoff the history can end with:
+    //   assistant(tool_use) -> user(tool_result) -> user(new_message)
+    // repairHistory should merge the two consecutive user messages.
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'tu_1', name: 'bash', input: { cmd: 'ls' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu_1', content: 'file1' },
+        ],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Now do something else' }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.consecutiveSameRoleMerged).toBe(1);
+    expect(repaired).toHaveLength(3);
+    expect(repaired[2].role).toBe('user');
+    expect(repaired[2].content).toHaveLength(2);
+    expect(repaired[2].content[0]).toEqual({
+      type: 'tool_result',
+      tool_use_id: 'tu_1',
+      content: 'file1',
+    });
+    expect(repaired[2].content[1]).toEqual({
+      type: 'text',
+      text: 'Now do something else',
+    });
+  });
+
+  test('merges multiple consecutive same-role messages', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'A' }] },
+      { role: 'user', content: [{ type: 'text', text: 'B' }] },
+      { role: 'user', content: [{ type: 'text', text: 'C' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'Hi' }] },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.consecutiveSameRoleMerged).toBe(2);
+    expect(repaired).toHaveLength(2);
+    expect(repaired[0].role).toBe('user');
+    expect(repaired[0].content).toHaveLength(3);
+  });
+
   test('handles empty message array', () => {
     const { messages, stats } = repairHistory([]);
     expect(messages).toEqual([]);
     expect(stats.assistantToolResultsMigrated).toBe(0);
     expect(stats.missingToolResultsInserted).toBe(0);
     expect(stats.orphanToolResultsDowngraded).toBe(0);
+    expect(stats.consecutiveSameRoleMerged).toBe(0);
   });
 });
 

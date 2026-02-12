@@ -14,6 +14,7 @@ describe('history-repair observability', () => {
     expect(stats.assistantToolResultsMigrated).toBe(0);
     expect(stats.missingToolResultsInserted).toBe(0);
     expect(stats.orphanToolResultsDowngraded).toBe(0);
+    expect(stats.consecutiveSameRoleMerged).toBe(0);
   });
 
   test('stats are non-zero only when repairs are applied', () => {
@@ -48,7 +49,8 @@ describe('history-repair observability', () => {
     const shouldLog =
       stats.assistantToolResultsMigrated > 0 ||
       stats.missingToolResultsInserted > 0 ||
-      stats.orphanToolResultsDowngraded > 0;
+      stats.orphanToolResultsDowngraded > 0 ||
+      stats.consecutiveSameRoleMerged > 0;
     expect(shouldLog).toBe(true);
   });
 });
