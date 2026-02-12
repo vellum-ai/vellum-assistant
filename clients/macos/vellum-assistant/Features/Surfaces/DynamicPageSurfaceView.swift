@@ -189,8 +189,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
 
                 let screen = NSScreen.main?.visibleFrame ?? window.screen?.visibleFrame
                     ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-                let maxW = min(screen.width * 0.6, 1200)
-                let maxH = min(screen.height * 0.75, 1000)
+                let maxW = max(screen.width * 0.6, 1200)
+                let maxH = max(screen.height * 0.75, 1400)
                 let targetW = min(max(w, window.frame.width), maxW)
                 let targetH = min(max(h, window.frame.height), maxH)
 

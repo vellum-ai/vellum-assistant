@@ -134,8 +134,8 @@ final class SurfaceManager: ObservableObject {
         let surfacePanelHeight: CGFloat
         if case .dynamicPage(let dpData) = surface.data {
             let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-            surfacePanelWidth = CGFloat(dpData.width ?? Int(min(screen.width * 0.6, 800)))
-            surfacePanelHeight = CGFloat(dpData.height ?? Int(min(screen.height * 0.75, 900)))
+            surfacePanelWidth = CGFloat(dpData.width ?? Int(max(screen.width * 0.6, 800)))
+            surfacePanelHeight = CGFloat(dpData.height ?? Int(max(screen.height * 0.75, 1200)))
         } else {
             surfacePanelWidth = panelWidth
             surfacePanelHeight = 300
