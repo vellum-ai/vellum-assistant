@@ -448,6 +448,8 @@ export interface TaskRouted {
   type: 'task_routed';
   sessionId: string;
   interactionType: 'computer_use' | 'text_qa';
+  /** Set when a text_qa session escalates to computer_use via request_computer_control. */
+  escalatedFrom?: string;
 }
 
 export interface AmbientResult {

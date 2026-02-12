@@ -16,6 +16,7 @@ import type { ToolLifecycleEventHandler, ToolExecutionResult } from '../tools/ty
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { allAppTools } from '../tools/apps/definitions.js';
+import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
 import { estimateCost } from '../util/pricing.js';
@@ -86,6 +87,7 @@ export class Session {
     surfaceType: SurfaceType;
   }>();
   private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
+  private onEscalateToComputerUse?: (task: string, sourceSessionId: string) => void;
 
   constructor(
     conversationId: string,
@@ -113,6 +115,8 @@ export class Session {
       ...getAllToolDefinitions(),
       ...allUiSurfaceTools.map((t) => t.getDefinition()),
       ...allAppTools.filter((t) => t.executionMode === 'proxy').map((t) => t.getDefinition()),
+      // Escalation tool: allows text_qa sessions to hand off to computer use
+      requestComputerControlTool.getDefinition(),
     ];
     const toolExecutor = async (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => {
       return this.executor.execute(name, input, {
@@ -195,6 +199,14 @@ export class Session {
 
   setSandboxOverride(enabled: boolean | undefined): void {
     this.sandboxOverride = enabled;
+  }
+
+  /**
+   * Set a callback for when a text_qa session escalates to computer use
+   * via the `request_computer_control` tool.
+   */
+  setEscalationHandler(handler: (task: string, sourceSessionId: string) => void): void {
+    this.onEscalateToComputerUse = handler;
   }
 
   isProcessing(): boolean {
@@ -908,6 +920,17 @@ export class Session {
       this.pendingSurfaceActions.delete(surfaceId);
       this.surfaceState.delete(surfaceId);
       return { content: 'Surface dismissed', isError: false };
+    }
+
+    if (toolName === 'request_computer_control') {
+      const task = typeof input.task === 'string' ? input.task : 'Perform the requested task';
+      if (this.onEscalateToComputerUse) {
+        this.onEscalateToComputerUse(task, this.conversationId);
+      }
+      return {
+        content: 'Computer control activated. The task has been handed off to foreground computer use.',
+        isError: false,
+      };
     }
 
     if (toolName === 'app_open') {

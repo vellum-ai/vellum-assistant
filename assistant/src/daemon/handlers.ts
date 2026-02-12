@@ -35,6 +35,38 @@ import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } fr
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
 
+/**
+ * Wire the escalation handler on a text_qa session so that invoking
+ * `request_computer_control` creates a CU session and notifies the client.
+ */
+function wireEscalationHandler(
+  session: Session,
+  socket: net.Socket,
+  ctx: HandlerContext,
+  screenWidth: number,
+  screenHeight: number,
+): void {
+  session.setEscalationHandler((task: string, sourceSessionId: string) => {
+    const cuSessionId = uuid();
+    const cuMsg: CuSessionCreate = {
+      type: 'cu_session_create',
+      sessionId: cuSessionId,
+      task,
+      screenWidth,
+      screenHeight,
+      interactionType: 'computer_use',
+    };
+    handleCuSessionCreate(cuMsg, socket, ctx);
+
+    ctx.send(socket, {
+      type: 'task_routed',
+      sessionId: cuSessionId,
+      interactionType: 'computer_use',
+      escalatedFrom: sourceSessionId,
+    });
+  });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -704,6 +736,9 @@ async function handleTaskSubmit(
       const conversation = conversationStore.createConversation(msg.task);
       ctx.socketToSession.set(socket, conversation.id);
       const session = await ctx.getOrCreateSession(conversation.id, socket, true);
+
+      // Wire escalation handler so the agent can call request_computer_control
+      wireEscalationHandler(session, socket, ctx, msg.screenWidth, msg.screenHeight);
 
       ctx.send(socket, {
         type: 'task_routed',
