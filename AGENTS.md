@@ -16,7 +16,7 @@ These are the most commonly used slash commands defined in `.claude/commands/`:
 |---|---|
 | `/work` | Pick one task from `.private/TODO.md` (or a user-provided task), implement it, open a PR, squash-merge it, and update tracking files. |
 | `/do <description>` | Implement a described change in an isolated worktree, ship it to main via a squash-merged PR, and clean up. |
-| `/swarm [workers] [max-tasks]` | Process `.private/TODO.md` in parallel — one worktree per agent, auto-merge PRs, respawn agents until the list is empty. |
+| `/swarm [workers] [max-tasks]` | Process `.private/TODO.md` in parallel — one worktree per agent, auto-merge PRs (auto-assigned to the current user), respawn agents until the list is empty. |
 | `/blitz <feature>` | End-to-end feature delivery: plan, create GitHub issues on a project board, swarm-execute in parallel, sweep for review feedback, and report. |
 | `/mainline [title]` | Ship the current uncommitted changes to main via a squash-merged PR. |
 | `/brainstorm` | Read through the codebase and `.private/TODO.md`, generate a prioritized list of improvements, and update the TODO after user approval. |
