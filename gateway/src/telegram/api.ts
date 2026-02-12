@@ -1,0 +1,31 @@
+import type { GatewayConfig } from "../config.js";
+
+interface TelegramApiResponse<T> {
+  ok: boolean;
+  result?: T;
+  description?: string;
+}
+
+export async function callTelegramApi<T>(
+  config: GatewayConfig,
+  method: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  const url = `${config.telegramApiBaseUrl}/bot${config.telegramBotToken}/${method}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const data = (await response.json().catch(() => ({}))) as TelegramApiResponse<T>;
+  if (!response.ok || !data.ok || !data.result) {
+    throw new Error(
+      data.description
+        ? `Telegram ${method} failed: ${data.description}`
+        : `Telegram ${method} failed with status ${response.status}`,
+    );
+  }
+
+  return data.result;
+}
