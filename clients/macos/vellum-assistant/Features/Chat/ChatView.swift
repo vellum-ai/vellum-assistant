@@ -7,6 +7,7 @@ struct ChatView: View {
     let isSending: Bool
     let errorText: String?
     let onSend: () -> Void
+    let onStop: () -> Void
     let onDismissError: () -> Void
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
@@ -118,18 +119,28 @@ struct ChatView: View {
                     }
                 }
 
-            Button(action: {
-                if canSend {
-                    onSend()
+            if isSending {
+                Button(action: onStop) {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundColor(VColor.error)
                 }
-            }) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop generation")
+            } else {
+                Button(action: {
+                    if canSend {
+                        onSend()
+                    }
+                }) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .accessibilityLabel("Send message")
             }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-            .accessibilityLabel("Send message")
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
@@ -251,6 +262,7 @@ private struct ThinkingIndicator: View {
             isSending: false,
             errorText: nil,
             onSend: {},
+            onStop: {},
             onDismissError: {}
         )
     }
