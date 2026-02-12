@@ -94,7 +94,7 @@ struct ToolConfirmationView: View {
     let onAllow: () -> Void
     let onDeny: () -> Void
 
-    private var isHighRisk: Bool { riskLevel == "High" }
+    private var isHighRisk: Bool { riskLevel.lowercased() == "high" }
 
     private var toolDisplayName: String {
         switch toolName {
