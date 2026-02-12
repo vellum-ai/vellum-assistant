@@ -723,9 +723,9 @@ function handleCuSessionCreate(
     ctx.send(socket, serverMsg);
   };
 
-  let sessionRef: ComputerUseSession | undefined;
+  const sessionRef: { current?: ComputerUseSession } = {};
   const onTerminal = (sessionId: string) => {
-    removeCuSessionReferences(ctx, sessionId, sessionRef);
+    removeCuSessionReferences(ctx, sessionId, sessionRef.current);
     log.info({ sessionId }, 'Computer-use session cleaned up after terminal state');
   };
 
@@ -739,7 +739,7 @@ function handleCuSessionCreate(
     msg.interactionType,
     onTerminal,
   );
-  sessionRef = session;
+  sessionRef.current = session;
 
   ctx.cuSessions.set(msg.sessionId, session);
 
