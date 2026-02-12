@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireAssistantOwner, toAuthErrorResponse } from "@/lib/auth/server-session";
 import { deleteAssistantMailInbox, deleteAssistantMailWebhook } from "@/lib/agentmail";
+import { getAssistantChannelAccount } from "@/lib/channels/db";
 import { getDb } from "@/lib/db";
 import { deleteInstance } from "@/lib/gcp";
 
@@ -49,6 +50,23 @@ export async function POST(request: Request, { params }: RouteParams) {
       } catch (mailError: unknown) {
         console.warn("Failed to delete AgentMail resources, continuing:", mailError);
       }
+    }
+
+    // Tear down Telegram webhook before deleting the assistant record
+    try {
+      const telegramAccount = await getAssistantChannelAccount(assistantId, "telegram");
+      const botToken = (telegramAccount?.config as Record<string, unknown>)?.botToken as string | undefined;
+      if (botToken) {
+        const res = await fetch(
+          `https://api.telegram.org/bot${botToken}/deleteWebhook`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ drop_pending_updates: false }) },
+        );
+        if (!res.ok) {
+          console.warn(`Telegram deleteWebhook returned ${res.status}, continuing`);
+        }
+      }
+    } catch (telegramError: unknown) {
+      console.warn("Failed to tear down Telegram webhook, continuing:", telegramError);
     }
 
     await sql`DELETE FROM assistants WHERE id = ${assistantId}`;
