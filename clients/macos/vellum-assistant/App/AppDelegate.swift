@@ -609,7 +609,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func registerBundledFonts() {
         for name in ["Silkscreen-Regular", "Silkscreen-Bold"] {
-            guard let url = Bundle.module.url(forResource: name, withExtension: "ttf") else {
+            guard let url = ResourceBundle.bundle.url(forResource: name, withExtension: "ttf") else {
                 log.warning("Font file \(name).ttf not found in bundle")
                 continue
             }
