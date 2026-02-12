@@ -15,7 +15,7 @@ enum AmbientAgentState: Equatable {
 }
 
 @MainActor
-final class AmbientAgent: ObservableObject {
+public final class AmbientAgent: ObservableObject {
     @Published var state: AmbientAgentState = .disabled {
         didSet { appDelegate?.updateMenuBarIcon() }
     }

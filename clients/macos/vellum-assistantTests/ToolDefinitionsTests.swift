@@ -1,5 +1,5 @@
 import XCTest
-@testable import vellum_assistant
+@testable import VellumAssistantLib
 
 final class ToolDefinitionsTests: XCTestCase {
 

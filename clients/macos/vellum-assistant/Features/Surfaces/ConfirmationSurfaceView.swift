@@ -63,3 +63,36 @@ struct ConfirmationSurfaceView: View {
         }
     }
 }
+
+#Preview("Default") {
+    ConfirmationSurfaceView(
+        data: ConfirmationSurfaceData(
+            message: "Delete this file?",
+            detail: "This action cannot be undone. The file will be permanently removed.",
+            confirmLabel: "Delete",
+            cancelLabel: "Keep",
+            destructive: true
+        ),
+        actions: [
+            SurfaceActionButton(id: "cancel", label: "Keep", style: .secondary),
+            SurfaceActionButton(id: "confirm", label: "Delete", style: .destructive),
+        ],
+        onAction: { _ in }
+    )
+    .padding()
+}
+
+#Preview("Non-destructive") {
+    ConfirmationSurfaceView(
+        data: ConfirmationSurfaceData(
+            message: "Submit this form?",
+            detail: "Your responses will be sent to the server.",
+            confirmLabel: nil,
+            cancelLabel: nil,
+            destructive: false
+        ),
+        actions: [],
+        onAction: { _ in }
+    )
+    .padding()
+}

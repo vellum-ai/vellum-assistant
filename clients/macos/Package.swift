@@ -7,6 +7,10 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
+        .library(
+            name: "VellumAssistantLib",
+            targets: ["VellumAssistantLib"]
+        ),
         .executable(
             name: "vellum-assistant",
             targets: ["vellum-assistant"]
@@ -16,8 +20,8 @@ let package = Package(
         .package(url: "https://github.com/soffes/HotKey", from: "0.2.1"),
     ],
     targets: [
-        .executableTarget(
-            name: "vellum-assistant",
+        .target(
+            name: "VellumAssistantLib",
             dependencies: ["HotKey"],
             path: "vellum-assistant",
             exclude: ["Resources/Info.plist"],
@@ -42,9 +46,14 @@ let package = Package(
                 .linkedFramework("SpriteKit"),
             ]
         ),
+        .executableTarget(
+            name: "vellum-assistant",
+            dependencies: ["VellumAssistantLib"],
+            path: "vellum-assistant-app"
+        ),
         .testTarget(
             name: "vellum-assistantTests",
-            dependencies: ["vellum-assistant"],
+            dependencies: ["VellumAssistantLib"],
             path: "vellum-assistantTests"
         )
     ]

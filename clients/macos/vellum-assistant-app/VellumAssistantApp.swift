@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantLib
 
 @main
 struct VellumAssistantApp: App {

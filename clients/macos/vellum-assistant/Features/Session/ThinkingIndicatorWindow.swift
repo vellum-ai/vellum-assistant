@@ -1,6 +1,10 @@
 import AppKit
 import SwiftUI
 
+#Preview {
+    ThinkingIndicatorView()
+}
+
 struct ThinkingIndicatorView: View {
     var body: some View {
         HStack(spacing: 8) {

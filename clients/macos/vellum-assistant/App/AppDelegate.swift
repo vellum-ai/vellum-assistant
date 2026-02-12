@@ -13,7 +13,7 @@ enum InteractionType {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var hotKey: HotKey?
@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var voiceInput: VoiceInputManager?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     private var thinkingWindow: ThinkingIndicatorWindow?
-    let ambientAgent = AmbientAgent()
+    public let ambientAgent = AmbientAgent()
     let daemonClient = DaemonClient()
     let surfaceManager = SurfaceManager()
 
@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     #endif
     private var windowObserver: Any?
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    public func applicationDidFinishLaunching(_ notification: Notification) {
         registerBundledFonts()
 
         #if DEBUG
@@ -118,7 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
             mainWindow?.show()
         }
@@ -519,7 +519,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
+    public func applicationWillTerminate(_ notification: Notification) {
         if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -530,14 +530,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension AppDelegate: UNUserNotificationCenterDelegate {
-    nonisolated func userNotificationCenter(
+    nonisolated public func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         [.banner, .sound]
     }
 
-    nonisolated func userNotificationCenter(
+    nonisolated public func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {

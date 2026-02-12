@@ -131,7 +131,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 PLIST
 
 # 4. Copy SPM resource bundle (contains Recipes, processed assets)
-SPM_BUNDLE="$BIN_PATH/${APP_NAME}_${APP_NAME}.bundle"
+LIB_TARGET="VellumAssistantLib"
+SPM_BUNDLE="$BIN_PATH/${LIB_TARGET}_${LIB_TARGET}.bundle"
 if [ -d "$SPM_BUNDLE" ]; then
     cp -R "$SPM_BUNDLE" "$RESOURCES_DIR/"
 fi
