@@ -1,0 +1,380 @@
+import { describe, expect, mock, test, beforeEach } from 'bun:test';
+import type { Message, ProviderResponse } from '../providers/types.js';
+import type { AgentEvent } from '../agent/loop.js';
+import type { ServerMessage } from '../daemon/ipc-protocol.js';
+
+// ---------------------------------------------------------------------------
+// Mocks — must precede the Session import so Bun applies them at load time.
+// ---------------------------------------------------------------------------
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+}));
+
+mock.module('../util/platform.js', () => ({
+  getSocketPath: () => '/tmp/test.sock',
+  getDataDir: () => '/tmp',
+}));
+
+mock.module('../providers/registry.js', () => ({
+  getProvider: () => ({ name: 'mock-provider' }),
+  initializeProviders: () => {},
+}));
+
+mock.module('../config/loader.js', () => ({
+  getConfig: () => ({
+    provider: 'mock-provider',
+    maxTokens: 4096,
+    thinking: false,
+    systemPrompt: {},
+    contextWindow: {
+      maxInputTokens: 100000,
+      thresholdTokens: 80000,
+      preserveRecentMessages: 6,
+      summaryModel: 'mock-model',
+      maxSummaryTokens: 512,
+    },
+    rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    apiKeys: {},
+  }),
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
+}));
+
+mock.module('../config/system-prompt.js', () => ({
+  buildSystemPrompt: () => 'system prompt',
+}));
+
+mock.module('../permissions/trust-store.js', () => ({
+  clearCache: () => {},
+}));
+
+mock.module('../security/secret-allowlist.js', () => ({
+  resetAllowlist: () => {},
+}));
+
+mock.module('../memory/conversation-store.js', () => ({
+  getMessages: () => [],
+  getConversation: () => ({
+    id: 'conv-1',
+    contextSummary: null,
+    contextCompactedMessageCount: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalEstimatedCost: 0,
+  }),
+  createConversation: () => ({ id: 'conv-1' }),
+  listConversations: () => [],
+  addMessage: (_convId: string, _role: string, _content: string) => {
+    return { id: `msg-${Date.now()}` };
+  },
+  updateConversationUsage: () => {},
+  updateConversationTitle: () => {},
+}));
+
+mock.module('../memory/retriever.js', () => ({
+  buildMemoryRecall: async () => ({
+    enabled: false,
+    degraded: false,
+    injectedText: '',
+    lexicalHits: 0,
+    semanticHits: 0,
+    recencyHits: 0,
+    injectedTokens: 0,
+    latencyMs: 0,
+  }),
+  injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
+  stripMemoryRecallMessages: (msgs: Message[]) => msgs,
+}));
+
+mock.module('../context/window-manager.js', () => ({
+  ContextWindowManager: class {
+    constructor() {}
+    async maybeCompact() { return { compacted: false }; }
+  },
+  createContextSummaryMessage: () => ({ role: 'user', content: [{ type: 'text', text: 'summary' }] }),
+  getSummaryFromContextMessage: () => null,
+}));
+
+// ---------------------------------------------------------------------------
+// Controllable AgentLoop mock.
+//
+// Each `run()` call returns a promise that does NOT resolve until the test
+// explicitly calls the stored `resolve` callback. This lets us simulate a
+// long-running agent loop so we can enqueue messages while the first one is
+// still "processing".
+// ---------------------------------------------------------------------------
+
+interface PendingRun {
+  resolve: (history: Message[]) => void;
+  reject: (err: Error) => void;
+  messages: Message[];
+  onEvent: (event: AgentEvent) => void;
+}
+
+let pendingRuns: PendingRun[] = [];
+
+mock.module('../agent/loop.js', () => ({
+  AgentLoop: class {
+    constructor() {}
+    async run(
+      messages: Message[],
+      onEvent: (event: AgentEvent) => void,
+      _signal?: AbortSignal,
+    ): Promise<Message[]> {
+      return new Promise<Message[]>((resolve, reject) => {
+        pendingRuns.push({ resolve, reject, messages, onEvent });
+      });
+    }
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Import Session AFTER mocks are registered.
+// ---------------------------------------------------------------------------
+
+import { Session } from '../daemon/session.js';
+
+function makeSession(): Session {
+  const provider = {
+    name: 'mock',
+    async sendMessage(): Promise<ProviderResponse> {
+      return {
+        content: [],
+        model: 'mock',
+        usage: { inputTokens: 0, outputTokens: 0 },
+        stopReason: 'end_turn',
+      };
+    },
+  };
+  return new Session('conv-1', provider, 'system prompt', 4096, () => {}, '/tmp');
+}
+
+/**
+ * Wait until the pending runs array has at least `count` entries.
+ * This is needed because `processMessage` is async and goes through
+ * several awaited steps (context compaction, memory recall) before
+ * reaching `agentLoop.run()`.
+ */
+async function waitForPendingRun(count: number, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  while (pendingRuns.length < count) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`Timed out waiting for ${count} pending runs (have ${pendingRuns.length})`);
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+/**
+ * Resolve the Nth pending AgentLoop.run() call. Fires the minimal events
+ * that `runAgentLoop` expects (usage + message_complete) so the session
+ * cleanly transitions out of its processing state.
+ */
+function resolveRun(index: number) {
+  const run = pendingRuns[index];
+  if (!run) throw new Error(`No pending run at index ${index}`);
+  // Emit the events runAgentLoop expects
+  const assistantMsg: Message = {
+    role: 'assistant',
+    content: [{ type: 'text', text: `reply-${index}` }],
+  };
+  run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock' });
+  run.onEvent({ type: 'message_complete', message: assistantMsg });
+  // Return updated history with the assistant message appended
+  run.resolve([...run.messages, assistantMsg]);
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('Session message queue', () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test('second message is queued when session is busy (does not throw)', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const events2: ServerMessage[] = [];
+
+    // Start first message — this will block on AgentLoop.run
+    const p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
+
+    // Wait for the first AgentLoop.run to be registered
+    await waitForPendingRun(1);
+
+    // Session should now be processing
+    expect(session.isProcessing()).toBe(true);
+
+    // Enqueue second message — should NOT throw
+    const result = session.enqueueMessage('msg-2', [], (e) => events2.push(e), 'req-2');
+    expect(result.queued).toBe(true);
+    expect(result.requestId).toBe('req-2');
+    expect(session.getQueueDepth()).toBe(1);
+
+    // Complete the first message
+    resolveRun(0);
+    await p1;
+
+    // After the first run resolves, the queue drains and triggers a second run.
+    await waitForPendingRun(2);
+
+    // The dequeued event should have been sent to events2
+    expect(events2.some((e) => e.type === 'message_dequeued')).toBe(true);
+
+    // A second AgentLoop.run should now be pending
+    expect(pendingRuns.length).toBe(2);
+
+    // Complete the second run
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  test('queued messages are processed in FIFO order', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const processedOrder: string[] = [];
+
+    const makeHandler = (label: string) => (e: ServerMessage) => {
+      if (e.type === 'message_complete') processedOrder.push(label);
+    };
+
+    // Start first message
+    const p1 = session.processMessage('msg-1', [], makeHandler('msg-1'), 'req-1');
+    await waitForPendingRun(1);
+
+    // Enqueue two more
+    session.enqueueMessage('msg-2', [], makeHandler('msg-2'), 'req-2');
+    session.enqueueMessage('msg-3', [], makeHandler('msg-3'), 'req-3');
+    expect(session.getQueueDepth()).toBe(2);
+
+    // Complete first → triggers second
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Complete second → triggers third
+    resolveRun(1);
+    await waitForPendingRun(3);
+
+    // Complete third
+    resolveRun(2);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(processedOrder).toEqual(['msg-1', 'msg-2', 'msg-3']);
+  });
+
+  test('message_queued and message_dequeued events are emitted', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events2: ServerMessage[] = [];
+
+    // Start first message
+    const p1 = session.processMessage('msg-1', [], () => {}, 'req-1');
+    await waitForPendingRun(1);
+
+    // Enqueue second — simulating what handleUserMessage does
+    const result = session.enqueueMessage('msg-2', [], (e) => events2.push(e), 'req-2');
+    expect(result.queued).toBe(true);
+
+    // Complete first
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Check for message_dequeued with correct fields
+    const dequeued = events2.find((e) => e.type === 'message_dequeued');
+    expect(dequeued).toBeDefined();
+    expect(dequeued).toEqual({
+      type: 'message_dequeued',
+      sessionId: 'conv-1',
+      requestId: 'req-2',
+    });
+
+    // Complete second run so the session finishes cleanly
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  test('abort() clears the queue and sends errors for each queued message', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events2: ServerMessage[] = [];
+    const events3: ServerMessage[] = [];
+
+    // Start first message
+    session.processMessage('msg-1', [], () => {}, 'req-1');
+    await waitForPendingRun(1);
+
+    // Enqueue two more
+    session.enqueueMessage('msg-2', [], (e) => events2.push(e), 'req-2');
+    session.enqueueMessage('msg-3', [], (e) => events3.push(e), 'req-3');
+    expect(session.getQueueDepth()).toBe(2);
+
+    // Abort
+    session.abort();
+
+    // Queue should be empty
+    expect(session.getQueueDepth()).toBe(0);
+
+    // Both queued messages should have received error events
+    const err2 = events2.find((e) => e.type === 'error');
+    expect(err2).toBeDefined();
+    expect(err2!.type === 'error' && err2!.message).toContain('queued message discarded');
+
+    const err3 = events3.find((e) => e.type === 'error');
+    expect(err3).toBeDefined();
+    expect(err3!.type === 'error' && err3!.message).toContain('queued message discarded');
+  });
+
+  test('queue depth is reported correctly as messages are added and drained', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // Start first message
+    const p1 = session.processMessage('msg-1', [], () => {}, 'req-1');
+    await waitForPendingRun(1);
+
+    expect(session.getQueueDepth()).toBe(0);
+
+    session.enqueueMessage('msg-2', [], () => {}, 'req-2');
+    expect(session.getQueueDepth()).toBe(1);
+
+    session.enqueueMessage('msg-3', [], () => {}, 'req-3');
+    expect(session.getQueueDepth()).toBe(2);
+
+    session.enqueueMessage('msg-4', [], () => {}, 'req-4');
+    expect(session.getQueueDepth()).toBe(3);
+
+    // Complete first → drains one from queue
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(session.getQueueDepth()).toBe(2);
+
+    // Complete second → drains another
+    resolveRun(1);
+    await waitForPendingRun(3);
+
+    expect(session.getQueueDepth()).toBe(1);
+
+    // Complete third → drains last
+    resolveRun(2);
+    await waitForPendingRun(4);
+
+    expect(session.getQueueDepth()).toBe(0);
+
+    // Complete fourth (final queued message)
+    resolveRun(3);
+    await new Promise((r) => setTimeout(r, 50));
+  });
+});
