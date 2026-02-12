@@ -219,15 +219,17 @@ struct FileUploadSurfaceView: View {
             return
         }
 
-        // Read file data
-        guard let fileData = try? Data(contentsOf: url) else {
-            errorMessage = "Could not read file: \(url.lastPathComponent)"
+        // Check file size before reading into memory to avoid OOM on large files
+        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let fileSize = attrs?[.size] as? Int ?? 0
+        if fileSize > data.maxSizeBytes {
+            errorMessage = "\(url.lastPathComponent) exceeds the \(formatFileSize(data.maxSizeBytes)) size limit."
             return
         }
 
-        // Check file size
-        if fileData.count > data.maxSizeBytes {
-            errorMessage = "\(url.lastPathComponent) exceeds the \(formatFileSize(data.maxSizeBytes)) size limit."
+        // Now safe to read the file data
+        guard let fileData = try? Data(contentsOf: url) else {
+            errorMessage = "Could not read file: \(url.lastPathComponent)"
             return
         }
 
