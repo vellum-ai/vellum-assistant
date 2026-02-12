@@ -42,7 +42,6 @@ struct ListSurfaceView: View {
                 }
             }
         }
-        .frame(maxHeight: 300)
         .onAppear {
             // Initialize from pre-selected items
             selectedIds = Set(data.items.filter(\.selected).map(\.id))

@@ -6,6 +6,21 @@ struct SurfaceContainerView: View {
     private var surface: Surface { viewModel.surface }
 
     var body: some View {
+        Group {
+            if case .dynamicPage = surface.data {
+                innerContent
+            } else {
+                ScrollView(.vertical) {
+                    innerContent
+                }
+            }
+        }
+        .frame(minWidth: 280, maxWidth: .infinity)
+        .vPanelBackground()
+    }
+
+    @ViewBuilder
+    private var innerContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Title row with dismiss button
             HStack(alignment: .top) {
@@ -54,10 +69,7 @@ struct SurfaceContainerView: View {
                     onDataRequest: viewModel.onDataRequest,
                     onCoordinatorReady: viewModel.onCoordinatorReady
                 )
-                .frame(
-                    width: CGFloat(data.width ?? 380),
-                    height: CGFloat(data.height ?? 500)
-                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .fileUpload(let data):
                 FileUploadSurfaceView(
                     data: data,
@@ -77,18 +89,9 @@ struct SurfaceContainerView: View {
             }
         }
         .padding(VSpacing.xl)
-        .frame(width: surfaceWidth)
-        .vPanelBackground()
     }
 
     // MARK: - Helpers
-
-    private var surfaceWidth: CGFloat {
-        if case .dynamicPage(let data) = surface.data {
-            return CGFloat(data.width ?? 380)
-        }
-        return 380
-    }
 
     private var isFormOrConfirmation: Bool {
         switch surface.data {
