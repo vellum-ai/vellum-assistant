@@ -189,10 +189,12 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
 
                 let screen = NSScreen.main?.visibleFrame ?? window.screen?.visibleFrame
                     ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-                let maxW = max(screen.width * 0.6, 1200)
-                let maxH = max(screen.height * 0.75, 1400)
-                let targetW = min(max(w, window.frame.width), maxW)
-                let targetH = min(max(h, window.frame.height), maxH)
+                let minW = screen.width * 0.6
+                let minH = screen.height * 0.75
+                let maxW = screen.width * 0.9
+                let maxH = screen.height * 0.9
+                let targetW = min(max(max(w, minW), window.frame.width), maxW)
+                let targetH = min(max(max(h, minH), window.frame.height), maxH)
 
                 // Resize keeping center position
                 let currentCenter = NSPoint(x: window.frame.midX, y: window.frame.midY)
