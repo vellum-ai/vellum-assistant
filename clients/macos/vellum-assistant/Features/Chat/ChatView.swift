@@ -144,8 +144,8 @@ struct ChatView: View {
                 .font(VFont.mono)
                 .foregroundColor(VColor.textPrimary)
                 .lineLimit(1...3)
-                .onKeyPress(.return) { event in
-                    if event.modifiers.contains(.shift) { return .ignored }
+                .onKeyPress(.return, phases: .down) { keyPress in
+                    if keyPress.modifiers.contains(.shift) { return .ignored }
                     if canSend { onSend() }
                     return .handled
                 }
