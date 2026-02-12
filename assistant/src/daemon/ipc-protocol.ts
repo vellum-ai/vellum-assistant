@@ -54,6 +54,7 @@ export interface PingMessage {
 
 export interface CancelRequest {
   type: 'cancel';
+  sessionId?: string;
 }
 
 export interface ModelGetRequest {

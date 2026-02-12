@@ -13,6 +13,7 @@ import type {
   ConfirmationResponse,
   SessionCreateRequest,
   SessionSwitchRequest,
+  CancelRequest,
   ModelSetRequest,
   HistoryRequest,
   UndoRequest,
@@ -209,7 +210,7 @@ const handlers: DispatchMap = {
   session_list: (_msg, socket, ctx) => handleSessionList(socket, ctx),
   session_create: handleSessionCreate,
   session_switch: handleSessionSwitch,
-  cancel: (_msg, socket, ctx) => handleCancel(socket, ctx),
+  cancel: handleCancel,
   model_get: (_msg, socket, ctx) => handleModelGet(socket, ctx),
   model_set: handleModelSet,
   history_request: handleHistoryRequest,
@@ -371,8 +372,8 @@ async function handleSessionSwitch(
   });
 }
 
-function handleCancel(socket: net.Socket, ctx: HandlerContext): void {
-  const sessionId = ctx.socketToSession.get(socket);
+function handleCancel(msg: CancelRequest, socket: net.Socket, ctx: HandlerContext): void {
+  const sessionId = msg.sessionId || ctx.socketToSession.get(socket);
   if (sessionId) {
     const session = ctx.sessions.get(sessionId);
     if (session) {
