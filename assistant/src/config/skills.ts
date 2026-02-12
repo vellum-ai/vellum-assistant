@@ -13,6 +13,7 @@ export interface SkillSummary {
   description: string;
   directoryPath: string;
   skillFilePath: string;
+  bundled?: boolean;
 }
 
 export interface SkillDefinition extends SkillSummary {
@@ -31,6 +32,10 @@ export interface SkillSelectorResult {
 
 export function getSkillsDir(): string {
   return join(getDataDir(), 'skills');
+}
+
+export function getBundledSkillsDir(): string {
+  return join(import.meta.dir, 'bundled-skills');
 }
 
 function getSkillsIndexPath(skillsDir: string): string {
@@ -138,6 +143,81 @@ function readSkillFromDirectory(directoryPath: string, skillsDir: string): Skill
   }
 }
 
+function readBundledSkillFromDirectory(directoryPath: string): SkillDefinition | null {
+  const skillFilePath = join(directoryPath, 'SKILL.md');
+  if (!existsSync(skillFilePath)) {
+    log.warn({ directoryPath }, 'Skipping bundled skill directory without SKILL.md');
+    return null;
+  }
+
+  try {
+    const stat = statSync(skillFilePath);
+    if (!stat.isFile()) {
+      log.warn({ skillFilePath }, 'Skipping bundled skill path because SKILL.md is not a file');
+      return null;
+    }
+
+    const content = readFileSync(skillFilePath, 'utf-8');
+    const parsed = parseFrontmatter(content, skillFilePath);
+    if (!parsed) return null;
+
+    return {
+      id: basename(directoryPath),
+      name: parsed.name,
+      description: parsed.description,
+      directoryPath,
+      skillFilePath,
+      body: parsed.body,
+    };
+  } catch (err) {
+    log.warn({ err, skillFilePath }, 'Failed to read bundled skill file');
+    return null;
+  }
+}
+
+function discoverBundledSkillDirectories(): string[] {
+  const bundledDir = getBundledSkillsDir();
+  if (!existsSync(bundledDir)) return [];
+
+  const dirs: string[] = [];
+  try {
+    const entries = readdirSync(bundledDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const directoryPath = join(bundledDir, entry.name);
+      if (existsSync(join(directoryPath, 'SKILL.md'))) {
+        dirs.push(directoryPath);
+      }
+    }
+  } catch (err) {
+    log.warn({ err, bundledDir }, 'Failed to discover bundled skill directories');
+    return [];
+  }
+
+  return dirs.sort((a, b) => a.localeCompare(b));
+}
+
+function loadBundledSkills(): SkillSummary[] {
+  const directories = discoverBundledSkillDirectories();
+  const skills: SkillSummary[] = [];
+
+  for (const directory of directories) {
+    const skill = readBundledSkillFromDirectory(directory);
+    if (!skill) continue;
+
+    skills.push({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description,
+      directoryPath: skill.directoryPath,
+      skillFilePath: skill.skillFilePath,
+      bundled: true,
+    });
+  }
+
+  return skills;
+}
+
 function parseIndexEntry(line: string): string | null {
   const bulletMatch = line.trim().match(/^[-*]\s+(.+)$/);
   if (!bulletMatch) return null;
@@ -233,18 +313,43 @@ function discoverSkillDirectories(skillsDir: string): string[] {
 }
 
 export function loadSkillCatalog(): SkillSummary[] {
+  const catalog: SkillSummary[] = [];
+  const seenIds = new Set<string>();
+
+  // Load bundled skills first
+  const bundledSkills = loadBundledSkills();
+  for (const skill of bundledSkills) {
+    if (seenIds.has(skill.id)) {
+      log.warn({ id: skill.id, directory: skill.directoryPath }, 'Skipping duplicate bundled skill id');
+      continue;
+    }
+    seenIds.add(skill.id);
+    catalog.push(skill);
+  }
+
+  // Load user skills, which take precedence over bundled skills with the same ID
   const skillsDir = getSkillsDir();
   const indexedDirectories = getIndexedSkillDirectories(skillsDir);
   const directories = indexedDirectories ?? discoverSkillDirectories(skillsDir);
-
-  const catalog: SkillSummary[] = [];
-  const seenIds = new Set<string>();
 
   for (const directory of directories) {
     const skill = readSkillFromDirectory(directory, skillsDir);
     if (!skill) continue;
 
     if (seenIds.has(skill.id)) {
+      // If the existing entry is bundled, the user skill overrides it
+      const existingIndex = catalog.findIndex((s) => s.id === skill.id);
+      if (existingIndex !== -1 && catalog[existingIndex].bundled) {
+        log.info({ id: skill.id, directory }, 'User skill overrides bundled skill');
+        catalog[existingIndex] = {
+          id: skill.id,
+          name: skill.name,
+          description: skill.description,
+          directoryPath: skill.directoryPath,
+          skillFilePath: skill.skillFilePath,
+        };
+        continue;
+      }
       log.warn({ id: skill.id, directory }, 'Skipping duplicate skill id');
       continue;
     }
@@ -263,7 +368,9 @@ export function loadSkillCatalog(): SkillSummary[] {
 }
 
 function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
-  const loaded = readSkillFromDirectory(skill.directoryPath, getSkillsDir());
+  const loaded = skill.bundled
+    ? readBundledSkillFromDirectory(skill.directoryPath)
+    : readSkillFromDirectory(skill.directoryPath, getSkillsDir());
   if (!loaded) {
     return { error: `Failed to load SKILL.md for "${skill.id}"` };
   }
