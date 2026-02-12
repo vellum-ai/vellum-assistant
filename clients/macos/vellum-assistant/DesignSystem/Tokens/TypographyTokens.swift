@@ -9,13 +9,13 @@ enum VFont {
 
     // MARK: - Standard Scale
 
-    static let largeTitle = Font.system(size: 24, weight: .bold)
-    static let title      = Font.system(size: 18, weight: .semibold)
-    static let headline   = Font.system(size: 14, weight: .semibold)
+    static let largeTitle = Font.system(size: 26, weight: .bold)
+    static let title      = Font.system(size: 22, weight: .semibold)
+    static let headline   = Font.system(size: 13, weight: .bold)
     static let body       = Font.system(size: 13)
     static let bodyMedium = Font.system(size: 13, weight: .medium)
-    static let caption    = Font.system(size: 11)
-    static let captionMedium = Font.system(size: 11, weight: .medium)
+    static let caption    = Font.system(size: 10)
+    static let captionMedium = Font.system(size: 10, weight: .medium)
     static let small      = Font.system(size: 10)
 
     // MARK: - Specialized
