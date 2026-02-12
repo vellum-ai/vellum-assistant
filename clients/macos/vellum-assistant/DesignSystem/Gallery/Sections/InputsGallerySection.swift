@@ -6,6 +6,8 @@ struct InputsGallerySection: View {
     @State private var textEditorValue = ""
     @State private var minHeight: CGFloat = 80
     @State private var maxHeight: CGFloat = 200
+    @State private var toggleA: Bool = true
+    @State private var toggleB: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
@@ -97,6 +99,34 @@ struct InputsGallerySection: View {
                     Text("Characters: \(textEditorValue.count)")
                         .font(VFont.small)
                         .foregroundColor(VColor.textMuted)
+                }
+            }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
+            // MARK: - VToggle
+            GallerySectionHeader(
+                title: "VToggle",
+                description: "Custom toggle switch with animated knob and color transition."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    Text("Toggle A: \(toggleA ? "ON" : "OFF")  |  Toggle B: \(toggleB ? "ON" : "OFF")")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textMuted)
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("With label").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VToggle(isOn: $toggleA, label: "Enable feature")
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Without label").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VToggle(isOn: $toggleB)
+                    }
                 }
             }
         }

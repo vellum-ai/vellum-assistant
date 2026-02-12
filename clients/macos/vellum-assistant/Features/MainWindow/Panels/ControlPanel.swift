@@ -164,17 +164,12 @@ struct ControlPanel: View {
                     .font(VFont.display)
                     .foregroundColor(VColor.textPrimary)
 
-                Toggle(isOn: $ambientEnabled) {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Enable ambient screen watching")
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 12))
-                            .foregroundColor(VColor.textMuted)
-                    }
+                HStack(spacing: VSpacing.xs) {
+                    VToggle(isOn: $ambientEnabled, label: "Enable ambient screen watching")
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 12))
+                        .foregroundColor(VColor.textMuted)
                 }
-                .tint(VColor.accent)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
                 .onChange(of: ambientEnabled) { _, newValue in
                     ambientAgent.isEnabled = newValue
                 }
