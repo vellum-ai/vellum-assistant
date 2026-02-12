@@ -1,14 +1,29 @@
 import SwiftUI
 
+enum VTabStyle {
+    case pill   // Shows background fill on selected/hover
+    case flat   // No background fill, only text color changes
+}
+
 struct VTab: View {
     let label: String
     var icon: String? = nil    // SF Symbol
     var isSelected: Bool = false
     var isCloseable: Bool = true
+    var style: VTabStyle = .pill
     var onSelect: () -> Void
     var onClose: (() -> Void)? = nil
 
     @State private var isHovered = false
+
+    private var background: Color {
+        switch style {
+        case .pill:
+            return isSelected ? VColor.surfaceBorder : (isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)
+        case .flat:
+            return .clear
+        }
+    }
 
     var body: some View {
         Button(action: onSelect) {
@@ -24,7 +39,7 @@ struct VTab: View {
             .foregroundColor(isSelected ? VColor.textPrimary : VColor.textSecondary)
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
-            .background(isSelected ? VColor.surfaceBorder : (isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear))
+            .background(background)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
         }
         .buttonStyle(.plain)
