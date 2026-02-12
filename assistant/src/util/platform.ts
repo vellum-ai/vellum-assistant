@@ -2,8 +2,6 @@ import { mkdirSync, existsSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
-const BASE_DATA_DIR = homedir() ?? process.env.BASE_DATA_DIR?.trim()
-
 export function isMacOS(): boolean {
   return process.platform === 'darwin';
 }
@@ -36,7 +34,7 @@ export function getClipboardCommand(): string | null {
 }
 
 export function getDataDir(): string {
-  return join(BASE_DATA_DIR, '.vellum');
+  return join(homedir() ?? process.env.BASE_DATA_DIR?.trim(), '.vellum');
 }
 
 export function getSocketPath(): string {
@@ -48,8 +46,8 @@ export function getSocketPath(): string {
 }
 
 function expandHomePath(p: string): string {
-  if (p === '~') return BASE_DATA_DIR;
-  if (p.startsWith('~/')) return join(BASE_DATA_DIR, p.slice(2));
+  if (p === '~') return homedir();
+  if (p.startsWith('~/')) return join(homedir(), p.slice(2));
   return p;
 }
 
