@@ -72,6 +72,15 @@ struct TextResponseView: View {
             }
             .frame(maxHeight: 300)
 
+        case .ready:
+            ScrollView {
+                Text(session.messages.last?.text ?? "")
+                    .font(.system(.caption, design: .default))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .frame(maxHeight: 300)
+
         case .failed(let reason):
             HStack(spacing: 6) {
                 Image(systemName: "xmark.circle.fill")
@@ -108,6 +117,20 @@ struct TextResponseView: View {
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                Spacer()
+            }
+
+        case .ready:
+            HStack {
+                Button {
+                    let lastText = session.messages.last?.text ?? ""
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(lastText, forType: .string)
                 } label: {
                     Label("Copy", systemImage: "doc.on.doc")
                 }
