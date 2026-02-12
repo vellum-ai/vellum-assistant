@@ -18,6 +18,8 @@ These are the most commonly used slash commands defined in `.claude/commands/`:
 | `/do <description>` | Implement a described change in an isolated worktree, ship it to main via a squash-merged PR, and clean up. |
 | `/swarm [workers] [max-tasks]` | Process `.private/TODO.md` in parallel — one worktree per agent, auto-merge PRs (auto-assigned to the current user), respawn agents until the list is empty. |
 | `/blitz <feature>` | End-to-end feature delivery: plan, create GitHub issues on a project board, swarm-execute in parallel, sweep for review feedback, and report. |
+| `/safe-blitz <feature>` | Like `/blitz` but merges milestone PRs into a feature branch instead of main, then opens a final PR for manual review. Supports `--auto`, `--workers N`, `--skip-plan`, `--branch NAME`. |
+| `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merge the feature branch PR into main, set the project issue to Done, close the issue, and clean up locally. Auto-detects from current branch, open `feature/*` PRs, or project board. |
 | `/mainline [title]` | Ship the current uncommitted changes to main via a squash-merged PR. |
 | `/brainstorm` | Read through the codebase and `.private/TODO.md`, generate a prioritized list of improvements, and update the TODO after user approval. |
 | `/check-reviews` | Check every PR in `.private/UNREVIEWED_PRS.md` for Codex and Devin reviews; add feedback items to TODO and remove fully-reviewed PRs. |

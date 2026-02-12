@@ -88,7 +88,7 @@ This keeps your current branch unchanged so safe-blitz doesn't block your main w
 **If `--skip-plan` was passed**, skip issue creation. Instead:
 
 1. Fetch existing "Ready" issues from the project board and use those as the milestones.
-2. Identify the project-level issue (the epic). Look for an open issue in "In Progress" status that references milestones, or ask the user to provide the project issue number. This is required — Phase 6 needs it to close out the project.
+2. Identify the project-level issue (the epic). Look for an open issue in "In Progress" status that references milestones, or ask the user to provide the project issue number. This is required — Phase 6 needs it to set the project status and reference it in the final PR.
 3. Proceed to Phase 3 with the fetched milestones.
 
 **Otherwise:**
