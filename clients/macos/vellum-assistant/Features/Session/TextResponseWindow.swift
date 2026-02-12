@@ -35,7 +35,9 @@ final class TextResponseWindow {
         let savedWidth = UserDefaults.standard.double(forKey: "textResponsePanelWidth")
         let initialWidth = savedWidth > 0 ? savedWidth : 500.0
 
-        let view = TextResponseView(session: session, inputState: inputState)
+        let view = TextResponseView(session: session, inputState: inputState) { [weak self] in
+            self?.panel?.close()
+        }
         let hostingController = NSHostingController(rootView: view)
 
         let panel = NSPanel(

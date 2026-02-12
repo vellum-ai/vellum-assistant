@@ -3,6 +3,7 @@ import SwiftUI
 struct TextResponseView: View {
     @ObservedObject var session: TextSession
     @ObservedObject var inputState: ConversationInputState
+    var onClose: (() -> Void)?
 
     /// Whether the session is actively processing (thinking or streaming).
     private var isActiveState: Bool {
@@ -59,7 +60,7 @@ struct TextResponseView: View {
         }
         .overlay(alignment: .topTrailing) {
             Button {
-                NSApp.keyWindow?.close()
+                onClose?()
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .medium))
