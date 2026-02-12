@@ -381,6 +381,26 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         break;
       }
 
+      case 'generation_handoff': {
+        // Treat handoff the same as message_complete from the CLI's perspective:
+        // the generation for the current request is done.
+        spinner.stop();
+        generating = false;
+        if (lastUsage) {
+          const cost = lastUsage.estimatedCost > 0
+            ? ` ~$${lastUsage.estimatedCost.toFixed(4)}`
+            : '';
+          process.stdout.write(
+            `\n\n\x1B[2m[${lastUsage.inputTokens.toLocaleString()} in / ${lastUsage.outputTokens.toLocaleString()} out${cost}]\x1B[0m\n\n`,
+          );
+          lastUsage = null;
+        } else {
+          process.stdout.write('\n\n');
+        }
+        prompt();
+        break;
+      }
+
       case 'generation_cancelled':
         spinner.stop();
         generating = false;
