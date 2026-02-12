@@ -23,12 +23,14 @@ If it's still relevant:
 If you need to break it down into multiple PRs:
 
 - Replace the item in .private/TODO.md in-place with one item per sub-task you need to complete to implement the feature, and let me know that you've done this and wait for more instructions.
+- If this task was addressing feedback on a previous PR, preserve the original PR reference in each sub-task so that the paper trail is maintained. Format each sub-task as: `- <sub-task description> (feedback from <original PR URL>)`
 
 If you can implement it in a single PR:
 
 - Create a PR for it (output a link to the PR)
 - Append the link to only this new PR to .private/UNREVIEWED_PRS.md
 - CRITICAL: Merge it immediately with `gh pr merge <N> --squash` and switch back to the main branch
+- If this task was addressing feedback on a previous PR (either "Address the feedback on <PR URL>" or a sub-task with "(feedback from <PR URL>)"), leave a comment on that original PR linking to the new PR. Use: `gh pr comment <original-PR-number> --body "Addressed in <new-PR-URL>"`
 
 After you've handled the item:
 
