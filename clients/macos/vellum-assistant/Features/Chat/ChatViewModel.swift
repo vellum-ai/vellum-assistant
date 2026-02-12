@@ -335,7 +335,6 @@ final class ChatViewModel: ObservableObject {
         case .error(let err):
             log.error("Server error: \(err.message)")
             isThinking = false
-            isSending = false
             isCancelling = false
             // Mark current assistant message as no longer streaming
             if let existingId = currentAssistantMessageId,
@@ -343,17 +342,21 @@ final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
-            pendingQueuedCount = 0
-            pendingMessageIds = []
-            requestIdToMessageId = [:]
             errorText = err.message
-            // Reset processing/queued messages to sent
+            // Reset processing messages to sent
             for i in messages.indices {
-                if case .queued = messages[i].status, messages[i].role == .user {
-                    messages[i].status = .sent
-                } else if messages[i].role == .user && messages[i].status == .processing {
+                if messages[i].role == .user && messages[i].status == .processing {
                     messages[i].status = .sent
                 }
+            }
+            // The daemon drains queued work after an error, so preserve
+            // queue bookkeeping (pendingQueuedCount, pendingMessageIds,
+            // requestIdToMessageId) when messages are still queued.
+            // Only clear everything when the queue is empty.
+            if pendingQueuedCount == 0 {
+                isSending = false
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
             }
 
         default:
@@ -412,6 +415,7 @@ final class ChatViewModel: ObservableObject {
             // all transient state now to avoid stuck UI.
             isSending = false
             isThinking = false
+            isCancelling = false
             // Mark current assistant message as stopped
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
