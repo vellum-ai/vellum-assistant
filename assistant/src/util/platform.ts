@@ -34,7 +34,7 @@ export function getClipboardCommand(): string | null {
 }
 
 export function getDataDir(): string {
-  return join(process.env.BASE_DATA_DIR?.trim() ?? homedir(), '.vellum');
+  return join(process.env.BASE_DATA_DIR?.trim() || homedir(), '.vellum');
 }
 
 export function getSocketPath(): string {
