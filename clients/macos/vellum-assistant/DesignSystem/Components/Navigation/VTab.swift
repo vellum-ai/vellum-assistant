@@ -33,7 +33,7 @@ struct VTab: View {
                         .font(.system(size: 12))
                 }
                 Text(label)
-                    .font(VFont.body)
+                    .font(VFont.caption)
                     .lineLimit(1)
             }
             .foregroundColor(isSelected && style == .pill ? Slate._900 : (isSelected ? VColor.textPrimary : VColor.textSecondary))
