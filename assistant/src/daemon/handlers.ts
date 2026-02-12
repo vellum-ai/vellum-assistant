@@ -267,6 +267,11 @@ async function handleUserMessage(
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
 
     const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId);
+    if (result.rejected) {
+      rlog.warn('Message rejected — queue is full');
+      ctx.send(socket, { type: 'error', message: 'Message rejected — session queue is full. Please wait and try again.' });
+      return;
+    }
     if (result.queued) {
       rlog.info({ position: session.getQueueDepth() }, 'Message queued (session busy)');
       ctx.send(socket, {

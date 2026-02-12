@@ -134,7 +134,7 @@ mock.module('../agent/loop.js', () => ({
 // Import Session AFTER mocks are registered.
 // ---------------------------------------------------------------------------
 
-import { Session } from '../daemon/session.js';
+import { Session, MAX_QUEUE_DEPTH } from '../daemon/session.js';
 
 function makeSession(): Session {
   const provider = {
@@ -376,5 +376,74 @@ describe('Session message queue', () => {
     // Complete fourth (final queued message)
     resolveRun(3);
     await new Promise((r) => setTimeout(r, 50));
+  });
+
+  test('drain continues after a queued message fails to persist', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const events2: ServerMessage[] = [];
+    const events3: ServerMessage[] = [];
+
+    // Start first message — blocks on AgentLoop.run
+    const p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
+    await waitForPendingRun(1);
+
+    // Enqueue a message with empty content (will fail persistUserMessage)
+    session.enqueueMessage('', [], (e) => events2.push(e), 'req-2');
+    // Enqueue a valid message after the bad one
+    session.enqueueMessage('msg-3', [], (e) => events3.push(e), 'req-3');
+    expect(session.getQueueDepth()).toBe(2);
+
+    // Complete first message — triggers drain. The empty message should fail
+    // to persist, but the drain should continue to msg-3.
+    resolveRun(0);
+    await p1;
+
+    // msg-3 should have been dequeued and started a new AgentLoop.run
+    await waitForPendingRun(2);
+
+    // The empty message should have received an error event
+    const err2 = events2.find((e) => e.type === 'error');
+    expect(err2).toBeDefined();
+    if (err2 && err2.type === 'error') {
+      expect(err2.message).toContain('required');
+    }
+
+    // msg-3 should have received a dequeued event
+    expect(events3.some((e) => e.type === 'message_dequeued')).toBe(true);
+
+    // Complete the third message's run
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // msg-3 should have completed successfully
+    expect(events3.some((e) => e.type === 'message_complete')).toBe(true);
+  });
+
+  test('queue rejects when at max depth', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // Start first message to make session busy
+    session.processMessage('msg-1', [], () => {}, 'req-1');
+    await waitForPendingRun(1);
+
+    // Fill the queue to MAX_QUEUE_DEPTH
+    for (let i = 0; i < MAX_QUEUE_DEPTH; i++) {
+      const result = session.enqueueMessage(`msg-${i + 2}`, [], () => {}, `req-${i + 2}`);
+      expect(result.queued).toBe(true);
+      expect(result.rejected).toBeUndefined();
+    }
+    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
+
+    // Next enqueue should be rejected
+    const rejected = session.enqueueMessage('overflow', [], () => {}, 'req-overflow');
+    expect(rejected.queued).toBe(false);
+    expect(rejected.rejected).toBe(true);
+
+    // Queue depth should not have increased
+    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
   });
 });

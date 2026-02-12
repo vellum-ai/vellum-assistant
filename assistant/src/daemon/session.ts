@@ -47,6 +47,8 @@ interface QueuedMessage {
   onEvent: (msg: ServerMessage) => void;
 }
 
+export const MAX_QUEUE_DEPTH = 10;
+
 export class Session {
   public readonly conversationId: string;
   private messages: Message[] = [];
@@ -221,7 +223,8 @@ export class Session {
   /**
    * Enqueue a message if the session is busy, or indicate it should be
    * processed immediately. Returns `{ queued: true }` if the message was
-   * added to the queue, or `{ queued: false }` if the caller should invoke
+   * added to the queue, `{ queued: false, rejected: true }` if the queue
+   * is full, or `{ queued: false }` if the caller should invoke
    * `processMessage` directly.
    */
   enqueueMessage(
@@ -229,9 +232,13 @@ export class Session {
     attachments: UserMessageAttachment[],
     onEvent: (msg: ServerMessage) => void,
     requestId: string,
-  ): { queued: boolean; requestId: string } {
+  ): { queued: boolean; rejected?: boolean; requestId: string } {
     if (!this.processing) {
       return { queued: false, requestId };
+    }
+
+    if (this.messageQueue.length >= MAX_QUEUE_DEPTH) {
+      return { queued: false, rejected: true, requestId };
     }
 
     this.messageQueue.push({ content, attachments, requestId, onEvent });
@@ -601,6 +608,12 @@ export class Session {
   /**
    * Process the next message in the queue, if any.
    * Called from the `runAgentLoop` finally block after processing completes.
+   *
+   * When a dequeued message fails to persist (e.g. empty content, DB error),
+   * `processMessage` catches the error and resolves without calling
+   * `runAgentLoop`. Since the drain chain depends on `runAgentLoop`'s `finally`
+   * block, we must explicitly continue draining on failure — otherwise
+   * remaining queued messages would be stranded.
    */
   private drainQueue(): void {
     const next = this.messageQueue.shift();
@@ -613,9 +626,26 @@ export class Session {
       requestId: next.requestId,
     });
 
-    // Fire-and-forget: processMessage sets this.processing = true synchronously
-    // so subsequent messages will still be enqueued.
-    this.processMessage(next.content, next.attachments, next.onEvent, next.requestId).catch((err) => {
+    // Try to persist and run the dequeued message. If persistUserMessage
+    // succeeds, runAgentLoop is called and its finally block will drain
+    // the next message. If persistUserMessage fails, processMessage
+    // resolves early (no runAgentLoop call), so we must continue draining.
+    let userMessageId: string;
+    try {
+      userMessageId = this.persistUserMessage(next.content, next.attachments, next.requestId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Failed to persist queued message');
+      next.onEvent({ type: 'error', message });
+      // Continue draining — don't strand remaining messages
+      this.drainQueue();
+      return;
+    }
+
+    // Fire-and-forget: persistUserMessage set this.processing = true
+    // so subsequent messages will still be enqueued. runAgentLoop's
+    // finally block will call drainQueue when this run completes.
+    this.runAgentLoop(next.content, userMessageId, next.onEvent).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Error processing queued message');
       next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
