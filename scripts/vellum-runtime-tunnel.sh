@@ -33,10 +33,16 @@ read_pid() {
   fi
 }
 
+is_tunnel_process() {
+  local pid="$1"
+  # Verify the PID is an ssh process to avoid acting on reused PIDs
+  ps -p "$pid" -o comm= 2>/dev/null | grep -q '^ssh$'
+}
+
 is_running() {
   local pid
   pid=$(read_pid)
-  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && is_tunnel_process "$pid"
 }
 
 cmd_start() {
@@ -73,20 +79,20 @@ cmd_start() {
   ensure_dir
 
   echo "Starting SSH tunnel: localhost:${local_port} -> ${ssh_host}:${remote_port} ..."
-  ssh -f -N -L "127.0.0.1:${local_port}:127.0.0.1:${remote_port}" "$ssh_host"
+  ssh -N -L "127.0.0.1:${local_port}:127.0.0.1:${remote_port}" "$ssh_host" &
+  local pid=$!
 
-  # Find the ssh process we just spawned
-  local pid
-  pid=$(pgrep -f "ssh.*-L.*127.0.0.1:${local_port}:127.0.0.1:${remote_port}.*${ssh_host}" | tail -1)
-  if [[ -z "$pid" ]]; then
-    die "failed to find SSH tunnel process"
+  # Verify the SSH process is still alive after a brief pause
+  sleep 1
+  if ! kill -0 "$pid" 2>/dev/null; then
+    die "SSH tunnel process exited immediately"
   fi
 
   echo "$pid" > "$PID_FILE"
   cat > "$INFO_FILE" <<EOINFO
-LOCAL_PORT=${local_port}
-REMOTE_PORT=${remote_port}
-SSH_HOST=${ssh_host}
+LOCAL_PORT="${local_port}"
+REMOTE_PORT="${remote_port}"
+SSH_HOST="${ssh_host}"
 EOINFO
 
   echo "Tunnel running (PID ${pid})"
