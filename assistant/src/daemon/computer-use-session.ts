@@ -23,6 +23,7 @@ import { getLogger } from '../util/logger.js';
 const log = getLogger('computer-use-session');
 
 const MAX_STEPS = 50;
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_HISTORY_ENTRIES = 10;
 const LOOP_DETECTION_WINDOW = 3;
 const CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD = 2;
@@ -59,6 +60,7 @@ export class ComputerUseSession {
   private previousAXTree: string | undefined;
   private consecutiveUnchangedSteps = 0;
   private abortController: AbortController | null = null;
+  private sessionTimer: ReturnType<typeof setTimeout> | null = null;
 
   private pendingObservation: {
     resolve: (result: ToolExecutionResult) => void;
@@ -132,6 +134,12 @@ export class ComputerUseSession {
     this.state = 'inferring';
     this.abortController = new AbortController();
 
+    // Safety net: abort the session if it runs longer than SESSION_TIMEOUT_MS
+    this.sessionTimer = setTimeout(() => {
+      log.warn({ sessionId: this.sessionId, timeoutMs: SESSION_TIMEOUT_MS }, 'Session timeout reached, aborting');
+      this.abort();
+    }, SESSION_TIMEOUT_MS);
+
     const messages = this.buildMessages(obs, hadPreviousAXTree);
     this.loopPromise = this.runAgentLoop(messages);
 
@@ -143,6 +151,10 @@ export class ComputerUseSession {
     if (this.state === 'complete' || this.state === 'error') return;
 
     log.info({ sessionId: this.sessionId }, 'Aborting computer-use session');
+    if (this.sessionTimer) {
+      clearTimeout(this.sessionTimer);
+      this.sessionTimer = null;
+    }
     this.abortController?.abort();
 
     // If waiting for an observation, resolve it as cancelled
@@ -343,7 +355,7 @@ export class ComputerUseSession {
 
       this.stepCount++;
 
-      // Enforce step limit
+      // Enforce step limit — abort the loop so toolChoice:'any' can't force another turn
       if (this.stepCount > MAX_STEPS) {
         this.state = 'error';
         this.sendToClient({
@@ -351,6 +363,7 @@ export class ComputerUseSession {
           sessionId: this.sessionId,
           message: `Step limit (${MAX_STEPS}) exceeded`,
         });
+        this.abortController?.abort();
         return { content: `Step limit (${MAX_STEPS}) exceeded`, isError: true };
       }
 
@@ -435,6 +448,12 @@ export class ComputerUseSession {
         },
         this.abortController?.signal,
       );
+
+      // Clear session timer on natural completion
+      if (this.sessionTimer) {
+        clearTimeout(this.sessionTimer);
+        this.sessionTimer = null;
+      }
 
       // If the loop exits without completing, treat as error
       if (this.state !== 'complete' && this.state !== 'error') {
