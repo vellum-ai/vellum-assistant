@@ -248,6 +248,8 @@ sequenceDiagram
     participant UI as TaskInputView
     participant AD as AppDelegate
     participant CLS as Classifier (Haiku)
+    participant TextSess as Session (text_qa)
+    participant TW as TextResponseWindow
     participant Session as ComputerUseSession
     participant AX as AccessibilityTree
     participant SC as ScreenCapture
@@ -263,68 +265,80 @@ sequenceDiagram
     Note over AD: TaskSubmission carries<br/>source: 'voice' | 'text' | nil
     AD->>CLS: classifyInteraction(task, source)
 
-    alt source === 'voice'
+    alt source === 'voice' → text_qa path
         Note over CLS: Bypass Haiku API call<br/>Route directly to text_qa
         CLS-->>AD: InteractionType.textQA
-    else source === 'text' or nil
+        AD->>DC: send(SessionCreate + UserMessage)
+        Note over DC: Unix socket<br/>~/.vellum/vellum.sock
+        DC->>Daemon: IPC
+        Note over Daemon: Creates conversation in SQLite<br/>Wires escalation handler<br/>Starts streaming immediately
+        Daemon->>Claude: API call with text prompt
+        Claude-->>Daemon: streaming text response
+        Daemon-->>DC: assistant_text_delta (stream)
+        DC-->>TextSess: text deltas
+        TextSess-->>TW: display streaming response
+        Daemon-->>DC: message_complete
+        DC-->>AD: task_routed(text_qa)
+
+    else source === 'text' or nil → computer_use path
         Note over CLS: Haiku-4.5 direct call<br/>5s timeout, heuristic fallback
         CLS-->>AD: InteractionType.computerUse
-    end
 
-    AD->>Session: init(task, daemonClient, ...)
-    Session->>DC: send(CuSessionCreateMessage)
-    Note over DC: Unix socket<br/>~/.vellum/vellum.sock<br/>newline-delimited JSON
+        AD->>Session: init(task, daemonClient, ...)
+        Session->>DC: send(CuSessionCreateMessage)
+        Note over DC: Unix socket<br/>~/.vellum/vellum.sock<br/>newline-delimited JSON
 
-    loop PERCEIVE → INFER → VERIFY → EXECUTE → WAIT
-        par Parallel Capture
-            Session->>AX: enumerate()
-            Note over AX: AXUIElement tree walk<br/>Sets AXEnhancedUserInterface<br/>Chrome: force-renderer-accessibility<br/>Filters to interactive elements<br/>Format: [ID] role "title" at (x,y)
-            AX-->>Session: axTree + axDiff
-        and
-            Session->>SC: capture()
-            Note over SC: ScreenCaptureKit<br/>Exclude own windows<br/>Downscale to 1280x720<br/>JPEG @ 0.6 quality
-            SC-->>Session: base64 screenshot
+        loop PERCEIVE → INFER → VERIFY → EXECUTE → WAIT
+            par Parallel Capture
+                Session->>AX: enumerate()
+                Note over AX: AXUIElement tree walk<br/>Sets AXEnhancedUserInterface<br/>Chrome: force-renderer-accessibility<br/>Filters to interactive elements<br/>Format: [ID] role "title" at (x,y)
+                AX-->>Session: axTree + axDiff
+            and
+                Session->>SC: capture()
+                Note over SC: ScreenCaptureKit<br/>Exclude own windows<br/>Downscale to 1280x720<br/>JPEG @ 0.6 quality
+                SC-->>Session: base64 screenshot
+            end
+
+            Session->>DC: send(CuObservationMessage)
+            Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error
+
+            DC->>Daemon: IPC message
+            Daemon->>Claude: API call with observation
+            Note over Daemon: Loads conversation from SQLite<br/>Appends observation as user msg<br/>Stores in messages table
+            Claude-->>Daemon: tool_use response
+            Note over Daemon: Stores assistant msg in SQLite<br/>Logs tool_invocation<br/>Enqueues memory jobs
+            Daemon-->>DC: CuActionMessage
+
+            DC-->>Session: action (tool + input)
+
+            Session->>AV: verify(action, history)
+            Note over AV: Step limit (max 50)<br/>Loop detection (3x same)<br/>Sensitive data check<br/>Destructive key check<br/>System menu bar block<br/>AppleScript sandboxing
+
+            alt allowed
+                AV-->>Session: .allowed
+            else needsConfirmation
+                AV-->>Session: .needsConfirmation(reason)
+                Session->>User: confirmation dialog
+                User-->>Session: approve/block
+            else blocked
+                AV-->>Session: .blocked(reason)
+                Note over Session: 3 consecutive blocks<br/>= session terminated
+            end
+
+            Session->>AE: execute(action)
+            Note over AE: click: CGEvent mouse down/up<br/>type: clipboard paste + Cmd+V<br/>key: CGEvent key events<br/>scroll: scroll wheel events<br/>openApp: NSWorkspace launch<br/>appleScript: osascript subprocess
+
+            AE->>macOS: CGEvent injection
+            macOS-->>AE: result
+
+            Session->>Session: waitForUISettle()
+            Note over Session: Min 100ms for CGEvents<br/>Poll AX tree 5x @ 100ms<br/>Return early on tree change<br/>Max 1200ms timeout
         end
 
-        Session->>DC: send(CuObservationMessage)
-        Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error
-
-        DC->>Daemon: IPC message
-        Daemon->>Claude: API call with observation
-        Note over Daemon: Loads conversation from SQLite<br/>Appends observation as user msg<br/>Stores in messages table
-        Claude-->>Daemon: tool_use response
-        Note over Daemon: Stores assistant msg in SQLite<br/>Logs tool_invocation<br/>Enqueues memory jobs
-        Daemon-->>DC: CuActionMessage
-
-        DC-->>Session: action (tool + input)
-
-        Session->>AV: verify(action, history)
-        Note over AV: Step limit (max 50)<br/>Loop detection (3x same)<br/>Sensitive data check<br/>Destructive key check<br/>System menu bar block<br/>AppleScript sandboxing
-
-        alt allowed
-            AV-->>Session: .allowed
-        else needsConfirmation
-            AV-->>Session: .needsConfirmation(reason)
-            Session->>User: confirmation dialog
-            User-->>Session: approve/block
-        else blocked
-            AV-->>Session: .blocked(reason)
-            Note over Session: 3 consecutive blocks<br/>= session terminated
-        end
-
-        Session->>AE: execute(action)
-        Note over AE: click: CGEvent mouse down/up<br/>type: clipboard paste + Cmd+V<br/>key: CGEvent key events<br/>scroll: scroll wheel events<br/>openApp: NSWorkspace launch<br/>appleScript: osascript subprocess
-
-        AE->>macOS: CGEvent injection
-        macOS-->>AE: result
-
-        Session->>Session: waitForUISettle()
-        Note over Session: Min 100ms for CGEvents<br/>Poll AX tree 5x @ 100ms<br/>Return early on tree change<br/>Max 1200ms timeout
+        Daemon-->>DC: CuCompleteMessage
+        DC-->>Session: session complete
+        Session-->>AD: .completed(summary)
     end
-
-    Daemon-->>DC: CuCompleteMessage
-    DC-->>Session: session complete
-    Session-->>AD: .completed(summary)
 ```
 
 ---
