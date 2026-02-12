@@ -40,6 +40,12 @@ export interface AppRecord {
   updatedAt: number;
 }
 
+function validateId(id: string): void {
+  if (!id || id.includes('/') || id.includes('\\') || id.includes('..') || id !== id.trim()) {
+    throw new Error(`Invalid ID: ${id}`);
+  }
+}
+
 export function getAppsDir(): string {
   const dir = join(getDataDir(), 'apps');
   mkdirSync(dir, { recursive: true });
@@ -68,6 +74,7 @@ export function createApp(params: {
 }
 
 export function getApp(id: string): AppDefinition | null {
+  validateId(id);
   const filePath = join(getAppsDir(), `${id}.json`);
   if (!existsSync(filePath)) return null;
   const raw = readFileSync(filePath, 'utf-8');
@@ -96,6 +103,7 @@ export function updateApp(
   id: string,
   updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'schemaJson' | 'htmlDefinition'>>,
 ): AppDefinition {
+  validateId(id);
   const existing = getApp(id);
   if (!existing) throw new Error(`App not found: ${id}`);
   const updated: AppDefinition = {
@@ -108,6 +116,7 @@ export function updateApp(
 }
 
 export function deleteApp(id: string): void {
+  validateId(id);
   const dir = getAppsDir();
   const filePath = join(dir, `${id}.json`);
   if (existsSync(filePath)) {
@@ -118,6 +127,9 @@ export function deleteApp(id: string): void {
 }
 
 export function createAppRecord(appId: string, data: Record<string, unknown>): AppRecord {
+  validateId(appId);
+  const app = getApp(appId);
+  if (!app) throw new Error(`App not found: ${appId}`);
   const recordsDir = join(getAppsDir(), appId, 'records');
   mkdirSync(recordsDir, { recursive: true });
   const now = Date.now();
@@ -133,6 +145,8 @@ export function createAppRecord(appId: string, data: Record<string, unknown>): A
 }
 
 export function getAppRecord(appId: string, recordId: string): AppRecord | null {
+  validateId(appId);
+  validateId(recordId);
   const filePath = join(getAppsDir(), appId, 'records', `${recordId}.json`);
   if (!existsSync(filePath)) return null;
   const raw = readFileSync(filePath, 'utf-8');
@@ -140,6 +154,7 @@ export function getAppRecord(appId: string, recordId: string): AppRecord | null 
 }
 
 export function queryAppRecords(appId: string): AppRecord[] {
+  validateId(appId);
   const recordsDir = join(getAppsDir(), appId, 'records');
   if (!existsSync(recordsDir)) return [];
   const entries = readdirSync(recordsDir);
@@ -161,6 +176,8 @@ export function updateAppRecord(
   recordId: string,
   data: Record<string, unknown>,
 ): AppRecord {
+  validateId(appId);
+  validateId(recordId);
   const existing = getAppRecord(appId, recordId);
   if (!existing) throw new Error(`AppRecord not found: ${appId}/${recordId}`);
   const updated: AppRecord = {
@@ -176,6 +193,8 @@ export function updateAppRecord(
 }
 
 export function deleteAppRecord(appId: string, recordId: string): void {
+  validateId(appId);
+  validateId(recordId);
   const filePath = join(getAppsDir(), appId, 'records', `${recordId}.json`);
   if (existsSync(filePath)) {
     unlinkSync(filePath);
