@@ -14,8 +14,13 @@ function splitText(text: string): string[] {
   const chunks: string[] = [];
   let cursor = 0;
   while (cursor < text.length) {
-    chunks.push(text.slice(cursor, cursor + TELEGRAM_MAX_MESSAGE_LEN));
-    cursor += TELEGRAM_MAX_MESSAGE_LEN;
+    let end = Math.min(cursor + TELEGRAM_MAX_MESSAGE_LEN, text.length);
+    // Avoid splitting a surrogate pair
+    if (end < text.length && text.charCodeAt(end - 1) >= 0xd800 && text.charCodeAt(end - 1) <= 0xdbff) {
+      end--;
+    }
+    chunks.push(text.slice(cursor, end));
+    cursor = end;
   }
   return chunks;
 }
