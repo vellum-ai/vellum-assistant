@@ -207,6 +207,12 @@ final class ChatViewModel: ObservableObject {
                let index = messages.firstIndex(where: { $0.id == messageId }) {
                 messages[index].status = .processing
             }
+            // Recompute positions for remaining queued messages
+            for i in messages.indices {
+                if case .queued(let position) = messages[i].status, position > 0 {
+                    messages[i].status = .queued(position: position - 1)
+                }
+            }
             // The dequeued message is now being processed
             isThinking = true
             isSending = true
