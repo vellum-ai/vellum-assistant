@@ -55,6 +55,12 @@ export class DaemonServer {
     // Clean up stale socket (only if it's actually a Unix socket)
     removeSocketFile(this.socketPath);
 
+    // Initialize providers from config so they're available before any
+    // session is created. Without this, getProvider() throws because the
+    // registry is empty until a config file change triggers a reload.
+    const config = getConfig();
+    initializeProviders(config);
+
     this.startFileWatchers();
 
     return new Promise((resolve, reject) => {
