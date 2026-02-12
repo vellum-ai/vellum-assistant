@@ -78,7 +78,7 @@ struct ControlPanel: View {
                 .padding(.vertical, VSpacing.xs)
         }
         .buttonStyle(.plain)
-        .background(selected ? VColor.surface : Color.clear)
+        .background(selected ? Slate._700 : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .vHover()
     }
@@ -164,11 +164,15 @@ struct ControlPanel: View {
                     .font(VFont.display)
                     .foregroundColor(VColor.textPrimary)
 
-                HStack(spacing: VSpacing.xs) {
-                    VToggle(isOn: $ambientEnabled, label: "Enable ambient screen watching")
+                HStack {
+                    Text("Enable ambient screen watching")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
                     Image(systemName: "info.circle")
                         .font(.system(size: 12))
                         .foregroundColor(VColor.textMuted)
+                    Spacer()
+                    VToggle(isOn: $ambientEnabled)
                 }
                 .onChange(of: ambientEnabled) { _, newValue in
                     ambientAgent.isEnabled = newValue
@@ -188,18 +192,24 @@ struct ControlPanel: View {
                     label: "Accessibility",
                     granted: PermissionManager.accessibilityStatus() == .granted
                 )
+                .padding(VSpacing.md)
+                .vCard()
 
                 permissionRow(
                     icon: "record.circle",
                     label: "Screen Recording",
                     granted: PermissionManager.screenRecordingStatus() == .granted
                 )
+                .padding(VSpacing.md)
+                .vCard()
 
                 permissionRow(
                     icon: "key",
                     label: "API Key",
                     granted: APIKeyManager.getKey() != nil
                 )
+                .padding(VSpacing.md)
+                .vCard()
             }
             .padding(VSpacing.lg)
             .vCard()
