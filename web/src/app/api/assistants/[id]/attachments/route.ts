@@ -113,7 +113,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ attachments: createdAttachments }, { status: 201 });
   } catch (error) {
     console.error("Error uploading attachments:", error);
-    if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
+    if (error instanceof Error && !(error instanceof RuntimeClientError) && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
       return toAuthErrorResponse(error);
     }
     const status = error instanceof RuntimeClientError ? error.status : 500;
@@ -147,7 +147,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ deleted_ids: attachmentIds });
   } catch (error) {
     console.error("Error deleting attachments:", error);
-    if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
+    if (error instanceof Error && !(error instanceof RuntimeClientError) && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
       return toAuthErrorResponse(error);
     }
     const status = error instanceof RuntimeClientError ? error.status : 500;
