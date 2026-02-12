@@ -201,9 +201,21 @@ export function createMockSignupServer(): MockSignupServer {
     const method = req.method;
     const cookieHeader = req.headers.get('cookie');
 
+    // ── Early 404 for non-signup paths ────────────────────────────
+    // Avoid creating orphaned sessions for requests to unknown routes.
+    if (!path.startsWith('/signup')) {
+      return new Response('Not Found', { status: 404 });
+    }
+
     // ── Test-only endpoint ────────────────────────────────────────
+    // Returns the verification code for the caller's session (looked up
+    // via the session cookie) so parallel / multi-session tests work.
     if (method === 'GET' && path === '/signup/verify-code') {
-      return new Response(JSON.stringify({ code: lastVerificationCode }), {
+      const cookies = parseCookies(cookieHeader);
+      const sid = cookies['signup_session'];
+      const sess = sid ? sessions.get(sid) : undefined;
+      const code = sess ? sess.verificationCode : lastVerificationCode;
+      return new Response(JSON.stringify({ code }), {
         headers: { 'Content-Type': 'application/json' },
       });
     }
@@ -308,6 +320,11 @@ export function createMockSignupServer(): MockSignupServer {
     if (method === 'POST' && path === '/signup/step4') {
       if (session.step < 3) {
         return redirect('/signup', id);
+      }
+      // Guard: if already completed, redirect to the completion page
+      // instead of creating a duplicate account.
+      if (session.step >= 4) {
+        return redirect('/signup/complete', id);
       }
       const body = parseFormBody(await req.text());
       const captchaSolved = body['captcha_solved'];
