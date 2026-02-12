@@ -45,6 +45,7 @@ struct ThreadTabBar: View {
     }
 }
 
+#if DEBUG
 #Preview("ThreadTabBar") {
     @Previewable @State var threads = [
         ThreadModel(title: "New Thread"),
@@ -62,3 +63,4 @@ struct ThreadTabBar: View {
     }
     .frame(width: 600, height: 60)
 }
+#endif
