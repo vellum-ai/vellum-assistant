@@ -157,12 +157,20 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             }
             let errorStr: String
             if let error = response.error {
-                errorStr = "'\(error.replacingOccurrences(of: "'", with: "\\'"))'"
+                let escaped = error
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "'", with: "\\'")
+                    .replacingOccurrences(of: "\n", with: "\\n")
+                    .replacingOccurrences(of: "\r", with: "\\r")
+                errorStr = "'\(escaped)'"
             } else {
                 errorStr = "null"
             }
+            let safeCallId = response.callId
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
             webView?.evaluateJavaScript(
-                "window.vellum.data._resolve('\(response.callId)', \(response.success), \(resultJson), \(errorStr))"
+                "window.vellum.data._resolve('\(safeCallId)', \(response.success), \(resultJson), \(errorStr))"
             )
         }
 
