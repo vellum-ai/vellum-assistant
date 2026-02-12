@@ -78,13 +78,15 @@ struct OnboardingStageImage: View {
         }
         .onAppear {
             displayedStage = stageNumber
-            // Kick off the idle bob by setting the target offset.
-            // The actual animation is driven by the value-based
-            // .animation() modifier on the offset below, NOT by
-            // withAnimation — using withAnimation(.repeatForever())
-            // in onAppear leaks the repeating animation to ancestor
-            // views and makes the whole card bob.
-            bobOffset = -4
+            // Defer the bob animation start to the next run-loop iteration
+            // so the repeatForever .animation() modifier doesn't infect
+            // the displayedStage change above. When onboarding resumes
+            // from persisted progress, both assignments would otherwise
+            // happen in the same SwiftUI update cycle, letting the
+            // repeat-forever animation leak to the stage transition.
+            DispatchQueue.main.async {
+                bobOffset = -4
+            }
         }
         .onChange(of: stageNumber) { oldStage, newStage in
             guard oldStage != newStage, !isTransitioning else { return }
