@@ -16,11 +16,6 @@ struct TextResponseView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            header
-
-            Divider()
-
             // Scrollable message list
             messageList
 
@@ -62,21 +57,19 @@ struct TextResponseView: View {
                     .padding(.vertical, VSpacing.md)
             }
         }
-        .frame(minWidth: 300, maxWidth: 600)
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(spacing: VSpacing.sm) {
-            Image(systemName: "text.bubble.fill")
-                .foregroundStyle(.blue)
-            Text(UserDefaults.standard.string(forKey: "assistantName") ?? "vellum-assistant")
-                .font(VFont.headline)
-                .lineLimit(1)
+        .overlay(alignment: .topTrailing) {
+            Button {
+                NSApp.keyWindow?.close()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
+            .padding(VSpacing.lg)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(VSpacing.lg)
+        .frame(minWidth: 300, maxWidth: 600)
     }
 
     // MARK: - Message List

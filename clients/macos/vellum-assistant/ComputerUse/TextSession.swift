@@ -109,8 +109,12 @@ final class TextSession: ObservableObject {
 
                 case .messageComplete(_) where self.daemonSessionId != nil:
                     let responseText = self.accumulatedText.isEmpty ? "(No response)" : self.accumulatedText
-                    self.messages.append(ConversationMessage(role: .assistant, text: responseText))
+                    // Set state before appending to messages — the $state Combine sink
+                    // triggers a layout pass, and if state is still .streaming when the
+                    // committed message is already in messages, both the streaming bubble
+                    // and committed bubble render simultaneously (doubled response).
                     self.state = .ready
+                    self.messages.append(ConversationMessage(role: .assistant, text: responseText))
                     return
 
                 case .cuError(let error) where error.sessionId == self.daemonSessionId:
@@ -174,8 +178,8 @@ final class TextSession: ObservableObject {
 
                 case .messageComplete(_):
                     let responseText = self.accumulatedText.isEmpty ? "(No response)" : self.accumulatedText
-                    self.messages.append(ConversationMessage(role: .assistant, text: responseText))
                     self.state = .ready
+                    self.messages.append(ConversationMessage(role: .assistant, text: responseText))
                     return
 
                 case .cuError(let error) where error.sessionId == sessionId:

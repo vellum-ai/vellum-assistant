@@ -33,7 +33,7 @@ final class TextResponseWindow {
 
     func show() {
         let savedWidth = UserDefaults.standard.double(forKey: "textResponsePanelWidth")
-        let initialWidth = savedWidth > 0 ? savedWidth : 400.0
+        let initialWidth = savedWidth > 0 ? savedWidth : 500.0
 
         let view = TextResponseView(session: session, inputState: inputState)
         let hostingController = NSHostingController(rootView: view)
@@ -110,6 +110,7 @@ final class TextResponseWindow {
     }
 
     /// Full size-and-position: used only on initial show.
+    /// Pins the panel to the top-right corner of the screen.
     private func sizeAndPosition(_ panel: NSPanel) {
         if let fittingSize = panel.contentView?.fittingSize {
             let width = panel.frame.width // keep the initial/saved width
@@ -122,17 +123,17 @@ final class TextResponseWindow {
             let height = min(fittingSize.height, maxHeight)
             panel.setContentSize(NSSize(width: width, height: height))
         }
-        // Pin to bottom-right of screen
+        // Pin to top-right of screen
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
             let panelFrame = panel.frame
             let x = screenFrame.maxX - panelFrame.width - 20
-            let y = screenFrame.minY + 20
+            let y = screenFrame.maxY - panelFrame.height - 20
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
     }
 
-    /// Resize height only — keep the bottom edge fixed and the user's horizontal position.
+    /// Resize height only — keep the top edge pinned and grow downward.
     private func resizeHeight(_ panel: NSPanel) {
         guard let fittingSize = panel.contentView?.fittingSize else { return }
         let maxHeight: CGFloat
@@ -141,12 +142,14 @@ final class TextResponseWindow {
         } else {
             maxHeight = 800
         }
-        let newHeight = min(fittingSize.height, maxHeight)
         let currentFrame = panel.frame
-        // Grow upward: keep bottom edge fixed
-        let newOriginY = currentFrame.minY + currentFrame.height - newHeight
+        // Never auto-shrink — only grow taller during a conversation.
+        // The user can still manually drag-resize shorter if they want.
+        let newHeight = max(currentFrame.height, min(fittingSize.height, maxHeight))
+        // Grow downward: keep top edge fixed
+        let topY = currentFrame.maxY
         panel.setFrame(
-            NSRect(x: currentFrame.minX, y: newOriginY, width: currentFrame.width, height: newHeight),
+            NSRect(x: currentFrame.minX, y: topY - newHeight, width: currentFrame.width, height: newHeight),
             display: true,
             animate: false
         )
