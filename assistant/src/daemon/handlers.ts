@@ -20,6 +20,7 @@ import type {
   SandboxSetRequest,
   UserMessage,
   CuSessionCreate,
+  CuSessionAbort,
   CuObservation,
   TaskSubmit,
   AppDataRequest,
@@ -216,6 +217,7 @@ const handlers: DispatchMap = {
   usage_request: handleUsageRequest,
   sandbox_set: handleSandboxSet,
   cu_session_create: handleCuSessionCreate,
+  cu_session_abort: handleCuSessionAbort,
   cu_observation: handleCuObservation,
   ambient_observation: handleAmbientObservation,
   task_submit: handleTaskSubmit,
@@ -730,6 +732,21 @@ function handleCuSessionCreate(
   sessionIds.add(msg.sessionId);
 
   log.info({ sessionId: msg.sessionId, task: msg.task }, 'Computer-use session created');
+}
+
+function handleCuSessionAbort(
+  msg: CuSessionAbort,
+  _socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const session = ctx.cuSessions.get(msg.sessionId);
+  if (!session) {
+    log.debug({ sessionId: msg.sessionId }, 'CU session abort: session not found (already finished?)');
+    return;
+  }
+  session.abort();
+  ctx.cuSessions.delete(msg.sessionId);
+  log.info({ sessionId: msg.sessionId }, 'Computer-use session aborted by client');
 }
 
 function handleCuObservation(

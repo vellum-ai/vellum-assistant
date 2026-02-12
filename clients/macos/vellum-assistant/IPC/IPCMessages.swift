@@ -166,6 +166,13 @@ struct CancelMessage: Encodable, Sendable {
     let sessionId: String
 }
 
+/// Sent to abort a running computer-use session.
+/// Wire type: `"cu_session_abort"`
+struct CuSessionAbortMessage: Encodable, Sendable {
+    let type: String = "cu_session_abort"
+    let sessionId: String
+}
+
 /// Keepalive ping.
 /// Wire type: `"ping"`
 struct PingMessage: Encodable, Sendable {

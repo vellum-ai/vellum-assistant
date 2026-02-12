@@ -16,7 +16,6 @@ import { ToolExecutor } from '../tools/executor.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { allComputerUseTools } from '../tools/computer-use/definitions.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
-import { registerUiSurfaceTools } from '../tools/ui-surface/registry.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
 import { getLogger } from '../util/logger.js';
 
@@ -204,11 +203,6 @@ export class ComputerUseSession {
   // ---------------------------------------------------------------------------
 
   private async runAgentLoop(messages: Message[]): Promise<void> {
-    // Ensure UI surface tools are registered so ToolExecutor can resolve them.
-    // Registration is done here (not at daemon startup) so that surface tools
-    // are only available in sessions that have surface proxy infrastructure.
-    registerUiSurfaceTools();
-
     const systemPrompt = buildComputerUseSystemPrompt(this.screenWidth, this.screenHeight);
     const toolDefs: ToolDefinition[] = [
       ...allComputerUseTools.map((t) => t.getDefinition()),

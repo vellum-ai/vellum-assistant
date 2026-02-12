@@ -94,6 +94,11 @@ export interface CuSessionCreate {
   interactionType?: 'computer_use' | 'text_qa';
 }
 
+export interface CuSessionAbort {
+  type: 'cu_session_abort';
+  sessionId: string;
+}
+
 export interface CuObservation {
   type: 'cu_observation';
   sessionId: string;
@@ -227,6 +232,7 @@ export type ClientMessage =
   | UsageRequest
   | SandboxSetRequest
   | CuSessionCreate
+  | CuSessionAbort
   | CuObservation
   | AmbientObservation
   | TaskSubmit
