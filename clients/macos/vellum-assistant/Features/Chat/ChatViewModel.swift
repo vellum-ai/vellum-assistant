@@ -391,6 +391,21 @@ final class ChatViewModel: ObservableObject {
                 requestIdToMessageId = [:]
             }
 
+        case .confirmationRequest(let msg):
+            guard belongsToSession(nil) else { return }
+            let confirmation = ToolConfirmationData(
+                requestId: msg.requestId,
+                toolName: msg.toolName,
+                riskLevel: msg.riskLevel,
+                diff: msg.diff
+            )
+            let confirmMsg = ChatMessage(
+                role: .assistant,
+                text: "",
+                confirmation: confirmation
+            )
+            messages.append(confirmMsg)
+
         default:
             break
         }
@@ -484,6 +499,20 @@ final class ChatViewModel: ObservableObject {
 
     func dismissError() {
         errorText = nil
+    }
+
+    /// Respond to a tool confirmation request displayed inline in the chat.
+    func respondToConfirmation(requestId: String, decision: String) {
+        // Update the message state
+        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+            messages[index].confirmation?.state = decision == "allow" ? .approved : .denied
+        }
+        // Send the response to the daemon
+        do {
+            try daemonClient.sendConfirmationResponse(requestId: requestId, decision: decision)
+        } catch {
+            log.error("Failed to send confirmation response: \(error.localizedDescription)")
+        }
     }
 
     /// Ask the daemon for a follow-up suggestion for the current session.
