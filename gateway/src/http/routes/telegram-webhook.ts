@@ -41,20 +41,17 @@ export function createTelegramWebhookHandler(
       return Response.json({ ok: true });
     }
 
-    // Return 200 immediately, process async
-    const processAsync = async () => {
-      try {
-        const result = await handleInbound(config, normalized);
+    // Process inbound and only acknowledge after successful delivery
+    try {
+      const result = await handleInbound(config, normalized);
 
-        if (onReply && !result.rejected && result.runtimeResponse?.assistantMessage) {
-          await onReply(normalized.message.externalChatId, result);
-        }
-      } catch (err) {
-        log.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
+      if (onReply && !result.rejected && result.runtimeResponse?.assistantMessage) {
+        await onReply(normalized.message.externalChatId, result);
       }
-    };
-
-    processAsync();
+    } catch (err) {
+      log.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
+      return Response.json({ error: "Internal error" }, { status: 500 });
+    }
 
     return Response.json({ ok: true });
   };
