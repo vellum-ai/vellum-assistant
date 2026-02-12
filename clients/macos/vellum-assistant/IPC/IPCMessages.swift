@@ -400,6 +400,14 @@ struct SkillDetailResponseMessage: Decodable, Sendable {
     let error: String?
 }
 
+/// Follow-up suggestion response from daemon.
+/// Wire type: `"suggestion_response"`
+struct SuggestionResponseMessage: Decodable, Sendable {
+    let requestId: String
+    let suggestion: String?
+    let source: String
+}
+
 /// Permission confirmation request from daemon.
 /// Wire type: `"confirmation_request"`
 struct ConfirmationRequestMessage: Decodable, Sendable {
@@ -426,6 +434,14 @@ struct ConfirmationRequestMessage: Decodable, Sendable {
         let newContent: String
         let isNewFile: Bool
     }
+}
+
+/// Request a follow-up suggestion for the current session.
+/// Wire type: `"suggestion_request"`
+struct SuggestionRequestMessage: Encodable, Sendable {
+    let type: String = "suggestion_request"
+    let sessionId: String
+    let requestId: String
 }
 
 /// Client response to a permission confirmation request.
@@ -462,6 +478,7 @@ enum ServerMessage: Decodable, Sendable {
     case messageDequeued(MessageDequeuedMessage)
     case skillsListResponse(SkillsListResponseMessage)
     case skillDetailResponse(SkillDetailResponseMessage)
+    case suggestionResponse(SuggestionResponseMessage)
     case pong
     case unknown(String)
 
@@ -537,6 +554,9 @@ enum ServerMessage: Decodable, Sendable {
         case "skill_detail_response":
             let message = try SkillDetailResponseMessage(from: decoder)
             self = .skillDetailResponse(message)
+        case "suggestion_response":
+            let message = try SuggestionResponseMessage(from: decoder)
+            self = .suggestionResponse(message)
         case "pong":
             self = .pong
         default:

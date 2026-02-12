@@ -11,6 +11,7 @@ final class ChatViewModel: ObservableObject {
     @Published var isSending: Bool = false
     @Published var errorText: String?
     @Published var pendingQueuedCount: Int = 0
+    @Published var suggestion: String?
 
     private let daemonClient: DaemonClient
     var sessionId: String?
@@ -30,6 +31,8 @@ final class ChatViewModel: ObservableObject {
     private var requestIdToMessageId: [String: UUID] = [:]
     /// FIFO queue of user message UUIDs awaiting requestId assignment from the daemon.
     private var pendingMessageIds: [UUID] = []
+    /// Tracks the current in-flight suggestion request so stale responses are ignored.
+    private var pendingSuggestionRequestId: String?
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -58,6 +61,8 @@ final class ChatViewModel: ObservableObject {
             pendingMessageIds.append(userMessage.id)
         }
         inputText = ""
+        suggestion = nil
+        pendingSuggestionRequestId = nil
         errorText = nil
 
         if sessionId == nil {
@@ -246,6 +251,12 @@ final class ChatViewModel: ObservableObject {
                 messages.append(msg)
             }
 
+        case .suggestionResponse(let resp):
+            // Only accept if this response matches our current request
+            guard resp.requestId == pendingSuggestionRequestId else { return }
+            pendingSuggestionRequestId = nil
+            suggestion = resp.suggestion
+
         case .messageComplete(let complete):
             guard belongsToSession(complete.sessionId) else { return }
             isCancelling = false
@@ -265,6 +276,10 @@ final class ChatViewModel: ObservableObject {
                 if messages[i].role == .user && messages[i].status == .processing {
                     messages[i].status = .sent
                 }
+            }
+            // Fetch a follow-up suggestion when the turn is fully complete
+            if !isSending {
+                fetchSuggestion()
             }
 
         case .generationCancelled(let cancelled):
@@ -469,6 +484,34 @@ final class ChatViewModel: ObservableObject {
 
     func dismissError() {
         errorText = nil
+    }
+
+    /// Ask the daemon for a follow-up suggestion for the current session.
+    private func fetchSuggestion() {
+        guard let sessionId, daemonClient.isConnected else { return }
+
+        let requestId = UUID().uuidString
+        pendingSuggestionRequestId = requestId
+
+        do {
+            try daemonClient.send(SuggestionRequestMessage(
+                sessionId: sessionId,
+                requestId: requestId
+            ))
+        } catch {
+            log.error("Failed to send suggestion_request: \(error.localizedDescription)")
+            pendingSuggestionRequestId = nil
+        }
+    }
+
+    /// Accept the current suggestion, appending the ghost suffix to input.
+    func acceptSuggestion() {
+        guard let suggestion else { return }
+        if suggestion.hasPrefix(inputText) {
+            inputText = suggestion
+        } else if inputText.isEmpty {
+            inputText = suggestion
+        }
     }
 
     deinit {
