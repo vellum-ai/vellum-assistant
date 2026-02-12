@@ -168,6 +168,7 @@ function readBundledSkillFromDirectory(directoryPath: string): SkillDefinition |
       directoryPath,
       skillFilePath,
       body: parsed.body,
+      bundled: true,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, 'Failed to read bundled skill file');
