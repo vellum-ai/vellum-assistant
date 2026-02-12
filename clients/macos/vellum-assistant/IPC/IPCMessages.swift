@@ -346,6 +346,44 @@ struct AppDataResponseMessage: Decodable, Sendable {
     let error: String?
 }
 
+/// Permission confirmation request from daemon.
+/// Wire type: `"confirmation_request"`
+struct ConfirmationRequestMessage: Decodable, Sendable {
+    let requestId: String
+    let toolName: String
+    let input: [String: AnyCodable]
+    let riskLevel: String
+    let allowlistOptions: [ConfirmationAllowlistOption]
+    let scopeOptions: [ConfirmationScopeOption]
+    let diff: ConfirmationDiffInfo?
+    let sandboxed: Bool?
+
+    struct ConfirmationAllowlistOption: Decodable, Sendable {
+        let label: String
+        let pattern: String
+    }
+    struct ConfirmationScopeOption: Decodable, Sendable {
+        let label: String
+        let scope: String
+    }
+    struct ConfirmationDiffInfo: Decodable, Sendable {
+        let filePath: String
+        let oldContent: String
+        let newContent: String
+        let isNewFile: Bool
+    }
+}
+
+/// Client response to a permission confirmation request.
+/// Wire type: `"confirmation_response"`
+struct ConfirmationResponseMessage: Encodable, Sendable {
+    let type: String = "confirmation_response"
+    let requestId: String
+    let decision: String
+    let selectedPattern: String?
+    let selectedScope: String?
+}
+
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 enum ServerMessage: Decodable, Sendable {
@@ -364,6 +402,7 @@ enum ServerMessage: Decodable, Sendable {
     case uiSurfaceDismiss(UiSurfaceDismissMessage)
     case generationCancelled(GenerationCancelledMessage)
     case generationHandoff(GenerationHandoffMessage)
+    case confirmationRequest(ConfirmationRequestMessage)
     case appDataResponse(AppDataResponseMessage)
     case messageQueued(MessageQueuedMessage)
     case messageDequeued(MessageDequeuedMessage)
@@ -424,6 +463,9 @@ enum ServerMessage: Decodable, Sendable {
         case "generation_handoff":
             let message = try GenerationHandoffMessage(from: decoder)
             self = .generationHandoff(message)
+        case "confirmation_request":
+            let message = try ConfirmationRequestMessage(from: decoder)
+            self = .confirmationRequest(message)
         case "app_data_response":
             let message = try AppDataResponseMessage(from: decoder)
             self = .appDataResponse(message)

@@ -30,6 +30,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public let ambientAgent = AmbientAgent()
     let daemonClient = DaemonClient()
     let surfaceManager = SurfaceManager()
+    let toolConfirmationManager = ToolConfirmationManager()
 
     private var onboardingWindow: OnboardingWindow?
     private var mainWindow: MainWindow?
@@ -59,6 +60,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupVoiceInput()
         setupAmbientAgent()
         setupSurfaceManager()
+        setupToolConfirmationManager()
         setupWindowObserver()
         setupNotifications()
         showMainWindow()
@@ -114,6 +116,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Data response: daemon -> Swift -> JS
         daemonClient.onAppDataResponse = { [weak self] msg in
             self?.surfaceManager.resolveDataResponse(surfaceId: msg.surfaceId, response: msg)
+        }
+    }
+
+    private func setupToolConfirmationManager() {
+        daemonClient.onConfirmationRequest = { [weak self] msg in
+            self?.toolConfirmationManager.showConfirmation(msg)
+        }
+        toolConfirmationManager.onResponse = { [weak self] requestId, decision in
+            try? self?.daemonClient.sendConfirmationResponse(
+                requestId: requestId,
+                decision: decision
+            )
         }
     }
 
@@ -230,6 +244,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.currentSession?.cancel()
                     self?.currentTextSession?.cancel()
                     self?.surfaceManager.dismissAll()
+                    self?.toolConfirmationManager.dismissAll()
                 }
             }
         }
@@ -349,6 +364,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.setupVoiceInput()
             self?.setupAmbientAgent()
             self?.setupSurfaceManager()
+            self?.setupToolConfirmationManager()
             self?.setupWindowObserver()
             self?.setupNotifications()
 
@@ -578,6 +594,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         voiceInput?.stop()
         ambientAgent.stop()
         surfaceManager.dismissAll()
+        toolConfirmationManager.dismissAll()
     }
 }
 
