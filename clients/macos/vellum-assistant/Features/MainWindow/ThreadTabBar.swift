@@ -36,7 +36,8 @@ struct ThreadTabBar: View {
 
                 Spacer()
             }
-            .padding(.horizontal, VSpacing.lg)
+            .padding(.leading, 78)
+            .padding(.trailing, VSpacing.lg)
             .frame(height: 36)
             .background(VColor.background)
         }

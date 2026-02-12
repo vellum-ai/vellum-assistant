@@ -48,6 +48,7 @@ struct MainWindowView: View {
                 panelContent
             })
         }
+        .ignoresSafeArea(edges: .top)
         .background(VColor.background.ignoresSafeArea())
         .frame(minWidth: 800, minHeight: 600)
     }
