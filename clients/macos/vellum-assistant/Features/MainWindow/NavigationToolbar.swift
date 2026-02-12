@@ -7,7 +7,7 @@ struct NavigationToolbar: View {
         VStack(spacing: 0) {
             HStack(spacing: VSpacing.sm) {
                 // Left group
-                VTab(label: "Chat", icon: "bubble.left.fill", isSelected: true, isCloseable: false, onSelect: {})
+                VTab(label: "Chat", icon: "bubble.left", isSelected: true, isCloseable: false, onSelect: {})
 
                 Spacer()
 
