@@ -87,7 +87,7 @@ export class Session {
     surfaceType: SurfaceType;
   }>();
   private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
-  private onEscalateToComputerUse?: (task: string, sourceSessionId: string) => void;
+  private onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
 
   constructor(
     conversationId: string,
@@ -205,7 +205,7 @@ export class Session {
    * Set a callback for when a text_qa session escalates to computer use
    * via the `request_computer_control` tool.
    */
-  setEscalationHandler(handler: (task: string, sourceSessionId: string) => void): void {
+  setEscalationHandler(handler: (task: string, sourceSessionId: string) => boolean): void {
     this.onEscalateToComputerUse = handler;
   }
 
@@ -930,7 +930,13 @@ export class Session {
           isError: true,
         };
       }
-      this.onEscalateToComputerUse(task, this.conversationId);
+      const success = this.onEscalateToComputerUse(task, this.conversationId);
+      if (!success) {
+        return {
+          content: 'Computer control escalation failed — no active connection.',
+          isError: true,
+        };
+      }
       return {
         content: 'Computer control activated. The task has been handed off to foreground computer use.',
         isError: false,
