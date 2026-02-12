@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct MainWindowView: View {
+    let daemonClient: DaemonClient
+
     @State private var messages: [ChatMessage] = [
         ChatMessage(role: .assistant, text: "Hello! I'm \(UserDefaults.standard.string(forKey: "assistantName") ?? "vellum-assistant"). How can I help you today?"),
     ]
@@ -40,5 +42,5 @@ struct MainWindowView: View {
 }
 
 #Preview {
-    MainWindowView()
+    MainWindowView(daemonClient: DaemonClient())
 }

@@ -3,21 +3,26 @@ import SwiftUI
 
 @MainActor
 final class MainWindow {
+    private let daemonClient: DaemonClient
     private var window: NSWindow?
+
+    init(daemonClient: DaemonClient) {
+        self.daemonClient = daemonClient
+    }
 
     func show() {
         // Reuse the existing window if one already exists
         if let existing = window {
             // Rebuild the SwiftUI view hierarchy so it picks up any
             // UserDefaults changes (e.g. assistantName set during onboarding replay)
-            existing.contentViewController = NSHostingController(rootView: MainWindowView())
+            existing.contentViewController = NSHostingController(rootView: MainWindowView(daemonClient: daemonClient))
             existing.makeKeyAndOrderFront(nil)
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let hostingController = NSHostingController(rootView: MainWindowView())
+        let hostingController = NSHostingController(rootView: MainWindowView(daemonClient: daemonClient))
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1366, height: 849),
