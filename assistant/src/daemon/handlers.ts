@@ -254,10 +254,23 @@ async function handleUserMessage(
   try {
     ctx.socketToSession.set(socket, msg.sessionId);
     const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
+
+    const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+
+    const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId);
+    if (result.queued) {
+      rlog.info({ position: session.getQueueDepth() }, 'Message queued (session busy)');
+      ctx.send(socket, {
+        type: 'message_queued',
+        sessionId: msg.sessionId,
+        requestId,
+        position: session.getQueueDepth(),
+      });
+      return; // Don't await — message will be processed when current one finishes
+    }
+
     rlog.info('Processing user message');
-    await session.processMessage(msg.content ?? '', msg.attachments ?? [], (event) => {
-      ctx.send(socket, event);
-    }, requestId);
+    await session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     rlog.error({ err }, 'Error processing user message (session or provider failure)');

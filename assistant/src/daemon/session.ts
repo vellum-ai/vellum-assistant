@@ -57,6 +57,12 @@ export class Session {
   private contextWindowManager: ContextWindowManager;
   private contextCompactedMessageCount = 0;
   private currentRequestId?: string;
+  private messageQueue: Array<{
+    content: string;
+    attachments: UserMessageAttachment[];
+    requestId: string;
+    onEvent: (msg: ServerMessage) => void;
+  }> = [];
   private pendingSurfaceActions = new Map<string, {
     resolve: (result: ToolExecutionResult) => void;
   }>();
@@ -201,7 +207,37 @@ export class Session {
       }
       this.pendingSurfaceActions.clear();
       this.surfaceState.clear();
+
+      // Clear queued messages and notify each caller
+      for (const queued of this.messageQueue) {
+        queued.onEvent({ type: 'error', message: 'Session aborted — queued message discarded' });
+      }
+      this.messageQueue = [];
     }
+  }
+
+  /**
+   * Enqueue a message if the session is busy, or indicate it should be
+   * processed immediately. Returns `{ queued: true }` if the message was
+   * added to the queue, or `{ queued: false }` if the caller should invoke
+   * `processMessage` directly.
+   */
+  enqueueMessage(
+    content: string,
+    attachments: UserMessageAttachment[],
+    onEvent: (msg: ServerMessage) => void,
+    requestId: string,
+  ): { queued: boolean; requestId: string } {
+    if (!this.processing) {
+      return { queued: false, requestId };
+    }
+
+    this.messageQueue.push({ content, attachments, requestId, onEvent });
+    return { queued: true, requestId };
+  }
+
+  getQueueDepth(): number {
+    return this.messageQueue.length;
   }
 
   handleConfirmationResponse(
@@ -554,6 +590,22 @@ export class Session {
       this.abortController = null;
       this.processing = false;
       this.currentRequestId = undefined;
+
+      // Drain next queued message
+      const next = this.messageQueue.shift();
+      if (next) {
+        next.onEvent({
+          type: 'message_dequeued',
+          sessionId: this.conversationId,
+          requestId: next.requestId,
+        });
+        // Fire and forget — don't block the current call
+        this.processMessage(next.content, next.attachments, next.onEvent, next.requestId).catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          log.error({ err, conversationId: this.conversationId }, 'Error processing queued message');
+          next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
+        });
+      }
     }
   }
 
