@@ -98,23 +98,20 @@ let arrowLineWidth: CGFloat = 4.0
 
 // Arrow color: muted purple-white
 let arrowColor = CGColor(colorSpace: colorSpace, components: rgb(168, 140, 210, 0.7))!
-ctx.setStrokeColor(arrowColor)
 ctx.setFillColor(arrowColor)
-ctx.setLineWidth(arrowLineWidth)
-ctx.setLineCap(.round)
-ctx.setLineJoin(.round)
 
-// Arrow shaft
-ctx.beginPath()
-ctx.move(to: CGPoint(x: arrowStartX, y: arrowY))
-ctx.addLine(to: CGPoint(x: arrowEndX - arrowHeadSize, y: arrowY))
-ctx.strokePath()
+// Single filled polygon: shaft rectangle merging into arrowhead triangle
+let shaftHalf: CGFloat = arrowLineWidth / 2
+let neckX = arrowEndX - arrowHeadSize * 1.5  // Where shaft meets head
 
-// Arrowhead (filled triangle)
 ctx.beginPath()
-ctx.move(to: CGPoint(x: arrowEndX, y: arrowY))
-ctx.addLine(to: CGPoint(x: arrowEndX - arrowHeadSize * 1.5, y: arrowY - arrowHeadSize))
-ctx.addLine(to: CGPoint(x: arrowEndX - arrowHeadSize * 1.5, y: arrowY + arrowHeadSize))
+ctx.move(to: CGPoint(x: arrowStartX, y: arrowY - shaftHalf))          // top-left of shaft
+ctx.addLine(to: CGPoint(x: neckX, y: arrowY - shaftHalf))             // top-right of shaft
+ctx.addLine(to: CGPoint(x: neckX, y: arrowY - arrowHeadSize))         // top of arrowhead
+ctx.addLine(to: CGPoint(x: arrowEndX, y: arrowY))                     // tip
+ctx.addLine(to: CGPoint(x: neckX, y: arrowY + arrowHeadSize))         // bottom of arrowhead
+ctx.addLine(to: CGPoint(x: neckX, y: arrowY + shaftHalf))             // bottom-right of shaft
+ctx.addLine(to: CGPoint(x: arrowStartX, y: arrowY + shaftHalf))       // bottom-left of shaft
 ctx.closePath()
 ctx.fillPath()
 
