@@ -492,13 +492,13 @@ export class RuntimeHttpServer {
     }
   }
 
-  private handleGetRun(_assistantId: string, runId: string): Response {
+  private handleGetRun(assistantId: string, runId: string): Response {
     if (!this.runOrchestrator) {
       return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
     }
 
     const run = this.runOrchestrator.getRun(runId);
-    if (!run) {
+    if (!run || run.assistantId !== assistantId) {
       return Response.json({ error: 'Run not found' }, { status: 404 });
     }
 
@@ -513,9 +513,15 @@ export class RuntimeHttpServer {
     });
   }
 
-  private async handleRunDecision(_assistantId: string, runId: string, req: Request): Promise<Response> {
+  private async handleRunDecision(assistantId: string, runId: string, req: Request): Promise<Response> {
     if (!this.runOrchestrator) {
       return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
+    }
+
+    // Verify the run belongs to this assistant before applying a decision
+    const run = this.runOrchestrator.getRun(runId);
+    if (!run || run.assistantId !== assistantId) {
+      return Response.json({ error: 'Run not found' }, { status: 404 });
     }
 
     const body = await req.json() as { decision?: string };
