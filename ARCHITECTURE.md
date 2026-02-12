@@ -105,11 +105,14 @@ graph TB
     end
 
     %% User input flows
-    TI -->|"task text"| CLS
-    VOICE -->|"transcription"| CLS
+    TI -->|"task_submit<br/>(source='text')"| CLS
+    VOICE -->|"task_submit<br/>(source='voice')"| TEXT_SESS
     ATTACH -->|"validated files"| TI
     CLS -->|"computerUse"| PERCEIVE
     CLS -->|"textQA"| TEXT_SESS
+
+    %% Text Q&A → CU escalation
+    TEXT_SESS -.->|"request_computer_control<br/>(explicit user request)"| PERCEIVE
 
     %% Computer Use loop
     PERCEIVE -->|"CuObservationMessage"| IPC_SERVER
@@ -257,9 +260,16 @@ sequenceDiagram
 
     User->>UI: Type task / Voice / Paste
     UI->>AD: submit(TaskSubmission)
-    AD->>CLS: classify_interaction tool call
-    Note over CLS: Haiku-4.5 direct call<br/>5s timeout, heuristic fallback
-    CLS-->>AD: InteractionType.computerUse
+    Note over AD: TaskSubmission carries<br/>source: 'voice' | 'text' | nil
+    AD->>CLS: classifyInteraction(task, source)
+
+    alt source === 'voice'
+        Note over CLS: Bypass Haiku API call<br/>Route directly to text_qa
+        CLS-->>AD: InteractionType.textQA
+    else source === 'text' or nil
+        Note over CLS: Haiku-4.5 direct call<br/>5s timeout, heuristic fallback
+        CLS-->>AD: InteractionType.computerUse
+    end
 
     AD->>Session: init(task, daemonClient, ...)
     Session->>DC: send(CuSessionCreateMessage)
@@ -514,6 +524,7 @@ graph TB
 graph LR
     subgraph "Client → Server"
         direction TB
+        C0["task_submit<br/>task, screenWidth, screenHeight,<br/>attachments, source?:'voice'|'text'"]
         C1["cu_session_create<br/>task, attachments"]
         C2["cu_observation<br/>axTree, axDiff, screenshot,<br/>secondaryWindows, result/error"]
         C3["ambient_observation<br/>screenContent, requestId"]
@@ -529,6 +540,7 @@ graph LR
 
     subgraph "Server → Client"
         direction TB
+        S0["task_routed<br/>interactionType, sessionId"]
         S1["cu_action<br/>tool, input dict"]
         S2["cu_complete<br/>summary"]
         S3["cu_error<br/>message"]
@@ -545,6 +557,7 @@ graph LR
         S14["generation_handoff<br/>sessionId, requestId?,<br/>queuedCount"]
     end
 
+    C0 --> SOCKET
     C1 --> SOCKET
     C2 --> SOCKET
     C3 --> SOCKET
@@ -555,6 +568,7 @@ graph LR
     C8 --> SOCKET
     C9 --> SOCKET
 
+    SOCKET --> S0
     SOCKET --> S1
     SOCKET --> S2
     SOCKET --> S3
@@ -570,6 +584,54 @@ graph LR
     SOCKET --> S13
     SOCKET --> S14
 ```
+
+---
+
+## Task Routing — Voice Source Bypass and Escalation
+
+When a task is submitted via `task_submit`, the daemon classifies it to determine routing. Voice-sourced tasks bypass the classifier entirely for lower latency and more predictable routing.
+
+```mermaid
+graph TB
+    subgraph "Task Submission"
+        SUBMIT["task_submit<br/>task, source?"]
+    end
+
+    subgraph "Routing Decision"
+        VOICE_CHECK{"source === 'voice'?"}
+        CLASSIFIER["Classifier<br/>Haiku-4.5 tool call<br/>+ heuristic fallback"]
+        CU_ROUTE["Route: computer_use<br/>→ CU session"]
+        QA_ROUTE["Route: text_qa<br/>→ Text Q&A session"]
+    end
+
+    subgraph "Text Q&A Session"
+        TEXT_TOOLS["Tools: bash, headless-browser,<br/>ui_show, web_search, ..."]
+        ESCALATE["request_computer_control<br/>(proxy tool)"]
+    end
+
+    SUBMIT --> VOICE_CHECK
+    VOICE_CHECK -->|"Yes"| QA_ROUTE
+    VOICE_CHECK -->|"No"| CLASSIFIER
+    CLASSIFIER -->|"computer_use"| CU_ROUTE
+    CLASSIFIER -->|"text_qa"| QA_ROUTE
+
+    QA_ROUTE --> TEXT_TOOLS
+    TEXT_TOOLS -.->|"User explicitly requests<br/>computer control"| ESCALATE
+    ESCALATE -.->|"Creates CU session<br/>via surfaceProxyResolver"| CU_ROUTE
+```
+
+### Action Execution Hierarchy
+
+The text_qa system prompt includes an action execution hierarchy that guides tool selection toward the least invasive method:
+
+| Priority | Method | Tool | When to use |
+|----------|--------|------|-------------|
+| **BEST** | CLI / API calls | `bash` | File operations, git, brew, system commands, API calls |
+| **BETTER** | Headless browser | `headless-browser` | Web automation, form filling, scraping (background) |
+| **GOOD** | AppleScript / Shortcuts | `bash` (osascript) | App automation without visual interaction |
+| **LAST RESORT** | Foreground computer use | `request_computer_control` | Only on explicit user request ("go ahead", "take over") |
+
+The `request_computer_control` tool is a proxy tool available only to text_qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session and sends a `task_routed` message to the client, effectively escalating from text_qa to foreground computer use.
 
 ---
 
