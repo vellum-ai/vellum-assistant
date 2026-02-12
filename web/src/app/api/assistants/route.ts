@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     }
 
     const sql = getDb();
-    const identifiers = [user.id, user.username, user.name].filter(Boolean);
+    const identifiers = [user.id, user.username].filter(Boolean);
     const assistants = await sql`SELECT * FROM assistants WHERE created_by = ANY(${identifiers}) ORDER BY created_at DESC`;
     return NextResponse.json(assistants as unknown as Assistant[]);
   } catch (error: unknown) {

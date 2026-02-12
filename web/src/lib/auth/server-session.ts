@@ -82,15 +82,12 @@ export async function requireAssistantOwner(
     return { assistant, user };
   }
 
-  // Backward compatibility: created_by may store a username or display name.
-  if (
-    createdBy &&
-    ((user.username && createdBy === user.username) ||
-      (user.name && createdBy === user.name))
-  ) {
+  // Backward compatibility: created_by may store a username.
+  if (createdBy && user.username && createdBy === user.username) {
     // Migrate to canonical user ID for future lookups.
     await sql`UPDATE assistants SET created_by = ${user.id} WHERE id = ${assistantId}`;
-    return { assistant, user };
+    const updatedResult = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
+    return { assistant: updatedResult[0] as Assistant, user };
   }
 
   throw new Error("FORBIDDEN");
