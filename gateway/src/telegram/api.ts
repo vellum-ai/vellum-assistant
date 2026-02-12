@@ -19,7 +19,7 @@ export async function callTelegramApi<T>(
   });
 
   const data = (await response.json().catch(() => ({}))) as TelegramApiResponse<T>;
-  if (!response.ok || !data.ok || !data.result) {
+  if (!response.ok || !data.ok || data.result === undefined) {
     throw new Error(
       data.description
         ? `Telegram ${method} failed: ${data.description}`
