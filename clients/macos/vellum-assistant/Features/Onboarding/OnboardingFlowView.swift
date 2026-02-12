@@ -77,7 +77,7 @@ struct OnboardingFlowView: View {
                 // Bottom caption for interview
                 VStack {
                     Spacer()
-                    Text("Get to know your new assistant")
+                    Text("Your assistant is ready")
                         .font(VFont.onboardingSubtitle)
                         .foregroundColor(Meadow.captionText)
                         .padding(.bottom, VSpacing.lg)
