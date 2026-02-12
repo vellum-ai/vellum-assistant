@@ -5,11 +5,11 @@
     <key>LSUIElement</key>
     <true/>
     <key>NSScreenRecordingUsageDescription</key>
-    <string>vellum-assistant needs Screen Recording access to see what's on your screen during computer use tasks.</string>
+    <string>Vellum needs Screen Recording access to see what's on your screen during computer use tasks.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>vellum-assistant needs microphone access to transcribe voice commands.</string>
+    <string>Vellum needs microphone access to transcribe voice commands.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>vellum-assistant uses speech recognition to convert voice commands into tasks.</string>
+    <string>Vellum uses speech recognition to convert voice commands into tasks.</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>LSMinimumSystemVersion</key>

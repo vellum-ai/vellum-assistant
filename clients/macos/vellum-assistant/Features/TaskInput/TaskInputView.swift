@@ -22,7 +22,7 @@ struct TaskInputView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             HStack {
-                Text(UserDefaults.standard.string(forKey: "assistantName") ?? "vellum-assistant")
+                Text(UserDefaults.standard.string(forKey: "assistantName") ?? "Vellum")
                     .font(VFont.headline)
                     .foregroundStyle(.primary)
                 Spacer()

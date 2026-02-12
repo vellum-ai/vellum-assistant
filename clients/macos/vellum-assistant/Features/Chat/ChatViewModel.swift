@@ -31,7 +31,7 @@ final class ChatViewModel: ObservableObject {
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
         // Add initial greeting
-        let name = UserDefaults.standard.string(forKey: "assistantName") ?? "vellum-assistant"
+        let name = UserDefaults.standard.string(forKey: "assistantName") ?? "Vellum"
         messages.append(ChatMessage(role: .assistant, text: "Hello! I'm \(name). How can I help you today?"))
     }
 
