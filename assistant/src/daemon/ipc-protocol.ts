@@ -38,6 +38,8 @@ export interface SessionListRequest {
 export interface SessionCreateRequest {
   type: 'session_create';
   title?: string;
+  systemPromptOverride?: string;
+  maxResponseTokens?: number;
 }
 
 export interface SessionSwitchRequest {
