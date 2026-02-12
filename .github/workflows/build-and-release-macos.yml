@@ -80,6 +80,7 @@ jobs:
         run: |
           bun install
           bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
+            --external electron --external "chromium-bidi/*" \
             --outfile ../clients/macos/daemon-bin/vellum-daemon
           chmod +x ../clients/macos/daemon-bin/vellum-daemon
           echo "Daemon binary built:"
