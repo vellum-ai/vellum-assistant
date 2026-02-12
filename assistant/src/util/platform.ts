@@ -79,6 +79,10 @@ export function getLogPath(): string {
   return join(getDataDir(), 'logs', 'vellum.log');
 }
 
+export function getHistoryPath(): string {
+  return join(getDataDir(), 'history');
+}
+
 export function ensureDataDir(): void {
   const base = getDataDir();
   const dirs = [

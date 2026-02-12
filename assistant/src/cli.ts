@@ -1,6 +1,7 @@
 import * as net from 'node:net';
 import * as readline from 'node:readline';
-import { getSocketPath } from './util/platform.js';
+import { readFileSync, appendFileSync } from 'node:fs';
+import { getSocketPath, getHistoryPath } from './util/platform.js';
 import {
   serialize,
   createMessageParser,
@@ -93,9 +94,22 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
   }
 
+  const historyPath = getHistoryPath();
+  let savedHistory: string[] = [];
+  try {
+    savedHistory = readFileSync(historyPath, 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .reverse();
+  } catch {
+    // No history file yet — start fresh
+  }
+
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
+    history: savedHistory,
+    historySize: 1000,
   });
 
   function prompt(): void {
@@ -671,6 +685,9 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     if (pendingSessionPick) return;
     if (pendingConfirmation) return;
     if (reconnecting) return;
+
+    // Persist to history file
+    try { appendFileSync(historyPath, content + '\n'); } catch { /* ignore */ }
 
     if (content === '/copy') {
       if (!lastResponse) {
