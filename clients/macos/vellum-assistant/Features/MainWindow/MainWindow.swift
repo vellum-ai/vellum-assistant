@@ -8,6 +8,9 @@ final class MainWindow {
     func show() {
         // Reuse the existing window if one already exists
         if let existing = window {
+            // Rebuild the SwiftUI view hierarchy so it picks up any
+            // UserDefaults changes (e.g. assistantName set during onboarding replay)
+            existing.contentViewController = NSHostingController(rootView: MainWindowView())
             existing.makeKeyAndOrderFront(nil)
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
