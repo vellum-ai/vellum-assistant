@@ -12,6 +12,8 @@ struct ChatView: View {
     let onStop: () -> Void
     let onDismissError: () -> Void
     let onAcceptSuggestion: () -> Void
+    let onConfirmationAllow: (String) -> Void
+    let onConfirmationDeny: (String) -> Void
 
     /// The portion of the suggestion that extends beyond the current input.
     private var ghostSuffix: String? {
@@ -55,9 +57,19 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(spacing: VSpacing.md) {
                     ForEach(messages) { message in
-                        ChatBubble(message: message)
+                        if let confirmation = message.confirmation {
+                            ToolConfirmationBubble(
+                                confirmation: confirmation,
+                                onAllow: { onConfirmationAllow(confirmation.requestId) },
+                                onDeny: { onConfirmationDeny(confirmation.requestId) }
+                            )
                             .id(message.id)
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        } else {
+                            ChatBubble(message: message)
+                                .id(message.id)
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
                     }
 
                     if isThinking {
@@ -398,7 +410,9 @@ private struct ThinkingIndicator: View {
             onSend: {},
             onStop: {},
             onDismissError: {},
-            onAcceptSuggestion: {}
+            onAcceptSuggestion: {},
+            onConfirmationAllow: { _ in },
+            onConfirmationDeny: { _ in }
         )
     }
     .frame(width: 600, height: 500)
