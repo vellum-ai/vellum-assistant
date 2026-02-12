@@ -39,7 +39,7 @@ final class ChatViewModel: ObservableObject {
     }
 
     func sendMessage() {
-        let text = inputText.trimmingCharacters(in: .whitespaces)
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
         // Block rapid-fire only when bootstrapping (no session yet)
