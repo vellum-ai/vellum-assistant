@@ -145,6 +145,16 @@ exports[`IPC message snapshots ClientMessage types ui_surface_action serializes 
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types app_data_request serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "callId": "call-001",
+  "method": "query",
+  "surfaceId": "surface-001",
+  "type": "app_data_request",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
 {
   "text": "Here is some output",
@@ -471,5 +481,25 @@ exports[`IPC message snapshots ServerMessage types ui_surface_dismiss serializes
   "sessionId": "sess-001",
   "surfaceId": "surface-001",
   "type": "ui_surface_dismiss",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types app_data_response serializes to expected JSON 1`] = `
+{
+  "callId": "call-001",
+  "result": [
+    {
+      "appId": "app-001",
+      "createdAt": 1700000000,
+      "data": {
+        "name": "Test",
+      },
+      "id": "rec-001",
+      "updatedAt": 1700000000,
+    },
+  ],
+  "success": true,
+  "surfaceId": "surface-001",
+  "type": "app_data_response",
 }
 `;

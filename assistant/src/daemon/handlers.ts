@@ -22,9 +22,11 @@ import type {
   CuSessionCreate,
   CuObservation,
   TaskSubmit,
+  AppDataRequest,
 } from './ipc-protocol.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
+import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } from '../memory/app-store.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -208,6 +210,7 @@ const handlers: DispatchMap = {
   cu_observation: handleCuObservation,
   ambient_observation: handleAmbientObservation,
   task_submit: handleTaskSubmit,
+  app_data_request: handleAppDataRequest,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
@@ -523,6 +526,53 @@ function handleUsageRequest(
     estimatedCost: conversation.totalEstimatedCost,
     model: config.model,
   });
+}
+
+// ─── App data handler ────────────────────────────────────────────────────────
+
+function handleAppDataRequest(
+  msg: AppDataRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const { surfaceId, callId, method, appId, recordId, data } = msg;
+  try {
+    let result: unknown = null;
+    switch (method) {
+      case 'query':
+        result = queryAppRecords(appId);
+        break;
+      case 'create':
+        result = createAppRecord(appId, data!);
+        break;
+      case 'update':
+        result = updateAppRecord(appId, recordId!, data!);
+        break;
+      case 'delete':
+        deleteAppRecord(appId, recordId!);
+        result = null;
+        break;
+      default:
+        throw new Error(`Unknown app data method: ${method}`);
+    }
+    ctx.send(socket, {
+      type: 'app_data_response',
+      surfaceId,
+      callId,
+      success: true,
+      result,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, method, appId, recordId }, 'Error handling app_data_request');
+    ctx.send(socket, {
+      type: 'app_data_response',
+      surfaceId,
+      callId,
+      success: false,
+      error: message,
+    });
+  }
 }
 
 // ─── Task submit handler ────────────────────────────────────────────────────

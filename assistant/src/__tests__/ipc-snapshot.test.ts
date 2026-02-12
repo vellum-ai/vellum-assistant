@@ -106,6 +106,13 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     actionId: 'btn-ok',
     data: { selectedItem: 'item-1' },
   },
+  app_data_request: {
+    type: 'app_data_request',
+    surfaceId: 'surface-001',
+    callId: 'call-001',
+    method: 'query',
+    appId: 'app-001',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -308,6 +315,13 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'ui_surface_dismiss',
     sessionId: 'sess-001',
     surfaceId: 'surface-001',
+  },
+  app_data_response: {
+    type: 'app_data_response',
+    surfaceId: 'surface-001',
+    callId: 'call-001',
+    success: true,
+    result: [{ id: 'rec-001', appId: 'app-001', data: { name: 'Test' }, createdAt: 1700000000, updatedAt: 1700000000 }],
   },
 };
 

@@ -2,12 +2,13 @@ import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, DynamicPageSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
 import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { getApp } from '../memory/app-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { ToolLifecycleEventHandler, ToolExecutionResult } from '../tools/types.js';
@@ -697,6 +698,29 @@ export class Session {
       this.pendingSurfaceActions.delete(surfaceId);
       this.surfaceState.delete(surfaceId);
       return { content: 'Surface dismissed', isError: false };
+    }
+
+    if (toolName === 'app_open') {
+      const appId = input.app_id as string;
+      const app = getApp(appId);
+      if (!app) return { content: `App not found: ${appId}`, isError: true };
+
+      const surfaceId = uuid();
+      this.surfaceState.set(surfaceId, {
+        surfaceType: 'dynamic_page',
+        data: { html: app.htmlDefinition } as DynamicPageSurfaceData,
+      });
+
+      this.sendToClient({
+        type: 'ui_surface_show',
+        sessionId: this.conversationId,
+        surfaceId,
+        surfaceType: 'dynamic_page',
+        title: app.name,
+        data: { html: app.htmlDefinition, appId: app.id },
+      } as unknown as UiSurfaceShow);
+
+      return { content: JSON.stringify({ surfaceId, appId }), isError: false };
     }
 
     return { content: `Unknown proxy tool: ${toolName}`, isError: true };

@@ -120,6 +120,16 @@ export interface AmbientObservation {
   timestamp: number;
 }
 
+export interface AppDataRequest {
+  type: 'app_data_request';
+  surfaceId: string;
+  callId: string;
+  method: 'query' | 'create' | 'update' | 'delete';
+  appId: string;
+  recordId?: string;
+  data?: Record<string, unknown>;
+}
+
 // === Surface types ===
 
 export type SurfaceType = 'card' | 'form' | 'list' | 'confirmation' | 'dynamic_page';
@@ -210,7 +220,8 @@ export type ClientMessage =
   | CuObservation
   | AmbientObservation
   | TaskSubmit
-  | UiSurfaceAction;
+  | UiSurfaceAction
+  | AppDataRequest;
 
 // === Server → Client messages ===
 
@@ -407,6 +418,15 @@ export interface AmbientResult {
   suggestion?: string;
 }
 
+export interface AppDataResponse {
+  type: 'app_data_response';
+  surfaceId: string;
+  callId: string;
+  success: boolean;
+  result?: unknown;
+  error?: string;
+}
+
 /** Common fields shared by all UiSurfaceShow variants. */
 interface UiSurfaceShowBase {
   type: 'ui_surface_show';
@@ -490,7 +510,8 @@ export type ServerMessage =
   | AmbientResult
   | UiSurfaceShow
   | UiSurfaceUpdate
-  | UiSurfaceDismiss;
+  | UiSurfaceDismiss
+  | AppDataResponse;
 
 // === Serialization ===
 
