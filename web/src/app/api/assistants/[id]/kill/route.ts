@@ -62,7 +62,12 @@ export async function POST(request: Request, { params }: RouteParams) {
           { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ drop_pending_updates: false }) },
         );
         if (!res.ok) {
-          console.warn(`Telegram deleteWebhook returned ${res.status}, continuing`);
+          console.warn(`Telegram deleteWebhook returned HTTP ${res.status}, continuing`);
+        } else {
+          const body = await res.json().catch(() => null) as { ok?: boolean; description?: string } | null;
+          if (body && !body.ok) {
+            console.warn(`Telegram deleteWebhook returned ok:false: ${body.description ?? "unknown error"}, continuing`);
+          }
         }
       }
     } catch (telegramError: unknown) {
