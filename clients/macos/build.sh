@@ -153,6 +153,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <string>${SU_PUBLIC_ED_KEY:-}</string>
     <key>SUAutomaticallyUpdate</key>
     <true/>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
 </dict>
 </plist>
 PLIST
