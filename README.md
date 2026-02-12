@@ -142,7 +142,8 @@ This repo includes Claude Code slash commands (in `.claude/commands/`) for agent
 |---------|---------|
 | `/brainstorm` | Deep-read the codebase, generate a prioritized list of improvements, and update `.private/TODO.md` after approval. |
 | `/swarm [workers] [max-tasks]` | Parallel execution — spawns a pool of agents (default 3) that work through `.private/TODO.md` concurrently, each in its own worktree. PRs are auto-assigned to the current user. |
-| `/blitz <feature>` | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, sweeps for review feedback, addresses it, and reports. |
+| `/blitz <feature>` | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, sweeps for review feedback, addresses it, and reports. Merges directly to main. |
+| `/safe-blitz <feature>` | Same as `/blitz` but merges milestone PRs into a feature branch instead of main. Creates a final PR from the feature branch into main for manual review. Supports `--branch NAME` for custom branch names. |
 | `/execute-plan <file>` | Sequential multi-PR rollout — reads a plan file from `.private/plans/`, executes each PR in order, mainlining each before moving to the next. |
 
 ### Utility
@@ -164,7 +165,7 @@ This repo includes Claude Code slash commands (in `.claude/commands/`) for agent
 3. **`/check-reviews`** — sweep for reviewer feedback
 4. **`/swarm`** again — address the feedback
 
-Or for a focused feature: **`/blitz <feature>`** handles all of the above in one shot (plan, issues, swarm, sweep, report).
+Or for a focused feature: **`/blitz <feature>`** handles all of the above in one shot (plan, issues, swarm, sweep, report). Use **`/safe-blitz <feature>`** for the same workflow but with a feature branch and a final PR for manual review before merging to main.
 
 All workflows use squash-merge (no merge commits), worktree isolation for parallel work, and track state in `.private/TODO.md`, `.private/DONE.md`, and `.private/UNREVIEWED_PRS.md`.
 
