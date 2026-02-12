@@ -124,57 +124,50 @@ struct ChatView: View {
 
     private var composerArea: some View {
         HStack(spacing: VSpacing.sm) {
-            TextField("Type a message\u{2026}", text: $inputText)
-                .textFieldStyle(.plain)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.md)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
-                .onSubmit {
-                    if canSend {
-                        onSend()
-                    }
-                }
+            // Leading chat icon
+            Image(systemName: "phone.fill")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(VColor.accent)
 
+            // Text field
+            TextField("What you need chef?", text: $inputText)
+                .textFieldStyle(.plain)
+                .font(VFont.mono)
+                .foregroundColor(VColor.textPrimary)
+                .onSubmit { if canSend { onSend() } }
+
+            // Stop button (when generating)
             if isSending {
                 Button(action: onStop) {
                     Image(systemName: "stop.circle.fill")
-                        .font(.system(size: 24, weight: .medium))
+                        .font(.system(size: 20, weight: .medium))
                         .foregroundColor(VColor.error)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Stop generation")
             }
 
-            Button(action: {
-                if canSend {
-                    onSend()
-                }
-            }) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
+            // Attachment button
+            Button(action: { /* future: open file picker */ }) {
+                Image(systemName: "paperclip")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
             }
             .buttonStyle(.plain)
-            .disabled(!canSend)
-            .accessibilityLabel("Send message")
+            .accessibilityLabel("Attach file")
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
-        .background(
-            VColor.surface.opacity(0.5)
-                .overlay(
-                    VStack {
-                        Divider().background(VColor.surfaceBorder.opacity(0.4))
-                        Spacer()
-                    }
-                )
+        .background(VColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.pill)
+                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
         )
+        .padding(.horizontal, VSpacing.xl)
+        .padding(.vertical, VSpacing.lg)
+        .frame(maxWidth: 700)
+        .frame(maxWidth: .infinity)
     }
 
     private var canSend: Bool {
