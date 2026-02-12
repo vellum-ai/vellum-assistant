@@ -21,8 +21,6 @@ struct ThreadTabBar: View {
                     )
                 }
 
-                Spacer()
-
                 Button(action: onCreate) {
                     HStack(spacing: VSpacing.xs) {
                         Image(systemName: "plus")
@@ -34,6 +32,8 @@ struct ThreadTabBar: View {
                 .buttonStyle(.plain)
                 .vHover()
                 .accessibilityLabel("New Thread")
+
+                Spacer()
             }
             .padding(.horizontal, VSpacing.lg)
             .frame(height: 36)
