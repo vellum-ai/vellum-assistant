@@ -118,6 +118,13 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     method: 'query',
     appId: 'app-001',
   },
+  skills_list: {
+    type: 'skills_list',
+  },
+  skill_detail: {
+    type: 'skill_detail',
+    skillId: 'my-skill',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -336,6 +343,17 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     callId: 'call-001',
     success: true,
     result: [{ id: 'rec-001', appId: 'app-001', data: { name: 'Test' }, createdAt: 1700000000, updatedAt: 1700000000 }],
+  },
+  skills_list_response: {
+    type: 'skills_list_response',
+    skills: [
+      { id: 'my-skill', name: 'My Skill', description: 'A test skill' },
+    ],
+  },
+  skill_detail_response: {
+    type: 'skill_detail_response',
+    skillId: 'my-skill',
+    body: '# Skill content\n\nDo the thing.',
   },
   message_queued: {
     type: 'message_queued',

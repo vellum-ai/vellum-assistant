@@ -1,4 +1,4 @@
-// Bun Snapshot v1, https://goo.gl/fbAQLP
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
 exports[`IPC message snapshots ClientMessage types user_message serializes to expected JSON 1`] = `
 {
@@ -160,6 +160,19 @@ exports[`IPC message snapshots ClientMessage types app_data_request serializes t
   "method": "query",
   "surfaceId": "surface-001",
   "type": "app_data_request",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types skills_list serializes to expected JSON 1`] = `
+{
+  "type": "skills_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types skill_detail serializes to expected JSON 1`] = `
+{
+  "skillId": "my-skill",
+  "type": "skill_detail",
 }
 `;
 
@@ -521,6 +534,31 @@ exports[`IPC message snapshots ServerMessage types app_data_response serializes 
   "success": true,
   "surfaceId": "surface-001",
   "type": "app_data_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types skills_list_response serializes to expected JSON 1`] = `
+{
+  "skills": [
+    {
+      "description": "A test skill",
+      "id": "my-skill",
+      "name": "My Skill",
+    },
+  ],
+  "type": "skills_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types skill_detail_response serializes to expected JSON 1`] = `
+{
+  "body": 
+"# Skill content
+
+Do the thing."
+,
+  "skillId": "my-skill",
+  "type": "skill_detail_response",
 }
 `;
 

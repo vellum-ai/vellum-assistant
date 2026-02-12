@@ -25,7 +25,10 @@ import type {
   CuObservation,
   TaskSubmit,
   AppDataRequest,
+  SkillsListRequest,
+  SkillDetailRequest,
 } from './ipc-protocol.js';
+import { loadSkillCatalog, loadSkillBySelector } from '../config/skills.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } from '../memory/app-store.js';
@@ -223,6 +226,8 @@ const handlers: DispatchMap = {
   ambient_observation: handleAmbientObservation,
   task_submit: handleTaskSubmit,
   app_data_request: handleAppDataRequest,
+  skills_list: (_msg, socket, ctx) => handleSkillsList(socket, ctx),
+  skill_detail: handleSkillDetail,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
@@ -567,6 +572,38 @@ function handleUsageRequest(
     estimatedCost: conversation.totalEstimatedCost,
     model: config.model,
   });
+}
+
+// ─── Skills handlers ─────────────────────────────────────────────────────────
+
+function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
+  const catalog = loadSkillCatalog();
+  ctx.send(socket, {
+    type: 'skills_list_response',
+    skills: catalog.map((s) => ({ id: s.id, name: s.name, description: s.description })),
+  });
+}
+
+function handleSkillDetail(
+  msg: SkillDetailRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const result = loadSkillBySelector(msg.skillId);
+  if (result.skill) {
+    ctx.send(socket, {
+      type: 'skill_detail_response',
+      skillId: result.skill.id,
+      body: result.skill.body,
+    });
+  } else {
+    ctx.send(socket, {
+      type: 'skill_detail_response',
+      skillId: msg.skillId,
+      body: '',
+      error: result.error ?? 'Skill not found',
+    });
+  }
 }
 
 // ─── App data handler ────────────────────────────────────────────────────────

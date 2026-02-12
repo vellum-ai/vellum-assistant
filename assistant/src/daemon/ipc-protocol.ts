@@ -139,6 +139,15 @@ export interface AppDataRequest {
   data?: Record<string, unknown>;
 }
 
+export interface SkillsListRequest {
+  type: 'skills_list';
+}
+
+export interface SkillDetailRequest {
+  type: 'skill_detail';
+  skillId: string;
+}
+
 // === Surface types ===
 
 export type SurfaceType = 'card' | 'form' | 'list' | 'confirmation' | 'dynamic_page' | 'file_upload';
@@ -239,7 +248,9 @@ export type ClientMessage =
   | AmbientObservation
   | TaskSubmit
   | UiSurfaceAction
-  | AppDataRequest;
+  | AppDataRequest
+  | SkillsListRequest
+  | SkillDetailRequest;
 
 // === Server → Client messages ===
 
@@ -468,6 +479,18 @@ export interface AppDataResponse {
   error?: string;
 }
 
+export interface SkillsListResponse {
+  type: 'skills_list_response';
+  skills: Array<{ id: string; name: string; description: string }>;
+}
+
+export interface SkillDetailResponse {
+  type: 'skill_detail_response';
+  skillId: string;
+  body: string;
+  error?: string;
+}
+
 export interface MessageQueued {
   type: 'message_queued';
   sessionId: string;
@@ -573,6 +596,8 @@ export type ServerMessage =
   | UiSurfaceUpdate
   | UiSurfaceDismiss
   | AppDataResponse
+  | SkillsListResponse
+  | SkillDetailResponse
   | MessageQueued
   | MessageDequeued;
 
