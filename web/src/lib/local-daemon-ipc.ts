@@ -384,6 +384,7 @@ export class LocalDaemonClient {
           break;
         }
         case "message_complete":
+        case "generation_handoff":
           return {
             assistantText: assistantText.trim(),
             usage,

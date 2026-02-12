@@ -150,7 +150,8 @@ final class InterviewViewModel {
                     // Stay in thinking state while the model reasons.
                     break
 
-                case .messageComplete where self.sessionId != nil:
+                case .messageComplete where self.sessionId != nil,
+                     .generationHandoff where self.sessionId != nil:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated
@@ -262,7 +263,8 @@ final class InterviewViewModel {
                     // Stay in thinking state while the model reasons.
                     break
 
-                case .messageComplete:
+                case .messageComplete,
+                     .generationHandoff:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated

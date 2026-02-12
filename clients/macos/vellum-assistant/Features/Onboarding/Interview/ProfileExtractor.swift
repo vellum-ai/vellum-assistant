@@ -136,6 +136,11 @@ final class ProfileExtractor {
                 processExtractionResponse(accumulated)
                 return
 
+            case .generationHandoff(let handoff) where handoff.sessionId == sessionId && sessionId != nil:
+                log.info("Extraction response complete via handoff (\(accumulated.count) chars)")
+                processExtractionResponse(accumulated)
+                return
+
             case .cuError(let error) where error.sessionId == sessionId:
                 log.error("Extraction session error: \(error.message)")
                 return
