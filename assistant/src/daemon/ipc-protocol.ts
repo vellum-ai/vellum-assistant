@@ -238,6 +238,7 @@ export type ClientMessage =
 export interface AssistantTextDelta {
   type: 'assistant_text_delta';
   text: string;
+  sessionId?: string;
 }
 
 export interface AssistantThinkingDelta {
@@ -279,6 +280,7 @@ export interface ConfirmationRequest {
 
 export interface MessageComplete {
   type: 'message_complete';
+  sessionId?: string;
 }
 
 export interface SessionInfo {

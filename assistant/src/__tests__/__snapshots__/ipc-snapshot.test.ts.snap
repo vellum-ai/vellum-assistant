@@ -157,6 +157,7 @@ exports[`IPC message snapshots ClientMessage types app_data_request serializes t
 
 exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
 {
+  "sessionId": "sess-001",
   "text": "Here is some output",
   "type": "assistant_text_delta",
 }
@@ -239,6 +240,7 @@ exports[`IPC message snapshots ServerMessage types confirmation_request serializ
 
 exports[`IPC message snapshots ServerMessage types message_complete serializes to expected JSON 1`] = `
 {
+  "sessionId": "sess-001",
   "type": "message_complete",
 }
 `;

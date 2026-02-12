@@ -222,6 +222,12 @@ struct CuErrorMessage: Decodable, Sendable {
 /// Streamed text delta from the assistant's response.
 struct AssistantTextDeltaMessage: Decodable, Sendable {
     let text: String
+    let sessionId: String?
+
+    init(text: String, sessionId: String? = nil) {
+        self.text = text
+        self.sessionId = sessionId
+    }
 }
 
 /// Streamed thinking delta from the assistant's reasoning.
@@ -231,6 +237,11 @@ struct AssistantThinkingDeltaMessage: Decodable, Sendable {
 
 /// Signals that the assistant's message is complete.
 struct MessageCompleteMessage: Decodable, Sendable {
+    let sessionId: String?
+
+    init(sessionId: String? = nil) {
+        self.sessionId = sessionId
+    }
 }
 
 /// Session metadata from the server (e.g. generated title).

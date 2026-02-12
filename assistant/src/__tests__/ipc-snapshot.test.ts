@@ -124,6 +124,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   assistant_text_delta: {
     type: 'assistant_text_delta',
     text: 'Here is some output',
+    sessionId: 'sess-001',
   },
   assistant_thinking_delta: {
     type: 'assistant_thinking_delta',
@@ -173,6 +174,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   message_complete: {
     type: 'message_complete',
+    sessionId: 'sess-001',
   },
   session_info: {
     type: 'session_info',
