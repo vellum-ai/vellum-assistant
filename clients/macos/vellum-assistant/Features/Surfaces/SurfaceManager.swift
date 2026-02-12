@@ -61,6 +61,8 @@ final class SurfaceManager: ObservableObject {
     /// Prevents duplicate actions (e.g. submit followed by dismiss) from racing.
     private var respondedSurfaces: Set<String> = []
 
+    private var closeObservers: [String: Any] = [:]
+
     private let panelWidth: CGFloat = 380
     private let panelMargin: CGFloat = 20
     private let panelSpacing: CGFloat = 10
@@ -198,16 +200,19 @@ final class SurfaceManager: ObservableObject {
         }
 
         if isDynamicPage {
-            NotificationCenter.default.addObserver(
+            let surfaceId = surface.id
+            let observer = NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification,
                 object: panel,
                 queue: .main
             ) { [weak self] _ in
                 guard let self else { return }
                 Task { @MainActor in
-                    self.viewModels[surface.id]?.onDismiss()
+                    guard self.panels[surfaceId] != nil else { return }
+                    self.viewModels[surfaceId]?.onDismiss()
                 }
             }
+            closeObservers[surfaceId] = observer
         }
 
         panels[surface.id] = panel
@@ -248,6 +253,10 @@ final class SurfaceManager: ObservableObject {
     }
 
     func dismissAll() {
+        for observer in closeObservers.values {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        closeObservers.removeAll()
         let ids = Array(panels.keys)
         for id in ids {
             panels[id]?.close()
@@ -263,6 +272,9 @@ final class SurfaceManager: ObservableObject {
     }
 
     private func dismissSurfaceById(_ surfaceId: String) {
+        if let observer = closeObservers.removeValue(forKey: surfaceId) {
+            NotificationCenter.default.removeObserver(observer)
+        }
         panels[surfaceId]?.close()
         panels.removeValue(forKey: surfaceId)
         viewModels.removeValue(forKey: surfaceId)
