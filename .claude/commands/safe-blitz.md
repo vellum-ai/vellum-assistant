@@ -71,13 +71,15 @@ This is the key difference from `/blitz`. All milestone work merges into this br
    - If `--branch NAME` was passed, use that.
    - Otherwise, generate one from the feature description: `feature/<kebab-case-summary>` (e.g., `feature/websocket-ipc-transport`). Keep it under 50 characters.
 
-2. Create and push the feature branch from the current main:
+2. Create and push the feature branch from the latest main **without switching your working tree**:
 
 ```bash
-git checkout main && git pull origin main
-git checkout -b <feature-branch-name>
+git fetch origin main
+git branch <feature-branch-name> origin/main
 git push -u origin <feature-branch-name>
 ```
+
+This keeps your current branch unchanged so safe-blitz doesn't block your main working tree.
 
 3. Store the feature branch name for later phases. All agents will use `--base <feature-branch-name>` instead of `--base main`.
 
