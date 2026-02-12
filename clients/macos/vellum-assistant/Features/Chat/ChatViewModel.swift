@@ -384,6 +384,7 @@ final class ChatViewModel: ObservableObject {
             log.warning("Cannot send cancel: daemon not connected")
             isSending = false
             isThinking = false
+            isCancelling = false
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
