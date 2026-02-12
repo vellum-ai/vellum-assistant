@@ -125,6 +125,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'skill_detail',
     skillId: 'my-skill',
   },
+  suggestion_request: {
+    type: 'suggestion_request',
+    sessionId: 'sess-001',
+    requestId: 'req-suggest-001',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -354,6 +359,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'skill_detail_response',
     skillId: 'my-skill',
     body: '# Skill content\n\nDo the thing.',
+  },
+  suggestion_response: {
+    type: 'suggestion_response',
+    requestId: 'req-suggest-001',
+    suggestion: 'Tell me more about that',
+    source: 'llm',
   },
   message_queued: {
     type: 'message_queued',

@@ -176,6 +176,14 @@ exports[`IPC message snapshots ClientMessage types skill_detail serializes to ex
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types suggestion_request serializes to expected JSON 1`] = `
+{
+  "requestId": "req-suggest-001",
+  "sessionId": "sess-001",
+  "type": "suggestion_request",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
 {
   "sessionId": "sess-001",
@@ -559,6 +567,15 @@ Do the thing."
 ,
   "skillId": "my-skill",
   "type": "skill_detail_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types suggestion_response serializes to expected JSON 1`] = `
+{
+  "requestId": "req-suggest-001",
+  "source": "llm",
+  "suggestion": "Tell me more about that",
+  "type": "suggestion_response",
 }
 `;
 

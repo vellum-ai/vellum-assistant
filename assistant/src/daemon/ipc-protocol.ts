@@ -149,6 +149,12 @@ export interface SkillDetailRequest {
   skillId: string;
 }
 
+export interface SuggestionRequest {
+  type: 'suggestion_request';
+  sessionId: string;
+  requestId: string;
+}
+
 // === Surface types ===
 
 export type SurfaceType = 'card' | 'form' | 'list' | 'confirmation' | 'dynamic_page' | 'file_upload';
@@ -251,7 +257,8 @@ export type ClientMessage =
   | UiSurfaceAction
   | AppDataRequest
   | SkillsListRequest
-  | SkillDetailRequest;
+  | SkillDetailRequest
+  | SuggestionRequest;
 
 // === Server → Client messages ===
 
@@ -497,6 +504,13 @@ export interface SkillDetailResponse {
   error?: string;
 }
 
+export interface SuggestionResponse {
+  type: 'suggestion_response';
+  requestId: string;
+  suggestion: string | null;
+  source: 'llm' | 'none';
+}
+
 export interface MessageQueued {
   type: 'message_queued';
   sessionId: string;
@@ -604,6 +618,7 @@ export type ServerMessage =
   | AppDataResponse
   | SkillsListResponse
   | SkillDetailResponse
+  | SuggestionResponse
   | MessageQueued
   | MessageDequeued;
 

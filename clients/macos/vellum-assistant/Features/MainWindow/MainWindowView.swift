@@ -39,9 +39,11 @@ struct MainWindowView: View {
                         isSending: viewModel.isSending,
                         errorText: viewModel.errorText,
                         pendingQueuedCount: viewModel.pendingQueuedCount,
+                        suggestion: viewModel.suggestion,
                         onSend: viewModel.sendMessage,
                         onStop: viewModel.stopGenerating,
-                        onDismissError: viewModel.dismissError
+                        onDismissError: viewModel.dismissError,
+                        onAcceptSuggestion: viewModel.acceptSuggestion
                     )
                 }
             }, panel: {
