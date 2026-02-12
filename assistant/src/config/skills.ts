@@ -462,6 +462,21 @@ async function generateSkillIcon(name: string, description: string): Promise<str
   return svgMatch[0];
 }
 
+/**
+ * Synchronously read a cached icon if it exists on disk. Returns undefined if not cached yet.
+ */
+export function readCachedSkillIcon(directoryPath: string): string | undefined {
+  const iconPath = join(directoryPath, 'icon.svg');
+  if (existsSync(iconPath)) {
+    try {
+      return readFileSync(iconPath, 'utf-8');
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 export async function ensureSkillIcon(directoryPath: string, name: string, description: string): Promise<string | undefined> {
   const iconPath = join(directoryPath, 'icon.svg');
 
@@ -476,8 +491,12 @@ export async function ensureSkillIcon(directoryPath: string, name: string, descr
 
   try {
     const svg = await generateSkillIcon(name, description);
-    writeFileSync(iconPath, svg, 'utf-8');
-    log.info({ iconPath }, 'Generated skill icon');
+    try {
+      writeFileSync(iconPath, svg, 'utf-8');
+      log.info({ iconPath }, 'Generated skill icon');
+    } catch (writeErr) {
+      log.warn({ err: writeErr, iconPath }, 'Failed to cache icon.svg (returning generated icon anyway)');
+    }
     return svg;
   } catch (err) {
     log.warn({ err, iconPath }, 'Failed to generate skill icon');
