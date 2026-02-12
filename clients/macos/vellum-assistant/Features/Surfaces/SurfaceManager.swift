@@ -145,12 +145,7 @@ final class SurfaceManager: ObservableObject {
             surfacePanelHeight = 300
         }
 
-        let isDynamicPage: Bool
-        if case .dynamicPage = surface.data {
-            isDynamicPage = true
-        } else {
-            isDynamicPage = false
-        }
+        let isDynamicPage = if case .dynamicPage = surface.data { true } else { false }
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: surfacePanelWidth, height: surfacePanelHeight),
