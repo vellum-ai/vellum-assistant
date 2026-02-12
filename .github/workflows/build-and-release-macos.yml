@@ -103,6 +103,13 @@ jobs:
           codesign --verify --deep --strict "$APP_PATH"
           echo "Code signature verified"
 
+      - name: Free disk space
+        run: |
+          rm -rf .build daemon-bin
+          rm -rf ../assistant/node_modules
+          df -h .
+          echo "Disk space freed"
+
       - name: Create DMG
         run: |
           APP_PATH="dist/vellum-assistant.app"
