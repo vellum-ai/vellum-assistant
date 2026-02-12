@@ -29,8 +29,8 @@ struct VIconButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            if hovering { NSCursor.pointingHand.set() }
-            else { NSCursor.arrow.set() }
+            NSCursor.pointingHand.set()
+            if !hovering { NSCursor.arrow.set() }
         }
         .accessibilityLabel(label)
     }
