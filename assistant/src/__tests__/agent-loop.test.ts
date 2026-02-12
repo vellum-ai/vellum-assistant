@@ -351,6 +351,44 @@ describe('AgentLoop', () => {
     expect(reminderBlock).toBeDefined();
   });
 
+  test('stops after configured maxToolUseTurns to prevent runaway loops', async () => {
+    const responses: ProviderResponse[] = [
+      toolUseResponse('t1', 'read_file', { path: '/one.txt' }),
+      toolUseResponse('t2', 'read_file', { path: '/two.txt' }),
+      toolUseResponse('t3', 'read_file', { path: '/three.txt' }),
+      textResponse('Should never be requested'),
+    ];
+    const { provider, calls } = createMockProvider(responses);
+    const toolExecutor = async () => ({ content: 'data', isError: false });
+    const loop = new AgentLoop(
+      provider,
+      'system',
+      { maxToolUseTurns: 3 },
+      dummyTools,
+      toolExecutor,
+    );
+
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events));
+
+    // The loop should stop immediately after the 3rd tool-use turn, before the next provider call.
+    expect(calls).toHaveLength(3);
+
+    const errorEvents = events.filter(
+      (e): e is Extract<AgentEvent, { type: 'error' }> => e.type === 'error',
+    );
+    expect(errorEvents).toHaveLength(1);
+    expect(errorEvents[0].error.message).toContain('Tool-use turn limit reached (3)');
+
+    const lastMessage = history[history.length - 1];
+    expect(lastMessage.role).toBe('user');
+    const limitText = lastMessage.content.find(
+      (b): b is Extract<ContentBlock, { type: 'text' }> =>
+        b.type === 'text' && b.text.includes('Tool-use turn limit reached (3)'),
+    );
+    expect(limitText).toBeDefined();
+  });
+
   // 9. Tool executor error results are forwarded correctly
   test('forwards tool error results to provider', async () => {
     const { provider, calls } = createMockProvider([

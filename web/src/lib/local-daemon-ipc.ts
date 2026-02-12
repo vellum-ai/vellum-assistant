@@ -337,9 +337,17 @@ export class LocalDaemonClient {
     let usage: DaemonUsageUpdate | null = null;
     const toolCalls: DaemonToolCall[] = [];
     let currentToolCall: DaemonToolCall | null = null;
+    const deadline = Date.now() + timeoutMs;
 
     while (true) {
-      const message = await this.waitFor(() => true, timeoutMs);
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        throw new LocalDaemonError(
+          "TIMEOUT",
+          `Timed out waiting for daemon response after ${timeoutMs}ms`
+        );
+      }
+      const message = await this.waitFor(() => true, remainingMs);
 
       switch (message.type) {
         case "assistant_text_delta": {
