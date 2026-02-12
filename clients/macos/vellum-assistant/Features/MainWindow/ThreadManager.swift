@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import os
 
@@ -6,10 +7,13 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 final class ThreadManager: ObservableObject {
     @Published var threads: [ThreadModel] = []
-    @Published var activeThreadId: UUID?
+    @Published var activeThreadId: UUID? {
+        didSet { subscribeToActiveViewModel() }
+    }
 
     private var chatViewModels: [UUID: ChatViewModel] = [:]
     private let daemonClient: DaemonClient
+    private var viewModelCancellable: AnyCancellable?
 
     var activeViewModel: ChatViewModel? {
         guard let activeThreadId else { return nil }
@@ -60,5 +64,16 @@ final class ThreadManager: ObservableObject {
     func selectThread(id: UUID) {
         guard threads.contains(where: { $0.id == id }) else { return }
         activeThreadId = id
+    }
+
+    // MARK: - Private
+
+    /// Subscribe to the active ChatViewModel's objectWillChange so that
+    /// SwiftUI re-evaluates views when the nested view model publishes
+    /// changes (new messages, thinking state, errors, etc.).
+    private func subscribeToActiveViewModel() {
+        viewModelCancellable = activeViewModel?.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
     }
 }
