@@ -19,7 +19,7 @@ struct VTab: View {
     private var background: Color {
         switch style {
         case .pill:
-            return isSelected ? VColor.surfaceBorder : (isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)
+            return isSelected ? Slate._200 : (isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)
         case .flat:
             return .clear
         }
@@ -36,11 +36,16 @@ struct VTab: View {
                     .font(VFont.body)
                     .lineLimit(1)
             }
-            .foregroundColor(isSelected ? VColor.textPrimary : VColor.textSecondary)
+            .foregroundColor(isSelected && style == .pill ? Slate._900 : (isSelected ? VColor.textPrimary : VColor.textSecondary))
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
             .background(background)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.pill)
+                    .stroke(Slate._300, lineWidth: 1)
+                    .opacity(style == .pill && isSelected ? 1 : 0)
+            )
         }
         .buttonStyle(.plain)
         .onHover { hovering in isHovered = hovering }
