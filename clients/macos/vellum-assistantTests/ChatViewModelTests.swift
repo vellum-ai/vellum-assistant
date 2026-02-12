@@ -1,0 +1,269 @@
+import XCTest
+@testable import VellumAssistantLib
+
+@MainActor
+final class ChatViewModelTests: XCTestCase {
+
+    private var daemonClient: DaemonClient!
+    private var viewModel: ChatViewModel!
+
+    override func setUp() {
+        super.setUp()
+        daemonClient = DaemonClient()
+        viewModel = ChatViewModel(daemonClient: daemonClient)
+    }
+
+    override func tearDown() {
+        viewModel = nil
+        daemonClient = nil
+        super.tearDown()
+    }
+
+    // MARK: - Initialization
+
+    func testInitCreatesGreetingMessage() {
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].role, .assistant)
+        XCTAssertTrue(viewModel.messages[0].text.contains("How can I help"))
+    }
+
+    func testInitStartsWithEmptyInput() {
+        XCTAssertEqual(viewModel.inputText, "")
+    }
+
+    func testInitStartsNotSending() {
+        XCTAssertFalse(viewModel.isSending)
+    }
+
+    func testInitStartsNotThinking() {
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    func testInitStartsWithNoError() {
+        XCTAssertNil(viewModel.errorText)
+    }
+
+    // MARK: - Send Message
+
+    func testSendMessageAppendsUserMessage() {
+        viewModel.inputText = "Hello world"
+        viewModel.sendMessage()
+
+        // Should have greeting + user message
+        XCTAssertEqual(viewModel.messages.count, 2)
+        XCTAssertEqual(viewModel.messages[1].role, .user)
+        XCTAssertEqual(viewModel.messages[1].text, "Hello world")
+    }
+
+    func testSendMessageClearsInput() {
+        viewModel.inputText = "Hello world"
+        viewModel.sendMessage()
+        XCTAssertEqual(viewModel.inputText, "")
+    }
+
+    func testSendEmptyMessageDoesNothing() {
+        viewModel.inputText = "   "
+        viewModel.sendMessage()
+        XCTAssertEqual(viewModel.messages.count, 1) // Just greeting
+    }
+
+    func testSendWhileSendingDoesNothing() {
+        viewModel.inputText = "First"
+        viewModel.sendMessage()
+
+        viewModel.inputText = "Second"
+        viewModel.sendMessage() // Should be ignored since isSending is set by bootstrapSession
+
+        XCTAssertEqual(viewModel.messages.count, 2) // greeting + first only
+    }
+
+    func testSendMessageClearsExistingError() {
+        viewModel.errorText = "Previous error"
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+        XCTAssertNil(viewModel.errorText)
+    }
+
+    // MARK: - Session Info
+
+    func testSessionInfoStoresSessionId() {
+        let info = SessionInfoMessage(sessionId: "test-123", title: "Test")
+        viewModel.handleServerMessage(.sessionInfo(info))
+        XCTAssertEqual(viewModel.sessionId, "test-123")
+    }
+
+    func testSessionInfoDoesNotOverwriteExistingSession() {
+        viewModel.sessionId = "first-session"
+        let info = SessionInfoMessage(sessionId: "second-session", title: "Test")
+        viewModel.handleServerMessage(.sessionInfo(info))
+        XCTAssertEqual(viewModel.sessionId, "first-session")
+    }
+
+    // MARK: - Streaming Deltas
+
+    func testTextDeltaCreatesAssistantMessage() {
+        let delta = AssistantTextDeltaMessage(text: "Hello")
+        viewModel.handleServerMessage(.assistantTextDelta(delta))
+
+        // Should have greeting + new assistant message
+        XCTAssertEqual(viewModel.messages.count, 2)
+        XCTAssertEqual(viewModel.messages[1].role, .assistant)
+        XCTAssertEqual(viewModel.messages[1].text, "Hello")
+        XCTAssertTrue(viewModel.messages[1].isStreaming)
+    }
+
+    func testTextDeltaClearsThinkingState() {
+        viewModel.isThinking = true
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Hi")))
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    func testTextDeltasAccumulateInSingleMessage() {
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Hel")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "lo ")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "world")))
+
+        XCTAssertEqual(viewModel.messages.count, 2) // greeting + 1 assistant
+        XCTAssertEqual(viewModel.messages[1].text, "Hello world")
+        XCTAssertTrue(viewModel.messages[1].isStreaming)
+    }
+
+    // MARK: - Message Complete
+
+    func testMessageCompleteFinalizesState() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Start streaming
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response")))
+
+        // Complete
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+        XCTAssertFalse(viewModel.messages[1].isStreaming)
+    }
+
+    func testMessageCompleteWithoutStreamingMessage() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Complete without any text deltas
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    // MARK: - Generation Cancelled
+
+    func testGenerationCancelledClearsLoadingState() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+        XCTAssertFalse(viewModel.messages[1].isStreaming)
+    }
+
+    func testGenerationCancelledWithoutStreamingMessage() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    // MARK: - Error Handling
+
+    func testErrorSetsErrorText() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Something failed")))
+
+        XCTAssertEqual(viewModel.errorText, "Something failed")
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    func testDismissErrorClearsErrorText() {
+        viewModel.errorText = "Some error"
+        viewModel.dismissError()
+        XCTAssertNil(viewModel.errorText)
+    }
+
+    // MARK: - Stop Generating
+
+    func testStopGeneratingResetsState() {
+        // Set up as if we're in a streaming session
+        viewModel.isSending = true
+        viewModel.isThinking = true
+        viewModel.sessionId = "test-session"
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial response")))
+
+        viewModel.stopGenerating()
+
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+        XCTAssertFalse(viewModel.messages[1].isStreaming)
+    }
+
+    func testStopGeneratingWithNoSessionDoesNothing() {
+        // Not sending, no session
+        viewModel.stopGenerating()
+        XCTAssertFalse(viewModel.isSending)
+    }
+
+    func testStopGeneratingWhenNotSendingDoesNothing() {
+        // Has session but not sending
+        viewModel.sessionId = "test-session"
+        viewModel.stopGenerating()
+        XCTAssertFalse(viewModel.isSending)
+    }
+
+    // MARK: - Thinking Delta
+
+    func testThinkingDeltaKeepsThinkingState() {
+        viewModel.isThinking = true
+        viewModel.handleServerMessage(.assistantThinkingDelta(AssistantThinkingDeltaMessage(thinking: "Let me think...")))
+        XCTAssertTrue(viewModel.isThinking)
+    }
+
+    func testThinkingDeltaDoesNotCreateMessage() {
+        viewModel.handleServerMessage(.assistantThinkingDelta(AssistantThinkingDeltaMessage(thinking: "Hmm...")))
+        XCTAssertEqual(viewModel.messages.count, 1) // Only the greeting
+    }
+
+    // MARK: - Full Conversation Flow
+
+    func testFullConversationFlow() {
+        // Simulate a complete conversation: session created, text streamed, completed
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        XCTAssertEqual(viewModel.sessionId, "sess-1")
+
+        // Thinking starts
+        viewModel.isThinking = true
+        viewModel.isSending = true
+        viewModel.handleServerMessage(.assistantThinkingDelta(AssistantThinkingDeltaMessage(thinking: "Analyzing...")))
+        XCTAssertTrue(viewModel.isThinking)
+
+        // Text deltas arrive
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "The answer")))
+        XCTAssertFalse(viewModel.isThinking) // Thinking cleared on first text delta
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " is 42.")))
+        XCTAssertEqual(viewModel.messages[1].text, "The answer is 42.")
+        XCTAssertTrue(viewModel.messages[1].isStreaming)
+
+        // Message completes
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.messages[1].isStreaming)
+    }
+}

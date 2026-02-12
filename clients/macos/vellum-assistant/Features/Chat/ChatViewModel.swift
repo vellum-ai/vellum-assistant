@@ -12,7 +12,7 @@ final class ChatViewModel: ObservableObject {
     @Published var errorText: String?
 
     private let daemonClient: DaemonClient
-    private var sessionId: String?
+    var sessionId: String?
     private var pendingUserMessage: String?
     private var messageLoopTask: Task<Void, Never>?
     private var currentAssistantMessageId: UUID?
@@ -112,7 +112,7 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func handleServerMessage(_ message: ServerMessage) {
+    func handleServerMessage(_ message: ServerMessage) {
         switch message {
         case .sessionInfo(let info):
             if sessionId == nil {
