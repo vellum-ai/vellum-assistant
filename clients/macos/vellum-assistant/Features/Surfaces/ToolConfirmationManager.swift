@@ -168,6 +168,7 @@ struct ToolConfirmationView: View {
             }
         }
         .padding(VSpacing.xl)
+        .frame(width: 420)
         .vPanelBackground()
     }
 }
