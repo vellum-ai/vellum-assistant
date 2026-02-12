@@ -136,7 +136,7 @@ struct ChatView: View {
                 .foregroundColor(VColor.textPrimary)
                 .onSubmit { if canSend { onSend() } }
 
-            // Stop button (when generating)
+            // Attachment / Stop button
             if isSending {
                 Button(action: onStop) {
                     Image(systemName: "stop.circle.fill")
@@ -145,6 +145,14 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Stop generation")
+            } else {
+                Button {} label: {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Attach file")
             }
         }
         .padding(.horizontal, VSpacing.lg)
@@ -192,37 +200,39 @@ private struct ChatBubble: View {
         }
     }
 
-    var body: some View {
-        HStack {
-            if isUser { Spacer(minLength: 0) }
-
-            VStack(alignment: isUser ? .trailing : .leading, spacing: 2) {
-                bubbleContent
-
-                if let label = statusLabel {
-                    Text(label)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-            }
-
-            if !isUser { Spacer(minLength: 0) }
+    private var formattedTimestamp: String {
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        formatter.dateFormat = "H:mm"
+        let timeString = formatter.string(from: message.timestamp)
+        if calendar.isDateInToday(message.timestamp) {
+            return "Today, \(timeString)"
+        } else {
+            let dayFormatter = DateFormatter()
+            dayFormatter.dateFormat = "MMM d"
+            return "\(dayFormatter.string(from: message.timestamp)), \(timeString)"
         }
     }
 
-    private var bubbleContent: some View {
-        Text(message.text)
-            .font(VFont.body)
-            .foregroundColor(isUser ? .white : VColor.textPrimary)
-            .textSelection(.enabled)
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
-            )
-            .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
-            .opacity(bubbleOpacity)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(message.text)
+                .font(VFont.mono)
+                .foregroundColor(VColor.textPrimary)
+                .textSelection(.enabled)
+                .opacity(bubbleOpacity)
+
+            if let label = statusLabel {
+                Text(label)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+
+            Text(formattedTimestamp)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func ordinal(_ n: Int) -> String {
@@ -250,25 +260,17 @@ private struct ThinkingIndicator: View {
     @State private var timer: Timer?
 
     var body: some View {
-        HStack {
-            HStack(spacing: VSpacing.xs) {
-                Text("Thinking")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+        HStack(spacing: VSpacing.xs) {
+            Text("Thinking")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
 
-                ForEach(0..<3, id: \.self) { index in
-                    Circle()
-                        .fill(VColor.textSecondary)
-                        .frame(width: 5, height: 5)
-                        .opacity(dotOpacity(for: index))
-                }
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(VColor.textSecondary)
+                    .frame(width: 5, height: 5)
+                    .opacity(dotOpacity(for: index))
             }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surface.opacity(0.5))
-            )
 
             Spacer()
         }
