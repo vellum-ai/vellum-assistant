@@ -1,12 +1,12 @@
-# Scrub — Kill, Wipe, and Relaunch vellum-assistant
+# Scrub — Kill, Wipe, and Relaunch Vellum
 
-Kill the running vellum-assistant app, delete all persistent data so the next launch behaves like a first run (including onboarding), then start the daemon and rebuild/launch the app.
+Kill the running Vellum app, delete all persistent data so the next launch behaves like a first run (including onboarding), then start the daemon and rebuild/launch the app.
 
 ## Steps
 
-1. Kill any running `vellum-assistant` processes:
+1. Kill any running Vellum processes:
    ```bash
-   pkill -f "vellum-assistant"
+   pkill -f "Vellum"
    ```
 
 2. Remove session logs and knowledge store:

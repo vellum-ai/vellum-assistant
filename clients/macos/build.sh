@@ -91,9 +91,9 @@ rm -rf "$APP_DIR"
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 
-# Copy executable and add Frameworks rpath for bundled dynamic frameworks
-cp "$EXECUTABLE" "$MACOS_DIR/$APP_NAME"
-install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$APP_NAME" 2>/dev/null || true
+# Copy executable (renamed to match display name) and add Frameworks rpath
+cp "$EXECUTABLE" "$MACOS_DIR/$BUNDLE_DISPLAY_NAME"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
 
 # Copy Sparkle.framework into bundle (required — it's a dynamic framework)
 SPARKLE_FW="$BIN_PATH/Sparkle.framework"
@@ -121,7 +121,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>$APP_NAME</string>
+    <string>$BUNDLE_DISPLAY_NAME</string>
     <key>CFBundleIdentifier</key>
     <string>$BUNDLE_ID</string>
     <key>CFBundleName</key>
@@ -206,7 +206,7 @@ echo "Built: $APP_DIR"
 if [ "$CMD" = "run" ]; then
     echo "Launching..."
     # Kill existing instance if running
-    pkill -x "$APP_NAME" 2>/dev/null || true
+    pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
     sleep 0.3
     # Launch via `open` so Launch Services registers the bundle —
     # this is required for macOS TCC to associate the app with its
