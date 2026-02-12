@@ -104,3 +104,27 @@ struct SurfaceContainerView: View {
         }
     }
 }
+
+#Preview {
+    SurfaceContainerView(
+        viewModel: SurfaceViewModel(
+            surface: Surface(
+                id: "preview",
+                sessionId: "session-1",
+                type: .card,
+                title: "Task Summary",
+                data: .card(CardSurfaceData(
+                    title: "Screenshot Captured",
+                    subtitle: "Step 2 of 5",
+                    body: "Captured the current screen state for analysis.",
+                    metadata: nil
+                )),
+                actions: [
+                    SurfaceActionButton(id: "dismiss", label: "Dismiss", style: .secondary),
+                    SurfaceActionButton(id: "continue", label: "Continue", style: .primary),
+                ]
+            ),
+            onAction: { _, _ in }
+        )
+    )
+}

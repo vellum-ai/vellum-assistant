@@ -315,6 +315,10 @@ struct TaskInputView: View {
     }
 }
 
+#Preview {
+    TaskInputView(onSubmit: { _ in })
+}
+
 private extension NSImage {
     func pngData() -> Data? {
         guard let tiff = tiffRepresentation,

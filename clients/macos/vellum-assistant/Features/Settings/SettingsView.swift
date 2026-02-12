@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct SettingsView: View {
+public struct SettingsView: View {
     @State private var apiKeyText = ""
     @State private var hasKey = APIKeyManager.getKey() != nil
     @State private var maxSteps: Double = {
@@ -21,10 +21,14 @@ struct SettingsView: View {
     }()
     var ambientAgent: AmbientAgent
 
+    public init(ambientAgent: AmbientAgent) {
+        self.ambientAgent = ambientAgent
+    }
+
     // Re-check permissions every 2 seconds while the window is open
     private let permissionTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
-    var body: some View {
+    public var body: some View {
         Form {
             Section("Anthropic API Key") {
                 if hasKey {
@@ -504,4 +508,8 @@ private struct KnowledgeEntriesView: View {
         }
         .frame(width: 500, height: 400)
     }
+}
+
+#Preview {
+    SettingsView(ambientAgent: AmbientAgent())
 }

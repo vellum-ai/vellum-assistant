@@ -1,7 +1,7 @@
 import XCTest
 import CoreGraphics
 import Combine
-@testable import vellum_assistant
+@testable import VellumAssistantLib
 
 // MARK: - Mock Daemon Client
 

@@ -156,3 +156,25 @@ struct FormSurfaceView: View {
         onSubmit(values)
     }
 }
+
+#Preview {
+    FormSurfaceView(
+        data: FormSurfaceData(
+            description: "Configure your assistant preferences.",
+            fields: [
+                FormField(id: "name", type: .text, label: "Name", placeholder: "Enter your name", required: true, defaultValue: nil, options: nil),
+                FormField(id: "bio", type: .textarea, label: "Bio", placeholder: "Tell us about yourself", required: false, defaultValue: nil, options: nil),
+                FormField(id: "role", type: .select, label: "Role", placeholder: "Select a role", required: true, defaultValue: nil, options: [
+                    FormFieldOption(label: "Developer", value: "dev"),
+                    FormFieldOption(label: "Designer", value: "design"),
+                    FormFieldOption(label: "Manager", value: "pm"),
+                ]),
+                FormField(id: "notifications", type: .toggle, label: "Enable notifications", placeholder: nil, required: false, defaultValue: .boolean(true), options: nil),
+            ],
+            submitLabel: "Save"
+        ),
+        onSubmit: { _ in }
+    )
+    .padding()
+    .frame(width: 380)
+}

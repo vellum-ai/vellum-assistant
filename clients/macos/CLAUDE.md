@@ -73,6 +73,11 @@ A background screen-watching system that runs alongside the manual session loop:
 
 ### App Lifecycle
 
+The package is split into two targets for Xcode Preview support:
+- **`VellumAssistantLib`** (library) — all app code, resources, and linker settings. Previews work on any SwiftUI view here.
+- **`vellum-assistant`** (executable) — thin `@main` entry point in `vellum-assistant-app/` that imports `VellumAssistantLib`.
+
+
 `AppDelegate` sets up: NSStatusItem with NSPopover, global hotkey (Cmd+Shift+G via HotKey package), global Escape monitor, voice input, ambient agent, and onboarding flow. `VellumAssistantApp` is the `@main` entry point with `@NSApplicationDelegateAdaptor`.
 
 ### Onboarding
@@ -83,7 +88,7 @@ A background screen-watching system that runs alongside the manual session loop:
 
 - **LSUIElement app** — no dock icon; uses `.accessory` activation policy. Must temporarily switch to `.regular` when showing Settings window.
 - **`Bundle.main.bundleIdentifier` is nil** in SPM builds. All `os.Logger` instances use hardcoded fallback `"com.vellum.vellum-assistant"`.
-- **Adding .swift files**: Auto-picked up by SPM. No manual project file edits needed.
+- **Adding .swift files**: Auto-picked up by SPM. No manual project file edits needed. New files go in `vellum-assistant/` (library target); only `@main` entry point lives in `vellum-assistant-app/`.
 - **Chrome special handling** — `ChromeAccessibilityHelper` detects when Chrome's AX tree lacks web content and auto-restarts Chrome with `--force-renderer-accessibility`.
 - **Popover close delay** — 300ms initial delay before session starts to let the popover close and target app regain focus.
 - **SessionState enum** must stay in sync with `SessionOverlayView` pattern matching.

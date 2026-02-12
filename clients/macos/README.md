@@ -75,10 +75,72 @@ Grant these in System Settings → Privacy & Security.
 7. Watch the overlay as vellum-assistant works through the task
 8. Press Escape at any time to cancel
 
+## Xcode Previews
+
+The package is split into a library target (`VellumAssistantLib`) and a thin executable target (`vellum-assistant`). This lets you preview SwiftUI views live in Xcode without building and running the whole app.
+
+### Prerequisites
+
+1. **Install Xcode** — Download from the [Mac App Store](https://apps.apple.com/us/app/xcode/id497799835) (free, requires macOS). It's a large download (~7 GB), so this may take a while.
+2. **Open Xcode once** after installing and accept the license agreement. It will install additional components automatically.
+
+### Step-by-step: Opening the project
+
+1. Open Terminal and run:
+   ```bash
+   open clients/macos/Package.swift
+   ```
+   This opens the Swift package in Xcode. You can also double-click `Package.swift` in Finder.
+
+2. Xcode will open and start resolving dependencies (you'll see a spinner in the top status bar). Wait for it to finish — this only takes a few seconds.
+
+### Step-by-step: Viewing a preview
+
+1. **Select the library scheme.** At the very top center of the Xcode window, there's a dropdown button that shows the current scheme (it probably says `vellum-assistant > My Mac`). Click it and switch to **`VellumAssistantLib`**. Previews only work on the library target — the executable target will show an error about `ENABLE_DEBUG_DYLIB`.
+
+2. **Open a SwiftUI file.** In the left sidebar (file navigator), expand `vellum-assistant` and navigate to any SwiftUI view, for example:
+   - `Features/Settings/SettingsView.swift`
+   - `Features/Onboarding/OnboardingFlowView.swift`
+   - `UI/SessionOverlayView.swift`
+
+3. **Show the Canvas.** Go to the menu bar: **Editor → Canvas** (or press `⌥⌘↩` / Option+Command+Return). A preview panel appears on the right side of the editor.
+
+4. **Resume the preview.** If the canvas says "Preview paused", click the **Resume** button at the top of the canvas (or press `⌥⌘P` / Option+Command+P). Xcode will build the library and render the preview.
+
+### Important: Views need a `#Preview` block
+
+A SwiftUI file will **only show a preview** if it contains a `#Preview` block. If you open a file and the canvas is blank or says "No preview available", the file is missing one.
+
+To add a preview, put this at the bottom of the file (outside any struct):
+
+```swift
+#Preview {
+    MyViewName()
+}
+```
+
+For example, `SettingsView` requires an argument:
+
+```swift
+#Preview {
+    SettingsView(ambientAgent: AmbientAgent())
+}
+```
+
+### Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| "ENABLE_DEBUG_DYLIB" error | Switch the scheme to **`VellumAssistantLib`** (not `vellum-assistant`) |
+| Canvas is blank / "No preview available" | The file needs a `#Preview { ... }` block — see above |
+| "Preview paused" | Click **Resume** in the canvas or press `⌥⌘P` |
+| Build errors in the canvas | Try **Product → Clean Build Folder** (`⇧⌘K`) then resume |
+
 ## Architecture
 
 ```
-App/                  Entry point, AppDelegate, menu bar setup, permissions, voice input
+App/                  AppDelegate, menu bar setup, permissions, voice input
+vellum-assistant-app/ Entry point (@main VellumAssistantApp — thin wrapper)
 ComputerUse/          Core perception + action pipeline
   AccessibilityTree   AX element enumeration & formatting
   AXTreeDiff          Diff between AX tree snapshots across steps
