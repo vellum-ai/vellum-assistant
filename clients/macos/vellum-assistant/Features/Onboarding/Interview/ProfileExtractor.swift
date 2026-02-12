@@ -28,60 +28,83 @@ private struct ExtractionResponse: Codable {
 
 // MARK: - ProfileExtractor
 
+/// Extracts a structured user profile from an interview transcript by sending
+/// the conversation to a new daemon session with a profile-extraction system prompt.
+/// Writes the `soul` field to `~/.vellum/SOUL.md` and stores the profile
+/// in UserDefaults for client-side use.
+///
+/// Designed to run in the background after onboarding completes. Fails silently
+/// on any error — logs but does not crash or surface errors to the user.
 @Observable
 @MainActor
 final class ProfileExtractor {
 
+    // MARK: - Dependencies
+
     private let daemonClient: DaemonClientProtocol
+
+    // MARK: - Init
 
     init(daemonClient: DaemonClientProtocol) {
         self.daemonClient = daemonClient
     }
 
-    /// Extracts a user profile from interview messages by sending the transcript
-    /// to a new daemon session for analysis. Writes a SOUL.md file and stores the
-    /// profile in UserDefaults. Fails silently on any error.
+    // MARK: - Extraction
+
+    /// Runs profile extraction against the daemon in the background.
+    /// Creates a new session with a profile-extraction system prompt, sends the
+    /// formatted interview transcript, parses the JSON response, writes SOUL.md,
+    /// and stores profile data in UserDefaults.
     func extractProfile(from messages: [InterviewMessage], assistantName: String) async {
+        do {
+            try await performExtraction(from: messages, assistantName: assistantName)
+        } catch {
+            log.error("Profile extraction failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Private
+
+    private static let extractionPrompt = """
+    You are analyzing a conversation between an AI assistant and a new user.
+    Extract a structured profile as JSON with these fields:
+    - name: string (if mentioned)
+    - role: string (profession/occupation)
+    - goals: string[] (what they want to accomplish)
+    - painPoints: string[] (what frustrates them)
+    - communicationStyle: "casual" | "formal" | "mixed"
+    - interests: string[] (topics they care about)
+    - personality: string (1-2 sentence description)
+
+    Then generate a SOUL.md section — a natural-language identity prompt for the assistant \
+    that incorporates what was learned. Write it as instructions to the assistant about how \
+    to interact with THIS specific human. Keep it to 5-8 lines.
+
+    Output ONLY valid JSON in this format:
+    {"profile": {...}, "soul": "..."}
+    """
+
+    private func performExtraction(from messages: [InterviewMessage], assistantName: String) async throws {
         guard !messages.isEmpty else {
             log.info("No interview messages to extract profile from")
             return
         }
 
+        // Format the transcript.
         let transcript = formatTranscript(messages, assistantName: assistantName)
-        let extractionPrompt = """
-        You are analyzing a conversation between an AI assistant and a new user.
-        Extract a structured profile as JSON with these fields:
-        - name: string (if mentioned)
-        - role: string (profession/occupation)
-        - goals: string[] (what they want to accomplish)
-        - painPoints: string[] (what frustrates them)
-        - communicationStyle: "casual" | "formal" | "mixed"
-        - interests: string[] (topics they care about)
-        - personality: string (1-2 sentence description)
 
-        Then generate a SOUL.md section — a natural-language identity prompt for the assistant \
-        that incorporates what was learned. Write it as instructions to the assistant about how \
-        to interact with THIS specific human. Keep it to 5-8 lines.
-
-        Output format:
-        {"profile": {...}, "soul": "..."}
-        """
-
-        // Subscribe to daemon messages before creating the session so we don't miss anything.
+        // Subscribe to the daemon stream before creating the session
+        // so we don't miss the session_info message.
         let stream = daemonClient.subscribe()
 
-        do {
-            try daemonClient.send(SessionCreateMessage(
-                title: "Profile extraction",
-                systemPromptOverride: extractionPrompt,
-                maxResponseTokens: 1024
-            ))
-        } catch {
-            log.error("Failed to create extraction session: \(error.localizedDescription)")
-            return
-        }
+        // Create a new extraction session with the system prompt override.
+        try daemonClient.send(SessionCreateMessage(
+            title: "Profile extraction",
+            systemPromptOverride: Self.extractionPrompt,
+            maxResponseTokens: 1024
+        ))
 
-        // Wait for session_info to get the session ID, then send the transcript.
+        // Wait for session creation, send the transcript, and accumulate the response.
         var sessionId: String?
         var accumulated = ""
 
@@ -92,16 +115,11 @@ final class ProfileExtractor {
                     sessionId = info.sessionId
                     log.info("Extraction session created: \(info.sessionId)")
 
-                    do {
-                        try daemonClient.send(UserMessageMessage(
-                            sessionId: info.sessionId,
-                            content: "Here is the interview transcript to analyze:\n\n\(transcript)",
-                            attachments: nil
-                        ))
-                    } catch {
-                        log.error("Failed to send transcript: \(error.localizedDescription)")
-                        return
-                    }
+                    try daemonClient.send(UserMessageMessage(
+                        sessionId: info.sessionId,
+                        content: "Here is the interview transcript to analyze:\n\n\(transcript)",
+                        attachments: nil
+                    ))
                 }
 
             case .assistantTextDelta(let delta) where sessionId != nil:
@@ -126,13 +144,12 @@ final class ProfileExtractor {
 
         // Stream ended without completion -- try to use whatever we accumulated.
         if !accumulated.isEmpty {
-            log.info("Stream ended early, attempting to parse partial response")
+            log.warning("Extraction stream ended early, attempting to parse partial response")
             processExtractionResponse(accumulated)
         }
     }
 
-    // MARK: - Private Helpers
-
+    /// Formats interview messages into a readable transcript.
     private func formatTranscript(_ messages: [InterviewMessage], assistantName: String) -> String {
         let name = assistantName.isEmpty ? "Assistant" : assistantName
         return messages.map { msg in
@@ -141,17 +158,15 @@ final class ProfileExtractor {
         }.joined(separator: "\n\n")
     }
 
+    /// Parses the JSON response, writes SOUL.md, and stores profile data in UserDefaults.
     private func processExtractionResponse(_ responseText: String) {
-        // Try to extract JSON from the response -- the model may wrap it in markdown code fences.
-        let jsonString = extractJSON(from: responseText)
-
-        guard let data = jsonString.data(using: .utf8) else {
-            log.error("Failed to convert response to data")
+        guard let jsonData = extractJSON(from: responseText) else {
+            log.error("Could not find JSON object in extraction response")
             return
         }
 
         do {
-            let response = try JSONDecoder().decode(ExtractionResponse.self, from: data)
+            let response = try JSONDecoder().decode(ExtractionResponse.self, from: jsonData)
             writeSoulFile(response.soul)
             storeProfile(response.profile)
             log.info("Profile extraction complete — name: \(response.profile.name ?? "unknown")")
@@ -160,48 +175,55 @@ final class ProfileExtractor {
         }
     }
 
-    /// Extracts a JSON object string from text that may contain markdown code fences.
-    private func extractJSON(from text: String) -> String {
-        // Try to find JSON between code fences first.
-        if let startRange = text.range(of: "```json"),
-           let endRange = text.range(of: "```", range: startRange.upperBound..<text.endIndex) {
-            return String(text[startRange.upperBound..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Extracts JSON from the response text, handling potential markdown code blocks.
+    private func extractJSON(from text: String) -> Data? {
+        var cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Strip markdown code block wrappers if present.
+        if cleaned.hasPrefix("```json") {
+            cleaned = String(cleaned.dropFirst(7))
+        } else if cleaned.hasPrefix("```") {
+            cleaned = String(cleaned.dropFirst(3))
+        }
+        if cleaned.hasSuffix("```") {
+            cleaned = String(cleaned.dropLast(3))
+        }
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Find the first { and last } to extract the JSON object.
+        guard let startIdx = cleaned.firstIndex(of: "{"),
+              let endIdx = cleaned.lastIndex(of: "}") else {
+            return nil
         }
 
-        // Try generic code fence.
-        if let startRange = text.range(of: "```"),
-           let afterStart = text.index(startRange.upperBound, offsetBy: 0, limitedBy: text.endIndex).flatMap({ idx in
-               text.range(of: "\n", range: idx..<text.endIndex)
-           }),
-           let endRange = text.range(of: "```", range: afterStart.upperBound..<text.endIndex) {
-            return String(text[afterStart.upperBound..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        // Try to find a raw JSON object.
-        if let openBrace = text.firstIndex(of: "{"),
-           let closeBrace = text.lastIndex(of: "}") {
-            return String(text[openBrace...closeBrace])
-        }
-
-        // Fall back to the raw text.
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let jsonString = String(cleaned[startIdx...endIdx])
+        return jsonString.data(using: .utf8)
     }
 
+    /// Writes the soul text to `~/.vellum/SOUL.md`.
     private func writeSoulFile(_ soulContent: String) {
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        let vellumDir = homeDir.appendingPathComponent(".vellum")
-        let soulPath = vellumDir.appendingPathComponent("SOUL.md")
+        guard !soulContent.isEmpty else {
+            log.warning("No soul text to write")
+            return
+        }
+
+        let vellumDir = NSHomeDirectory() + "/.vellum"
+        let soulPath = vellumDir + "/SOUL.md"
 
         do {
-            // Ensure ~/.vellum/ exists.
-            try FileManager.default.createDirectory(at: vellumDir, withIntermediateDirectories: true)
-            try soulContent.write(to: soulPath, atomically: true, encoding: .utf8)
-            log.info("Wrote SOUL.md to \(soulPath.path)")
+            try FileManager.default.createDirectory(
+                atPath: vellumDir,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            try soulContent.write(toFile: soulPath, atomically: true, encoding: .utf8)
+            log.info("Wrote SOUL.md to \(soulPath)")
         } catch {
             log.error("Failed to write SOUL.md: \(error.localizedDescription)")
         }
     }
 
+    /// Stores the full profile as JSON in UserDefaults.
     private func storeProfile(_ profile: UserProfile) {
         do {
             let data = try JSONEncoder().encode(profile)
