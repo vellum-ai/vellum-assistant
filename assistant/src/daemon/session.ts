@@ -47,6 +47,22 @@ interface QueuedMessage {
 
 export const MAX_QUEUE_DEPTH = 10;
 
+/**
+ * Describes why a queued message was promoted from the queue.
+ * - `loop_complete`: the agent loop finished normally and the next message was drained.
+ * - `checkpoint_handoff`: a turn-boundary checkpoint decided to yield to the queued message.
+ */
+export type QueueDrainReason = 'loop_complete' | 'checkpoint_handoff';
+
+/**
+ * Configuration for how/when checkpoint handoff is allowed.
+ * When `checkpointHandoffEnabled` is true, the agent loop may yield at
+ * a turn boundary if there are queued messages waiting.
+ */
+export interface QueuePolicy {
+  checkpointHandoffEnabled: boolean;
+}
+
 export class Session {
   public readonly conversationId: string;
   private messages: Message[] = [];
@@ -239,6 +255,22 @@ export class Session {
 
   getQueueDepth(): number {
     return this.messageQueue.length;
+  }
+
+  /**
+   * Returns true if there are messages waiting in the queue.
+   */
+  hasQueuedMessages(): boolean {
+    return this.messageQueue.length > 0;
+  }
+
+  /**
+   * Returns true if the session is currently processing and there are queued
+   * messages waiting. This is the predicate used to decide whether to yield
+   * at a turn boundary (checkpoint handoff).
+   */
+  canHandoffAtCheckpoint(): boolean {
+    return this.processing && this.hasQueuedMessages();
   }
 
   handleConfirmationResponse(
