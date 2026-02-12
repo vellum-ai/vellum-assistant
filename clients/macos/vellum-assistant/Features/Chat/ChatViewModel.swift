@@ -335,6 +335,7 @@ final class ChatViewModel: ObservableObject {
         case .error(let err):
             log.error("Server error: \(err.message)")
             isThinking = false
+            let wasCancelling = isCancelling
             isCancelling = false
             // Mark current assistant message as no longer streaming
             if let existingId = currentAssistantMessageId,
@@ -349,11 +350,27 @@ final class ChatViewModel: ObservableObject {
                     messages[i].status = .sent
                 }
             }
-            // The daemon drains queued work after an error, so preserve
-            // queue bookkeeping (pendingQueuedCount, pendingMessageIds,
-            // requestIdToMessageId) when messages are still queued.
-            // Only clear everything when the queue is empty.
-            if pendingQueuedCount == 0 {
+            // When cancelling, the daemon's abort() emits error events for
+            // queued messages but drops the queue without sending
+            // message_dequeued events, so pendingQueuedCount never drains
+            // on its own. Force-clear all queue state to prevent isSending
+            // from staying true permanently. Also reset queued message
+            // statuses since the daemon will not process them.
+            if wasCancelling {
+                isSending = false
+                pendingQueuedCount = 0
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+                for i in messages.indices {
+                    if case .queued = messages[i].status, messages[i].role == .user {
+                        messages[i].status = .sent
+                    }
+                }
+            } else if pendingQueuedCount == 0 {
+                // The daemon drains queued work after a non-cancellation
+                // error, so preserve queue bookkeeping when messages are
+                // still queued. Only clear everything when the queue is
+                // empty.
                 isSending = false
                 pendingMessageIds = []
                 requestIdToMessageId = [:]
