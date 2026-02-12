@@ -71,8 +71,21 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             forMainFrameOnly: true
         )
 
+        let centeringScript = WKUserScript(
+            source: """
+                (function() {
+                    var style = document.createElement('style');
+                    style.textContent = 'body { min-height: 100vh; display: flex; justify-content: center; align-items: center; margin: 0; }';
+                    (document.head || document.documentElement).appendChild(style);
+                })();
+                """,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+
         let contentController = WKUserContentController()
         contentController.addUserScript(userScript)
+        contentController.addUserScript(centeringScript)
         contentController.add(context.coordinator, name: "vellumBridge")
 
         let configuration = WKWebViewConfiguration()
