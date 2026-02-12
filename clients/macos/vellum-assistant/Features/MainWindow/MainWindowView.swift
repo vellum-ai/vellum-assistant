@@ -31,6 +31,7 @@ struct MainWindowView: View {
                     .resizable()
                     .scaledToFill()
                     .frame(maxWidth: .infinity)
+                    .clipped()
                     .allowsHitTesting(false)
 
                 VSplitView(panelWidth: 420, showPanel: activePanel != nil, main: {

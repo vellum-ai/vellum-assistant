@@ -146,13 +146,10 @@ struct ChatView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Stop generation")
             } else {
-                Button {} label: {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(VColor.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Attach file")
+                Image(systemName: "paperclip")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(VColor.textSecondary)
+                    .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, VSpacing.lg)
