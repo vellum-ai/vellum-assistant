@@ -7,12 +7,25 @@ struct InterviewChatView: View {
     let onSend: () -> Void
     let onVoiceToggle: () -> Void
     let isRecording: Bool
+    var onChipTap: ((String) -> Void)? = nil
+
+    /// Whether suggestion chips should be visible.
+    private var showSuggestionChips: Bool {
+        let hasGreeting = messages.contains { $0.role == .assistant }
+        let hasUserMessage = messages.contains { $0.role == .user }
+        return hasGreeting && !hasUserMessage && inputText.isEmpty
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             messageList
+            if showSuggestionChips {
+                suggestionChips
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
             inputArea
         }
+        .animation(VAnimation.standard, value: showSuggestionChips)
     }
 
     // MARK: - Message List
@@ -51,6 +64,43 @@ struct InterviewChatView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Suggestion Chips
+
+    private static let chipTexts = [
+        "What I do for work",
+        "Something I need help with",
+        "Just exploring for now",
+    ]
+
+    private var suggestionChips: some View {
+        HStack(spacing: VSpacing.sm) {
+            ForEach(Self.chipTexts, id: \.self) { chip in
+                Button {
+                    onChipTap?(chip)
+                } label: {
+                    Text(chip)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .background(VColor.surface)
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    if hovering { NSCursor.pointingHand.set() }
+                    else { NSCursor.arrow.set() }
+                }
+            }
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
     }
 
     // MARK: - Input Area

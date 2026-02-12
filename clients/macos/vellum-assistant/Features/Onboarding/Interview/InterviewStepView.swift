@@ -8,6 +8,9 @@ struct InterviewStepView: View {
     @State private var viewModel: InterviewViewModel
     @State private var showControls = false
     @State private var streamingMessageId = UUID()
+    @State private var isRecording = false
+
+    private let voiceInputManager = VoiceInputManager()
 
     init(state: OnboardingState, daemonClient: DaemonClientProtocol, onComplete: @escaping () -> Void) {
         self.state = state
@@ -28,7 +31,12 @@ struct InterviewStepView: View {
         return msgs
     }
 
-    /// Show the "ready" button once we have at least one assistant message.
+    /// Show the "ready" button once we have at least 2 complete assistant exchanges.
+    private var hasEnoughExchanges: Bool {
+        viewModel.messages.filter { $0.role == .assistant }.count >= 2
+    }
+
+    /// Show the skip link once the first assistant greeting has fully completed.
     private var hasAssistantMessage: Bool {
         viewModel.messages.contains { $0.role == .assistant }
     }
@@ -54,15 +62,19 @@ struct InterviewStepView: View {
                 inputText: $viewModel.inputText,
                 isThinking: viewModel.isThinking,
                 onSend: { viewModel.sendMessage() },
-                onVoiceToggle: {},
-                isRecording: false
+                onVoiceToggle: { toggleVoice() },
+                isRecording: isRecording,
+                onChipTap: { chip in
+                    viewModel.inputText = chip
+                    viewModel.sendMessage()
+                }
             )
             .frame(maxHeight: .infinity)
             .allowsHitTesting(!viewModel.isFinished)
 
             // Bottom controls
             VStack(spacing: VSpacing.md) {
-                if hasAssistantMessage && showControls {
+                if hasEnoughExchanges && showControls {
                     OnboardingButton(
                         title: viewModel.isFinished ? "Let\u{2019}s get started!" : "I\u{2019}m ready to go!",
                         style: .primary
@@ -75,7 +87,7 @@ struct InterviewStepView: View {
                     .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: viewModel.isFinished)
                 }
 
-                if !viewModel.isFinished {
+                if !viewModel.isFinished && hasAssistantMessage {
                     Button {
                         viewModel.endInterview()
                         onComplete()
@@ -95,6 +107,7 @@ struct InterviewStepView: View {
         }
         .onAppear {
             viewModel.startInterview()
+            setupVoiceCallbacks()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showControls = true
@@ -102,7 +115,31 @@ struct InterviewStepView: View {
             }
         }
         .onDisappear {
+            voiceInputManager.stop()
             viewModel.cancel()
+        }
+    }
+
+    // MARK: - Voice Input
+
+    private func setupVoiceCallbacks() {
+        voiceInputManager.onTranscription = { text in
+            viewModel.inputText = text
+            viewModel.sendMessage()
+        }
+        voiceInputManager.onPartialTranscription = { text in
+            viewModel.inputText = text
+        }
+        voiceInputManager.onRecordingStateChanged = { recording in
+            isRecording = recording
+        }
+    }
+
+    private func toggleVoice() {
+        if isRecording {
+            voiceInputManager.stop()
+        } else {
+            voiceInputManager.start()
         }
     }
 }
