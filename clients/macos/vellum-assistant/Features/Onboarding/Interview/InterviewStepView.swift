@@ -178,7 +178,7 @@ struct InterviewStepView: View {
 
     // MARK: - Voice Input
 
-    private func setupVoiceCallbacks() {
+    @MainActor private func setupVoiceCallbacks() {
         voiceInputManager.onTranscription = { text in
             viewModel.inputText = text
             viewModel.sendMessage()
@@ -191,7 +191,7 @@ struct InterviewStepView: View {
         }
     }
 
-    private func toggleVoice() {
+    @MainActor private func toggleVoice() {
         voiceInputManager.toggleRecording()
     }
 }

@@ -126,7 +126,7 @@ struct SpeechPermissionStepView: View {
         }
     }
 
-    private func grantPermission() {
+    @MainActor private func grantPermission() {
         pollTimer?.invalidate()
         permissionGranted = true
         permissionDenied = false

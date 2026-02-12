@@ -111,7 +111,7 @@ struct ScreenPermissionStepView: View {
         }
     }
 
-    private func grantPermission() {
+    @MainActor private func grantPermission() {
         pollTimer?.invalidate()
         permissionGranted = true
         state.screenGranted = true
