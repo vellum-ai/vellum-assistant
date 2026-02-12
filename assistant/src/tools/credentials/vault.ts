@@ -7,6 +7,7 @@ import {
   setSecureKey,
   deleteSecureKey,
   listSecureKeys,
+  getBackendType,
 } from '../../security/secure-keys.js';
 
 /**
@@ -81,11 +82,23 @@ class CredentialStoreTool implements Tool {
       }
 
       case 'list': {
+        const backend = getBackendType();
+        if (backend === 'keychain') {
+          return {
+            content:
+              'Listing credentials is not supported when using the OS keychain backend. ' +
+              'Use get operations with specific service/field names instead.',
+            isError: false,
+          };
+        }
         const allKeys = listSecureKeys();
         const credentialKeys = allKeys.filter((k) => k.startsWith('credential:'));
         const entries = credentialKeys.map((k) => {
-          const parts = k.split(':');
-          return { service: parts[1], field: parts.slice(2).join(':') };
+          const rest = k.slice('credential:'.length);
+          const colonIdx = rest.indexOf(':');
+          const service = colonIdx >= 0 ? rest.slice(0, colonIdx) : rest;
+          const field = colonIdx >= 0 ? rest.slice(colonIdx + 1) : '';
+          return { service, field };
         });
         return { content: JSON.stringify(entries, null, 2), isError: false };
       }

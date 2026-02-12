@@ -149,6 +149,14 @@ export function listSecureKeys(): string[] {
   return [];
 }
 
+/**
+ * Return the currently resolved backend type.
+ * Useful for feature-gating behaviour that only works on certain backends.
+ */
+export function getBackendType(): 'keychain' | 'encrypted' | null {
+  return getBackend();
+}
+
 /** @internal Test-only: reset the cached backend so it's re-evaluated. */
 export function _resetBackend(): void {
   resolvedBackend = undefined;

@@ -315,12 +315,28 @@ export class ToolExecutor {
   }
 }
 
+/**
+ * Sanitize tool inputs before they are emitted in lifecycle events.
+ * This prevents plaintext secrets (e.g. credential_store `value`) from
+ * being persisted in audit logs.
+ */
+function sanitizeToolInput(toolName: string, input: Record<string, unknown>): Record<string, unknown> {
+  if (toolName === 'credential_store' && 'value' in input) {
+    const { value: _redacted, ...rest } = input;
+    return { ...rest, value: '[REDACTED]' };
+  }
+  return input;
+}
+
 function emitLifecycleEvent(context: ToolContext, event: ToolLifecycleEvent): void {
   const handler = context.onToolLifecycleEvent;
   if (!handler) return;
 
+  // Redact sensitive fields from tool inputs before they reach audit listeners
+  const sanitizedEvent = { ...event, input: sanitizeToolInput(event.toolName, event.input) };
+
   try {
-    const maybePromise = handler(event);
+    const maybePromise = handler(sanitizedEvent as ToolLifecycleEvent);
     if (maybePromise) {
       void maybePromise.catch((err) => {
         log.warn(

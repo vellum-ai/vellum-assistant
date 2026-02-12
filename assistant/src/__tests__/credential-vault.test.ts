@@ -27,7 +27,7 @@ _overrideDeps({
   execFileSync: (() => '') as unknown as typeof import('node:child_process').execFileSync,
 });
 
-import { _resetBackend } from '../security/secure-keys.js';
+import { _resetBackend, _setBackend, getBackendType } from '../security/secure-keys.js';
 import { _setStorePath } from '../security/encrypted-store.js';
 
 const TEST_DIR = join(tmpdir(), `vellum-credvault-test-${randomBytes(4).toString('hex')}`);
@@ -104,11 +104,23 @@ async function executeVault(input: Record<string, unknown>): Promise<{ content: 
     }
 
     case 'list': {
+      const backend = getBackendType();
+      if (backend === 'keychain') {
+        return {
+          content:
+            'Listing credentials is not supported when using the OS keychain backend. ' +
+            'Use get operations with specific service/field names instead.',
+          isError: false,
+        };
+      }
       const allKeys = listSecureKeys();
       const credentialKeys = allKeys.filter((k) => k.startsWith('credential:'));
       const entries = credentialKeys.map((k) => {
-        const parts = k.split(':');
-        return { service: parts[1], field: parts.slice(2).join(':') };
+        const rest = k.slice('credential:'.length);
+        const colonIdx = rest.indexOf(':');
+        const service = colonIdx >= 0 ? rest.slice(0, colonIdx) : rest;
+        const field = colonIdx >= 0 ? rest.slice(colonIdx + 1) : '';
+        return { service, field };
       });
       return { content: JSON.stringify(entries, null, 2), isError: false };
     }
@@ -252,6 +264,26 @@ describe('credential_store tool', () => {
       const entries = JSON.parse(result.content);
       expect(entries).toHaveLength(1);
       expect(entries[0].service).toBe('gmail');
+    });
+
+    test('correctly parses service names containing colons', async () => {
+      setSecureKey('credential:oauth:google:password', 'secret');
+
+      const result = await executeVault({ action: 'list' });
+      const entries = JSON.parse(result.content);
+      expect(entries).toHaveLength(1);
+      // Service should be the first segment after "credential:", field is the rest
+      expect(entries[0].service).toBe('oauth');
+      expect(entries[0].field).toBe('google:password');
+    });
+
+    test('returns warning when using keychain backend', async () => {
+      _setBackend('keychain');
+
+      const result = await executeVault({ action: 'list' });
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('not supported');
+      expect(result.content).toContain('keychain');
     });
   });
 
