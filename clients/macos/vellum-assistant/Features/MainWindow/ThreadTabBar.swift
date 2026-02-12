@@ -50,7 +50,7 @@ struct ThreadTabBar: View {
         ThreadModel(title: "New Thread"),
     ]
 
-    ZStack {
+    return ZStack {
         VColor.background.ignoresSafeArea()
         ThreadTabBar(
             threads: threads,
