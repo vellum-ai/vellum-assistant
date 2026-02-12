@@ -28,6 +28,9 @@ function parseRoutingJson(raw: string): RoutingEntry[] {
   }
 
   const entries: RoutingEntry[] = [];
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("GATEWAY_ASSISTANT_ROUTING_JSON must be a JSON object");
+  }
   for (const [key, assistantId] of Object.entries(parsed)) {
     if (typeof assistantId !== "string" || !assistantId) {
       throw new Error(`Invalid assistant ID for routing key "${key}"`);
@@ -84,8 +87,9 @@ export function loadConfig(): GatewayConfig {
     );
   }
 
-  const port = parseInt(process.env.GATEWAY_PORT || "7830", 10);
-  if (isNaN(port) || port < 1 || port > 65535) {
+  const portRaw = process.env.GATEWAY_PORT || "7830";
+  const port = Number(portRaw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("GATEWAY_PORT must be a valid port number");
   }
 
