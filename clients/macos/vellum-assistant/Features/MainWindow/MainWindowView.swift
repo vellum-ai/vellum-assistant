@@ -9,8 +9,14 @@ struct MainWindowView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Row 1 — thread bar slot (placeholder)
-            Color.clear.frame(height: 36)
+            // Row 1 — thread tab bar
+            ThreadTabBar(
+                threads: threadManager.threads,
+                activeThreadId: threadManager.activeThreadId,
+                onSelect: { threadManager.selectThread(id: $0) },
+                onClose: { threadManager.closeThread(id: $0) },
+                onCreate: { threadManager.createThread() }
+            )
 
             // Row 2 — toolbar slot (placeholder)
             Color.clear.frame(height: 36)
