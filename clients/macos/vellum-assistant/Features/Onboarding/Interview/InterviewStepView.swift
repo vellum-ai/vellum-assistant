@@ -41,7 +41,7 @@ struct InterviewStepView: View {
                     .font(VFont.onboardingTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                Text("Have a quick chat before you get started")
+                Text("Say hi \u{2014} it\u{2019}ll only take a minute")
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
             }
@@ -80,7 +80,7 @@ struct InterviewStepView: View {
                         viewModel.endInterview()
                         onComplete()
                     } label: {
-                        Text("Skip")
+                        Text("I\u{2019}m good, let\u{2019}s go")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }

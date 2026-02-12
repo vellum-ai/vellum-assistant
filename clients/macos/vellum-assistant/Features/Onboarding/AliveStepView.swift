@@ -51,21 +51,36 @@ struct AliveStepView: View {
                     title: "Start using \(state.assistantName.isEmpty ? "your agent" : state.assistantName)",
                     style: .primary
                 ) {
-                    state.advance()
+                    onComplete()
                 }
                 .font(VFont.cardTitle)
 
-                Button {
-                    onOpenSettings()
-                } label: {
-                    Text("Open Settings first")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    NSCursor.pointingHand.set()
-                    if !hovering { NSCursor.arrow.set() }
+                VStack(spacing: VSpacing.md) {
+                    Button {
+                        state.advance()
+                    } label: {
+                        Text("Say hi to \(state.assistantName.isEmpty ? "your agent" : state.assistantName) first")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        NSCursor.pointingHand.set()
+                        if !hovering { NSCursor.arrow.set() }
+                    }
+
+                    Button {
+                        onOpenSettings()
+                    } label: {
+                        Text("Open Settings first")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        NSCursor.pointingHand.set()
+                        if !hovering { NSCursor.arrow.set() }
+                    }
                 }
             }
             .opacity(showButtons ? 1 : 0)
