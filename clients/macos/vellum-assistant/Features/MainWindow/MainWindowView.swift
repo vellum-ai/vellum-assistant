@@ -30,7 +30,7 @@ struct MainWindowView: View {
                 Image("bg", bundle: .module)
                     .resizable()
                     .scaledToFill()
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
                     .allowsHitTesting(false)
 
@@ -55,6 +55,7 @@ struct MainWindowView: View {
                     panelContent
                 })
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(VColor.background.ignoresSafeArea())
         .frame(minWidth: 800, minHeight: 600)
