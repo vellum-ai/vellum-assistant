@@ -245,6 +245,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // Route to active conversation if one exists and is ready
             if let textSession = self?.currentTextSession, textSession.state == .ready {
                 textSession.sendFollowUp(text: text)
+                self?.textResponseWindow?.updatePartialTranscription("")
             } else {
                 self?.startSession(task: text)
             }
@@ -502,6 +503,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
                 // Clean up when the user closes the panel
                 window.onClose = { [weak self] in
+                    self?.currentTextSession?.cancel()
                     self?.textResponseWindow = nil
                     self?.currentTextSession = nil
                     self?.ambientAgent.resume()
