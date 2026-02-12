@@ -317,6 +317,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showMainWindow() {
+        if let existing = mainWindow {
+            existing.show()
+            return
+        }
         let main = MainWindow()
         main.show()
         mainWindow = main

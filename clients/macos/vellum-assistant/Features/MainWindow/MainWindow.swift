@@ -6,6 +6,14 @@ final class MainWindow {
     private var window: NSWindow?
 
     func show() {
+        // Reuse the existing window if one already exists
+        if let existing = window {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
         let hostingController = NSHostingController(rootView: MainWindowView())
 
         let window = NSWindow(
