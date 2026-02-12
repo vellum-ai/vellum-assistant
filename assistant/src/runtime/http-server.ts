@@ -262,6 +262,15 @@ export class RuntimeHttpServer {
       const text = rendered.text.trim();
       if (!text) continue;
 
+      // If a messageId was requested and the first text-bearing assistant
+      // message is a *different* message, the request is stale.  This
+      // prevents returning a suggestion for an older assistant turn when
+      // the latest turn was a tool-only message (empty text) that passed
+      // the pre-check above.
+      if (requestedMessageId && msg.id !== requestedMessageId) {
+        return Response.json({ suggestion: null, messageId: null, source: 'none' as const, stale: true });
+      }
+
       // Return cached suggestion if we already generated one for this message
       const cached = this.suggestionCache.get(msg.id);
       if (cached !== undefined) {
