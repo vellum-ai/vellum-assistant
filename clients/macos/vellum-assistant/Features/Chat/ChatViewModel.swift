@@ -445,7 +445,9 @@ final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
-            errorText = err.message
+            if !wasCancelling {
+                errorText = err.message
+            }
             // Reset processing messages to sent
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
