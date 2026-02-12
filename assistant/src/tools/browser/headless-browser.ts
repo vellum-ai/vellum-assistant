@@ -12,6 +12,7 @@ import {
 } from '../network/url-safety.js';
 import { browserManager } from './browser-manager.js';
 import type { RouteHandler } from './browser-manager.js';
+import { detectCaptcha } from './captcha-detector.js';
 
 const log = getLogger('headless-browser');
 
@@ -806,6 +807,47 @@ class BrowserExtractTool implements Tool {
 
 registerTool(new BrowserExtractTool());
 
+// ── browser_detect_captcha ───────────────────────────────────────────
+
+async function executeBrowserDetectCaptcha(
+  _input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  try {
+    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const result = await detectCaptcha(page);
+    return { content: JSON.stringify(result), isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'CAPTCHA detection failed');
+    return { content: `Error: CAPTCHA detection failed: ${msg}`, isError: true };
+  }
+}
+
+class BrowserDetectCaptchaTool implements Tool {
+  name = 'browser_detect_captcha';
+  description = 'Detect whether the current page contains a CAPTCHA challenge. Returns JSON with detected (boolean), type, and hint.';
+  category = 'browser';
+  defaultRiskLevel = RiskLevel.Low;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {},
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeBrowserDetectCaptcha(input, context);
+  }
+}
+
+registerTool(new BrowserDetectCaptchaTool());
+
 export {
   executeBrowserNavigate,
   executeBrowserSnapshot,
@@ -815,4 +857,5 @@ export {
   executeBrowserPressKey,
   executeBrowserWaitFor,
   executeBrowserExtract,
+  executeBrowserDetectCaptcha,
 };
