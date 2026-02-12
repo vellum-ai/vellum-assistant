@@ -133,10 +133,13 @@ export function repairHistory(messages: Message[]): RepairResult {
   // Merge consecutive same-role messages. This can occur after a checkpoint
   // handoff where a user(tool_result) message is followed by a user(new_message),
   // or from other history reconstruction artifacts.
+  // However, skip merging user messages where one contains tool_result blocks and
+  // the other contains regular user content — merging those would break undo
+  // semantics because isUndoableUserMessage rejects messages with tool_result.
   const merged: Message[] = [];
   for (const msg of result) {
     const prev = merged[merged.length - 1];
-    if (prev && prev.role === msg.role) {
+    if (prev && prev.role === msg.role && !shouldSkipUserMerge(prev, msg)) {
       prev.content = [...prev.content, ...msg.content];
       stats.consecutiveSameRoleMerged++;
     } else {
@@ -188,11 +191,11 @@ export function deepRepairHistory(messages: Message[]): RepairResult {
     cleaned = cleaned.slice(1);
   }
 
-  // 3. Merge consecutive same-role messages
+  // 3. Merge consecutive same-role messages (but preserve tool_result / user-prompt separation)
   const merged: Message[] = [];
   for (const msg of cleaned) {
     const prev = merged[merged.length - 1];
-    if (prev && prev.role === msg.role) {
+    if (prev && prev.role === msg.role && !shouldSkipUserMerge(prev, msg)) {
       prev.content = [...prev.content, ...msg.content];
     } else {
       merged.push({ role: msg.role, content: [...msg.content] });
@@ -201,6 +204,26 @@ export function deepRepairHistory(messages: Message[]): RepairResult {
 
   // 4. Apply standard tool-use/tool-result repair on top
   return repairHistory(merged);
+}
+
+/**
+ * Returns true when two consecutive user messages should NOT be merged.
+ * Specifically, we keep user(tool_result) turns separate from user(text prompt)
+ * turns to preserve undo semantics: isUndoableUserMessage rejects any user
+ * message that contains a tool_result block, so merging the two would make the
+ * real user prompt non-undoable.
+ */
+function shouldSkipUserMerge(prev: Message, next: Message): boolean {
+  if (prev.role !== 'user') return false;
+  const prevHasToolResult = prev.content.some((b) => b.type === 'tool_result');
+  const nextHasToolResult = next.content.some((b) => b.type === 'tool_result');
+  const prevHasNonToolResult = prev.content.some((b) => b.type !== 'tool_result');
+  const nextHasNonToolResult = next.content.some((b) => b.type !== 'tool_result');
+
+  // Skip merge when one side has tool_result and the other has regular content
+  if (prevHasToolResult && nextHasNonToolResult) return true;
+  if (nextHasToolResult && prevHasNonToolResult) return true;
+  return false;
 }
 
 function downgradeToolResult(tr: ToolResultContent): ContentBlock {
