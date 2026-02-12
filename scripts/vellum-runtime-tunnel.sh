@@ -103,7 +103,7 @@ cmd_start() {
     if (echo > /dev/tcp/127.0.0.1/"${local_port}") 2>/dev/null; then
       break
     fi
-    (( attempts++ ))
+    (( ++attempts ))
   done
 
   if ! kill -0 "$pid" 2>/dev/null; then
