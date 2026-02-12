@@ -28,6 +28,17 @@ struct ToolConfirmationData: Equatable {
     var state: ToolConfirmationState = .pending
 }
 
+/// A file or image attachment associated with a chat message.
+struct ChatAttachment: Identifiable {
+    let id: String
+    let filename: String
+    let mimeType: String
+    /// Base64-encoded file data.
+    let data: String
+    /// Pre-rendered thumbnail for image attachments (resized to 120px max dimension).
+    let thumbnailData: Data?
+}
+
 struct ChatMessage: Identifiable {
     let id: UUID
     let role: ChatRole
@@ -37,8 +48,9 @@ struct ChatMessage: Identifiable {
     var status: ChatMessageStatus
     /// Non-nil when this message is an inline tool confirmation request.
     var confirmation: ToolConfirmationData?
+    var attachments: [ChatAttachment]
 
-    init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil) {
+    init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, attachments: [ChatAttachment] = []) {
         self.id = id
         self.role = role
         self.text = text
@@ -46,5 +58,6 @@ struct ChatMessage: Identifiable {
         self.isStreaming = isStreaming
         self.status = status
         self.confirmation = confirmation
+        self.attachments = attachments
     }
 }

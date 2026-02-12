@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
@@ -40,10 +41,12 @@ struct MainWindowView: View {
                         errorText: viewModel.errorText,
                         pendingQueuedCount: viewModel.pendingQueuedCount,
                         suggestion: viewModel.suggestion,
+                        pendingAttachments: viewModel.pendingAttachments,
                         onSend: viewModel.sendMessage,
                         onStop: viewModel.stopGenerating,
                         onDismissError: viewModel.dismissError,
                         onAcceptSuggestion: viewModel.acceptSuggestion,
+                        onAttach: { Self.openFilePicker(viewModel: viewModel) },
                         onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
                         onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") }
                     )
@@ -55,6 +58,21 @@ struct MainWindowView: View {
         .ignoresSafeArea(edges: .top)
         .background(VColor.background.ignoresSafeArea())
         .frame(minWidth: 800, minHeight: 600)
+    }
+
+    @MainActor
+    private static func openFilePicker(viewModel: ChatViewModel) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [
+            .png, .jpeg, .gif, .webP, .pdf, .plainText, .commaSeparatedText,
+            UTType("net.daringfireball.markdown") ?? .plainText,
+        ]
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls {
+            viewModel.addAttachment(url: url)
+        }
     }
 
     @ViewBuilder
