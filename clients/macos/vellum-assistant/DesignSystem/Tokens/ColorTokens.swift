@@ -17,6 +17,7 @@ extension Color {
 // MARK: - Color Scales
 
 enum Slate {
+    static let _950 = Color(hex: 0x070D19)
     static let _900 = Color(hex: 0x0F172A)
     static let _800 = Color(hex: 0x1E293B)
     static let _700 = Color(hex: 0x334155)
@@ -98,7 +99,7 @@ enum Amber {
 
 enum VColor {
     // Backgrounds
-    static let background = Slate._900
+    static let background = Slate._950
     static let backgroundSubtle = Slate._800
     static let surface = Slate._800
     static let surfaceBorder = Slate._700

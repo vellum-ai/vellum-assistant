@@ -25,7 +25,7 @@ struct VTab: View {
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
             .background(isSelected ? VColor.surfaceBorder : (isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear))
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
         }
         .buttonStyle(.plain)
         .onHover { hovering in isHovered = hovering }

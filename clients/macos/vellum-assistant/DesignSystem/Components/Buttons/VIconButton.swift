@@ -21,9 +21,9 @@ struct VIconButton: View {
             .padding(.horizontal, iconOnly ? VSpacing.md : VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
             .background(isActive ? VColor.surfaceBorder : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
             .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
+                RoundedRectangle(cornerRadius: VRadius.pill)
                     .stroke(isActive ? VColor.textSecondary : VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
             )
         }
