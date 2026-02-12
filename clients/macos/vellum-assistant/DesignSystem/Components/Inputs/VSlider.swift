@@ -8,19 +8,13 @@ struct VSlider: View {
 
     // MARK: - Layout Constants
 
-    private let trackHeight: CGFloat = 10
+    private let trackHeight: CGFloat = 14
     private let thumbWidth: CGFloat = 20
-    private let thumbHeight: CGFloat = 10
-    private let tickMarkHeight: CGFloat = 14
     private let tickMarkWidth: CGFloat = 1
     private let gripLineCount: Int = 3
     private let gripLineWidth: CGFloat = 1
-    private let gripLineHeight: CGFloat = 6
+    private let gripLineHeight: CGFloat = 8
     private let gripLineSpacing: CGFloat = 2.5
-
-    private var sliderHeight: CGFloat {
-        showTickMarks ? max(thumbHeight, tickMarkHeight) : thumbHeight
-    }
 
     // MARK: - State
 
@@ -35,19 +29,19 @@ struct VSlider: View {
             let thumbOffset = trackWidth * fraction
 
             ZStack(alignment: .leading) {
-                // Tick marks (behind track)
-                if showTickMarks {
-                    tickMarksView(trackWidth: trackWidth)
-                }
-
                 // Track
                 trackView(thumbOffset: thumbOffset, trackWidth: trackWidth)
+
+                // Tick marks (on top of unfilled track)
+                if showTickMarks {
+                    tickMarksView(trackWidth: trackWidth, fraction: fraction)
+                }
 
                 // Thumb
                 thumbView
                     .offset(x: thumbOffset)
             }
-            .frame(height: sliderHeight)
+            .frame(height: trackHeight)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -64,21 +58,23 @@ struct VSlider: View {
                     }
             )
         }
-        .frame(height: sliderHeight)
+        .frame(height: trackHeight)
     }
 
     // MARK: - Track
 
     private func trackView(thumbOffset: CGFloat, trackWidth: CGFloat) -> some View {
-        ZStack(alignment: .leading) {
+        let cornerRadius = trackHeight / 2
+
+        return ZStack(alignment: .leading) {
             // Unfilled track
-            RoundedRectangle(cornerRadius: VRadius.sm)
+            RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(Slate._800)
                 .frame(height: trackHeight)
                 .padding(.horizontal, thumbWidth / 2)
 
             // Filled track
-            RoundedRectangle(cornerRadius: VRadius.sm)
+            RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(VColor.accent)
                 .frame(width: thumbOffset, height: trackHeight)
                 .padding(.leading, thumbWidth / 2)
@@ -91,7 +87,7 @@ struct VSlider: View {
         ZStack {
             RoundedRectangle(cornerRadius: VRadius.xs)
                 .fill(Slate._600)
-                .frame(width: thumbWidth, height: thumbHeight)
+                .frame(width: thumbWidth, height: trackHeight)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.xs)
                         .stroke(Slate._700, lineWidth: 1)
@@ -112,22 +108,25 @@ struct VSlider: View {
 
     // MARK: - Tick Marks
 
-    private func tickMarksView(trackWidth: CGFloat) -> some View {
+    private func tickMarksView(trackWidth: CGFloat, fraction: Double) -> some View {
         let totalSteps = Int((range.upperBound - range.lowerBound) / step)
         let maxTicks = 20
         let tickStep = totalSteps > maxTicks ? totalSteps / maxTicks : 1
-        let fraction = (value - range.lowerBound) / (range.upperBound - range.lowerBound)
 
         return ZStack(alignment: .leading) {
             ForEach(0...totalSteps, id: \.self) { i in
                 if i % tickStep == 0 {
                     let tickFraction = Double(i) / Double(totalSteps)
-                    let tickX = trackWidth * tickFraction + thumbWidth / 2
 
-                    RoundedRectangle(cornerRadius: 0.5)
-                        .fill(tickFraction <= fraction ? VColor.accent.opacity(0.4) : Slate._600)
-                        .frame(width: tickMarkWidth, height: tickMarkHeight)
-                        .offset(x: tickX - tickMarkWidth / 2)
+                    // Only render tick marks in the unfilled portion
+                    if tickFraction > fraction {
+                        let tickX = trackWidth * tickFraction + thumbWidth / 2
+
+                        RoundedRectangle(cornerRadius: 0.5)
+                            .fill(Slate._600)
+                            .frame(width: tickMarkWidth, height: trackHeight)
+                            .offset(x: tickX - tickMarkWidth / 2)
+                    }
                 }
             }
         }
