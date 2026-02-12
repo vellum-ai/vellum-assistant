@@ -65,11 +65,11 @@ function wireEscalationHandler(
   screenWidth: number,
   screenHeight: number,
 ): void {
-  session.setEscalationHandler((task: string, sourceSessionId: string) => {
+  session.setEscalationHandler((task: string, sourceSessionId: string): boolean => {
     const currentSocket = findSocketForSession(sourceSessionId, ctx);
     if (!currentSocket) {
       log.warn({ sourceSessionId }, 'Escalation handler: no active socket found for session');
-      return;
+      return false;
     }
 
     const cuSessionId = uuid();
@@ -90,6 +90,8 @@ function wireEscalationHandler(
       task,
       escalatedFrom: sourceSessionId,
     });
+
+    return true;
   });
 }
 
