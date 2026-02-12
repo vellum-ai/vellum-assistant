@@ -113,13 +113,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ attachments: createdAttachments }, { status: 201 });
   } catch (error) {
     console.error("Error uploading attachments:", error);
+    if (error instanceof RuntimeClientError) {
+      return NextResponse.json(
+        { error: error.message || "Failed to upload attachments" },
+        { status: error.status },
+      );
+    }
     if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
       return toAuthErrorResponse(error);
     }
-    const status = error instanceof RuntimeClientError ? error.status : 500;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to upload attachments" },
-      { status },
+      { status: 500 },
     );
   }
 }
@@ -147,13 +152,18 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ deleted_ids: attachmentIds });
   } catch (error) {
     console.error("Error deleting attachments:", error);
+    if (error instanceof RuntimeClientError) {
+      return NextResponse.json(
+        { error: "Failed to delete attachments" },
+        { status: error.status },
+      );
+    }
     if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
       return toAuthErrorResponse(error);
     }
-    const status = error instanceof RuntimeClientError ? error.status : 500;
     return NextResponse.json(
       { error: "Failed to delete attachments" },
-      { status },
+      { status: 500 },
     );
   }
 }

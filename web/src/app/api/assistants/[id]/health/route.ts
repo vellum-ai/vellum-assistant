@@ -25,12 +25,8 @@ export async function GET(request: Request, { params }: RouteParams) {
       connectionMode: mode,
     });
   } catch (error: unknown) {
-    if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
-      return toAuthErrorResponse(error);
-    }
-    console.error("Error checking assistant health:", error);
-
     if (error instanceof RuntimeClientError) {
+      console.error("Error checking assistant health:", error);
       return NextResponse.json(
         {
           status: "unhealthy",
@@ -39,6 +35,10 @@ export async function GET(request: Request, { params }: RouteParams) {
         { status: error.status },
       );
     }
+    if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
+      return toAuthErrorResponse(error);
+    }
+    console.error("Error checking assistant health:", error);
 
     return NextResponse.json(
       {

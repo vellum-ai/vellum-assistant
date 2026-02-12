@@ -45,13 +45,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
   } catch (error: unknown) {
     console.error("Error fetching messages:", error);
+    if (error instanceof RuntimeClientError) {
+      return NextResponse.json(
+        { error: "Failed to fetch messages" },
+        { status: error.status },
+      );
+    }
     if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
       return toAuthErrorResponse(error);
     }
-    const status = error instanceof RuntimeClientError ? error.status : 500;
     return NextResponse.json(
       { error: "Failed to fetch messages" },
-      { status },
+      { status: 500 },
     );
   }
 }
@@ -90,13 +95,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
   } catch (error: unknown) {
     console.error("Error sending message:", error);
+    if (error instanceof RuntimeClientError) {
+      return NextResponse.json(
+        { error: "Failed to send message" },
+        { status: error.status },
+      );
+    }
     if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
       return toAuthErrorResponse(error);
     }
-    const status = error instanceof RuntimeClientError ? error.status : 500;
     return NextResponse.json(
       { error: "Failed to send message" },
-      { status },
+      { status: 500 },
     );
   }
 }
