@@ -136,9 +136,7 @@ struct ChatView: View {
     private var composerArea: some View {
         HStack(spacing: VSpacing.sm) {
             // Leading chat icon
-            Image(systemName: "phone.fill")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(VColor.accent)
+            VCircleButton(icon: "phone.fill") { }
 
             // Text field
             TextField("What you need chef?", text: $inputText, axis: .vertical)
