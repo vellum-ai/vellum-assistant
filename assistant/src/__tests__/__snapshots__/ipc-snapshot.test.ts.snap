@@ -26,6 +26,7 @@ exports[`IPC message snapshots ClientMessage types session_list serializes to ex
 
 exports[`IPC message snapshots ClientMessage types session_create serializes to expected JSON 1`] = `
 {
+  "correlationId": "corr-001",
   "title": "New session",
   "type": "session_create",
 }
@@ -254,6 +255,7 @@ exports[`IPC message snapshots ServerMessage types message_complete serializes t
 
 exports[`IPC message snapshots ServerMessage types session_info serializes to expected JSON 1`] = `
 {
+  "correlationId": "corr-001",
   "sessionId": "sess-001",
   "title": "My session",
   "type": "session_info",

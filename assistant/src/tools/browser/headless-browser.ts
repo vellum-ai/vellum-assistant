@@ -13,6 +13,7 @@ import {
 import { browserManager } from './browser-manager.js';
 import type { RouteHandler } from './browser-manager.js';
 import { detectCaptcha } from './captcha-detector.js';
+import { getCredentialValue } from '../credentials/vault.js';
 
 const log = getLogger('headless-browser');
 
@@ -807,6 +808,97 @@ class BrowserExtractTool implements Tool {
 
 registerTool(new BrowserExtractTool());
 
+// ── browser_fill_credential ──────────────────────────────────────────
+
+async function executeBrowserFillCredential(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const service = typeof input.service === 'string' ? input.service : '';
+  const field = typeof input.field === 'string' ? input.field : '';
+
+  if (!service) {
+    return { content: 'Error: service is required.', isError: true };
+  }
+  if (!field) {
+    return { content: 'Error: field is required.', isError: true };
+  }
+
+  const { selector, error } = resolveSelector(context.sessionId, input);
+  if (error) return { content: error, isError: true };
+
+  const value = getCredentialValue(service, field);
+  if (!value) {
+    return {
+      content: `No credential stored for ${service}/${field}. Use credential_store to save it first.`,
+      isError: true,
+    };
+  }
+
+  const pressEnter = input.press_enter === true;
+
+  try {
+    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    await page.fill(selector!, value);
+
+    if (pressEnter) {
+      await page.press(selector!, 'Enter');
+    }
+
+    return { content: `Filled ${field} for ${service} into the target element.`, isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err, selector }, 'Fill credential failed');
+    return { content: `Error: Fill credential failed: ${msg}`, isError: true };
+  }
+}
+
+class BrowserFillCredentialTool implements Tool {
+  name = 'browser_fill_credential';
+  description = 'Fill a stored credential into a form field without exposing the value. Target by element_id (from browser_snapshot) or CSS selector.';
+  category = 'browser';
+  defaultRiskLevel = RiskLevel.Medium;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          service: {
+            type: 'string',
+            description: 'Credential vault service name (e.g. gmail)',
+          },
+          field: {
+            type: 'string',
+            description: 'Credential vault field name (e.g. password)',
+          },
+          element_id: {
+            type: 'string',
+            description: 'Element ID from browser_snapshot',
+          },
+          selector: {
+            type: 'string',
+            description: 'CSS selector for target element',
+          },
+          press_enter: {
+            type: 'boolean',
+            description: 'Press Enter after filling',
+          },
+        },
+        required: ['service', 'field'],
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeBrowserFillCredential(input, context);
+  }
+}
+
+registerTool(new BrowserFillCredentialTool());
+
 // ── browser_detect_captcha ───────────────────────────────────────────
 
 async function executeBrowserDetectCaptcha(
@@ -857,5 +949,6 @@ export {
   executeBrowserPressKey,
   executeBrowserWaitFor,
   executeBrowserExtract,
+  executeBrowserFillCredential,
   executeBrowserDetectCaptcha,
 };

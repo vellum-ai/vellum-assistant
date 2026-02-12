@@ -37,6 +37,10 @@ final class ThreadManager: ObservableObject {
 
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
 
+        // Cancel any active generation so the daemon doesn't keep processing
+        // an orphaned request after the view model is removed.
+        chatViewModels[id]?.stopGenerating()
+
         threads.remove(at: index)
         chatViewModels.removeValue(forKey: id)
 

@@ -35,6 +35,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   session_create: {
     type: 'session_create',
     title: 'New session',
+    correlationId: 'corr-001',
   },
   session_switch: {
     type: 'session_switch',
@@ -184,6 +185,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'session_info',
     sessionId: 'sess-001',
     title: 'My session',
+    correlationId: 'corr-001',
   },
   session_list_response: {
     type: 'session_list_response',

@@ -4,10 +4,12 @@ import SwiftUI
 @MainActor
 final class MainWindow {
     private let daemonClient: DaemonClient
+    private let ambientAgent: AmbientAgent
     private var window: NSWindow?
 
-    init(daemonClient: DaemonClient) {
+    init(daemonClient: DaemonClient, ambientAgent: AmbientAgent) {
         self.daemonClient = daemonClient
+        self.ambientAgent = ambientAgent
     }
 
     func show() {
@@ -15,14 +17,14 @@ final class MainWindow {
         if let existing = window {
             // Rebuild the SwiftUI view hierarchy so it picks up any
             // UserDefaults changes (e.g. assistantName set during onboarding replay)
-            existing.contentViewController = NSHostingController(rootView: MainWindowView(daemonClient: daemonClient))
+            existing.contentViewController = NSHostingController(rootView: MainWindowView(daemonClient: daemonClient, ambientAgent: ambientAgent))
             existing.makeKeyAndOrderFront(nil)
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let hostingController = NSHostingController(rootView: MainWindowView(daemonClient: daemonClient))
+        let hostingController = NSHostingController(rootView: MainWindowView(daemonClient: daemonClient, ambientAgent: ambientAgent))
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1366, height: 849),

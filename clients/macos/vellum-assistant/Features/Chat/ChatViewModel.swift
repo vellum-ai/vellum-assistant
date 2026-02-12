@@ -15,6 +15,9 @@ final class ChatViewModel: ObservableObject {
     private let daemonClient: DaemonClient
     var sessionId: String?
     private var pendingUserMessage: String?
+    /// Nonce sent with `session_create` and echoed back in `session_info`.
+    /// Used to ensure this ChatViewModel only claims its own session.
+    private var bootstrapCorrelationId: String?
     private var messageLoopTask: Task<Void, Never>?
     private var currentAssistantMessageId: UUID?
     /// When true, incoming deltas are suppressed until the daemon acknowledges
@@ -68,6 +71,11 @@ final class ChatViewModel: ObservableObject {
         isThinking = true
         pendingUserMessage = userMessage
 
+        // Generate a unique correlation ID so this ChatViewModel only claims
+        // the session_info response that belongs to its own session_create request.
+        let correlationId = UUID().uuidString
+        self.bootstrapCorrelationId = correlationId
+
         Task { @MainActor in
             // Ensure daemon connection
             if !daemonClient.isConnected {
@@ -77,6 +85,7 @@ final class ChatViewModel: ObservableObject {
                     log.error("Failed to connect to daemon: \(error.localizedDescription)")
                     self.isThinking = false
                     self.isSending = false
+                    self.bootstrapCorrelationId = nil
                     self.errorText = "Cannot connect to daemon. Please ensure it's running."
                     return
                 }
@@ -85,13 +94,14 @@ final class ChatViewModel: ObservableObject {
             // Subscribe to daemon stream
             self.startMessageLoop()
 
-            // Send session_create
+            // Send session_create with correlation ID
             do {
-                try daemonClient.send(SessionCreateMessage(title: nil))
+                try daemonClient.send(SessionCreateMessage(title: nil, correlationId: correlationId))
             } catch {
                 log.error("Failed to send session_create: \(error.localizedDescription)")
                 self.isThinking = false
                 self.isSending = false
+                self.bootstrapCorrelationId = nil
                 self.errorText = "Failed to create session."
             }
         }
@@ -170,8 +180,21 @@ final class ChatViewModel: ObservableObject {
     func handleServerMessage(_ message: ServerMessage) {
         switch message {
         case .sessionInfo(let info):
+            // Only claim this session_info if:
+            // 1. We don't have a session yet, AND
+            // 2. The correlation ID matches our bootstrap request (if we sent one).
+            //    Session info without a correlation ID is accepted when we have no
+            //    bootstrap correlation (backwards compatibility with older daemons).
             if sessionId == nil {
+                if let expected = bootstrapCorrelationId {
+                    guard info.correlationId == expected else {
+                        // This session_info belongs to a different ChatViewModel's request.
+                        break
+                    }
+                }
+
                 sessionId = info.sessionId
+                bootstrapCorrelationId = nil
                 log.info("Chat session created: \(info.sessionId)")
 
                 // Send the queued user message
@@ -319,6 +342,7 @@ final class ChatViewModel: ObservableObject {
         // cancel on the daemon side.
         if sessionId == nil {
             pendingUserMessage = nil
+            bootstrapCorrelationId = nil
             isThinking = false
             isSending = false
             return

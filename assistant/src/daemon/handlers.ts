@@ -348,6 +348,7 @@ async function handleSessionCreate(
     type: 'session_info',
     sessionId: conversation.id,
     title: conversation.title ?? 'New Conversation',
+    ...(msg.correlationId ? { correlationId: msg.correlationId } : {}),
   });
 }
 
