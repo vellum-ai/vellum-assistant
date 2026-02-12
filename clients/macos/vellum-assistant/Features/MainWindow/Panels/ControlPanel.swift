@@ -1,0 +1,216 @@
+import SwiftUI
+
+struct ControlPanel: View {
+    var onClose: () -> Void
+
+    @State private var selectedTab: ControlTab = .settings
+    @State private var apiKey: String = ""
+    @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
+    @AppStorage("ambientAgentEnabled") private var ambientEnabled: Bool = false
+
+    private enum ControlTab: String, CaseIterable {
+        case profile, settings, channels, overview
+    }
+
+    var body: some View {
+        VSidePanel(title: "Control", onClose: onClose) {
+            HStack(alignment: .top, spacing: 0) {
+                // Left nav
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    ForEach(ControlTab.allCases, id: \.self) { tab in
+                        navButton(tab.rawValue.capitalized, selected: selectedTab == tab) {
+                            selectedTab = tab
+                        }
+                    }
+                }
+                .frame(width: 100)
+                .padding(.top, VSpacing.md)
+
+                Divider()
+
+                // Right content
+                ScrollView {
+                    Group {
+                        switch selectedTab {
+                        case .settings:
+                            settingsContent
+                        case .profile:
+                            VEmptyState(
+                                title: "Profile",
+                                subtitle: "User profile coming soon",
+                                icon: "person.circle"
+                            )
+                        case .channels:
+                            VEmptyState(
+                                title: "Channels",
+                                subtitle: "Channel configuration coming soon",
+                                icon: "antenna.radiowaves.left.and.right"
+                            )
+                        case .overview:
+                            VEmptyState(
+                                title: "Overview",
+                                subtitle: "System overview coming soon",
+                                icon: "chart.bar"
+                            )
+                        }
+                    }
+                    .padding(VSpacing.lg)
+                }
+            }
+        }
+        .onAppear {
+            loadAPIKey()
+        }
+    }
+
+    // MARK: - Nav Button
+
+    private func navButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(VFont.bodyMedium)
+                .foregroundColor(selected ? VColor.textPrimary : VColor.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+        }
+        .buttonStyle(.plain)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        .vHover()
+    }
+
+    // MARK: - Settings Content
+
+    private var settingsContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xl) {
+            // ANTHROPIC section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("ANTHROPIC")
+                    .font(VFont.display)
+                    .foregroundColor(VColor.textPrimary)
+
+                Text("Enter API Key")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+
+                VTextField(placeholder: "This is your private generated key", text: $apiKey)
+
+                Text("Get your API key at console.anthropic.com")
+                    .font(VFont.small)
+                    .foregroundColor(VColor.textMuted)
+
+                VButton(label: "Save", style: .primary) {
+                    saveAPIKey()
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard()
+
+            // COMPUTER USAGE section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("COMPUTER USAGE")
+                    .font(VFont.display)
+                    .foregroundColor(VColor.textPrimary)
+
+                HStack {
+                    Text("Max Steps per Session")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
+                    Text("\(Int(maxSteps))")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                Slider(value: $maxSteps, in: 1...100, step: 1)
+                    .tint(VColor.accent)
+            }
+            .padding(VSpacing.lg)
+            .vCard()
+
+            // AMBIENT AGENT section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("AMBIENT AGENT")
+                    .font(VFont.display)
+                    .foregroundColor(VColor.textPrimary)
+
+                Toggle("Enable ambient screen watching", isOn: $ambientEnabled)
+                    .tint(VColor.accent)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+            }
+            .padding(VSpacing.lg)
+            .vCard()
+
+            // PERMISSIONS section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("PERMISSIONS")
+                    .font(VFont.display)
+                    .foregroundColor(VColor.textPrimary)
+
+                permissionRow(
+                    icon: "hand.raised",
+                    label: "Accessibility",
+                    granted: PermissionManager.accessibilityStatus() == .granted
+                )
+
+                permissionRow(
+                    icon: "record.circle",
+                    label: "Screen Recording",
+                    granted: PermissionManager.screenRecordingStatus() == .granted
+                )
+
+                permissionRow(
+                    icon: "key",
+                    label: "API Key",
+                    granted: APIKeyManager.getKey() != nil
+                )
+            }
+            .padding(VSpacing.lg)
+            .vCard()
+        }
+    }
+
+    // MARK: - Permission Row
+
+    private func permissionRow(icon: String, label: String, granted: Bool) -> some View {
+        HStack(spacing: VSpacing.md) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundColor(VColor.textSecondary)
+                .frame(width: 20)
+
+            Text(label)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+
+            Spacer()
+
+            Image(systemName: granted ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(granted ? VColor.success : VColor.error)
+        }
+    }
+
+    // MARK: - API Key Management
+
+    private func saveAPIKey() {
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        APIKeyManager.setKey(trimmed)
+    }
+
+    private func loadAPIKey() {
+        if let key = APIKeyManager.getKey() {
+            apiKey = key
+        }
+    }
+}
+
+#Preview("ControlPanel") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        ControlPanel(onClose: {})
+    }
+    .frame(width: 600, height: 700)
+}
