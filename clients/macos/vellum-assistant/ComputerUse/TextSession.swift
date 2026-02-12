@@ -8,6 +8,7 @@ enum TextSessionState: Equatable {
     case thinking
     case streaming(text: String)
     case completed(text: String)
+    case ready
     case failed(reason: String)
     case cancelled
 }
@@ -15,6 +16,7 @@ enum TextSessionState: Equatable {
 @MainActor
 final class TextSession: ObservableObject {
     @Published var state: TextSessionState = .idle
+    @Published var messages: [ConversationMessage] = []
     let task: String
     let id: String
 
@@ -90,6 +92,9 @@ final class TextSession: ObservableObject {
                             content: self.task,
                             attachments: ipcAttachments
                         ))
+
+                        // Track the initial user message
+                        self.messages.append(ConversationMessage(role: .user, text: self.task))
                     }
 
                 case .assistantTextDelta(let delta) where self.daemonSessionId != nil:
@@ -101,11 +106,10 @@ final class TextSession: ObservableObject {
                     log.debug("Thinking: \(delta.thinking)")
 
                 case .messageComplete(_) where self.daemonSessionId != nil:
-                    if self.accumulatedText.isEmpty {
-                        self.state = .completed(text: "(No response)")
-                    } else {
-                        self.state = .completed(text: self.accumulatedText)
-                    }
+                    let responseText = self.accumulatedText.isEmpty ? "(No response)" : self.accumulatedText
+                    self.messages.append(ConversationMessage(role: .assistant, text: responseText))
+                    self.state = .completed(text: responseText)
+                    self.state = .ready
                     return
 
                 case .cuError(let error) where error.sessionId == self.daemonSessionId:
@@ -122,7 +126,7 @@ final class TextSession: ObservableObject {
 
         // Stream ended or cancelled — ensure terminal state
         switch state {
-        case .completed, .failed, .cancelled:
+        case .completed, .ready, .failed, .cancelled:
             break
         default:
             if isCancelled {
@@ -136,5 +140,53 @@ final class TextSession: ObservableObject {
     func cancel() {
         isCancelled = true
         messageLoopTask?.cancel()
+        daemonSessionId = nil
+    }
+
+    func sendFollowUp(text: String) {
+        guard let sessionId = daemonSessionId, state == .ready else { return }
+
+        messages.append(ConversationMessage(role: .user, text: text))
+        accumulatedText = ""
+        state = .thinking
+
+        let messageStream = daemonClient.subscribe()
+        try? daemonClient.send(UserMessageMessage(
+            sessionId: sessionId,
+            content: text,
+            attachments: nil
+        ))
+
+        let loopTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            for await message in messageStream {
+                guard !self.isCancelled else { break }
+
+                switch message {
+                case .assistantTextDelta(let delta) where delta.sessionId == sessionId || delta.sessionId == nil:
+                    self.accumulatedText += delta.text
+                    self.state = .streaming(text: self.accumulatedText)
+
+                case .assistantThinkingDelta(let delta):
+                    log.debug("Thinking: \(delta.thinking)")
+
+                case .messageComplete(_):
+                    let responseText = self.accumulatedText.isEmpty ? "(No response)" : self.accumulatedText
+                    self.messages.append(ConversationMessage(role: .assistant, text: responseText))
+                    self.state = .completed(text: responseText)
+                    self.state = .ready
+                    return
+
+                case .cuError(let error) where error.sessionId == sessionId:
+                    self.state = .failed(reason: error.message)
+                    return
+
+                default:
+                    break
+                }
+            }
+        }
+        messageLoopTask = loopTask
     }
 }
