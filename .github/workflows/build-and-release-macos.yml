@@ -115,35 +115,49 @@ jobs:
           df -h .
           echo "Disk space freed"
 
+      - name: Generate DMG background
+        run: |
+          mkdir -p build
+          swift dmg/generate-background.swift build/dmg-background.png
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
       - name: Create DMG
         run: |
           APP_PATH="dist/Vellum.app"
-          APP_NAME="Vellum.app"
 
-          # Create staging directory for DMG contents
+          # Stage just the .app (create-dmg adds the Applications symlink)
           DMG_STAGING="build/dmg-staging"
           mkdir -p "$DMG_STAGING"
           cp -R "$APP_PATH" "$DMG_STAGING/"
-          ln -s /Applications "$DMG_STAGING/Applications"
 
           echo "Staging directory size:"
           du -sh "$DMG_STAGING"
 
-          # Two-step DMG creation to avoid auto-sizing issues:
-          # 1. Create read-write image (auto-sizes more generously)
-          hdiutil create \
-            -volname "Vellum" \
-            -srcfolder "$DMG_STAGING" \
-            -ov \
-            -format UDRW \
-            "build/temp.dmg"
-
-          # 2. Convert to compressed UDZO
-          hdiutil convert "build/temp.dmg" \
-            -format UDZO \
-            -ov \
-            -o "$DMG_PATH"
-          rm "build/temp.dmg"
+          # Create styled DMG with background, icon layout, and Applications drop link
+          create-dmg \
+            --volname "Vellum" \
+            --background "build/dmg-background.png" \
+            --window-pos 200 120 \
+            --window-size 660 400 \
+            --icon-size 128 \
+            --icon "Vellum.app" 175 190 \
+            --app-drop-link 485 190 \
+            --hide-extension "Vellum.app" \
+            --no-internet-enable \
+            "$DMG_PATH" \
+            "$DMG_STAGING/" \
+          || {
+            # create-dmg exits 2 on non-fatal warnings (e.g. Finder scripting delays)
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 2 ] && [ -f "$DMG_PATH" ]; then
+              echo "create-dmg exited with warning (code 2), but DMG was created successfully"
+            else
+              echo "create-dmg failed with exit code $EXIT_CODE"
+              exit $EXIT_CODE
+            fi
+          }
 
           echo "DMG created at $DMG_PATH"
           ls -lh "$DMG_PATH"
