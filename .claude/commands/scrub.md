@@ -31,15 +31,15 @@ Kill the running vellum-assistant app, delete all persistent data so the next la
    ```bash
    pgrep -f "src/index.ts daemon"
    ```
-   If it's NOT running, start it in the background from the assistant repo:
+   If it's NOT running, start it in the background from the repo root:
    ```bash
-   cd ../../assistant && export PATH="$HOME/.bun/bin:$PATH" && bun run src/index.ts daemon start
+   cd assistant && bun run src/index.ts daemon start && cd ..
    ```
    If it IS already running, skip this step and report that the daemon is already up.
 
-7. Build and launch the macOS app:
+7. Build and launch the macOS app (from the repo root):
    ```bash
-   ./build.sh run
+   cd clients/macos && ./build.sh run
    ```
    Run this in the background so it doesn't block.
 
