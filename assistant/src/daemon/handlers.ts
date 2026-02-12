@@ -36,17 +36,42 @@ const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
 
 /**
+ * Find the current socket bound to a given session by reversing the
+ * `socketToSession` map. Returns `undefined` if no socket is bound.
+ */
+function findSocketForSession(
+  sessionId: string,
+  ctx: HandlerContext,
+): net.Socket | undefined {
+  for (const [sock, id] of ctx.socketToSession) {
+    if (id === sessionId) return sock;
+  }
+  return undefined;
+}
+
+/**
  * Wire the escalation handler on a text_qa session so that invoking
  * `request_computer_control` creates a CU session and notifies the client.
+ *
+ * Instead of closing over the original `socket`, the handler looks up the
+ * current socket for the session at call time via `ctx.socketToSession`.
+ * This ensures the handler targets the correct socket even after a
+ * disconnect-and-rebind cycle.
  */
 function wireEscalationHandler(
   session: Session,
-  socket: net.Socket,
+  _socket: net.Socket,
   ctx: HandlerContext,
   screenWidth: number,
   screenHeight: number,
 ): void {
   session.setEscalationHandler((task: string, sourceSessionId: string) => {
+    const currentSocket = findSocketForSession(sourceSessionId, ctx);
+    if (!currentSocket) {
+      log.warn({ sourceSessionId }, 'Escalation handler: no active socket found for session');
+      return;
+    }
+
     const cuSessionId = uuid();
     const cuMsg: CuSessionCreate = {
       type: 'cu_session_create',
@@ -56,12 +81,13 @@ function wireEscalationHandler(
       screenHeight,
       interactionType: 'computer_use',
     };
-    handleCuSessionCreate(cuMsg, socket, ctx);
+    handleCuSessionCreate(cuMsg, currentSocket, ctx);
 
-    ctx.send(socket, {
+    ctx.send(currentSocket, {
       type: 'task_routed',
       sessionId: cuSessionId,
       interactionType: 'computer_use',
+      task,
       escalatedFrom: sourceSessionId,
     });
   });

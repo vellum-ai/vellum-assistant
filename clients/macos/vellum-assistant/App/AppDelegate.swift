@@ -98,7 +98,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
         let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
         let session = ComputerUseSession(
-            task: "",
+            task: routed.task ?? "Escalated task",
             daemonClient: self.daemonClient,
             maxSteps: maxSteps,
             sessionId: routed.sessionId,

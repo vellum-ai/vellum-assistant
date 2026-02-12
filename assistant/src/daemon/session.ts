@@ -924,9 +924,13 @@ export class Session {
 
     if (toolName === 'request_computer_control') {
       const task = typeof input.task === 'string' ? input.task : 'Perform the requested task';
-      if (this.onEscalateToComputerUse) {
-        this.onEscalateToComputerUse(task, this.conversationId);
+      if (!this.onEscalateToComputerUse) {
+        return {
+          content: 'Computer control escalation is not available in this session.',
+          isError: true,
+        };
       }
+      this.onEscalateToComputerUse(task, this.conversationId);
       return {
         content: 'Computer control activated. The task has been handed off to foreground computer use.',
         isError: false,
