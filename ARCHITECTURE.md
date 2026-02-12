@@ -127,7 +127,7 @@ graph TB
 
     %% Main Window Chat flow
     CHAT_VM -->|"session_create +<br/>user_message +<br/>cancel"| IPC_SERVER
-    IPC_SERVER -->|"session_info +<br/>text deltas +<br/>message_complete"| CHAT_VM
+    IPC_SERVER -->|"session_info +<br/>text deltas +<br/>message_complete +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
 
     %% Ambient flow
@@ -540,6 +540,9 @@ graph LR
         S9["memory_recalled<br/>context segments"]
         S10["usage_update / error"]
         S11["generation_cancelled"]
+        S12["message_queued<br/>position in queue"]
+        S13["message_dequeued<br/>queue drained"]
+        S14["generation_handoff<br/>sessionId, requestId?,<br/>queuedCount"]
     end
 
     C1 --> SOCKET
@@ -563,6 +566,45 @@ graph LR
     SOCKET --> S9
     SOCKET --> S10
     SOCKET --> S11
+    SOCKET --> S12
+    SOCKET --> S13
+    SOCKET --> S14
+```
+
+---
+
+## Opportunistic Message Queue — Handoff Flow
+
+When the daemon is busy generating a response, the client can continue sending messages. These are queued (FIFO, max 10) and drained automatically at safe checkpoints in the tool loop, not only at full completion.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Chat as ChatView
+    participant VM as ChatViewModel
+    participant DC as DaemonClient
+    participant Daemon as Daemon
+
+    User->>Chat: send message while busy
+    Chat->>VM: enqueue message
+    VM->>DC: user_message
+    DC->>Daemon: IPC
+    Daemon-->>DC: message_queued (position)
+    DC-->>VM: show queue status
+
+    Note over Daemon: Processing previous request...<br/>Reaches safe tool-loop checkpoint
+
+    Daemon-->>DC: generation_handoff (sessionId, queuedCount)
+    Note over Daemon: Daemon yields current generation
+
+    Daemon-->>DC: message_dequeued
+    DC-->>VM: next queued message now processing
+
+    Note over Daemon: Processes queued message...
+
+    Daemon-->>DC: assistant_text_delta (streaming)
+    Daemon-->>DC: message_complete
+    DC-->>VM: generation finished
 ```
 
 ---
