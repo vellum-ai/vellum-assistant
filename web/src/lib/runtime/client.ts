@@ -32,7 +32,7 @@ function sanitizeUrl(url: string): string {
     const parsed = new URL(url);
     parsed.username = "";
     parsed.password = "";
-    return `${parsed.protocol}//${parsed.host}`;
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
   } catch {
     return url.replace(/\/\/[^@]*@/, "//[REDACTED]@");
   }
@@ -71,9 +71,9 @@ export function createRuntimeClient(
         headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
       });
     } catch (err) {
-      const sanitized = sanitizeUrl(baseUrl);
+      const sanitized = sanitizeUrl(prefix);
       throw new RuntimeClientError(
-        0,
+        502,
         `Failed to connect to runtime at ${sanitized}${path}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
