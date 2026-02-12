@@ -2,11 +2,8 @@ import SwiftUI
 
 struct InterviewChatView: View {
     let messages: [InterviewMessage]
-    @Binding var inputText: String
+    let inputText: String
     let isThinking: Bool
-    let onSend: () -> Void
-    let onVoiceToggle: () -> Void
-    let isRecording: Bool
     let isStreaming: Bool
     var onChipTap: ((String) -> Void)? = nil
 
@@ -25,7 +22,6 @@ struct InterviewChatView: View {
                 suggestionChips
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
-            inputArea
         }
         .animation(VAnimation.standard, value: showSuggestionChips)
     }
@@ -116,83 +112,6 @@ struct InterviewChatView: View {
             else { NSCursor.arrow.set() }
         }
     }
-
-    // MARK: - Input Area
-
-    private var inputArea: some View {
-        HStack(spacing: VSpacing.sm) {
-            VTextField(
-                placeholder: "Type a message\u{2026}",
-                text: $inputText,
-                onSubmit: {
-                    if !inputText.trimmingCharacters(in: .whitespaces).isEmpty {
-                        onSend()
-                    }
-                }
-            )
-
-            VIconButton(
-                label: "Voice",
-                icon: "mic.fill",
-                isActive: isRecording,
-                iconOnly: true,
-                action: onVoiceToggle
-            )
-
-            Button(action: {
-                if !inputText.trimmingCharacters(in: .whitespaces).isEmpty {
-                    onSend()
-                }
-            }) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(width: 24, height: 24)
-                    .background(
-                        Circle()
-                            .fill(sendButtonDisabled ? VColor.textMuted : Violet._600)
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(sendButtonDisabled)
-            .accessibilityLabel("Send message")
-        }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.md)
-        .background(
-            VColor.surface.opacity(0.5)
-                .overlay(
-                    VStack {
-                        Divider().background(VColor.surfaceBorder.opacity(0.4))
-                        Spacer()
-                    }
-                )
-        )
-    }
-
-    private var sendButtonDisabled: Bool {
-        inputText.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-}
-
-// MARK: - Assistant Avatar
-
-private struct AssistantAvatar: View {
-    let size: CGFloat
-
-    var body: some View {
-        if let url = Bundle.module.url(forResource: "dino", withExtension: "webp"),
-           let nsImage = NSImage(contentsOf: url) {
-            Image(nsImage: nsImage)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: size, height: size)
-        } else {
-            Text("\u{1f995}")
-                .font(.system(size: size * 0.6))
-                .frame(width: size, height: size)
-        }
-    }
 }
 
 // MARK: - Message Bubble
@@ -203,11 +122,7 @@ private struct MessageBubble: View {
     private var isAssistant: Bool { message.role == .assistant }
 
     var body: some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
-            if isAssistant {
-                AssistantAvatar(size: 28)
-            }
-
+        HStack {
             if !isAssistant { Spacer(minLength: 0) }
 
             Text(message.text)
@@ -267,9 +182,7 @@ private struct TypingIndicator: View {
     @State private var timer: Timer?
 
     var body: some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
-            AssistantAvatar(size: 28)
-
+        HStack {
             HStack(spacing: VSpacing.xs) {
                 ForEach(0..<3, id: \.self) { index in
                     Circle()
@@ -324,11 +237,8 @@ private struct TypingIndicator: View {
         OnboardingPanel {
             InterviewChatView(
                 messages: sampleMessages,
-                inputText: $text,
+                inputText: text,
                 isThinking: true,
-                onSend: {},
-                onVoiceToggle: {},
-                isRecording: false,
                 isStreaming: false
             )
             .frame(height: 400)

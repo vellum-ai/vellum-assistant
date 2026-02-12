@@ -9,8 +9,6 @@ struct InterviewStepView: View {
     @State private var showControls = false
     @State private var streamingMessageId = UUID()
     @State private var isRecording = false
-    @State private var headerCollapsed = false
-    @State private var floatOffset: CGFloat = 0
 
     @State private var voiceInputManager = VoiceInputManager()
     private let profileExtractor: ProfileExtractor
@@ -35,87 +33,72 @@ struct InterviewStepView: View {
         return msgs
     }
 
-    /// Show the "ready" button once we have at least 2 complete assistant exchanges.
-    private var hasEnoughExchanges: Bool {
-        viewModel.messages.filter { $0.role == .assistant }.count >= 2
-    }
-
-    private var displayName: String {
-        state.assistantName.isEmpty ? "your assistant" : state.assistantName
+    private var sendButtonDisabled: Bool {
+        viewModel.inputText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Title area — collapses after first user message
-            header
+            // Main content: dino left, chat panel right
+            HStack(alignment: .center, spacing: VSpacing.xxxl) {
+                // Hatched dinosaur — same visual size as in hatch scene
+                CreatureView(visible: true, animated: false)
+                    .scaleEffect(0.5)
+                    .frame(width: 200, height: 200)
 
-            // Chat area
-            InterviewChatView(
-                messages: displayedMessages,
-                inputText: $viewModel.inputText,
-                isThinking: viewModel.isThinking,
-                onSend: { viewModel.sendMessage() },
-                onVoiceToggle: { toggleVoice() },
-                isRecording: isRecording,
-                isStreaming: !viewModel.streamingText.isEmpty,
-                onChipTap: { chip in
-                    viewModel.inputText = chip
-                    viewModel.sendMessage()
-                }
-            )
-            .frame(maxHeight: .infinity)
-            .allowsHitTesting(!viewModel.isFinished)
+                // Chat messages + input in panel
+                OnboardingPanel {
+                    VStack(spacing: 0) {
+                        InterviewChatView(
+                            messages: displayedMessages,
+                            inputText: viewModel.inputText,
+                            isThinking: viewModel.isThinking,
+                            isStreaming: !viewModel.streamingText.isEmpty,
+                            onChipTap: { chip in
+                                viewModel.inputText = chip
+                                viewModel.sendMessage()
+                            }
+                        )
+                        .allowsHitTesting(!viewModel.isFinished)
 
-            // Bottom controls
-            VStack(spacing: VSpacing.md) {
-                if hasEnoughExchanges && showControls {
-                    OnboardingButton(
-                        title: "Let\u{2019}s get started \u{2192}",
-                        style: .primary
-                    ) {
-                        completeInterview()
+                        inputArea
                     }
-                    .transition(.opacity)
                 }
-
-                if !viewModel.isFinished && showControls {
-                    Button {
-                        completeInterview()
-                    } label: {
-                        Text("Skip setup for now")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { hovering in
-                        NSCursor.pointingHand.set()
-                        if !hovering { NSCursor.arrow.set() }
-                    }
-                    .transition(.opacity)
-                }
+                .frame(maxWidth: 520, maxHeight: 560)
             }
-            .padding(.vertical, VSpacing.lg)
-            .animation(.easeOut(duration: 0.5), value: hasEnoughExchanges)
-        }
-        .onChange(of: displayedMessages.count) {
-            let hasUserMessage = displayedMessages.contains { $0.role == .user }
-            if hasUserMessage && !headerCollapsed {
-                withAnimation(.easeInOut(duration: 0.4)) {
-                    headerCollapsed = true
+            .frame(maxHeight: .infinity)
+            .padding(.horizontal, VSpacing.xxxl)
+
+            // Skip link
+            if !viewModel.isFinished && showControls {
+                Button {
+                    completeInterview()
+                } label: {
+                    Text("Skip setup for now")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
                 }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    NSCursor.pointingHand.set()
+                    if !hovering { NSCursor.arrow.set() }
+                }
+                .transition(.opacity)
+                .padding(.vertical, VSpacing.md)
             }
         }
         .onAppear {
             viewModel.startInterview()
             setupVoiceCallbacks()
-            // Gentle floating animation for the avatar
-            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
-                floatOffset = -6
-            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showControls = true
                 }
+            }
+        }
+        .onChange(of: viewModel.isFinished) {
+            if viewModel.isFinished {
+                completeInterview()
             }
         }
         .onDisappear {
@@ -124,59 +107,61 @@ struct InterviewStepView: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Input Area
 
-    @ViewBuilder
-    private var header: some View {
-        if headerCollapsed {
-            // Collapsed: just the title, smaller
-            Text("Meet \(displayName)")
-                .font(Font.custom("Silkscreen-Regular", size: 18))
-                .foregroundColor(VColor.textPrimary)
-                .padding(.top, VSpacing.lg)
-                .padding(.bottom, VSpacing.sm)
-        } else {
-            // Expanded: avatar + title + subtitle + divider
-            VStack(spacing: VSpacing.xs) {
-                headerAvatar
-                    .offset(y: floatOffset)
+    private var inputArea: some View {
+        HStack(spacing: VSpacing.sm) {
+            VTextField(
+                placeholder: "Type a message\u{2026}",
+                text: $viewModel.inputText,
+                onSubmit: {
+                    if !viewModel.inputText.trimmingCharacters(in: .whitespaces).isEmpty {
+                        viewModel.sendMessage()
+                    }
+                }
+            )
 
-                Text("Meet \(displayName)")
-                    .font(VFont.onboardingTitle)
-                    .foregroundColor(VColor.textPrimary)
+            VIconButton(
+                label: "Voice",
+                icon: "mic.fill",
+                isActive: isRecording,
+                iconOnly: true,
+                action: { toggleVoice() }
+            )
 
-                Text("Say hi \u{2014} it\u{2019}ll only take a minute")
-                    .font(VFont.onboardingSubtitle)
-                    .foregroundColor(VColor.textSecondary)
-
-                Divider()
-                    .background(VColor.surfaceBorder.opacity(0.3))
-                    .padding(.horizontal, VSpacing.xl)
+            Button(action: {
+                if !viewModel.inputText.trimmingCharacters(in: .whitespaces).isEmpty {
+                    viewModel.sendMessage()
+                }
+            }) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Circle()
+                            .fill(sendButtonDisabled ? VColor.textMuted : Violet._600)
+                    )
             }
-            .padding(.top, VSpacing.xl)
-            .padding(.bottom, VSpacing.md)
+            .buttonStyle(.plain)
+            .disabled(sendButtonDisabled)
+            .accessibilityLabel("Send message")
         }
-    }
-
-    @ViewBuilder
-    private var headerAvatar: some View {
-        if let url = Bundle.module.url(forResource: "dino", withExtension: "webp"),
-           let nsImage = NSImage(contentsOf: url) {
-            Image(nsImage: nsImage)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 48, height: 48)
-        } else {
-            Text("\u{1f995}")
-                .font(.system(size: 32))
-                .frame(width: 48, height: 48)
-        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
+        .background(
+            VColor.surface.opacity(0.5)
+                .overlay(
+                    VStack {
+                        Divider().background(VColor.surfaceBorder.opacity(0.4))
+                        Spacer()
+                    }
+                )
+        )
     }
 
     // MARK: - Interview Completion
 
-    /// Ends the interview, triggers background profile extraction, and advances onboarding.
-    /// Extraction runs async in the background and does not block onboarding completion.
     private func completeInterview() {
         let messages = viewModel.messages
         let assistantName = state.assistantName
@@ -184,7 +169,6 @@ struct InterviewStepView: View {
         state.interviewCompleted = true
         viewModel.endInterview()
 
-        // Fire-and-forget background extraction — failures are logged but don't affect onboarding.
         Task { @MainActor in
             await profileExtractor.extractProfile(from: messages, assistantName: assistantName)
         }
@@ -225,7 +209,6 @@ struct InterviewStepView: View {
             daemonClient: DaemonClient(),
             onComplete: {}
         )
-        .frame(width: 520, height: 600)
     }
     .frame(width: 1366, height: 849)
 }

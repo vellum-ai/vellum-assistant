@@ -60,28 +60,16 @@ struct OnboardingFlowView: View {
                         .padding(.bottom, VSpacing.lg)
                 }
             } else {
-                // Step 7: Interview — full-width, no egg
-                OnboardingPanel {
-                    InterviewStepView(
-                        state: state,
-                        daemonClient: daemonClient,
-                        onComplete: onComplete
-                    )
-                }
-                .frame(maxWidth: 560, maxHeight: 640)
+                // Step 7: Interview — manages its own layout (dino + panel + input)
+                InterviewStepView(
+                    state: state,
+                    daemonClient: daemonClient,
+                    onComplete: onComplete
+                )
                 .transition(
                     .opacity.combined(with: .scale(scale: 0.97))
                 )
                 .id(state.currentStep)
-
-                // Bottom caption for interview
-                VStack {
-                    Spacer()
-                    Text("Your assistant is ready")
-                        .font(VFont.onboardingSubtitle)
-                        .foregroundColor(Meadow.captionText)
-                        .padding(.bottom, VSpacing.lg)
-                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
