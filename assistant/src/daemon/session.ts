@@ -798,14 +798,22 @@ export class Session {
     // tool_result message, leaving the real user message orphaned.
     //
     // Strategy: peel back any trailing tool_result exchanges first, then
-    // unconditionally delete the real user message exchange. The do-while
-    // handles the case where the last DB exchange is a tool_result row, and
-    // the final call after the loop ensures the original user message is
-    // always removed.
+    // delete the real user message exchange only if tool_result rows were
+    // actually encountered. The do-while handles the case where the last DB
+    // exchange is a tool_result row; the flag ensures we only issue the extra
+    // deleteLastExchange when the loop peeled back tool_result messages.
+    let hadToolResult = false;
     do {
       conversationStore.deleteLastExchange(this.conversationId);
-    } while (conversationStore.isLastUserMessageToolResult(this.conversationId));
-    conversationStore.deleteLastExchange(this.conversationId);
+      if (conversationStore.isLastUserMessageToolResult(this.conversationId)) {
+        hadToolResult = true;
+      } else {
+        break;
+      }
+    } while (true);
+    if (hadToolResult) {
+      conversationStore.deleteLastExchange(this.conversationId);
+    }
 
     return removed;
   }
