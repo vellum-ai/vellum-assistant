@@ -207,7 +207,12 @@ jobs:
       - name: Install Sparkle sign_update tool
         run: |
           brew install sparkle
-          echo "Sparkle tools installed"
+          SPARKLE_BIN=$(find /opt/homebrew/Caskroom/sparkle -name sign_update -type f 2>/dev/null | head -1)
+          if [ -z "$SPARKLE_BIN" ]; then
+            SPARKLE_BIN=$(find /usr/local/Caskroom/sparkle -name sign_update -type f 2>/dev/null | head -1)
+          fi
+          echo "Found sign_update at: $SPARKLE_BIN"
+          echo "$(dirname "$SPARKLE_BIN")" >> "$GITHUB_PATH"
 
       - name: Generate appcast.xml
         env:
