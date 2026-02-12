@@ -78,7 +78,16 @@ Grant these in System Settings → Privacy & Security.
 10. Responses stream in real-time from the daemon
 11. Click the stop button to cancel an in-progress generation
 
-**Current limitations:** Single active generation at a time, text-only messages, no conversation history browser.
+### Opportunistic Message Queueing
+
+Users can send multiple messages while the assistant is busy. Messages are queued (FIFO, max 10) and processed automatically:
+
+- The queue drains at safe tool-loop checkpoints, not just at full completion
+- UI shows queue status: "N messages queued, sending automatically"
+- Message bubbles show status: queued (dimmed) -> processing -> sent
+- The daemon emits `generation_handoff` when it yields to queued work at a checkpoint, followed by `message_dequeued` as each queued message begins processing
+
+**Current limitations:** Text-only messages, no conversation history browser.
 
 ## Xcode Previews
 
@@ -160,6 +169,8 @@ Inference/            AI action selection
 IPC/                  Daemon communication
   DaemonClient        Unix domain socket IPC client (auto-reconnect, ping/pong)
   IPCMessages         Codable structs mirroring ipc-protocol.ts
+                      Includes: message_queued, message_dequeued,
+                      generation_handoff (sessionId, requestId?, queuedCount)
 Ambient/              Background screen-watching agent
   AmbientAgent        Periodic capture → OCR → analyze via daemon IPC
   AmbientAnalyzer     Type definitions (AmbientDecision, AmbientAnalysisResult)
