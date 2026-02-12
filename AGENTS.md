@@ -22,3 +22,4 @@ These are the most commonly used slash commands defined in `.claude/commands/`:
 | `/brainstorm` | Read through the codebase and `.private/TODO.md`, generate a prioritized list of improvements, and update the TODO after user approval. |
 | `/check-reviews` | Check every PR in `.private/UNREVIEWED_PRS.md` for Codex and Devin reviews; add feedback items to TODO and remove fully-reviewed PRs. |
 | `/execute-plan <plan-file>` | Execute a multi-PR rollout plan from `.private/plans/` sequentially — implement, validate, and mainline each PR in order. |
+| `/scrub` | Kill the running vellum-assistant app, wipe all persistent data, and relaunch the daemon and macOS app for a clean first-run experience. |
