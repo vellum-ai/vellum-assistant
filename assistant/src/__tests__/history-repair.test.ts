@@ -354,12 +354,13 @@ describe('repairHistory', () => {
     });
   });
 
-  test('keeps user(tool_result) separate from user(text) in checkpoint handoff scenario', () => {
+  test('merges user(tool_result) with user(text) in checkpoint handoff scenario', () => {
     // After a checkpoint handoff the history can end with:
     //   assistant(tool_use) -> user(tool_result) -> user(new_message)
-    // repairHistory must NOT merge these because isUndoableUserMessage rejects
-    // any user message containing tool_result, which would make the real user
-    // prompt non-undoable.
+    // repairHistory MUST merge these to satisfy the Anthropic API alternation
+    // requirement. Undo semantics for the merged message are handled by
+    // isUndoableUserMessage which considers a message with both tool_result
+    // and text blocks as undoable (since it contains user-authored content).
     const messages: Message[] = [
       { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
       {
@@ -382,20 +383,17 @@ describe('repairHistory', () => {
 
     const { messages: repaired, stats } = repairHistory(messages);
 
-    expect(stats.consecutiveSameRoleMerged).toBe(0);
-    expect(repaired).toHaveLength(4);
-    // tool_result user message stays separate
+    expect(stats.consecutiveSameRoleMerged).toBe(1);
+    expect(repaired).toHaveLength(3);
+    // user messages are merged into one
     expect(repaired[2].role).toBe('user');
-    expect(repaired[2].content).toHaveLength(1);
+    expect(repaired[2].content).toHaveLength(2);
     expect(repaired[2].content[0]).toEqual({
       type: 'tool_result',
       tool_use_id: 'tu_1',
       content: 'file1',
     });
-    // text user message stays separate and remains undoable
-    expect(repaired[3].role).toBe('user');
-    expect(repaired[3].content).toHaveLength(1);
-    expect(repaired[3].content[0]).toEqual({
+    expect(repaired[2].content[1]).toEqual({
       type: 'text',
       text: 'Now do something else',
     });

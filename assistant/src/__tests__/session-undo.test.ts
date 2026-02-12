@@ -13,7 +13,7 @@ describe('findLastUndoableUserMessageIndex', () => {
     expect(findLastUndoableUserMessageIndex(messages)).toBe(-1);
   });
 
-  test('skips context summaries and tool-result user turns', () => {
+  test('skips context summaries and tool-result-only user turns', () => {
     const messages: Message[] = [
       createContextSummaryMessage('## Goals\n- remembered context'),
       textMessage('assistant', 'older assistant reply'),
@@ -21,7 +21,6 @@ describe('findLastUndoableUserMessageIndex', () => {
         role: 'user',
         content: [
           { type: 'tool_result', tool_use_id: 'tool-1', content: 'file contents' },
-          { type: 'text', text: '[System: progress reminder]' },
         ],
       },
       textMessage('assistant', 'tool follow-up'),
@@ -30,6 +29,40 @@ describe('findLastUndoableUserMessageIndex', () => {
     ];
 
     expect(findLastUndoableUserMessageIndex(messages)).toBe(4);
+  });
+
+  test('considers user message with both tool_result and text as undoable', () => {
+    // After repairHistory merges user(tool_result) + user(text), the merged
+    // message contains both block types. It should still be undoable because
+    // it contains user-authored content (the text block).
+    const messages: Message[] = [
+      textMessage('assistant', 'older assistant reply'),
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tool-1', content: 'file contents' },
+          { type: 'text', text: 'user follow-up prompt' },
+        ],
+      },
+      textMessage('assistant', 'response'),
+    ];
+
+    expect(findLastUndoableUserMessageIndex(messages)).toBe(1);
+  });
+
+  test('skips user message with only tool_result blocks', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tool-1', content: 'result 1' },
+          { type: 'tool_result', tool_use_id: 'tool-2', content: 'result 2' },
+        ],
+      },
+      textMessage('assistant', 'response'),
+    ];
+
+    expect(findLastUndoableUserMessageIndex(messages)).toBe(-1);
   });
 
   test('treats user-authored summary marker text as a normal user turn', () => {
