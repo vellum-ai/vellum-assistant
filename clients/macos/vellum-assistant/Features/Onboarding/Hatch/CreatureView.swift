@@ -49,19 +49,12 @@ struct CreatureView: View {
         }
     }
 
-    @ViewBuilder
     private var dinoImage: some View {
-        if let url = Bundle.module.url(forResource: "dino", withExtension: "webp"),
-           let nsImage = NSImage(contentsOf: url) {
-            Image(nsImage: nsImage)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 400, height: 360)
-                .shadow(radius: 8)
-        } else {
-            // Fallback
-            Text("🦕")
-                .font(.system(size: 120))
-        }
+        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: Meadow.artPixelSize))
+            .interpolation(.none)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 400, height: 360)
+            .shadow(radius: 8)
     }
 }

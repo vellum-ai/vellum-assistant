@@ -221,20 +221,12 @@ struct TextResponseView: View {
     // MARK: - Assistant Avatar
 
     private var assistantAvatar: some View {
-        Group {
-            if let url = Bundle.module.url(forResource: "dino", withExtension: "webp"),
-               let nsImage = NSImage(contentsOf: url) {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-            } else {
-                Image(systemName: "person.crop.circle.fill")
-                    .resizable()
-                    .foregroundColor(VColor.textSecondary)
-            }
-        }
-        .frame(width: 24, height: 24)
-        .clipShape(Circle())
+        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: 2))
+            .interpolation(.none)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 24, height: 24)
+            .clipShape(Circle())
     }
 
     // MARK: - Helpers
@@ -299,22 +291,13 @@ private struct ConversationBubble: View {
         }
     }
 
-    @ViewBuilder
     private var assistantAvatar: some View {
-        if let url = Bundle.module.url(forResource: "dino", withExtension: "webp"),
-           let nsImage = NSImage(contentsOf: url) {
-            Image(nsImage: nsImage)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 24, height: 24)
-                .clipShape(Circle())
-        } else {
-            Image(systemName: "person.crop.circle.fill")
-                .resizable()
-                .foregroundColor(VColor.textSecondary)
-                .frame(width: 24, height: 24)
-                .clipShape(Circle())
-        }
+        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: 2))
+            .interpolation(.none)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 24, height: 24)
+            .clipShape(Circle())
     }
 }
 

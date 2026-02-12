@@ -8,63 +8,70 @@ struct ScreenPermissionStepView: View {
     @State private var pollTimer: Timer?
 
     var body: some View {
-        VStack(spacing: VSpacing.xxl) {
+        VStack(spacing: VSpacing.xl) {
             VStack(spacing: VSpacing.md) {
-                Text("One more thing \u{2014} let me see.")
+                Text("Last thing, give me eyes")
                     .font(VFont.onboardingTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                Text("I can hear you and act for you, but I\u{2019}m working blind. Let me see your screen so I know what\u{2019}s happening.")
+                Text("Without this, I\u{2019}m navigating in the dark. Let me see your screen so I can help with what\u{2019}s in front of you.")
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 320)
+                    .frame(maxWidth: 400)
             }
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 8)
 
-            VStack(spacing: VSpacing.xl) {
-                Text("\u{1F441}")
-                    .font(VFont.cardEmoji)
-
-                Text("Help me see")
-                    .font(VFont.cardTitle)
+            // Compact permission info card
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text("Screen Recording")
+                    .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
 
-                Text("Screen access lets \(state.assistantName) see what you\u{2019}re working on and respond to what\u{2019}s on screen. You can turn this off anytime.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 260)
-
                 if permissionGranted {
-                    HStack(spacing: VSpacing.md) {
+                    HStack(spacing: VSpacing.sm) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(VColor.success)
-                        Text("I can see your screen now")
+                        Text("Permission granted")
                             .foregroundColor(VColor.success)
-                            .font(VFont.bodyMedium)
+                            .font(VFont.caption)
                     }
-                    .transition(.scale.combined(with: .opacity))
                 } else {
-                    OnboardingButton(title: "Let me see", style: .primary) {
-                        requestScreenPermission()
-                    }
+                    Text("Lets the assistant see your screen to understand context and provide relevant help. Screenshots are processed locally and never uploaded.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
                 }
             }
-            .padding(VSpacing.xxl)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(VSpacing.lg)
             .background(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.surface.opacity(0.4))
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surface.opacity(0.3))
                     .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.onboardingAccent.opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
                     )
             )
             .opacity(showContent ? 1 : 0)
-            .offset(y: showContent ? 0 : 12)
+
+            if !permissionGranted {
+                VStack(spacing: VSpacing.md) {
+                    OnboardingButton(title: "Continue", style: .primary) {
+                        requestScreenPermission()
+                    }
+
+                    Button("Skip for now") {
+                        state.advance()
+                    }
+                    .buttonStyle(.plain)
+                    .font(VFont.small)
+                    .foregroundColor(VColor.textMuted)
+                }
+                .opacity(showContent ? 1 : 0)
+            }
         }
-        .animation(.easeOut(duration: 0.5), value: permissionGranted)
+        .animation(.easeOut(duration: 0.4), value: permissionGranted)
         .onAppear {
             if state.skipPermissionChecks {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -77,7 +84,7 @@ struct ScreenPermissionStepView: View {
                 grantPermission()
                 return
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showContent = true
                 }
@@ -106,7 +113,7 @@ struct ScreenPermissionStepView: View {
         pollTimer?.invalidate()
         permissionGranted = true
         state.screenGranted = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             state.advance()
         }
     }
@@ -114,12 +121,13 @@ struct ScreenPermissionStepView: View {
 
 #Preview {
     ZStack {
-        MeadowBackground()
+        VColor.background
         ScreenPermissionStepView(state: {
             let s = OnboardingState()
             s.currentStep = 5
             return s
         }())
+        .frame(maxWidth: 500)
     }
-    .frame(width: 1366, height: 849)
+    .frame(width: 640, height: 500)
 }

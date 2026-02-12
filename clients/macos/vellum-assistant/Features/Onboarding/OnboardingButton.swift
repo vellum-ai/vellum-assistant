@@ -21,12 +21,13 @@ struct OnboardingButton: View {
             Text(title)
                 .font(VFont.bodyMedium)
                 .foregroundColor(foregroundColor)
+                .frame(maxWidth: style == .primary ? .infinity : nil)
                 .padding(.horizontal, VSpacing.xxl)
                 .padding(.vertical, VSpacing.md + VSpacing.xxs)
                 .background(background)
-                .clipShape(Capsule())
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .overlay(
-                    Capsule()
+                    RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(borderColor, lineWidth: style == .ghost ? 1 : 0)
                 )
         }
@@ -55,7 +56,7 @@ struct OnboardingButton: View {
     private var foregroundColor: Color {
         switch style {
         case .primary:
-            return disabled ? VColor.textPrimary.opacity(0.4) : VColor.background
+            return disabled ? Color.white.opacity(0.4) : .white
         case .ghost:
             return disabled ? VColor.textPrimary.opacity(0.3) : VColor.textPrimary.opacity(0.85)
         }
@@ -64,7 +65,7 @@ struct OnboardingButton: View {
     private var background: some ShapeStyle {
         switch style {
         case .primary:
-            return AnyShapeStyle(disabled ? VColor.onboardingAccent.opacity(0.3) : VColor.onboardingAccent)
+            return AnyShapeStyle(disabled ? VColor.accent.opacity(0.3) : VColor.accent)
         case .ghost:
             return AnyShapeStyle(Color.clear)
         }
@@ -87,6 +88,7 @@ struct OnboardingButton: View {
             OnboardingButton(title: "Skip", style: .ghost) {}
             OnboardingButton(title: "Disabled", style: .primary, disabled: true) {}
         }
+        .frame(width: 300)
     }
     .frame(width: 400, height: 200)
 }

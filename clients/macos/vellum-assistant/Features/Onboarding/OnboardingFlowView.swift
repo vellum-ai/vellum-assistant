@@ -8,17 +8,34 @@ struct OnboardingFlowView: View {
 
     var body: some View {
         ZStack {
-            MeadowBackground()
+            VColor.background
+                .ignoresSafeArea()
+
+            // Dimmed mock chrome — gives the "chat UI behind" effect
+            VStack(spacing: 0) {
+                mockToolbar
+                Spacer()
+                mockInputBar
+            }
+            .opacity(0.25)
+            .allowsHitTesting(false)
 
             if state.currentStep <= 6 {
-                // Centered egg + panel (steps 0-6)
-                HStack(alignment: .center, spacing: VSpacing.xxxl) {
-                    // LEFT: SpriteKit egg scene
-                    EggSceneView(state: state)
-                        .frame(width: 260, height: 380)
+                // Vertical card layout (steps 0-6)
+                VStack(spacing: 0) {
+                    // TOP: Meadow background + stage image
+                    ZStack {
+                        MeadowBackground()
 
-                    // RIGHT: Compact floating panel
-                    OnboardingPanel {
+                        OnboardingStageImage(currentStep: state.currentStep)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(VSpacing.xxl)
+                    }
+                    .frame(height: 350)
+                    .clipped()
+
+                    // BOTTOM: Dark content panel
+                    VStack(spacing: VSpacing.lg) {
                         Group {
                             switch state.currentStep {
                             case 0:
@@ -44,23 +61,39 @@ struct OnboardingFlowView: View {
                             }
                         }
                         .transition(
-                            .opacity.combined(with: .scale(scale: 0.97))
+                            .asymmetric(
+                                insertion: .opacity.combined(with: .offset(y: 12)),
+                                removal: .opacity.combined(with: .offset(y: -8))
+                            )
                         )
                         .id(state.currentStep)
-                    }
-                }
-                .padding(.horizontal, VSpacing.xxxl)
 
-                // Bottom caption
-                VStack {
-                    Spacer()
-                    Text("Let\u{2019}s hatch this assistant by giving it enough permissions to live")
-                        .font(VFont.onboardingSubtitle)
-                        .foregroundColor(Meadow.captionText)
-                        .padding(.bottom, VSpacing.lg)
+                        OnboardingProgressDots(currentStep: state.currentStep)
+                            .padding(.top, VSpacing.xs)
+                    }
+                    .padding(.horizontal, VSpacing.xxl)
+                    .padding(.top, VSpacing.xl)
+                    .padding(.bottom, VSpacing.xxl)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        Rectangle()
+                            .fill(.ultraThinMaterial)
+                            .overlay(
+                                Rectangle()
+                                    .fill(Meadow.panelBackground)
+                            )
+                    )
                 }
+                .frame(maxWidth: 640)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.xl)
+                        .stroke(Meadow.panelBorder, lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
+                .padding(.vertical, VSpacing.xxxl)
             } else {
-                // Step 7: Interview — manages its own layout (dino + panel + input)
+                // Step 7: Interview — manages its own layout
                 InterviewStepView(
                     state: state,
                     daemonClient: daemonClient,
@@ -73,7 +106,69 @@ struct OnboardingFlowView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeOut(duration: 0.8), value: state.currentStep)
+        .animation(.spring(duration: 0.6, bounce: 0.15), value: state.currentStep)
+    }
+
+    // MARK: - Mock Chrome
+
+    private var mockToolbar: some View {
+        HStack {
+            HStack(spacing: 6) {
+                Image(systemName: "bubble.left")
+                    .font(.system(size: 11))
+                Text("Chat")
+                    .font(VFont.bodyMedium)
+            }
+            .foregroundColor(VColor.textPrimary)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(VColor.surface.opacity(0.5))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+            Spacer()
+
+            HStack(spacing: VSpacing.sm) {
+                ForEach(["Automated", "Agent", "Control", "System"], id: \.self) { tab in
+                    HStack(spacing: 4) {
+                        Image(systemName: "circle")
+                            .font(.system(size: 7))
+                        Text(tab)
+                    }
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
+                    .background(VColor.surface.opacity(0.3))
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                }
+            }
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.top, 44) // below titlebar
+    }
+
+    private var mockInputBar: some View {
+        HStack(spacing: VSpacing.md) {
+            Circle()
+                .fill(Emerald._600.opacity(0.5))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: "phone.fill")
+                        .foregroundColor(.white)
+                        .font(.system(size: 14))
+                )
+
+            Text("What you need chef?")
+                .font(VFont.body)
+                .foregroundColor(VColor.textMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.md)
+                .background(VColor.surface.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.bottom, VSpacing.lg)
     }
 }
 

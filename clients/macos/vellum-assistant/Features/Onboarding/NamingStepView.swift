@@ -8,8 +8,6 @@ struct NamingStepView: View {
 
     var body: some View {
         VStack(spacing: VSpacing.xxl) {
-            ReactionBubble(text: "Oh\u{2026} I\u{2019}m here! Who are you?")
-
             VStack(spacing: VSpacing.md) {
                 Text("Every creature needs a name.")
                     .font(VFont.onboardingTitle)
@@ -29,10 +27,10 @@ struct NamingStepView: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, VSpacing.lg)
                 .background(
-                    Capsule()
+                    RoundedRectangle(cornerRadius: VRadius.md)
                         .fill(VColor.surface.opacity(0.5))
                         .overlay(
-                            Capsule()
+                            RoundedRectangle(cornerRadius: VRadius.md)
                                 .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                         )
                 )
@@ -44,7 +42,7 @@ struct NamingStepView: View {
                 }
 
             OnboardingButton(
-                title: "That\u{2019}s your name",
+                title: "Continue",
                 style: .primary,
                 disabled: state.assistantName.trimmingCharacters(in: .whitespaces).isEmpty
             ) {
@@ -72,12 +70,12 @@ struct NamingStepView: View {
 
 #Preview {
     ZStack {
-        MeadowBackground()
+        VColor.background
         NamingStepView(state: {
             let s = OnboardingState()
             s.currentStep = 1
             return s
         }())
     }
-    .frame(width: 1366, height: 849)
+    .frame(width: 520, height: 400)
 }

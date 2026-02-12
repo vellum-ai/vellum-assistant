@@ -7,23 +7,14 @@ struct FnKeyStepView: View {
     @State private var highlightedKey: ActivationKey?
     @State private var wrongKeyHint: String?
     @State private var eventMonitor: Any?
-    @State private var nameReaction: String = ""
 
     private let keyOptions: [(key: ActivationKey, label: String)] = [
-        (.fn, "\u{1F310} fn"),
+        (.fn, "fn"),
         (.ctrl, "ctrl"),
-    ]
-
-    private static let nameReactions = [
-        "%@\u{2026} that feels like mine.",
-        "%@. I\u{2019}ll grow into it.",
-        "%@ \u{2014} I already like the sound of it.",
     ]
 
     var body: some View {
         VStack(spacing: VSpacing.xxl) {
-            ReactionBubble(text: nameReaction)
-
             VStack(spacing: VSpacing.md) {
                 Text("Let\u{2019}s find your voice.")
                     .font(VFont.onboardingTitle)
@@ -33,7 +24,7 @@ struct FnKeyStepView: View {
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 320)
+                    .frame(maxWidth: 400)
             }
             .opacity(showButtons ? 1 : 0)
 
@@ -61,9 +52,6 @@ struct FnKeyStepView: View {
         .animation(.easeOut(duration: 0.3), value: wrongKeyHint)
         .animation(.easeOut(duration: 0.3), value: highlightedKey)
         .onAppear {
-            let format = Self.nameReactions.randomElement()!
-            nameReaction = String(format: format, state.assistantName)
-
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showButtons = true
@@ -82,11 +70,12 @@ struct FnKeyStepView: View {
         } label: {
             Text(label)
                 .font(VFont.mono)
-                .foregroundColor(highlightedKey == key ? VColor.background : VColor.textPrimary.opacity(0.85))
-                .frame(width: 64, height: 44)
+                .foregroundColor(highlightedKey == key ? .white : VColor.textPrimary.opacity(0.85))
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(highlightedKey == key ? VColor.onboardingAccent : VColor.surface.opacity(0.5))
+                        .fill(highlightedKey == key ? VColor.accent : VColor.surface.opacity(0.5))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
@@ -142,7 +131,7 @@ struct FnKeyStepView: View {
 
 #Preview {
     ZStack {
-        MeadowBackground()
+        VColor.background
         FnKeyStepView(state: {
             let s = OnboardingState()
             s.assistantName = "Alex"
@@ -150,5 +139,5 @@ struct FnKeyStepView: View {
             return s
         }())
     }
-    .frame(width: 1366, height: 849)
+    .frame(width: 520, height: 400)
 }

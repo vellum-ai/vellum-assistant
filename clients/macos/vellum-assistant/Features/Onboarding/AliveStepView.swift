@@ -18,7 +18,7 @@ struct AliveStepView: View {
     }
 
     var body: some View {
-        VStack(spacing: VSpacing.xxxl) {
+        VStack(spacing: VSpacing.xl) {
             VStack(spacing: VSpacing.md) {
                 Text("\(state.assistantName.isEmpty ? "It" : state.assistantName) has hatched.")
                     .font(VFont.onboardingTitle)
@@ -46,41 +46,25 @@ struct AliveStepView: View {
                 }
             }
 
-            VStack(spacing: VSpacing.xl) {
+            VStack(spacing: VSpacing.md) {
                 OnboardingButton(
                     title: "Start using \(state.assistantName.isEmpty ? "your agent" : state.assistantName)",
                     style: .primary
                 ) {
                     onComplete()
                 }
-                .font(VFont.cardTitle)
 
-                VStack(spacing: VSpacing.md) {
-                    Button {
-                        state.advance()
-                    } label: {
-                        Text("Say hi to \(state.assistantName.isEmpty ? "your agent" : state.assistantName) first")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { hovering in
-                        NSCursor.pointingHand.set()
-                        if !hovering { NSCursor.arrow.set() }
-                    }
-
-                    Button {
-                        onOpenSettings()
-                    } label: {
-                        Text("Open Settings first")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { hovering in
-                        NSCursor.pointingHand.set()
-                        if !hovering { NSCursor.arrow.set() }
-                    }
+                Button {
+                    onOpenSettings()
+                } label: {
+                    Text("Open Settings first")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    NSCursor.pointingHand.set()
+                    if !hovering { NSCursor.arrow.set() }
                 }
             }
             .opacity(showButtons ? 1 : 0)

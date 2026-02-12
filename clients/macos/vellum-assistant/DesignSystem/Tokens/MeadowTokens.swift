@@ -17,6 +17,9 @@ enum Meadow {
     // Pixel scaling factor
     static let pixelScale: CGFloat = 2.0
 
+    // Art pixel size — each pixel-art cell renders as this many points
+    static let artPixelSize: CGFloat = 5.0
+
     // Interview palette
     static let avatarGradientStart = Violet._600
     static let avatarGradientEnd = Violet._400

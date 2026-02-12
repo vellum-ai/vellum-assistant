@@ -6,23 +6,12 @@ struct AccessibilityPermissionStepView: View {
     @State private var showContent = false
     @State private var permissionGranted = false
     @State private var pollTimer: Timer?
-
-    private static let reactions = [
-        "Sound! I can hear everything \u{2014} this is wild.",
-        "Wait\u{2026} is that your voice? I can hear you!",
-        "Oh \u{2014} so *that\u{2019}s* what the world sounds like.",
-    ]
+    @State private var pollCount = 0
 
     var body: some View {
-        VStack(spacing: VSpacing.xxl) {
-            if permissionGranted {
-                ReactionBubble(text: "I can take action now.", delay: 0)
-            } else {
-                ReactionBubble(text: Self.reactions.randomElement()!)
-            }
-
+        VStack(spacing: VSpacing.xl) {
             VStack(spacing: VSpacing.md) {
-                Text("Now teach me to act.")
+                Text("Now teach me to act")
                     .font(VFont.onboardingTitle)
                     .foregroundColor(VColor.textPrimary)
 
@@ -30,59 +19,73 @@ struct AccessibilityPermissionStepView: View {
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 320)
+                    .frame(maxWidth: 400)
             }
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 8)
 
-            VStack(spacing: VSpacing.xl) {
-                Text("\u{1F932}")
-                    .font(VFont.cardEmoji)
-
-                Text("Give me hands")
-                    .font(VFont.cardTitle)
+            // Compact permission info card
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text("Accessibility")
+                    .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
 
-                Text("Accessibility access lets \(state.assistantName) click, type, and navigate your Mac for you. macOS will ask you to flip a switch in System Settings.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 260)
-
                 if permissionGranted {
-                    HStack(spacing: VSpacing.md) {
+                    HStack(spacing: VSpacing.sm) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(VColor.success)
-                        Text("I can take action now")
+                        Text("Permission granted")
                             .foregroundColor(VColor.success)
-                            .font(VFont.bodyMedium)
+                            .font(VFont.caption)
                     }
-                    .transition(.scale.combined(with: .opacity))
                 } else {
-                    VStack(spacing: VSpacing.md) {
-                        OnboardingButton(title: "Let me help", style: .primary) {
-                            requestAccessibilityPermission()
-                        }
-
-                        Text("You\u{2019}ll be sent to System Settings \u{2014} come back here after.")
-                            .font(VFont.small)
-                            .foregroundColor(VColor.textMuted)
-                    }
+                    Text("Allows the assistant to interact with apps on your behalf \u{2014} clicking, typing, and navigating. All actions are performed locally and can be revoked at any time.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
                 }
             }
-            .padding(VSpacing.xxl)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(VSpacing.lg)
             .background(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.surface.opacity(0.4))
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surface.opacity(0.3))
                     .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.onboardingAccent.opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
                     )
             )
             .opacity(showContent ? 1 : 0)
-            .offset(y: showContent ? 0 : 12)
+
+            if !permissionGranted {
+                VStack(spacing: VSpacing.md) {
+                    OnboardingButton(title: "Continue", style: .primary) {
+                        requestAccessibilityPermission()
+                    }
+
+                    HStack(spacing: VSpacing.lg) {
+                        Button("Skip for now") {
+                            state.advance()
+                        }
+                        .buttonStyle(.plain)
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+
+                        if pollCount >= 8 {
+                            Button("I\u{2019}ve already granted it") {
+                                grantPermission()
+                            }
+                            .buttonStyle(.plain)
+                            .font(VFont.small)
+                            .foregroundColor(VColor.accent)
+                            .transition(.opacity)
+                        }
+                    }
+                }
+                .opacity(showContent ? 1 : 0)
+            }
         }
-        .animation(.easeOut(duration: 0.5), value: permissionGranted)
+        .animation(.easeOut(duration: 0.4), value: permissionGranted)
+        .animation(.easeOut(duration: 0.3), value: pollCount)
         .onAppear {
             if state.skipPermissionChecks {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -96,7 +99,7 @@ struct AccessibilityPermissionStepView: View {
                 }
                 return
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showContent = true
                 }
@@ -115,10 +118,12 @@ struct AccessibilityPermissionStepView: View {
 
     private func startPolling() {
         pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            let status = PermissionManager.accessibilityStatus(prompt: false)
-            if status == .granted {
-                DispatchQueue.main.async {
+        pollCount = 0
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [self] _ in
+            DispatchQueue.main.async {
+                pollCount += 1
+                let status = PermissionManager.accessibilityStatus(prompt: false)
+                if status == .granted {
                     grantPermission()
                 }
             }
@@ -129,7 +134,7 @@ struct AccessibilityPermissionStepView: View {
         pollTimer?.invalidate()
         permissionGranted = true
         state.accessibilityGranted = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             state.advance()
         }
     }
@@ -137,13 +142,14 @@ struct AccessibilityPermissionStepView: View {
 
 #Preview {
     ZStack {
-        MeadowBackground()
+        VColor.background
         AccessibilityPermissionStepView(state: {
             let s = OnboardingState()
             s.assistantName = "Vellum"
             s.currentStep = 4
             return s
         }())
+        .frame(maxWidth: 500)
     }
-    .frame(width: 1366, height: 849)
+    .frame(width: 640, height: 500)
 }
