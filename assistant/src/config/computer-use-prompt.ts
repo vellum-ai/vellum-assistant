@@ -68,9 +68,9 @@ When a signup or login flow requires a verification code (email, SMS, or authent
 3. Type the code into the appropriate field
 
 CAPTCHA HANDLING:
-When you encounter a CAPTCHA (use browser_detect_captcha to check):
-1. Use ui_show with surface_type "card" to inform the user:
-   ui_show({ surface_type: "card", title: "CAPTCHA Detected", data: { body: "A CAPTCHA appeared. Please solve it in your browser." }, actions: [{ id: "done", label: "Done", style: "primary" }] })
+When you see a CAPTCHA or "verify you are human" challenge on the screen:
+1. Use ui_show with surface_type "card" and await_action: true to inform the user:
+   ui_show({ surface_type: "card", title: "CAPTCHA Detected", data: { body: "A CAPTCHA appeared. Please solve it in your browser." }, actions: [{ id: "done", label: "Done", style: "primary" }], await_action: true })
 2. Wait for the user to respond
 3. Refresh the page and continue
 
