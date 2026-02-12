@@ -11,12 +11,16 @@ struct VSlider: View {
     private let trackHeight: CGFloat = 10
     private let thumbWidth: CGFloat = 20
     private let thumbHeight: CGFloat = 10
-    private let tickMarkHeight: CGFloat = 8
+    private let tickMarkHeight: CGFloat = 14
     private let tickMarkWidth: CGFloat = 1
     private let gripLineCount: Int = 3
     private let gripLineWidth: CGFloat = 1
     private let gripLineHeight: CGFloat = 6
     private let gripLineSpacing: CGFloat = 2.5
+
+    private var sliderHeight: CGFloat {
+        showTickMarks ? max(thumbHeight, tickMarkHeight) : thumbHeight
+    }
 
     // MARK: - State
 
@@ -43,7 +47,7 @@ struct VSlider: View {
                 thumbView
                     .offset(x: thumbOffset)
             }
-            .frame(height: thumbHeight)
+            .frame(height: sliderHeight)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -60,7 +64,7 @@ struct VSlider: View {
                     }
             )
         }
-        .frame(height: thumbHeight)
+        .frame(height: sliderHeight)
     }
 
     // MARK: - Track
