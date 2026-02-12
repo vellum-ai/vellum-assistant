@@ -34,9 +34,8 @@ struct NavigationToolbar: View {
                 }
             }
             .padding(.horizontal, VSpacing.lg)
-            .padding(.top, VSpacing.xs)
             .padding(.bottom, VSpacing.sm)
-            .background(VColor.backgroundSubtle)
+            .background(VColor.background)
 
             Divider()
         }
