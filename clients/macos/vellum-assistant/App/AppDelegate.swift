@@ -149,7 +149,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: NSWindow.willCloseNotification, object: nil, queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow,
-                  window.title.contains("Settings") || window.title.contains("vellum") else { return }
+                  window.title.contains("Settings") || window.title.contains("Vellum") else { return }
             // Keep .regular if MainWindow exists; only revert for legacy menu-bar-only mode
             guard self?.mainWindow == nil else { return }
             // Revert to accessory (no dock icon) after settings closes
@@ -174,7 +174,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "vellum-assistant")
+            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Vellum")
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.action = #selector(statusBarButtonClicked(_:))
             button.target = self
@@ -301,7 +301,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             if isRecording {
                 self?.statusItem.button?.image = NSImage(
                     systemSymbolName: "mic.fill",
-                    accessibilityDescription: "vellum-assistant"
+                    accessibilityDescription: "Vellum"
                 )
                 if !hasActiveConvo {
                     let window = VoiceTranscriptionWindow()
@@ -337,7 +337,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let iconName = isAmbientActive ? "eye" : "sparkles"
         statusItem.button?.image = NSImage(
             systemSymbolName: iconName,
-            accessibilityDescription: "vellum-assistant"
+            accessibilityDescription: "Vellum"
         )
     }
 

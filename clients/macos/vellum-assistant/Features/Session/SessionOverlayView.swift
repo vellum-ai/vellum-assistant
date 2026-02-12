@@ -9,7 +9,7 @@ struct SessionOverlayView: View {
             HStack(spacing: VSpacing.sm) {
                 Image(systemName: "cursorarrow.click.2")
                     .foregroundStyle(.blue)
-                Text("vellum-assistant is working...")
+                Text("Vellum is working...")
                     .font(VFont.headline)
                     .lineLimit(1)
             }

@@ -124,7 +124,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key>
     <string>$BUNDLE_ID</string>
     <key>CFBundleName</key>
-    <string>$APP_NAME</string>
+    <string>Vellum</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -142,11 +142,11 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>NSScreenRecordingUsageDescription</key>
-    <string>vellum-assistant needs Screen Recording access to see what's on your screen during computer use tasks.</string>
+    <string>Vellum needs Screen Recording access to see what's on your screen during computer use tasks.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>vellum-assistant needs microphone access to transcribe voice commands.</string>
+    <string>Vellum needs microphone access to transcribe voice commands.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>vellum-assistant uses speech recognition to convert voice commands into tasks.</string>
+    <string>Vellum uses speech recognition to convert voice commands into tasks.</string>
     <key>SUFeedURL</key>
     <string>https://github.com/alex-nork/vellum-assistant-macos-updates/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key>

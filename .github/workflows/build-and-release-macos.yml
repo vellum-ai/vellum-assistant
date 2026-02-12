@@ -116,7 +116,7 @@ jobs:
 
           # Create DMG
           hdiutil create \
-            -volname "vellum-assistant" \
+            -volname "Vellum" \
             -srcfolder "$DMG_STAGING" \
             -ov \
             -format UDZO \
@@ -217,7 +217,7 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
             <channel>
-              <title>vellum-assistant</title>
+              <title>Vellum</title>
               <item>
                 <title>${DISPLAY_VERSION}</title>
                 <sparkle:version>${BUILD_VERSION}</sparkle:version>
@@ -255,7 +255,7 @@ jobs:
 
           ---
 
-          Download the DMG, open it, and drag vellum-assistant to your Applications folder.
+          Download the DMG, open it, and drag Vellum to your Applications folder.
           Existing installations will auto-update via Sparkle."
 
           gh release create latest \
@@ -263,7 +263,7 @@ jobs:
             dist/vellum-assistant.zip \
             dist/appcast.xml \
             --repo "$REPO" \
-            --title "vellum-assistant $VERSION" \
+            --title "Vellum $VERSION" \
             --notes "$RELEASE_NOTES" \
             --latest
 
