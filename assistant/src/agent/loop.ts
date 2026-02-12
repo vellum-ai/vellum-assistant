@@ -9,6 +9,14 @@ export interface AgentLoopConfig {
   toolChoice?: { type: 'auto' } | { type: 'any' } | { type: 'tool'; name: string };
 }
 
+export interface CheckpointInfo {
+  turnIndex: number;
+  toolCount: number;
+  hasToolUse: boolean;
+}
+
+export type CheckpointDecision = 'continue' | 'yield';
+
 export type AgentEvent =
   | { type: 'text_delta'; text: string }
   | { type: 'thinking_delta'; thinking: string }
@@ -52,6 +60,7 @@ export class AgentLoop {
     onEvent: (event: AgentEvent) => void,
     signal?: AbortSignal,
     requestId?: string,
+    onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
   ): Promise<Message[]> {
     const history = [...messages];
     let toolUseTurns = 0;
@@ -258,6 +267,18 @@ export class AgentLoop {
             toolCount: toolUseBlocks.length,
             turn: toolUseTurns,
           }, 'Turn complete');
+        }
+
+        // Invoke checkpoint callback after tool results are in history
+        if (onCheckpoint) {
+          const decision = onCheckpoint({
+            turnIndex: toolUseTurns - 1, // 0-based (toolUseTurns was already incremented)
+            toolCount: toolUseBlocks.length,
+            hasToolUse: true,
+          });
+          if (decision === 'yield') {
+            break;
+          }
         }
       } catch (error) {
         // Abort errors are expected when user cancels — don't emit as errors

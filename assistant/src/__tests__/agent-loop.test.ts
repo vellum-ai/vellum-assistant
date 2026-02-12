@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { AgentLoop } from '../agent/loop.js';
-import type { AgentEvent } from '../agent/loop.js';
+import type { AgentEvent, CheckpointInfo, CheckpointDecision } from '../agent/loop.js';
 import type {
   Provider,
   Message,
@@ -582,5 +582,200 @@ describe('AgentLoop', () => {
     expect(toolResultEvents[0].toolUseId).toBe('t1');
     expect(toolResultEvents[1].toolUseId).toBe('t2');
     expect(toolResultEvents[2].toolUseId).toBe('t3');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Checkpoint callback tests
+  // ---------------------------------------------------------------------------
+
+  // 16. Checkpoint callback is called after tool results with correct info
+  test('checkpoint callback is called after tool results with correct info', async () => {
+    const { provider } = createMockProvider([
+      toolUseResponse('t1', 'read_file', { path: '/test.txt' }),
+      textResponse('Done'),
+    ]);
+
+    const toolExecutor = async () => ({ content: 'file data', isError: false });
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+
+    const checkpoints: CheckpointInfo[] = [];
+    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+      checkpoints.push(checkpoint);
+      return 'continue';
+    };
+
+    await loop.run([userMessage], () => {}, undefined, undefined, onCheckpoint);
+
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0]).toEqual({
+      turnIndex: 0,
+      toolCount: 1,
+      hasToolUse: true,
+    });
+  });
+
+  // 17. Returning 'continue' lets the loop proceed normally
+  test('checkpoint returning continue lets the loop proceed normally', async () => {
+    const { provider, calls } = createMockProvider([
+      toolUseResponse('t1', 'read_file', { path: '/a.txt' }),
+      toolUseResponse('t2', 'read_file', { path: '/b.txt' }),
+      textResponse('All done'),
+    ]);
+
+    const toolExecutor = async () => ({ content: 'data', isError: false });
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+
+    const onCheckpoint = (): CheckpointDecision => 'continue';
+
+    const history = await loop.run([userMessage], () => {}, undefined, undefined, onCheckpoint);
+
+    // All 3 provider calls should happen (2 tool turns + final text)
+    expect(calls).toHaveLength(3);
+    // Full history: user, assistant(t1), user(result1), assistant(t2), user(result2), assistant(text)
+    expect(history).toHaveLength(6);
+    expect(history[5].content).toEqual([{ type: 'text', text: 'All done' }]);
+  });
+
+  // 18. Returning 'yield' causes the loop to stop after that turn
+  test('checkpoint returning yield causes the loop to stop', async () => {
+    const { provider, calls } = createMockProvider([
+      toolUseResponse('t1', 'read_file', { path: '/a.txt' }),
+      toolUseResponse('t2', 'read_file', { path: '/b.txt' }),
+      textResponse('Should not reach'),
+    ]);
+
+    const toolExecutor = async () => ({ content: 'data', isError: false });
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+
+    const onCheckpoint = (): CheckpointDecision => 'yield';
+
+    const history = await loop.run([userMessage], () => {}, undefined, undefined, onCheckpoint);
+
+    // Only 1 provider call should happen — loop yields after first tool turn
+    expect(calls).toHaveLength(1);
+    // History: user, assistant(t1), user(result1)
+    expect(history).toHaveLength(3);
+    expect(history[1].role).toBe('assistant');
+    expect(history[2].role).toBe('user');
+  });
+
+  // 19. Without a checkpoint callback, behavior is unchanged
+  test('without checkpoint callback behavior is unchanged', async () => {
+    const { provider, calls } = createMockProvider([
+      toolUseResponse('t1', 'read_file', { path: '/a.txt' }),
+      textResponse('Done'),
+    ]);
+
+    const toolExecutor = async () => ({ content: 'data', isError: false });
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+
+    const history = await loop.run([userMessage], () => {});
+
+    // Normal behavior: 2 provider calls, full history
+    expect(calls).toHaveLength(2);
+    expect(history).toHaveLength(4);
+    expect(history[3].content).toEqual([{ type: 'text', text: 'Done' }]);
+  });
+
+  // 20. turnIndex increments correctly across turns
+  test('turnIndex increments correctly across multiple turns', async () => {
+    const { provider } = createMockProvider([
+      toolUseResponse('t1', 'read_file', { path: '/a.txt' }),
+      toolUseResponse('t2', 'read_file', { path: '/b.txt' }),
+      toolUseResponse('t3', 'read_file', { path: '/c.txt' }),
+      textResponse('Done'),
+    ]);
+
+    const toolExecutor = async () => ({ content: 'data', isError: false });
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+
+    const checkpoints: CheckpointInfo[] = [];
+    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+      checkpoints.push(checkpoint);
+      return 'continue';
+    };
+
+    await loop.run([userMessage], () => {}, undefined, undefined, onCheckpoint);
+
+    expect(checkpoints).toHaveLength(3);
+    expect(checkpoints[0].turnIndex).toBe(0);
+    expect(checkpoints[1].turnIndex).toBe(1);
+    expect(checkpoints[2].turnIndex).toBe(2);
+  });
+
+  // 21. Checkpoint is NOT called when there's no tool use
+  test('checkpoint is not called when assistant responds with text only', async () => {
+    const { provider } = createMockProvider([textResponse('Just a text response')]);
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools);
+
+    const checkpoints: CheckpointInfo[] = [];
+    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+      checkpoints.push(checkpoint);
+      return 'continue';
+    };
+
+    const history = await loop.run([userMessage], () => {}, undefined, undefined, onCheckpoint);
+
+    // Checkpoint should never be called for a text-only response
+    expect(checkpoints).toHaveLength(0);
+    // Normal response
+    expect(history).toHaveLength(2);
+    expect(history[1].content).toEqual([{ type: 'text', text: 'Just a text response' }]);
+  });
+
+  // 22. Checkpoint reports correct toolCount for parallel tool execution
+  test('checkpoint reports correct toolCount for parallel tools', async () => {
+    const { provider } = createMockProvider([
+      {
+        content: [
+          { type: 'tool_use' as const, id: 't1', name: 'read_file', input: { path: '/a.txt' } },
+          { type: 'tool_use' as const, id: 't2', name: 'read_file', input: { path: '/b.txt' } },
+          { type: 'tool_use' as const, id: 't3', name: 'read_file', input: { path: '/c.txt' } },
+        ],
+        model: 'mock-model',
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: 'tool_use' as const,
+      },
+      textResponse('Got all three'),
+    ]);
+
+    const toolExecutor = async () => ({ content: 'data', isError: false });
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+
+    const checkpoints: CheckpointInfo[] = [];
+    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+      checkpoints.push(checkpoint);
+      return 'continue';
+    };
+
+    await loop.run([userMessage], () => {}, undefined, undefined, onCheckpoint);
+
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0].toolCount).toBe(3);
+    expect(checkpoints[0].hasToolUse).toBe(true);
+  });
+
+  // 23. Yield on second turn — first turn proceeds, second stops
+  test('yield on second turn lets first turn proceed and stops on second', async () => {
+    const { provider, calls } = createMockProvider([
+      toolUseResponse('t1', 'read_file', { path: '/a.txt' }),
+      toolUseResponse('t2', 'read_file', { path: '/b.txt' }),
+      textResponse('Should not reach'),
+    ]);
+
+    const toolExecutor = async () => ({ content: 'data', isError: false });
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+
+    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+      // Yield on the second turn (turnIndex 1)
+      return checkpoint.turnIndex === 1 ? 'yield' : 'continue';
+    };
+
+    const history = await loop.run([userMessage], () => {}, undefined, undefined, onCheckpoint);
+
+    // 2 provider calls: first tool turn + second tool turn (yield after second)
+    expect(calls).toHaveLength(2);
+    // History: user, assistant(t1), user(result1), assistant(t2), user(result2)
+    expect(history).toHaveLength(5);
   });
 });
