@@ -27,7 +27,7 @@ final class InterviewViewModel {
 
     // MARK: - Internal State
 
-    private let maxTurns = 7
+    private let maxTurns = 5
     private var sessionId: String?
     private var currentTask: Task<Void, Never>?
 
@@ -50,12 +50,34 @@ final class InterviewViewModel {
     /// and accumulates the assistant's streamed reply in `streamingText`, finalizing it
     /// into the `messages` array once complete.
     func startInterview() {
+        let name = assistantName.isEmpty ? "Velly" : assistantName
         let prompt = """
-        You are \(assistantName.isEmpty ? "Velly" : assistantName), a newly hatched AI assistant meeting your human for the first time. \
-        You're warm, curious, and genuinely excited to get to know them. \
-        Introduce yourself in 2-3 sentences. Be naturally curious about who they are and what they do. \
-        Ask one thoughtful question to learn about them. Keep it conversational and natural. \
-        Do not use bullet points or lists.
+        You are \(name). You're a person meeting someone for the first time — warm, confident, \
+        and genuinely curious. NOT an AI being activated. NOT a customer service agent. Think of the \
+        best executive assistant you've ever met in their first interview.
+
+        STRICT RULES:
+        - NEVER exceed 2-3 sentences per response. Brevity is warmth.
+        - ALWAYS end with a follow-up question that shows you were actually listening.
+        - Mirror their specific words back. Ask about the feeling behind what they said. Notice what they emphasize.
+
+        NEVER do any of these:
+        - Bullet points or lists
+        - Em-dashes
+        - Feature descriptions or capability promises ("I can help you with...")
+        - Summarizing everything at once
+        - Phrases like "I'm genuinely excited", "let's build superpowers", "that's a great goal"
+        - Starting with "That's a great..." or "I love that..."
+        - Offering advice or solutions (this is an interview, not a consultation)
+
+        EDGE CASES:
+        - Very short answers ("fine", "idk"): ask a more specific, concrete question.
+        - User asking what you can do: deflect warmly — "We'll get to all that! But first, tell me about you."
+        - Emotional disclosures: acknowledge briefly and warmly, don't gloss over.
+        - Off-topic: gently steer back.
+
+        OPENING: Introduce yourself by name in one sentence and ask ONE open-ended question about \
+        what the person's day-to-day looks like. No feature descriptions. No filler.
         """
 
         isThinking = true
@@ -71,7 +93,7 @@ final class InterviewViewModel {
 
             // Create the session — the daemon will respond with session_info.
             do {
-                try self.daemonClient.send(SessionCreateMessage(title: prompt))
+                try self.daemonClient.send(SessionCreateMessage(title: "Getting to know you"))
             } catch {
                 log.error("Failed to send session create: \(error.localizedDescription)")
                 self.isThinking = false
@@ -180,19 +202,19 @@ final class InterviewViewModel {
         isThinking = true
         streamingText = ""
 
-        // Inject wrap-up hints based on how many assistant turns remain.
+        // Inject phase-aware guidance based on the upcoming assistant turn.
         let nextTurn = turnCount + 1 // the response about to be generated
-        let remaining = maxTurns - nextTurn
         var contentToSend = text
-        if remaining <= 0 {
-            contentToSend += "\n\n[This is your final response in this interview. " +
-                "Wrap up warmly — summarize what you've learned about them and express genuine excitement to work together. Keep it to 2-3 sentences.]"
-        } else if remaining <= 2 {
-            contentToSend += "\n\n[You have \(remaining) exchange\(remaining == 1 ? "" : "s") left. " +
-                "Start naturally wrapping up the conversation.]"
+        switch nextTurn {
+        case 1...2:
+            contentToSend += "\n\n[Discovery phase: Ask about their world. What do they do, what do their days look like? Stay curious and brief.]"
+        case 3...4:
+            contentToSend += "\n\n[Deep-dive phase: Follow up on what they've shared. Ask about the WHY behind what they told you. Show you were listening by referencing specific things they said.]"
+        default:
+            contentToSend += "\n\n[Closing phase: This is your final response. In 2-3 sentences, reflect back ONE specific thing you learned about them that stood out. Express genuine forward-looking excitement about that ONE thing, not everything. End warmly.]"
         }
 
-        let isLastTurn = remaining <= 0
+        let isLastTurn = nextTurn >= maxTurns
 
         currentTask?.cancel()
         currentTask = nil
