@@ -133,8 +133,8 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Accepts an optional environment dictionary for testability.
     static func resolveSocketPath(environment: [String: String]? = nil) -> String {
         let env = environment ?? ProcessInfo.processInfo.environment
-        if let envPath = env["VELLUM_DAEMON_SOCKET"], !envPath.trimmingCharacters(in: .whitespaces).isEmpty {
-            let trimmed = envPath.trimmingCharacters(in: .whitespaces)
+        if let envPath = env["VELLUM_DAEMON_SOCKET"], !envPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let trimmed = envPath.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.hasPrefix("~/") {
                 return NSHomeDirectory() + "/" + String(trimmed.dropFirst(2))
             }
