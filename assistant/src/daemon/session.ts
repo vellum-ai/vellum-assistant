@@ -433,7 +433,7 @@ export class Session {
       // reconstruct this.messages after the agent loop without leaking synthetic
       // tool_result blocks that repair may inject.  Leaking those blocks would
       // break undo semantics (isUndoableUserMessage skips user messages
-      // containing tool_result).
+      // containing only tool_result blocks).
       let preRepairMessages = runMessages;
       const preRunRepair = repairHistory(runMessages);
       if (preRunRepair.stats.assistantToolResultsMigrated > 0 || preRunRepair.stats.missingToolResultsInserted > 0 || preRunRepair.stats.orphanToolResultsDowngraded > 0 || preRunRepair.stats.consecutiveSameRoleMerged > 0) {
@@ -994,7 +994,15 @@ export class Session {
 function isUndoableUserMessage(message: Message): boolean {
   if (message.role !== 'user') return false;
   if (getSummaryFromContextMessage(message) !== null) return false;
-  if (message.content.some((block) => block.type === 'tool_result')) return false;
+  // A user message is undoable if it contains user-authored content (non-tool_result
+  // blocks). Messages that contain ONLY tool_result blocks (e.g. automated tool
+  // responses) are not undoable. Messages that have both tool_result and text blocks
+  // (e.g. after repairHistory merges a tool_result turn with a user prompt) are still
+  // undoable because they contain real user content.
+  const hasNonToolResultContent = message.content.some(
+    (block) => block.type !== 'tool_result',
+  );
+  if (!hasNonToolResultContent) return false;
   return true;
 }
 
