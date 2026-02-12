@@ -1,4 +1,4 @@
-export type ChannelId = "telegram" | (string & {});
+export type ChannelId = string & {};
 
 export interface ChannelMeta {
   id: ChannelId;
