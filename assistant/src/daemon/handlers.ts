@@ -27,7 +27,7 @@ import type {
   AppDataRequest,
   SkillDetailRequest,
 } from './ipc-protocol.js';
-import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../config/skills.js';
+import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon, readCachedSkillIcon } from '../config/skills.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } from '../memory/app-store.js';
@@ -575,15 +575,20 @@ function handleUsageRequest(
 
 // ─── Skills handlers ─────────────────────────────────────────────────────────
 
-async function handleSkillsList(socket: net.Socket, ctx: HandlerContext): Promise<void> {
+function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
   const catalog = loadSkillCatalog();
-  const skills = await Promise.all(
-    catalog.map(async (s) => {
-      const icon = await ensureSkillIcon(s.directoryPath, s.name, s.description);
-      return { id: s.id, name: s.name, description: s.description, ...(icon ? { icon } : {}) };
-    }),
-  );
+  // Respond immediately with cached icons (sync reads only)
+  const skills = catalog.map((s) => {
+    const icon = readCachedSkillIcon(s.directoryPath);
+    return { id: s.id, name: s.name, description: s.description, ...(icon ? { icon } : {}) };
+  });
   ctx.send(socket, { type: 'skills_list_response', skills });
+
+  // Generate missing icons in the background (fire-and-forget)
+  const missing = catalog.filter((s) => !readCachedSkillIcon(s.directoryPath));
+  if (missing.length > 0) {
+    Promise.all(missing.map((s) => ensureSkillIcon(s.directoryPath, s.name, s.description))).catch(() => {});
+  }
 }
 
 async function handleSkillDetail(
