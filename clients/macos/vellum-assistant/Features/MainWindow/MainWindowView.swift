@@ -53,28 +53,18 @@ struct MainWindowView: View {
         if let panel = activePanel {
             switch panel {
             case .generated:
-                placeholderPanel("Generated", icon: "wand.and.stars")
+                GeneratedPanel(onClose: { activePanel = nil })
             case .agent:
-                placeholderPanel("Agent", icon: "exclamationmark.triangle")
+                AgentPanel(onClose: { activePanel = nil })
             case .control:
-                placeholderPanel("Control", icon: "gearshape")
+                ControlPanel(onClose: { activePanel = nil })
             case .directory:
-                placeholderPanel("Directory", icon: "doc.text")
+                DirectoryPanel(onClose: { activePanel = nil })
             case .debug:
-                placeholderPanel("Debug", icon: "ant")
+                DebugPanel(onClose: { activePanel = nil })
             case .doctor:
-                placeholderPanel("Doctor", icon: "stethoscope")
+                DoctorPanel(onClose: { activePanel = nil })
             }
-        }
-    }
-
-    private func placeholderPanel(_ title: String, icon: String) -> some View {
-        VSidePanel(title: title, onClose: { activePanel = nil }) {
-            VEmptyState(
-                title: "Coming soon",
-                subtitle: "\(title) panel content will appear here",
-                icon: icon
-            )
         }
     }
 }
