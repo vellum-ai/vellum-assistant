@@ -64,6 +64,10 @@ struct OnboardingStageImage: View {
                 }
             }
             .offset(x: shakeOffset, y: bobOffset - 40)
+            .animation(
+                .easeInOut(duration: 2.5).repeatForever(autoreverses: true),
+                value: bobOffset
+            )
             .rotationEffect(.degrees(shakeRotation))
 
             // White flash overlay
@@ -74,7 +78,13 @@ struct OnboardingStageImage: View {
         }
         .onAppear {
             displayedStage = stageNumber
-            startIdleBob()
+            // Kick off the idle bob by setting the target offset.
+            // The actual animation is driven by the value-based
+            // .animation() modifier on the offset below, NOT by
+            // withAnimation — using withAnimation(.repeatForever())
+            // in onAppear leaks the repeating animation to ancestor
+            // views and makes the whole card bob.
+            bobOffset = -4
         }
         .onChange(of: stageNumber) { oldStage, newStage in
             guard oldStage != newStage, !isTransitioning else { return }
@@ -83,15 +93,6 @@ struct OnboardingStageImage: View {
     }
 
     // MARK: - Animations
-
-    private func startIdleBob() {
-        withAnimation(
-            .easeInOut(duration: 2.5)
-            .repeatForever(autoreverses: true)
-        ) {
-            bobOffset = -4
-        }
-    }
 
     private func playHatchTransition(to newStage: Int) {
         isTransitioning = true
