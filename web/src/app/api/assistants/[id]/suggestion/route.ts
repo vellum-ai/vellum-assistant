@@ -32,7 +32,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (error instanceof RuntimeClientError) {
       return NextResponse.json(
         { suggestion: null, messageId: null, source: "none" as const },
-        { status: error.status },
+        { status: error.httpStatus },
       );
     }
     console.error("Error fetching suggestion:", error);
