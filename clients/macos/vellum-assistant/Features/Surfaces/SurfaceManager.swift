@@ -201,6 +201,7 @@ final class SurfaceManager: ObservableObject {
 
         if isDynamicPage {
             let surfaceId = surface.id
+            weak var observedPanel = panel
             let observer = NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification,
                 object: panel,
@@ -208,7 +209,7 @@ final class SurfaceManager: ObservableObject {
             ) { [weak self] _ in
                 guard let self else { return }
                 Task { @MainActor in
-                    guard self.panels[surfaceId] != nil else { return }
+                    guard self.panels[surfaceId] === observedPanel else { return }
                     self.viewModels[surfaceId]?.onDismiss()
                 }
             }
