@@ -39,6 +39,18 @@ final class DaemonClientSocketPathTests: XCTestCase {
         XCTAssertEqual(path, NSHomeDirectory() + "/.vellum/vellum.sock")
     }
 
+    func testNewlinesAreTrimmed() {
+        let env = ["VELLUM_DAEMON_SOCKET": "/tmp/custom.sock\n"]
+        let path = DaemonClient.resolveSocketPath(environment: env)
+        XCTAssertEqual(path, "/tmp/custom.sock")
+    }
+
+    func testNewlineOnlyFallsBackToDefault() {
+        let env = ["VELLUM_DAEMON_SOCKET": "\n"]
+        let path = DaemonClient.resolveSocketPath(environment: env)
+        XCTAssertEqual(path, NSHomeDirectory() + "/.vellum/vellum.sock")
+    }
+
     func testNilEnvironmentUsesProcessInfo() {
         // When no environment is passed, it uses ProcessInfo.processInfo.environment.
         // We just verify it returns a non-empty string (the default path).
