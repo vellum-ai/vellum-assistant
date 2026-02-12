@@ -17,6 +17,9 @@ final class SkillsManager: ObservableObject {
         isLoading = true
 
         Task {
+            // Subscribe before sending so we don't miss fast daemon responses
+            let stream = daemonClient.subscribe()
+
             do {
                 try daemonClient.send(SkillsListRequestMessage())
             } catch {
@@ -24,7 +27,6 @@ final class SkillsManager: ObservableObject {
                 return
             }
 
-            let stream = daemonClient.subscribe()
             for await message in stream {
                 if case .skillsListResponse(let response) = message {
                     skills = response.skills
@@ -40,13 +42,15 @@ final class SkillsManager: ObservableObject {
         guard loadedBodies[skillId] == nil else { return }
 
         Task {
+            // Subscribe before sending so we don't miss fast daemon responses
+            let stream = daemonClient.subscribe()
+
             do {
                 try daemonClient.send(SkillDetailRequestMessage(skillId: skillId))
             } catch {
                 return
             }
 
-            let stream = daemonClient.subscribe()
             for await message in stream {
                 if case .skillDetailResponse(let response) = message,
                    response.skillId == skillId {
