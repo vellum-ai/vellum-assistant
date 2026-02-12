@@ -141,7 +141,7 @@ This repo includes Claude Code slash commands (in `.claude/commands/`) for agent
 | Command | Purpose |
 |---------|---------|
 | `/brainstorm` | Deep-read the codebase, generate a prioritized list of improvements, and update `.private/TODO.md` after approval. |
-| `/swarm [workers] [max-tasks]` | Parallel execution — spawns a pool of agents (default 3) that work through `.private/TODO.md` concurrently, each in its own worktree. |
+| `/swarm [workers] [max-tasks]` | Parallel execution — spawns a pool of agents (default 3) that work through `.private/TODO.md` concurrently, each in its own worktree. PRs are auto-assigned to the current user. |
 | `/blitz <feature>` | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, sweeps for review feedback, addresses it, and reports. |
 | `/execute-plan <file>` | Sequential multi-PR rollout — reads a plan file from `.private/plans/`, executes each PR in order, mainlining each before moving to the next. |
 
