@@ -17,6 +17,7 @@ final class InterviewViewModel {
     var inputText: String = ""
     var isThinking: Bool = false
     var isComplete: Bool = false
+    var isFinished: Bool = false
     var streamingText: String = ""
 
     // MARK: - Dependencies
@@ -26,8 +27,14 @@ final class InterviewViewModel {
 
     // MARK: - Internal State
 
+    private let maxTurns = 7
     private var sessionId: String?
     private var currentTask: Task<Void, Never>?
+
+    /// Number of completed assistant responses (greeting counts as turn 1).
+    var turnCount: Int {
+        messages.filter { $0.role == .assistant }.count
+    }
 
     // MARK: - Init
 
@@ -161,7 +168,7 @@ final class InterviewViewModel {
     /// rather than creating a new session, keeping the conversation context intact.
     func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty, !isFinished else { return }
         guard let sessionId else {
             log.warning("Cannot send message — no active session")
             return
@@ -172,6 +179,20 @@ final class InterviewViewModel {
         inputText = ""
         isThinking = true
         streamingText = ""
+
+        // Inject wrap-up hints based on how many assistant turns remain.
+        let nextTurn = turnCount + 1 // the response about to be generated
+        let remaining = maxTurns - nextTurn
+        var contentToSend = text
+        if remaining <= 0 {
+            contentToSend += "\n\n[This is your final response in this interview. " +
+                "Wrap up warmly — summarize what you've learned about them and express genuine excitement to work together. Keep it to 2-3 sentences.]"
+        } else if remaining <= 2 {
+            contentToSend += "\n\n[You have \(remaining) exchange\(remaining == 1 ? "" : "s") left. " +
+                "Start naturally wrapping up the conversation.]"
+        }
+
+        let isLastTurn = remaining <= 0
 
         currentTask?.cancel()
         currentTask = nil
@@ -184,7 +205,7 @@ final class InterviewViewModel {
             do {
                 try self.daemonClient.send(UserMessageMessage(
                     sessionId: sessionId,
-                    content: text,
+                    content: contentToSend,
                     attachments: nil
                 ))
             } catch {
@@ -220,6 +241,9 @@ final class InterviewViewModel {
                         role: .assistant,
                         text: finalText
                     ))
+                    if isLastTurn {
+                        self.isFinished = true
+                    }
                     log.info("Follow-up response complete (\(accumulated.count) chars)")
                     return
 

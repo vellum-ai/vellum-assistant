@@ -58,32 +58,37 @@ struct InterviewStepView: View {
                 isRecording: false
             )
             .frame(maxHeight: .infinity)
+            .allowsHitTesting(!viewModel.isFinished)
 
             // Bottom controls
             VStack(spacing: VSpacing.md) {
                 if hasAssistantMessage && showControls {
                     OnboardingButton(
-                        title: "I\u{2019}m ready to go!",
+                        title: viewModel.isFinished ? "Let\u{2019}s get started!" : "I\u{2019}m ready to go!",
                         style: .primary
                     ) {
                         state.interviewCompleted = true
                         viewModel.endInterview()
                         onComplete()
                     }
+                    .scaleEffect(viewModel.isFinished ? 1.05 : 1.0)
+                    .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: viewModel.isFinished)
                 }
 
-                Button {
-                    viewModel.endInterview()
-                    onComplete()
-                } label: {
-                    Text("Skip")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    NSCursor.pointingHand.set()
-                    if !hovering { NSCursor.arrow.set() }
+                if !viewModel.isFinished {
+                    Button {
+                        viewModel.endInterview()
+                        onComplete()
+                    } label: {
+                        Text("Skip")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        NSCursor.pointingHand.set()
+                        if !hovering { NSCursor.arrow.set() }
+                    }
                 }
             }
             .padding(.vertical, VSpacing.lg)
