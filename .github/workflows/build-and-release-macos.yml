@@ -82,7 +82,7 @@ jobs:
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}"
           bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
             --external electron --external "chromium-bidi/*" \
-            --define "process.env.APP_VERSION='\"$DISPLAY_VERSION\"'" \
+            --define "process.env.APP_VERSION='$DISPLAY_VERSION'" \
             --outfile ../clients/macos/daemon-bin/vellum-daemon
           chmod +x ../clients/macos/daemon-bin/vellum-daemon
           echo "Daemon binary built:"
