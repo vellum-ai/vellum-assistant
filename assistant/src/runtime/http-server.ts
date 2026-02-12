@@ -639,6 +639,9 @@ export class RuntimeHttpServer {
       content?: string;
       senderName?: string;
       attachmentIds?: string[];
+      senderExternalUserId?: string;
+      senderUsername?: string;
+      sourceMetadata?: Record<string, unknown>;
     };
 
     const { sourceChannel, externalChatId, externalMessageId, content, attachmentIds } = body;

@@ -12,6 +12,9 @@ export type RuntimeInboundPayload = {
   externalMessageId: string;
   content: string;
   senderName?: string;
+  senderExternalUserId?: string;
+  senderUsername?: string;
+  sourceMetadata?: Record<string, unknown>;
 };
 
 export type RuntimeInboundResponse = {

@@ -41,6 +41,15 @@ export async function handleInbound(
       externalMessageId: event.message.externalMessageId,
       content: event.message.content,
       senderName: displayName,
+      senderExternalUserId: event.sender.externalUserId,
+      senderUsername: event.sender.username,
+      sourceMetadata: {
+        updateId: event.source.updateId,
+        messageId: event.source.messageId,
+        chatType: event.source.chatType,
+        languageCode: event.sender.languageCode,
+        isBot: event.sender.isBot,
+      },
     });
 
     log.info(
