@@ -96,6 +96,20 @@ final class ChatViewModel: ObservableObject {
 
     private func sendUserMessage(_ text: String, queuedMessageId: UUID? = nil) {
         guard let sessionId else { return }
+
+        // Check connectivity before entering sending state so the UI
+        // doesn't get stuck with isSending/isThinking = true when the
+        // daemon has disconnected between turns.
+        guard daemonClient.isConnected else {
+            log.error("Cannot send user_message: daemon not connected")
+            errorText = "Cannot connect to daemon. Please ensure it's running."
+            // Remove the queued message ID to prevent stale FIFO entries
+            if let queuedMessageId {
+                pendingMessageIds.removeAll { $0 == queuedMessageId }
+            }
+            return
+        }
+
         isSending = true
         isThinking = true
 
@@ -131,7 +145,23 @@ final class ChatViewModel: ObservableObject {
                 guard let self, !Task.isCancelled else { break }
                 self.handleServerMessage(message)
             }
+            // Stream ended (e.g. daemon disconnected) — clear the task reference
+            // so the next sendUserMessage() call will re-subscribe.
+            self?.messageLoopTask = nil
         }
+    }
+
+    /// Returns true if the given session ID belongs to this chat session.
+    /// Messages with a nil sessionId are always accepted; messages whose
+    /// sessionId doesn't match the current session are silently ignored
+    /// to prevent cross-session contamination (e.g. from a popover text_qa flow).
+    private func belongsToSession(_ messageSessionId: String?) -> Bool {
+        guard let messageSessionId else { return true }
+        guard let sessionId else {
+            // No session established yet — accept all messages
+            return true
+        }
+        return messageSessionId == sessionId
     }
 
     func handleServerMessage(_ message: ServerMessage) {
@@ -164,6 +194,7 @@ final class ChatViewModel: ObservableObject {
             break
 
         case .assistantTextDelta(let delta):
+            guard belongsToSession(delta.sessionId) else { return }
             isThinking = false
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -176,7 +207,8 @@ final class ChatViewModel: ObservableObject {
                 messages.append(msg)
             }
 
-        case .messageComplete:
+        case .messageComplete(let complete):
+            guard belongsToSession(complete.sessionId) else { return }
             isThinking = false
             // Only clear isSending if no messages are still queued
             if pendingQueuedCount == 0 {
@@ -195,7 +227,8 @@ final class ChatViewModel: ObservableObject {
                 }
             }
 
-        case .generationCancelled:
+        case .generationCancelled(let cancelled):
+            guard belongsToSession(cancelled.sessionId) else { return }
             isThinking = false
             if pendingQueuedCount == 0 {
                 isSending = false
@@ -213,6 +246,7 @@ final class ChatViewModel: ObservableObject {
             }
 
         case .messageQueued(let queued):
+            guard belongsToSession(queued.sessionId) else { return }
             pendingQueuedCount += 1
             // Associate this requestId with the oldest pending user message
             if let messageId = pendingMessageIds.first {
@@ -224,6 +258,7 @@ final class ChatViewModel: ObservableObject {
             }
 
         case .messageDequeued(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
             pendingQueuedCount = max(0, pendingQueuedCount - 1)
             // Mark the associated user message as processing
             if let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId),
@@ -240,7 +275,8 @@ final class ChatViewModel: ObservableObject {
             isThinking = true
             isSending = true
 
-        case .generationHandoff:
+        case .generationHandoff(let handoff):
+            guard belongsToSession(handoff.sessionId) else { return }
             isThinking = false
             // Keep isSending = true — daemon is handing off to next queued message
             if let existingId = currentAssistantMessageId,

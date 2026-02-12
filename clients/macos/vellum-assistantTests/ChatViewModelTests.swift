@@ -10,6 +10,9 @@ final class ChatViewModelTests: XCTestCase {
     override func setUp() {
         super.setUp()
         daemonClient = DaemonClient()
+        // Mark as connected so send-path tests don't hit the disconnected guard.
+        // Tests that verify disconnected behaviour explicitly set isConnected = false.
+        daemonClient.isConnected = true
         viewModel = ChatViewModel(daemonClient: daemonClient)
     }
 
@@ -671,6 +674,76 @@ final class ChatViewModelTests: XCTestCase {
         // isSending should clear when queue is empty and message completes
         XCTAssertFalse(viewModel.isSending, "isSending should be false — no more queued messages")
         XCTAssertFalse(viewModel.isThinking)
+    }
+
+    // MARK: - Session Filtering
+
+    func testTextDeltaFromDifferentSessionIsIgnored() {
+        viewModel.sessionId = "my-session"
+        viewModel.isThinking = true
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "foreign", sessionId: "other-session")))
+        // Should still be thinking — delta was ignored
+        XCTAssertTrue(viewModel.isThinking)
+        XCTAssertEqual(viewModel.messages.count, 1) // Only greeting
+    }
+
+    func testTextDeltaFromSameSessionIsAccepted() {
+        viewModel.sessionId = "my-session"
+        viewModel.isThinking = true
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", sessionId: "my-session")))
+        XCTAssertFalse(viewModel.isThinking)
+        XCTAssertEqual(viewModel.messages.count, 2)
+        XCTAssertEqual(viewModel.messages[1].text, "hello")
+    }
+
+    func testTextDeltaWithNilSessionIdIsAccepted() {
+        viewModel.sessionId = "my-session"
+        viewModel.isThinking = true
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", sessionId: nil)))
+        XCTAssertFalse(viewModel.isThinking)
+        XCTAssertEqual(viewModel.messages.count, 2)
+    }
+
+    func testMessageCompleteFromDifferentSessionIsIgnored() {
+        viewModel.sessionId = "my-session"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "other-session")))
+        // Should still be sending/thinking — message was ignored
+        XCTAssertTrue(viewModel.isSending)
+        XCTAssertTrue(viewModel.isThinking)
+    }
+
+    func testMessageCompleteFromSameSessionIsAccepted() {
+        viewModel.sessionId = "my-session"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage(sessionId: "my-session")))
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    // MARK: - Disconnected Send Handling
+
+    func testSendUserMessageWhenDisconnectedShowsError() {
+        // Set up a session but daemon is disconnected
+        viewModel.sessionId = "test-session"
+        daemonClient.isConnected = false
+
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+
+        // User message should still appear in the list
+        XCTAssertEqual(viewModel.messages.count, 2)
+        XCTAssertEqual(viewModel.messages[1].role, .user)
+
+        // But isSending/isThinking should NOT be set since the send was rejected
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+
+        // Error text should be surfaced
+        XCTAssertNotNil(viewModel.errorText)
+        XCTAssertTrue(viewModel.errorText?.contains("daemon") == true)
     }
 
     // MARK: - Full Conversation Flow
