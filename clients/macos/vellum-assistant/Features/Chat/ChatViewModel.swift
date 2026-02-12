@@ -366,6 +366,27 @@ final class ChatViewModel: ObservableObject {
             return
         }
 
+        // If the daemon is not connected, the cancel message cannot reach it
+        // and no acknowledgment (generation_cancelled / message_complete) will
+        // arrive.  Reset all transient state immediately to avoid a permanently
+        // stuck isCancelling flag that would suppress future assistant deltas.
+        guard daemonClient.isConnected else {
+            log.warning("Cannot send cancel: daemon not connected")
+            isSending = false
+            isThinking = false
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].isStreaming = false
+            }
+            currentAssistantMessageId = nil
+            for i in messages.indices {
+                if messages[i].role == .user && messages[i].status == .processing {
+                    messages[i].status = .sent
+                }
+            }
+            return
+        }
+
         do {
             try daemonClient.send(CancelMessage(sessionId: sessionId!))
         } catch {
