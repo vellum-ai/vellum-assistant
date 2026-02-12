@@ -290,6 +290,21 @@ struct GenerationCancelledMessage: Decodable, Sendable {
     let sessionId: String?
 }
 
+/// Notifies client that a message has been queued for processing.
+/// Wire type: `"message_queued"`
+struct MessageQueuedMessage: Decodable, Sendable {
+    let sessionId: String
+    let requestId: String
+    let position: Int
+}
+
+/// Notifies client that a queued message has been dequeued and is now being processed.
+/// Wire type: `"message_dequeued"`
+struct MessageDequeuedMessage: Decodable, Sendable {
+    let sessionId: String
+    let requestId: String
+}
+
 /// Server-level error message.
 struct ErrorMessage: Decodable, Sendable {
     let message: String
@@ -303,21 +318,6 @@ struct AppDataResponseMessage: Decodable, Sendable {
     let success: Bool
     let result: AnyCodable?
     let error: String?
-}
-
-/// Confirms a message has been queued by the daemon.
-/// Wire type: `"message_queued"`
-struct MessageQueuedMessage: Decodable, Sendable {
-    let sessionId: String
-    let requestId: String
-    let position: Int
-}
-
-/// Confirms a queued message has been dequeued and is being processed.
-/// Wire type: `"message_dequeued"`
-struct MessageDequeuedMessage: Decodable, Sendable {
-    let sessionId: String
-    let requestId: String
 }
 
 /// Discriminated union of all server → client message types relevant to the macOS client.
