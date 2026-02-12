@@ -46,7 +46,7 @@ struct ThreadTabBar: View {
 }
 
 #Preview("ThreadTabBar") {
-    @Previewable @State var threads = [
+    let threads = [
         ThreadModel(title: "New Thread"),
     ]
 
