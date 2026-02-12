@@ -552,6 +552,30 @@ describe('Memory V2 regressions', () => {
     expect(cleaned[2]).toEqual(originalUserTail);
   });
 
+  test('recall stripping removes last matching block in merged content after deep-repair', () => {
+    const memoryRecallText = '[Memory Recall v1]\n- [item:abc] user prefers concise answers';
+    // Simulate deep-repair merging two consecutive user messages where both
+    // contain the recall text. The injected (active) recall block is the last one.
+    const mergedUserMessage = {
+      role: 'user' as const,
+      content: [
+        { type: 'text', text: memoryRecallText },
+        { type: 'text', text: 'Earlier user request' },
+        { type: 'text', text: memoryRecallText },
+        { type: 'text', text: 'Latest user request' },
+      ],
+    };
+
+    const cleaned = stripMemoryRecallMessages([mergedUserMessage], memoryRecallText);
+    expect(cleaned).toHaveLength(1);
+    // The last (active) recall block should be stripped, the first (leaked) one preserved
+    expect(cleaned[0].content).toEqual([
+      { type: 'text', text: memoryRecallText },
+      { type: 'text', text: 'Earlier user request' },
+      { type: 'text', text: 'Latest user request' },
+    ]);
+  });
+
   test('aborting memory recall embedding returns a non-degraded aborted recall result', async () => {
     const originalFetch = globalThis.fetch;
     const controller = new AbortController();
