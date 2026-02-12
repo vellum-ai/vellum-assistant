@@ -420,11 +420,17 @@ export async function handleTelegramWebhook(params: {
     }
   }
 
+  // If there is no text and no attachments (e.g. photo download failed),
+  // acknowledge the webhook to Telegram but skip the runtime call.
+  if (!normalized.text && attachmentIds.length === 0) {
+    return { status: "ignored", reason: "no_content" as const };
+  }
+
   const inboundResult = await client.channelInbound({
     sourceChannel: "telegram",
     externalChatId: normalized.externalChatId,
     externalMessageId: normalized.externalMessageId,
-    content: normalized.text || (attachmentIds.length > 0 ? "[Image]" : ""),
+    content: normalized.text,
     senderName: normalized.sender.displayName ?? normalized.sender.username ?? undefined,
     attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
   });

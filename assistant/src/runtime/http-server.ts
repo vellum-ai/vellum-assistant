@@ -653,9 +653,15 @@ export class RuntimeHttpServer {
       return Response.json({ error: 'externalMessageId is required' }, { status: 400 });
     }
 
+    // Reject non-string content regardless of whether attachments are present.
+    if (content !== undefined && content !== null && typeof content !== 'string') {
+      return Response.json({ error: 'content must be a string' }, { status: 400 });
+    }
+
+    const trimmedContent = typeof content === 'string' ? content.trim() : '';
     const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
 
-    if ((!content || typeof content !== 'string') && !hasAttachments) {
+    if (trimmedContent.length === 0 && !hasAttachments) {
       return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
     }
 
