@@ -169,6 +169,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             let safeCallId = response.callId
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "'", with: "\\'")
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\r", with: "\\r")
             webView?.evaluateJavaScript(
                 "window.vellum.data._resolve('\(safeCallId)', \(response.success), \(resultJson), \(errorStr))"
             )
