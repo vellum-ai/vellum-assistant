@@ -11,6 +11,7 @@ final class ChatViewModel: ObservableObject {
     @Published var isSending: Bool = false
     @Published var errorText: String?
     @Published var pendingQueuedCount: Int = 0
+    @Published var suggestion: String?
 
     private let daemonClient: DaemonClient
     var sessionId: String?
@@ -30,6 +31,8 @@ final class ChatViewModel: ObservableObject {
     private var requestIdToMessageId: [String: UUID] = [:]
     /// FIFO queue of user message UUIDs awaiting requestId assignment from the daemon.
     private var pendingMessageIds: [UUID] = []
+    /// Tracks the current in-flight suggestion request so stale responses are ignored.
+    private var pendingSuggestionRequestId: String?
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -58,6 +61,8 @@ final class ChatViewModel: ObservableObject {
             pendingMessageIds.append(userMessage.id)
         }
         inputText = ""
+        suggestion = nil
+        pendingSuggestionRequestId = nil
         errorText = nil
 
         if sessionId == nil {
@@ -246,6 +251,12 @@ final class ChatViewModel: ObservableObject {
                 messages.append(msg)
             }
 
+        case .suggestionResponse(let resp):
+            // Only accept if this response matches our current request
+            guard resp.requestId == pendingSuggestionRequestId else { return }
+            pendingSuggestionRequestId = nil
+            suggestion = resp.suggestion
+
         case .messageComplete(let complete):
             guard belongsToSession(complete.sessionId) else { return }
             isCancelling = false
@@ -265,6 +276,10 @@ final class ChatViewModel: ObservableObject {
                 if messages[i].role == .user && messages[i].status == .processing {
                     messages[i].status = .sent
                 }
+            }
+            // Fetch a follow-up suggestion when the turn is fully complete
+            if !isSending {
+                fetchSuggestion()
             }
 
         case .generationCancelled(let cancelled):
@@ -335,7 +350,7 @@ final class ChatViewModel: ObservableObject {
         case .error(let err):
             log.error("Server error: \(err.message)")
             isThinking = false
-            isSending = false
+            let wasCancelling = isCancelling
             isCancelling = false
             // Mark current assistant message as no longer streaming
             if let existingId = currentAssistantMessageId,
@@ -343,18 +358,53 @@ final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
-            pendingQueuedCount = 0
-            pendingMessageIds = []
-            requestIdToMessageId = [:]
             errorText = err.message
-            // Reset processing/queued messages to sent
+            // Reset processing messages to sent
             for i in messages.indices {
-                if case .queued = messages[i].status, messages[i].role == .user {
-                    messages[i].status = .sent
-                } else if messages[i].role == .user && messages[i].status == .processing {
+                if messages[i].role == .user && messages[i].status == .processing {
                     messages[i].status = .sent
                 }
             }
+            // When cancelling, the daemon's abort() emits error events for
+            // queued messages but drops the queue without sending
+            // message_dequeued events, so pendingQueuedCount never drains
+            // on its own. Force-clear all queue state to prevent isSending
+            // from staying true permanently. Also reset queued message
+            // statuses since the daemon will not process them.
+            if wasCancelling {
+                isSending = false
+                pendingQueuedCount = 0
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+                for i in messages.indices {
+                    if case .queued = messages[i].status, messages[i].role == .user {
+                        messages[i].status = .sent
+                    }
+                }
+            } else if pendingQueuedCount == 0 {
+                // The daemon drains queued work after a non-cancellation
+                // error, so preserve queue bookkeeping when messages are
+                // still queued. Only clear everything when the queue is
+                // empty.
+                isSending = false
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+            }
+
+        case .confirmationRequest(let msg):
+            guard belongsToSession(nil) else { return }
+            let confirmation = ToolConfirmationData(
+                requestId: msg.requestId,
+                toolName: msg.toolName,
+                riskLevel: msg.riskLevel,
+                diff: msg.diff
+            )
+            let confirmMsg = ChatMessage(
+                role: .assistant,
+                text: "",
+                confirmation: confirmation
+            )
+            messages.append(confirmMsg)
 
         default:
             break
@@ -412,6 +462,7 @@ final class ChatViewModel: ObservableObject {
             // all transient state now to avoid stuck UI.
             isSending = false
             isThinking = false
+            isCancelling = false
             // Mark current assistant message as stopped
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -448,6 +499,48 @@ final class ChatViewModel: ObservableObject {
 
     func dismissError() {
         errorText = nil
+    }
+
+    /// Respond to a tool confirmation request displayed inline in the chat.
+    func respondToConfirmation(requestId: String, decision: String) {
+        // Update the message state
+        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+            messages[index].confirmation?.state = decision == "allow" ? .approved : .denied
+        }
+        // Send the response to the daemon
+        do {
+            try daemonClient.sendConfirmationResponse(requestId: requestId, decision: decision)
+        } catch {
+            log.error("Failed to send confirmation response: \(error.localizedDescription)")
+        }
+    }
+
+    /// Ask the daemon for a follow-up suggestion for the current session.
+    private func fetchSuggestion() {
+        guard let sessionId, daemonClient.isConnected else { return }
+
+        let requestId = UUID().uuidString
+        pendingSuggestionRequestId = requestId
+
+        do {
+            try daemonClient.send(SuggestionRequestMessage(
+                sessionId: sessionId,
+                requestId: requestId
+            ))
+        } catch {
+            log.error("Failed to send suggestion_request: \(error.localizedDescription)")
+            pendingSuggestionRequestId = nil
+        }
+    }
+
+    /// Accept the current suggestion, appending the ghost suffix to input.
+    func acceptSuggestion() {
+        guard let suggestion else { return }
+        if suggestion.hasPrefix(inputText) {
+            inputText = suggestion
+        } else if inputText.isEmpty {
+            inputText = suggestion
+        }
     }
 
     deinit {

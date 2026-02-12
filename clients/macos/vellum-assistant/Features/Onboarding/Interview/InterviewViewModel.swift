@@ -150,7 +150,7 @@ final class InterviewViewModel {
                     // Stay in thinking state while the model reasons.
                     break
 
-                case .messageComplete(let complete) where complete.sessionId == self.sessionId:
+                case .messageComplete(let complete) where complete.sessionId == self.sessionId && self.sessionId != nil:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated
@@ -161,7 +161,7 @@ final class InterviewViewModel {
                     log.info("Interview greeting complete (\(accumulated.count) chars)")
                     return
 
-                case .generationHandoff(let handoff) where handoff.sessionId == self.sessionId:
+                case .generationHandoff(let handoff) where handoff.sessionId == self.sessionId && self.sessionId != nil:
                     self.isThinking = false
                     self.streamingText = ""
                     let finalText = accumulated.isEmpty ? "(No response)" : accumulated
@@ -172,7 +172,7 @@ final class InterviewViewModel {
                     log.info("Interview greeting complete via handoff (\(accumulated.count) chars)")
                     return
 
-                case .cuError(let error) where error.sessionId == self.sessionId:
+                case .cuError(let error) where error.sessionId == self.sessionId && self.sessionId != nil:
                     self.isThinking = false
                     self.streamingText = ""
                     log.error("Interview start failed: \(error.message)")

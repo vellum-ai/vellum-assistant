@@ -11,6 +11,23 @@ enum ChatMessageStatus: Equatable {
     case processing
 }
 
+/// Tracks the state of an inline tool confirmation request.
+enum ToolConfirmationState: Equatable {
+    case pending
+    case approved
+    case denied
+    case timedOut
+}
+
+/// Data for an inline tool confirmation message displayed in chat.
+struct ToolConfirmationData: Equatable {
+    let requestId: String
+    let toolName: String
+    let riskLevel: String
+    let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
+    var state: ToolConfirmationState = .pending
+}
+
 struct ChatMessage: Identifiable {
     let id: UUID
     let role: ChatRole
@@ -18,13 +35,16 @@ struct ChatMessage: Identifiable {
     let timestamp: Date
     var isStreaming: Bool
     var status: ChatMessageStatus
+    /// Non-nil when this message is an inline tool confirmation request.
+    var confirmation: ToolConfirmationData?
 
-    init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent) {
+    init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil) {
         self.id = id
         self.role = role
         self.text = text
         self.timestamp = timestamp
         self.isStreaming = isStreaming
         self.status = status
+        self.confirmation = confirmation
     }
 }

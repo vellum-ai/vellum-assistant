@@ -50,8 +50,8 @@ struct VSlider: View {
                         let newFraction = (drag.location.x - thumbWidth / 2) / trackWidth
                         let clampedFraction = min(max(newFraction, 0), 1)
                         let rawValue = range.lowerBound + clampedFraction * (range.upperBound - range.lowerBound)
-                        value = range.lowerBound + round((rawValue - range.lowerBound) / step) * step
-                        value = min(max(value, range.lowerBound), range.upperBound)
+                        let snapped = round(rawValue / step) * step
+                        value = min(max(snapped, range.lowerBound), range.upperBound)
                     }
                     .onEnded { _ in
                         isDragging = false
@@ -109,17 +109,21 @@ struct VSlider: View {
     // MARK: - Tick Marks
 
     private func tickMarksView(trackWidth: CGFloat, fraction: Double) -> some View {
-        let totalSteps = Int((range.upperBound - range.lowerBound) / step)
+        // Build tick values as multiples of step within the range
+        let firstTick = ceil(range.lowerBound / step) * step
+        let lastTick = floor(range.upperBound / step) * step
+        let tickValues = stride(from: firstTick, through: lastTick, by: step).map { $0 }
         let maxTicks = 20
-        let tickStep = totalSteps > maxTicks ? totalSteps / maxTicks : 1
+        let tickStep = tickValues.count > maxTicks ? tickValues.count / maxTicks : 1
+        let rangeSpan = range.upperBound - range.lowerBound
 
         return ZStack(alignment: .leading) {
-            ForEach(0...totalSteps, id: \.self) { i in
-                if i % tickStep == 0 {
-                    let tickFraction = Double(i) / Double(totalSteps)
+            ForEach(Array(tickValues.enumerated()), id: \.offset) { index, tickValue in
+                if index % tickStep == 0 {
+                    let tickFraction = (tickValue - range.lowerBound) / rangeSpan
 
                     // Only render tick marks in the unfilled portion, excluding the rightmost
-                    if tickFraction > fraction && i < totalSteps {
+                    if tickFraction > fraction && tickValue < range.upperBound {
                         let tickX = trackWidth * tickFraction + thumbWidth / 2
 
                         RoundedRectangle(cornerRadius: 0.5)

@@ -1,5 +1,6 @@
 import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
+import Anthropic from '@anthropic-ai/sdk';
 import { getConfig, loadRawConfig, saveRawConfig } from '../config/loader.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
@@ -26,6 +27,7 @@ import type {
   TaskSubmit,
   AppDataRequest,
   SkillDetailRequest,
+  SuggestionRequest,
 } from './ipc-protocol.js';
 import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon, readCachedSkillIcon } from '../config/skills.js';
 import { handleAmbientObservation } from './ambient-handler.js';
@@ -287,6 +289,7 @@ const handlers: DispatchMap = {
   app_data_request: handleAppDataRequest,
   skills_list: (_msg, socket, ctx) => handleSkillsList(socket, ctx),
   skill_detail: handleSkillDetail,
+  suggestion_request: handleSuggestionRequest,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
@@ -788,6 +791,117 @@ async function handleTaskSubmit(
     rlog.error({ err }, 'Error handling task_submit');
     ctx.send(socket, { type: 'error', message: `Failed to route task: ${message}` });
   }
+}
+
+// ─── Suggestion handler ─────────────────────────────────────────────────────
+
+const SUGGESTION_CACHE_MAX = 100;
+const suggestionCache = new Map<string, string>();
+const suggestionInFlight = new Map<string, Promise<string | null>>();
+
+async function handleSuggestionRequest(
+  msg: SuggestionRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const noSuggestion = () => {
+    ctx.send(socket, {
+      type: 'suggestion_response',
+      requestId: msg.requestId,
+      suggestion: null,
+      source: 'none' as const,
+    });
+  };
+
+  const rawMessages = conversationStore.getMessages(msg.sessionId);
+  if (rawMessages.length === 0) { noSuggestion(); return; }
+
+  // Walk backwards to find the last assistant message with text content
+  for (let i = rawMessages.length - 1; i >= 0; i--) {
+    const m = rawMessages[i];
+    if (m.role !== 'assistant') continue;
+
+    let content: unknown;
+    try { content = JSON.parse(m.content); } catch { content = m.content; }
+    const rendered = renderHistoryContent(content);
+    const text = rendered.text.trim();
+    if (!text) continue;
+
+    // Return cached suggestion
+    const cached = suggestionCache.get(m.id);
+    if (cached !== undefined) {
+      ctx.send(socket, {
+        type: 'suggestion_response',
+        requestId: msg.requestId,
+        suggestion: cached,
+        source: 'llm' as const,
+      });
+      return;
+    }
+
+    // Try LLM suggestion if an Anthropic API key is configured
+    const apiKey = getConfig().apiKeys.anthropic;
+    if (apiKey) {
+      try {
+        let promise = suggestionInFlight.get(m.id);
+        if (!promise) {
+          promise = generateSuggestion(apiKey, text);
+          suggestionInFlight.set(m.id, promise);
+        }
+        const llmSuggestion = await promise;
+        suggestionInFlight.delete(m.id);
+
+        if (llmSuggestion) {
+          if (suggestionCache.size >= SUGGESTION_CACHE_MAX) {
+            const oldest = suggestionCache.keys().next().value!;
+            suggestionCache.delete(oldest);
+          }
+          suggestionCache.set(m.id, llmSuggestion);
+
+          ctx.send(socket, {
+            type: 'suggestion_response',
+            requestId: msg.requestId,
+            suggestion: llmSuggestion,
+            source: 'llm' as const,
+          });
+          return;
+        }
+      } catch (err) {
+        suggestionInFlight.delete(m.id);
+        log.warn({ err }, 'LLM suggestion failed');
+      }
+    }
+
+    noSuggestion();
+    return;
+  }
+
+  noSuggestion();
+}
+
+async function generateSuggestion(apiKey: string, assistantText: string): Promise<string | null> {
+  const client = new Anthropic({ apiKey });
+  const truncated = assistantText.length > 2000
+    ? assistantText.slice(-2000)
+    : assistantText;
+
+  const response = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 60,
+    messages: [
+      {
+        role: 'user',
+        content: `The AI assistant just said the following to the user. Suggest a single short follow-up message (max 200 chars) the user might want to send next. Reply with ONLY the suggested message text, nothing else.\n\nAssistant's message:\n${truncated}`,
+      },
+    ],
+  });
+
+  const textBlock = response.content.find((b) => b.type === 'text');
+  const raw = textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
+  if (!raw || raw.length > 200) return null;
+
+  const firstLine = raw.split('\n')[0].trim();
+  return firstLine || null;
 }
 
 // ─── Computer-use handlers ──────────────────────────────────────────────────

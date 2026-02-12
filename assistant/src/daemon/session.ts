@@ -797,12 +797,14 @@ export class Session {
     // deleteLastExchange only finds the last role='user' row — which may be a
     // tool_result message, leaving the real user message orphaned.
     //
-    // Strategy: first peel back any tool_result user messages, then delete
-    // the real user message exchange. This ensures the DB cleanup matches
-    // the in-memory cleanup.
-    while (conversationStore.isLastUserMessageToolResult(this.conversationId)) {
+    // Strategy: peel back any trailing tool_result exchanges first, then
+    // unconditionally delete the real user message exchange. The do-while
+    // handles the case where the last DB exchange is a tool_result row, and
+    // the final call after the loop ensures the original user message is
+    // always removed.
+    do {
       conversationStore.deleteLastExchange(this.conversationId);
-    }
+    } while (conversationStore.isLastUserMessageToolResult(this.conversationId));
     conversationStore.deleteLastExchange(this.conversationId);
 
     return removed;

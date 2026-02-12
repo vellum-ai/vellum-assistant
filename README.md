@@ -172,7 +172,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 
 | Command | Purpose |
 |---------|---------|
-| `/scrub` | Kill the running Vellum app, wipe all persistent data, and relaunch the daemon and macOS app for a clean first-run experience. |
+| `/scrub` | Kill the running Vellum app (non-fatal if not running), wipe all persistent data, and relaunch the daemon and macOS app for a clean first-run experience. |
 
 ### Review
 

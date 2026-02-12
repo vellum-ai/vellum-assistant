@@ -7,9 +7,24 @@ struct ChatView: View {
     let isSending: Bool
     let errorText: String?
     let pendingQueuedCount: Int
+    let suggestion: String?
     let onSend: () -> Void
     let onStop: () -> Void
     let onDismissError: () -> Void
+    let onAcceptSuggestion: () -> Void
+    let onConfirmationAllow: (String) -> Void
+    let onConfirmationDeny: (String) -> Void
+
+    /// The portion of the suggestion that extends beyond the current input.
+    private var ghostSuffix: String? {
+        guard let suggestion else { return nil }
+        if suggestion.hasPrefix(inputText) {
+            let suffix = String(suggestion.dropFirst(inputText.count))
+            return suffix.isEmpty ? nil : suffix
+        }
+        if inputText.isEmpty { return suggestion }
+        return nil
+    }
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
@@ -42,9 +57,19 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(spacing: VSpacing.md) {
                     ForEach(messages) { message in
-                        ChatBubble(message: message)
+                        if let confirmation = message.confirmation {
+                            ToolConfirmationBubble(
+                                confirmation: confirmation,
+                                onAllow: { onConfirmationAllow(confirmation.requestId) },
+                                onDeny: { onConfirmationDeny(confirmation.requestId) }
+                            )
                             .id(message.id)
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        } else {
+                            ChatBubble(message: message)
+                                .id(message.id)
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
                     }
 
                     if isThinking {
@@ -138,18 +163,46 @@ struct ChatView: View {
             // Leading chat icon
             VCircleButton(icon: "phone.fill", label: "Phone") { }
 
-            // Text field
-            TextField("What you need chef?", text: $inputText, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
-                .lineLimit(1...3)
-                .onKeyPress(.return, phases: .down) { keyPress in
-                    if keyPress.modifiers.contains(.shift) { return .ignored }
-                    if canSend { onSend() }
-                    return .handled
+            // Text field with ghost suffix overlay
+            ZStack(alignment: .leading) {
+                TextField("", text: $inputText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1...3)
+                    .onKeyPress(.tab, phases: .down) { keyPress in
+                        if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
+                            onAcceptSuggestion()
+                            return .handled
+                        }
+                        return .ignored
+                    }
+                    .onKeyPress(.return, phases: .down) { keyPress in
+                        if keyPress.modifiers.contains(.shift) { return .ignored }
+                        if canSend { onSend() }
+                        return .handled
+                    }
+                    .onSubmit { if canSend { onSend() } }
+
+                if let ghostSuffix {
+                    Text(inputText + ghostSuffix)
+                        .font(VFont.mono)
+                        .foregroundColor(.clear)
+                        .lineLimit(1...3)
+                        .overlay(alignment: .leading) {
+                            HStack(spacing: 0) {
+                                Text(inputText)
+                                    .font(VFont.mono)
+                                    .foregroundColor(.clear)
+                                Text(ghostSuffix)
+                                    .font(VFont.mono)
+                                    .foregroundColor(VColor.textMuted.opacity(0.5))
+                            }
+                        }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
-                .onSubmit { if canSend { onSend() } }
+            }
 
             // Attachment / Stop button
             if isSending {
@@ -353,9 +406,13 @@ private struct ThinkingIndicator: View {
             isSending: false,
             errorText: nil,
             pendingQueuedCount: 0,
+            suggestion: "That sounds great, thanks!",
             onSend: {},
             onStop: {},
-            onDismissError: {}
+            onDismissError: {},
+            onAcceptSuggestion: {},
+            onConfirmationAllow: { _ in },
+            onConfirmationDeny: { _ in }
         )
     }
     .frame(width: 600, height: 500)
