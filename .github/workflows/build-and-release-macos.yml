@@ -94,7 +94,7 @@ jobs:
           SIGN_IDENTITY="Developer ID Application" \
           ./build.sh release
 
-          APP_PATH="dist/vellum-assistant.app"
+          APP_PATH="dist/Vellum.app"
 
           # Verify the app exists
           ls -la "$APP_PATH"
@@ -105,8 +105,8 @@ jobs:
 
       - name: Create DMG
         run: |
-          APP_PATH="dist/vellum-assistant.app"
-          APP_NAME="vellum-assistant.app"
+          APP_PATH="dist/Vellum.app"
+          APP_NAME="Vellum.app"
 
           # Create staging directory for DMG contents
           DMG_STAGING="build/dmg-staging"
@@ -193,7 +193,7 @@ jobs:
       - name: Build ZIP for Sparkle auto-update
         run: |
           cd dist
-          ditto -c -k --keepParent vellum-assistant.app vellum-assistant.zip
+          ditto -c -k --keepParent Vellum.app vellum-assistant.zip
           echo "Sparkle ZIP created:"
           ls -lh vellum-assistant.zip
 
