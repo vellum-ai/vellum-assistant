@@ -88,10 +88,10 @@ struct ChatView: View {
     private func errorBanner(_ text: String) -> some View {
         HStack(spacing: VSpacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(VFont.small)
+                .font(VFont.caption)
 
             Text(text)
-                .font(VFont.small)
+                .font(VFont.caption)
                 .lineLimit(2)
 
             Spacer()

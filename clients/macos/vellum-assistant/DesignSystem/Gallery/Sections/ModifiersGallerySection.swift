@@ -27,7 +27,7 @@ struct ModifiersGallerySection: View {
                                 .vCard(radius: radius)
 
                             Text(".\(name) (\(Int(radius))pt)")
-                                .font(VFont.small)
+                                .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
                     }
@@ -71,7 +71,7 @@ struct ModifiersGallerySection: View {
             HStack(spacing: VSpacing.lg) {
                 VStack(spacing: VSpacing.md) {
                     Text("With .vPanelBackground()")
-                        .font(VFont.small)
+                        .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
 
                     VStack(spacing: VSpacing.md) {
@@ -90,7 +90,7 @@ struct ModifiersGallerySection: View {
 
                 VStack(spacing: VSpacing.md) {
                     Text("Without (default background)")
-                        .font(VFont.small)
+                        .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
 
                     VStack(spacing: VSpacing.md) {

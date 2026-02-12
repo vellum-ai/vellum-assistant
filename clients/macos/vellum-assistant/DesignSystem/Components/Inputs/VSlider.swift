@@ -69,7 +69,7 @@ struct VSlider: View {
         return ZStack(alignment: .leading) {
             // Unfilled track
             RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(Slate._800)
+                .fill(Slate._700)
                 .frame(height: trackHeight)
                 .padding(.horizontal, thumbWidth / 2)
 

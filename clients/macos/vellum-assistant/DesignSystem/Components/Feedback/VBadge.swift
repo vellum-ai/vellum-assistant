@@ -14,7 +14,7 @@ struct VBadge: View {
         switch style {
         case .count(let count):
             Text("\(count)")
-                .font(VFont.small)
+                .font(VFont.caption)
                 .foregroundColor(.white)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xxs)
@@ -30,7 +30,7 @@ struct VBadge: View {
 
         case .label(let text):
             Text(text)
-                .font(VFont.small)
+                .font(VFont.caption)
                 .foregroundColor(.white)
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.xxs)

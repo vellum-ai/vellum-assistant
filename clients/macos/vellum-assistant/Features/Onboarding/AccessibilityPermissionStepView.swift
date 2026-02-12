@@ -68,7 +68,7 @@ struct AccessibilityPermissionStepView: View {
                             state.advance()
                         }
                         .buttonStyle(.plain)
-                        .font(VFont.small)
+                        .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
 
                         if pollCount >= 8 {
@@ -76,7 +76,7 @@ struct AccessibilityPermissionStepView: View {
                                 grantPermission()
                             }
                             .buttonStyle(.plain)
-                            .font(VFont.small)
+                            .font(VFont.caption)
                             .foregroundColor(VColor.accent)
                             .transition(.opacity)
                         }

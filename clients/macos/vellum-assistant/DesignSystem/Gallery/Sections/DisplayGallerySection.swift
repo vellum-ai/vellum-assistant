@@ -51,7 +51,7 @@ struct DisplayGallerySection: View {
                                 .font(VFont.captionMedium)
                                 .foregroundColor(VColor.textPrimary)
                             Text("\(Int(padding))pt")
-                                .font(VFont.small)
+                                .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
                     }

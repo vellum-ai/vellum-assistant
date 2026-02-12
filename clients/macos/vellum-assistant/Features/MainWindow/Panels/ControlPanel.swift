@@ -119,7 +119,7 @@ struct ControlPanel: View {
                         .textFieldStyle(.roundedBorder)
 
                     Text("Get your API key at console.anthropic.com")
-                        .font(VFont.small)
+                        .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
 
                     VButton(label: "Save", style: .primary) {
@@ -153,7 +153,7 @@ struct ControlPanel: View {
                         .foregroundColor(VColor.textSecondary)
                 }
 
-                VSlider(value: $maxSteps, range: 1...100, step: 1, showTickMarks: true)
+                VSlider(value: $maxSteps, range: 1...100, step: 5, showTickMarks: true)
             }
             .padding(VSpacing.lg)
             .vCard()

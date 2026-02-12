@@ -72,7 +72,7 @@ struct AliveStepView: View {
 
             if state.anyPermissionDenied {
                 Text("Some abilities are limited \u{2014} you can enable them in Settings anytime.")
-                    .font(VFont.small)
+                    .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .multilineTextAlignment(.center)
                     .opacity(showButtons ? 1 : 0)
@@ -93,7 +93,7 @@ struct AliveStepView: View {
     private func abilityTag(_ title: String, icon: String) -> some View {
         HStack(spacing: VSpacing.sm) {
             Image(systemName: icon)
-                .font(VFont.small)
+                .font(VFont.caption)
             Text(title)
                 .font(VFont.captionMedium)
         }

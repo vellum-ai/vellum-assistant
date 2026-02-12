@@ -42,7 +42,7 @@ struct TokensGallerySection: View {
                                             .stroke(VColor.surfaceBorder, lineWidth: 1)
                                     )
                                 Text(name)
-                                    .font(VFont.small)
+                                    .font(VFont.caption)
                                     .foregroundColor(VColor.textMuted)
                             }
                         }
@@ -102,7 +102,7 @@ struct TokensGallerySection: View {
                     typographySample("bodyBold", font: VFont.bodyBold)
                     typographySample("caption", font: VFont.caption)
                     typographySample("captionMedium", font: VFont.captionMedium)
-                    typographySample("small", font: VFont.small)
+                    typographySample("small", font: VFont.caption)
                     typographySample("mono", font: VFont.mono)
                     typographySample("monoSmall", font: VFont.monoSmall)
                     typographySample("display", font: VFont.display)
@@ -168,7 +168,7 @@ struct TokensGallerySection: View {
                                 .font(VFont.captionMedium)
                                 .foregroundColor(VColor.textSecondary)
                             Text("\(Int(radius))pt")
-                                .font(VFont.small)
+                                .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
                     }

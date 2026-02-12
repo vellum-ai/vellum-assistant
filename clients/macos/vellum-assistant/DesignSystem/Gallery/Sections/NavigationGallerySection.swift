@@ -88,19 +88,19 @@ struct NavigationGallerySection: View {
             VCard {
                 HStack(spacing: VSpacing.lg) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Default").font(VFont.small).foregroundColor(VColor.textMuted)
+                        Text("Default").font(VFont.caption).foregroundColor(VColor.textMuted)
                         VTab(label: "Tab", icon: "doc", onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Selected").font(VFont.small).foregroundColor(VColor.textMuted)
+                        Text("Selected").font(VFont.caption).foregroundColor(VColor.textMuted)
                         VTab(label: "Tab", icon: "doc", isSelected: true, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Not closeable").font(VFont.small).foregroundColor(VColor.textMuted)
+                        Text("Not closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
                         VTab(label: "Tab", icon: "doc", isCloseable: false, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("No icon").font(VFont.small).foregroundColor(VColor.textMuted)
+                        Text("No icon").font(VFont.caption).foregroundColor(VColor.textMuted)
                         VTab(label: "Plain Tab", isCloseable: false, onSelect: {})
                     }
                 }

@@ -66,7 +66,7 @@ struct ScreenPermissionStepView: View {
                         state.advance()
                     }
                     .buttonStyle(.plain)
-                    .font(VFont.small)
+                    .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                 }
                 .opacity(showContent ? 1 : 0)

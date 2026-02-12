@@ -135,7 +135,7 @@ struct InputsGallerySection: View {
                     )
 
                     Text("Characters: \(textEditorValue.count)")
-                        .font(VFont.small)
+                        .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                 }
             }

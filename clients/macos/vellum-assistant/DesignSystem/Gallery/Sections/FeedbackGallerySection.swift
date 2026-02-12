@@ -28,19 +28,19 @@ struct FeedbackGallerySection: View {
                     // Count row
                     HStack(spacing: VSpacing.xl) {
                         VStack(spacing: VSpacing.xs) {
-                            Text("Accent").font(VFont.small).foregroundColor(VColor.textMuted)
+                            Text("Accent").font(VFont.caption).foregroundColor(VColor.textMuted)
                             VBadge(style: .count(Int(badgeCount)), color: VColor.accent)
                         }
                         VStack(spacing: VSpacing.xs) {
-                            Text("Success").font(VFont.small).foregroundColor(VColor.textMuted)
+                            Text("Success").font(VFont.caption).foregroundColor(VColor.textMuted)
                             VBadge(style: .count(Int(badgeCount)), color: VColor.success)
                         }
                         VStack(spacing: VSpacing.xs) {
-                            Text("Error").font(VFont.small).foregroundColor(VColor.textMuted)
+                            Text("Error").font(VFont.caption).foregroundColor(VColor.textMuted)
                             VBadge(style: .count(Int(badgeCount)), color: VColor.error)
                         }
                         VStack(spacing: VSpacing.xs) {
-                            Text("Warning").font(VFont.small).foregroundColor(VColor.textMuted)
+                            Text("Warning").font(VFont.caption).foregroundColor(VColor.textMuted)
                             VBadge(style: .count(Int(badgeCount)), color: VColor.warning)
                         }
                     }
@@ -48,7 +48,7 @@ struct FeedbackGallerySection: View {
                     // Dot row
                     HStack(spacing: VSpacing.xl) {
                         VStack(spacing: VSpacing.xs) {
-                            Text("Dot").font(VFont.small).foregroundColor(VColor.textMuted)
+                            Text("Dot").font(VFont.caption).foregroundColor(VColor.textMuted)
                             HStack(spacing: VSpacing.md) {
                                 VBadge(style: .dot, color: VColor.accent)
                                 VBadge(style: .dot, color: VColor.success)
@@ -79,27 +79,27 @@ struct FeedbackGallerySection: View {
             VCard {
                 HStack(spacing: VSpacing.xxl) {
                     VStack(spacing: VSpacing.md) {
-                        Text("Small (14)").font(VFont.small).foregroundColor(VColor.textMuted)
+                        Text("Small (14)").font(VFont.caption).foregroundColor(VColor.textMuted)
                         VLoadingIndicator(size: 14, color: VColor.accent)
                     }
                     VStack(spacing: VSpacing.md) {
-                        Text("Default (20)").font(VFont.small).foregroundColor(VColor.textMuted)
+                        Text("Default (20)").font(VFont.caption).foregroundColor(VColor.textMuted)
                         VLoadingIndicator()
                     }
                     VStack(spacing: VSpacing.md) {
-                        Text("Large (32)").font(VFont.small).foregroundColor(VColor.textMuted)
+                        Text("Large (32)").font(VFont.caption).foregroundColor(VColor.textMuted)
                         VLoadingIndicator(size: 32, color: VColor.accent)
                     }
                     VStack(spacing: VSpacing.md) {
-                        Text("Success").font(VFont.small).foregroundColor(VColor.textMuted)
+                        Text("Success").font(VFont.caption).foregroundColor(VColor.textMuted)
                         VLoadingIndicator(color: VColor.success)
                     }
                     VStack(spacing: VSpacing.md) {
-                        Text("Error").font(VFont.small).foregroundColor(VColor.textMuted)
+                        Text("Error").font(VFont.caption).foregroundColor(VColor.textMuted)
                         VLoadingIndicator(color: VColor.error)
                     }
                     VStack(spacing: VSpacing.md) {
-                        Text("Warning").font(VFont.small).foregroundColor(VColor.textMuted)
+                        Text("Warning").font(VFont.caption).foregroundColor(VColor.textMuted)
                         VLoadingIndicator(color: VColor.warning)
                     }
                 }
