@@ -746,6 +746,13 @@ function handleCuSessionAbort(
   }
   session.abort();
   ctx.cuSessions.delete(msg.sessionId);
+  // Clean up socketToCuSession so disconnect handler doesn't see stale ID
+  for (const [sock, ids] of ctx.socketToCuSession) {
+    if (ids.delete(msg.sessionId)) {
+      if (ids.size === 0) ctx.socketToCuSession.delete(sock);
+      break;
+    }
+  }
   log.info({ sessionId: msg.sessionId }, 'Computer-use session aborted by client');
 }
 
