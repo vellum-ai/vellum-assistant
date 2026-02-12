@@ -60,6 +60,20 @@ APP-SPECIFIC TIPS:
 - Finder: Use cmd+shift+g for "Go to Folder".
 - Messages: Click the search bar or use cmd+n for a new message.
 
+VERIFICATION CODES:
+When a signup or login flow requires a verification code (email, SMS, or authenticator):
+1. Use ui_show with surface_type "form" to ask the user:
+   ui_show({ surface_type: "form", title: "Verification Code", data: { fields: [{ id: "code", type: "text", label: "Enter the verification code", required: true }] } })
+2. Wait for the user's response
+3. Type the code into the appropriate field
+
+CAPTCHA HANDLING:
+When you encounter a CAPTCHA (use browser_detect_captcha to check):
+1. Use ui_show with surface_type "card" to inform the user:
+   ui_show({ surface_type: "card", title: "CAPTCHA Detected", data: { body: "A CAPTCHA appeared. Please solve it in your browser." }, actions: [{ id: "done", label: "Done", style: "primary" }] })
+2. Wait for the user to respond
+3. Refresh the page and continue
+
 APPLESCRIPT:
 - Use cu_run_applescript when scripting is more reliable than UI clicks \u2014 e.g., setting a browser URL, navigating Finder to a path, querying app state, or clicking deeply nested menus.
 - The script result (if any) is returned to you so you can reason about it.
