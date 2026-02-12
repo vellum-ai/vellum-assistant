@@ -94,5 +94,8 @@ export function toAuthErrorResponse(error: unknown): NextResponse {
   if (message === "FORBIDDEN") {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  return NextResponse.json({ error: message }, { status: 500 });
+  if (message === "Contact not found") {
+    return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+  }
+  return NextResponse.json({ error: "Internal server error" }, { status: 500 });
 }
