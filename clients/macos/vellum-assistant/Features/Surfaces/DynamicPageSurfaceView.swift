@@ -75,7 +75,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             source: """
                 (function() {
                     var style = document.createElement('style');
-                    style.textContent = 'body { min-height: 100vh; display: flex; justify-content: center; align-items: center; margin: 0; }';
+                    style.textContent = 'body { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; margin: 0; }';
                     (document.head || document.documentElement).appendChild(style);
                 })();
                 """,
