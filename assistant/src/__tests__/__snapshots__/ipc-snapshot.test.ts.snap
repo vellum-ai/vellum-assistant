@@ -503,3 +503,20 @@ exports[`IPC message snapshots ServerMessage types app_data_response serializes 
   "type": "app_data_response",
 }
 `;
+
+exports[`IPC message snapshots ServerMessage types message_queued serializes to expected JSON 1`] = `
+{
+  "position": 1,
+  "requestId": "req-003",
+  "sessionId": "sess-001",
+  "type": "message_queued",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types message_dequeued serializes to expected JSON 1`] = `
+{
+  "requestId": "req-003",
+  "sessionId": "sess-001",
+  "type": "message_dequeued",
+}
+`;

@@ -264,12 +264,19 @@ async function handleUserMessage(
     ctx.socketToSession.set(socket, msg.sessionId);
     const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
     rlog.info('Processing user message');
-    await session.processMessage(msg.content ?? '', msg.attachments ?? [], (event) => {
-      ctx.send(socket, event);
-    }, requestId);
+    const sendEvent = (event: ServerMessage) => { ctx.send(socket, event); };
+
+    // Fire-and-forget: don't block the IPC handler so the connection can
+    // continue receiving messages (e.g. cancel, confirmations, or
+    // additional user_message that will be queued by the session).
+    session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      rlog.error({ err }, 'Error processing user message (session or provider failure)');
+      ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    rlog.error({ err }, 'Error processing user message (session or provider failure)');
+    rlog.error({ err }, 'Error setting up user message processing');
     ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
   }
 }

@@ -421,6 +421,19 @@ export interface AmbientResult {
   suggestion?: string;
 }
 
+export interface MessageQueued {
+  type: 'message_queued';
+  sessionId: string;
+  requestId: string;
+  position: number;
+}
+
+export interface MessageDequeued {
+  type: 'message_dequeued';
+  sessionId: string;
+  requestId: string;
+}
+
 export interface AppDataResponse {
   type: 'app_data_response';
   surfaceId: string;
@@ -514,7 +527,9 @@ export type ServerMessage =
   | UiSurfaceShow
   | UiSurfaceUpdate
   | UiSurfaceDismiss
-  | AppDataResponse;
+  | AppDataResponse
+  | MessageQueued
+  | MessageDequeued;
 
 // === Serialization ===
 

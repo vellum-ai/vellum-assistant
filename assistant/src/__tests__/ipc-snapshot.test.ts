@@ -323,6 +323,17 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     result: [{ id: 'rec-001', appId: 'app-001', data: { name: 'Test' }, createdAt: 1700000000, updatedAt: 1700000000 }],
   },
+  message_queued: {
+    type: 'message_queued',
+    sessionId: 'sess-001',
+    requestId: 'req-003',
+    position: 1,
+  },
+  message_dequeued: {
+    type: 'message_dequeued',
+    sessionId: 'sess-001',
+    requestId: 'req-003',
+  },
 };
 
 // ---------------------------------------------------------------------------
