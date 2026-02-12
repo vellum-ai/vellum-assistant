@@ -22,6 +22,7 @@ struct ChatView: View {
             if let errorText {
                 errorBanner(errorText)
             }
+            queueSummary
             composerArea
         }
     }
@@ -99,6 +100,26 @@ struct ChatView: View {
         .background(VColor.error)
     }
 
+    // MARK: - Queue Summary
+
+    @ViewBuilder
+    private var queueSummary: some View {
+        if pendingQueuedCount > 0 {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                    .font(VFont.caption)
+                Text(pendingQueuedCount == 1
+                     ? "1 message queued, sending automatically"
+                     : "\(pendingQueuedCount) messages queued, sending automatically")
+                    .font(VFont.caption)
+            }
+            .foregroundColor(VColor.textSecondary)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.xs)
+            .transition(.opacity)
+        }
+    }
+
     // MARK: - Composer Area
 
     private var composerArea: some View {
@@ -168,16 +189,23 @@ private struct ChatBubble: View {
 
     private var isUser: Bool { message.role == .user }
 
-    private var isQueued: Bool {
-        if case .queued = message.status { return true }
-        return false
+    private var statusLabel: String? {
+        switch message.status {
+        case .queued(let position):
+            return position > 0 ? "Queued (\(ordinal(position)) in line)" : "Queued"
+        case .processing:
+            return "Sending\u{2026}"
+        case .sent:
+            return nil
+        }
     }
 
-    private var queueLabel: String? {
-        if case .queued(let position) = message.status {
-            return position > 0 ? "Queued (\(ordinal(position)) in line)" : "Queued"
+    private var bubbleOpacity: Double {
+        switch message.status {
+        case .queued: return 0.7
+        case .processing: return 0.85
+        case .sent: return 1.0
         }
-        return nil
     }
 
     var body: some View {
@@ -187,7 +215,7 @@ private struct ChatBubble: View {
             VStack(alignment: isUser ? .trailing : .leading, spacing: 2) {
                 bubbleContent
 
-                if let label = queueLabel {
+                if let label = statusLabel {
                     Text(label)
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
@@ -210,7 +238,7 @@ private struct ChatBubble: View {
                     .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
             )
             .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
-            .opacity(isQueued ? 0.7 : 1.0)
+            .opacity(bubbleOpacity)
     }
 
     private func ordinal(_ n: Int) -> String {
