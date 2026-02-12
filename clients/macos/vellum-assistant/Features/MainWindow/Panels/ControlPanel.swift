@@ -2,11 +2,13 @@ import SwiftUI
 
 struct ControlPanel: View {
     var onClose: () -> Void
+    var ambientAgent: AmbientAgent
 
     @State private var selectedTab: ControlTab = .settings
-    @State private var apiKey: String = ""
+    @State private var apiKeyText: String = ""
+    @State private var hasKey: Bool = false
     @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
-    @AppStorage("ambientAgentEnabled") private var ambientEnabled: Bool = false
+    @State private var ambientEnabled: Bool = false
 
     private enum ControlTab: String, CaseIterable {
         case profile, settings, channels, overview
@@ -59,7 +61,8 @@ struct ControlPanel: View {
             }
         }
         .onAppear {
-            loadAPIKey()
+            hasKey = APIKeyManager.getKey() != nil
+            ambientEnabled = UserDefaults.standard.bool(forKey: "ambientAgentEnabled")
         }
     }
 
@@ -89,18 +92,37 @@ struct ControlPanel: View {
                     .font(VFont.display)
                     .foregroundColor(VColor.textPrimary)
 
-                Text("Enter API Key")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                if hasKey {
+                    HStack {
+                        Text("sk-ant-...configured")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        VButton(label: "Clear", style: .danger) {
+                            APIKeyManager.deleteKey()
+                            hasKey = false
+                            apiKeyText = ""
+                        }
+                    }
+                } else {
+                    Text("Enter API Key")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
 
-                VTextField(placeholder: "This is your private generated key", text: $apiKey)
+                    SecureField("Enter API key", text: $apiKeyText)
+                        .textFieldStyle(.roundedBorder)
 
-                Text("Get your API key at console.anthropic.com")
-                    .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
+                    Text("Get your API key at console.anthropic.com")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
 
-                VButton(label: "Save", style: .primary) {
-                    saveAPIKey()
+                    VButton(label: "Save", style: .primary) {
+                        let trimmed = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { return }
+                        APIKeyManager.setKey(trimmed)
+                        hasKey = true
+                        apiKeyText = ""
+                    }
                 }
             }
             .padding(VSpacing.lg)
@@ -138,6 +160,9 @@ struct ControlPanel: View {
                     .tint(VColor.accent)
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
+                    .onChange(of: ambientEnabled) { _, newValue in
+                        ambientAgent.isEnabled = newValue
+                    }
             }
             .padding(VSpacing.lg)
             .vCard()
@@ -192,25 +217,12 @@ struct ControlPanel: View {
         }
     }
 
-    // MARK: - API Key Management
-
-    private func saveAPIKey() {
-        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed)
-    }
-
-    private func loadAPIKey() {
-        if let key = APIKeyManager.getKey() {
-            apiKey = key
-        }
-    }
 }
 
 #Preview("ControlPanel") {
     ZStack {
         VColor.background.ignoresSafeArea()
-        ControlPanel(onClose: {})
+        ControlPanel(onClose: {}, ambientAgent: AmbientAgent())
     }
     .frame(width: 600, height: 700)
 }
