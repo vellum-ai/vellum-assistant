@@ -55,19 +55,53 @@ export const appCreateTool: Tool = {
             type: 'string',
             description: 'HTML definition for rendering the app',
           },
+          auto_open: {
+            type: 'boolean',
+            description:
+              'Automatically open the app after creation. Defaults to true. ' +
+              'When true, the app is immediately displayed in a dynamic_page surface ' +
+              'without needing a separate app_open call.',
+          },
         },
         required: ['name', 'schema_json', 'html'],
       },
     };
   },
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     const name = input.name as string;
     const description = input.description as string | undefined;
     const schemaJson = input.schema_json as string;
     const htmlDefinition = input.html as string;
+    const autoOpen = input.auto_open !== false; // default true
 
     const app = appStore.createApp({ name, description, schemaJson, htmlDefinition });
+
+    // Auto-open the app via the proxy resolver if available
+    if (autoOpen && context.proxyToolResolver) {
+      try {
+        const openResult = await context.proxyToolResolver('app_open', { app_id: app.id });
+        return {
+          content: JSON.stringify({
+            ...app,
+            auto_opened: true,
+            open_result: openResult.content,
+          }),
+          isError: false,
+        };
+      } catch {
+        // App was created successfully but auto-open failed; return creation result with a note
+        return {
+          content: JSON.stringify({
+            ...app,
+            auto_opened: false,
+            auto_open_error: 'Failed to auto-open app. Use app_open to open it manually.',
+          }),
+          isError: false,
+        };
+      }
+    }
+
     return { content: JSON.stringify(app), isError: false };
   },
 };

@@ -149,18 +149,14 @@ async function deleteItem(recordId) {
 
 ### 4. Create and Open the App
 
-After building the schema and HTML, call the tools in sequence:
+Call `app_create` with:
+- `name`: A short, descriptive name for the app
+- `description`: A one-sentence summary of what the app does
+- `schema_json`: The JSON schema as a string (use `JSON.stringify` formatting)
+- `html`: The complete HTML document as a string
+- `auto_open`: (optional, defaults to `true`) When true, the app is automatically opened in a dynamic_page surface immediately after creation -- no separate `app_open` call is needed
 
-1. Call `app_create` with:
-   - `name`: A short, descriptive name for the app
-   - `description`: A one-sentence summary of what the app does
-   - `schema_json`: The JSON schema as a string (use `JSON.stringify` formatting)
-   - `html`: The complete HTML document as a string
-
-2. Immediately call `app_open` with:
-   - `app_id`: The `id` field from the `app_create` response
-
-Always open the app right after creating it so the user can see and use it immediately.
+Since `auto_open` defaults to `true`, the app will be displayed to the user as soon as it is created. You do **not** need to call `app_open` separately after `app_create` unless `auto_open` was explicitly set to `false`.
 
 ### 5. Handle Iteration
 
