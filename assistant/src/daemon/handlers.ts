@@ -543,13 +543,17 @@ function handleAppDataRequest(
         result = queryAppRecords(appId);
         break;
       case 'create':
-        result = createAppRecord(appId, data!);
+        if (!data) throw new Error('data is required for create');
+        result = createAppRecord(appId, data);
         break;
       case 'update':
-        result = updateAppRecord(appId, recordId!, data!);
+        if (!recordId) throw new Error('recordId is required for update');
+        if (!data) throw new Error('data is required for update');
+        result = updateAppRecord(appId, recordId, data);
         break;
       case 'delete':
-        deleteAppRecord(appId, recordId!);
+        if (!recordId) throw new Error('recordId is required for delete');
+        deleteAppRecord(appId, recordId);
         result = null;
         break;
       default:

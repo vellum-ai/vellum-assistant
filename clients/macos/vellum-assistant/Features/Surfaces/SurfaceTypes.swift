@@ -118,6 +118,7 @@ struct DynamicPageSurfaceData: Sendable {
     let html: String
     let width: Int?
     let height: Int?
+    let appId: String?
 }
 
 enum SurfaceData: Sendable {
@@ -321,7 +322,8 @@ extension Surface {
         let html = (update["html"] as? String) ?? existing.html
         let width: Int? = update.keys.contains("width") ? (update["width"] as? Int) : existing.width
         let height: Int? = update.keys.contains("height") ? (update["height"] as? Int) : existing.height
-        return DynamicPageSurfaceData(html: html, width: width, height: height)
+        let appId: String? = update.keys.contains("appId") ? (update["appId"] as? String) : existing.appId
+        return DynamicPageSurfaceData(html: html, width: width, height: height, appId: appId)
     }
 
     // MARK: - Field Parsing Helpers
@@ -443,7 +445,8 @@ extension Surface {
         return DynamicPageSurfaceData(
             html: html,
             width: dict["width"] as? Int,
-            height: dict["height"] as? Int
+            height: dict["height"] as? Int,
+            appId: dict["appId"] as? String
         )
     }
 }
