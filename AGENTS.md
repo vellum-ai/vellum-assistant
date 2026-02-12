@@ -27,4 +27,4 @@ These are the most commonly used slash commands defined in `.claude/commands/`:
 | `/safe-execute-plan <file>` | Start a plan from `.private/plans/` — implements the first PR, creates it (without merging), and stops to wait for human review. |
 | `/safe-check-review [file]` | Check the active plan PR for review feedback from codex/devin/humans. Addresses requested changes, waits if reviews are pending. |
 | `/resume-plan [file]` | Merge the current plan PR, implement the next one, create it, and stop again. Repeats until the plan is complete. |
-| `/scrub` | Kill the running Vellum app, wipe all persistent data, and relaunch the daemon and macOS app for a clean first-run experience. |
+| `/scrub` | Kill the running Vellum app (non-fatal if not running), wipe all persistent data, and relaunch the daemon and macOS app for a clean first-run experience. |
