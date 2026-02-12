@@ -3,6 +3,17 @@ import { NextResponse } from "next/server";
 import { Assistant, getDb } from "@/lib/db";
 import { auth } from "@/lib/auth/better-auth";
 
+/**
+ * Error subclass for user-safe domain errors whose message can be returned
+ * in API responses without leaking internal details.
+ */
+export class DomainError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DomainError";
+  }
+}
+
 export interface RequestUser {
   id: string | null;
   username: string | null;
@@ -108,7 +119,7 @@ export function toAuthErrorResponse(error: unknown): NextResponse {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
   return NextResponse.json(
-    { error: error instanceof Error ? error.message : "Internal server error" },
+    { error: error instanceof DomainError ? error.message : "Internal server error" },
     { status: 500 }
   );
 }
