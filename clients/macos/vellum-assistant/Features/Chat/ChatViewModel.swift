@@ -1,0 +1,182 @@
+import Foundation
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel")
+
+@MainActor
+final class ChatViewModel: ObservableObject {
+    @Published var messages: [ChatMessage] = []
+    @Published var inputText: String = ""
+    @Published var isThinking: Bool = false
+    @Published var isSending: Bool = false
+    @Published var errorText: String?
+
+    private let daemonClient: DaemonClient
+    private var sessionId: String?
+    private var pendingUserMessage: String?
+    private var messageLoopTask: Task<Void, Never>?
+    private var currentAssistantMessageId: UUID?
+
+    init(daemonClient: DaemonClient) {
+        self.daemonClient = daemonClient
+        // Add initial greeting
+        let name = UserDefaults.standard.string(forKey: "assistantName") ?? "vellum-assistant"
+        messages.append(ChatMessage(role: .assistant, text: "Hello! I'm \(name). How can I help you today?"))
+    }
+
+    func sendMessage() {
+        let text = inputText.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty, !isSending else { return }
+
+        // Append user message immediately for responsive UX
+        messages.append(ChatMessage(role: .user, text: text))
+        inputText = ""
+        errorText = nil
+
+        if sessionId == nil {
+            // First message: need to bootstrap session
+            bootstrapSession(userMessage: text)
+        } else {
+            // Subsequent messages: send directly
+            sendUserMessage(text)
+        }
+    }
+
+    private func bootstrapSession(userMessage: String) {
+        isSending = true
+        isThinking = true
+        pendingUserMessage = userMessage
+
+        Task { @MainActor in
+            // Ensure daemon connection
+            if !daemonClient.isConnected {
+                do {
+                    try await daemonClient.connect()
+                } catch {
+                    log.error("Failed to connect to daemon: \(error.localizedDescription)")
+                    self.isThinking = false
+                    self.isSending = false
+                    self.errorText = "Cannot connect to daemon. Please ensure it's running."
+                    return
+                }
+            }
+
+            // Subscribe to daemon stream
+            self.startMessageLoop()
+
+            // Send session_create
+            do {
+                try daemonClient.send(SessionCreateMessage(title: nil))
+            } catch {
+                log.error("Failed to send session_create: \(error.localizedDescription)")
+                self.isThinking = false
+                self.isSending = false
+                self.errorText = "Failed to create session."
+            }
+        }
+    }
+
+    private func sendUserMessage(_ text: String) {
+        guard let sessionId else { return }
+        isSending = true
+        isThinking = true
+
+        // Make sure we're listening
+        if messageLoopTask == nil {
+            startMessageLoop()
+        }
+
+        do {
+            try daemonClient.send(UserMessageMessage(
+                sessionId: sessionId,
+                content: text,
+                attachments: nil
+            ))
+        } catch {
+            log.error("Failed to send user_message: \(error.localizedDescription)")
+            isSending = false
+            isThinking = false
+            errorText = "Failed to send message."
+        }
+    }
+
+    private func startMessageLoop() {
+        messageLoopTask?.cancel()
+        let messageStream = daemonClient.subscribe()
+
+        messageLoopTask = Task { @MainActor [weak self] in
+            for await message in messageStream {
+                guard let self, !Task.isCancelled else { break }
+                self.handleServerMessage(message)
+            }
+        }
+    }
+
+    private func handleServerMessage(_ message: ServerMessage) {
+        switch message {
+        case .sessionInfo(let info):
+            if sessionId == nil {
+                sessionId = info.sessionId
+                log.info("Chat session created: \(info.sessionId)")
+
+                // Send the queued user message
+                if let pending = pendingUserMessage {
+                    pendingUserMessage = nil
+                    do {
+                        try daemonClient.send(UserMessageMessage(
+                            sessionId: info.sessionId,
+                            content: pending,
+                            attachments: nil
+                        ))
+                    } catch {
+                        log.error("Failed to send queued user_message: \(error.localizedDescription)")
+                        isSending = false
+                        isThinking = false
+                        errorText = "Failed to send message."
+                    }
+                }
+            }
+
+        case .assistantThinkingDelta:
+            // Stay in thinking state
+            break
+
+        case .assistantTextDelta(let delta):
+            isThinking = false
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                // Append to existing streaming message
+                messages[index].text += delta.text
+            } else {
+                // Create new assistant message
+                let msg = ChatMessage(role: .assistant, text: delta.text, isStreaming: true)
+                currentAssistantMessageId = msg.id
+                messages.append(msg)
+            }
+
+        case .messageComplete:
+            isThinking = false
+            isSending = false
+            // Mark the current assistant message as complete
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].isStreaming = false
+            }
+            currentAssistantMessageId = nil
+
+        case .error(let err):
+            log.error("Server error: \(err.message)")
+            isThinking = false
+            isSending = false
+            currentAssistantMessageId = nil
+            errorText = err.message
+
+        default:
+            break
+        }
+    }
+
+    deinit {
+        messageLoopTask?.cancel()
+    }
+}
