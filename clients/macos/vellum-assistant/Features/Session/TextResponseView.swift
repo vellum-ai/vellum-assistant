@@ -128,7 +128,7 @@ struct TextResponseView: View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             assistantAvatar
 
-            Text(text)
+            Text(Self.markdownString(text))
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
                 .textSelection(.enabled)
@@ -229,6 +229,16 @@ struct TextResponseView: View {
             .clipShape(Circle())
     }
 
+    // MARK: - Markdown
+
+    static func markdownString(_ text: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        return (try? AttributedString(markdown: text, options: options))
+            ?? AttributedString(text)
+    }
+
     // MARK: - Helpers
 
     private func sendMessage() {
@@ -254,9 +264,10 @@ private struct ConversationBubble: View {
                 Spacer(minLength: 0)
             }
 
-            Text(message.text)
+            Text(Self.markdownString(message.text))
                 .font(VFont.body)
                 .foregroundColor(isAssistant ? VColor.textPrimary : .white)
+                .tint(isAssistant ? VColor.accent : .white)
                 .if(isAssistant) { view in
                     view.textSelection(.enabled)
                 }
@@ -275,6 +286,10 @@ private struct ConversationBubble: View {
                 Spacer(minLength: 0)
             }
         }
+    }
+
+    static func markdownString(_ text: String) -> AttributedString {
+        TextResponseView.markdownString(text)
     }
 
     private var bubbleFill: some ShapeStyle {

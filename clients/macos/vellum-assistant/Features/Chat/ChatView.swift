@@ -251,9 +251,10 @@ private struct ChatBubble: View {
     }
 
     private var bubbleContent: some View {
-        Text(message.text)
+        Text(markdownText)
             .font(VFont.mono)
             .foregroundColor(isUser ? .white : VColor.textPrimary)
+            .tint(isUser ? .white : VColor.accent)
             .textSelection(.enabled)
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
@@ -263,6 +264,14 @@ private struct ChatBubble: View {
             )
             .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
             .opacity(bubbleOpacity)
+    }
+
+    private var markdownText: AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        return (try? AttributedString(markdown: message.text, options: options))
+            ?? AttributedString(message.text)
     }
 
     private func ordinal(_ n: Int) -> String {
