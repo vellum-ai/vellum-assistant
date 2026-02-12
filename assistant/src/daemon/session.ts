@@ -708,7 +708,7 @@ export class Session {
       const surfaceId = uuid();
       this.surfaceState.set(surfaceId, {
         surfaceType: 'dynamic_page',
-        data: { html: app.htmlDefinition } as DynamicPageSurfaceData,
+        data: { html: app.htmlDefinition, appId: app.id } as DynamicPageSurfaceData,
       });
 
       this.sendToClient({
@@ -718,7 +718,7 @@ export class Session {
         surfaceType: 'dynamic_page',
         title: app.name,
         data: { html: app.htmlDefinition, appId: app.id },
-      } as unknown as UiSurfaceShow);
+      } as UiSurfaceShow);
 
       return { content: JSON.stringify({ surfaceId, appId }), isError: false };
     }

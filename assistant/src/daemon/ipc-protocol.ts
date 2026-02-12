@@ -190,6 +190,7 @@ export interface DynamicPageSurfaceData {
   html: string;
   width?: number;
   height?: number;
+  appId?: string;
 }
 
 export type SurfaceData = CardSurfaceData | FormSurfaceData | ListSurfaceData | ConfirmationSurfaceData | DynamicPageSurfaceData;
