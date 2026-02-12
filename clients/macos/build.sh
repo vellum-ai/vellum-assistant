@@ -207,6 +207,8 @@ if [ "$CMD" = "run" ]; then
     echo "Launching..."
     # Kill existing instance if running
     pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
+    # Also kill legacy pre-rename process name if still running
+    pkill -x "vellum-assistant" 2>/dev/null || true
     sleep 0.3
     # Launch via `open` so Launch Services registers the bundle —
     # this is required for macOS TCC to associate the app with its
