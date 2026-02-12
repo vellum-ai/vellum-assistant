@@ -33,6 +33,9 @@ export class DaemonServer {
   private socketToCuSession = new Map<net.Socket, Set<string>>();
   private connectedSockets = new Set<net.Socket>();
   private socketSandboxOverride = new Map<net.Socket, boolean>();
+  // Persisted session options (e.g. systemPromptOverride, maxResponseTokens)
+  // so that evicted sessions can be recreated with the same overrides.
+  private sessionOptions = new Map<string, SessionCreateOptions>();
   // Guards against duplicate session creation when multiple clients connect
   // with the same conversation ID concurrently. The first caller creates the
   // session; subsequent callers await the same promise.
@@ -393,6 +396,14 @@ export class DaemonServer {
       target.setSandboxOverride(this.socketSandboxOverride.get(socket));
     };
 
+    // Persist session options so they survive eviction/recreation.
+    if (options && (options.systemPromptOverride || options.maxResponseTokens)) {
+      this.sessionOptions.set(conversationId, {
+        ...this.sessionOptions.get(conversationId),
+        ...options,
+      });
+    }
+
     if (!session || (session.isStale() && !session.isProcessing())) {
       // Check if another caller is already creating this session.
       // Without this guard, two concurrent getOrCreateSession calls for the
@@ -405,6 +416,9 @@ export class DaemonServer {
         return session;
       }
 
+      // Recover stored options for this conversation (survives eviction).
+      const storedOptions = this.sessionOptions.get(conversationId);
+
       const createPromise = (async () => {
         const config = getConfig();
         let provider = getProvider(config.provider);
@@ -414,8 +428,8 @@ export class DaemonServer {
         }
         const workingDir = process.cwd();
 
-        const systemPrompt = options?.systemPromptOverride ?? buildSystemPrompt(config.systemPrompt);
-        const maxTokens = options?.maxResponseTokens ?? config.maxTokens;
+        const systemPrompt = storedOptions?.systemPromptOverride ?? buildSystemPrompt(config.systemPrompt);
+        const maxTokens = storedOptions?.maxResponseTokens ?? config.maxTokens;
 
         const newSession = new Session(
           conversationId,
