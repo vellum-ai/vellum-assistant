@@ -1,6 +1,8 @@
 name: Build and Release macOS App
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
 
 concurrency:
@@ -55,15 +57,15 @@ jobs:
       - name: Stamp version
         id: version
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          DATE=$(date -u +%Y%m%d)
-          DISPLAY_VERSION="1.0.0-${SHORT_SHA}-${DATE}"
-          # CFBundleVersion must be a numeric dotted string (e.g. 20260209.12345)
-          # Convert the first 5 hex chars of the SHA to decimal for uniqueness
-          SHA_DECIMAL=$((16#${SHORT_SHA:0:5}))
-          BUILD_VERSION="${DATE}.${SHA_DECIMAL}"
-          echo "version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
-          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG="${{ github.event.release.tag_name }}"
+            DISPLAY_VERSION="${TAG#v}"
+          else
+            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            DISPLAY_VERSION="${TAG#v}-${SHORT_SHA}"
+          fi
+          BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
@@ -77,8 +79,10 @@ jobs:
         working-directory: assistant
         run: |
           bun install
+          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}"
           bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
             --external electron --external "chromium-bidi/*" \
+            --define "process.env.APP_VERSION='\"$DISPLAY_VERSION\"'" \
             --outfile ../clients/macos/daemon-bin/vellum-daemon
           chmod +x ../clients/macos/daemon-bin/vellum-daemon
           echo "Daemon binary built:"
@@ -272,8 +276,8 @@ jobs:
           GH_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
         run: |
           REPO="alex-nork/vellum-assistant-macos-updates"
-          VERSION="${{ steps.version.outputs.version }}"
-          SHORT_SHA="${{ steps.version.outputs.short_sha }}"
+          VERSION="${{ steps.version.outputs.display_version }}"
+          SHORT_SHA=$(git rev-parse --short HEAD)
           FULL_SHA=$(git rev-parse HEAD)
           TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
