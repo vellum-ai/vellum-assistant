@@ -41,7 +41,8 @@ actor AmbientSyncClient {
         self.encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
 
-        log.info("Sync base URL: \(self.baseURL.absoluteString)")
+        let urlString = self.baseURL.absoluteString
+        log.info("Sync base URL: \(urlString)")
     }
 
     // MARK: - Health Check

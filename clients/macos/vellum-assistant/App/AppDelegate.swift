@@ -150,10 +150,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow,
                   window.title.contains("Settings") || window.title.contains("vellum") else { return }
-            // Keep .regular if MainWindow exists; only revert for legacy menu-bar-only mode
-            guard self?.mainWindow == nil else { return }
-            // Revert to accessory (no dock icon) after settings closes
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            Task { @MainActor [weak self] in
+                // Keep .regular if MainWindow exists; only revert for legacy menu-bar-only mode
+                guard self?.mainWindow == nil else { return }
+                // Revert to accessory (no dock icon) after settings closes
+                try? await Task.sleep(nanoseconds: 200_000_000)
                 let hasVisibleWindows = NSApp.windows.contains { $0.isVisible && $0 !== self?.statusItem.button?.window }
                 if !hasVisibleWindows {
                     NSApp.setActivationPolicy(.accessory)

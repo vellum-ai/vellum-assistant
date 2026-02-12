@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import ApplicationServices
 import os
 
@@ -77,11 +77,19 @@ final class ChromeAccessibilityHelper {
 
         // Relaunch with accessibility flag
         do {
-            let config = NSWorkspace.OpenConfiguration()
-            config.arguments = ["--force-renderer-accessibility"]
-            config.activates = true
-
-            _ = try await NSWorkspace.shared.openApplication(at: bundleURL, configuration: config)
+            // Use completion handler to avoid Sendable warnings with NSWorkspace types
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let config = NSWorkspace.OpenConfiguration()
+                config.arguments = ["--force-renderer-accessibility"]
+                config.activates = true
+                NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { _, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume()
+                    }
+                }
+            }
             log.info("Chrome relaunched with accessibility flag")
 
             // Wait for Chrome to start and restore tabs

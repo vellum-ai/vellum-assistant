@@ -107,6 +107,9 @@ jobs:
         run: |
           rm -rf .build daemon-bin
           rm -rf ../assistant/node_modules
+          # Clear Xcode caches
+          rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
+          rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
           df -h .
           echo "Disk space freed"
 
@@ -121,13 +124,24 @@ jobs:
           cp -R "$APP_PATH" "$DMG_STAGING/"
           ln -s /Applications "$DMG_STAGING/Applications"
 
-          # Create DMG
+          echo "Staging directory size:"
+          du -sh "$DMG_STAGING"
+
+          # Two-step DMG creation to avoid auto-sizing issues:
+          # 1. Create read-write image (auto-sizes more generously)
           hdiutil create \
             -volname "vellum-assistant" \
             -srcfolder "$DMG_STAGING" \
             -ov \
+            -format UDRW \
+            "build/temp.dmg"
+
+          # 2. Convert to compressed UDZO
+          hdiutil convert "build/temp.dmg" \
             -format UDZO \
-            "$DMG_PATH"
+            -ov \
+            -o "$DMG_PATH"
+          rm "build/temp.dmg"
 
           echo "DMG created at $DMG_PATH"
           ls -lh "$DMG_PATH"

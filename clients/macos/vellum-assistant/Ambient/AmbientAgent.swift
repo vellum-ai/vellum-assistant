@@ -118,9 +118,11 @@ public final class AmbientAgent: ObservableObject {
             }
             guard !Task.isCancelled else { return }
             guard let self else { return }
+            let observations = await self.knowledgeStore.entries
+            let insights = await self.knowledgeCron?.insightStore.insights ?? []
             await sync.syncExisting(
-                observations: await self.knowledgeStore.entries,
-                insights: await self.knowledgeCron?.insightStore.insights ?? []
+                observations: observations,
+                insights: insights
             )
         }
 
