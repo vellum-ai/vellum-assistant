@@ -2,11 +2,6 @@ name: Build and Release macOS App
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'clients/macos/**'
-      - 'assistant/**'
 
 concurrency:
   group: build-release
