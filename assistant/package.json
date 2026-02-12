@@ -15,6 +15,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@google/genai": "^1.40.0",
+    "@sentry/node": "^10.38.0",
     "commander": "^13.1.0",
     "drizzle-orm": "^0.38.4",
     "minimatch": "^10.1.2",

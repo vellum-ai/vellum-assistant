@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
 
 import { resolve } from 'node:path';
+import * as Sentry from '@sentry/node';
 import {
   getSocketPath,
   getPidPath,
@@ -234,6 +235,7 @@ export async function runDaemon(): Promise<void> {
     if (runtimeHttp) await runtimeHttp.stop();
     await browserManager.closeAllPages();
     memoryWorker.stop();
+    await Sentry.flush(2000);
     cleanupPidFile();
     process.exit(0);
   };
@@ -243,9 +245,11 @@ export async function runDaemon(): Promise<void> {
 
   process.on('unhandledRejection', (reason) => {
     log.error({ err: reason }, 'Unhandled promise rejection');
+    Sentry.captureException(reason);
   });
 
   process.on('uncaughtException', (err) => {
     log.error({ err }, 'Uncaught exception');
+    Sentry.captureException(err);
   });
 }
