@@ -8,6 +8,7 @@ enum SurfaceType: String, Codable, Sendable {
     case list
     case confirmation
     case dynamicPage = "dynamic_page"
+    case fileUpload = "file_upload"
 }
 
 enum SurfaceActionStyle: String, Codable, Sendable {
@@ -121,12 +122,20 @@ struct DynamicPageSurfaceData: Sendable {
     let appId: String?
 }
 
+struct FileUploadSurfaceData: Sendable {
+    let prompt: String
+    let acceptedTypes: [String]?
+    let maxFiles: Int?
+    let maxSizeBytes: Int?
+}
+
 enum SurfaceData: Sendable {
     case card(CardSurfaceData)
     case form(FormSurfaceData)
     case list(ListSurfaceData)
     case confirmation(ConfirmationSurfaceData)
     case dynamicPage(DynamicPageSurfaceData)
+    case fileUpload(FileUploadSurfaceData)
 }
 
 struct SurfaceActionButton: Identifiable, Sendable {
@@ -211,6 +220,8 @@ extension Surface {
             return parseConfirmationData(dict).map { .confirmation($0) }
         case .dynamicPage:
             return parseDynamicPageData(dict).map { .dynamicPage($0) }
+        case .fileUpload:
+            return parseFileUploadData(dict).map { .fileUpload($0) }
         }
     }
 
@@ -231,6 +242,8 @@ extension Surface {
             return .confirmation(mergeConfirmationData(existing: confirmation, update: update))
         case .dynamicPage(let dp):
             return .dynamicPage(mergeDynamicPageData(existing: dp, update: update))
+        case .fileUpload(let fu):
+            return .fileUpload(mergeFileUploadData(existing: fu, update: update))
         }
     }
 
@@ -447,6 +460,35 @@ extension Surface {
             width: dict["width"] as? Int,
             height: dict["height"] as? Int,
             appId: dict["appId"] as? String
+        )
+    }
+
+    private static func parseFileUploadData(_ dict: [String: Any?]) -> FileUploadSurfaceData? {
+        guard let prompt = dict["prompt"] as? String else { return nil }
+        let acceptedTypes = (dict["acceptedTypes"] as? [Any])?.compactMap { $0 as? String }
+        return FileUploadSurfaceData(
+            prompt: prompt,
+            acceptedTypes: acceptedTypes,
+            maxFiles: dict["maxFiles"] as? Int,
+            maxSizeBytes: dict["maxSizeBytes"] as? Int
+        )
+    }
+
+    private static func mergeFileUploadData(existing: FileUploadSurfaceData, update: [String: Any?]) -> FileUploadSurfaceData {
+        let prompt = (update["prompt"] as? String) ?? existing.prompt
+        let acceptedTypes: [String]?
+        if update.keys.contains("acceptedTypes") {
+            acceptedTypes = (update["acceptedTypes"] as? [Any])?.compactMap { $0 as? String }
+        } else {
+            acceptedTypes = existing.acceptedTypes
+        }
+        let maxFiles: Int? = update.keys.contains("maxFiles") ? (update["maxFiles"] as? Int) : existing.maxFiles
+        let maxSizeBytes: Int? = update.keys.contains("maxSizeBytes") ? (update["maxSizeBytes"] as? Int) : existing.maxSizeBytes
+        return FileUploadSurfaceData(
+            prompt: prompt,
+            acceptedTypes: acceptedTypes,
+            maxFiles: maxFiles,
+            maxSizeBytes: maxSizeBytes
         )
     }
 }

@@ -124,6 +124,9 @@ final class SurfaceManager: ObservableObject {
         if case .dynamicPage(let dpData) = surface.data {
             surfacePanelWidth = CGFloat(dpData.width ?? Int(panelWidth))
             surfacePanelHeight = CGFloat(dpData.height ?? 500)
+        } else if case .fileUpload = surface.data {
+            surfacePanelWidth = 480
+            surfacePanelHeight = 500
         } else {
             surfacePanelWidth = panelWidth
             surfacePanelHeight = 140
@@ -248,7 +251,10 @@ final class SurfaceManager: ObservableObject {
         var stackIndex = 0
         for surfaceId in surfaceOrder {
             guard let panel = panels[surfaceId] else { continue }
-            if case .dynamicPage = activeSurfaces[surfaceId]?.data {
+            let surfaceData = activeSurfaces[surfaceId]?.data
+            if case .dynamicPage = surfaceData {
+                centerPanel(panel)
+            } else if case .fileUpload = surfaceData {
                 centerPanel(panel)
             } else {
                 positionPanel(panel, at: stackIndex)
