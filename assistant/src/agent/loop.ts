@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import type { Provider, Message, ToolDefinition, ContentBlock } from '../providers/types.js';
 import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 
@@ -297,6 +298,7 @@ export class AgentLoop {
         if (signal?.aborted) break;
         const err = error instanceof Error ? error : new Error(String(error));
         rlog.error({ err, turn: toolUseTurns, messageCount: history.length }, 'Agent loop error during turn processing');
+        Sentry.captureException(err);
         onEvent({ type: 'error', error: err });
         break;
       }
