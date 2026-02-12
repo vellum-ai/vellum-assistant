@@ -8,12 +8,12 @@ struct VSlider: View {
 
     // MARK: - Layout Constants
 
-    private let trackHeight: CGFloat = 14
+    private let trackHeight: CGFloat = 24
     private let thumbWidth: CGFloat = 20
     private let tickMarkWidth: CGFloat = 1
     private let gripLineCount: Int = 3
     private let gripLineWidth: CGFloat = 1
-    private let gripLineHeight: CGFloat = 8
+    private let gripLineHeight: CGFloat = 12
     private let gripLineSpacing: CGFloat = 2.5
 
     // MARK: - State
@@ -64,7 +64,7 @@ struct VSlider: View {
     // MARK: - Track
 
     private func trackView(thumbOffset: CGFloat, trackWidth: CGFloat) -> some View {
-        let cornerRadius = trackHeight / 2
+        let cornerRadius: CGFloat = VRadius.md
 
         return ZStack(alignment: .leading) {
             // Unfilled track
@@ -86,18 +86,18 @@ struct VSlider: View {
     private var thumbView: some View {
         ZStack {
             RoundedRectangle(cornerRadius: VRadius.xs)
-                .fill(Slate._600)
+                .fill(Violet._700)
                 .frame(width: thumbWidth, height: trackHeight)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.xs)
-                        .stroke(Slate._700, lineWidth: 1)
+                        .stroke(Violet._800, lineWidth: 1)
                 )
 
             // Grip lines
             HStack(spacing: gripLineSpacing) {
                 ForEach(0..<gripLineCount, id: \.self) { _ in
                     RoundedRectangle(cornerRadius: 0.5)
-                        .fill(Slate._400)
+                        .fill(Violet._300)
                         .frame(width: gripLineWidth, height: gripLineHeight)
                 }
             }
@@ -118,8 +118,8 @@ struct VSlider: View {
                 if i % tickStep == 0 {
                     let tickFraction = Double(i) / Double(totalSteps)
 
-                    // Only render tick marks in the unfilled portion
-                    if tickFraction > fraction {
+                    // Only render tick marks in the unfilled portion, excluding the rightmost
+                    if tickFraction > fraction && i < totalSteps {
                         let tickX = trackWidth * tickFraction + thumbWidth / 2
 
                         RoundedRectangle(cornerRadius: 0.5)
