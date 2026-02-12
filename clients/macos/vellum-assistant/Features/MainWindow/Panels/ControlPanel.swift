@@ -153,7 +153,7 @@ struct ControlPanel: View {
                         .foregroundColor(VColor.textSecondary)
                 }
 
-                VSlider(value: $maxSteps, range: 1...100, step: 1)
+                VSlider(value: $maxSteps, range: 1...100, step: 1, showTickMarks: true)
             }
             .padding(VSpacing.lg)
             .vCard()
