@@ -25,7 +25,6 @@ import type {
   CuObservation,
   TaskSubmit,
   AppDataRequest,
-  SkillsListRequest,
   SkillDetailRequest,
 } from './ipc-protocol.js';
 import { loadSkillCatalog, loadSkillBySelector } from '../config/skills.js';
