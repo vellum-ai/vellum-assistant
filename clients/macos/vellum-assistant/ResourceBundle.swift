@@ -24,9 +24,11 @@ enum ResourceBundle {
         #if DEBUG
         // Xcode Previews — resource bundle isn't at either path.
         // Fall back to Bundle.main so previews render without crashing.
-        return Bundle.main
-        #else
-        fatalError("Could not find resource bundle '\(bundleName).bundle'")
+        // Gate on XCODE_RUNNING_FOR_PREVIEWS so regular debug builds still fail fast.
+        if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
+            return Bundle.main
+        }
         #endif
+        fatalError("Could not find resource bundle '\(bundleName).bundle'")
     }()
 }
