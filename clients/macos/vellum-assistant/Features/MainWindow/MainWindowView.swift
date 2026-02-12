@@ -46,7 +46,9 @@ struct MainWindowView: View {
                         onStop: viewModel.stopGenerating,
                         onDismissError: viewModel.dismissError,
                         onAcceptSuggestion: viewModel.acceptSuggestion,
-                        onAttach: { Self.openFilePicker(viewModel: viewModel) }
+                        onAttach: { Self.openFilePicker(viewModel: viewModel) },
+                        onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
+                        onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") }
                     )
                 }
             }, panel: {
