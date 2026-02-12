@@ -167,8 +167,7 @@ struct ChatView: View {
                     .accessibilityHidden(true)
             }
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.md)
+        .padding(VSpacing.xs)
         .background(VColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
         .overlay(
