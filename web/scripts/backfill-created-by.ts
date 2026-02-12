@@ -40,11 +40,15 @@ async function main() {
       process.exit(1);
     }
 
-    // Find assistants whose created_by is not already a user.id
+    // Find assistants whose created_by is not already a user.id.
+    // Keep the NULL/empty guards to avoid a race condition: a row inserted
+    // with created_by = NULL after the precheck would cause .trim() to throw.
     const nonCanonical = await sql`
       SELECT a.id, a.created_by
       FROM assistants a
-      WHERE NOT EXISTS (
+      WHERE a.created_by IS NOT NULL
+        AND a.created_by != ''
+        AND NOT EXISTS (
           SELECT 1 FROM "user" u WHERE u.id = a.created_by
         )
     `;
