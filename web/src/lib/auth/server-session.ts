@@ -61,6 +61,12 @@ export async function requireAssistantOwner(
   request: Request,
   assistantId: string
 ): Promise<{ assistant: Assistant; user: RequestUser }> {
+  // Authenticate before lookup to avoid leaking resource existence.
+  const user = await getRequestUser(request);
+  if (!user.id) {
+    throw new Error("UNAUTHORIZED");
+  }
+
   const sql = getDb();
   const result = await sql`SELECT * FROM assistants WHERE id = ${assistantId}`;
   if (result.length === 0) {
@@ -68,10 +74,6 @@ export async function requireAssistantOwner(
   }
 
   const assistant = result[0] as Assistant & { created_by?: string | null };
-  const user = await getRequestUser(request);
-  if (!user.id) {
-    throw new Error("UNAUTHORIZED");
-  }
 
   const createdBy =
     assistant.created_by?.trim() || assistant.createdBy?.trim() || null;

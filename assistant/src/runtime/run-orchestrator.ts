@@ -81,9 +81,13 @@ export class RunOrchestrator {
     const messageId = session.persistUserMessage(content, attachments, requestId);
     const run = runsStore.createRun(assistantId, conversationId, messageId);
 
-    // Hook into session to intercept confirmation_request events.
-    // When the prompter sends one, we record it in the run store so
-    // the web UI can poll and submit a decision.
+    // Hook into session to intercept confirmation_request and error events.
+    // When the prompter sends a confirmation_request, we record it in the
+    // run store so the web UI can poll and submit a decision.
+    // We also track error events because session.runAgentLoop catches
+    // internal errors and resolves normally — without tracking these,
+    // the run would be marked as completed even when errors occurred.
+    let lastError: string | null = null;
     session.updateClient((msg: ServerMessage) => {
       if (msg.type === 'confirmation_request') {
         runsStore.setRunConfirmation(run.id, {
@@ -96,18 +100,32 @@ export class RunOrchestrator {
           prompterRequestId: msg.requestId,
           session,
         });
+      } else if (msg.type === 'error') {
+        lastError = msg.message;
       }
     });
 
     // Fire-and-forget the agent loop
-    session.runAgentLoop(content, messageId, () => {}).then(() => {
-      runsStore.completeRun(run.id);
+    const cleanup = () => {
       this.pending.delete(run.id);
+      // Reset the session's client callback to a no-op so the stale
+      // closure doesn't intercept events from future runs on the same session.
+      session.updateClient(() => {});
+    };
+
+    session.runAgentLoop(content, messageId, () => {}).then(() => {
+      if (lastError) {
+        log.error({ runId: run.id, error: lastError }, 'Run failed (error event from agent loop)');
+        runsStore.failRun(run.id, lastError);
+      } else {
+        runsStore.completeRun(run.id);
+      }
+      cleanup();
     }).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err, runId: run.id }, 'Run failed');
       runsStore.failRun(run.id, message);
-      this.pending.delete(run.id);
+      cleanup();
     });
 
     return run;

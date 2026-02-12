@@ -40,7 +40,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json(result);
   } catch (error: unknown) {
     console.error("Error submitting run decision:", error);
-    const status = error instanceof RuntimeClientError ? error.status : 500;
+    const status = error instanceof RuntimeClientError ? error.httpStatus : 500;
     return NextResponse.json(
       { error: "Failed to submit decision" },
       { status },

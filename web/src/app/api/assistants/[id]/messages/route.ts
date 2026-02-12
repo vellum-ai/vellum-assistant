@@ -48,7 +48,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (error instanceof RuntimeClientError) {
       return NextResponse.json(
         { error: "Failed to fetch messages" },
-        { status: error.status },
+        { status: error.httpStatus },
       );
     }
     if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (error instanceof RuntimeClientError) {
       return NextResponse.json(
         { error: "Failed to send message" },
-        { status: error.status },
+        { status: error.httpStatus },
       );
     }
     if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {

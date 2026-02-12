@@ -116,7 +116,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (error instanceof RuntimeClientError) {
       return NextResponse.json(
         { error: error.message || "Failed to upload attachments" },
-        { status: error.status },
+        { status: error.httpStatus },
       );
     }
     if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
@@ -155,7 +155,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     if (error instanceof RuntimeClientError) {
       return NextResponse.json(
         { error: "Failed to delete attachments" },
-        { status: error.status },
+        { status: error.httpStatus },
       );
     }
     if (error instanceof Error && ["NOT_FOUND", "UNAUTHORIZED", "FORBIDDEN"].includes(error.message)) {
