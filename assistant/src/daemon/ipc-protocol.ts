@@ -313,6 +313,13 @@ export interface GenerationCancelled {
   type: 'generation_cancelled';
 }
 
+export interface GenerationHandoff {
+  type: 'generation_handoff';
+  sessionId: string;
+  requestId?: string;
+  queuedCount: number;
+}
+
 export interface ModelInfo {
   type: 'model_info';
   model: string;
@@ -544,6 +551,7 @@ export type ServerMessage =
   | ErrorMessage
   | PongMessage
   | GenerationCancelled
+  | GenerationHandoff
   | ModelInfo
   | HistoryResponse
   | UndoComplete

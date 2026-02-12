@@ -591,8 +591,15 @@ describe('Session checkpoint handoff', () => {
     resolveRun(0);
     await p1;
 
-    // After yield, the first message should emit message_complete
-    expect(events1.some((e) => e.type === 'message_complete')).toBe(true);
+    // After yield, the first message should emit generation_handoff
+    const handoff = events1.find((e) => e.type === 'generation_handoff');
+    expect(handoff).toBeDefined();
+    expect(handoff).toMatchObject({
+      type: 'generation_handoff',
+      sessionId: 'conv-1',
+      requestId: 'req-1',
+      queuedCount: 1,
+    });
 
     // The queued message should now be draining (second run started)
     await waitForPendingRun(2);
@@ -634,7 +641,7 @@ describe('Session checkpoint handoff', () => {
     const processedOrder: string[] = [];
 
     const makeHandler = (label: string) => (e: ServerMessage) => {
-      if (e.type === 'message_complete') processedOrder.push(label);
+      if (e.type === 'message_complete' || e.type === 'generation_handoff') processedOrder.push(label);
     };
 
     // Start first message

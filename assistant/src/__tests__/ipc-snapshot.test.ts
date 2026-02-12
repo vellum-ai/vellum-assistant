@@ -202,6 +202,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   generation_cancelled: {
     type: 'generation_cancelled',
   },
+  generation_handoff: {
+    type: 'generation_handoff',
+    sessionId: 'sess-001',
+    requestId: 'req-handoff-001',
+    queuedCount: 2,
+  },
   model_info: {
     type: 'model_info',
     model: 'claude-sonnet-4-5-20250929',

@@ -1,4 +1,4 @@
-// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+// Bun Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`IPC message snapshots ClientMessage types user_message serializes to expected JSON 1`] = `
 {
@@ -294,6 +294,15 @@ exports[`IPC message snapshots ServerMessage types pong serializes to expected J
 exports[`IPC message snapshots ServerMessage types generation_cancelled serializes to expected JSON 1`] = `
 {
   "type": "generation_cancelled",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types generation_handoff serializes to expected JSON 1`] = `
+{
+  "queuedCount": 2,
+  "requestId": "req-handoff-001",
+  "sessionId": "sess-001",
+  "type": "generation_handoff",
 }
 `;
 

@@ -610,7 +610,12 @@ export class Session {
       this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent);
 
       if (yieldedForHandoff) {
-        onEvent({ type: 'message_complete', sessionId: this.conversationId });
+        onEvent({
+          type: 'generation_handoff',
+          sessionId: this.conversationId,
+          requestId: reqId,
+          queuedCount: this.getQueueDepth(),
+        });
       } else if (abortController.signal.aborted) {
         onEvent({ type: 'generation_cancelled' });
       } else {
