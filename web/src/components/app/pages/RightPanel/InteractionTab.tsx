@@ -354,7 +354,11 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
         const res = await fetch(`/api/assistants/${assistantId}/runs/${activeRunId}`);
         if (cancelled) return;
         if (!res.ok) {
+          // Transient errors (5xx) — keep polling; the run may still be alive
+          if (res.status >= 500) return;
+          // Terminal errors (4xx, e.g. 404 after assistant switch) — stop polling
           setActiveRunId(null);
+          setPendingConfirmation(null);
           setIsLoading(false);
           await fetchMessages();
           return;
