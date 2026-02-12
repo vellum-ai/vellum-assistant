@@ -331,6 +331,27 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[1].status, .processing)
     }
 
+    func testMessageDequeuedRestoresSendingAndThinkingState() {
+        // Simulate: message A completes, then queued message B is dequeued
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Message A completes — clears isSending and isThinking
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+
+        // Message B is dequeued and starts processing
+        let dequeued = MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-2")
+        viewModel.handleServerMessage(.messageDequeued(dequeued))
+
+        // isSending and isThinking must be restored so the UI shows
+        // the thinking indicator and stop button
+        XCTAssertTrue(viewModel.isSending)
+        XCTAssertTrue(viewModel.isThinking)
+    }
+
     // MARK: - Full Conversation Flow
 
     func testFullConversationFlow() {
