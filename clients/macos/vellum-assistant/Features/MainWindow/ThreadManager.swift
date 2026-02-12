@@ -15,6 +15,9 @@ final class ThreadManager: ObservableObject {
     private let daemonClient: DaemonClient
     private var viewModelCancellable: AnyCancellable?
 
+    /// Called when an inline confirmation response should dismiss the floating panel.
+    var confirmationDismissHandler: ((String) -> Void)?
+
     var activeViewModel: ChatViewModel? {
         guard let activeThreadId else { return nil }
         return chatViewModels[activeThreadId]
@@ -29,6 +32,9 @@ final class ThreadManager: ObservableObject {
     func createThread() {
         let thread = ThreadModel()
         let viewModel = ChatViewModel(daemonClient: daemonClient)
+        viewModel.onInlineConfirmationResponse = { [weak self] requestId in
+            self?.confirmationDismissHandler?(requestId)
+        }
         threads.append(thread)
         chatViewModels[thread.id] = viewModel
         activeThreadId = thread.id
