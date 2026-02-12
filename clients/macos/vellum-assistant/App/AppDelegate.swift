@@ -379,7 +379,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             existing.show()
             return
         }
-        let main = MainWindow(daemonClient: daemonClient)
+        let main = MainWindow(daemonClient: daemonClient, ambientAgent: ambientAgent)
         main.show()
         mainWindow = main
     }
