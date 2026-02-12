@@ -18,6 +18,7 @@ struct MainWindowView: View {
                 isThinking: viewModel.isThinking,
                 isSending: viewModel.isSending,
                 errorText: viewModel.errorText,
+                pendingQueuedCount: viewModel.pendingQueuedCount,
                 onSend: viewModel.sendMessage,
                 onStop: viewModel.stopGenerating,
                 onDismissError: viewModel.dismissError

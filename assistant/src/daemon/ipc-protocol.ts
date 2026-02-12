@@ -134,9 +134,9 @@ export interface AppDataRequest {
 
 // === Surface types ===
 
-export type SurfaceType = 'card' | 'form' | 'list' | 'confirmation' | 'dynamic_page';
+export type SurfaceType = 'card' | 'form' | 'list' | 'confirmation' | 'dynamic_page' | 'file_upload';
 
-export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = ['form', 'confirmation', 'dynamic_page'];
+export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = ['form', 'confirmation', 'dynamic_page', 'file_upload'];
 
 export interface SurfaceAction {
   id: string;
@@ -195,7 +195,14 @@ export interface DynamicPageSurfaceData {
   appId?: string;
 }
 
-export type SurfaceData = CardSurfaceData | FormSurfaceData | ListSurfaceData | ConfirmationSurfaceData | DynamicPageSurfaceData;
+export interface FileUploadSurfaceData {
+  prompt: string;
+  acceptedTypes?: string[];
+  maxFiles?: number;
+  maxSizeBytes?: number;
+}
+
+export type SurfaceData = CardSurfaceData | FormSurfaceData | ListSurfaceData | ConfirmationSurfaceData | DynamicPageSurfaceData | FileUploadSurfaceData;
 
 export interface UiSurfaceAction {
   type: 'ui_surface_action';
@@ -421,6 +428,19 @@ export interface AmbientResult {
   suggestion?: string;
 }
 
+export interface MessageQueued {
+  type: 'message_queued';
+  sessionId: string;
+  requestId: string;
+  position: number;
+}
+
+export interface MessageDequeued {
+  type: 'message_dequeued';
+  sessionId: string;
+  requestId: string;
+}
+
 export interface AppDataResponse {
   type: 'app_data_response';
   surfaceId: string;
@@ -477,12 +497,18 @@ export interface UiSurfaceShowDynamicPage extends UiSurfaceShowBase {
   data: DynamicPageSurfaceData;
 }
 
+export interface UiSurfaceShowFileUpload extends UiSurfaceShowBase {
+  surfaceType: 'file_upload';
+  data: FileUploadSurfaceData;
+}
+
 export type UiSurfaceShow =
   | UiSurfaceShowCard
   | UiSurfaceShowForm
   | UiSurfaceShowList
   | UiSurfaceShowConfirmation
-  | UiSurfaceShowDynamicPage;
+  | UiSurfaceShowDynamicPage
+  | UiSurfaceShowFileUpload;
 
 export interface UiSurfaceUpdate {
   type: 'ui_surface_update';

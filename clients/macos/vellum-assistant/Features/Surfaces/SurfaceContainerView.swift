@@ -58,6 +58,17 @@ struct SurfaceContainerView: View {
                     width: CGFloat(data.width ?? 380),
                     height: CGFloat(data.height ?? 500)
                 )
+            case .fileUpload(let data):
+                FileUploadSurfaceView(
+                    data: data,
+                    onSubmit: { files in
+                        let actionId = surface.actions.first?.id ?? "submit"
+                        viewModel.onAction(actionId, ["files": files])
+                    },
+                    onCancel: {
+                        viewModel.onAction("cancel", ["files": [Any]()])
+                    }
+                )
             }
 
             // Action buttons for card/list surfaces
@@ -81,7 +92,7 @@ struct SurfaceContainerView: View {
 
     private var isFormOrConfirmation: Bool {
         switch surface.data {
-        case .form, .confirmation, .dynamicPage:
+        case .form, .confirmation, .dynamicPage, .fileUpload:
             return true
         case .card, .list:
             return false

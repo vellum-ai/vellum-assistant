@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, DynamicPageSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, DynamicPageSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
@@ -40,6 +40,13 @@ import {
 
 const log = getLogger('session');
 
+interface QueuedMessage {
+  content: string;
+  attachments: UserMessageAttachment[];
+  requestId: string;
+  onEvent: (msg: ServerMessage) => void;
+}
+
 export class Session {
   public readonly conversationId: string;
   private messages: Message[] = [];
@@ -57,12 +64,7 @@ export class Session {
   private contextWindowManager: ContextWindowManager;
   private contextCompactedMessageCount = 0;
   private currentRequestId?: string;
-  private messageQueue: Array<{
-    content: string;
-    attachments: UserMessageAttachment[];
-    requestId: string;
-    onEvent: (msg: ServerMessage) => void;
-  }> = [];
+  private messageQueue: QueuedMessage[] = [];
   private pendingSurfaceActions = new Map<string, {
     resolve: (result: ToolExecutionResult) => void;
   }>();
@@ -591,22 +593,33 @@ export class Session {
       this.processing = false;
       this.currentRequestId = undefined;
 
-      // Drain next queued message
-      const next = this.messageQueue.shift();
-      if (next) {
-        next.onEvent({
-          type: 'message_dequeued',
-          sessionId: this.conversationId,
-          requestId: next.requestId,
-        });
-        // Fire and forget — don't block the current call
-        this.processMessage(next.content, next.attachments, next.onEvent, next.requestId).catch((err) => {
-          const message = err instanceof Error ? err.message : String(err);
-          log.error({ err, conversationId: this.conversationId }, 'Error processing queued message');
-          next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
-        });
-      }
+      // Drain the next queued message, if any
+      this.drainQueue();
     }
+  }
+
+  /**
+   * Process the next message in the queue, if any.
+   * Called from the `runAgentLoop` finally block after processing completes.
+   */
+  private drainQueue(): void {
+    const next = this.messageQueue.shift();
+    if (!next) return;
+
+    log.info({ conversationId: this.conversationId, requestId: next.requestId }, 'Dequeuing message');
+    next.onEvent({
+      type: 'message_dequeued',
+      sessionId: this.conversationId,
+      requestId: next.requestId,
+    });
+
+    // Fire-and-forget: processMessage sets this.processing = true synchronously
+    // so subsequent messages will still be enqueued.
+    this.processMessage(next.content, next.attachments, next.onEvent, next.requestId).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Error processing queued message');
+      next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
+    });
   }
 
   /**
@@ -773,6 +786,37 @@ export class Session {
       } as UiSurfaceShow);
 
       return { content: JSON.stringify({ surfaceId, appId }), isError: false };
+    }
+
+    if (toolName === 'request_file') {
+      const prompt = input.prompt as string;
+      const acceptedTypes = input.accepted_types as string[] | undefined;
+      const maxFiles = (input.max_files as number | undefined) ?? 1;
+
+      const surfaceId = uuid();
+      const surfaceData: FileUploadSurfaceData = {
+        prompt,
+        acceptedTypes,
+        maxFiles,
+      };
+
+      this.surfaceState.set(surfaceId, {
+        surfaceType: 'file_upload',
+        data: surfaceData,
+      });
+
+      this.sendToClient({
+        type: 'ui_surface_show',
+        sessionId: this.conversationId,
+        surfaceId,
+        surfaceType: 'file_upload',
+        data: surfaceData,
+      } as UiSurfaceShow);
+
+      // Wait for the user to upload files (interactive surface pattern)
+      return new Promise<ToolExecutionResult>((resolve) => {
+        this.pendingSurfaceActions.set(surfaceId, { resolve });
+      });
     }
 
     return { content: `Unknown proxy tool: ${toolName}`, isError: true };
