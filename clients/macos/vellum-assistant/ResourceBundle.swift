@@ -21,6 +21,12 @@ enum ResourceBundle {
             return bundle
         }
 
+        #if DEBUG
+        // Xcode Previews — resource bundle isn't at either path.
+        // Fall back to Bundle.main so previews render without crashing.
+        return Bundle.main
+        #else
         fatalError("Could not find resource bundle '\(bundleName).bundle'")
+        #endif
     }()
 }
