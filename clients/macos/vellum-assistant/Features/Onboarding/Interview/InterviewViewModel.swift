@@ -52,7 +52,7 @@ final class InterviewViewModel {
     /// into the `messages` array once complete.
     func startInterview() {
         let name = assistantName.isEmpty ? "Velly" : assistantName
-        let prompt = """
+        let interviewPrompt = """
         You are \(name). You're a person meeting someone for the first time — warm, confident, \
         and genuinely curious. NOT an AI being activated. NOT a customer service agent. Think of the \
         best executive assistant you've ever met in their first interview.
@@ -93,9 +93,14 @@ final class InterviewViewModel {
 
             let stream = self.daemonClient.subscribe()
 
-            // Create the session — the daemon will respond with session_info.
+            // Create the session with the interview persona as a system prompt override
+            // so it replaces the daemon's default system prompt instead of conflicting.
             do {
-                try self.daemonClient.send(SessionCreateMessage(title: "Getting to know you"))
+                try self.daemonClient.send(SessionCreateMessage(
+                    title: "Getting to know you",
+                    systemPromptOverride: interviewPrompt,
+                    maxResponseTokens: 200
+                ))
             } catch {
                 log.error("Failed to send session create: \(error.localizedDescription)")
                 self.isThinking = false
@@ -113,8 +118,8 @@ final class InterviewViewModel {
 
                 switch message {
                 case .sessionInfo(let info):
-                    // Capture the daemon-assigned session ID, then send the first
-                    // user message (the interview prompt) to kick off the response.
+                    // Capture the daemon-assigned session ID, then send a natural
+                    // first user message to kick off the conversation.
                     if self.sessionId == nil {
                         self.sessionId = info.sessionId
                         log.info("Interview session created: \(info.sessionId)")
@@ -122,7 +127,7 @@ final class InterviewViewModel {
                         do {
                             try self.daemonClient.send(UserMessageMessage(
                                 sessionId: info.sessionId,
-                                content: prompt,
+                                content: "Hey! I just set you up on my Mac — excited to meet you.",
                                 attachments: nil
                             ))
                         } catch {

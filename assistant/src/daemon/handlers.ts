@@ -161,6 +161,14 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
 }
 
 /**
+ * Optional overrides for session creation (e.g. interview mode).
+ */
+export interface SessionCreateOptions {
+  systemPromptOverride?: string;
+  maxResponseTokens?: number;
+}
+
+/**
  * Shared context that handlers need from the DaemonServer.
  * Keeps handlers decoupled from the server class itself.
  */
@@ -179,6 +187,7 @@ export interface HandlerContext {
     conversationId: string,
     socket?: net.Socket,
     rebindClient?: boolean,
+    options?: SessionCreateOptions,
   ): Promise<Session>;
 }
 
@@ -304,7 +313,10 @@ async function handleSessionCreate(
   const conversation = conversationStore.createConversation(
     msg.title ?? 'New Conversation',
   );
-  await ctx.getOrCreateSession(conversation.id, socket, true);
+  await ctx.getOrCreateSession(conversation.id, socket, true, {
+    systemPromptOverride: msg.systemPromptOverride,
+    maxResponseTokens: msg.maxResponseTokens,
+  });
   ctx.send(socket, {
     type: 'session_info',
     sessionId: conversation.id,

@@ -130,6 +130,14 @@ struct AmbientObservationMessage: Encodable, Sendable {
 struct SessionCreateMessage: Encodable, Sendable {
     let type: String = "session_create"
     let title: String?
+    let systemPromptOverride: String?
+    let maxResponseTokens: Int?
+
+    init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil) {
+        self.title = title
+        self.systemPromptOverride = systemPromptOverride
+        self.maxResponseTokens = maxResponseTokens
+    }
 }
 
 /// Sent to add a user message to an existing Q&A session.

@@ -20,7 +20,7 @@ import {
   type ClientMessage,
   type ServerMessage,
 } from './ipc-protocol.js';
-import { handleMessage, type HandlerContext } from './handlers.js';
+import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 
 const log = getLogger('server');
@@ -381,6 +381,7 @@ export class DaemonServer {
     conversationId: string,
     socket?: net.Socket,
     rebindClient = true,
+    options?: SessionCreateOptions,
   ): Promise<Session> {
     let session = this.sessions.get(conversationId);
     const sendToClient = socket
@@ -413,11 +414,14 @@ export class DaemonServer {
         }
         const workingDir = process.cwd();
 
+        const systemPrompt = options?.systemPromptOverride ?? buildSystemPrompt(config.systemPrompt);
+        const maxTokens = options?.maxResponseTokens ?? config.maxTokens;
+
         const newSession = new Session(
           conversationId,
           provider,
-          buildSystemPrompt(config.systemPrompt),
-          config.maxTokens,
+          systemPrompt,
+          maxTokens,
           rebindClient ? sendToClient : () => {},
           workingDir,
         );
@@ -454,8 +458,8 @@ export class DaemonServer {
       suppressConfigReload: this.suppressConfigReload,
       setSuppressConfigReload: (value: boolean) => { this.suppressConfigReload = value; },
       send: (socket, msg) => this.send(socket, msg),
-      getOrCreateSession: (id, socket?, rebind?) =>
-        this.getOrCreateSession(id, socket, rebind),
+      getOrCreateSession: (id, socket?, rebind?, options?) =>
+        this.getOrCreateSession(id, socket, rebind, options),
     };
   }
 
