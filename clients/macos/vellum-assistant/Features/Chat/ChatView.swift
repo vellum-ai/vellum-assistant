@@ -8,10 +8,12 @@ struct ChatView: View {
     let errorText: String?
     let pendingQueuedCount: Int
     let suggestion: String?
+    let pendingAttachments: [ChatAttachment]
     let onSend: () -> Void
     let onStop: () -> Void
     let onDismissError: () -> Void
     let onAcceptSuggestion: () -> Void
+    let onAttach: () -> Void
 
     /// The portion of the suggestion that extends beyond the current input.
     private var ghostSuffix: String? {
@@ -202,11 +204,14 @@ struct ChatView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Stop generation")
             } else {
-                Image(systemName: "paperclip")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(VColor.textSecondary)
-                    .padding(10)
-                    .accessibilityHidden(true)
+                Button(action: onAttach) {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                        .padding(10)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Attach file")
             }
         }
         .padding(VSpacing.xs)
@@ -223,7 +228,7 @@ struct ChatView: View {
     }
 
     private var canSend: Bool {
-        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty
     }
 }
 
@@ -395,10 +400,12 @@ private struct ThinkingIndicator: View {
             errorText: nil,
             pendingQueuedCount: 0,
             suggestion: "That sounds great, thanks!",
+            pendingAttachments: [],
             onSend: {},
             onStop: {},
             onDismissError: {},
-            onAcceptSuggestion: {}
+            onAcceptSuggestion: {},
+            onAttach: {}
         )
     }
     .frame(width: 600, height: 500)

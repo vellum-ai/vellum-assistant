@@ -1,5 +1,7 @@
 import Foundation
 import os
+import UniformTypeIdentifiers
+import AppKit
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel")
 
@@ -12,10 +14,17 @@ final class ChatViewModel: ObservableObject {
     @Published var errorText: String?
     @Published var pendingQueuedCount: Int = 0
     @Published var suggestion: String?
+    @Published var pendingAttachments: [ChatAttachment] = []
+
+    /// Maximum file size per attachment (20 MB).
+    private static let maxFileSize = 20 * 1024 * 1024
+    /// Maximum number of attachments per message.
+    private static let maxAttachments = 5
 
     private let daemonClient: DaemonClient
     var sessionId: String?
     private var pendingUserMessage: String?
+    private var pendingUserAttachments: [IPCAttachment]?
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
     private var bootstrapCorrelationId: String?
@@ -41,17 +50,88 @@ final class ChatViewModel: ObservableObject {
         messages.append(ChatMessage(role: .assistant, text: "Hello! I'm \(name). How can I help you today?"))
     }
 
+    // MARK: - Attachments
+
+    func addAttachment(url: URL) {
+        guard pendingAttachments.count < Self.maxAttachments else {
+            errorText = "Maximum \(Self.maxAttachments) attachments per message."
+            return
+        }
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            log.error("Failed to read attachment: \(error.localizedDescription)")
+            errorText = "Could not read file."
+            return
+        }
+
+        guard data.count <= Self.maxFileSize else {
+            errorText = "File exceeds 20 MB limit."
+            return
+        }
+
+        let filename = url.lastPathComponent
+        let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        let base64 = data.base64EncodedString()
+
+        var thumbnail: Data?
+        if let utType = UTType(filenameExtension: url.pathExtension), utType.conforms(to: .image) {
+            thumbnail = Self.generateThumbnail(from: data, maxDimension: 120)
+        }
+
+        let attachment = ChatAttachment(
+            id: UUID().uuidString,
+            filename: filename,
+            mimeType: mimeType,
+            data: base64,
+            thumbnailData: thumbnail
+        )
+        pendingAttachments.append(attachment)
+    }
+
+    func removeAttachment(id: String) {
+        pendingAttachments.removeAll { $0.id == id }
+    }
+
+    /// Resize image data to fit within `maxDimension` and return PNG data.
+    private static func generateThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {
+        guard let image = NSImage(data: data) else { return nil }
+        let size = image.size
+        guard size.width > 0 && size.height > 0 else { return nil }
+        let scale = min(maxDimension / size.width, maxDimension / size.height, 1.0)
+        let newSize = NSSize(width: size.width * scale, height: size.height * scale)
+        let resized = NSImage(size: newSize)
+        resized.lockFocus()
+        image.draw(in: NSRect(origin: .zero, size: newSize),
+                   from: NSRect(origin: .zero, size: size),
+                   operation: .copy, fraction: 1.0)
+        resized.unlockFocus()
+        guard let tiffData = resized.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
+        return png
+    }
+
+    // MARK: - Sending
+
     func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let hasAttachments = !pendingAttachments.isEmpty
+        guard !text.isEmpty || hasAttachments else { return }
 
         // Block rapid-fire only when bootstrapping (no session yet)
         if isSending && sessionId == nil { return }
 
+        // Snapshot and clear pending attachments
+        let attachments = pendingAttachments
+        pendingAttachments = []
+
         // Append user message immediately for responsive UX
         let willBeQueued = isSending && sessionId != nil
         let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
-        let userMessage = ChatMessage(role: .user, text: text, status: status)
+        let userMessage = ChatMessage(role: .user, text: text, status: status, attachments: attachments)
         messages.append(userMessage)
         // Only track in pendingMessageIds when the message will actually be
         // queued by the daemon (i.e. sent while another message is processing).
@@ -65,19 +145,24 @@ final class ChatViewModel: ObservableObject {
         pendingSuggestionRequestId = nil
         errorText = nil
 
+        let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
+            IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+        }
+
         if sessionId == nil {
             // First message: need to bootstrap session
-            bootstrapSession(userMessage: text)
+            bootstrapSession(userMessage: text, attachments: ipcAttachments)
         } else {
             // Subsequent messages: send directly (daemon queues if busy)
-            sendUserMessage(text, queuedMessageId: willBeQueued ? userMessage.id : nil)
+            sendUserMessage(text, attachments: ipcAttachments, queuedMessageId: willBeQueued ? userMessage.id : nil)
         }
     }
 
-    private func bootstrapSession(userMessage: String) {
+    private func bootstrapSession(userMessage: String, attachments: [IPCAttachment]?) {
         isSending = true
         isThinking = true
         pendingUserMessage = userMessage
+        pendingUserAttachments = attachments
 
         // Generate a unique correlation ID so this ChatViewModel only claims
         // the session_info response that belongs to its own session_create request.
@@ -115,7 +200,7 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func sendUserMessage(_ text: String, queuedMessageId: UUID? = nil) {
+    private func sendUserMessage(_ text: String, attachments: [IPCAttachment]? = nil, queuedMessageId: UUID? = nil) {
         guard let sessionId else { return }
 
         // Check connectivity before entering sending state so the UI
@@ -143,7 +228,7 @@ final class ChatViewModel: ObservableObject {
             try daemonClient.send(UserMessageMessage(
                 sessionId: sessionId,
                 content: text,
-                attachments: nil
+                attachments: attachments
             ))
         } catch {
             log.error("Failed to send user_message: \(error.localizedDescription)")
@@ -215,12 +300,14 @@ final class ChatViewModel: ObservableObject {
 
                 // Send the queued user message
                 if let pending = pendingUserMessage {
+                    let attachments = pendingUserAttachments
                     pendingUserMessage = nil
+                    pendingUserAttachments = nil
                     do {
                         try daemonClient.send(UserMessageMessage(
                             sessionId: info.sessionId,
                             content: pending,
-                            attachments: nil
+                            attachments: attachments
                         ))
                     } catch {
                         log.error("Failed to send queued user_message: \(error.localizedDescription)")
@@ -420,6 +507,7 @@ final class ChatViewModel: ObservableObject {
         // cancel on the daemon side.
         if sessionId == nil {
             pendingUserMessage = nil
+            pendingUserAttachments = nil
             bootstrapCorrelationId = nil
             isThinking = false
             isSending = false
