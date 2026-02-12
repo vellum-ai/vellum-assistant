@@ -11,6 +11,7 @@ struct InterviewStepView: View {
     @State private var isRecording = false
 
     private let voiceInputManager = VoiceInputManager()
+    private let profileExtractor: ProfileExtractor
 
     init(state: OnboardingState, daemonClient: DaemonClientProtocol, onComplete: @escaping () -> Void) {
         self.state = state
@@ -20,6 +21,7 @@ struct InterviewStepView: View {
             daemonClient: daemonClient,
             assistantName: state.assistantName
         ))
+        self.profileExtractor = ProfileExtractor(daemonClient: daemonClient)
     }
 
     /// Combines finalized messages with any in-progress streaming text.
@@ -79,9 +81,7 @@ struct InterviewStepView: View {
                         title: viewModel.isFinished ? "Let\u{2019}s get started!" : "I\u{2019}m ready to go!",
                         style: .primary
                     ) {
-                        state.interviewCompleted = true
-                        viewModel.endInterview()
-                        onComplete()
+                        completeInterview()
                     }
                     .scaleEffect(viewModel.isFinished ? 1.05 : 1.0)
                     .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: viewModel.isFinished)
@@ -89,8 +89,7 @@ struct InterviewStepView: View {
 
                 if !viewModel.isFinished && hasAssistantMessage {
                     Button {
-                        viewModel.endInterview()
-                        onComplete()
+                        completeInterview()
                     } label: {
                         Text("I\u{2019}m good, let\u{2019}s go")
                             .font(VFont.caption)
@@ -118,6 +117,25 @@ struct InterviewStepView: View {
             voiceInputManager.stop()
             viewModel.cancel()
         }
+    }
+
+    // MARK: - Interview Completion
+
+    /// Ends the interview, triggers background profile extraction, and advances onboarding.
+    /// Extraction runs async in the background and does not block onboarding completion.
+    private func completeInterview() {
+        let messages = viewModel.messages
+        let assistantName = state.assistantName
+
+        state.interviewCompleted = true
+        viewModel.endInterview()
+
+        // Fire-and-forget background extraction — failures are logged but don't affect onboarding.
+        Task { @MainActor in
+            await profileExtractor.extractProfile(from: messages, assistantName: assistantName)
+        }
+
+        onComplete()
     }
 
     // MARK: - Voice Input
