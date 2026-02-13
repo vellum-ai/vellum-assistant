@@ -15,9 +15,13 @@ mock.module('../util/platform.js', () => ({
   getPidPath: () => join(TEST_DIR, 'vellum.pid'),
   getDbPath: () => join(TEST_DIR, 'data', 'assistant.db'),
   getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
+  getHistoryPath: () => join(TEST_DIR, 'history'),
   isMacOS: () => process.platform === 'darwin',
   isLinux: () => process.platform === 'linux',
   isWindows: () => process.platform === 'win32',
+  getPlatformName: () => process.platform,
+  getClipboardCommand: () => null,
+  removeSocketFile: () => {},
 }));
 
 mock.module('../util/logger.js', () => ({
@@ -29,6 +33,12 @@ mock.module('../util/logger.js', () => ({
 // Import after mock
 const { buildSystemPrompt } = await import('../config/system-prompt.js');
 const { DEFAULT_SYSTEM_PROMPT } = await import('../config/defaults.js');
+
+/** Strip the bundled skills catalog suffix so base-prompt tests stay focused. */
+function basePrompt(result: string): string {
+  const idx = result.indexOf('\n\n## Skills Catalog');
+  return idx === -1 ? result : result.slice(0, idx);
+}
 
 describe('buildSystemPrompt', () => {
   beforeEach(() => {
@@ -43,55 +53,55 @@ describe('buildSystemPrompt', () => {
 
   test('returns DEFAULT_SYSTEM_PROMPT when no files exist and no config', () => {
     const result = buildSystemPrompt();
-    expect(result).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(basePrompt(result)).toBe(DEFAULT_SYSTEM_PROMPT);
   });
 
   test('returns config systemPrompt when no files exist', () => {
     const result = buildSystemPrompt('Custom config prompt');
-    expect(result).toBe('Custom config prompt');
+    expect(basePrompt(result)).toBe('Custom config prompt');
   });
 
   test('uses SOUL.md when it exists', () => {
     writeFileSync(join(TEST_DIR, 'SOUL.md'), '# My Soul\n\nBe awesome.');
     const result = buildSystemPrompt();
-    expect(result).toBe('# My Soul\n\nBe awesome.');
+    expect(basePrompt(result)).toBe('# My Soul\n\nBe awesome.');
   });
 
   test('uses IDENTITY.md when it exists', () => {
     writeFileSync(join(TEST_DIR, 'IDENTITY.md'), '# My Identity\n\nI am Vellum.');
     const result = buildSystemPrompt();
-    expect(result).toBe('# My Identity\n\nI am Vellum.');
+    expect(basePrompt(result)).toBe('# My Identity\n\nI am Vellum.');
   });
 
   test('composes IDENTITY.md + SOUL.md when both exist', () => {
     writeFileSync(join(TEST_DIR, 'IDENTITY.md'), '# Identity\n\nI am Vellum.');
     writeFileSync(join(TEST_DIR, 'SOUL.md'), '# Soul\n\nBe thoughtful.');
     const result = buildSystemPrompt();
-    expect(result).toBe('# Identity\n\nI am Vellum.\n\n# Soul\n\nBe thoughtful.');
+    expect(basePrompt(result)).toBe('# Identity\n\nI am Vellum.\n\n# Soul\n\nBe thoughtful.');
   });
 
   test('SOUL.md and IDENTITY.md take priority over config systemPrompt', () => {
     writeFileSync(join(TEST_DIR, 'SOUL.md'), 'Soul content');
     const result = buildSystemPrompt('Should be ignored');
-    expect(result).toBe('Soul content');
+    expect(basePrompt(result)).toBe('Soul content');
   });
 
   test('ignores empty SOUL.md', () => {
     writeFileSync(join(TEST_DIR, 'SOUL.md'), '   \n  \n  ');
     const result = buildSystemPrompt('Fallback');
-    expect(result).toBe('Fallback');
+    expect(basePrompt(result)).toBe('Fallback');
   });
 
   test('ignores empty IDENTITY.md', () => {
     writeFileSync(join(TEST_DIR, 'IDENTITY.md'), '');
     const result = buildSystemPrompt('Fallback');
-    expect(result).toBe('Fallback');
+    expect(basePrompt(result)).toBe('Fallback');
   });
 
   test('trims whitespace from file content', () => {
     writeFileSync(join(TEST_DIR, 'SOUL.md'), '\n  Be kind  \n\n');
     const result = buildSystemPrompt();
-    expect(result).toBe('Be kind');
+    expect(basePrompt(result)).toBe('Be kind');
   });
 
   test('appends skills catalog when skills are configured', () => {
@@ -127,9 +137,12 @@ describe('buildSystemPrompt', () => {
     expect(result.indexOf('Soul content')).toBeLessThan(result.indexOf('## Skills Catalog'));
   });
 
-  test('omits skills catalog when no skills are available', () => {
+  test('omits user skills from catalog when none are configured', () => {
     const result = buildSystemPrompt('No skills prompt');
-    expect(result).toBe('No skills prompt');
-    expect(result).not.toContain('## Skills Catalog');
+    expect(basePrompt(result)).toBe('No skills prompt');
+    // No user skill directories exist, so no user skills should appear.
+    // Bundled skills (e.g. app-builder) may still be present.
+    expect(result).not.toContain('release-checklist');
+    expect(result).not.toContain('incident-response');
   });
 });
