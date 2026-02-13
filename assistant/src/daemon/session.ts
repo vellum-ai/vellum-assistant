@@ -993,7 +993,7 @@ export class Session {
   ): void {
     if (inputTokens <= 0 && outputTokens <= 0) return;
 
-    const estimatedCost = estimateCost(inputTokens, outputTokens, model);
+    const estimatedCost = estimateCost(inputTokens, outputTokens, model, this.provider.name);
     this.usageStats = {
       inputTokens: this.usageStats.inputTokens + inputTokens,
       outputTokens: this.usageStats.outputTokens + outputTokens,

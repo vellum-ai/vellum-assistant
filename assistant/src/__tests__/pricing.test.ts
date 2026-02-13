@@ -206,31 +206,51 @@ describe('resolvePricingWithOverrides', () => {
   });
 });
 
-describe('estimateCost (backward compatibility)', () => {
-  test('returns a number for known Claude model', () => {
-    const cost = estimateCost(1_000_000, 1_000_000, 'claude-sonnet-4-5-20250929');
+describe('estimateCost', () => {
+  test('returns a number for known Anthropic model', () => {
+    const cost = estimateCost(1_000_000, 1_000_000, 'claude-sonnet-4-5-20250929', 'anthropic');
     expect(typeof cost).toBe('number');
     expect(cost).toBe(3 + 15);
   });
 
   test('returns 0 for unknown model', () => {
-    const cost = estimateCost(1_000_000, 1_000_000, 'unknown-model');
+    const cost = estimateCost(1_000_000, 1_000_000, 'unknown-model', 'anthropic');
     expect(cost).toBe(0);
   });
 
   test('returns correct cost for claude-opus-4 via prefix match', () => {
-    const cost = estimateCost(1_000_000, 1_000_000, 'claude-opus-4-5-20250929');
+    const cost = estimateCost(1_000_000, 1_000_000, 'claude-opus-4-5-20250929', 'anthropic');
     expect(cost).toBe(15 + 75);
   });
 
   test('returns correct cost for claude-haiku-4 via prefix match', () => {
-    const cost = estimateCost(1_000_000, 1_000_000, 'claude-haiku-4-5-20251001');
+    const cost = estimateCost(1_000_000, 1_000_000, 'claude-haiku-4-5-20251001', 'anthropic');
     expect(cost).toBe(0.80 + 4);
   });
 
   test('always returns number type, never null', () => {
-    const cost = estimateCost(500_000, 500_000, 'nonexistent-model');
+    const cost = estimateCost(500_000, 500_000, 'nonexistent-model', 'anthropic');
     expect(typeof cost).toBe('number');
+    expect(cost).toBe(0);
+  });
+
+  test('returns correct cost for OpenAI gpt-4o', () => {
+    const cost = estimateCost(1_000_000, 1_000_000, 'gpt-4o', 'openai');
+    expect(cost).toBe(2.50 + 10);
+  });
+
+  test('returns correct cost for Gemini model', () => {
+    const cost = estimateCost(1_000_000, 1_000_000, 'gemini-2.5-pro', 'gemini');
+    expect(cost).toBe(1.25 + 10);
+  });
+
+  test('returns 0 for Ollama (local) provider', () => {
+    const cost = estimateCost(1_000_000, 1_000_000, 'llama3:latest', 'ollama');
+    expect(cost).toBe(0);
+  });
+
+  test('returns 0 for unknown provider', () => {
+    const cost = estimateCost(1_000_000, 1_000_000, 'some-model', 'unknown-provider');
     expect(cost).toBe(0);
   });
 });
