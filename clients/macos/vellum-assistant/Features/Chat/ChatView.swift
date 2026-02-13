@@ -21,6 +21,9 @@ struct ChatView: View {
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
 
+    @FocusState private var isInputFocused: Bool
+    @State private var keyMonitor: Any?
+
     /// The portion of the suggestion that extends beyond the current input.
     private var ghostSuffix: String? {
         guard let suggestion else { return nil }
@@ -53,6 +56,44 @@ struct ChatView: View {
                 }
                 queueSummary
                 composerArea
+            }
+        }
+        .onAppear {
+            isInputFocused = true
+            guard keyMonitor == nil else { return }
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                // Don't intercept keyboard shortcuts
+                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                if flags.contains(.command) || flags.contains(.control) {
+                    return event
+                }
+                // Already focused — let the TextField handle it
+                if isInputFocused { return event }
+                // Don't steal from other text inputs (e.g. side panel fields)
+                if let firstResponder = NSApp.keyWindow?.firstResponder,
+                   firstResponder is NSText {
+                    return event
+                }
+                // Only intercept printable characters
+                guard let chars = event.characters, !chars.isEmpty,
+                      let scalar = chars.unicodeScalars.first,
+                      CharacterSet.alphanumerics
+                          .union(.punctuationCharacters)
+                          .union(.symbols)
+                          .union(.whitespaces)
+                          .contains(scalar) else {
+                    return event
+                }
+                // Focus the input and inject the character
+                isInputFocused = true
+                inputText.append(chars)
+                return nil // consume the event
+            }
+        }
+        .onDisappear {
+            if let monitor = keyMonitor {
+                NSEvent.removeMonitor(monitor)
+                keyMonitor = nil
             }
         }
     }
@@ -179,6 +220,7 @@ struct ChatView: View {
                         .font(VFont.mono)
                         .foregroundColor(VColor.textPrimary)
                         .lineLimit(1...3)
+                        .focused($isInputFocused)
                         .accessibilityLabel("Message")
                         .onKeyPress(.tab, phases: .down) { keyPress in
                             if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
