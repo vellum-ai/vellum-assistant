@@ -1,4 +1,3 @@
-import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getConfig, loadRawConfig, saveRawConfig } from '../config/loader.js';
@@ -33,20 +32,21 @@ import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon, readCachedSkill
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } from '../memory/app-store.js';
+import type { IpcConnection } from './connection.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
 
 /**
- * Find the current socket bound to a given session by reversing the
- * `socketToSession` map. Returns `undefined` if no socket is bound.
+ * Find the current connection bound to a given session by reversing the
+ * `connectionToSession` map. Returns `undefined` if no connection is bound.
  */
-function findSocketForSession(
+function findConnectionForSession(
   sessionId: string,
   ctx: HandlerContext,
-): net.Socket | undefined {
-  for (const [sock, id] of ctx.socketToSession) {
-    if (id === sessionId) return sock;
+): IpcConnection | undefined {
+  for (const [conn, id] of ctx.connectionToSession) {
+    if (id === sessionId) return conn;
   }
   return undefined;
 }
@@ -55,22 +55,22 @@ function findSocketForSession(
  * Wire the escalation handler on a text_qa session so that invoking
  * `request_computer_control` creates a CU session and notifies the client.
  *
- * Instead of closing over the original `socket`, the handler looks up the
- * current socket for the session at call time via `ctx.socketToSession`.
- * This ensures the handler targets the correct socket even after a
+ * Instead of closing over the original `connection`, the handler looks up the
+ * current connection for the session at call time via `ctx.connectionToSession`.
+ * This ensures the handler targets the correct connection even after a
  * disconnect-and-rebind cycle.
  */
 function wireEscalationHandler(
   session: Session,
-  _socket: net.Socket,
+  _connection: IpcConnection,
   ctx: HandlerContext,
   screenWidth: number,
   screenHeight: number,
 ): void {
   session.setEscalationHandler((task: string, sourceSessionId: string): boolean => {
-    const currentSocket = findSocketForSession(sourceSessionId, ctx);
-    if (!currentSocket) {
-      log.warn({ sourceSessionId }, 'Escalation handler: no active socket found for session');
+    const currentConnection = findConnectionForSession(sourceSessionId, ctx);
+    if (!currentConnection) {
+      log.warn({ sourceSessionId }, 'Escalation handler: no active connection found for session');
       return false;
     }
 
@@ -83,9 +83,9 @@ function wireEscalationHandler(
       screenHeight,
       interactionType: 'computer_use',
     };
-    handleCuSessionCreate(cuMsg, currentSocket, ctx);
+    handleCuSessionCreate(cuMsg, currentConnection, ctx);
 
-    ctx.send(currentSocket, {
+    ctx.send(currentConnection, {
       type: 'task_routed',
       sessionId: cuSessionId,
       interactionType: 'computer_use',
@@ -240,19 +240,19 @@ export interface SessionCreateOptions {
  */
 export interface HandlerContext {
   sessions: Map<string, Session>;
-  socketToSession: Map<net.Socket, string>;
+  connectionToSession: Map<IpcConnection, string>;
   cuSessions: Map<string, ComputerUseSession>;
-  socketToCuSession: Map<net.Socket, Set<string>>;
-  socketSandboxOverride: Map<net.Socket, boolean>;
+  connectionToCuSession: Map<IpcConnection, Set<string>>;
+  connectionSandboxOverride: Map<IpcConnection, boolean>;
   sharedRequestTimestamps: number[];
   debounceTimers: Map<string, ReturnType<typeof setTimeout>>;
   suppressConfigReload: boolean;
   setSuppressConfigReload(value: boolean): void;
   updateConfigFingerprint(): void;
-  send(socket: net.Socket, msg: ServerMessage): void;
+  send(connection: IpcConnection, msg: ServerMessage): void;
   getOrCreateSession(
     conversationId: string,
-    socket?: net.Socket,
+    connection?: IpcConnection,
     rebindClient?: boolean,
     options?: SessionCreateOptions,
   ): Promise<Session>;
@@ -264,7 +264,7 @@ type MessageType = ClientMessage['type'];
 type MessageOfType<T extends MessageType> = Extract<ClientMessage, { type: T }>;
 type MessageHandler<T extends MessageType> = (
   msg: MessageOfType<T>,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ) => void | Promise<void>;
 type DispatchMap = { [T in MessageType]: MessageHandler<T> };
@@ -272,11 +272,11 @@ type DispatchMap = { [T in MessageType]: MessageHandler<T> };
 const handlers: DispatchMap = {
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
-  session_list: (_msg, socket, ctx) => handleSessionList(socket, ctx),
+  session_list: (_msg, connection, ctx) => handleSessionList(connection, ctx),
   session_create: handleSessionCreate,
   session_switch: handleSessionSwitch,
   cancel: handleCancel,
-  model_get: (_msg, socket, ctx) => handleModelGet(socket, ctx),
+  model_get: (_msg, connection, ctx) => handleModelGet(connection, ctx),
   model_set: handleModelSet,
   history_request: handleHistoryRequest,
   undo: handleUndo,
@@ -288,11 +288,11 @@ const handlers: DispatchMap = {
   ambient_observation: handleAmbientObservation,
   task_submit: handleTaskSubmit,
   app_data_request: handleAppDataRequest,
-  skills_list: (_msg, socket, ctx) => handleSkillsList(socket, ctx),
+  skills_list: (_msg, connection, ctx) => handleSkillsList(connection, ctx),
   skill_detail: handleSkillDetail,
   suggestion_request: handleSuggestionRequest,
-  ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
-  ui_surface_action: (msg, _socket, ctx) => {
+  ping: (_msg, connection, ctx) => { ctx.send(connection, { type: 'pong' }); },
+  ui_surface_action: (msg, _connection, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
     if (cuSession) {
       cuSession.handleSurfaceAction(msg.surfaceId, msg.actionId, msg.data);
@@ -309,43 +309,43 @@ const handlers: DispatchMap = {
 
 export function handleMessage(
   msg: ClientMessage,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): void {
   const handler = handlers[msg.type] as
-    | ((msg: ClientMessage, socket: net.Socket, ctx: HandlerContext) => void)
+    | ((msg: ClientMessage, connection: IpcConnection, ctx: HandlerContext) => void)
     | undefined;
   if (!handler) {
     log.warn({ type: msg.type }, 'Unknown message type, ignoring');
     return;
   }
-  handler(msg, socket, ctx);
+  handler(msg, connection, ctx);
 }
 
 // ─── Individual handlers ─────────────────────────────────────────────────────
 
 async function handleUserMessage(
   msg: UserMessage,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): Promise<void> {
   const requestId = uuid();
   const rlog = log.child({ sessionId: msg.sessionId, requestId });
   try {
-    ctx.socketToSession.set(socket, msg.sessionId);
-    const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
+    ctx.connectionToSession.set(connection, msg.sessionId);
+    const session = await ctx.getOrCreateSession(msg.sessionId, connection, true);
 
-    const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+    const sendEvent = (event: ServerMessage) => ctx.send(connection, event);
 
     const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId);
     if (result.rejected) {
       rlog.warn('Message rejected — queue is full');
-      ctx.send(socket, { type: 'error', message: 'Message rejected — session queue is full. Please wait and try again.' });
+      ctx.send(connection, { type: 'error', message: 'Message rejected — session queue is full. Please wait and try again.' });
       return;
     }
     if (result.queued) {
       rlog.info({ position: session.getQueueDepth() }, 'Message queued (session busy)');
-      ctx.send(socket, {
+      ctx.send(connection, {
         type: 'message_queued',
         sessionId: msg.sessionId,
         requestId,
@@ -361,21 +361,21 @@ async function handleUserMessage(
     session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       rlog.error({ err }, 'Error processing user message (session or provider failure)');
-      ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+      ctx.send(connection, { type: 'error', message: `Failed to process message: ${message}` });
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     rlog.error({ err }, 'Error setting up user message processing');
-    ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+    ctx.send(connection, { type: 'error', message: `Failed to process message: ${message}` });
   }
 }
 
 function handleConfirmationResponse(
   msg: ConfirmationResponse,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): void {
-  const sessionId = ctx.socketToSession.get(socket);
+  const sessionId = ctx.connectionToSession.get(connection);
   if (sessionId) {
     const session = ctx.sessions.get(sessionId);
     if (session) {
@@ -389,9 +389,9 @@ function handleConfirmationResponse(
   }
 }
 
-function handleSessionList(socket: net.Socket, ctx: HandlerContext): void {
+function handleSessionList(connection: IpcConnection, ctx: HandlerContext): void {
   const conversations = conversationStore.listConversations(50);
-  ctx.send(socket, {
+  ctx.send(connection, {
     type: 'session_list_response',
     sessions: conversations.map((c) => ({
       id: c.id,
@@ -403,17 +403,17 @@ function handleSessionList(socket: net.Socket, ctx: HandlerContext): void {
 
 async function handleSessionCreate(
   msg: SessionCreateRequest,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): Promise<void> {
   const conversation = conversationStore.createConversation(
     msg.title ?? 'New Conversation',
   );
-  await ctx.getOrCreateSession(conversation.id, socket, true, {
+  await ctx.getOrCreateSession(conversation.id, connection, true, {
     systemPromptOverride: msg.systemPromptOverride,
     maxResponseTokens: msg.maxResponseTokens,
   });
-  ctx.send(socket, {
+  ctx.send(connection, {
     type: 'session_info',
     sessionId: conversation.id,
     title: conversation.title ?? 'New Conversation',
@@ -423,25 +423,25 @@ async function handleSessionCreate(
 
 async function handleSessionSwitch(
   msg: SessionSwitchRequest,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): Promise<void> {
   const conversation = conversationStore.getConversation(msg.sessionId);
   if (!conversation) {
-    ctx.send(socket, { type: 'error', message: `Session ${msg.sessionId} not found` });
+    ctx.send(connection, { type: 'error', message: `Session ${msg.sessionId} not found` });
     return;
   }
-  ctx.socketToSession.set(socket, msg.sessionId);
-  await ctx.getOrCreateSession(msg.sessionId, socket, true);
-  ctx.send(socket, {
+  ctx.connectionToSession.set(connection, msg.sessionId);
+  await ctx.getOrCreateSession(msg.sessionId, connection, true);
+  ctx.send(connection, {
     type: 'session_info',
     sessionId: conversation.id,
     title: conversation.title ?? 'Untitled',
   });
 }
 
-function handleCancel(msg: CancelRequest, socket: net.Socket, ctx: HandlerContext): void {
-  const sessionId = msg.sessionId || ctx.socketToSession.get(socket);
+function handleCancel(msg: CancelRequest, connection: IpcConnection, ctx: HandlerContext): void {
+  const sessionId = msg.sessionId || ctx.connectionToSession.get(connection);
   if (sessionId) {
     const session = ctx.sessions.get(sessionId);
     if (session) {
@@ -450,9 +450,9 @@ function handleCancel(msg: CancelRequest, socket: net.Socket, ctx: HandlerContex
   }
 }
 
-function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
+function handleModelGet(connection: IpcConnection, ctx: HandlerContext): void {
   const config = getConfig();
-  ctx.send(socket, {
+  ctx.send(connection, {
     type: 'model_info',
     model: config.model,
     provider: config.provider,
@@ -461,9 +461,9 @@ function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
 
 function handleModelSet(
   msg: ModelSetRequest,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
-): void {
+): void{
   try {
     // Use raw config to avoid persisting env-var API keys to disk
     const raw = loadRawConfig();
@@ -500,26 +500,26 @@ function handleModelSet(
 
     ctx.updateConfigFingerprint();
 
-    ctx.send(socket, {
+    ctx.send(connection, {
       type: 'model_info',
       model: config.model,
       provider: config.provider,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    ctx.send(socket, { type: 'error', message: `Failed to set model: ${message}` });
+    ctx.send(connection, { type: 'error', message: `Failed to set model: ${message}` });
   }
 }
 
 function handleSandboxSet(
   msg: SandboxSetRequest,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): void {
-  // Per-socket override: store the sandbox preference for this client only.
+  // Per-connection override: store the sandbox preference for this client only.
   // The override is applied to the session so it doesn't affect other clients.
-  ctx.socketSandboxOverride.set(socket, msg.enabled);
-  const sessionId = ctx.socketToSession.get(socket);
+  ctx.connectionSandboxOverride.set(connection, msg.enabled);
+  const sessionId = ctx.connectionToSession.get(connection);
   if (sessionId) {
     const session = ctx.sessions.get(sessionId);
     if (session) {
@@ -539,7 +539,7 @@ export interface ParsedHistoryMessage {
 
 function handleHistoryRequest(
   msg: HistoryRequest,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): void {
   const dbMessages = conversationStore.getMessages(msg.sessionId);
@@ -569,7 +569,7 @@ function handleHistoryRequest(
     timestamp: m.timestamp,
     ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
   }));
-  ctx.send(socket, { type: 'history_response', messages: historyMessages });
+  ctx.send(connection, { type: 'history_response', messages: historyMessages });
 }
 
 export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistoryMessage[] {
@@ -607,30 +607,30 @@ export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistor
 
 function handleUndo(
   msg: UndoRequest,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): void {
   const session = ctx.sessions.get(msg.sessionId);
   if (!session) {
-    ctx.send(socket, { type: 'error', message: 'No active session' });
+    ctx.send(connection, { type: 'error', message: 'No active session' });
     return;
   }
   const removedCount = session.undo();
-  ctx.send(socket, { type: 'undo_complete', removedCount });
+  ctx.send(connection, { type: 'undo_complete', removedCount });
 }
 
 function handleUsageRequest(
   msg: UsageRequest,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): void {
   const conversation = conversationStore.getConversation(msg.sessionId);
   if (!conversation) {
-    ctx.send(socket, { type: 'error', message: 'No active session' });
+    ctx.send(connection, { type: 'error', message: 'No active session' });
     return;
   }
   const config = getConfig();
-  ctx.send(socket, {
+  ctx.send(connection, {
     type: 'usage_response',
     totalInputTokens: conversation.totalInputTokens,
     totalOutputTokens: conversation.totalOutputTokens,
@@ -641,14 +641,14 @@ function handleUsageRequest(
 
 // ─── Skills handlers ─────────────────────────────────────────────────────────
 
-function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
+function handleSkillsList(connection: IpcConnection, ctx: HandlerContext): void {
   const catalog = loadSkillCatalog();
   // Respond immediately with cached icons (sync reads only)
   const skills = catalog.map((s) => {
     const icon = readCachedSkillIcon(s.directoryPath);
     return { id: s.id, name: s.name, description: s.description, ...(icon ? { icon } : {}) };
   });
-  ctx.send(socket, { type: 'skills_list_response', skills });
+  ctx.send(connection, { type: 'skills_list_response', skills });
 
   // Generate missing icons in the background (fire-and-forget)
   const missing = catalog.filter((s) => !readCachedSkillIcon(s.directoryPath));
@@ -659,20 +659,20 @@ function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
 
 async function handleSkillDetail(
   msg: SkillDetailRequest,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): Promise<void> {
   const result = loadSkillBySelector(msg.skillId);
   if (result.skill) {
     const icon = await ensureSkillIcon(result.skill.directoryPath, result.skill.name, result.skill.description);
-    ctx.send(socket, {
+    ctx.send(connection, {
       type: 'skill_detail_response',
       skillId: result.skill.id,
       body: result.skill.body,
       ...(icon ? { icon } : {}),
     });
   } else {
-    ctx.send(socket, {
+    ctx.send(connection, {
       type: 'skill_detail_response',
       skillId: msg.skillId,
       body: '',
@@ -685,9 +685,9 @@ async function handleSkillDetail(
 
 function handleAppDataRequest(
   msg: AppDataRequest,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
-): void {
+): void{
   const { surfaceId, callId, method, appId, recordId, data } = msg;
   try {
     let result: unknown = null;
@@ -712,7 +712,7 @@ function handleAppDataRequest(
       default:
         throw new Error(`Unknown app data method: ${method}`);
     }
-    ctx.send(socket, {
+    ctx.send(connection, {
       type: 'app_data_response',
       surfaceId,
       callId,
@@ -722,7 +722,7 @@ function handleAppDataRequest(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, method, appId, recordId }, 'Error handling app_data_request');
-    ctx.send(socket, {
+    ctx.send(connection, {
       type: 'app_data_response',
       surfaceId,
       callId,
@@ -736,7 +736,7 @@ function handleAppDataRequest(
 
 async function handleTaskSubmit(
   msg: TaskSubmit,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): Promise<void> {
   const requestId = uuid();
@@ -758,9 +758,9 @@ async function handleTaskSubmit(
         attachments: msg.attachments,
         interactionType: 'computer_use',
       };
-      handleCuSessionCreate(cuMsg, socket, ctx);
+      handleCuSessionCreate(cuMsg, connection, ctx);
 
-      ctx.send(socket, {
+      ctx.send(connection, {
         type: 'task_routed',
         sessionId,
         interactionType: 'computer_use',
@@ -768,13 +768,13 @@ async function handleTaskSubmit(
     } else {
       // Create text QA session and immediately start processing
       const conversation = conversationStore.createConversation(msg.task);
-      ctx.socketToSession.set(socket, conversation.id);
-      const session = await ctx.getOrCreateSession(conversation.id, socket, true);
+      ctx.connectionToSession.set(connection, conversation.id);
+      const session = await ctx.getOrCreateSession(conversation.id, connection, true);
 
       // Wire escalation handler so the agent can call request_computer_control
-      wireEscalationHandler(session, socket, ctx, msg.screenWidth, msg.screenHeight);
+      wireEscalationHandler(session, connection, ctx, msg.screenWidth, msg.screenHeight);
 
-      ctx.send(socket, {
+      ctx.send(connection, {
         type: 'task_routed',
         sessionId: conversation.id,
         interactionType: 'text_qa',
@@ -782,17 +782,17 @@ async function handleTaskSubmit(
 
       // Start streaming immediately — client doesn't need to send user_message
       session.processMessage(msg.task, msg.attachments ?? [], (event) => {
-        ctx.send(socket, event);
+        ctx.send(connection, event);
       }, requestId).catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         rlog.error({ err }, 'Error processing task_submit text QA');
-        ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+        ctx.send(connection, { type: 'error', message: `Failed to process message: ${message}` });
       });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     rlog.error({ err }, 'Error handling task_submit');
-    ctx.send(socket, { type: 'error', message: `Failed to route task: ${message}` });
+    ctx.send(connection, { type: 'error', message: `Failed to route task: ${message}` });
   }
 }
 
@@ -804,11 +804,11 @@ const suggestionInFlight = new Map<string, Promise<string | null>>();
 
 async function handleSuggestionRequest(
   msg: SuggestionRequest,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): Promise<void> {
   const noSuggestion = () => {
-    ctx.send(socket, {
+    ctx.send(connection, {
       type: 'suggestion_response',
       requestId: msg.requestId,
       suggestion: null,
@@ -835,7 +835,7 @@ async function handleSuggestionRequest(
     // Return cached suggestion
     const cached = suggestionCache.get(m.id);
     if (cached !== undefined) {
-      ctx.send(socket, {
+      ctx.send(connection, {
         type: 'suggestion_response',
         requestId: msg.requestId,
         suggestion: cached,
@@ -863,7 +863,7 @@ async function handleSuggestionRequest(
           }
           suggestionCache.set(m.id, llmSuggestion);
 
-          ctx.send(socket, {
+          ctx.send(connection, {
             type: 'suggestion_response',
             requestId: msg.requestId,
             suggestion: llmSuggestion,
@@ -921,18 +921,18 @@ function removeCuSessionReferences(
     return;
   }
   ctx.cuSessions.delete(sessionId);
-  for (const [sock, ids] of ctx.socketToCuSession) {
+  for (const [conn, ids] of ctx.connectionToCuSession) {
     if (ids.delete(sessionId) && ids.size === 0) {
-      ctx.socketToCuSession.delete(sock);
+      ctx.connectionToCuSession.delete(conn);
     }
   }
 }
 
 function handleCuSessionCreate(
   msg: CuSessionCreate,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
-): void {
+): void{
   // Abort any existing session with the same ID to prevent zombies,
   // and remove it from the previous owner's socket set so disconnect
   // cleanup doesn't accidentally abort the replacement session.
@@ -950,7 +950,7 @@ function handleCuSessionCreate(
   }
 
   const sendToClient = (serverMsg: ServerMessage) => {
-    ctx.send(socket, serverMsg);
+    ctx.send(connection, serverMsg);
   };
 
   const sessionRef: { current?: ComputerUseSession } = {};
@@ -973,11 +973,11 @@ function handleCuSessionCreate(
 
   ctx.cuSessions.set(msg.sessionId, session);
 
-  // Track all CU sessions per socket so disconnect cleans up all of them
-  let sessionIds = ctx.socketToCuSession.get(socket);
+  // Track all CU sessions per connection so disconnect cleans up all of them
+  let sessionIds = ctx.connectionToCuSession.get(connection);
   if (!sessionIds) {
     sessionIds = new Set();
-    ctx.socketToCuSession.set(socket, sessionIds);
+    ctx.connectionToCuSession.set(connection, sessionIds);
   }
   sessionIds.add(msg.sessionId);
 
@@ -986,7 +986,7 @@ function handleCuSessionCreate(
 
 function handleCuSessionAbort(
   msg: CuSessionAbort,
-  _socket: net.Socket,
+  _connection: IpcConnection,
   ctx: HandlerContext,
 ): void {
   const session = ctx.cuSessions.get(msg.sessionId);
@@ -1001,12 +1001,12 @@ function handleCuSessionAbort(
 
 function handleCuObservation(
   msg: CuObservation,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): void {
   const session = ctx.cuSessions.get(msg.sessionId);
   if (!session) {
-    ctx.send(socket, {
+    ctx.send(connection, {
       type: 'cu_error',
       sessionId: msg.sessionId,
       message: `No computer-use session found for id ${msg.sessionId}`,

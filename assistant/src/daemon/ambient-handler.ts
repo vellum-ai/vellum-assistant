@@ -1,6 +1,6 @@
-import type * as net from 'node:net';
 import type { HandlerContext } from './handlers.js';
 import type { AmbientObservation } from './ipc-protocol.js';
+import type { IpcConnection } from './connection.js';
 import { analyzeAndIndexAmbientObservation } from '../memory/ambient-indexer.js';
 import { getLogger } from '../util/logger.js';
 
@@ -8,7 +8,7 @@ const log = getLogger('ambient-handler');
 
 export async function handleAmbientObservation(
   msg: AmbientObservation,
-  socket: net.Socket,
+  connection: IpcConnection,
   ctx: HandlerContext,
 ): Promise<void> {
   try {
@@ -18,7 +18,7 @@ export async function handleAmbientObservation(
       msg.windowTitle,
     );
 
-    ctx.send(socket, {
+    ctx.send(connection, {
       type: 'ambient_result',
       requestId: msg.requestId,
       decision: result.decision,
@@ -27,7 +27,7 @@ export async function handleAmbientObservation(
     });
   } catch (err) {
     log.error({ err }, 'Error processing ambient observation');
-    ctx.send(socket, {
+    ctx.send(connection, {
       type: 'ambient_result',
       requestId: msg.requestId,
       decision: 'ignore',

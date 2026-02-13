@@ -22,17 +22,18 @@ import {
 } from './ipc-protocol.js';
 import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
+import { type IpcConnection, SocketIpcConnection } from './connection.js';
 
 const log = getLogger('server');
 
 export class DaemonServer {
   private server: net.Server | null = null;
   private sessions = new Map<string, Session>();
-  private socketToSession = new Map<net.Socket, string>();
+  private connectionToSession = new Map<IpcConnection, string>();
   private cuSessions = new Map<string, ComputerUseSession>();
-  private socketToCuSession = new Map<net.Socket, Set<string>>();
-  private connectedSockets = new Set<net.Socket>();
-  private socketSandboxOverride = new Map<net.Socket, boolean>();
+  private connectionToCuSession = new Map<IpcConnection, Set<string>>();
+  private connections = new Set<IpcConnection>();
+  private connectionSandboxOverride = new Map<IpcConnection, boolean>();
   // Persisted session options (e.g. systemPromptOverride, maxResponseTokens)
   // so that evicted sessions can be recreated with the same overrides.
   private sessionOptions = new Map<string, SessionCreateOptions>();
@@ -116,7 +117,7 @@ export class DaemonServer {
       }
     });
 
-    // 2. Now abort sessions and destroy sockets. This lets server.close()
+    // 2. Now abort sessions and destroy connections. This lets server.close()
     //    finish promptly since all connections will be ended.
     for (const session of this.sessions.values()) {
       session.abort();
@@ -127,14 +128,14 @@ export class DaemonServer {
       cuSession.abort();
     }
     this.cuSessions.clear();
-    this.socketToCuSession.clear();
+    this.connectionToCuSession.clear();
 
-    for (const socket of this.connectedSockets) {
-      socket.destroy();
+    for (const connection of this.connections) {
+      connection.destroy();
     }
-    this.connectedSockets.clear();
-    this.socketToSession.clear();
-    this.socketSandboxOverride.clear();
+    this.connections.clear();
+    this.connectionToSession.clear();
+    this.connectionSandboxOverride.clear();
 
     await serverClosed;
     log.info('Daemon server stopped');
@@ -339,11 +340,14 @@ export class DaemonServer {
 
   private handleConnection(socket: net.Socket): void {
     log.info('Client connected');
-    this.connectedSockets.add(socket);
+
+    // Wrap the socket in an IpcConnection abstraction
+    const connection = new SocketIpcConnection(socket, crypto.randomUUID());
+    this.connections.add(connection);
     const parser = createMessageParser({ maxLineSize: MAX_LINE_SIZE });
 
     // Send initial session info
-    this.sendInitialSession(socket).catch((err) => {
+    this.sendInitialSession(connection).catch((err) => {
       log.error({ err }, 'Failed to send initial session info to client on connect');
     });
 
@@ -358,22 +362,22 @@ export class DaemonServer {
         return;
       }
       for (const msg of messages) {
-        this.dispatchMessage(msg as ClientMessage, socket);
+        this.dispatchMessage(msg as ClientMessage, connection);
       }
     });
 
-    socket.on('close', () => {
-      this.connectedSockets.delete(socket);
-      this.socketSandboxOverride.delete(socket);
-      const sessionId = this.socketToSession.get(socket);
+    connection.onClose(() => {
+      this.connections.delete(connection);
+      this.connectionSandboxOverride.delete(connection);
+      const sessionId = this.connectionToSession.get(connection);
       if (sessionId) {
         const session = this.sessions.get(sessionId);
         if (session) {
           session.abort();
         }
       }
-      this.socketToSession.delete(socket);
-      const cuSessionIds = this.socketToCuSession.get(socket);
+      this.connectionToSession.delete(connection);
+      const cuSessionIds = this.connectionToCuSession.get(connection);
       if (cuSessionIds) {
         for (const cuSessionId of cuSessionIds) {
           const cuSession = this.cuSessions.get(cuSessionId);
@@ -383,7 +387,7 @@ export class DaemonServer {
           }
         }
       }
-      this.socketToCuSession.delete(socket);
+      this.connectionToCuSession.delete(connection);
       log.info('Client disconnected');
     });
 
@@ -392,13 +396,11 @@ export class DaemonServer {
     });
   }
 
-  private send(socket: net.Socket, msg: ServerMessage): void {
-    if (!socket.destroyed) {
-      socket.write(serialize(msg));
-    }
+  private send(connection: IpcConnection, msg: ServerMessage): void {
+    connection.send(msg);
   }
 
-  private async sendInitialSession(socket: net.Socket): Promise<void> {
+  private async sendInitialSession(connection: IpcConnection): Promise<void> {
     // Get or create a session
     let conversation = conversationStore.getLatestConversation();
     if (!conversation) {
@@ -406,10 +408,10 @@ export class DaemonServer {
     }
 
     // Warm session state for commands like undo/usage after reconnect without
-    // rebinding the active IPC output client to this passive socket.
+    // rebinding the active IPC output client to this passive connection.
     await this.getOrCreateSession(conversation.id, undefined, false);
 
-    this.send(socket, {
+    this.send(connection, {
       type: 'session_info',
       sessionId: conversation.id,
       title: conversation.title ?? 'New Conversation',
@@ -418,18 +420,18 @@ export class DaemonServer {
 
   private async getOrCreateSession(
     conversationId: string,
-    socket?: net.Socket,
+    connection?: IpcConnection,
     rebindClient = true,
     options?: SessionCreateOptions,
   ): Promise<Session> {
     let session = this.sessions.get(conversationId);
-    const sendToClient = socket
-      ? (msg: ServerMessage) => this.send(socket, msg)
+    const sendToClient = connection
+      ? (msg: ServerMessage) => this.send(connection, msg)
       : () => {};
     const maybeBindClient = (target: Session): void => {
-      if (!rebindClient || !socket) return;
+      if (!rebindClient || !connection) return;
       target.updateClient(sendToClient);
-      target.setSandboxOverride(this.socketSandboxOverride.get(socket));
+      target.setSandboxOverride(this.connectionSandboxOverride.get(connection));
     };
 
     // Persist session options so they survive eviction/recreation.
@@ -476,8 +478,8 @@ export class DaemonServer {
           workingDir,
         );
         await newSession.loadFromDb();
-        if (rebindClient && socket) {
-          newSession.setSandboxOverride(this.socketSandboxOverride.get(socket));
+        if (rebindClient && connection) {
+          newSession.setSandboxOverride(this.connectionSandboxOverride.get(connection));
         }
         this.sessions.set(conversationId, newSession);
         return newSession;
@@ -490,7 +492,7 @@ export class DaemonServer {
         this.sessionCreating.delete(conversationId);
       }
     } else {
-      // Rebind to the new socket so IPC goes to the current client.
+      // Rebind to the new connection so IPC goes to the current client.
       maybeBindClient(session);
     }
     return session;
@@ -499,10 +501,10 @@ export class DaemonServer {
   private handlerContext(): HandlerContext {
     return {
       sessions: this.sessions,
-      socketToSession: this.socketToSession,
+      connectionToSession: this.connectionToSession,
       cuSessions: this.cuSessions,
-      socketToCuSession: this.socketToCuSession,
-      socketSandboxOverride: this.socketSandboxOverride,
+      connectionToCuSession: this.connectionToCuSession,
+      connectionSandboxOverride: this.connectionSandboxOverride,
       sharedRequestTimestamps: this.sharedRequestTimestamps,
       debounceTimers: this.debounceTimers,
       suppressConfigReload: this.suppressConfigReload,
@@ -511,13 +513,13 @@ export class DaemonServer {
         this.lastConfigFingerprint = this.configFingerprint(getConfig());
         this.lastConfigRefreshTime = Date.now();
       },
-      send: (socket, msg) => this.send(socket, msg),
-      getOrCreateSession: (id, socket?, rebind?, options?) =>
-        this.getOrCreateSession(id, socket, rebind, options),
+      send: (connection, msg) => this.send(connection, msg),
+      getOrCreateSession: (id, connection?, rebind?, options?) =>
+        this.getOrCreateSession(id, connection, rebind, options),
     };
   }
 
-  private dispatchMessage(msg: ClientMessage, socket: net.Socket): void {
+  private dispatchMessage(msg: ClientMessage, connection: IpcConnection): void{
     if (msg.type !== 'ping') {
       const now = Date.now();
       if (now - this.lastConfigRefreshTime >= DaemonServer.CONFIG_REFRESH_INTERVAL_MS) {
@@ -529,7 +531,7 @@ export class DaemonServer {
         }
       }
     }
-    handleMessage(msg, socket, this.handlerContext());
+    handleMessage(msg, connection, this.handlerContext());
   }
 
   /**
