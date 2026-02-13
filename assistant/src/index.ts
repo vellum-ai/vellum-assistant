@@ -52,6 +52,7 @@ import {
   requestMemoryBackfill,
   requestMemoryRebuildIndex,
 } from './memory/admin.js';
+import { getUsageSummary } from './usage/summary.js';
 
 function sendOneMessage(
   msg: ClientMessage,
@@ -858,6 +859,123 @@ program
     }
   });
 
+// --- Usage commands ---
+const usage = program.command('usage').description('View LLM usage and spend');
+
+usage
+  .command('summary')
+  .description('Show spend summary over a time period')
+  .option('--since <period>', 'Preset time window: 24h, 7d, or 30d (default: 7d)')
+  .option('--start <epoch>', 'Custom start time in epoch milliseconds')
+  .option('--end <epoch>', 'Custom end time in epoch milliseconds')
+  .action((opts: { since?: string; start?: string; end?: string }) => {
+    initializeDb();
+
+    const now = Date.now();
+    let startAt: number;
+    let endAt: number;
+
+    if (opts.start && opts.end) {
+      startAt = parseInt(opts.start, 10);
+      endAt = parseInt(opts.end, 10);
+      if (isNaN(startAt) || isNaN(endAt)) {
+        console.error('Error: --start and --end must be valid epoch millisecond values');
+        process.exit(1);
+      }
+    } else if (opts.start || opts.end) {
+      console.error('Error: --start and --end must both be provided for a custom range');
+      process.exit(1);
+    } else {
+      const since = opts.since ?? '7d';
+      const sinceMs: Record<string, number> = {
+        '24h': 24 * 60 * 60 * 1000,
+        '7d': 7 * 24 * 60 * 60 * 1000,
+        '30d': 30 * 24 * 60 * 60 * 1000,
+      };
+      const delta = sinceMs[since];
+      if (!delta) {
+        console.error(`Error: unsupported --since value "${since}". Use 24h, 7d, or 30d`);
+        process.exit(1);
+      }
+      startAt = now - delta;
+      endAt = now;
+    }
+
+    const summary = getUsageSummary({ startAt, endAt });
+
+    // Header
+    const startDate = new Date(startAt).toISOString().slice(0, 10);
+    const endDate = new Date(endAt).toISOString().slice(0, 10);
+    console.log(`\nUsage Summary (${startDate} to ${endDate})\n`);
+
+    // Totals
+    console.log(`  Total spend:     $${summary.totalPricedCostUsd.toFixed(4)}`);
+    console.log(`  Total tokens:    ${summary.totalInputTokens.toLocaleString()} in / ${summary.totalOutputTokens.toLocaleString()} out`);
+    console.log(`  API calls:       ${summary.eventCount.toLocaleString()}`);
+
+    // Unpriced warning
+    if (summary.totalUnpricedInputTokens > 0 || summary.totalUnpricedOutputTokens > 0) {
+      console.log(`\n  \u26a0  Unpriced tokens: ${summary.totalUnpricedInputTokens.toLocaleString()} in / ${summary.totalUnpricedOutputTokens.toLocaleString()} out (pricing data unavailable)`);
+    }
+
+    // Provider breakdown
+    if (summary.byProvider.length > 0) {
+      console.log('\n  By Provider:');
+      const hdrP = '    ' + 'Provider'.padEnd(20) + 'Input'.padStart(12) + 'Output'.padStart(12) + 'Cost'.padStart(12) + 'Calls'.padStart(8);
+      console.log(hdrP);
+      console.log('    ' + '-'.repeat(hdrP.length - 4));
+      for (const p of summary.byProvider) {
+        console.log(
+          '    ' +
+          p.key.padEnd(20) +
+          p.totalInputTokens.toLocaleString().padStart(12) +
+          p.totalOutputTokens.toLocaleString().padStart(12) +
+          (p.totalCost != null ? `$${p.totalCost.toFixed(4)}` : 'N/A').padStart(12) +
+          p.eventCount.toLocaleString().padStart(8),
+        );
+      }
+    }
+
+    // Model breakdown
+    if (summary.byModel.length > 0) {
+      console.log('\n  By Model:');
+      const hdrM = '    ' + 'Model'.padEnd(36) + 'Input'.padStart(12) + 'Output'.padStart(12) + 'Cost'.padStart(12) + 'Calls'.padStart(8);
+      console.log(hdrM);
+      console.log('    ' + '-'.repeat(hdrM.length - 4));
+      for (const m of summary.byModel) {
+        const modelName = m.key.length > 34 ? m.key.slice(0, 33) + '..' : m.key;
+        console.log(
+          '    ' +
+          modelName.padEnd(36) +
+          m.totalInputTokens.toLocaleString().padStart(12) +
+          m.totalOutputTokens.toLocaleString().padStart(12) +
+          (m.totalCost != null ? `$${m.totalCost.toFixed(4)}` : 'N/A').padStart(12) +
+          m.eventCount.toLocaleString().padStart(8),
+        );
+      }
+    }
+
+    // Daily buckets (show if period covers multiple days)
+    if (summary.dailyBuckets.length > 1) {
+      console.log('\n  Daily Breakdown:');
+      const hdrD = '    ' + 'Date'.padEnd(14) + 'Input'.padStart(12) + 'Output'.padStart(12) + 'Cost'.padStart(12) + 'Calls'.padStart(8);
+      console.log(hdrD);
+      console.log('    ' + '-'.repeat(hdrD.length - 4));
+      for (const d of summary.dailyBuckets) {
+        console.log(
+          '    ' +
+          d.date.padEnd(14) +
+          d.totalInputTokens.toLocaleString().padStart(12) +
+          d.totalOutputTokens.toLocaleString().padStart(12) +
+          (d.totalCost != null ? `$${d.totalCost.toFixed(4)}` : 'N/A').padStart(12) +
+          d.eventCount.toLocaleString().padStart(8),
+        );
+      }
+    }
+
+    console.log('');
+  });
+
 // --- Completions command ---
 program
   .command('completions')
@@ -871,10 +989,11 @@ program
       keys: ['list', 'set', 'delete'],
       trust: ['list', 'remove', 'clear'],
       memory: ['status', 'backfill', 'query', 'rebuild-index'],
+      usage: ['summary'],
     };
     const topLevel = [
       'daemon', 'dev', 'sessions', 'config', 'keys', 'trust', 'memory',
-      'audit', 'doctor', 'completions', 'help',
+      'usage', 'audit', 'doctor', 'completions', 'help',
     ];
 
     switch (shell) {
@@ -943,6 +1062,7 @@ _vellum() {
         'keys:Manage API keys in secure storage'
         'trust:Manage trust rules'
         'memory:Manage long-term memory'
+        'usage:View LLM usage and spend'
         'audit:Show recent tool invocations'
         'doctor:Run diagnostic checks'
         'completions:Generate shell completion script'
@@ -985,6 +1105,7 @@ function generateFishCompletion(
     keys: 'Manage API keys in secure storage',
     trust: 'Manage trust rules',
     memory: 'Manage long-term memory',
+    usage: 'View LLM usage and spend',
     audit: 'Show recent tool invocations',
     doctor: 'Run diagnostic checks',
     completions: 'Generate shell completion script',
