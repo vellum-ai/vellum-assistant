@@ -52,9 +52,17 @@ export async function runHookScript(
 
     const timer = setTimeout(() => {
       if (settled) return;
-      settled = true;
       child.kill('SIGTERM');
-      resolve({ exitCode: null, stdout, stderr: stderr + '\nHook timed out' });
+      // Give the process a short grace period to exit after SIGTERM, then SIGKILL
+      const killTimer = setTimeout(() => {
+        child.kill('SIGKILL');
+      }, 2000);
+      child.once('close', () => {
+        clearTimeout(killTimer);
+        if (settled) return;
+        settled = true;
+        resolve({ exitCode: null, stdout, stderr: stderr + '\nHook timed out' });
+      });
     }, timeoutMs);
 
     child.on('close', (code) => {
@@ -71,6 +79,8 @@ export async function runHookScript(
       resolve({ exitCode: null, stdout, stderr: stderr + '\n' + err.message });
     });
 
+    // Suppress unhandled EPIPE errors if the child exits before we finish writing
+    child.stdin.on('error', () => {});
     // Write event data to stdin and close
     child.stdin.write(JSON.stringify(eventData));
     child.stdin.end();

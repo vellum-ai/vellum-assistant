@@ -43,7 +43,7 @@ export class HookManager {
     if (!hooks || hooks.length === 0) return { blocked: false };
 
     const isPreEvent = event.startsWith('pre-');
-    const eventData: HookEventData = { event, ...data };
+    const eventData: HookEventData = { ...data, event };
 
     for (const hook of hooks) {
       try {
