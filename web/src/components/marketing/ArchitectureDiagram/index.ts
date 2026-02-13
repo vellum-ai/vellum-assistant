@@ -1,1 +1,0 @@
-export { ArchitectureDiagram } from "./ArchitectureDiagram";

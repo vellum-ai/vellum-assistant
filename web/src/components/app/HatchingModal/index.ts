@@ -1,1 +1,0 @@
-export { HatchingModal } from "./HatchingModal";

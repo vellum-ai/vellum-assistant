@@ -1,1 +1,0 @@
-export { DeleteAssistantModal } from "./DeleteAssistantModal";
