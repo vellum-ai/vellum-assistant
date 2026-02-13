@@ -45,22 +45,29 @@ struct ChatView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Image("bg", bundle: ResourceBundle.bundle)
+        VStack(spacing: 0) {
+            apiKeyBanner
+            messageList
+            if let errorText {
+                errorBanner(errorText)
+            }
+            queueSummary
+            composerArea
+        }
+        .background(alignment: .bottom) {
+            chatBackground
+        }
+        .background(VColor.chatBackground)
+    }
+
+    @ViewBuilder
+    private var chatBackground: some View {
+        if let url = ResourceBundle.bundle.url(forResource: "background", withExtension: "png"),
+           let nsImage = NSImage(contentsOf: url) {
+            Image(nsImage: nsImage)
                 .resizable()
                 .scaledToFit()
-                .opacity(0.15)
                 .allowsHitTesting(false)
-
-            VStack(spacing: 0) {
-                apiKeyBanner
-                messageList
-                if let errorText {
-                    errorBanner(errorText)
-                }
-                queueSummary
-                composerArea
-            }
         }
     }
 
