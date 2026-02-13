@@ -215,6 +215,66 @@ describe('stripCommentLines', () => {
   test('returns empty string for all-comment content', () => {
     expect(stripCommentLines('_ one\n_ two')).toBe('');
   });
+
+  test('preserves _-prefixed lines inside fenced code blocks', () => {
+    const input = [
+      '## Example',
+      '',
+      '```python',
+      'class Singleton:',
+      '    _instance = None',
+      '    _private_var = 42',
+      '```',
+      '',
+      '_ This comment should be removed',
+      'After the block.',
+    ].join('\n');
+    const expected = [
+      '## Example',
+      '',
+      '```python',
+      'class Singleton:',
+      '    _instance = None',
+      '    _private_var = 42',
+      '```',
+      '',
+      'After the block.',
+    ].join('\n');
+    expect(stripCommentLines(input)).toBe(expected);
+  });
+
+  test('handles multiple code blocks with _-prefixed lines', () => {
+    const input = [
+      '_ comment before',
+      '```',
+      '_keep_this',
+      '```',
+      '_ comment between',
+      '```js',
+      '_anotherVar = true',
+      '```',
+      '_ comment after',
+    ].join('\n');
+    const expected = [
+      '```',
+      '_keep_this',
+      '```',
+      '```js',
+      '_anotherVar = true',
+      '```',
+    ].join('\n');
+    expect(stripCommentLines(input)).toBe(expected);
+  });
+
+  test('normalizes CRLF line endings before processing', () => {
+    const input = 'First\r\n\r\n_ comment\r\n\r\nSecond';
+    expect(stripCommentLines(input)).toBe('First\n\nSecond');
+  });
+
+  test('collapses blank lines correctly with CRLF input', () => {
+    const input = 'a\r\n\r\n_ removed\r\n\r\nb';
+    expect(stripCommentLines(input)).toBe('a\n\nb');
+  });
 });
 
 describe('ensurePromptFiles', () => {
