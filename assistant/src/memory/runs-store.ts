@@ -21,6 +21,8 @@ export interface PendingConfirmation {
   toolUseId: string;
   input: Record<string, unknown>;
   riskLevel: string;
+  allowlistOptions?: Array<{ label: string; pattern: string }>;
+  scopeOptions?: Array<{ label: string; scope: string }>;
 }
 
 export interface Run {

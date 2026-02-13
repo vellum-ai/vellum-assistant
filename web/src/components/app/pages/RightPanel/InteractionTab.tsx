@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   Bot,
+  Check,
   ChevronDown,
   ChevronRight,
   FileImage,
@@ -77,11 +78,23 @@ interface PendingAttachment {
   error?: string;
 }
 
+interface AllowlistOption {
+  label: string;
+  pattern: string;
+}
+
+interface ScopeOption {
+  label: string;
+  scope: string;
+}
+
 interface PendingRunConfirmation {
   toolName: string;
   toolUseId: string;
   input: Record<string, unknown>;
   riskLevel: string;
+  allowlistOptions?: AllowlistOption[];
+  scopeOptions?: ScopeOption[];
 }
 
 interface InteractionTabProps {
@@ -177,6 +190,13 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingRunConfirmation | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  // Trust rule picker state (shown after Allow/Deny)
+  const [confirmationDecision, setConfirmationDecision] = useState<"allow" | "deny" | null>(null);
+  const [decidedConfirmation, setDecidedConfirmation] = useState<PendingRunConfirmation | null>(null);
+  const [showRulePicker, setShowRulePicker] = useState(false);
+  const [selectedPattern, setSelectedPattern] = useState("");
+  const [selectedScope, setSelectedScope] = useState("");
+  const [ruleSaved, setRuleSaved] = useState(false);
 
   const handleVoiceTranscript = useCallback((text: string) => {
     setInput((prev) => (prev ? `${prev} ${text}` : text));
@@ -699,7 +719,18 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const handleDecision = useCallback(async (decision: "allow" | "deny") => {
     if (!activeRunId) return;
 
+    const conf = pendingConfirmation;
     setPendingConfirmation(null);
+
+    // Save state for the trust rule picker
+    if (conf) {
+      setDecidedConfirmation(conf);
+      setConfirmationDecision(decision);
+      setShowRulePicker(false);
+      setRuleSaved(false);
+      setSelectedPattern(conf.allowlistOptions?.[0]?.pattern ?? "");
+      setSelectedScope(conf.scopeOptions?.[0]?.scope ?? "");
+    }
 
     try {
       const res = await fetch(`/api/assistants/${assistantId}/runs/${activeRunId}/decision`, {
@@ -713,7 +744,38 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
     } catch (error) {
       console.error("Failed to submit decision:", error);
     }
-  }, [activeRunId, assistantId]);
+  }, [activeRunId, assistantId, pendingConfirmation]);
+
+  const handleAddTrustRule = useCallback(async () => {
+    if (!activeRunId || !decidedConfirmation || !confirmationDecision || !selectedPattern || !selectedScope) return;
+
+    try {
+      const res = await fetch(`/api/assistants/${assistantId}/runs/${activeRunId}/trust-rule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          toolName: decidedConfirmation.toolName,
+          pattern: selectedPattern,
+          scope: selectedScope,
+          decision: confirmationDecision,
+        }),
+      });
+      if (res.ok) {
+        setRuleSaved(true);
+        setShowRulePicker(false);
+        // Auto-dismiss after 2 seconds
+        setTimeout(() => {
+          setDecidedConfirmation(null);
+          setConfirmationDecision(null);
+          setRuleSaved(false);
+        }, 2000);
+      } else {
+        console.error("Failed to add trust rule");
+      }
+    } catch (error) {
+      console.error("Failed to add trust rule:", error);
+    }
+  }, [activeRunId, assistantId, decidedConfirmation, confirmationDecision, selectedPattern, selectedScope]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1012,6 +1074,105 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
                           Deny
                         </Button>
                       </div>
+                    </div>
+                  </div>
+                )}
+                {!pendingConfirmation && decidedConfirmation && confirmationDecision && (
+                  <div className="flex gap-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950">
+                      <ShieldAlert className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <div className="max-w-[80%] rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/50">
+                      <p className="text-sm text-amber-700 dark:text-amber-400">
+                        <span className="font-mono font-medium">{decidedConfirmation.toolName}</span>
+                        {" — "}
+                        <span className={confirmationDecision === "allow" ? "font-medium text-green-700 dark:text-green-400" : "font-medium text-red-700 dark:text-red-400"}>
+                          {confirmationDecision === "allow" ? "Allowed" : "Denied"}
+                        </span>
+                      </p>
+                      {ruleSaved ? (
+                        <div className="mt-2 flex items-center gap-1.5 text-sm text-green-700 dark:text-green-400">
+                          <Check className="h-4 w-4" />
+                          <span>Rule saved</span>
+                        </div>
+                      ) : showRulePicker ? (
+                        <div className="mt-3 space-y-2">
+                          {(decidedConfirmation.allowlistOptions?.length ?? 0) > 1 ? (
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-amber-700 dark:text-amber-400">Pattern</label>
+                              <select
+                                value={selectedPattern}
+                                onChange={(e) => setSelectedPattern(e.target.value)}
+                                className="w-full rounded-md border border-amber-300 bg-white px-2 py-1 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                              >
+                                {decidedConfirmation.allowlistOptions!.map((opt) => (
+                                  <option key={opt.pattern} value={opt.pattern}>{opt.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : decidedConfirmation.allowlistOptions?.[0] ? (
+                            <div className="text-xs text-amber-700 dark:text-amber-400">
+                              <span className="font-medium">Pattern:</span>{" "}
+                              <span className="font-mono">{decidedConfirmation.allowlistOptions[0].label}</span>
+                            </div>
+                          ) : null}
+                          {(decidedConfirmation.scopeOptions?.length ?? 0) > 1 ? (
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-amber-700 dark:text-amber-400">Scope</label>
+                              <select
+                                value={selectedScope}
+                                onChange={(e) => setSelectedScope(e.target.value)}
+                                className="w-full rounded-md border border-amber-300 bg-white px-2 py-1 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                              >
+                                {decidedConfirmation.scopeOptions!.map((opt) => (
+                                  <option key={opt.scope} value={opt.scope}>{opt.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : decidedConfirmation.scopeOptions?.[0] ? (
+                            <div className="text-xs text-amber-700 dark:text-amber-400">
+                              <span className="font-medium">Scope:</span>{" "}
+                              <span className="font-mono">{decidedConfirmation.scopeOptions[0].label}</span>
+                            </div>
+                          ) : null}
+                          <div className="flex gap-2 pt-1">
+                            <Button
+                              onClick={handleAddTrustRule}
+                              size="sm"
+                              className="bg-amber-600 text-white hover:bg-amber-700"
+                            >
+                              Save Rule
+                            </Button>
+                            <Button
+                              onClick={() => { setShowRulePicker(false); setDecidedConfirmation(null); setConfirmationDecision(null); }}
+                              size="sm"
+                              variant="ghost"
+                              className="text-amber-600 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (decidedConfirmation.allowlistOptions?.length ?? 0) > 0 && (decidedConfirmation.scopeOptions?.length ?? 0) > 0 ? (
+                        <div className="mt-2 flex gap-2">
+                          <Button
+                            onClick={() => setShowRulePicker(true)}
+                            size="sm"
+                            variant="ghost"
+                            className="text-amber-700 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900"
+                          >
+                            {confirmationDecision === "allow" ? "Add to Allowlist" : "Add to Denylist"}
+                          </Button>
+                          <Button
+                            onClick={() => { setDecidedConfirmation(null); setConfirmationDecision(null); }}
+                            size="sm"
+                            variant="ghost"
+                            className="text-amber-500 hover:bg-amber-100 dark:text-amber-500 dark:hover:bg-amber-900"
+                          >
+                            Dismiss
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 )}

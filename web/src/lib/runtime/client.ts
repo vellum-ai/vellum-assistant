@@ -25,6 +25,8 @@ import type {
   RunResponse,
   RunDecisionParams,
   RunDecisionResponse,
+  AddTrustRuleParams,
+  AddTrustRuleResponse,
 } from "./types";
 
 function sanitizeUrl(url: string): string {
@@ -161,6 +163,13 @@ export function createRuntimeClient(
 
     submitRunDecision(runId: string, params: RunDecisionParams) {
       return request<RunDecisionResponse>(`/runs/${runId}/decision`, {
+        method: "POST",
+        body: JSON.stringify(params),
+      });
+    },
+
+    addTrustRule(runId: string, params: AddTrustRuleParams) {
+      return request<AddTrustRuleResponse>(`/runs/${runId}/trust-rule`, {
         method: "POST",
         body: JSON.stringify(params),
       });

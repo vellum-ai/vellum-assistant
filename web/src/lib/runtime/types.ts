@@ -137,6 +137,8 @@ export interface PendingConfirmation {
   toolUseId: string;
   input: Record<string, unknown>;
   riskLevel: string;
+  allowlistOptions?: Array<{ label: string; pattern: string }>;
+  scopeOptions?: Array<{ label: string; scope: string }>;
 }
 
 export interface RunResponse {
@@ -154,6 +156,17 @@ export interface RunDecisionParams {
 }
 
 export interface RunDecisionResponse {
+  accepted: boolean;
+}
+
+export interface AddTrustRuleParams {
+  toolName: string;
+  pattern: string;
+  scope: string;
+  decision: "allow" | "deny";
+}
+
+export interface AddTrustRuleResponse {
   accepted: boolean;
 }
 
@@ -178,4 +191,5 @@ export interface RuntimeClient {
   createRun(params: CreateRunParams): Promise<RunResponse>;
   getRun(runId: string): Promise<RunResponse>;
   submitRunDecision(runId: string, params: RunDecisionParams): Promise<RunDecisionResponse>;
+  addTrustRule(runId: string, params: AddTrustRuleParams): Promise<AddTrustRuleResponse>;
 }
