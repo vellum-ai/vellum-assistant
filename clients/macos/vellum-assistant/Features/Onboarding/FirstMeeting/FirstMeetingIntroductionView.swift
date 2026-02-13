@@ -10,6 +10,7 @@ struct FirstMeetingIntroductionView: View {
     @State private var showControls = false
     @State private var streamingMessageId = UUID()
     @State private var isRecording = false
+    @State private var hasCompleted = false
 
     @State private var voiceInputManager = VoiceInputManager()
     private let profileExtractor: ProfileExtractor
@@ -163,8 +164,10 @@ struct FirstMeetingIntroductionView: View {
     // MARK: - Conversation Completion
 
     private func completeConversation() {
+        guard !hasCompleted else { return }
+        hasCompleted = true
+
         let messages = viewModel.messages
-        let assistantName = state.assistantName
 
         // Extract conversation data (name, first task candidate).
         viewModel.extractConversationData()
@@ -179,6 +182,9 @@ struct FirstMeetingIntroductionView: View {
 
         state.conversationCompleted = true
         viewModel.endConversation()
+
+        // Capture the assistant name AFTER extraction so profile uses the updated name.
+        let assistantName = state.assistantName
 
         // Run profile extraction in the background.
         Task { @MainActor in

@@ -161,6 +161,10 @@ final class FirstMeetingIntroductionViewModel {
                     }
 
                 case .assistantTextDelta(let delta) where self.sessionId != nil:
+                    // Filter by session to prevent contamination from concurrent sessions.
+                    if let deltaSessionId = delta.sessionId, deltaSessionId != self.sessionId {
+                        break
+                    }
                     accumulated += delta.text
                     self.isThinking = false
                     self.streamingText = accumulated
@@ -285,6 +289,10 @@ final class FirstMeetingIntroductionViewModel {
 
                 switch message {
                 case .assistantTextDelta(let delta):
+                    // Filter by session to prevent contamination from concurrent sessions.
+                    if let deltaSessionId = delta.sessionId, deltaSessionId != sessionId {
+                        break
+                    }
                     accumulated += delta.text
                     self.isThinking = false
                     self.streamingText = accumulated
