@@ -104,6 +104,7 @@ final class JITPermissionManager {
     }
 }
 
+#if DEBUG
 #Preview {
     @Previewable @State var manager = JITPermissionManager()
 
@@ -141,3 +142,4 @@ final class JITPermissionManager {
     .frame(width: 500, height: 300)
     .background(VColor.background)
 }
+#endif
