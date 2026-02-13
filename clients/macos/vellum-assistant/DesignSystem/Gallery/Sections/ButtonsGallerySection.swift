@@ -112,6 +112,35 @@ struct ButtonsGallerySection: View {
                     }
                 }
             }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
+            // MARK: - VCircleButton
+            GallerySectionHeader(
+                title: "VCircleButton",
+                description: "Circular button with SF Symbol icon, configurable fill color and size."
+            )
+
+            VCard {
+                HStack(spacing: VSpacing.xl) {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Default (Emerald, 36pt)").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VCircleButton(icon: "plus", label: "Add") {}
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Violet fill").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VCircleButton(icon: "phone.fill", label: "Call", fillColor: Violet._500) {}
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Large (48pt)").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VCircleButton(icon: "mic.fill", label: "Record", size: 48, iconSize: 20) {}
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Small (24pt, Rose)").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VCircleButton(icon: "xmark", label: "Close", fillColor: Rose._600, size: 24, iconSize: 10) {}
+                    }
+                }
+            }
         }
     }
 

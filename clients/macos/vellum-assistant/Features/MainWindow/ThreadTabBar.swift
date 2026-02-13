@@ -27,18 +27,15 @@ struct ThreadTabBar: View {
                         onClose: { onClose(thread.id) }
                     )
                 }
+                
+                Rectangle()
+                    .fill(Slate._600)
+                    .frame(width: 1, height: 14)
+                    .padding(VSpacing.xs)
 
-                Button(action: onCreate) {
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "plus")
-                        Text("Thread")
-                    }
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .vHover()
-                .accessibilityLabel("New Thread")
+
+                VTab(label: "Thread", icon: "plus", isCloseable: false, style: .rectangular, onSelect: { onCreate() })
+                    
 
                 Spacer()
             }

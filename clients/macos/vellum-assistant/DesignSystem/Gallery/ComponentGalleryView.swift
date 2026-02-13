@@ -85,4 +85,9 @@ struct GallerySectionHeader: View {
         }
     }
 }
+
+#Preview("Component Gallery") {
+    ComponentGalleryView()
+        .frame(width: 900, height: 700)
+}
 #endif

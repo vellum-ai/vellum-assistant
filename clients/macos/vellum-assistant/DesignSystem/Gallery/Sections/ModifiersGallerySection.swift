@@ -6,8 +6,8 @@ struct ModifiersGallerySection: View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
             // MARK: - .vCard()
             GallerySectionHeader(
-                title: ".vCard(radius:)",
-                description: "View modifier that applies card styling with configurable corner radius."
+                title: ".vCard(radius:background:)",
+                description: "View modifier that applies card styling with configurable corner radius and background color."
             )
 
             VCard {
@@ -27,6 +27,35 @@ struct ModifiersGallerySection: View {
                                 .vCard(radius: radius)
 
                             Text(".\(name) (\(Int(radius))pt)")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                    }
+                }
+            }
+
+            // Background colors
+            Text("Background Colors")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textSecondary)
+
+            VCard {
+                HStack(spacing: VSpacing.lg) {
+                    ForEach([
+                        ("surface", VColor.surface),
+                        ("background", VColor.background),
+                        ("accent", VColor.accent),
+                        ("success", VColor.success),
+                        ("error", VColor.error),
+                    ], id: \.0) { name, color in
+                        VStack(spacing: VSpacing.md) {
+                            Text("Sample content")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
+                                .padding(VSpacing.xl)
+                                .vCard(background: color)
+
+                            Text(name)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }

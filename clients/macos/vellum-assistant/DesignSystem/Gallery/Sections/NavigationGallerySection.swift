@@ -81,7 +81,7 @@ struct NavigationGallerySection: View {
             }
 
             // Tab states
-            Text("Tab States")
+            Text("Tab States (Pill)")
                 .font(VFont.headline)
                 .foregroundColor(VColor.textSecondary)
 
@@ -102,6 +102,58 @@ struct NavigationGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("No icon").font(VFont.caption).foregroundColor(VColor.textMuted)
                         VTab(label: "Plain Tab", isCloseable: false, onSelect: {})
+                    }
+                }
+            }
+
+            // Flat-style tab states
+            Text("Tab States (Flat)")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textSecondary)
+
+            VCard {
+                HStack(spacing: VSpacing.lg) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Default").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VTab(label: "Thread 1", style: .flat, onSelect: {})
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Selected").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VTab(label: "Thread 1", isSelected: true, style: .flat, onSelect: {})
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VTab(label: "Thread 2", style: .flat, onSelect: {}, onClose: {})
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Selected + Closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VTab(label: "Thread 2", isSelected: true, style: .flat, onSelect: {}, onClose: {})
+                    }
+                }
+            }
+
+            // Rectangular-style tab states
+            Text("Tab States (Rectangular)")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textSecondary)
+
+            VCard {
+                HStack(spacing: VSpacing.lg) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Default").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VTab(label: "Tab", icon: "doc", style: .rectangular, onSelect: {})
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Selected").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VTab(label: "Tab", icon: "doc", isSelected: true, style: .rectangular, onSelect: {})
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VTab(label: "Tab", icon: "doc", style: .rectangular, onSelect: {}, onClose: {})
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Selected + Closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VTab(label: "Tab", icon: "doc", isSelected: true, style: .rectangular, onSelect: {}, onClose: {})
                     }
                 }
             }
