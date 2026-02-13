@@ -209,10 +209,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.toolConfirmationManager.showConfirmation(msg)
         }
         toolConfirmationManager.onResponse = { [weak self] requestId, decision in
+            guard let self else { return false }
             // Send the response to daemon; return false on failure so
             // the floating panel stays visible for retry.
             do {
-                try self?.daemonClient.sendConfirmationResponse(
+                try self.daemonClient.sendConfirmationResponse(
                     requestId: requestId,
                     decision: decision
                 )
@@ -222,7 +223,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             // Sync the inline message state across ALL ChatViewModels so the
             // originating thread is updated even if the user switched threads.
-            self?.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
+            self.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
                 requestId: requestId,
                 decision: decision
             )

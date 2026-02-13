@@ -28,6 +28,7 @@ final class ToolConfirmationManager {
         // Dismiss existing panel for same request, if any
         dismissConfirmation(requestId: message.requestId)
 
+        let hasRuleOptions = !message.allowlistOptions.isEmpty && !message.scopeOptions.isEmpty
         let view = ToolConfirmationView(
             toolName: message.toolName,
             riskLevel: message.riskLevel,
@@ -35,10 +36,10 @@ final class ToolConfirmationManager {
             allowlistOptions: message.allowlistOptions,
             scopeOptions: message.scopeOptions,
             onAllow: { [weak self] in
-                self?.respond(requestId: message.requestId, decision: "allow") ?? false
+                self?.respond(requestId: message.requestId, decision: "allow", hasRuleOptions: hasRuleOptions) ?? false
             },
             onDeny: { [weak self] in
-                self?.respond(requestId: message.requestId, decision: "deny") ?? false
+                self?.respond(requestId: message.requestId, decision: "deny", hasRuleOptions: hasRuleOptions) ?? false
             },
             onDismiss: { [weak self] in
                 self?.dismissConfirmation(requestId: message.requestId)
@@ -102,9 +103,9 @@ final class ToolConfirmationManager {
         panels.removeAll()
     }
 
-    private func respond(requestId: String, decision: String) -> Bool {
+    private func respond(requestId: String, decision: String, hasRuleOptions: Bool) -> Bool {
         let success = onResponse?(requestId, decision) ?? true
-        if success {
+        if success && !hasRuleOptions {
             dismissConfirmation(requestId: requestId)
         }
         return success
