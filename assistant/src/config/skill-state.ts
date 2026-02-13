@@ -54,7 +54,7 @@ export function resolveSkillStates(
     if (!reqCheck.eligible) {
       results.push({
         summary: skill,
-        state: 'enabled',
+        state: 'degraded',
         degraded: true,
         missingRequirements: reqCheck.missing,
         configEntry: entry,
