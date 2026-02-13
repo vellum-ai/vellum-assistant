@@ -1,12 +1,39 @@
-name: Publish velly to npm
+name: Publish velly
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+    paths: [assistant/package.json]
   workflow_dispatch:
 
 jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.run-script.outputs.released }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.8'
+
+      - name: Create release
+        id: run-script
+        run: bun run scripts/publish-velly.ts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
   publish:
+    needs: release
+    if: needs.release.outputs.released == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
