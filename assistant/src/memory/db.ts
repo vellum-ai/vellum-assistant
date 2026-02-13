@@ -430,7 +430,9 @@ export function initializeDb(): void {
  * attempt count into `deferrals` and resets `attempts` to 0 for affected jobs.
  *
  * Affected jobs: status='pending' (deferred jobs are returned to pending), attempts > 0,
- * deferrals = 0 (not yet migrated).
+ * deferrals = 0 (not yet migrated), last_error IS NULL (excludes jobs retried via
+ * failMemoryJob which always sets lastError), and only embed job types (embed_segment,
+ * embed_item, embed_summary) since only those can enter the deferral path.
  *
  * Idempotent: once deferrals > 0 or attempts = 0, rows are no longer matched.
  */
@@ -444,6 +446,8 @@ function migrateJobDeferrals(database: ReturnType<typeof drizzle<typeof schema>>
     WHERE status = 'pending'
       AND attempts > 0
       AND deferrals = 0
+      AND last_error IS NULL
+      AND type IN ('embed_segment', 'embed_item', 'embed_summary')
   `);
 }
 
