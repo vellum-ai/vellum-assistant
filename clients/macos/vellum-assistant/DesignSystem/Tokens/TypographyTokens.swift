@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Font presets for the app. Always use these instead of raw Font.system() calls.
@@ -5,6 +6,20 @@ import SwiftUI
 /// **Silkscreen** — pixelated bitmap font for headings and display text.
 /// **DM Mono** — monospaced font for body/UI text.
 enum VFont {
+
+    /// DM Mono with ligatures disabled so "fi", "fl", "ff" render as separate glyphs.
+    private static func dmMono(_ name: String, size: CGFloat) -> Font {
+        guard let nsFont = NSFont(name: name, size: size) else {
+            return Font.custom(name, size: size)
+        }
+        let descriptor = nsFont.fontDescriptor.addingAttributes([
+            .featureSettings: [[
+                NSFontDescriptor.FeatureKey.typeIdentifier: kLigaturesType,
+                NSFontDescriptor.FeatureKey.selectorIdentifier: kCommonLigaturesOffSelector,
+            ]]
+        ])
+        return Font(NSFont(descriptor: descriptor, size: size) ?? nsFont)
+    }
     // MARK: - Onboarding (Silkscreen pixel font)
 
     static let onboardingTitle = Font.custom("Silkscreen-Regular", size: 28)
@@ -18,19 +33,19 @@ enum VFont {
 
     // MARK: - Body / UI (DM Mono)
 
-    static let body       = Font.custom("DMMono-Regular", size: 13)
-    static let bodyMedium = Font.custom("DMMono-Medium", size: 13)
-    static let bodyBold   = Font.custom("DMMono-Medium", size: 13)
-    static let caption    = Font.custom("DMMono-Regular", size: 11)
-    static let captionMedium = Font.custom("DMMono-Medium", size: 11)
-    static let small      = Font.custom("DMMono-Regular", size: 10)
+    static let body       = dmMono("DMMono-Regular", size: 13)
+    static let bodyMedium = dmMono("DMMono-Medium", size: 13)
+    static let bodyBold   = dmMono("DMMono-Medium", size: 13)
+    static let caption    = dmMono("DMMono-Regular", size: 11)
+    static let captionMedium = dmMono("DMMono-Medium", size: 11)
+    static let small      = dmMono("DMMono-Regular", size: 10)
 
     // MARK: - Specialized
 
-    static let cardTitle  = Font.custom("DMMono-Medium", size: 17)
+    static let cardTitle  = dmMono("DMMono-Medium", size: 17)
     static let cardEmoji  = Font.system(size: 32)
-    static let mono       = Font.custom("DMMono-Regular", size: 13)
-    static let monoSmall  = Font.custom("DMMono-Regular", size: 11)
+    static let mono       = dmMono("DMMono-Regular", size: 13)
+    static let monoSmall  = dmMono("DMMono-Regular", size: 11)
 
     /// All-caps pixel display font (used for panel headers like "AGENT", "GENERATED CONTENT")
     static let display    = Font.custom("Silkscreen-Bold", size: 18)
