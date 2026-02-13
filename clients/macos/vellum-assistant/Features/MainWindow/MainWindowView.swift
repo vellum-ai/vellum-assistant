@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
     @State private var activePanel: SidePanelType?
+    @State private var hasAPIKey = APIKeyManager.getKey() != nil
     let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
 
@@ -37,12 +38,14 @@ struct MainWindowView: View {
                                 get: { viewModel.inputText },
                                 set: { viewModel.inputText = $0 }
                             ),
+                            hasAPIKey: hasAPIKey,
                             isThinking: viewModel.isThinking,
                             isSending: viewModel.isSending,
                             errorText: viewModel.errorText,
                             pendingQueuedCount: viewModel.pendingQueuedCount,
                             suggestion: viewModel.suggestion,
                             pendingAttachments: viewModel.pendingAttachments,
+                            onOpenSettings: Self.openSettings,
                             onSend: viewModel.sendMessage,
                             onStop: viewModel.stopGenerating,
                             onDismissError: viewModel.dismissError,
@@ -60,6 +63,12 @@ struct MainWindowView: View {
             .background(VColor.background.ignoresSafeArea())
         }
         .frame(minWidth: 800, minHeight: 600)
+        .onAppear {
+            refreshAPIKeyState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
+            refreshAPIKeyState()
+        }
     }
 
     @MainActor
@@ -75,6 +84,15 @@ struct MainWindowView: View {
         for url in panel.urls {
             viewModel.addAttachment(url: url)
         }
+    }
+
+    private static func openSettings() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func refreshAPIKeyState() {
+        hasAPIKey = APIKeyManager.getKey() != nil
     }
 
     @ViewBuilder

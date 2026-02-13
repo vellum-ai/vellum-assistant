@@ -3,12 +3,14 @@ import SwiftUI
 struct ChatView: View {
     let messages: [ChatMessage]
     @Binding var inputText: String
+    let hasAPIKey: Bool
     let isThinking: Bool
     let isSending: Bool
     let errorText: String?
     let pendingQueuedCount: Int
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
+    let onOpenSettings: () -> Void
     let onSend: () -> Void
     let onStop: () -> Void
     let onDismissError: () -> Void
@@ -47,6 +49,7 @@ struct ChatView: View {
                     errorBanner(errorText)
                 }
                 queueSummary
+                apiKeyBanner
                 composerArea
             }
         }
@@ -172,6 +175,7 @@ struct ChatView: View {
                     .font(VFont.mono)
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(1...3)
+                    .disabled(!hasAPIKey)
                     .onKeyPress(.tab, phases: .down) { keyPress in
                         if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
                             onAcceptSuggestion()
@@ -224,6 +228,7 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Attach file")
+                .disabled(!hasAPIKey)
             }
         }
         .padding(VSpacing.xs)
@@ -240,7 +245,27 @@ struct ChatView: View {
     }
 
     private var canSend: Bool {
-        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty
+        hasAPIKey && (!inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty)
+    }
+
+    @ViewBuilder
+    private var apiKeyBanner: some View {
+        if !hasAPIKey {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "key.fill")
+                    .font(VFont.caption)
+                Text("Anthropic API key not set. Add one in Settings to start chatting.")
+                    .font(VFont.caption)
+                    .lineLimit(2)
+                Spacer()
+                Button("Open Settings", action: onOpenSettings)
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .foregroundColor(.white)
+            .background(VColor.warning)
+        }
     }
 }
 
@@ -407,12 +432,14 @@ private struct ThinkingIndicator: View {
         ChatView(
             messages: sampleMessages,
             inputText: $text,
+            hasAPIKey: true,
             isThinking: true,
             isSending: false,
             errorText: nil,
             pendingQueuedCount: 0,
             suggestion: "That sounds great, thanks!",
             pendingAttachments: [],
+            onOpenSettings: {},
             onSend: {},
             onStop: {},
             onDismissError: {},
