@@ -651,9 +651,16 @@ export function loadSkillCatalog(workspaceSkillsDir?: string, extraDirs?: string
 }
 
 function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
-  const loaded = skill.bundled
-    ? readBundledSkillFromDirectory(skill.directoryPath)
-    : readSkillFromDirectory(skill.directoryPath, getSkillsDir(), skill.source);
+  let loaded: SkillDefinition | null;
+  if (skill.bundled) {
+    loaded = readBundledSkillFromDirectory(skill.directoryPath);
+  } else if (skill.source === 'workspace') {
+    // Workspace skills live outside ~/.vellum/skills, so use their parent
+    // directory as the root to avoid the isOutsideSkillsRoot rejection.
+    loaded = readSkillFromDirectory(skill.directoryPath, dirname(skill.directoryPath), skill.source);
+  } else {
+    loaded = readSkillFromDirectory(skill.directoryPath, getSkillsDir(), skill.source);
+  }
   if (!loaded) {
     return { error: `Failed to load SKILL.md for "${skill.id}"` };
   }
@@ -662,13 +669,13 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   return { skill: loaded };
 }
 
-export function resolveSkillSelector(selector: string): SkillSelectorResult {
+export function resolveSkillSelector(selector: string, workspaceSkillsDir?: string): SkillSelectorResult {
   const needle = selector.trim();
   if (!needle) {
     return { error: 'Skill selector is required and must be a non-empty string.' };
   }
 
-  const catalog = loadSkillCatalog();
+  const catalog = loadSkillCatalog(workspaceSkillsDir);
   if (catalog.length === 0) {
     return { error: 'No skills are available. Configure ~/.vellum/skills/SKILLS.md or add skill directories.' };
   }
@@ -702,8 +709,8 @@ export function resolveSkillSelector(selector: string): SkillSelectorResult {
   return { error: `No skill matched "${needle}". Available skills: ${knownSkills}` };
 }
 
-export function loadSkillBySelector(selector: string): SkillLookupResult {
-  const resolved = resolveSkillSelector(selector);
+export function loadSkillBySelector(selector: string, workspaceSkillsDir?: string): SkillLookupResult {
+  const resolved = resolveSkillSelector(selector, workspaceSkillsDir);
   if (!resolved.skill) {
     return { error: resolved.error ?? 'Failed to resolve skill selector.' };
   }
