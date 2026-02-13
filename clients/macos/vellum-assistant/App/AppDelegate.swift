@@ -8,6 +8,26 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
+/// Writes `~/.vellum/IDENTITY.md` with the assistant's chosen name so the
+/// daemon's system prompt includes the correct identity.
+func writeVellumIdentityFile(name: String) {
+    let vellumDir = NSHomeDirectory() + "/.vellum"
+    let identityPath = vellumDir + "/IDENTITY.md"
+    let content = "Your name is \(name). When asked who you are or what your name is, always introduce yourself as \(name)."
+
+    do {
+        try FileManager.default.createDirectory(
+            atPath: vellumDir,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try content.write(toFile: identityPath, atomically: true, encoding: .utf8)
+        log.info("Wrote IDENTITY.md for assistant name: \(name)")
+    } catch {
+        log.error("Failed to write IDENTITY.md: \(error.localizedDescription)")
+    }
+}
+
 enum AssistantStatus {
     case idle
     case thinking
@@ -597,6 +617,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+            writeVellumIdentityFile(name: state.assistantName)
 
             self?.writeIdentityFile(name: state.assistantName)
 
@@ -619,6 +640,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
             UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+            writeVellumIdentityFile(name: state.assistantName)
 
             self?.writeIdentityFile(name: state.assistantName)
 
