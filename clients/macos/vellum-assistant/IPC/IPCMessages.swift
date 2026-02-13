@@ -405,6 +405,7 @@ struct SkillDetailResponseMessage: Decodable, Sendable {
 struct ToolUseStartMessage: Decodable, Sendable {
     let toolName: String
     let input: [String: AnyCodable]
+    let sessionId: String?
 }
 
 /// Streaming tool output chunk.
@@ -421,6 +422,7 @@ struct ToolResultMessage: Decodable, Sendable {
     let isError: Bool?
     let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
     let status: String?
+    let sessionId: String?
 }
 
 /// Follow-up suggestion response from daemon.
