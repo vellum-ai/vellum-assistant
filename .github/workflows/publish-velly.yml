@@ -29,6 +29,7 @@ jobs:
         run: bun run scripts/publish-velly.ts
         env:
           GH_TOKEN: ${{ github.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
   publish:
     needs: release
