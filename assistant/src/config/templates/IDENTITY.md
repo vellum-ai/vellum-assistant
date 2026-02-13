@@ -1,3 +1,5 @@
+_ Lines starting with _ are comments — they won't appear in the prompt sent to your assistant.
+
 # IDENTITY
 
 _Customize this file to give your assistant a distinct identity._
