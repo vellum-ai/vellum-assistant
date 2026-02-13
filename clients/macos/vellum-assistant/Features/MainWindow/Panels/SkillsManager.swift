@@ -19,6 +19,7 @@ final class SkillsManager: ObservableObject {
     }
 
     private let daemonClient: DaemonClient
+    private var currentInspectSlug: String?
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -141,6 +142,7 @@ final class SkillsManager: ObservableObject {
     }
 
     func inspectSkill(slug: String) {
+        currentInspectSlug = slug
         isInspecting = true
         inspectedSkill = nil
         inspectError = nil
@@ -151,6 +153,8 @@ final class SkillsManager: ObservableObject {
             do {
                 try daemonClient.inspectSkill(slug: slug)
             } catch {
+                // Only update if still the current request
+                guard currentInspectSlug == slug else { return }
                 isInspecting = false
                 inspectError = "Failed to connect"
                 return
@@ -159,6 +163,8 @@ final class SkillsManager: ObservableObject {
             for await message in stream {
                 if case .skillsInspectResponse(let response) = message,
                    response.slug == slug {
+                    // Only update if still the current request
+                    guard currentInspectSlug == slug else { return }
                     if let data = response.data {
                         inspectedSkill = data
                     } else {
@@ -168,11 +174,14 @@ final class SkillsManager: ObservableObject {
                     return
                 }
             }
-            isInspecting = false
+            if currentInspectSlug == slug {
+                isInspecting = false
+            }
         }
     }
 
     func clearInspection() {
+        currentInspectSlug = nil
         inspectedSkill = nil
         isInspecting = false
         inspectError = nil
