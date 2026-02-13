@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ChatView: View {
     let messages: [ChatMessage]
@@ -14,6 +15,9 @@ struct ChatView: View {
     let onDismissError: () -> Void
     let onAcceptSuggestion: () -> Void
     let onAttach: () -> Void
+    let onRemoveAttachment: (String) -> Void
+    let onDropFiles: ([URL]) -> Void
+    let onPaste: () -> Void
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
 
@@ -161,69 +165,82 @@ struct ChatView: View {
     // MARK: - Composer Area
 
     private var composerArea: some View {
-        HStack(spacing: VSpacing.sm) {
-            // Leading chat icon
-            VCircleButton(icon: "phone.fill", label: "Phone") { }
-
-            // Text field with ghost suffix overlay
-            ZStack(alignment: .leading) {
-                TextField("", text: $inputText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(1...3)
-                    .onKeyPress(.tab, phases: .down) { keyPress in
-                        if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
-                            onAcceptSuggestion()
-                            return .handled
-                        }
-                        return .ignored
-                    }
-                    .onKeyPress(.return, phases: .down) { keyPress in
-                        if keyPress.modifiers.contains(.shift) { return .ignored }
-                        if canSend { onSend() }
-                        return .handled
-                    }
-                    .onSubmit { if canSend { onSend() } }
-
-                if let ghostSuffix {
-                    Text(inputText + ghostSuffix)
-                        .font(VFont.mono)
-                        .foregroundColor(.clear)
-                        .lineLimit(1...3)
-                        .overlay(alignment: .leading) {
-                            HStack(spacing: 0) {
-                                Text(inputText)
-                                    .font(VFont.mono)
-                                    .foregroundColor(.clear)
-                                Text(ghostSuffix)
-                                    .font(VFont.mono)
-                                    .foregroundColor(VColor.textMuted.opacity(0.5))
-                            }
-                        }
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
+        VStack(spacing: 0) {
+            if !pendingAttachments.isEmpty {
+                attachmentStrip
             }
 
-            // Attachment / Stop button
-            if isSending {
-                Button(action: onStop) {
-                    Image(systemName: "stop.circle.fill")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(VColor.error)
+            HStack(spacing: VSpacing.sm) {
+                // Leading chat icon
+                VCircleButton(icon: "phone.fill", label: "Phone") { }
+
+                // Text field with ghost suffix overlay
+                ZStack(alignment: .leading) {
+                    TextField("", text: $inputText, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .lineLimit(1...3)
+                        .onKeyPress(.tab, phases: .down) { keyPress in
+                            if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
+                                onAcceptSuggestion()
+                                return .handled
+                            }
+                            return .ignored
+                        }
+                        .onKeyPress(.return, phases: .down) { keyPress in
+                            if keyPress.modifiers.contains(.shift) { return .ignored }
+                            if canSend { onSend() }
+                            return .handled
+                        }
+                        .onKeyPress(characters: CharacterSet(charactersIn: "v"), phases: .down) { keyPress in
+                            if keyPress.modifiers.contains(.command) {
+                                onPaste()
+                                return .ignored
+                            }
+                            return .ignored
+                        }
+                        .onSubmit { if canSend { onSend() } }
+
+                    if let ghostSuffix {
+                        Text(inputText + ghostSuffix)
+                            .font(VFont.mono)
+                            .foregroundColor(.clear)
+                            .lineLimit(1...3)
+                            .overlay(alignment: .leading) {
+                                HStack(spacing: 0) {
+                                    Text(inputText)
+                                        .font(VFont.mono)
+                                        .foregroundColor(.clear)
+                                    Text(ghostSuffix)
+                                        .font(VFont.mono)
+                                        .foregroundColor(VColor.textMuted.opacity(0.5))
+                                }
+                            }
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Stop generation")
-            } else {
-                Button(action: onAttach) {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(VColor.textSecondary)
-                        .padding(10)
+
+                // Attachment / Stop button
+                if isSending {
+                    Button(action: onStop) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundColor(VColor.error)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Stop generation")
+                } else {
+                    Button(action: onAttach) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .padding(10)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Attach file")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Attach file")
             }
         }
         .padding(VSpacing.xs)
@@ -237,6 +254,132 @@ struct ChatView: View {
         .padding(.vertical, VSpacing.lg)
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            var urls: [URL] = []
+            let group = DispatchGroup()
+            for provider in providers {
+                group.enter()
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    if let url { urls.append(url) }
+                    group.leave()
+                }
+            }
+            group.notify(queue: .main) {
+                if !urls.isEmpty { onDropFiles(urls) }
+            }
+            return true
+        }
+    }
+
+    // MARK: - Attachment Preview Strip
+
+    private var attachmentStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: VSpacing.sm) {
+                ForEach(pendingAttachments) { attachment in
+                    attachmentChip(attachment)
+                }
+            }
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.top, VSpacing.sm)
+            .padding(.bottom, VSpacing.xs)
+        }
+    }
+
+    private func attachmentChip(_ attachment: ChatAttachment) -> some View {
+        let fileSize = formattedFileSize(base64Length: attachment.data.count)
+        let isImage = attachment.mimeType.hasPrefix("image/")
+
+        return VStack(spacing: VSpacing.xxs) {
+            ZStack(alignment: .topTrailing) {
+                if isImage, let thumbnailData = attachment.thumbnailData,
+                   let nsImage = NSImage(data: thumbnailData) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 48, height: 48)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                } else {
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(VColor.surfaceBorder.opacity(0.5))
+                        .frame(width: 48, height: 48)
+                        .overlay {
+                            VStack(spacing: VSpacing.xxs) {
+                                Image(systemName: iconForMimeType(attachment.mimeType, filename: attachment.filename))
+                                    .font(.system(size: 16))
+                                    .foregroundColor(VColor.textSecondary)
+                                Text(fileExtension(attachment.filename))
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                                    .lineLimit(1)
+                            }
+                        }
+                }
+
+                Button {
+                    onRemoveAttachment(attachment.id)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(VColor.textSecondary)
+                        .background(Circle().fill(VColor.surface))
+                }
+                .buttonStyle(.plain)
+                .offset(x: 4, y: -4)
+                .accessibilityLabel("Remove \(attachment.filename)")
+            }
+
+            Text(truncatedFilename(attachment.filename))
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .lineLimit(1)
+                .frame(width: 56)
+
+            Text(fileSize)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+        }
+    }
+
+    // MARK: - Attachment Helpers
+
+    private func formattedFileSize(base64Length: Int) -> String {
+        let bytes = base64Length * 3 / 4
+        if bytes < 1024 {
+            return "\(bytes) B"
+        } else if bytes < 1024 * 1024 {
+            return "\(bytes / 1024) KB"
+        } else {
+            let mb = Double(bytes) / (1024 * 1024)
+            return String(format: "%.1f MB", mb)
+        }
+    }
+
+    private func truncatedFilename(_ name: String) -> String {
+        if name.count <= 8 { return name }
+        let ext = fileExtension(name)
+        let base = String(name.prefix(name.count - ext.count - (ext.isEmpty ? 0 : 1)))
+        let truncBase = String(base.prefix(5))
+        return ext.isEmpty ? truncBase + "..." : truncBase + "..." + ext
+    }
+
+    private func fileExtension(_ filename: String) -> String {
+        let parts = filename.split(separator: ".")
+        guard parts.count > 1, let last = parts.last else { return "" }
+        return String(last).uppercased()
+    }
+
+    private func iconForMimeType(_ mimeType: String, filename: String) -> String {
+        if mimeType == "application/pdf" { return "doc.fill" }
+        if mimeType.hasPrefix("text/") { return "doc.text.fill" }
+        if mimeType.hasPrefix("image/") { return "photo" }
+        let ext = filename.split(separator: ".").last.map(String.init) ?? ""
+        switch ext.lowercased() {
+        case "pdf": return "doc.fill"
+        case "csv": return "tablecells"
+        case "md", "txt": return "doc.text.fill"
+        default: return "doc.fill"
+        }
     }
 
     private var canSend: Bool {
@@ -418,6 +561,9 @@ private struct ThinkingIndicator: View {
             onDismissError: {},
             onAcceptSuggestion: {},
             onAttach: {},
+            onRemoveAttachment: { _ in },
+            onDropFiles: { _ in },
+            onPaste: {},
             onConfirmationAllow: { _ in },
             onConfirmationDeny: { _ in }
         )

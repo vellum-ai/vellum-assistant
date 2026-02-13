@@ -98,6 +98,48 @@ final class ChatViewModel: ObservableObject {
         pendingAttachments.removeAll { $0.id == id }
     }
 
+    func addAttachmentFromPasteboard() {
+        let pasteboard = NSPasteboard.general
+        guard let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) else {
+            return
+        }
+
+        guard pendingAttachments.count < Self.maxAttachments else {
+            errorText = "Maximum \(Self.maxAttachments) attachments per message."
+            return
+        }
+
+        // Convert to PNG if needed
+        let pngData: Data
+        if pasteboard.data(forType: .png) != nil {
+            pngData = imageData
+        } else if let bitmapRep = NSBitmapImageRep(data: imageData),
+                  let converted = bitmapRep.representation(using: .png, properties: [:]) {
+            pngData = converted
+        } else {
+            log.error("Failed to convert pasted image to PNG")
+            errorText = "Could not process pasted image."
+            return
+        }
+
+        guard pngData.count <= Self.maxFileSize else {
+            errorText = "Pasted image exceeds 20 MB limit."
+            return
+        }
+
+        let base64 = pngData.base64EncodedString()
+        let thumbnail = Self.generateThumbnail(from: pngData, maxDimension: 120)
+
+        let attachment = ChatAttachment(
+            id: UUID().uuidString,
+            filename: "Pasted Image.png",
+            mimeType: "image/png",
+            data: base64,
+            thumbnailData: thumbnail
+        )
+        pendingAttachments.append(attachment)
+    }
+
     /// Resize image data to fit within `maxDimension` and return PNG data.
     private static func generateThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {
         guard let image = NSImage(data: data) else { return nil }
