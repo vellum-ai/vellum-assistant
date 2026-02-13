@@ -272,15 +272,10 @@ struct AgentPanel: View {
     }
 
     @ViewBuilder
-    private func skillIcon(_ svgString: String?) -> some View {
-        if let svgString,
-           let data = svgString.data(using: .utf8),
-           let nsImage = NSImage(data: data) {
-            Image(nsImage: nsImage)
-                .resizable()
-                .interpolation(.none)
-                .frame(width: 24, height: 24)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
+    private func skillIcon(_ emoji: String?) -> some View {
+        if let emoji, !emoji.isEmpty {
+            Text(emoji)
+                .font(.system(size: 20))
         } else {
             Image(systemName: "bolt.fill")
                 .font(.system(size: 13))
