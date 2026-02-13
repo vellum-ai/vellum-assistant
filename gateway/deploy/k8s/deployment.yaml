@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vellum-gateway
+  labels:
+    app: vellum-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vellum-gateway
+  template:
+    metadata:
+      labels:
+        app: vellum-gateway
+    spec:
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: gateway
+          image: gcr.io/vellum-ai-prod/vellum-gateway:latest
+          ports:
+            - containerPort: 7830
+              name: http
+          envFrom:
+            - secretRef:
+                name: gateway-secrets
+            - configMapRef:
+                name: gateway-config
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
