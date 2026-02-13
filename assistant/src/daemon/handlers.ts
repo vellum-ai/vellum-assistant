@@ -31,6 +31,8 @@ import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon, readCachedSkill
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } from '../memory/app-store.js';
+import { evaluateBudgets } from '../usage/budget-policy.js';
+import type { BudgetWarning } from './ipc-protocol.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -318,6 +320,88 @@ export function handleMessage(
   handler(msg, socket, ctx);
 }
 
+// ─── Budget enforcement helpers ──────────────────────────────────────────────
+
+/**
+ * Check budget limits before processing a request. Returns a structured error
+ * message if a hard (block) limit is exceeded, or `null` if the request may
+ * proceed. Warning-level violations are emitted as IPC events but do not
+ * block the request.
+ *
+ * If the budget evaluation itself throws (e.g. DB error), the error is logged
+ * and the request is allowed to proceed (non-fatal).
+ */
+function checkBudgetPreRequest(
+  sendEvent: (event: ServerMessage) => void,
+): string | null {
+  try {
+    const config = getConfig();
+    const evaluation = evaluateBudgets(config.costControls);
+
+    if (evaluation.hasBlocks) {
+      const blockingViolation = evaluation.violations.find(
+        (v) => v.exceeded && v.action === 'block',
+      );
+      return `Budget limit exceeded: you have spent $${blockingViolation!.currentSpend.toFixed(2)} ` +
+        `of your $${blockingViolation!.amountUsd.toFixed(2)} ${blockingViolation!.period} budget. ` +
+        `Please adjust your budget settings or wait for the next period.`;
+    }
+
+    if (evaluation.hasWarnings) {
+      const warningViolations = evaluation.violations.filter(
+        (v) => v.exceeded && v.action === 'warn',
+      );
+      const warning: BudgetWarning = {
+        type: 'budget_warning',
+        violations: warningViolations.map((v) => ({
+          period: v.period,
+          amountUsd: v.amountUsd,
+          currentSpend: v.currentSpend,
+          action: v.action,
+        })),
+      };
+      sendEvent(warning);
+    }
+
+    return null;
+  } catch (err) {
+    log.warn({ err }, 'Budget check failed (non-fatal), allowing request to proceed');
+    return null;
+  }
+}
+
+/**
+ * Evaluate budgets after usage has been recorded. Emits a warning event if
+ * a warning threshold has been crossed. Non-fatal: errors are logged and
+ * swallowed.
+ */
+function checkBudgetPostUsage(
+  sendEvent: (event: ServerMessage) => void,
+): void {
+  try {
+    const config = getConfig();
+    const evaluation = evaluateBudgets(config.costControls);
+
+    if (evaluation.hasWarnings) {
+      const warningViolations = evaluation.violations.filter(
+        (v) => v.exceeded && v.action === 'warn',
+      );
+      const warning: BudgetWarning = {
+        type: 'budget_warning',
+        violations: warningViolations.map((v) => ({
+          period: v.period,
+          amountUsd: v.amountUsd,
+          currentSpend: v.currentSpend,
+          action: v.action,
+        })),
+      };
+      sendEvent(warning);
+    }
+  } catch (err) {
+    log.warn({ err }, 'Post-usage budget check failed (non-fatal)');
+  }
+}
+
 // ─── Individual handlers ─────────────────────────────────────────────────────
 
 async function handleUserMessage(
@@ -328,10 +412,18 @@ async function handleUserMessage(
   const requestId = uuid();
   const rlog = log.child({ sessionId: msg.sessionId, requestId });
   try {
+    const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+
+    // Pre-request budget check: block if a hard limit is exceeded
+    const budgetError = checkBudgetPreRequest(sendEvent);
+    if (budgetError) {
+      rlog.warn('Message blocked by budget policy');
+      ctx.send(socket, { type: 'error', message: budgetError });
+      return;
+    }
+
     ctx.socketToSession.set(socket, msg.sessionId);
     const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
-
-    const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
 
     const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId);
     if (result.rejected) {
@@ -354,7 +446,10 @@ async function handleUserMessage(
     // Fire-and-forget: don't block the IPC handler so the connection can
     // continue receiving messages (e.g. cancel, confirmations, or
     // additional user_message that will be queued by the session).
-    session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId).catch((err) => {
+    session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId).then(() => {
+      // Post-usage budget check: emit warnings if thresholds are crossed
+      checkBudgetPostUsage(sendEvent);
+    }).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       rlog.error({ err }, 'Error processing user message (session or provider failure)');
       ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
@@ -737,6 +832,16 @@ async function handleTaskSubmit(
   const rlog = log.child({ requestId });
 
   try {
+    const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+
+    // Pre-request budget check: block if a hard limit is exceeded
+    const budgetError = checkBudgetPreRequest(sendEvent);
+    if (budgetError) {
+      rlog.warn('Task blocked by budget policy');
+      ctx.send(socket, { type: 'error', message: budgetError });
+      return;
+    }
+
     const interactionType = await classifyInteraction(msg.task, msg.source);
     rlog.info({ interactionType, task: msg.task }, 'Task classified');
 
@@ -777,7 +882,10 @@ async function handleTaskSubmit(
       // Start streaming immediately — client doesn't need to send user_message
       session.processMessage(msg.task, msg.attachments ?? [], (event) => {
         ctx.send(socket, event);
-      }, requestId).catch((err) => {
+      }, requestId).then(() => {
+        // Post-usage budget check: emit warnings if thresholds are crossed
+        checkBudgetPostUsage(sendEvent);
+      }).catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         rlog.error({ err }, 'Error processing task_submit text QA');
         ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });

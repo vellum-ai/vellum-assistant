@@ -286,6 +286,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     provider: 'openai',
     model: 'text-embedding-3-small',
   },
+  budget_warning: {
+    type: 'budget_warning',
+    violations: [
+      { period: 'day', amountUsd: 10, currentSpend: 10.5, action: 'warn' },
+    ],
+  },
   cu_action: {
     type: 'cu_action',
     sessionId: 'cu-sess-001',

@@ -19,6 +19,7 @@ import { getConfig } from '../config/loader.js';
 import { getUsageSummary } from '../usage/summary.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 import { recordDirectLlmUsage } from '../usage/recorders.js';
+import { evaluateBudgets } from '../usage/budget-policy.js';
 
 const log = getLogger('runtime-http');
 
@@ -428,6 +429,12 @@ export class RuntimeHttpServer {
           { status: 409 },
         );
       }
+      if (err instanceof Error && err.message.startsWith('Budget limit exceeded')) {
+        return Response.json(
+          { error: err.message },
+          { status: 429 },
+        );
+      }
       throw err;
     }
   }
@@ -494,6 +501,12 @@ export class RuntimeHttpServer {
         return Response.json(
           { error: 'Session is busy processing another message. Please retry.' },
           { status: 409 },
+        );
+      }
+      if (err instanceof Error && err.message.startsWith('Budget limit exceeded')) {
+        return Response.json(
+          { error: err.message },
+          { status: 429 },
         );
       }
       throw err;
@@ -705,6 +718,12 @@ export class RuntimeHttpServer {
         await this.processMessage(assistantId, result.conversationId, content ?? '', hasAttachments ? attachmentIds : undefined);
         processingSucceeded = true;
       } catch (err) {
+        if (err instanceof Error && err.message.startsWith('Budget limit exceeded')) {
+          return Response.json(
+            { error: err.message },
+            { status: 429 },
+          );
+        }
         log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
       }
     }
