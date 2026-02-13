@@ -31,6 +31,7 @@ final class ToolConfirmationManager {
         let hasRuleOptions = !message.allowlistOptions.isEmpty && !message.scopeOptions.isEmpty
         let view = ToolConfirmationView(
             toolName: message.toolName,
+            input: message.input,
             riskLevel: message.riskLevel,
             diff: message.diff,
             allowlistOptions: message.allowlistOptions,
@@ -116,6 +117,7 @@ final class ToolConfirmationManager {
 
 struct ToolConfirmationView: View {
     let toolName: String
+    let input: [String: AnyCodable]
     let riskLevel: String
     let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
     let allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption]
@@ -152,6 +154,28 @@ struct ToolConfirmationView: View {
         }
     }
 
+    private var commandPreview: String {
+        switch toolName {
+        case "bash":
+            return (input["command"]?.value as? String) ?? ""
+        case "file_read":
+            return "read \((input["path"]?.value as? String) ?? "")"
+        case "file_write":
+            return "write \((input["path"]?.value as? String) ?? "")"
+        case "file_edit":
+            return "edit \((input["file_path"]?.value as? String) ?? "")"
+        case "web_fetch":
+            return "fetch \((input["url"]?.value as? String) ?? "")"
+        case "browser_navigate":
+            return "navigate \((input["url"]?.value as? String) ?? "")"
+        default:
+            if let firstString = input.values.compactMap({ $0.value as? String }).first {
+                return firstString
+            }
+            return ""
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Header
@@ -170,6 +194,17 @@ struct ToolConfirmationView: View {
                 }
 
                 Spacer()
+            }
+
+            // Command preview
+            if !commandPreview.isEmpty {
+                Text(commandPreview)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(VColor.surface)
+                    .cornerRadius(VRadius.md)
             }
 
             // Diff preview

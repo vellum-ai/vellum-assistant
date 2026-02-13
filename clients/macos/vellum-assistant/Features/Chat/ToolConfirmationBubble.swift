@@ -52,6 +52,17 @@ struct ToolConfirmationBubble: View {
                 Spacer()
             }
 
+            // Command preview
+            if !confirmation.commandPreview.isEmpty {
+                Text(confirmation.commandPreview)
+                    .font(VFont.monoSmall)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(VColor.backgroundSubtle)
+                    .cornerRadius(VRadius.md)
+            }
+
             // Diff preview (if present)
             if let diff = confirmation.diff {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -259,6 +270,7 @@ struct ToolConfirmationBubble: View {
             confirmation: ToolConfirmationData(
                 requestId: "test-1",
                 toolName: "bash",
+                input: ["command": AnyCodable("git push origin main")],
                 riskLevel: "medium",
                 diff: nil,
                 allowlistOptions: [
@@ -278,6 +290,7 @@ struct ToolConfirmationBubble: View {
             confirmation: ToolConfirmationData(
                 requestId: "test-2",
                 toolName: "file_write",
+                input: ["path": AnyCodable("/Users/test/project/src/main.swift")],
                 riskLevel: "high",
                 diff: ConfirmationRequestMessage.ConfirmationDiffInfo(
                     filePath: "/Users/test/project/src/main.swift",
@@ -294,6 +307,7 @@ struct ToolConfirmationBubble: View {
             confirmation: ToolConfirmationData(
                 requestId: "test-3",
                 toolName: "bash",
+                input: ["command": AnyCodable("npm install")],
                 riskLevel: "medium",
                 diff: nil,
                 allowlistOptions: [
