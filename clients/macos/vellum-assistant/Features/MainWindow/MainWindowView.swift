@@ -76,9 +76,6 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             refreshAPIKeyState()
         }
-        .onReceive(daemonClient.$isConnected) { _ in
-            refreshAPIKeyState()
-        }
     }
 
     @MainActor
@@ -113,7 +110,7 @@ struct MainWindowView: View {
     }
 
     private func refreshAPIKeyState() {
-        hasAPIKey = APIKeyManager.getKey() != nil || daemonClient.isConnected
+        hasAPIKey = APIKeyManager.getKey() != nil
     }
 
     @ViewBuilder
