@@ -20,17 +20,21 @@ export interface AuthChallenge {
 interface ServicePattern {
   pattern: RegExp;
   service: string;
+  /** When set, the URL pathname must also match this pattern for the service to be recognised. */
+  pathPattern?: RegExp;
 }
 
 const SERVICE_PATTERNS: ServicePattern[] = [
+  // Auth-subdomain services — hostname match is sufficient
   { pattern: /accounts\.google\.com/, service: 'Google' },
-  { pattern: /github\.com/, service: 'GitHub' },
   { pattern: /login\.microsoftonline\.com/, service: 'Microsoft' },
   { pattern: /appleid\.apple\.com/, service: 'Apple' },
   { pattern: /login\.salesforce\.com/, service: 'Salesforce' },
   { pattern: /id\.atlassian\.com/, service: 'Atlassian' },
   { pattern: /auth0\.com/, service: 'Auth0' },
   { pattern: /okta\.com/, service: 'Okta' },
+  // General-domain services — need both hostname AND path match
+  { pattern: /github\.com/, service: 'GitHub', pathPattern: /^\/(login|session)/ },
 ];
 
 const GENERIC_AUTH_PATTERNS: RegExp[] = [
@@ -47,14 +51,17 @@ const GENERIC_AUTH_PATTERNS: RegExp[] = [
  * service is matched.
  */
 export function identifyService(url: string): string | undefined {
-  let hostname: string;
+  let parsed: URL;
   try {
-    hostname = new URL(url).hostname;
+    parsed = new URL(url);
   } catch {
     return undefined;
   }
-  for (const { pattern, service } of SERVICE_PATTERNS) {
-    if (pattern.test(hostname)) return service;
+  for (const { pattern, service, pathPattern } of SERVICE_PATTERNS) {
+    if (pattern.test(parsed.hostname)) {
+      if (pathPattern && !pathPattern.test(parsed.pathname)) continue;
+      return service;
+    }
   }
   return undefined;
 }
@@ -69,8 +76,14 @@ export function isAuthUrl(url: string): boolean {
   } catch {
     return false;
   }
-  // Known service URLs are always auth-related
-  if (SERVICE_PATTERNS.some(({ pattern }) => pattern.test(parsedUrl.hostname))) return true;
+  // Known service URLs are always auth-related (respecting pathPattern when present)
+  if (
+    SERVICE_PATTERNS.some(
+      ({ pattern, pathPattern }) =>
+        pattern.test(parsedUrl.hostname) && (!pathPattern || pathPattern.test(parsedUrl.pathname)),
+    )
+  )
+    return true;
   // Generic path patterns — match against pathname only to avoid false positives
   // from query parameters or fragments that happen to contain auth-related words.
   return GENERIC_AUTH_PATTERNS.some((p) => p.test(parsedUrl.pathname));
