@@ -508,14 +508,10 @@ async function summarizeWithLLM(
   }
 }
 
-function buildFallbackSummary(existingSummary: string | null, newContent: string, label: string): string {
+function buildFallbackSummary(_existingSummary: string | null, newContent: string, label: string): string {
   const lines = newContent.split('\n').filter((l) => l.trim().length > 0);
   const snippets = lines.slice(0, 20).map((l) => `- ${truncate(l.trim(), 180)}`);
-  const parts: string[] = [`${label} summary`, ''];
-  if (existingSummary) {
-    parts.push(existingSummary, '');
-  }
-  parts.push(...snippets);
+  const parts: string[] = [`${label} summary`, '', ...snippets];
   return parts.join('\n');
 }
 
