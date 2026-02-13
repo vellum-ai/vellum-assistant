@@ -7,6 +7,16 @@ final class SkillsManager: ObservableObject {
     @Published var isLoading = false
     @Published var searchResults: [ClawhubSkillItem] = []
     @Published var isSearching = false
+    @Published var inspectedSkill: ClawhubInspectData?
+    @Published var isInspecting = false
+    @Published var inspectError: String?
+    @Published var installResult: InstallResult?
+
+    struct InstallResult {
+        let slug: String
+        let success: Bool
+        let error: String?
+    }
 
     private let daemonClient: DaemonClient
 
@@ -96,12 +106,15 @@ final class SkillsManager: ObservableObject {
     }
 
     func installSkill(slug: String) {
+        installResult = nil
+
         Task {
             let stream = daemonClient.subscribe()
 
             do {
                 try daemonClient.installSkill(slug: slug)
             } catch {
+                installResult = InstallResult(slug: slug, success: false, error: "Failed to connect")
                 return
             }
 
@@ -109,12 +122,59 @@ final class SkillsManager: ObservableObject {
                 if case .skillsOperationResponse(let response) = message,
                    response.operation == "install" {
                     if response.success {
-                        // Refresh the skills list after successful install
+                        installResult = InstallResult(slug: slug, success: true, error: nil)
                         fetchSkills()
+                    } else {
+                        installResult = InstallResult(slug: slug, success: false, error: response.error)
+                    }
+                    // Auto-clear after 3 seconds
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        if self.installResult?.slug == slug {
+                            self.installResult = nil
+                        }
                     }
                     return
                 }
             }
         }
+    }
+
+    func inspectSkill(slug: String) {
+        isInspecting = true
+        inspectedSkill = nil
+        inspectError = nil
+
+        Task {
+            let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.inspectSkill(slug: slug)
+            } catch {
+                isInspecting = false
+                inspectError = "Failed to connect"
+                return
+            }
+
+            for await message in stream {
+                if case .skillsInspectResponse(let response) = message,
+                   response.slug == slug {
+                    if let data = response.data {
+                        inspectedSkill = data
+                    } else {
+                        inspectError = response.error ?? "Unknown error"
+                    }
+                    isInspecting = false
+                    return
+                }
+            }
+            isInspecting = false
+        }
+    }
+
+    func clearInspection() {
+        inspectedSkill = nil
+        isInspecting = false
+        inspectError = nil
     }
 }

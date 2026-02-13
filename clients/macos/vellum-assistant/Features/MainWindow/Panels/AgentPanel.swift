@@ -77,6 +77,8 @@ struct AgentPanel: View {
     @State private var selectedTab = 0
     @State private var expandedSkillId: String?
     @State private var hoveredSkillButtonId: String?
+    @State private var selectedSkillSlug: String?
+    @State private var hoveredDetailInstall = false
 
     init(onClose: @escaping () -> Void, daemonClient: DaemonClient) {
         self.onClose = onClose
@@ -138,7 +140,7 @@ struct AgentPanel: View {
             slug: "start-the-day",
             name: "Start the Day",
             description: "Get a personalized daily briefing with weather, news, and actionable insights",
-            emoji: "🌅"
+            emoji: "\u{1F305}"
         )
     }
 
@@ -170,6 +172,22 @@ struct AgentPanel: View {
 
     @ViewBuilder
     private var availableSkillsContent: some View {
+        if let slug = selectedSkillSlug {
+            skillDetailView(slug: slug)
+                .onChange(of: skillsManager.installResult?.slug) {
+                    if let result = skillsManager.installResult {
+                        if result.slug == installingSlug {
+                            installingSlug = nil
+                        }
+                    }
+                }
+        } else {
+            availableSkillsList
+        }
+    }
+
+    @ViewBuilder
+    private var availableSkillsList: some View {
         VStack(spacing: VSpacing.lg) {
             // Bundled skills — always shown as featured
             ForEach(BundledSkill.all) { starter in
@@ -334,28 +352,38 @@ struct AgentPanel: View {
 
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.md) {
-                Image(systemName: "shippingbox.fill")
-                    .font(.system(size: 16))
-                    .foregroundColor(VColor.textMuted)
-                    .frame(width: 24)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: VSpacing.sm) {
-                        Text(skill.name)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-
-                        if isNew {
-                            Text("NEW")
-                                .font(VFont.small)
-                                .foregroundColor(Amber._500)
-                        }
-                    }
-
-                    Text(skill.description)
-                        .font(VFont.caption)
+                // Tappable area: icon + name + description
+                HStack(spacing: VSpacing.md) {
+                    Image(systemName: "shippingbox.fill")
+                        .font(.system(size: 16))
                         .foregroundColor(VColor.textMuted)
-                        .lineLimit(2)
+                        .frame(width: 24)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: VSpacing.sm) {
+                            Text(skill.name)
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textPrimary)
+
+                            if isNew {
+                                Text("NEW")
+                                    .font(VFont.small)
+                                    .foregroundColor(Amber._500)
+                            }
+                        }
+
+                        Text(skill.description)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .lineLimit(2)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(VAnimation.standard) {
+                        selectedSkillSlug = skill.slug
+                        skillsManager.inspectSkill(slug: skill.slug)
+                    }
                 }
 
                 Spacer()
@@ -441,6 +469,255 @@ struct AgentPanel: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(isNew ? Amber._700.opacity(0.4) : Emerald._700.opacity(0.4), lineWidth: 1)
         )
+    }
+
+    // MARK: - Skill Detail View
+
+    @ViewBuilder
+    private func skillDetailView(slug: String) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            // Back button
+            Button(action: {
+                withAnimation(VAnimation.standard) {
+                    selectedSkillSlug = nil
+                    skillsManager.clearInspection()
+                }
+            }) {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Available Skills")
+                        .font(VFont.caption)
+                }
+                .foregroundColor(VColor.textMuted)
+            }
+            .buttonStyle(.plain)
+
+            if skillsManager.isInspecting {
+                // Loading state
+                HStack {
+                    Spacer()
+                    VStack(spacing: VSpacing.md) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading skill details...")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    Spacer()
+                }
+                .frame(height: 200)
+            } else if let error = skillsManager.inspectError {
+                // Error state
+                VStack(spacing: VSpacing.md) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(Amber._500)
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(VSpacing.xl)
+            } else if let data = skillsManager.inspectedSkill {
+                // Detail content
+                skillDetailContent(data)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func skillDetailContent(_ data: ClawhubInspectData) -> some View {
+        // Title
+        Text(data.skill.displayName)
+            .font(VFont.cardTitle)
+            .foregroundColor(VColor.textPrimary)
+
+        // Author row
+        if let owner = data.owner {
+            HStack(spacing: VSpacing.sm) {
+                if let imageURL = owner.image, let url = URL(string: imageURL) {
+                    AsyncImage(url: url) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Image(systemName: "person.circle.fill")
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .frame(width: 20, height: 20)
+                    .clipShape(Circle())
+                } else {
+                    Image(systemName: "person.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(VColor.textMuted)
+                }
+                Text(owner.displayName.isEmpty ? owner.handle : owner.displayName)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+            }
+        }
+
+        // Summary
+        if !data.skill.summary.isEmpty {
+            Text(data.skill.summary)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        // Stats row
+        if let stats = data.stats {
+            HStack(spacing: VSpacing.lg) {
+                statItem(icon: "star.fill", value: "\(stats.stars)")
+                statItem(icon: "arrow.down.circle", value: "\(stats.installs)")
+                statItem(icon: "arrow.down.to.line", value: "\(stats.downloads)")
+                if stats.versions > 0 {
+                    statItem(icon: "tag", value: "\(stats.versions) versions")
+                }
+            }
+        }
+
+        // Latest version
+        if let version = data.latestVersion {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("v\(version.version)")
+                    .font(VFont.mono)
+                    .foregroundColor(Emerald._400)
+                if let changelog = version.changelog, !changelog.isEmpty {
+                    Text(changelog)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(VSpacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Slate._900)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
+
+        // SKILL.md content
+        if let md = data.skillMdContent, !md.isEmpty {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text("README")
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.textMuted)
+
+                ScrollView {
+                    Text(md)
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.textSecondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(VSpacing.md)
+                }
+                .frame(maxHeight: 250)
+                .background(Slate._900)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                )
+            }
+        }
+
+        // Files list
+        if let files = data.files, !files.isEmpty {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text("Files")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+
+                ForEach(files, id: \.path) { file in
+                    HStack {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 10))
+                            .foregroundColor(VColor.textMuted)
+                        Text(file.path)
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        Text(formatFileSize(file.size))
+                            .font(VFont.small)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                }
+            }
+        }
+
+        // Install button (prominent)
+        detailInstallButton(slug: data.skill.slug)
+    }
+
+    private func statItem(icon: String, value: String) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+            Text(value)
+        }
+        .font(VFont.small)
+        .foregroundColor(VColor.textMuted)
+    }
+
+    private func formatFileSize(_ bytes: Int) -> String {
+        if bytes < 1024 { return "\(bytes) B" }
+        let kb = Double(bytes) / 1024
+        if kb < 1024 { return String(format: "%.1f KB", kb) }
+        return String(format: "%.1f MB", kb / 1024)
+    }
+
+    @ViewBuilder
+    private func detailInstallButton(slug: String) -> some View {
+        let isInstalling = installingSlug == slug
+        let result = skillsManager.installResult
+        let isSuccess = result?.slug == slug && result?.success == true
+        let isError = result?.slug == slug && result?.success == false
+        let errorMessage = result?.error
+
+        Button(action: {
+            guard installingSlug == nil, !isSuccess else { return }
+            installingSlug = slug
+            skillsManager.installSkill(slug: slug)
+        }) {
+            HStack(spacing: VSpacing.sm) {
+                if isSuccess {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14))
+                    Text("Installed!")
+                } else if isInstalling {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Installing...")
+                } else {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 14))
+                    Text("Install")
+                }
+            }
+            .font(VFont.mono)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, VSpacing.md)
+            .foregroundColor(isSuccess ? Emerald._400 : (hoveredDetailInstall && !isInstalling ? Slate._900 : Emerald._400))
+            .background(isSuccess ? Emerald._400.opacity(0.15) : (hoveredDetailInstall && !isInstalling ? Emerald._400 : Slate._800))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(isSuccess ? Emerald._500 : Emerald._500.opacity(0.6), lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isInstalling || isSuccess)
+        .onHover { hovering in
+            withAnimation(VAnimation.fast) {
+                hoveredDetailInstall = hovering
+            }
+        }
+
+        // Error message
+        if isError, let msg = errorMessage {
+            Text(msg)
+                .font(VFont.caption)
+                .foregroundColor(Rose._500)
+        }
     }
 
     // MARK: - Skills Tab
