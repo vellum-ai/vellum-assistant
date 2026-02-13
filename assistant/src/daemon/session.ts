@@ -23,6 +23,7 @@ import { estimateCost, resolvePricing } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
+import { registerTimerCompletionNotifier, unregisterTimerCompletionNotifier } from '../tools/timer/pomodoro.js';
 import { createToolDomainEventPublisher } from '../events/tool-domain-event-publisher.js';
 import { registerToolMetricsLoggingListener } from '../events/tool-metrics-listener.js';
 import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
@@ -105,6 +106,16 @@ export class Session {
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
     this.prompter = new PermissionPrompter(sendToClient);
+
+    registerTimerCompletionNotifier(conversationId, (timer) => {
+      this.sendToClient({
+        type: 'timer_completed',
+        sessionId: conversationId,
+        timerId: timer.id,
+        label: timer.label,
+        durationMinutes: timer.durationMinutes,
+      });
+    });
     this.executor = new ToolExecutor(this.prompter);
     registerToolMetricsLoggingListener(this.eventBus);
     registerToolNotificationListener(this.eventBus, (msg) => this.sendToClient(msg));

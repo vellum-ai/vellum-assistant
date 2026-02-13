@@ -402,6 +402,15 @@ struct SkillDetailResponseMessage: Decodable, Sendable {
     let error: String?
 }
 
+/// Timer completed notification from daemon.
+/// Wire type: `"timer_completed"`
+struct TimerCompletedMessage: Decodable, Sendable {
+    let sessionId: String
+    let timerId: String
+    let label: String
+    let durationMinutes: Double
+}
+
 /// Tool execution started.
 /// Wire type: `"tool_use_start"`
 struct ToolUseStartMessage: Decodable, Sendable {
@@ -510,6 +519,7 @@ enum ServerMessage: Decodable, Sendable {
     case toolUseStart(ToolUseStartMessage)
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
+    case timerCompleted(TimerCompletedMessage)
     case pong
     case unknown(String)
 
@@ -597,6 +607,9 @@ enum ServerMessage: Decodable, Sendable {
         case "tool_result":
             let message = try ToolResultMessage(from: decoder)
             self = .toolResult(message)
+        case "timer_completed":
+            let message = try TimerCompletedMessage(from: decoder)
+            self = .timerCompleted(message)
         case "pong":
             self = .pong
         default:

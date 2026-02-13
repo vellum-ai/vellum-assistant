@@ -596,3 +596,13 @@ exports[`IPC message snapshots ServerMessage types message_dequeued serializes t
   "type": "message_dequeued",
 }
 `;
+
+exports[`IPC message snapshots ServerMessage types timer_completed serializes to expected JSON 1`] = `
+{
+  "durationMinutes": 25,
+  "label": "Focus time",
+  "sessionId": "sess-001",
+  "timerId": "tmr-001",
+  "type": "timer_completed",
+}
+`;

@@ -56,6 +56,9 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `task_routed` message (e.g. escalation from text_qa to CU).
     var onTaskRouted: ((TaskRoutedMessage) -> Void)?
 
+    /// Called when a pomodoro timer completes.
+    var onTimerCompleted: ((TimerCompletedMessage) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -431,6 +434,8 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onConfirmationRequest?(msg)
         case .taskRouted(let msg):
             onTaskRouted?(msg)
+        case .timerCompleted(let msg):
+            onTimerCompleted?(msg)
         default:
             break
         }

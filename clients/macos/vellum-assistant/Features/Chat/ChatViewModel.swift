@@ -666,7 +666,6 @@ final class ChatViewModel: ObservableObject {
 
         case .uiSurfaceShow(let msg):
             guard belongsToSession(msg.sessionId) else { return }
-            guard msg.display == "inline" else { break }
             guard let surface = Surface.from(msg) else { break }
             let inlineSurface = InlineSurfaceData(
                 id: surface.id,

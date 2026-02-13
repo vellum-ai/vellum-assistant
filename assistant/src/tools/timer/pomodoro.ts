@@ -7,6 +7,17 @@ import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('pomodoro');
 
+/** Callbacks invoked when a timer completes, keyed by sessionId. */
+const completionNotifiers = new Map<string, (timer: PomodoroTimer) => void>();
+
+export function registerTimerCompletionNotifier(sessionId: string, callback: (timer: PomodoroTimer) => void): void {
+  completionNotifiers.set(sessionId, callback);
+}
+
+export function unregisterTimerCompletionNotifier(sessionId: string): void {
+  completionNotifiers.delete(sessionId);
+}
+
 export interface PomodoroTimer {
   id: string;
   label: string;
@@ -126,6 +137,7 @@ function startAction(input: Record<string, unknown>, sessionId: string): ToolExe
     timer.remainingMs = 0;
     timer.timeoutHandle = undefined;
     log.info({ id: timer.id, label: timer.label }, 'Pomodoro timer completed');
+    completionNotifiers.get(sessionId)?.(timer);
   }, durationMs);
 
   const sessionTimers = getOrCreateSessionTimers(sessionId);
@@ -206,6 +218,7 @@ function resumeAction(input: Record<string, unknown>, sessionId: string): ToolEx
     timer.remainingMs = 0;
     timer.timeoutHandle = undefined;
     log.info({ id: timer.id, label: timer.label }, 'Pomodoro timer completed');
+    completionNotifiers.get(sessionId)?.(timer);
   }, timer.remainingMs);
 
   log.info({ id: timerId, remainingMs: timer.remainingMs }, 'Pomodoro timer resumed');

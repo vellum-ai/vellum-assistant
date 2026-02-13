@@ -378,6 +378,13 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: 'sess-001',
     requestId: 'req-queue-001',
   },
+  timer_completed: {
+    type: 'timer_completed',
+    sessionId: 'sess-001',
+    timerId: 'tmr-001',
+    label: 'Focus time',
+    durationMinutes: 25,
+  },
 };
 
 // ---------------------------------------------------------------------------

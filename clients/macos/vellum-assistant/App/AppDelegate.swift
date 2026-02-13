@@ -73,6 +73,25 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupDaemonClient() {
+        // Show macOS notification when a pomodoro timer completes
+        daemonClient.onTimerCompleted = { msg in
+            let content = UNMutableNotificationContent()
+            content.title = "Timer Complete"
+            content.body = "\"\(msg.label)\" (\(Int(msg.durationMinutes)) min) is done!"
+            content.sound = .default
+
+            let request = UNNotificationRequest(
+                identifier: "timer-\(msg.timerId)",
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error {
+                    log.error("Failed to post timer notification: \(error.localizedDescription)")
+                }
+            }
+        }
+
         // Handle escalation: text_qa -> computer_use via request_computer_control
         daemonClient.onTaskRouted = { [weak self] routed in
             guard let self else { return }

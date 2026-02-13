@@ -534,6 +534,14 @@ export interface SuggestionResponse {
   source: 'llm' | 'none';
 }
 
+export interface TimerCompleted {
+  type: 'timer_completed';
+  sessionId: string;
+  timerId: string;
+  label: string;
+  durationMinutes: number;
+}
+
 export interface MessageQueued {
   type: 'message_queued';
   sessionId: string;
@@ -650,7 +658,8 @@ export type ServerMessage =
   | SkillDetailResponse
   | SuggestionResponse
   | MessageQueued
-  | MessageDequeued;
+  | MessageDequeued
+  | TimerCompleted;
 
 // === Serialization ===
 
