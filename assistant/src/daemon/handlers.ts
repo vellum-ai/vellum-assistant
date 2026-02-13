@@ -35,6 +35,7 @@ import type {
   SkillsUpdateRequest,
   SkillsCheckUpdatesRequest,
   SkillsSearchRequest,
+  SkillsInspectRequest,
   SuggestionRequest,
   AddTrustRule,
   RemoveTrustRule,
@@ -49,7 +50,7 @@ import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } from '../memory/app-store.js';
 import { getRootDir } from '../util/platform.js';
-import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates } from '../skills/clawhub.js';
+import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -316,6 +317,7 @@ const handlers: DispatchMap = {
   skills_update: handleSkillsUpdate,
   skills_check_updates: handleSkillsCheckUpdates,
   skills_search: handleSkillsSearch,
+  skills_inspect: handleSkillsInspect,
   suggestion_request: handleSuggestionRequest,
   add_trust_rule: handleAddTrustRule,
   trust_rules_list: (_msg, socket, ctx) => handleTrustRulesList(socket, ctx),
@@ -1047,6 +1049,30 @@ async function handleSkillsSearch(
       type: 'skills_operation_response',
       operation: 'search',
       success: false,
+      error: message,
+    });
+  }
+}
+
+async function handleSkillsInspect(
+  msg: SkillsInspectRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const result = await clawhubInspect(msg.slug);
+    ctx.send(socket, {
+      type: 'skills_inspect_response',
+      slug: msg.slug,
+      ...(result.data ? { data: result.data } : {}),
+      ...(result.error ? { error: result.error } : {}),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to inspect skill');
+    ctx.send(socket, {
+      type: 'skills_inspect_response',
+      slug: msg.slug,
       error: message,
     });
   }

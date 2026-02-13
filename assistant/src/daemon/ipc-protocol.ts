@@ -192,6 +192,11 @@ export interface SkillsSearchRequest {
   query: string;
 }
 
+export interface SkillsInspectRequest {
+  type: 'skills_inspect';
+  slug: string;
+}
+
 export interface SuggestionRequest {
   type: 'suggestion_request';
   sessionId: string;
@@ -360,6 +365,7 @@ export type ClientMessage =
   | SkillsUpdateRequest
   | SkillsCheckUpdatesRequest
   | SkillsSearchRequest
+  | SkillsInspectRequest
   | SuggestionRequest
   | AddTrustRule
   | TrustRulesList
@@ -643,6 +649,22 @@ export interface SkillDetailResponse {
   error?: string;
 }
 
+export interface SkillsInspectResponse {
+  type: 'skills_inspect_response';
+  slug: string;
+  data?: {
+    skill: { slug: string; displayName: string; summary: string };
+    owner?: { handle: string; displayName: string; image?: string } | null;
+    stats?: { stars: number; installs: number; downloads: number; versions: number } | null;
+    createdAt?: number | null;
+    updatedAt?: number | null;
+    latestVersion?: { version: string; changelog?: string } | null;
+    files?: Array<{ path: string; size: number; contentType?: string }> | null;
+    skillMdContent?: string | null;
+  };
+  error?: string;
+}
+
 export interface SuggestionResponse {
   type: 'suggestion_response';
   requestId: string;
@@ -787,6 +809,7 @@ export type ServerMessage =
   | SkillDetailResponse
   | SkillStateChanged
   | SkillsOperationResponse
+  | SkillsInspectResponse
   | SuggestionResponse
   | MessageQueued
   | MessageDequeued
