@@ -1,7 +1,7 @@
 import { eq, desc, asc, and, count, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
-import { conversations, messages } from './schema.js';
+import { conversations, messages, messageRuns, channelInboundEvents } from './schema.js';
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
 import { getLogger } from '../util/logger.js';
@@ -242,4 +242,32 @@ export function deleteLastExchange(conversationId: string): number {
   });
 
   return deleted;
+}
+
+/**
+ * Delete a single message by ID without cascading to message_runs or
+ * channel_inbound_events. Nullable FK columns in those tables are set to
+ * NULL before the message row is removed, so associated run and event
+ * records survive.
+ *
+ * Other tables with NOT NULL FK references (memory_segments,
+ * memory_item_sources, message_attachments) cascade-delete normally,
+ * which is fine — for a freshly blocked message they will be empty.
+ */
+export function deleteMessageById(messageId: string): void {
+  const db = getDb();
+  db.transaction((tx) => {
+    // Detach nullable FK references so the cascade doesn't destroy them.
+    tx.update(messageRuns)
+      .set({ messageId: null })
+      .where(eq(messageRuns.messageId, messageId))
+      .run();
+    tx.update(channelInboundEvents)
+      .set({ messageId: null })
+      .where(eq(channelInboundEvents.messageId, messageId))
+      .run();
+
+    // Now safe to delete — only NOT NULL cascades remain.
+    tx.delete(messages).where(eq(messages.id, messageId)).run();
+  });
 }

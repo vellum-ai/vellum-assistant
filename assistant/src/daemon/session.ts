@@ -400,13 +400,12 @@ export class Session {
       });
 
       if (preMessageResult.blocked) {
-        // Roll back the user message from in-memory history only.
-        // We intentionally do NOT call deleteLastExchange here because
-        // message_runs.message_id has ON DELETE CASCADE — deleting the
-        // message would cascade-delete the run record, causing
-        // runsStore.failRun/completeRun to be no-ops and clients
-        // polling GET /runs/{id} to get 404.
+        // Roll back the user message from both in-memory history and the DB.
+        // We use deleteMessageById (not deleteLastExchange) because it NULLs
+        // nullable FK references (message_runs, channel_inbound_events) before
+        // deleting the message row, so the run record survives.
         this.messages.pop();
+        conversationStore.deleteMessageById(userMessageId);
         onEvent({ type: 'error', message: `Message blocked by hook "${preMessageResult.blockedBy}"` });
         return;
       }
