@@ -133,13 +133,9 @@ func drawCenteredText(_ text: String, centerX: CGFloat, y: CGFloat, font: CTFont
     ctx.restoreGState()
 }
 
-// --- Icon labels (white, baked into background for legibility on dark bg) ---
-let labelY = CGFloat(iconCenterY + 180)  // Below icons, matching Finder label position
-let labelFont = CTFontCreateWithName("Helvetica Neue" as CFString, 26.0, nil)
-let labelColor = CGColor(colorSpace: colorSpace, components: rgb(255, 255, 255, 0.9))!
-
-drawCenteredText("Vellum", centerX: CGFloat(leftIconX), y: labelY, font: labelFont, color: labelColor)
-drawCenteredText("Applications", centerX: CGFloat(rightIconX), y: labelY, font: labelFont, color: labelColor)
+// Note: "Vellum" and "Applications" labels are drawn natively by Finder
+// (white text on dark backgrounds). Don't bake them into the background
+// or they'll overlap and look blurry.
 
 // --- "Drag to install" text ---
 let textY = CGFloat(iconCenterY + 150)  // Below the icons
