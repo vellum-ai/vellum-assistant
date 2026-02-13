@@ -44,6 +44,7 @@ let package = Package(
                 .linkedFramework("Vision"),
                 .linkedFramework("Network"),
                 .linkedFramework("SpriteKit"),
+                .linkedFramework("AuthenticationServices"),
             ]
         ),
         .executableTarget(

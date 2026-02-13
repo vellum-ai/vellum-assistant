@@ -35,6 +35,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private let updateManager = UpdateManager()
 
     private var onboardingWindow: OnboardingWindow?
+    private var authWindow: NSWindow?
+    let authManager = AuthManager()
     private var mainWindow: MainWindow?
     private var settingsWindow: NSWindow?
     #if DEBUG
@@ -59,6 +61,25 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        startAuthenticatedFlow()
+    }
+
+    private func startAuthenticatedFlow() {
+        Task {
+            await authManager.checkSession()
+            await authManager.loadConfig()
+            if authManager.isAuthenticated {
+                proceedToApp()
+            } else {
+                showAuthWindow()
+            }
+        }
+    }
+
+    private func proceedToApp() {
+        authWindow?.close()
+        authWindow = nil
+
         setupDaemonClient()
         setupMenuBar()
         setupHotKey()
@@ -71,6 +92,43 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotifications()
         setupAutoUpdate()
         showMainWindow()
+    }
+
+    private func showAuthWindow() {
+        if let existing = authWindow {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let authView = AuthContainerView(authManager: authManager)
+            .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+                if isAuthenticated {
+                    Task { @MainActor [weak self] in
+                        self?.proceedToApp()
+                    }
+                }
+            }
+
+        let hostingController = NSHostingController(rootView: authView)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 700),
+            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingController
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = NSColor(VColor.background)
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        NSApp.setActivationPolicy(.regular)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        authWindow = window
     }
 
     private func setupDaemonClient() {
@@ -338,8 +396,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
 
         menu.addItem(NSMenuItem.separator())
+
+        let logoutItem = NSMenuItem(title: "Sign Out", action: #selector(performLogout), keyEquivalent: "")
+        logoutItem.target = self
+        menu.addItem(logoutItem)
+
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: 0), in: button)
+    }
+
+    @objc private func performLogout() {
+        Task {
+            await authManager.logout()
+            mainWindow?.close()
+            mainWindow = nil
+            settingsWindow?.close()
+            settingsWindow = nil
+            showAuthWindow()
+        }
     }
 
     @objc private func checkForUpdates() {
@@ -523,18 +597,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding.close()
             self?.onboardingWindow = nil
 
-            self?.setupMenuBar()
-            self?.setupHotKey()
-            self?.setupEscapeMonitor()
-            self?.setupVoiceInput()
-            self?.setupAmbientAgent()
-            self?.setupSurfaceManager()
-            self?.setupToolConfirmationManager()
-            self?.setupWindowObserver()
-            self?.setupNotifications()
-            self?.setupAutoUpdate()
-
-            self?.showMainWindow()
+            self?.startAuthenticatedFlow()
         }
         onboarding.show()
         onboardingWindow = onboarding
