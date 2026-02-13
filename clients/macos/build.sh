@@ -96,9 +96,9 @@ if [ ! -f "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ] || [ "$EXECUTABLE" -nt "$MACOS_DIR
     NEEDS_REBUILD=true
 fi
 
-# Also rebuild if daemon binary changed
-if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ] && [ -f "$MACOS_DIR/vellum-daemon" ]; then
-    if [ "$SCRIPT_DIR/daemon-bin/vellum-daemon" -nt "$MACOS_DIR/vellum-daemon" ]; then
+# Also rebuild if daemon binary changed or newly added
+if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
+    if [ ! -f "$MACOS_DIR/vellum-daemon" ] || [ "$SCRIPT_DIR/daemon-bin/vellum-daemon" -nt "$MACOS_DIR/vellum-daemon" ]; then
         NEEDS_REBUILD=true
     fi
 fi
