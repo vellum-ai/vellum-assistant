@@ -21,7 +21,7 @@ struct VTab: View {
         case .pill:
             return isSelected ? Slate._200 : (isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)
         case .flat:
-            return .clear
+            return isHovered ? Slate._800 : .clear
         }
     }
 
