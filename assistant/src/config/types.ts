@@ -23,4 +23,6 @@ export type {
   SkillsLoadConfig,
   SkillsInstallConfig,
   SkillsConfig,
+  BudgetRule,
+  CostControlsConfig,
 } from './schema.js';

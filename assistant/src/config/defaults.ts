@@ -98,4 +98,8 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     install: { nodeManager: 'npm' },
     allowBundled: null,
   },
+  costControls: {
+    enabled: false,
+    budgets: [],
+  },
 };
