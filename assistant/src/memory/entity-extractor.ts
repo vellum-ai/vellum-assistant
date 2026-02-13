@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { eq, or, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { getConfig } from '../config/loader.js';
 import type { MemoryEntityConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
@@ -158,32 +158,27 @@ export function resolveEntity(entity: ExtractedEntity): string | null {
   const db = getDb();
   const nameLower = entity.name.toLowerCase();
 
-  // Search by exact name match or alias match using LIKE on JSON aliases field
-  const candidates = db
-    .select()
-    .from(memoryEntities)
-    .where(
-      or(
-        sql`LOWER(${memoryEntities.name}) = ${nameLower}`,
-        sql`LOWER(${memoryEntities.aliases}) LIKE ${'%' + nameLower + '%'}`,
-      ),
-    )
-    .all();
+  // Search by exact name match or exact alias match using json_each()
+  const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
+  const candidates = raw.query(`
+    SELECT DISTINCT me.* FROM memory_entities me
+    WHERE LOWER(me.name) = ?
+    UNION
+    SELECT DISTINCT me.* FROM memory_entities me, json_each(me.aliases) je
+    WHERE me.aliases IS NOT NULL AND LOWER(je.value) = ?
+  `).all(nameLower, nameLower) as Array<typeof memoryEntities.$inferSelect>;
 
   if (candidates.length === 0) {
     // Also check if any of the extracted aliases match an existing entity name
     for (const alias of entity.aliases) {
       const aliasLower = alias.toLowerCase();
-      const aliasCandidates = db
-        .select()
-        .from(memoryEntities)
-        .where(
-          or(
-            sql`LOWER(${memoryEntities.name}) = ${aliasLower}`,
-            sql`LOWER(${memoryEntities.aliases}) LIKE ${'%' + aliasLower + '%'}`,
-          ),
-        )
-        .all();
+      const aliasCandidates = raw.query(`
+        SELECT DISTINCT me.* FROM memory_entities me
+        WHERE LOWER(me.name) = ?
+        UNION
+        SELECT DISTINCT me.* FROM memory_entities me, json_each(me.aliases) je
+        WHERE me.aliases IS NOT NULL AND LOWER(je.value) = ?
+      `).all(aliasLower, aliasLower) as Array<typeof memoryEntities.$inferSelect>;
       if (aliasCandidates.length > 0) {
         // Return the first match — same type preferred
         const sameType = aliasCandidates.find((c) => c.type === entity.type);

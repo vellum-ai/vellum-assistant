@@ -584,19 +584,23 @@ function entitySearch(query: string): Candidate[] {
   const db = getDb();
   const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
 
-  // Tokenize query into words for entity matching
+  // Tokenize query into words for entity matching (min length 3 to reduce false positives)
   const tokens = trimmed
     .toLowerCase()
     .split(/[^a-z0-9_.-]+/g)
-    .filter((t) => t.length >= 2);
+    .filter((t) => t.length >= 3);
   if (tokens.length === 0) return [];
 
-  // Build LIKE conditions for each token against entity name and aliases
-  const likeClauses = tokens.map((t) => `(LOWER(name) LIKE '%${escapeSqlLike(t)}%' OR LOWER(aliases) LIKE '%${escapeSqlLike(t)}%')`);
+  // Use exact matching on entity names and json_each() for individual alias values
+  const namePlaceholders = tokens.map(() => '?').join(',');
   const entityQuery = `
-    SELECT id, name, type, aliases, mention_count
-    FROM memory_entities
-    WHERE ${likeClauses.join(' OR ')}
+    SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
+    FROM memory_entities me
+    WHERE LOWER(me.name) IN (${namePlaceholders})
+    UNION
+    SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
+    FROM memory_entities me, json_each(me.aliases) je
+    WHERE me.aliases IS NOT NULL AND LOWER(je.value) IN (${namePlaceholders})
     LIMIT 20
   `;
 
@@ -608,7 +612,7 @@ function entitySearch(query: string): Candidate[] {
     mention_count: number;
   }> = [];
   try {
-    matchedEntities = raw.query(entityQuery).all() as Array<{
+    matchedEntities = raw.query(entityQuery).all(...tokens, ...tokens) as Array<{
       id: string;
       name: string;
       type: string;
