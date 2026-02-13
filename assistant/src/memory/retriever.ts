@@ -913,8 +913,29 @@ function applyAttentionOrdering(candidates: Candidate[]): Candidate[] {
 }
 
 function formatCandidateLine(candidate: Candidate): string {
-  const timeAgo = formatRelativeTime(candidate.createdAt);
-  return `- [${candidate.kind}] ${truncate(candidate.text, 320)} (${timeAgo})`;
+  const absolute = formatAbsoluteTime(candidate.createdAt);
+  const relative = formatRelativeTime(candidate.createdAt);
+  return `- [${candidate.kind}] ${truncate(candidate.text, 320)} (${absolute} · ${relative})`;
+}
+
+/**
+ * Convert an epoch-ms timestamp to a timezone-aware absolute time string.
+ * Format: "YYYY-MM-DD HH:mm TZ" (e.g. "2025-02-13 15:30 PST").
+ */
+export function formatAbsoluteTime(epochMs: number): string {
+  const date = new Date(epochMs);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+
+  // Extract short timezone abbreviation (e.g. "PST", "EST", "UTC")
+  const tz = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
+    .formatToParts(date)
+    .find((p) => p.type === 'timeZoneName')?.value ?? 'UTC';
+
+  return `${year}-${month}-${day} ${hours}:${minutes} ${tz}`;
 }
 
 /**
