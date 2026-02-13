@@ -40,6 +40,11 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       lexicalTopK: 80,
       semanticTopK: 40,
       maxInjectTokens: 10000,
+      reranking: {
+        enabled: true,
+        model: 'claude-haiku-4-5-20251001',
+        topK: 20,
+      },
     },
     segmentation: {
       targetTokens: 450,

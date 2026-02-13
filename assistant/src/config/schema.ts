@@ -161,6 +161,20 @@ export const QdrantConfigSchema = z.object({
     .default('scalar'),
 });
 
+export const MemoryRerankingConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.retrieval.reranking.enabled must be a boolean' })
+    .default(true),
+  model: z
+    .string({ error: 'memory.retrieval.reranking.model must be a string' })
+    .default('claude-haiku-4-5-20251001'),
+  topK: z
+    .number({ error: 'memory.retrieval.reranking.topK must be a number' })
+    .int('memory.retrieval.reranking.topK must be an integer')
+    .positive('memory.retrieval.reranking.topK must be a positive integer')
+    .default(20),
+});
+
 export const MemoryRetrievalConfigSchema = z.object({
   lexicalTopK: z
     .number({ error: 'memory.retrieval.lexicalTopK must be a number' })
@@ -177,6 +191,11 @@ export const MemoryRetrievalConfigSchema = z.object({
     .int('memory.retrieval.maxInjectTokens must be an integer')
     .positive('memory.retrieval.maxInjectTokens must be a positive integer')
     .default(1800),
+  reranking: MemoryRerankingConfigSchema.default({
+    enabled: true,
+    model: 'claude-haiku-4-5-20251001',
+    topK: 20,
+  }),
 });
 
 export const MemorySegmentationConfigSchema = z.object({
@@ -250,6 +269,11 @@ export const MemoryConfigSchema = z.object({
     lexicalTopK: 80,
     semanticTopK: 40,
     maxInjectTokens: 10000,
+    reranking: {
+      enabled: true,
+      model: 'claude-haiku-4-5-20251001',
+      topK: 20,
+    },
   }),
   segmentation: MemorySegmentationConfigSchema.default({
     targetTokens: 450,
@@ -337,6 +361,11 @@ export const AssistantConfigSchema = z.object({
       lexicalTopK: 80,
       semanticTopK: 40,
       maxInjectTokens: 10000,
+      reranking: {
+        enabled: true,
+        model: 'claude-haiku-4-5-20251001',
+        topK: 20,
+      },
     },
     segmentation: {
       targetTokens: 450,
@@ -410,6 +439,7 @@ export type AuditLogConfig = z.infer<typeof AuditLogConfigSchema>;
 export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
 export type ContextWindowConfig = z.infer<typeof ContextWindowConfigSchema>;
 export type MemoryEmbeddingsConfig = z.infer<typeof MemoryEmbeddingsConfigSchema>;
+export type MemoryRerankingConfig = z.infer<typeof MemoryRerankingConfigSchema>;
 export type MemoryRetrievalConfig = z.infer<typeof MemoryRetrievalConfigSchema>;
 export type MemorySegmentationConfig = z.infer<typeof MemorySegmentationConfigSchema>;
 export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
