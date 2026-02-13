@@ -62,6 +62,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `trust_rules_list_response` message.
     var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
 
+    /// Called when the daemon sends a `skills_state_changed` push event.
+    var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
+
+    /// Called when the daemon sends a `skills_updates_available` push event.
+    var onSkillsUpdatesAvailable: ((SkillsUpdatesAvailableMessage) -> Void)?
+
+    /// Called when the daemon sends a `skills_operation_response` message.
+    var onSkillsOperationResponse: ((SkillsOperationResponseMessage) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -359,6 +368,48 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         ))
     }
 
+    // MARK: - Skills Management
+
+    /// Enable a skill by name.
+    func enableSkill(_ name: String) throws {
+        try send(SkillsEnableMessage(name: name))
+    }
+
+    /// Disable a skill by name.
+    func disableSkill(_ name: String) throws {
+        try send(SkillsDisableMessage(name: name))
+    }
+
+    /// Install a skill from ClaWHub.
+    func installSkill(slug: String, version: String? = nil) throws {
+        try send(SkillsInstallMessage(slug: slug, version: version))
+    }
+
+    /// Uninstall a skill by name.
+    func uninstallSkill(_ name: String) throws {
+        try send(SkillsUninstallMessage(name: name))
+    }
+
+    /// Update a skill to its latest version.
+    func updateSkill(_ name: String) throws {
+        try send(SkillsUpdateMessage(name: name))
+    }
+
+    /// Check for available skill updates.
+    func checkSkillUpdates() throws {
+        try send(SkillsCheckUpdatesMessage())
+    }
+
+    /// Search for skills on ClaWHub.
+    func searchSkills(query: String) throws {
+        try send(SkillsSearchMessage(query: query))
+    }
+
+    /// Configure a skill's environment, API key, or config.
+    func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) throws {
+        try send(SkillsConfigureMessage(name: name, env: env, apiKey: apiKey, config: config))
+    }
+
     // MARK: - Disconnect
 
     /// Disconnect from the daemon. Stops reconnect and ping timers.
@@ -489,6 +540,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onTimerCompleted?(msg)
         case .trustRulesListResponse(let msg):
             onTrustRulesListResponse?(msg.rules)
+        case .skillStateChanged(let msg):
+            onSkillStateChanged?(msg)
+        case .skillsUpdatesAvailable(let msg):
+            onSkillsUpdatesAvailable?(msg)
+        case .skillsOperationResponse(let msg):
+            onSkillsOperationResponse?(msg)
         default:
             break
         }

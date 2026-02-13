@@ -180,7 +180,7 @@ struct AgentPanel: View {
         }
     }
 
-    private func skillCard(_ skill: SkillSummaryItem) -> some View {
+    private func skillCard(_ skill: SkillInfo) -> some View {
         let isExpanded = expandedSkillId == skill.id
         let isHovered = hoveredSkillButtonId == skill.id
         let borderColor = isHovered ? Amber._600.opacity(0.8) : Amber._700.opacity(0.6)
@@ -192,7 +192,7 @@ struct AgentPanel: View {
                     // TODO: implement skill usage
                 }) {
                     HStack(spacing: VSpacing.md) {
-                        skillIcon(skill.icon)
+                        skillIcon(skill.emoji)
 
                         Text(skill.name)
                             .font(VFont.mono)

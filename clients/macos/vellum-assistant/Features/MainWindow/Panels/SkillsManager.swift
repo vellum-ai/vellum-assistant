@@ -2,7 +2,7 @@ import SwiftUI
 
 @MainActor
 final class SkillsManager: ObservableObject {
-    @Published var skills: [SkillSummaryItem] = []
+    @Published var skills: [SkillInfo] = []
     @Published var loadedBodies: [String: String] = [:]
     @Published var isLoading = false
 

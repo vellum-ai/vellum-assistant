@@ -220,6 +220,57 @@ struct SkillDetailRequestMessage: Encodable, Sendable {
     let skillId: String
 }
 
+/// Enable a skill. Wire type: "skills_enable"
+struct SkillsEnableMessage: Encodable, Sendable {
+    let type: String = "skills_enable"
+    let name: String
+}
+
+/// Disable a skill. Wire type: "skills_disable"
+struct SkillsDisableMessage: Encodable, Sendable {
+    let type: String = "skills_disable"
+    let name: String
+}
+
+/// Configure a skill's env/apiKey/config. Wire type: "skills_configure"
+struct SkillsConfigureMessage: Encodable, Sendable {
+    let type: String = "skills_configure"
+    let name: String
+    let env: [String: String]?
+    let apiKey: String?
+    let config: [String: AnyCodable]?
+}
+
+/// Install a skill from ClaWHub. Wire type: "skills_install"
+struct SkillsInstallMessage: Encodable, Sendable {
+    let type: String = "skills_install"
+    let slug: String
+    let version: String?
+}
+
+/// Uninstall a skill. Wire type: "skills_uninstall"
+struct SkillsUninstallMessage: Encodable, Sendable {
+    let type: String = "skills_uninstall"
+    let name: String
+}
+
+/// Update a skill. Wire type: "skills_update"
+struct SkillsUpdateMessage: Encodable, Sendable {
+    let type: String = "skills_update"
+    let name: String
+}
+
+/// Check for skill updates. Wire type: "skills_check_updates"
+struct SkillsCheckUpdatesMessage: Encodable, Sendable {
+    let type: String = "skills_check_updates"
+}
+
+/// Search for skills on ClaWHub. Wire type: "skills_search"
+struct SkillsSearchMessage: Encodable, Sendable {
+    let type: String = "skills_search"
+    let query: String
+}
+
 // MARK: - Server → Client Messages (Decodable)
 
 /// Action to execute from the inference server.
@@ -380,18 +431,47 @@ struct AppDataResponseMessage: Decodable, Sendable {
     let error: String?
 }
 
-/// A single skill summary item from the daemon's skill catalog.
-struct SkillSummaryItem: Decodable, Sendable, Identifiable {
-    let id: String
+/// ClaWHub metadata for a skill.
+struct ClawhubInfo: Codable, Sendable {
+    let author: String
+    let stars: Int
+    let installs: Int
+    let reports: Int
+    let publishedAt: String
+}
+
+/// Missing requirements preventing a skill from full operation.
+struct MissingRequirements: Codable, Sendable {
+    let bins: [String]?
+    let env: [String]?
+    let permissions: [String]?
+}
+
+/// Full skill info from the daemon's resolved skill list.
+struct SkillInfo: Codable, Sendable, Identifiable {
+    var id: String { name }
     let name: String
     let description: String
-    let icon: String?
+    let emoji: String?
+    let homepage: String?
+    let source: String  // "bundled" | "managed" | "workspace" | "clawhub"
+    let state: String   // "enabled" | "disabled" | "available"
+    let degraded: Bool
+    let missingRequirements: MissingRequirements?
+    let installedVersion: String?
+    let latestVersion: String?
+    let updateAvailable: Bool
+    let userInvocable: Bool
+    let clawhub: ClawhubInfo?
 }
+
+/// Backward-compatible alias for code referencing the old name.
+typealias SkillSummaryItem = SkillInfo
 
 /// Response containing the list of available skills.
 /// Wire type: `"skills_list_response"`
 struct SkillsListResponseMessage: Decodable, Sendable {
-    let skills: [SkillSummaryItem]
+    let skills: [SkillInfo]
 }
 
 /// Response containing the full body of a specific skill.
@@ -399,6 +479,29 @@ struct SkillsListResponseMessage: Decodable, Sendable {
 struct SkillDetailResponseMessage: Decodable, Sendable {
     let skillId: String
     let body: String
+    let error: String?
+}
+
+/// Push event: skill state changed. Wire type: "skills_state_changed"
+struct SkillStateChangedMessage: Decodable, Sendable {
+    let name: String
+    let state: String  // "enabled" | "disabled" | "installed" | "uninstalled"
+}
+
+/// Push event: updates available. Wire type: "skills_updates_available"
+struct SkillsUpdatesAvailableMessage: Decodable, Sendable {
+    struct UpdateInfo: Decodable, Sendable {
+        let name: String
+        let installedVersion: String
+        let latestVersion: String
+    }
+    let skills: [UpdateInfo]
+}
+
+/// Generic operation response. Wire type: "skills_operation_response"
+struct SkillsOperationResponseMessage: Decodable, Sendable {
+    let operation: String
+    let success: Bool
     let error: String?
 }
 
@@ -568,6 +671,9 @@ enum ServerMessage: Decodable, Sendable {
     case messageDequeued(MessageDequeuedMessage)
     case skillsListResponse(SkillsListResponseMessage)
     case skillDetailResponse(SkillDetailResponseMessage)
+    case skillStateChanged(SkillStateChangedMessage)
+    case skillsUpdatesAvailable(SkillsUpdatesAvailableMessage)
+    case skillsOperationResponse(SkillsOperationResponseMessage)
     case suggestionResponse(SuggestionResponseMessage)
     case toolUseStart(ToolUseStartMessage)
     case toolOutputChunk(ToolOutputChunkMessage)
@@ -649,6 +755,15 @@ enum ServerMessage: Decodable, Sendable {
         case "skill_detail_response":
             let message = try SkillDetailResponseMessage(from: decoder)
             self = .skillDetailResponse(message)
+        case "skills_state_changed":
+            let message = try SkillStateChangedMessage(from: decoder)
+            self = .skillStateChanged(message)
+        case "skills_updates_available":
+            let message = try SkillsUpdatesAvailableMessage(from: decoder)
+            self = .skillsUpdatesAvailable(message)
+        case "skills_operation_response":
+            let message = try SkillsOperationResponseMessage(from: decoder)
+            self = .skillsOperationResponse(message)
         case "suggestion_response":
             let message = try SuggestionResponseMessage(from: decoder)
             self = .suggestionResponse(message)
