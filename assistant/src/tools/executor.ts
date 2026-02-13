@@ -195,7 +195,7 @@ export class ToolExecutor {
         }
       }
 
-      await getHookManager().trigger('pre-tool-execute', {
+      const hookResult = await getHookManager().trigger('pre-tool-execute', {
         toolName: name,
         input: sanitizeToolInput(name, input),
         riskLevel,
@@ -203,6 +203,26 @@ export class ToolExecutor {
         workingDir: context.workingDir,
         sessionId: context.sessionId,
       });
+
+      if (hookResult.blocked) {
+        const msg = `Tool execution blocked by hook "${hookResult.blockedBy}"`;
+        const durationMs = Date.now() - startTime;
+        emitLifecycleEvent(context, {
+          type: 'error',
+          toolName: name,
+          input,
+          workingDir: context.workingDir,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          requestId: context.requestId,
+          riskLevel,
+          decision: 'blocked',
+          durationMs,
+          errorMessage: msg,
+          isExpected: true,
+        });
+        return { content: msg, isError: true };
+      }
 
       // Execute the tool — proxy tools delegate to an external resolver
       let execResult: ToolExecutionResult;
