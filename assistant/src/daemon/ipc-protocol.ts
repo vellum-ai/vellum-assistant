@@ -176,7 +176,7 @@ export interface CardSurfaceData {
 
 export interface FormField {
   id: string;
-  type: 'text' | 'textarea' | 'select' | 'toggle' | 'number';
+  type: 'text' | 'textarea' | 'select' | 'toggle' | 'number' | 'password';
   label: string;
   placeholder?: string;
   required?: boolean;
