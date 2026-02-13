@@ -368,9 +368,11 @@ async function semanticSearch(
     return sqliteFallbackSemanticSearch(queryVector, limit, excludedMessageIds);
   }
 
+  // Overfetch to account for items filtered out post-query (invalidated, excluded, etc.)
+  const fetchLimit = limit * 2;
   const results = await qdrant.searchWithFilter(
     queryVector,
-    limit,
+    fetchLimit,
     ['item', 'summary', 'segment'],
     excludedMessageIds,
   );
@@ -438,6 +440,7 @@ async function semanticSearch(
         finalScore: 0,
       });
     }
+    if (candidates.length >= limit) break;
   }
   return candidates;
 }

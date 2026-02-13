@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { getDb } from './db.js';
+import { enqueueMemoryJob } from './jobs-store.js';
 import { memoryItems } from './schema.js';
 
 const log = getLogger('memory-contradiction-checker');
@@ -61,6 +62,8 @@ export async function checkContradictions(newItemId: string): Promise<void> {
     try {
       const result = await classifyRelationship(apiKey, existing, newItem);
       await handleRelationship(result, existing, newItem);
+      // Stop after the new item's disposition has been decided (invalidated or superseded)
+      if (result.relationship !== 'complement') break;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn({ err: message, newItemId, existingId: existing.id }, 'Contradiction classification failed for pair');
@@ -267,6 +270,8 @@ async function handleRelationship(
         })
         .where(eq(memoryItems.id, existingItem.id))
         .run();
+      // Re-embed the existing item so its vector matches the updated statement
+      enqueueMemoryJob('embed_item', { itemId: existingItem.id });
       // Invalidate the new item since its content has been merged into the existing one
       db.update(memoryItems)
         .set({ invalidAt: now })
