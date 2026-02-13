@@ -65,10 +65,6 @@ export function createTelegramWebhookHandler(
             const uploaded = await uploadAttachment(config, routing.assistantId, downloaded);
             attachmentIds.push(uploaded.id);
           }
-          log.info(
-            { count: attachmentIds.length, assistantId: routing.assistantId },
-            "Attachments downloaded and uploaded",
-          );
         } catch (err) {
           log.error({ err }, "Failed to process attachments");
           return Response.json({ error: "Failed to process attachments" }, { status: 500 });
