@@ -54,6 +54,7 @@ export async function runHookScript(
 
     const timer = setTimeout(() => {
       if (settled) return;
+      settled = true;
       child.kill('SIGTERM');
       // Give the process a short grace period to exit after SIGTERM, then SIGKILL
       const killTimer = setTimeout(() => {
@@ -61,10 +62,8 @@ export async function runHookScript(
       }, 2000);
       child.once('close', () => {
         clearTimeout(killTimer);
-        if (settled) return;
-        settled = true;
-        resolve({ exitCode: null, stdout, stderr: stderr + '\nHook timed out' });
       });
+      resolve({ exitCode: null, stdout, stderr: stderr + '\nHook timed out' });
     }, timeoutMs);
 
     child.on('close', (code) => {
