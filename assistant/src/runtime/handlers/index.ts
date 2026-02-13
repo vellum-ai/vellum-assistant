@@ -13,6 +13,9 @@ import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import { getConversationByKey, getOrCreateConversation } from '../../memory/conversation-key-store.js';
 import { renderHistoryContent, mergeToolResults } from '../../daemon/handlers.js';
 import type { MessageProcessor } from '../http-server.js';
+import { getLogger } from '../../util/logger.js';
+
+const log = getLogger('handlers');
 
 /**
  * Standard handler response shape.
@@ -46,6 +49,10 @@ export interface MessagePayload {
 export function handleListMessages(
   req: ListMessagesRequest,
 ): HandlerResponse<{ messages: MessagePayload[] }> {
+  if (!req.conversationKey || typeof req.conversationKey !== 'string' || req.conversationKey.trim() === '') {
+    throw new HandlerException(Errors.badRequest('conversationKey is required'));
+  }
+
   const mapping = getConversationByKey(req.assistantId, req.conversationKey);
   if (!mapping) {
     return { status: 200, body: { messages: [] } };
@@ -97,6 +104,10 @@ export async function handleSendMessage(
   req: SendMessageRequest,
   processor?: MessageProcessor,
 ): Promise<HandlerResponse<{ accepted: boolean; messageId: string }>> {
+  if (!req.conversationKey || typeof req.conversationKey !== 'string' || req.conversationKey.trim() === '') {
+    throw new HandlerException(Errors.badRequest('conversationKey is required'));
+  }
+
   // Validate content type
   if (req.content !== undefined && req.content !== null && typeof req.content !== 'string') {
     throw new HandlerException(Errors.badRequest('content must be a string'));
@@ -246,6 +257,10 @@ export async function handleCreateRun(
 ): Promise<HandlerResponse<RunResponse>> {
   if (!runOrchestrator) {
     throw new HandlerException(Errors.serviceUnavailable('Run orchestration not configured'));
+  }
+
+  if (!req.conversationKey || typeof req.conversationKey !== 'string' || req.conversationKey.trim() === '') {
+    throw new HandlerException(Errors.badRequest('conversationKey is required'));
   }
 
   if (req.content !== undefined && req.content !== null && typeof req.content !== 'string') {
@@ -488,8 +503,8 @@ export async function handleChannelInbound(
           break;
         }
       }
-    } catch (_err) {
-      // Log error but still return accepted response
+    } catch (err) {
+      log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
     }
   }
 
@@ -568,8 +583,10 @@ export interface SuggestionResponse {
 export function handleGetSuggestion(
   req: GetSuggestionRequest,
   suggestionCache: Map<string, string>,
-  _generateSuggestion: (messageId: string, text: string) => Promise<string | null>,
 ): HandlerResponse<SuggestionResponse> {
+  if (!req.conversationKey || typeof req.conversationKey !== 'string' || req.conversationKey.trim() === '') {
+    throw new HandlerException(Errors.badRequest('conversationKey is required'));
+  }
   const mapping = getConversationByKey(req.assistantId, req.conversationKey);
   if (!mapping) {
     return {
@@ -626,21 +643,16 @@ export function handleGetSuggestion(
       };
     }
 
-    // Return cached suggestion if available
+    // Return cached suggestion if available. For non-cached suggestions,
+    // return 'none' — the caller is responsible for async generation if desired.
     const cached = suggestionCache.get(msg.id);
-    if (cached !== undefined) {
-      return {
-        status: 200,
-        body: { suggestion: cached, messageId: msg.id, source: 'llm' as const },
-      };
-    }
-
-    // For non-cached suggestions, the caller should handle async generation
-    // This is a sync handler, so we return 'none' and let the caller decide
-    // whether to generate asynchronously
     return {
       status: 200,
-      body: { suggestion: null, messageId: msg.id, source: 'none' as const },
+      body: {
+        suggestion: cached ?? null,
+        messageId: msg.id,
+        source: cached !== undefined ? ('llm' as const) : ('none' as const),
+      },
     };
   }
 
