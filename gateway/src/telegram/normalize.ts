@@ -49,7 +49,7 @@ export function normalizeTelegramUpdate(
   const message = update.message;
   const updateId = update.update_id;
 
-  const hasContent = !!(message?.text || message?.caption || message?.photo || message?.document);
+  const hasContent = !!(message?.text || message?.photo || message?.document);
   if (!hasContent || !message?.chat?.id || updateId == null) {
     return null;
   }
