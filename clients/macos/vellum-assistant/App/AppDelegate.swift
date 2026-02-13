@@ -336,7 +336,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let dotSize: CGFloat = 6
         let dotPadding: CGFloat = 0.5
 
-        let appIcon = NSApp.applicationIconImage ?? NSImage(named: "AppIcon")
+        let appIcon: NSImage? = {
+            if let url = ResourceBundle.bundle.url(forResource: "64-mac", withExtension: "png"),
+               let img = NSImage(contentsOf: url) {
+                return img
+            }
+            if let url = ResourceBundle.bundle.url(forResource: "32-mac", withExtension: "png"),
+               let img = NSImage(contentsOf: url) {
+                return img
+            }
+            return NSImage(named: "AppIcon") ?? NSApp.applicationIconImage
+        }()
         guard let appIcon else {
             button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Vellum")
             return
