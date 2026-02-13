@@ -163,7 +163,7 @@ struct ToolConfirmationView: View {
         case "file_write":
             return "write \((input["path"]?.value as? String) ?? "")"
         case "file_edit":
-            return "edit \((input["file_path"]?.value as? String) ?? "")"
+            return "edit \((input["path"]?.value as? String) ?? "")"
         case "web_fetch":
             return "fetch \((input["url"]?.value as? String) ?? "")"
         case "browser_navigate":
