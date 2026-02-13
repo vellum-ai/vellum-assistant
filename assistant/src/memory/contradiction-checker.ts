@@ -267,6 +267,11 @@ async function handleRelationship(
         })
         .where(eq(memoryItems.id, existingItem.id))
         .run();
+      // Invalidate the new item since its content has been merged into the existing one
+      db.update(memoryItems)
+        .set({ invalidAt: now })
+        .where(eq(memoryItems.id, newItem.id))
+        .run();
       break;
     }
     case 'complement': {

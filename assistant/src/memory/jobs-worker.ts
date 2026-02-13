@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { and, asc, desc, eq, gt, gte, lt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNull, lt, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { AssistantConfig } from '../config/types.js';
 import { getConfig } from '../config/loader.js';
@@ -359,6 +359,7 @@ async function buildGlobalSummaryJob(scope: 'weekly_global' | 'monthly_global', 
     .from(memoryItems)
     .where(and(
       eq(memoryItems.status, 'active'),
+      isNull(memoryItems.invalidAt),
       gte(memoryItems.lastSeenAt, startMs),
       lt(memoryItems.lastSeenAt, endMs),
     ))

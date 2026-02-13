@@ -385,7 +385,7 @@ async function semanticSearch(
     if (payload.target_type === 'item') {
       // Validate the backing memory item is still active and has non-excluded evidence
       const item = db.select().from(memoryItems).where(eq(memoryItems.id, payload.target_id)).get();
-      if (!item || item.status !== 'active') continue;
+      if (!item || item.status !== 'active' || item.invalidAt !== null) continue;
       const sources = db.select().from(memoryItemSources)
         .where(eq(memoryItemSources.memoryItemId, payload.target_id)).all();
       if (sources.length === 0) continue;
@@ -473,7 +473,7 @@ function sqliteFallbackSemanticSearch(
 
     if (targetType === 'item') {
       const item = db.select().from(memoryItems).where(eq(memoryItems.id, targetId)).get();
-      if (!item || item.status !== 'active') continue;
+      if (!item || item.status !== 'active' || item.invalidAt !== null) continue;
       const sources = db.select().from(memoryItemSources)
         .where(eq(memoryItemSources.memoryItemId, targetId)).all();
       if (sources.length === 0) continue;
