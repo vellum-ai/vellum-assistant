@@ -1,3 +1,4 @@
+import SpriteKit
 import SwiftUI
 
 @MainActor
@@ -6,6 +7,15 @@ struct FirstMeetingFlowView: View {
     let daemonClient: DaemonClientProtocol
     var onComplete: () -> Void
     var onOpenSettings: () -> Void
+
+    /// Shared SpriteKit scene for the egg/hatch animation across steps 0-1.
+    @State private var eggScene: EggHatchScene = {
+        let s = EggHatchScene()
+        s.size = CGSize(width: 280, height: 480)
+        s.scaleMode = .resizeFill
+        s.backgroundColor = .clear
+        return s
+    }()
 
     var body: some View {
         ZStack {
@@ -23,25 +33,34 @@ struct FirstMeetingFlowView: View {
 
             // Vertical card layout
             VStack(spacing: 0) {
-                // TOP: Meadow background
+                // TOP: Meadow background + egg scene
                 ZStack {
                     MeadowBackground()
+
+                    if state.currentStep <= 1 {
+                        SpriteView(scene: eggScene, options: [.allowsTransparency])
+                            .frame(width: 280, height: 350)
+                            .allowsHitTesting(false)
+                    }
                 }
                 .frame(height: 350)
                 .clipped()
+                .onAppear {
+                    // Set initial crack progress without animation for restored sessions
+                    let progress = state.firstMeetingCrackProgress
+                    if progress > 0 {
+                        eggScene.setCrackProgress(progress, animated: false)
+                    }
+                }
 
                 // BOTTOM: Dark content panel
                 VStack(spacing: VSpacing.lg) {
                     Group {
                         switch state.currentStep {
                         case 0:
-                            Text("Egg step — coming soon")
-                                .font(VFont.headline)
-                                .foregroundColor(VColor.textPrimary)
+                            FirstMeetingEggView(state: state)
                         case 1:
-                            Text("Hatch step — coming soon")
-                                .font(VFont.headline)
-                                .foregroundColor(VColor.textPrimary)
+                            FirstMeetingHatchView(state: state, scene: eggScene)
                         case 2:
                             Text("Introduction — coming soon")
                                 .font(VFont.headline)
