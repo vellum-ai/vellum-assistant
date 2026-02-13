@@ -17,7 +17,7 @@ struct VButton: View {
                 .font(VFont.bodyMedium)
         }
         .buttonStyle(VButtonStyle(style: style, isHovered: isHovered, isFullWidth: isFullWidth))
-        .onHover { isHovered = $0 }
+        .onHover { isHovered = isDisabled ? false : $0 }
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.5 : 1.0)
         .accessibilityHint(isDisabled ? "Button is currently disabled" : "")
@@ -51,7 +51,7 @@ private struct VButtonStyle: ButtonStyle {
     private var shadowColor: Color {
         switch style {
         case .primary:
-            return isHovered ? Indigo._600 : Indigo._800
+            return isHovered ? Violet._600 : Violet._800
         case .danger:
             return isHovered ? Rose._700 : Rose._800
         case .ghost:
@@ -62,9 +62,9 @@ private struct VButtonStyle: ButtonStyle {
     private func backgroundColor(isPressed: Bool) -> Color {
         switch style {
         case .primary:
-            if isPressed { return Indigo._400 }
-            if isHovered { return Indigo._500 }
-            return Indigo._600
+            if isPressed { return Violet._400 }
+            if isHovered { return Violet._500 }
+            return Violet._600
         case .danger:
             if isPressed { return Rose._400 }
             if isHovered { return Rose._500 }
