@@ -453,11 +453,11 @@ private struct ChatBubble: View {
     }
 
     private var imageAttachments: [ChatAttachment] {
-        message.attachments.filter { $0.mimeType.hasPrefix("image/") }
+        message.attachments.filter { $0.mimeType.hasPrefix("image/") && nsImage(for: $0) != nil }
     }
 
     private var fileAttachments: [ChatAttachment] {
-        message.attachments.filter { !$0.mimeType.hasPrefix("image/") }
+        message.attachments.filter { !$0.mimeType.hasPrefix("image/") || nsImage(for: $0) == nil }
     }
 
     private var bubbleContent: some View {
