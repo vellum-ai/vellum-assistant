@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 import { existsSync, chmodSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
-import { getSocketPath, getDataDir, removeSocketFile } from '../util/platform.js';
+import { getSocketPath, getRootDir, removeSocketFile } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
@@ -141,21 +141,27 @@ export class DaemonServer {
   }
 
   private startFileWatchers(): void {
-    const dataDir = getDataDir();
+    const rootDir = getRootDir();
+    const protectedDir = join(rootDir, 'protected');
 
-    // Watch the data directory instead of individual files so we detect:
-    // - Files that don't exist yet at startup (new config/trust creation)
-    // - Atomic rename writes (trust-store uses renameSync)
-    const handlers: Record<string, () => void> = {
+    // Watch root directory for config + prompt files
+    const rootHandlers: Record<string, () => void> = {
       'config.json': () => {
         if (this.suppressConfigReload) return;
         try {
           this.refreshConfigFromSources();
         } catch (err) {
-          log.error({ err, configPath: join(getDataDir(), 'config.json') }, 'Failed to reload config after file change. Previous config remains active.');
+          log.error({ err, configPath: join(rootDir, 'config.json') }, 'Failed to reload config after file change. Previous config remains active.');
           return;
         }
       },
+      'SOUL.md': () => this.evictSessionsForReload(),
+      'IDENTITY.md': () => this.evictSessionsForReload(),
+      'USER.md': () => this.evictSessionsForReload(),
+    };
+
+    // Watch protected/ for trust rules and secret allowlist
+    const protectedHandlers: Record<string, () => void> = {
       'trust.json': () => {
         clearTrustCache();
       },
@@ -164,31 +170,31 @@ export class DaemonServer {
       },
     };
 
-    // Prompt files (SOUL.md, IDENTITY.md, USER.md) affect the system prompt.
-    // When they change, evict idle sessions so they pick up the new prompt.
-    handlers['SOUL.md'] = () => this.evictSessionsForReload();
-    handlers['IDENTITY.md'] = () => this.evictSessionsForReload();
-    handlers['USER.md'] = () => this.evictSessionsForReload();
+    const watchDir = (dir: string, handlers: Record<string, () => void>, label: string): void => {
+      try {
+        const watcher = watch(dir, (_eventType, filename) => {
+          if (!filename) return;
+          const file = String(filename);
+          if (!handlers[file]) return;
+          const existing = this.debounceTimers.get(file);
+          if (existing) clearTimeout(existing);
+          const timer = setTimeout(() => {
+            this.debounceTimers.delete(file);
+            log.info({ file }, 'File changed, reloading');
+            handlers[file]();
+          }, 200);
+          this.debounceTimers.set(file, timer);
+        });
+        this.watchers.push(watcher);
+        log.info({ dir }, `Watching ${label}`);
+      } catch (err) {
+        log.warn({ err, dir }, `Failed to watch ${label}. Hot-reload will be unavailable.`);
+      }
+    };
 
-    try {
-      const watcher = watch(dataDir, (_eventType, filename) => {
-        if (!filename) return;
-        const file = String(filename);
-        if (!handlers[file]) return;
-        // Debounce: editors often write files in multiple steps
-        const existing = this.debounceTimers.get(file);
-        if (existing) clearTimeout(existing);
-        const timer = setTimeout(() => {
-          this.debounceTimers.delete(file);
-          log.info({ file }, 'File changed, reloading');
-          handlers[file]();
-        }, 200);
-        this.debounceTimers.set(file, timer);
-      });
-      this.watchers.push(watcher);
-      log.info({ dir: dataDir }, 'Watching data directory for config/trust/prompt changes');
-    } catch (err) {
-      log.warn({ err, dir: dataDir }, 'Failed to watch data directory for config changes. Config/trust/prompt hot-reload will be unavailable.');
+    watchDir(rootDir, rootHandlers, 'root directory for config/prompt changes');
+    if (existsSync(protectedDir)) {
+      watchDir(protectedDir, protectedHandlers, 'protected directory for trust/allowlist changes');
     }
 
     this.startSkillsWatchers(() => this.evictSessionsForReload());
@@ -202,7 +208,6 @@ export class DaemonServer {
       rateLimit: config.rateLimit,
       thinking: config.thinking,
       contextWindow: config.contextWindow,
-      systemPrompt: config.systemPrompt,
       apiKeys: config.apiKeys,
     });
   }
@@ -250,7 +255,7 @@ export class DaemonServer {
   }
 
   private startSkillsWatchers(evictSessions: () => void): void {
-    const skillsDir = join(getDataDir(), 'skills');
+    const skillsDir = join(getRootDir(), 'skills');
     if (!existsSync(skillsDir)) return;
 
     const scheduleSkillsReload = (file: string): void => {
@@ -474,7 +479,7 @@ export class DaemonServer {
         }
         const workingDir = process.cwd();
 
-        const systemPrompt = storedOptions?.systemPromptOverride ?? buildSystemPrompt(config.systemPrompt);
+        const systemPrompt = storedOptions?.systemPromptOverride ?? buildSystemPrompt();
         const maxTokens = storedOptions?.maxResponseTokens ?? config.maxTokens;
 
         const newSession = new Session(

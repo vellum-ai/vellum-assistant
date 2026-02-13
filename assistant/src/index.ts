@@ -15,7 +15,7 @@ import {
 import { existsSync, statSync, readFileSync } from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
 import { startCli } from './cli.js';
-import { getSocketPath, getDataDir, getDbPath, getLogPath } from './util/platform.js';
+import { getSocketPath, getRootDir, getDataDir, getDbPath, getLogPath } from './util/platform.js';
 import {
   serialize,
   createMessageParser,
@@ -696,8 +696,9 @@ program
     }
 
     // 5. ~/.vellum/ directory structure
+    const rootDir = getRootDir();
     const dataDir = getDataDir();
-    const requiredDirs = [dataDir, `${dataDir}/data`, `${dataDir}/logs`, `${dataDir}/skills`];
+    const requiredDirs = [rootDir, dataDir, `${dataDir}/db`, `${dataDir}/logs`, `${rootDir}/skills`, `${rootDir}/protected`];
     const missing = requiredDirs.filter((d) => !existsSync(d));
     if (missing.length === 0) {
       pass('Directory structure exists');
@@ -707,7 +708,7 @@ program
 
     // 6. Disk space
     try {
-      const output = execSync(`df -k "${dataDir}"`, { stdio: 'pipe', encoding: 'utf-8' });
+      const output = execSync(`df -k "${rootDir}"`, { stdio: 'pipe', encoding: 'utf-8' });
       const lines = output.trim().split('\n');
       if (lines.length >= 2) {
         const cols = lines[1].trim().split(/\s+/);
@@ -783,7 +784,7 @@ program
     }
 
     // 10. Trust rule syntax
-    const trustPath = `${dataDir}/trust.json`;
+    const trustPath = `${rootDir}/protected/trust.json`;
     if (existsSync(trustPath)) {
       try {
         const raw = readFileSync(trustPath, 'utf-8');

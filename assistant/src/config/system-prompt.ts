@@ -1,28 +1,50 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getDataDir } from '../util/platform.js';
+import { getRootDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
-import { DEFAULT_SYSTEM_PROMPT } from './defaults.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 
 const log = getLogger('system-prompt');
 
+const PROMPT_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md'] as const;
+
 /**
- * Build the system prompt from ~/.vellum prompt files and configured fallback,
+ * Copy template prompt files into the data directory if they don't already exist.
+ * Called once during daemon startup so users always have discoverable files to edit.
+ */
+export function ensurePromptFiles(): void {
+  const dataDir = getRootDir();
+  const templatesDir = join(import.meta.dirname ?? __dirname, 'templates');
+
+  for (const file of PROMPT_FILES) {
+    const dest = join(dataDir, file);
+    if (existsSync(dest)) continue;
+
+    const src = join(templatesDir, file);
+    try {
+      if (!existsSync(src)) {
+        log.warn({ src }, 'Prompt template not found, skipping');
+        continue;
+      }
+      copyFileSync(src, dest);
+      log.info({ file, dest }, 'Created prompt file from template');
+    } catch (err) {
+      log.warn({ err, file }, 'Failed to create prompt file from template');
+    }
+  }
+}
+
+/**
+ * Build the system prompt from ~/.vellum prompt files,
  * then append a generated skills catalog (if any skills are available).
  *
- * Priority:
- *   1. Base prompt: SOUL.md and/or IDENTITY.md when present
- *   2. Base prompt fallback: config.systemPrompt
- *   3. Base prompt fallback: DEFAULT_SYSTEM_PROMPT
- *   4. Append USER.md (user profile) if present
- *   5. Append skills catalog from ~/.vellum/skills
- *
- * When both IDENTITY.md and SOUL.md exist, the base prompt is composed as:
- *   IDENTITY.md content + "\n\n" + SOUL.md content
+ * Composition:
+ *   1. Base prompt: IDENTITY.md + SOUL.md (guaranteed to exist after ensurePromptFiles)
+ *   2. Append USER.md (user profile)
+ *   3. Append skills catalog from ~/.vellum/skills
  */
-export function buildSystemPrompt(configSystemPrompt?: string): string {
-  const baseDir = getDataDir();
+export function buildSystemPrompt(): string {
+  const baseDir = getRootDir();
   const soulPath = join(baseDir, 'SOUL.md');
   const identityPath = join(baseDir, 'IDENTITY.md');
   const userPath = join(baseDir, 'USER.md');
@@ -31,17 +53,13 @@ export function buildSystemPrompt(configSystemPrompt?: string): string {
   const identity = readPromptFile(identityPath);
   const user = readPromptFile(userPath);
 
-  let basePrompt = configSystemPrompt ?? DEFAULT_SYSTEM_PROMPT;
-
-  if (identity || soul) {
-    const parts: string[] = [];
-    if (identity) parts.push(identity);
-    if (soul) parts.push(soul);
-    basePrompt = parts.join('\n\n');
-  }
+  const parts: string[] = [];
+  if (identity) parts.push(identity);
+  if (soul) parts.push(soul);
+  let basePrompt = parts.join('\n\n');
 
   if (user) {
-    basePrompt = `${basePrompt}\n\n${user}`;
+    basePrompt = basePrompt ? `${basePrompt}\n\n${user}` : user;
   }
 
   return appendSkillsCatalog(basePrompt);

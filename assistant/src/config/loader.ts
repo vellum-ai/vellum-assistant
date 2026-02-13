@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { getDataDir, ensureDataDir } from '../util/platform.js';
+import { getRootDir, ensureDataDir } from '../util/platform.js';
 import { ConfigError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { DEFAULT_CONFIG } from './defaults.js';
@@ -17,7 +17,7 @@ let cached: AssistantConfig | null = null;
 let loading = false;
 
 function getConfigPath(): string {
-  return join(getDataDir(), 'config.json');
+  return join(getRootDir(), 'config.json');
 }
 
 function cloneDefaultConfig(): AssistantConfig {

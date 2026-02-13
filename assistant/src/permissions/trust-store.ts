@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from '
 import { join, dirname } from 'node:path';
 import { v4 as uuid } from 'uuid';
 import { minimatch } from 'minimatch';
-import { getDataDir } from '../util/platform.js';
+import { getRootDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import type { TrustRule } from './types.js';
 
@@ -18,7 +18,7 @@ interface TrustFile {
 let cachedRules: TrustRule[] | null = null;
 
 function getTrustPath(): string {
-  return join(getDataDir(), 'trust.json');
+  return join(getRootDir(), 'protected', 'trust.json');
 }
 
 function loadFromDisk(): TrustRule[] {
