@@ -429,10 +429,14 @@ export function initializeDb(): void {
  * count (which was really a deferral count) while `deferrals` is 0. This moves the
  * attempt count into `deferrals` and resets `attempts` to 0 for affected jobs.
  *
- * Affected jobs: status='pending' (deferred jobs are returned to pending), attempts > 0,
- * deferrals = 0 (not yet migrated), last_error IS NULL (excludes jobs retried via
- * failMemoryJob which always sets lastError), and only embed job types (embed_segment,
- * embed_item, embed_summary) since only those can enter the deferral path.
+ * Affected jobs: status='pending', attempts > 0, deferrals = 0 (not yet migrated),
+ * and only embed job types (embed_segment, embed_item, embed_summary) since only
+ * those can enter the deferral path via BackendUnavailableError.
+ *
+ * We clear `last_error` along with resetting `attempts` to give migrated jobs a
+ * clean slate. Old `attempts` were a mix of true failures and deferrals that cannot
+ * be distinguished, so the safest approach is to reset both counters and any stale
+ * error state.
  *
  * Idempotent: once deferrals > 0 or attempts = 0, rows are no longer matched.
  */
@@ -442,11 +446,11 @@ function migrateJobDeferrals(database: ReturnType<typeof drizzle<typeof schema>>
     UPDATE memory_jobs
     SET deferrals = attempts,
         attempts = 0,
+        last_error = NULL,
         updated_at = ${Date.now()}
     WHERE status = 'pending'
       AND attempts > 0
       AND deferrals = 0
-      AND last_error IS NULL
       AND type IN ('embed_segment', 'embed_item', 'embed_summary')
   `);
 }
