@@ -25,7 +25,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-const { loadSkillCatalog } = await import('../config/skills.js');
+const { loadSkillCatalog, loadSkillBySelector, resolveSkillSelector } = await import('../config/skills.js');
 
 /** Return only user-installed skills (filters out bundled skills that ship with the source tree). */
 function loadUserSkillCatalog() {
@@ -150,5 +150,70 @@ describe('skills catalog loading', () => {
 
     const catalog = loadUserSkillCatalog();
     expect(catalog).toHaveLength(0);
+  });
+});
+
+describe('workspace skills', () => {
+  const WORKSPACE_DIR = join(tmpdir(), `vellum-workspace-test-${crypto.randomUUID()}`);
+  const workspaceSkillsDir = join(WORKSPACE_DIR, '.vellum', 'skills');
+
+  function writeWorkspaceSkill(skillId: string, name: string, description: string, body: string = 'Workspace skill body'): void {
+    const skillDir = join(workspaceSkillsDir, skillId);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---\nname: "${name}"\ndescription: "${description}"\n---\n\n${body}\n`,
+    );
+  }
+
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, 'skills'), { recursive: true });
+    mkdirSync(workspaceSkillsDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
+    if (existsSync(WORKSPACE_DIR)) {
+      rmSync(WORKSPACE_DIR, { recursive: true, force: true });
+    }
+  });
+
+  test('workspace skills appear in catalog when workspaceSkillsDir is provided', () => {
+    writeWorkspaceSkill('ws-skill', 'Workspace Skill', 'A workspace skill');
+
+    const catalog = loadSkillCatalog(workspaceSkillsDir);
+    const wsSkills = catalog.filter((s) => s.source === 'workspace');
+    expect(wsSkills).toHaveLength(1);
+    expect(wsSkills[0].id).toBe('ws-skill');
+  });
+
+  test('resolveSkillSelector finds workspace skills when workspaceSkillsDir is provided', () => {
+    writeWorkspaceSkill('ws-resolve', 'Workspace Resolve', 'Resolvable workspace skill');
+
+    const result = resolveSkillSelector('ws-resolve', workspaceSkillsDir);
+    expect(result.skill).toBeDefined();
+    expect(result.skill!.id).toBe('ws-resolve');
+    expect(result.skill!.source).toBe('workspace');
+  });
+
+  test('resolveSkillSelector does not find workspace skills without workspaceSkillsDir', () => {
+    writeWorkspaceSkill('ws-hidden', 'Hidden Workspace', 'Should not be found');
+
+    const result = resolveSkillSelector('ws-hidden');
+    expect(result.skill).toBeUndefined();
+    expect(result.error).toBeDefined();
+  });
+
+  test('loadSkillBySelector loads workspace skill body without isOutsideSkillsRoot rejection', () => {
+    writeWorkspaceSkill('ws-load', 'Loadable Workspace', 'Can be loaded', 'Full workspace body here');
+
+    const result = loadSkillBySelector('ws-load', workspaceSkillsDir);
+    expect(result.error).toBeUndefined();
+    expect(result.skill).toBeDefined();
+    expect(result.skill!.id).toBe('ws-load');
+    expect(result.skill!.body).toBe('Full workspace body here');
+    expect(result.skill!.source).toBe('workspace');
   });
 });
