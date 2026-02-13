@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, DynamicPageSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, TableSurfaceData, DynamicPageSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { CheckpointDecision } from '../agent/loop.js';
@@ -892,10 +892,12 @@ export class Session {
       const data = input.data as SurfaceData;
       const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
       // Interactive surfaces default to awaiting user action.
-      // Lists with selectionMode "none" are passive (no actions emitted) so they don't block.
+      // Lists and tables with selectionMode "none" are passive (no actions emitted) so they don't block.
       const isInteractive = surfaceType === 'list'
         ? ((data as ListSurfaceData).selectionMode ?? 'none') !== 'none'
-        : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
+        : surfaceType === 'table'
+          ? ((data as TableSurfaceData).selectionMode ?? 'none') !== 'none'
+          : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
       const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
       // Track surface state for ui_update merging
