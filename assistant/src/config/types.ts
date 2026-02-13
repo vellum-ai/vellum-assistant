@@ -14,4 +14,6 @@ export type {
   MemoryRetentionConfig,
   MemoryConfig,
   ModelPricingOverride,
+  BudgetRule,
+  CostControlsConfig,
 } from './schema.js';
