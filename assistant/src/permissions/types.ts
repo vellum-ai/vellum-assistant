@@ -10,6 +10,7 @@ export interface TrustRule {
   pattern: string;
   scope: string;
   decision: 'allow' | 'deny';
+  priority: number;
   createdAt: number;
 }
 

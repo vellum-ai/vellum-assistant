@@ -444,6 +444,33 @@ describe('Permission Checker', () => {
       const result = await check('web_fetch', { url: 'https://example.com/%70rivate/doc' }, '/tmp');
       expect(result.decision).toBe('deny');
     });
+
+    // Priority-based rule resolution
+    test('higher-priority allow rule overrides lower-priority deny rule', async () => {
+      addRule('bash', 'rm *', '/tmp', 'deny', 0);
+      addRule('bash', 'rm *', '/tmp', 'allow', 100);
+      const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      expect(result.decision).toBe('allow');
+    });
+
+    test('higher-priority deny rule overrides lower-priority allow rule', async () => {
+      addRule('bash', 'rm *', '/tmp', 'allow', 0);
+      addRule('bash', 'rm *', '/tmp', 'deny', 100);
+      const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    test('high-risk command still prompts even with high-priority allow rule', async () => {
+      addRule('bash', 'sudo *', 'everywhere', 'allow', 100);
+      const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('high-risk command is denied by deny rule without prompting', async () => {
+      addRule('bash', 'sudo *', 'everywhere', 'deny', 100);
+      const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
   });
 
   // ── generateAllowlistOptions ───────────────────────────────────
