@@ -247,7 +247,8 @@ struct ChatView: View {
                 }
             }
         }
-        .padding(VSpacing.xs)
+        .padding(.horizontal, VSpacing.xl)
+        .padding(.vertical, VSpacing.sm)
         .background(VColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
         .overlay(
