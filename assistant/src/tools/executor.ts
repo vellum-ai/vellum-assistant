@@ -309,6 +309,16 @@ export class ToolExecutor {
               durationMs,
               result: blockedResult,
             });
+
+            void getHookManager().trigger('post-tool-execute', {
+              toolName: name,
+              input: sanitizeToolInput(name, input),
+              riskLevel,
+              isError: true,
+              durationMs,
+              sessionId: context.sessionId,
+            });
+
             return blockedResult;
           }
         }
@@ -359,6 +369,15 @@ export class ToolExecutor {
         isExpected,
         errorName: err instanceof Error ? err.name : undefined,
         errorStack: err instanceof Error ? err.stack : undefined,
+      });
+
+      void getHookManager().trigger('post-tool-execute', {
+        toolName: name,
+        input: sanitizeToolInput(name, input),
+        riskLevel,
+        isError: true,
+        durationMs,
+        sessionId: context.sessionId,
       });
 
       if (isExpected) {
