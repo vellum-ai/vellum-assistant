@@ -199,7 +199,7 @@ struct ToolConfirmationView: View {
             // Command preview
             if !commandPreview.isEmpty {
                 Text(commandPreview)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(VFont.monoSmall)
                     .foregroundColor(VColor.textPrimary)
                     .padding(VSpacing.sm)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -224,7 +224,7 @@ struct ToolConfirmationView: View {
 
                     ScrollView {
                         Text(diff.newContent.prefix(500))
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(VFont.monoSmall)
                             .foregroundColor(VColor.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -338,7 +338,7 @@ struct ToolConfirmationView: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                     Text(single.label)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(VFont.monoSmall)
                         .foregroundColor(VColor.textPrimary)
                 }
             }
@@ -362,7 +362,7 @@ struct ToolConfirmationView: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                     Text(single.label)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(VFont.monoSmall)
                         .foregroundColor(VColor.textPrimary)
                 }
             }
