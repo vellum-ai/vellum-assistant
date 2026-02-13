@@ -160,6 +160,36 @@ describe("runtime proxy handler", () => {
     expect(res.headers.get("content-type")).toBe("text/plain");
   });
 
+  test("returns 504 on upstream timeout", async () => {
+    const timeoutError = new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    globalThis.fetch = mock(async () => {
+      throw timeoutError;
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(makeConfig({ runtimeTimeoutMs: 100 }));
+    const req = new Request("http://localhost:7830/v1/health");
+    const res = await handler(req);
+
+    expect(res.status).toBe(504);
+    const body = await res.json();
+    expect(body.error).toBe("Gateway Timeout");
+  });
+
+  test("passes AbortSignal.timeout to upstream fetch", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    globalThis.fetch = mock(async (_input: any, init?: any) => {
+      capturedSignal = init?.signal;
+      return new Response("ok", { status: 200 });
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(makeConfig({ runtimeTimeoutMs: 5000 }));
+    const req = new Request("http://localhost:7830/v1/health");
+    await handler(req);
+
+    expect(capturedSignal).toBeDefined();
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+  });
+
   test("does not forward host header to upstream", async () => {
     let capturedHeaders: Headers | undefined;
     globalThis.fetch = mock(async (_input: any, init?: any) => {

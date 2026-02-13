@@ -70,9 +70,17 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
         body: req.body,
         // @ts-expect-error Bun supports duplex on Request
         duplex: "half",
+        signal: AbortSignal.timeout(config.runtimeTimeoutMs),
       });
     } catch (err) {
       const duration = Math.round(performance.now() - start);
+      if (err instanceof DOMException && err.name === "TimeoutError") {
+        log.error(
+          { method: req.method, path: url.pathname, duration, timeoutMs: config.runtimeTimeoutMs },
+          "Upstream request timed out",
+        );
+        return Response.json({ error: "Gateway Timeout" }, { status: 504 });
+      }
       log.error(
         { err, method: req.method, path: url.pathname, duration },
         "Upstream connection failed",
