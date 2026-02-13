@@ -7,6 +7,7 @@ final class MainWindow {
     private let ambientAgent: AmbientAgent
     private var window: NSWindow?
     let threadManager: ThreadManager
+    var onMicrophoneToggle: (() -> Void)?
 
     /// Whether the main window is currently visible on screen.
     var isVisible: Bool {
@@ -29,14 +30,14 @@ final class MainWindow {
         if let existing = window {
             // Rebuild the SwiftUI view hierarchy so it picks up any
             // UserDefaults changes (e.g. assistantName set during onboarding replay)
-            existing.contentViewController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, daemonClient: daemonClient, ambientAgent: ambientAgent))
+            existing.contentViewController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
             existing.makeKeyAndOrderFront(nil)
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, daemonClient: daemonClient, ambientAgent: ambientAgent))
+        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1366, height: 849),
