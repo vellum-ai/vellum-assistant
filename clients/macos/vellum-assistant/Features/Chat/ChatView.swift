@@ -815,6 +815,9 @@ private struct MicrophoneButton: View {
         .onChange(of: isRecording) {
             isPulsing = isRecording
         }
+        .onAppear {
+            isPulsing = isRecording
+        }
     }
 }
 
