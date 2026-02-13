@@ -89,7 +89,7 @@ struct AgentPanel: View {
             // Header (matches VSidePanel style)
             HStack {
                 Text("AGENT")
-                    .font(VFont.display)
+                    .font(VFont.panelTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
                 Button(action: onClose) {
