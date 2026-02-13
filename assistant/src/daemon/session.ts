@@ -11,6 +11,7 @@ import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { getApp } from '../memory/app-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
+import { addRule } from '../permissions/trust-store.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { ToolLifecycleEventHandler, ToolExecutionResult } from '../tools/types.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
@@ -160,6 +161,12 @@ export class Session {
             undefined, undefined,
             this.conversationId,
           );
+          if (response.decision === 'always_allow' && response.selectedPattern && response.selectedScope) {
+            addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope);
+          }
+          if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
+            addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope, 'deny');
+          }
           return {
             decision: (response.decision === 'allow' || response.decision === 'always_allow') ? 'allow' as const : 'deny' as const,
           };
