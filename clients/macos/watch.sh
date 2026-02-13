@@ -37,6 +37,7 @@ fswatch -o \
     --exclude='\.git/' \
     --exclude='Package.resolved' \
     --include='\.swift$' \
+    --exclude='.*' \
     --event Created \
     --event Updated \
     --latency 0.5 \
