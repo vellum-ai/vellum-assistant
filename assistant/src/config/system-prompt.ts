@@ -93,19 +93,37 @@ function appendSkillsCatalog(basePrompt: string): string {
   if (skills.length === 0) return basePrompt;
 
   const catalog = formatSkillsCatalog(skills);
+  if (!catalog) return basePrompt;
   return `${basePrompt}\n\n${catalog}`;
 }
 
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 function formatSkillsCatalog(skills: SkillSummary[]): string {
-  const lines: string[] = [
-    '## Skills Catalog',
-    'The following skills are available. Before executing one, call the `skill_load` tool with its id or name to load the full instructions.',
-    '',
-  ];
+  // Filter out skills with disableModelInvocation
+  const visible = skills.filter(s => !s.disableModelInvocation);
+  if (visible.length === 0) return '';
 
-  for (const skill of skills) {
-    lines.push(`- \`${skill.id}\` - ${skill.name}: ${skill.description}`);
+  const lines = ['<available_skills>'];
+  for (const skill of visible) {
+    const nameAttr = escapeXml(skill.name);
+    const descAttr = escapeXml(skill.description);
+    const locAttr = escapeXml(skill.directoryPath);
+    lines.push(`<skill name="${nameAttr}" description="${descAttr}" location="${locAttr}" />`);
   }
+  lines.push('</available_skills>');
 
-  return lines.join('\n');
+  return [
+    '## Available Skills',
+    'The following skills are available. Before executing one, call the `skill_load` tool with its name to load the full instructions.',
+    '',
+    lines.join('\n'),
+  ].join('\n');
 }
