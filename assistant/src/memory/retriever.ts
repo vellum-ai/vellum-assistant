@@ -602,16 +602,18 @@ function entitySearch(query: string): Candidate[] {
     .filter((t) => t.length >= 3);
   if (tokens.length === 0) return [];
 
-  // Use exact matching on entity names and json_each() for individual alias values
+  // Use exact matching on entity names and json_each() for individual alias values.
+  // Also match the full trimmed query to support multi-word entity names (e.g. "Visual Studio Code").
   const namePlaceholders = tokens.map(() => '?').join(',');
+  const fullQuery = trimmed.toLowerCase();
   const entityQuery = `
     SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
     FROM memory_entities me
-    WHERE LOWER(me.name) IN (${namePlaceholders})
+    WHERE LOWER(me.name) IN (${namePlaceholders}) OR LOWER(me.name) = ?
     UNION
     SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
     FROM memory_entities me, json_each(me.aliases) je
-    WHERE me.aliases IS NOT NULL AND LOWER(je.value) IN (${namePlaceholders})
+    WHERE me.aliases IS NOT NULL AND (LOWER(je.value) IN (${namePlaceholders}) OR LOWER(je.value) = ?)
     LIMIT 20
   `;
 
@@ -623,7 +625,7 @@ function entitySearch(query: string): Candidate[] {
     mention_count: number;
   }> = [];
   try {
-    matchedEntities = raw.query(entityQuery).all(...tokens, ...tokens) as Array<{
+    matchedEntities = raw.query(entityQuery).all(...tokens, fullQuery, ...tokens, fullQuery) as Array<{
       id: string;
       name: string;
       type: string;
