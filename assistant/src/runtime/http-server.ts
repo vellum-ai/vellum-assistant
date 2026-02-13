@@ -145,6 +145,13 @@ export class RuntimeHttpServer {
           return await this.handleRunDecision(assistantId, runId, req);
         }
         if (runsMatch[2] === '/trust-rule' && req.method === 'POST') {
+          if (!this.runOrchestrator) {
+            return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
+          }
+          const run = this.runOrchestrator.getRun(runId);
+          if (!run || run.assistantId !== assistantId) {
+            return Response.json({ error: 'Run not found' }, { status: 404 });
+          }
           return await this.handleAddTrustRule(req);
         }
         if (req.method === 'GET') {
