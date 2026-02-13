@@ -207,7 +207,7 @@ struct ChatView: View {
                         .textFieldStyle(.plain)
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .lineLimit(1...3)
+                        .lineLimit(1...8)
                         .disabled(!hasAPIKey)
                         .accessibilityLabel("Message")
                         .onKeyPress(.tab, phases: .down) { keyPress in
@@ -235,7 +235,7 @@ struct ChatView: View {
                         Text(inputText + ghostSuffix)
                             .font(VFont.body)
                             .foregroundColor(.clear)
-                            .lineLimit(1...3)
+                            .lineLimit(1...8)
                             .overlay(alignment: .leading) {
                                 HStack(spacing: 0) {
                                     Text(inputText)
