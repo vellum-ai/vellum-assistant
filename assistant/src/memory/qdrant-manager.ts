@@ -45,10 +45,8 @@ export class QdrantManager {
     this.storagePath = config.storagePath ?? join(getDataDir(), 'qdrant');
     this.pidPath = join(getDataDir(), 'qdrant', 'qdrant.pid');
 
-    // External mode if QDRANT_URL is explicitly set or no local binary exists
-    const hasEnvUrl = Boolean(process.env.QDRANT_URL?.trim());
-    const localBinaryPath = this.getBinaryPath();
-    this.isExternal = hasEnvUrl || !existsSync(localBinaryPath);
+    // External mode only if QDRANT_URL is explicitly set
+    this.isExternal = Boolean(process.env.QDRANT_URL?.trim());
   }
 
   async start(): Promise<void> {
