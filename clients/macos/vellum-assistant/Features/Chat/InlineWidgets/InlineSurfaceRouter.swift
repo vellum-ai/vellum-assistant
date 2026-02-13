@@ -5,6 +5,8 @@ struct InlineSurfaceRouter: View {
     let surface: InlineSurfaceData
     let onAction: (String, String, [String: AnyCodable]?) -> Void
 
+    @State private var selectionPayload: [String: AnyCodable]?
+
     /// Whether the surface content handles its own header/chrome.
     private var isTemplateCard: Bool {
         if case .card(let data) = surface.data, data.template != nil {
@@ -47,10 +49,18 @@ struct InlineSurfaceRouter: View {
             InlineCardWidget(data: data)
         case .table(let data):
             InlineTableWidget(data: data) { actionId, payload in
+                if actionId == "selection_changed" {
+                    selectionPayload = payload
+                }
                 onAction(surface.id, actionId, payload)
             }
         case .list(let data):
-            InlineListWidget(data: data)
+            InlineListWidget(data: data) { actionId, payload in
+                if actionId == "selection_changed" {
+                    selectionPayload = payload
+                }
+                onAction(surface.id, actionId, payload)
+            }
         default:
             InlineFallbackChip(surfaceType: surface.surfaceType)
         }
@@ -61,7 +71,7 @@ struct InlineSurfaceRouter: View {
             Spacer()
             ForEach(surface.actions) { action in
                 Button {
-                    onAction(surface.id, action.id, nil)
+                    onAction(surface.id, action.id, selectionPayload)
                 } label: {
                     Text(action.label)
                         .font(VFont.bodyMedium)

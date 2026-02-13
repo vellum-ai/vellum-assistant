@@ -101,6 +101,7 @@ struct InlineTableWidget: View {
                 selectedIds.insert(id)
             }
         }
+        onAction("selection_changed", ["selectedIds": AnyCodable(Array(selectedIds))])
     }
 }
 
