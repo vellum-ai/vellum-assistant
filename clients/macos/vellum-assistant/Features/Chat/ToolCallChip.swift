@@ -89,18 +89,18 @@ struct ToolCallChip: View {
 #Preview("ToolCallChip") {
     VStack(alignment: .leading, spacing: VSpacing.md) {
         ToolCallChip(toolCall: ToolCallData(
-            toolName: "bash",
+            toolName: "Run Command",
             inputSummary: "ls -la /Users/test/project",
             result: "total 42\ndrwxr-xr-x  10 user  staff  320 Jan  1 12:00 .\ndrwxr-xr-x   5 user  staff  160 Jan  1 11:00 ..",
             isComplete: true
         ))
         ToolCallChip(toolCall: ToolCallData(
-            toolName: "file_read",
+            toolName: "Read File",
             inputSummary: "/src/main.swift",
             isComplete: false
         ))
         ToolCallChip(toolCall: ToolCallData(
-            toolName: "bash",
+            toolName: "Run Command",
             inputSummary: "rm -rf /important",
             result: "Permission denied",
             isError: true,
