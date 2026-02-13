@@ -172,9 +172,6 @@ struct ChatView: View {
             }
 
             HStack(spacing: VSpacing.sm) {
-                // Leading chat icon
-                VCircleButton(icon: "phone.fill", label: "Phone") { }
-
                 // Text field with ghost suffix overlay
                 ZStack(alignment: .leading) {
                     TextField("", text: $inputText, axis: .vertical)
