@@ -817,6 +817,24 @@ private struct ComposerTextView: NSViewRepresentable {
         return container
     }
 
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: ComposerContainerView, context: Context) -> CGSize? {
+        guard let font = nsView.textView.font else { return nil }
+        let lineHeight = ceil(font.ascender + abs(font.descender) + font.leading)
+        let insetHeight = nsView.textView.textContainerInset.height * 2
+        let maxHeight = lineHeight * CGFloat(maxVisibleLines) + insetHeight
+
+        let width = proposal.width ?? 200
+        nsView.textView.textContainer?.containerSize = NSSize(width: max(width, 1), height: .greatestFiniteMagnitude)
+
+        guard let lm = nsView.textView.layoutManager, let tc = nsView.textView.textContainer else {
+            return CGSize(width: width, height: lineHeight + insetHeight)
+        }
+        lm.ensureLayout(for: tc)
+        let contentHeight = lm.usedRect(for: tc).height + insetHeight
+        let height = min(max(contentHeight, lineHeight + insetHeight), maxHeight)
+        return CGSize(width: width, height: height)
+    }
+
     func updateNSView(_ container: ComposerContainerView, context: Context) {
         let textView = container.textView
         textView.onReturnAction = onReturn
@@ -944,10 +962,23 @@ private class ComposerNSTextView: NSTextView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        guard let ghost = ghostSuffix, !ghost.isEmpty,
+        guard let font = font,
               let lm = layoutManager,
-              let tc = textContainer,
-              let font = font else { return }
+              let tc = textContainer else { return }
+
+        let origin = textContainerOrigin
+
+        if string.isEmpty && (ghostSuffix == nil || ghostSuffix?.isEmpty == true) {
+            let placeholderColor = NSColor(srgbRed: 100 / 255.0, green: 116 / 255.0, blue: 139 / 255.0, alpha: 0.6)
+            let placeholderAttrs: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: placeholderColor,
+            ]
+            "Message".draw(at: NSPoint(x: origin.x, y: origin.y), withAttributes: placeholderAttrs)
+            return
+        }
+
+        guard let ghost = ghostSuffix, !ghost.isEmpty else { return }
 
         let ghostColor = NSColor(srgbRed: 100 / 255.0, green: 116 / 255.0, blue: 139 / 255.0, alpha: 0.5)
         let ghostAttrs: [NSAttributedString.Key: Any] = [
