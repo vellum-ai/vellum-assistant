@@ -259,8 +259,10 @@ struct ChatView: View {
             for provider in providers {
                 group.enter()
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    if let url { urls.append(url) }
-                    group.leave()
+                    DispatchQueue.main.async {
+                        if let url { urls.append(url) }
+                        group.leave()
+                    }
                 }
             }
             group.notify(queue: .main) {
