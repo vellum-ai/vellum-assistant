@@ -54,6 +54,8 @@ import { claimMemoryJobs, enqueueMemoryJob } from '../memory/jobs-store.js';
 import { currentWeekWindow, runMemoryJobsOnce } from '../memory/jobs-worker.js';
 import {
   buildMemoryRecall,
+  formatAbsoluteTime,
+  formatRelativeTime,
   injectMemoryRecallIntoUserMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
@@ -975,5 +977,47 @@ describe('Memory V2 regressions', () => {
     } finally {
       db.run('DROP TRIGGER IF EXISTS memory_jobs_claim_ignore');
     }
+  });
+
+  test('formatAbsoluteTime returns YYYY-MM-DD HH:mm TZ format', () => {
+    // Use a fixed epoch-ms value; the rendered string depends on the local timezone,
+    // so we verify the structural format rather than exact values.
+    const epochMs = 1_707_850_200_000; // 2024-02-13 in UTC
+    const result = formatAbsoluteTime(epochMs);
+
+    // Should match pattern: YYYY-MM-DD HH:mm <TZ abbreviation>
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} \S+$/);
+
+    // Year should be 2024
+    expect(result).toContain('2024-02');
+  });
+
+  test('formatAbsoluteTime uses local timezone abbreviation', () => {
+    const epochMs = Date.now();
+    const result = formatAbsoluteTime(epochMs);
+
+    // Extract the TZ part from the result
+    const parts = result.split(' ');
+    const tz = parts[parts.length - 1];
+
+    // The TZ abbreviation should be a non-empty string (e.g. PST, EST, UTC, GMT+8)
+    expect(tz.length).toBeGreaterThan(0);
+
+    // Cross-check: Intl should produce the same abbreviation for the same timestamp
+    const expected = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
+      .formatToParts(new Date(epochMs))
+      .find((p) => p.type === 'timeZoneName')?.value ?? 'UTC';
+    expect(tz).toBe(expected);
+  });
+
+  test('formatRelativeTime returns expected relative strings', () => {
+    const now = Date.now();
+    expect(formatRelativeTime(now)).toBe('just now');
+    expect(formatRelativeTime(now - 2 * 60 * 60 * 1000)).toBe('2 hours ago');
+    expect(formatRelativeTime(now - 1 * 60 * 60 * 1000)).toBe('1 hour ago');
+    expect(formatRelativeTime(now - 3 * 24 * 60 * 60 * 1000)).toBe('3 days ago');
+    expect(formatRelativeTime(now - 14 * 24 * 60 * 60 * 1000)).toBe('2 weeks ago');
+    expect(formatRelativeTime(now - 60 * 24 * 60 * 60 * 1000)).toBe('2 months ago');
+    expect(formatRelativeTime(now - 400 * 24 * 60 * 60 * 1000)).toBe('1 year ago');
   });
 });
