@@ -123,10 +123,17 @@ export function loadConfig(): GatewayConfig {
   const runtimeProxyBearerToken =
     process.env.RUNTIME_PROXY_BEARER_TOKEN || undefined;
 
+  const MAX_TIMEOUT_MS = 2_147_483_647; // 2^31 - 1, max safe setTimeout delay
+
   const shutdownDrainMsRaw = process.env.GATEWAY_SHUTDOWN_DRAIN_MS || "5000";
   const shutdownDrainMs = Number(shutdownDrainMsRaw);
   if (!Number.isFinite(shutdownDrainMs) || shutdownDrainMs < 0) {
     throw new Error("GATEWAY_SHUTDOWN_DRAIN_MS must be a non-negative number");
+  }
+  if (shutdownDrainMs > MAX_TIMEOUT_MS) {
+    throw new Error(
+      `GATEWAY_SHUTDOWN_DRAIN_MS must not exceed ${MAX_TIMEOUT_MS} (setTimeout max safe delay)`,
+    );
   }
 
   const runtimeTimeoutMs = Number(process.env.GATEWAY_RUNTIME_TIMEOUT_MS || "30000");
