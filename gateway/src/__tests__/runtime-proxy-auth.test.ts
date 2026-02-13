@@ -22,6 +22,9 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeMaxRetries: 2,
     runtimeInitialBackoffMs: 500,
     telegramTimeoutMs: 15000,
+    maxWebhookPayloadBytes: 1048576,
+    maxAttachmentBytes: 20971520,
+    maxAttachmentConcurrency: 3,
     ...overrides,
   };
 }

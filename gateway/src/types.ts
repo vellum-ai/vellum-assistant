@@ -15,6 +15,7 @@ export type GatewayInboundEventV1 = {
       fileId: string;
       fileName?: string;
       mimeType?: string;
+      fileSize?: number;
     }[];
   };
   sender: {

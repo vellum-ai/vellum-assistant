@@ -24,6 +24,9 @@ function withEnv(overrides: Record<string, string | undefined>, fn: () => void) 
     "GATEWAY_RUNTIME_MAX_RETRIES",
     "GATEWAY_RUNTIME_INITIAL_BACKOFF_MS",
     "GATEWAY_TELEGRAM_TIMEOUT_MS",
+    "GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES",
+    "GATEWAY_MAX_ATTACHMENT_BYTES",
+    "GATEWAY_MAX_ATTACHMENT_CONCURRENCY",
   ];
 
   for (const key of allKeys) {

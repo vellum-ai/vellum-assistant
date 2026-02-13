@@ -42,6 +42,9 @@ bun run dev
 | `GATEWAY_RUNTIME_MAX_RETRIES` | No | `2` | Max retries for runtime forward on 5xx/network errors |
 | `GATEWAY_RUNTIME_INITIAL_BACKOFF_MS` | No | `500` | Initial backoff between retries (doubles each attempt) |
 | `GATEWAY_TELEGRAM_TIMEOUT_MS` | No | `15000` | Timeout for Telegram API/download calls (ms) |
+| `GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES` | No | `1048576` | Max inbound webhook payload size (rejects with 413) |
+| `GATEWAY_MAX_ATTACHMENT_BYTES` | No | `20971520` | Max single attachment size (oversized are skipped) |
+| `GATEWAY_MAX_ATTACHMENT_CONCURRENCY` | No | `3` | Max concurrent attachment download/upload operations |
 
 ## Routing
 

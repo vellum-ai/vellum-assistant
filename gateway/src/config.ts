@@ -25,6 +25,9 @@ export type GatewayConfig = {
   runtimeMaxRetries: number;
   runtimeInitialBackoffMs: number;
   telegramTimeoutMs: number;
+  maxWebhookPayloadBytes: number;
+  maxAttachmentBytes: number;
+  maxAttachmentConcurrency: number;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -146,6 +149,21 @@ export function loadConfig(): GatewayConfig {
     throw new Error("GATEWAY_TELEGRAM_TIMEOUT_MS must be a positive number");
   }
 
+  const maxWebhookPayloadBytes = Number(process.env.GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES || String(1024 * 1024));
+  if (!Number.isFinite(maxWebhookPayloadBytes) || maxWebhookPayloadBytes <= 0) {
+    throw new Error("GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES must be a positive number");
+  }
+
+  const maxAttachmentBytes = Number(process.env.GATEWAY_MAX_ATTACHMENT_BYTES || String(20 * 1024 * 1024));
+  if (!Number.isFinite(maxAttachmentBytes) || maxAttachmentBytes <= 0) {
+    throw new Error("GATEWAY_MAX_ATTACHMENT_BYTES must be a positive number");
+  }
+
+  const maxAttachmentConcurrency = Number(process.env.GATEWAY_MAX_ATTACHMENT_CONCURRENCY || "3");
+  if (!Number.isInteger(maxAttachmentConcurrency) || maxAttachmentConcurrency < 1) {
+    throw new Error("GATEWAY_MAX_ATTACHMENT_CONCURRENCY must be a positive integer");
+  }
+
   if (runtimeProxyEnabled && runtimeProxyRequireAuth && !runtimeProxyBearerToken) {
     throw new Error(
       "RUNTIME_PROXY_BEARER_TOKEN is required when proxy is enabled with auth required",
@@ -183,5 +201,8 @@ export function loadConfig(): GatewayConfig {
     runtimeMaxRetries,
     runtimeInitialBackoffMs,
     telegramTimeoutMs,
+    maxWebhookPayloadBytes,
+    maxAttachmentBytes,
+    maxAttachmentConcurrency,
   };
 }

@@ -24,15 +24,34 @@ export function createTelegramWebhookHandler(
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
+    // Payload size guard
+    const contentLength = req.headers.get("content-length");
+    if (contentLength && Number(contentLength) > config.maxWebhookPayloadBytes) {
+      log.warn({ contentLength }, "Webhook payload too large");
+      return Response.json({ error: "Payload too large" }, { status: 413 });
+    }
+
     // Verify webhook secret
     if (!verifyWebhookSecret(req.headers, config.telegramWebhookSecret)) {
       log.warn("Telegram webhook request failed secret verification");
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    let rawBody: string;
+    try {
+      rawBody = await req.text();
+    } catch {
+      return Response.json({ error: "Failed to read body" }, { status: 400 });
+    }
+
+    if (rawBody.length > config.maxWebhookPayloadBytes) {
+      log.warn({ bodyLength: rawBody.length }, "Webhook payload too large");
+      return Response.json({ error: "Payload too large" }, { status: 413 });
+    }
+
     let payload: Record<string, unknown>;
     try {
-      payload = (await req.json()) as Record<string, unknown>;
+      payload = JSON.parse(rawBody) as Record<string, unknown>;
     } catch {
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
@@ -57,14 +76,36 @@ export function createTelegramWebhookHandler(
       if (!isRejection(routing)) {
         try {
           attachmentIds = [];
-          for (const att of eventAttachments) {
-            const downloaded = await downloadTelegramFile(config, att.fileId, {
-              fileName: att.fileName,
-              mimeType: att.mimeType,
-            });
-            const uploaded = await uploadAttachment(config, routing.assistantId, downloaded);
-            attachmentIds.push(uploaded.id);
+
+          // Filter oversized attachments
+          const eligible = eventAttachments.filter((att) => {
+            if (att.fileSize !== undefined && att.fileSize > config.maxAttachmentBytes) {
+              log.warn(
+                { fileId: att.fileId, fileSize: att.fileSize, limit: config.maxAttachmentBytes },
+                "Skipping oversized attachment",
+              );
+              return false;
+            }
+            return true;
+          });
+
+          // Process with bounded concurrency
+          for (let i = 0; i < eligible.length; i += config.maxAttachmentConcurrency) {
+            const batch = eligible.slice(i, i + config.maxAttachmentConcurrency);
+            const results = await Promise.all(
+              batch.map(async (att) => {
+                const downloaded = await downloadTelegramFile(config, att.fileId, {
+                  fileName: att.fileName,
+                  mimeType: att.mimeType,
+                });
+                return uploadAttachment(config, routing.assistantId, downloaded);
+              }),
+            );
+            for (const uploaded of results) {
+              attachmentIds.push(uploaded.id);
+            }
           }
+
           log.info(
             { count: attachmentIds.length, assistantId: routing.assistantId },
             "Attachments downloaded and uploaded",

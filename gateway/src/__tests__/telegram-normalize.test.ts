@@ -75,6 +75,7 @@ describe("normalizeTelegramUpdate", () => {
     expect(result!.message.attachments![0]).toEqual({
       type: "photo",
       fileId: "large_id",
+      fileSize: undefined,
     });
   });
 
@@ -123,6 +124,7 @@ describe("normalizeTelegramUpdate", () => {
       fileId: "doc_file_id",
       fileName: "report.pdf",
       mimeType: "application/pdf",
+      fileSize: 12345,
     });
   });
 
