@@ -104,4 +104,67 @@ describe("runtime proxy handler", () => {
     const body = await res.json();
     expect(body.error).toBe("Bad Gateway");
   });
+
+  test("strips hop-by-hop headers from request", async () => {
+    let capturedHeaders: Headers | undefined;
+    globalThis.fetch = mock(async (_input: any, init?: any) => {
+      capturedHeaders = init?.headers;
+      return new Response("ok", { status: 200 });
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/health", {
+      headers: {
+        connection: "keep-alive",
+        "keep-alive": "timeout=5",
+        "transfer-encoding": "chunked",
+        "x-custom": "preserved",
+      },
+    });
+    await handler(req);
+
+    expect(capturedHeaders!.has("connection")).toBe(false);
+    expect(capturedHeaders!.has("keep-alive")).toBe(false);
+    expect(capturedHeaders!.has("transfer-encoding")).toBe(false);
+    expect(capturedHeaders!.get("x-custom")).toBe("preserved");
+  });
+
+  test("strips hop-by-hop headers from response", async () => {
+    globalThis.fetch = mock(async () => {
+      return new Response("ok", {
+        status: 200,
+        headers: {
+          connection: "keep-alive",
+          "transfer-encoding": "chunked",
+          "x-custom": "preserved",
+          "content-type": "text/plain",
+        },
+      });
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/health");
+    const res = await handler(req);
+
+    expect(res.headers.has("connection")).toBe(false);
+    expect(res.headers.has("transfer-encoding")).toBe(false);
+    expect(res.headers.get("x-custom")).toBe("preserved");
+    expect(res.headers.get("content-type")).toBe("text/plain");
+  });
+
+  test("does not forward host header to upstream", async () => {
+    let capturedHeaders: Headers | undefined;
+    globalThis.fetch = mock(async (_input: any, init?: any) => {
+      capturedHeaders = init?.headers;
+      return new Response("ok", { status: 200 });
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/health", {
+      headers: { host: "localhost:7830" },
+    });
+    await handler(req);
+
+    expect(capturedHeaders!.has("host")).toBe(false);
+  });
 });
