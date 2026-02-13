@@ -84,6 +84,14 @@ final class ChatViewModel: ObservableObject {
             return
         }
 
+        // Belt-and-suspenders: the pre-read metadata check above may report
+        // nil (e.g. symlinks, certain file systems) so always validate the
+        // actual byte count after reading.
+        guard data.count <= Self.maxFileSize else {
+            errorText = "File exceeds 20 MB limit."
+            return
+        }
+
         let filename = url.lastPathComponent
         let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         let base64 = data.base64EncodedString()
