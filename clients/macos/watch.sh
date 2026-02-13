@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # Auto-rebuild and relaunch on file save
 # Usage: ./watch.sh
@@ -41,17 +41,30 @@ echo -e "${BLUE}🔨 Initial build...${NC}"
 ./build.sh run
 echo ""
 
-# Watch for changes (watch directories, filter for .swift files)
+# Watch for changes (Swift files and resources)
 # Use process substitution instead of pipe to avoid orphaning fswatch on Ctrl+C
+BUILD_PID=""
 while read -r _; do
+    # Debounce: skip if a build is already running
+    if [ -n "$BUILD_PID" ] && kill -0 "$BUILD_PID" 2>/dev/null; then
+        echo -e "${YELLOW}⏭️  Change detected but build already in progress, skipping...${NC}"
+        continue
+    fi
+
     echo ""
     echo -e "${YELLOW}📝 Change detected - rebuilding...${NC}"
 
-    if ./build.sh run; then
+    # Run build in background to enable debouncing
+    ./build.sh run &
+    BUILD_PID=$!
+
+    # Wait for build to complete
+    if wait "$BUILD_PID"; then
         echo -e "${GREEN}✅ Build successful${NC}"
     else
         echo -e "${RED}❌ Build failed${NC}"
     fi
+    BUILD_PID=""
 
     echo -e "${BLUE}👀 Watching...${NC}"
 done < <(fswatch -o \
@@ -59,8 +72,15 @@ done < <(fswatch -o \
     --exclude='dist/' \
     --exclude='\.swiftpm/' \
     --exclude='\.git/' \
-    --exclude='Package.resolved' \
     --include='\.swift$' \
+    --include='\.png$' \
+    --include='\.jpg$' \
+    --include='\.jpeg$' \
+    --include='\.svg$' \
+    --include='\.json$' \
+    --include='\.ttf$' \
+    --include='\.otf$' \
+    --include='\.xcassets/' \
     --exclude='.*' \
     --event Created \
     --event Updated \

@@ -71,6 +71,9 @@ SWIFT_FLAGS=""
 if [ "$CMD" = "release" ]; then
     CONFIG="release"
     SWIFT_FLAGS="-c release"
+    # Force clean for release builds to prevent stale artifacts in production
+    echo "Release build: forcing clean to ensure no stale artifacts..."
+    rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/.build"
 fi
 
 # 1. Build with SPM

@@ -45,7 +45,7 @@ The build script uses incremental compilation and caching:
 
 ## Auto-Rebuild on Save (Watch Mode)
 
-For faster development iteration, use the watch script to automatically rebuild and relaunch when you save Swift files:
+For faster development iteration, use the watch script to automatically rebuild and relaunch when you save Swift files or resources:
 
 ```bash
 ./watch.sh
@@ -53,9 +53,10 @@ For faster development iteration, use the watch script to automatically rebuild 
 
 **Workflow:**
 1. Start `./watch.sh` in a terminal
-2. Edit Swift files in your editor
+2. Edit Swift files or resources (images, fonts, JSON, assets) in your editor
 3. Save (Cmd+S)
 4. App automatically rebuilds and relaunches in ~4 seconds!
+5. Multiple rapid saves are debounced automatically
 
 ## SwiftPM Commands
 
