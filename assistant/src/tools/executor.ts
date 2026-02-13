@@ -13,6 +13,7 @@ import { MAX_FILE_SIZE_BYTES } from './filesystem/size-guard.js';
 import { wrapCommand } from './terminal/sandbox.js';
 import { getConfig } from '../config/loader.js';
 import { scanText, redactSecrets } from '../security/secret-scanner.js';
+import { getHookManager } from '../hooks/manager.js';
 
 const log = getLogger('tool-executor');
 
@@ -122,6 +123,13 @@ export class ToolExecutor {
           sandboxed,
         });
 
+        void getHookManager().trigger('permission-request', {
+          toolName: name,
+          input: sanitizeToolInput(name, input),
+          riskLevel,
+          sessionId: context.sessionId,
+        });
+
         const response = await this.prompter.prompt(
           name,
           input,
@@ -134,6 +142,13 @@ export class ToolExecutor {
         );
 
         decision = response.decision;
+
+        void getHookManager().trigger('permission-resolve', {
+          toolName: name,
+          decision: response.decision,
+          riskLevel,
+          sessionId: context.sessionId,
+        });
 
         if (response.decision === 'deny') {
           const durationMs = Date.now() - startTime;
@@ -179,6 +194,15 @@ export class ToolExecutor {
           addRule(name, response.selectedPattern, response.selectedScope);
         }
       }
+
+      await getHookManager().trigger('pre-tool-execute', {
+        toolName: name,
+        input: sanitizeToolInput(name, input),
+        riskLevel,
+        decision,
+        workingDir: context.workingDir,
+        sessionId: context.sessionId,
+      });
 
       // Execute the tool — proxy tools delegate to an external resolver
       let execResult: ToolExecutionResult;
@@ -283,6 +307,15 @@ export class ToolExecutor {
         decision,
         durationMs,
         result: execResult,
+      });
+
+      void getHookManager().trigger('post-tool-execute', {
+        toolName: name,
+        input: sanitizeToolInput(name, input),
+        riskLevel,
+        isError: execResult.isError,
+        durationMs,
+        sessionId: context.sessionId,
       });
 
       return execResult;

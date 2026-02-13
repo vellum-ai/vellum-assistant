@@ -25,6 +25,7 @@ import { initQdrantClient } from '../memory/qdrant-client.js';
 import { startScheduler } from '../schedule/scheduler.js';
 import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
+import { getHookManager } from '../hooks/manager.js';
 
 const log = getLogger('lifecycle');
 
@@ -234,6 +235,11 @@ export async function runDaemon(): Promise<void> {
   writePid(process.pid);
   log.info({ pid: process.pid }, 'Daemon started');
 
+  void getHookManager().trigger('daemon-start', {
+    pid: process.pid,
+    socketPath: getSocketPath(),
+  });
+
   // Rotate old audit log entries after startup handshake is complete.
   // This runs after the socket is listening so it won't block the 5s
   // readiness window in startDaemon().
@@ -251,6 +257,12 @@ export async function runDaemon(): Promise<void> {
     if (shuttingDown) return; // Prevent re-entrant shutdown
     shuttingDown = true;
     log.info('Shutting down daemon...');
+
+    try {
+      await getHookManager().trigger('daemon-stop', { pid: process.pid });
+    } catch {
+      // Don't let hook failures block shutdown
+    }
 
     // Force exit if graceful shutdown takes too long
     const forceTimer = setTimeout(() => {

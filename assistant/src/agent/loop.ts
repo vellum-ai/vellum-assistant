@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/node';
 import type { Provider, Message, ToolDefinition, ContentBlock } from '../providers/types.js';
 import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
+import { getHookManager } from '../hooks/manager.js';
 
 const log = getLogger('agent-loop');
 
@@ -105,6 +106,12 @@ export class AgentLoop {
           }, 'Sending request to provider');
         }
 
+        await getHookManager().trigger('pre-llm-call', {
+          systemPrompt: this.systemPrompt,
+          messages: history,
+          toolCount: this.tools.length,
+        });
+
         const providerStart = Date.now();
 
         const response = await this.provider.sendMessage(
@@ -150,6 +157,14 @@ export class AgentLoop {
           cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
           cacheReadInputTokens: response.usage.cacheReadInputTokens,
           model: response.model,
+        });
+
+        void getHookManager().trigger('post-llm-call', {
+          model: response.model,
+          inputTokens: response.usage.inputTokens,
+          outputTokens: response.usage.outputTokens,
+          contentBlockCount: response.content.length,
+          durationMs: providerDurationMs,
         });
 
         const assistantMessage: Message = {
