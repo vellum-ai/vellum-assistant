@@ -96,11 +96,21 @@ export function loadConfig(): GatewayConfig {
     throw new Error("GATEWAY_PORT must be a valid port number");
   }
 
-  const runtimeProxyEnabled =
-    process.env.GATEWAY_RUNTIME_PROXY_ENABLED === "true";
+  const proxyEnabledRaw = process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
+  if (proxyEnabledRaw !== undefined && proxyEnabledRaw !== "true" && proxyEnabledRaw !== "false") {
+    throw new Error(
+      `GATEWAY_RUNTIME_PROXY_ENABLED must be "true" or "false", got "${proxyEnabledRaw}"`,
+    );
+  }
+  const runtimeProxyEnabled = proxyEnabledRaw === "true";
 
-  const runtimeProxyRequireAuth =
-    process.env.GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH !== "false";
+  const proxyRequireAuthRaw = process.env.GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH;
+  if (proxyRequireAuthRaw !== undefined && proxyRequireAuthRaw !== "true" && proxyRequireAuthRaw !== "false") {
+    throw new Error(
+      `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH must be "true" or "false", got "${proxyRequireAuthRaw}"`,
+    );
+  }
+  const runtimeProxyRequireAuth = proxyRequireAuthRaw !== "false";
 
   const runtimeProxyBearerToken =
     process.env.RUNTIME_PROXY_BEARER_TOKEN || undefined;
