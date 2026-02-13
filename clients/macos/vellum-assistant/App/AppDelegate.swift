@@ -333,21 +333,41 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureMenuBarIcon(_ button: NSStatusBarButton) {
         let iconSize: CGFloat = 18
-        guard let appIcon = NSImage(named: "AppIcon") else {
+        let dotSize: CGFloat = 6
+        let dotPadding: CGFloat = 0.5
+
+        let appIcon = NSApp.applicationIconImage ?? NSImage(named: "AppIcon")
+        guard let appIcon else {
             button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Vellum")
             return
         }
-        let resized = NSImage(size: NSSize(width: iconSize, height: iconSize))
-        resized.lockFocus()
+
+        let status = currentAssistantStatus
+        let dotColor: NSColor
+        switch status {
+        case .idle: dotColor = .systemGreen
+        case .thinking: dotColor = .systemOrange
+        case .error: dotColor = .systemRed
+        }
+
+        let composited = NSImage(size: NSSize(width: iconSize, height: iconSize))
+        composited.lockFocus()
         appIcon.draw(
             in: NSRect(x: 0, y: 0, width: iconSize, height: iconSize),
             from: NSRect(origin: .zero, size: appIcon.size),
             operation: .copy,
             fraction: 1.0
         )
-        resized.unlockFocus()
-        resized.isTemplate = false
-        button.image = resized
+        let dotX = iconSize - dotSize - dotPadding
+        let dotY = dotPadding
+        let dotRect = NSRect(x: dotX, y: dotY, width: dotSize, height: dotSize)
+        NSColor.black.withAlphaComponent(0.5).setFill()
+        NSBezierPath(ovalIn: dotRect.insetBy(dx: -0.5, dy: -0.5)).fill()
+        dotColor.setFill()
+        NSBezierPath(ovalIn: dotRect).fill()
+        composited.unlockFocus()
+        composited.isTemplate = false
+        button.image = composited
     }
 
     private var currentAssistantStatus: AssistantStatus {
