@@ -27,6 +27,13 @@ export function extractTextFromStoredMessageContent(raw: string): string {
         case 'image':
           lines.push(`[image ${block.source.media_type}]`);
           break;
+        case 'file':
+          if (block.extracted_text) {
+            lines.push(`File (${block.source.filename}): ${block.extracted_text}`);
+          } else {
+            lines.push(`[file ${block.source.filename} ${block.source.media_type}]`);
+          }
+          break;
         default:
           lines.push('[unknown content block]');
       }
