@@ -892,11 +892,14 @@ export class Session {
       const data = input.data as SurfaceData;
       const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
       // Interactive surfaces default to awaiting user action.
-      // Lists and tables with selectionMode "none" are passive (no actions emitted) so they don't block.
+      // Tables and lists only block when explicit action buttons are provided;
+      // selectionMode alone should not gate blocking because selection_changed
+      // fires on every click and would immediately resolve multi-select surfaces.
+      const hasActions = Array.isArray(actions) && actions.length > 0;
       const isInteractive = surfaceType === 'list'
-        ? ((data as ListSurfaceData).selectionMode ?? 'none') !== 'none'
+        ? hasActions
         : surfaceType === 'table'
-          ? ((data as TableSurfaceData).selectionMode ?? 'none') !== 'none'
+          ? hasActions
           : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
       const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
