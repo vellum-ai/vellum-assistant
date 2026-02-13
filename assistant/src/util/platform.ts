@@ -98,12 +98,17 @@ export function getHistoryPath(): string {
   return join(getDataDir(), 'history');
 }
 
+export function getHooksDir(): string {
+  return join(getRootDir(), 'hooks');
+}
+
 export function ensureDataDir(): void {
   const root = getRootDir();
   const data = getDataDir();
   const dirs = [
     root,
     join(root, 'skills'),
+    join(root, 'hooks'),
     join(root, 'protected'),
     data,
     join(data, 'db'),
