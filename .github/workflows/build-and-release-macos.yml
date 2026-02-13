@@ -276,7 +276,9 @@ jobs:
           echo "Signature obtained: ${SIGNATURE:0:20}..."
           SIZE=$(stat -f%z dist/vellum-assistant.zip)
 
-          cat > dist/appcast.xml << EOF
+          for REPO in "alex-nork/vellum-assistant-macos-updates" "vellum-ai/velly"; do
+            FILENAME="appcast-${REPO//\//-}.xml"
+            cat > "dist/$FILENAME" << EOF
           <?xml version="1.0" encoding="utf-8"?>
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
             <channel>
@@ -286,7 +288,7 @@ jobs:
                 <sparkle:version>${BUILD_VERSION}</sparkle:version>
                 <sparkle:shortVersionString>${DISPLAY_VERSION}</sparkle:shortVersionString>
                 <enclosure
-                  url="https://github.com/alex-nork/vellum-assistant-macos-updates/releases/latest/download/vellum-assistant.zip"
+                  url="https://github.com/${REPO}/releases/latest/download/vellum-assistant.zip"
                   sparkle:edSignature="${SIGNATURE}"
                   length="${SIZE}"
                   type="application/octet-stream" />
@@ -294,25 +296,19 @@ jobs:
             </channel>
           </rss>
           EOF
+            echo "Appcast generated for $REPO"
+          done
 
-          echo "Appcast generated with signature"
-
-      - name: Create GitHub Release on public repo
+      - name: Create GitHub Release on public repos
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
         run: |
-          REPO="alex-nork/vellum-assistant-macos-updates"
           VERSION="${{ steps.version.outputs.display_version }}"
           SHORT_SHA=$(git rev-parse --short HEAD)
           FULL_SHA=$(git rev-parse HEAD)
           TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
-          # Delete existing 'latest' release and tag if they exist
-          gh release delete latest --repo "$REPO" --yes 2>/dev/null || true
-          gh api "repos/$REPO/git/refs/tags/latest" -X DELETE 2>/dev/null || true
-
-          # Create new release with DMG + ZIP + appcast
           RELEASE_NOTES="**Build:** \`$VERSION\`
           **Commit:** [\`$SHORT_SHA\`](https://github.com/${{ github.repository }}/commit/$FULL_SHA)
           **Built at:** $TIMESTAMP
@@ -322,16 +318,25 @@ jobs:
           Download the DMG, open it, and drag Vellum to your Applications folder.
           Existing installations will auto-update via Sparkle."
 
-          gh release create latest \
-            "$DMG_PATH" \
-            dist/vellum-assistant.zip \
-            dist/appcast.xml \
-            --repo "$REPO" \
-            --title "Vellum $VERSION" \
-            --notes "$RELEASE_NOTES" \
-            --latest
+          for REPO in "alex-nork/vellum-assistant-macos-updates" "vellum-ai/velly"; do
+            APPCAST="dist/appcast-${REPO//\//-}.xml"
 
-          echo "Release created at https://github.com/$REPO/releases/tag/latest"
+            # Delete existing 'latest' release and tag if they exist
+            gh release delete latest --repo "$REPO" --yes 2>/dev/null || true
+            gh api "repos/$REPO/git/refs/tags/latest" -X DELETE 2>/dev/null || true
+
+            # Create new release with DMG + ZIP + appcast
+            gh release create latest \
+              "$DMG_PATH" \
+              dist/vellum-assistant.zip \
+              "$APPCAST#appcast.xml" \
+              --repo "$REPO" \
+              --title "Vellum $VERSION" \
+              --notes "$RELEASE_NOTES" \
+              --latest
+
+            echo "Release created at https://github.com/$REPO/releases/tag/latest"
+          done
 
       - name: Cleanup keychain
         if: always()
