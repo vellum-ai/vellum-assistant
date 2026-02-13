@@ -86,6 +86,7 @@ graph TB
         GW_FORWARD["Runtime Client<br/>POST /channels/inbound"]
         GW_REPLY["Send Reply<br/>Telegram sendMessage"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
+        GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
     end
 
     subgraph "Web Server (Next.js + React)"
