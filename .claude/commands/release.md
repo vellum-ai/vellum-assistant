@@ -24,23 +24,7 @@ For example: `v0.1.1` → `v0.1.2`, `v1.2.3` → `v1.2.4`.
 
 Show the user the version you're about to release and ask for confirmation before proceeding.
 
-### 3. Set version in assistant/package.json
-
-Update the `version` field in `assistant/package.json` to match the release version (without the `v` prefix):
-
-```bash
-cd assistant && npm version <version-without-v-prefix> --no-git-tag-version && cd ..
-```
-
-Then commit the change:
-
-```bash
-git add assistant/package.json
-git commit -m "Bump assistant version to <version>"
-git push
-```
-
-### 4. Check for existing tag
+### 3. Check for existing tag
 
 ```bash
 git tag -l "v<version>"
@@ -48,7 +32,7 @@ git tag -l "v<version>"
 
 If the tag already exists, stop and tell the user.
 
-### 5. Generate release notes
+### 4. Generate release notes
 
 Look at the commits since the last tag to build release notes:
 
@@ -64,7 +48,7 @@ Group changes into categories:
 
 Write concise, user-facing descriptions (not raw commit messages).
 
-### 6. Create the GitHub Release
+### 5. Create the GitHub Release
 
 ```bash
 gh release create v<version> \
@@ -78,7 +62,7 @@ This automatically:
 - Triggers the `Build and Release macOS App` workflow via `on: release`
 - The workflow builds, signs, notarizes, and publishes the DMG to the public updates repo
 
-### 7. Verify the workflow started
+### 6. Verify the workflow started
 
 ```bash
 gh run list --repo vellum-ai/vellum-assistant --workflow="Build and Release macOS App" --limit 1
@@ -86,7 +70,7 @@ gh run list --repo vellum-ai/vellum-assistant --workflow="Build and Release macO
 
 Confirm the build was triggered.
 
-### 8. Report
+### 7. Report
 
 Output:
 - The release URL
