@@ -41,6 +41,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var galleryWindow: ComponentGalleryWindow?
     #endif
     private var windowObserver: Any?
+    private var settingsWindowObserver: Any?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -531,7 +532,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         window.isReleasedWhenClosed = false
         window.center()
 
-        NotificationCenter.default.addObserver(
+        if let existing = settingsWindowObserver {
+            NotificationCenter.default.removeObserver(existing)
+            settingsWindowObserver = nil
+        }
+
+        settingsWindowObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
@@ -539,6 +545,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             Task { @MainActor [weak self] in
                 self?.settingsWindow = nil
+                if let observer = self?.settingsWindowObserver {
+                    NotificationCenter.default.removeObserver(observer)
+                }
+                self?.settingsWindowObserver = nil
             }
         }
 
