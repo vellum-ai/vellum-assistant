@@ -71,6 +71,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `skills_operation_response` message.
     var onSkillsOperationResponse: ((SkillsOperationResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `skills_inspect_response` message.
+    var onSkillsInspectResponse: ((SkillsInspectResponseMessage) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -405,6 +408,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(SkillsSearchMessage(query: query))
     }
 
+    /// Inspect a ClaWHub skill for detailed metadata.
+    func inspectSkill(slug: String) throws {
+        try send(SkillsInspectMessage(slug: slug))
+    }
+
     /// Configure a skill's environment, API key, or config.
     func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) throws {
         try send(SkillsConfigureMessage(name: name, env: env, apiKey: apiKey, config: config))
@@ -546,6 +554,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSkillsUpdatesAvailable?(msg)
         case .skillsOperationResponse(let msg):
             onSkillsOperationResponse?(msg)
+        case .skillsInspectResponse(let msg):
+            onSkillsInspectResponse?(msg)
         default:
             break
         }

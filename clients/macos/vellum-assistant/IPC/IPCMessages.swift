@@ -271,6 +271,12 @@ struct SkillsSearchMessage: Encodable, Sendable {
     let query: String
 }
 
+/// Inspect a ClaWHub skill for detailed info. Wire type: "skills_inspect"
+struct SkillsInspectMessage: Encodable, Sendable {
+    let type: String = "skills_inspect"
+    let slug: String
+}
+
 // MARK: - Server → Client Messages (Decodable)
 
 /// Action to execute from the inference server.
@@ -541,6 +547,61 @@ struct SkillsOperationResponseMessage: Decodable, Sendable {
     let data: ClawhubSearchData?
 }
 
+/// Skill info from a ClaWHub inspect response.
+struct ClawhubInspectSkill: Decodable, Sendable {
+    let slug: String
+    let displayName: String
+    let summary: String
+}
+
+/// Owner info from a ClaWHub inspect response.
+struct ClawhubInspectOwner: Decodable, Sendable {
+    let handle: String
+    let displayName: String
+    let image: String?
+}
+
+/// Stats from a ClaWHub inspect response.
+struct ClawhubInspectStats: Decodable, Sendable {
+    let stars: Int
+    let installs: Int
+    let downloads: Int
+    let versions: Int
+}
+
+/// Version info from a ClaWHub inspect response.
+struct ClawhubInspectVersion: Decodable, Sendable {
+    let version: String
+    let changelog: String?
+}
+
+/// File entry from a ClaWHub inspect response.
+struct ClawhubInspectFile: Decodable, Sendable {
+    let path: String
+    let size: Int
+    let contentType: String?
+}
+
+/// Full inspect data for a ClaWHub skill.
+struct ClawhubInspectData: Decodable, Sendable {
+    let skill: ClawhubInspectSkill
+    let owner: ClawhubInspectOwner?
+    let stats: ClawhubInspectStats?
+    let createdAt: Int?
+    let updatedAt: Int?
+    let latestVersion: ClawhubInspectVersion?
+    let files: [ClawhubInspectFile]?
+    let skillMdContent: String?
+}
+
+/// Response from inspecting a ClaWHub skill.
+/// Wire type: "skills_inspect_response"
+struct SkillsInspectResponseMessage: Decodable, Sendable {
+    let slug: String
+    let data: ClawhubInspectData?
+    let error: String?
+}
+
 /// A single trust rule item returned from the daemon.
 struct TrustRuleItem: Decodable, Sendable, Identifiable {
     let id: String
@@ -710,6 +771,7 @@ enum ServerMessage: Decodable, Sendable {
     case skillStateChanged(SkillStateChangedMessage)
     case skillsUpdatesAvailable(SkillsUpdatesAvailableMessage)
     case skillsOperationResponse(SkillsOperationResponseMessage)
+    case skillsInspectResponse(SkillsInspectResponseMessage)
     case suggestionResponse(SuggestionResponseMessage)
     case toolUseStart(ToolUseStartMessage)
     case toolOutputChunk(ToolOutputChunkMessage)
@@ -800,6 +862,9 @@ enum ServerMessage: Decodable, Sendable {
         case "skills_operation_response":
             let message = try SkillsOperationResponseMessage(from: decoder)
             self = .skillsOperationResponse(message)
+        case "skills_inspect_response":
+            let message = try SkillsInspectResponseMessage(from: decoder)
+            self = .skillsInspectResponse(message)
         case "suggestion_response":
             let message = try SuggestionResponseMessage(from: decoder)
             self = .suggestionResponse(message)
