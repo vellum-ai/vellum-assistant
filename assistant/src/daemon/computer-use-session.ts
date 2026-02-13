@@ -196,6 +196,11 @@ export class ComputerUseSession {
       log.warn({ surfaceId, actionId }, 'No pending surface action found');
       return;
     }
+    // selection_changed is a non-terminal state update — don't consume the
+    // pending entry. The selection state will be in the action button payload.
+    if (actionId === 'selection_changed') {
+      return;
+    }
     this.pendingSurfaceActions.delete(surfaceId);
     pending.resolve({
       content: JSON.stringify({ actionId, data: data ?? {} }),

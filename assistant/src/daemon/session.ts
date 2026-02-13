@@ -763,6 +763,13 @@ export class Session {
       log.warn({ surfaceId, actionId }, 'No pending surface action found');
       return;
     }
+    // selection_changed is a non-terminal state update — don't consume the
+    // pending entry or send a message. The selection state will be included
+    // in the data payload when the user clicks a real action button.
+    if (actionId === 'selection_changed') {
+      log.debug({ surfaceId, data }, 'Selection changed (non-terminal, not forwarding)');
+      return;
+    }
     const content = JSON.stringify({
       surfaceAction: true,
       surfaceId,
