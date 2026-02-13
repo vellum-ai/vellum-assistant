@@ -59,7 +59,8 @@ struct MainWindowView: View {
                             onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
                             onPaste: { viewModel.addAttachmentFromPasteboard() },
                             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
-                            onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") }
+                            onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
+                            onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) }
                         )
                     }
                 }, panel: {

@@ -22,6 +22,7 @@ struct ChatView: View {
     let onPaste: () -> Void
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
+    let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
 
     /// The portion of the suggestion that extends beyond the current input.
     private var ghostSuffix: String? {
@@ -37,7 +38,7 @@ struct ChatView: View {
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
         let last = messages.last
-        return (last?.text.count ?? 0) + (last?.toolCalls.count ?? 0)
+        return (last?.text.count ?? 0) + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
 
     var body: some View {
@@ -86,7 +87,7 @@ struct ChatView: View {
                             .id(message.id)
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                         } else {
-                            ChatBubble(message: message)
+                            ChatBubble(message: message, onSurfaceAction: onSurfaceAction)
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
@@ -428,6 +429,7 @@ struct ChatView: View {
 
 private struct ChatBubble: View {
     let message: ChatMessage
+    let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
 
     private var isUser: Bool { message.role == .user }
 
@@ -482,8 +484,16 @@ private struct ChatBubble: View {
         HStack {
             if isUser { Spacer(minLength: 0) }
 
-            VStack(alignment: isUser ? .trailing : .leading, spacing: 2) {
+            VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
                 bubbleContent
+
+                // Inline surfaces render below the bubble as separate cards
+                if !message.inlineSurfaces.isEmpty {
+                    ForEach(message.inlineSurfaces) { surface in
+                        InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
+                            .frame(maxWidth: 560, alignment: .leading)
+                    }
+                }
 
                 if let label = statusLabel {
                     Text(label)
@@ -788,7 +798,8 @@ private struct TimestampDivider: View {
             onDropFiles: { _ in },
             onPaste: {},
             onConfirmationAllow: { _ in },
-            onConfirmationDeny: { _ in }
+            onConfirmationDeny: { _ in },
+            onSurfaceAction: { _, _, _ in }
         )
     }
     .frame(width: 600, height: 500)
