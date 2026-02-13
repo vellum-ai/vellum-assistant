@@ -1,20 +1,27 @@
 import SwiftUI
 
-/// Five cumulative progress dots for the onboarding flow (steps 0-6).
+/// Five cumulative progress dots for the onboarding flow.
+///
+/// By default maps 7 steps (0-6) to 5 dots. Pass a custom `totalSteps`
+/// for flows with a different number of steps (e.g. `totalSteps: 5` for
+/// the first-meeting flow).
 struct OnboardingProgressDots: View {
     let currentStep: Int
+    let totalSteps: Int
 
     private let totalDots = 5
 
-    /// Maps onboarding step (0-6) to active dot index (0-4).
+    init(currentStep: Int, totalSteps: Int = 7) {
+        self.currentStep = currentStep
+        self.totalSteps = totalSteps
+    }
+
+    /// Maps the current step to the active dot index (0 ..< totalDots)
+    /// by evenly distributing `totalSteps` across `totalDots`.
     private var activeDotIndex: Int {
-        switch currentStep {
-        case 0, 1: return 0
-        case 2:    return 1
-        case 3:    return 2
-        case 4:    return 3
-        default:   return 4
-        }
+        guard totalSteps > 1 else { return 0 }
+        let fraction = Double(currentStep) / Double(totalSteps - 1)
+        return min(Int(fraction * Double(totalDots - 1) + 0.5), totalDots - 1)
     }
 
     var body: some View {

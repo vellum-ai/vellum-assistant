@@ -83,6 +83,14 @@ final class OnboardingState {
             onboardingVariant = variant
         }
         firstMeetingCrackProgress = CGFloat(UserDefaults.standard.double(forKey: "onboarding.firstMeetingCrackProgress"))
+
+        // Clamp restored step to the variant's maximum to prevent out-of-range
+        // rendering (e.g. a step saved from the 7-step default flow would be
+        // invalid for the 5-step first-meeting flow).
+        let maxStep = onboardingVariant == .firstMeeting ? 4 : 6
+        if currentStep > maxStep {
+            currentStep = maxStep
+        }
     }
 
     func advance() {

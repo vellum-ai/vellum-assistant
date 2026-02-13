@@ -91,7 +91,7 @@ struct FirstMeetingFlowView: View {
                     )
                     .id("\(state.currentStep)-\(observationPhase)")
 
-                    OnboardingProgressDots(currentStep: state.currentStep)
+                    OnboardingProgressDots(currentStep: state.currentStep, totalSteps: 5)
                         .padding(.top, VSpacing.xs)
                 }
                 .padding(.horizontal, VSpacing.xxl)

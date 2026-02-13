@@ -21,6 +21,7 @@ final class OnboardingWindow {
            idx + 1 < CommandLine.arguments.count,
            CommandLine.arguments[idx + 1] == "first_meeting" {
             state.onboardingVariant = .firstMeeting
+            UserDefaults.standard.set(OnboardingVariant.firstMeeting.rawValue, forKey: "onboarding.variant")
         }
         #endif
 
