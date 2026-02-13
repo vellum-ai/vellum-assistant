@@ -40,7 +40,7 @@ final class MainWindow {
         let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1366, height: 849),
+            contentRect: NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -54,10 +54,7 @@ final class MainWindow {
         window.contentMinSize = NSSize(width: 800, height: 600)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let w = min(1366, screenFrame.width)
-        let h = min(849, screenFrame.height)
-        window.setContentSize(NSSize(width: w, height: h))
-        window.center()
+        window.setFrame(screenFrame, display: true)
 
         // Keep regular activation policy — the main window should appear in Dock and Cmd+Tab
         NSApp.setActivationPolicy(.regular)
