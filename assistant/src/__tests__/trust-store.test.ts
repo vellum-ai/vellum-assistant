@@ -1,5 +1,6 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
+import { describe, test, expect, beforeEach, mock, spyOn } from 'bun:test';
+import * as fs from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 
@@ -486,9 +487,11 @@ describe('Trust Store', () => {
         }],
       }));
 
-      // Make the directory read-only so saveToDisk will fail
-      const protectedDir = dirname(trustPath);
-      chmodSync(protectedDir, 0o555);
+      // Spy on writeFileSync to throw when saveToDisk is called during migration.
+      // This is deterministic regardless of user privileges (unlike chmod 0o555).
+      const spy = spyOn(fs, 'writeFileSync').mockImplementation(() => {
+        throw new Error('Simulated write failure');
+      });
 
       try {
         clearCache();
@@ -498,9 +501,10 @@ describe('Trust Store', () => {
         const migratedRule = rules.find((r) => r.id === 'v1-readonly');
         expect(migratedRule).toBeDefined();
         expect(migratedRule!.priority).toBe(100);
+        // Verify that saveToDisk was attempted (writeFileSync was called)
+        expect(spy).toHaveBeenCalled();
       } finally {
-        // Restore directory permissions for cleanup
-        chmodSync(protectedDir, 0o755);
+        spy.mockRestore();
       }
     });
   });
