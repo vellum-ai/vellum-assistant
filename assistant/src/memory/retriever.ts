@@ -985,3 +985,108 @@ function isAbortError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return err.name === 'AbortError' || err.name === 'APIUserAbortError';
 }
+
+// ── Simple search API for memory tools ───────────────────────────────
+
+export interface MemorySearchResult {
+  id: string;
+  type: CandidateType;
+  kind: string;
+  text: string;
+  confidence: number;
+  importance: number;
+  createdAt: number;
+  finalScore: number;
+}
+
+/**
+ * Search memory items using lexical and entity search.
+ * Returns a simplified result set suitable for the memory_search tool.
+ * Unlike buildMemoryRecall, this does not build injection text or manage
+ * embedding-based semantic search — it is a lightweight, synchronous-safe
+ * search for the agent's explicit memory tool use.
+ */
+export function searchMemoryItems(
+  query: string,
+  limit: number,
+  config: { memory: { entity: { enabled: boolean } } },
+): MemorySearchResult[] {
+  const trimmed = query.trim();
+  if (trimmed.length === 0 || limit <= 0) return [];
+
+  const lexicalCandidates = lexicalSearch(trimmed, Math.max(limit * 2, 20));
+  const entityCandidates = config.memory.entity.enabled
+    ? entitySearch(trimmed)
+    : [];
+
+  // Also search memory_items directly by subject/statement for better recall
+  const itemCandidates = directItemSearch(trimmed, Math.max(limit, 10));
+
+  const merged = mergeCandidates(lexicalCandidates, [], [], [...entityCandidates, ...itemCandidates]);
+  return merged.slice(0, limit).map((c) => ({
+    id: c.id,
+    type: c.type,
+    kind: c.kind,
+    text: c.text,
+    confidence: c.confidence,
+    importance: c.importance,
+    createdAt: c.createdAt,
+    finalScore: c.finalScore,
+  }));
+}
+
+/**
+ * Direct search over memory_items table by subject and statement text.
+ * Supplements FTS-based lexical search with LIKE-based matching on items.
+ */
+function directItemSearch(query: string, limit: number): Candidate[] {
+  const db = getDb();
+  const tokens = query
+    .toLowerCase()
+    .split(/[^a-z0-9_.-]+/g)
+    .filter((t) => t.length >= 2);
+  if (tokens.length === 0) return [];
+
+  const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
+  const likeClauses = tokens.map(
+    (t) => `(LOWER(subject) LIKE '%${escapeSqlLike(t)}%' OR LOWER(statement) LIKE '%${escapeSqlLike(t)}%')`,
+  );
+  const sqlQuery = `
+    SELECT id, kind, subject, statement, status, confidence, importance, first_seen_at, last_seen_at
+    FROM memory_items
+    WHERE status = 'active' AND (${likeClauses.join(' OR ')})
+    ORDER BY last_seen_at DESC
+    LIMIT ?
+  `;
+
+  let rows: Array<{
+    id: string;
+    kind: string;
+    subject: string;
+    statement: string;
+    confidence: number;
+    importance: number | null;
+    first_seen_at: number;
+    last_seen_at: number;
+  }> = [];
+  try {
+    rows = raw.query(sqlQuery).all(limit) as typeof rows;
+  } catch {
+    return [];
+  }
+
+  return rows.map((row) => ({
+    key: `item:${row.id}`,
+    type: 'item' as CandidateType,
+    id: row.id,
+    text: `${row.subject}: ${row.statement}`,
+    kind: row.kind,
+    confidence: row.confidence,
+    importance: row.importance ?? 0.5,
+    createdAt: row.last_seen_at,
+    lexical: 0,
+    semantic: 0,
+    recency: computeRecencyScore(row.last_seen_at),
+    finalScore: 0,
+  }));
+}
