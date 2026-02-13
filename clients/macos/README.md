@@ -37,14 +37,11 @@ This builds a debug `.app` bundle, codesigns it, and launches it immediately.
 ./build.sh clean
 ```
 
-### Build Performance
+The build script uses incremental compilation and caching:
 
-The build script includes several optimizations:
-
-- **Incremental packaging**: Only repackages .app when binary changes (~0.1s when unchanged)
-- **Smart caching**: Frameworks and resources are only copied when modified
-- **Fast rebuilds**: ~4 seconds for small code changes
-- **Full rebuild**: Use `./build.sh clean` to force a complete rebuild (~8s)
+- Running `./build.sh` again without code changes is nearly instant
+- Small code changes rebuild in ~4 seconds
+- Use `./build.sh clean` if you encounter build issues or need to force a complete rebuild
 
 ## Auto-Rebuild on Save (Watch Mode)
 
