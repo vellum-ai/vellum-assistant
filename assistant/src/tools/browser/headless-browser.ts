@@ -13,6 +13,7 @@ import {
 import { browserManager } from './browser-manager.js';
 import type { RouteHandler } from './browser-manager.js';
 import { detectCaptcha } from './captcha-detector.js';
+import { detectAuthChallenge, formatAuthChallenge } from './auth-detector.js';
 import { getCredentialValue } from '../credentials/vault.js';
 
 const log = getLogger('headless-browser');
@@ -147,6 +148,17 @@ async function executeBrowserNavigate(
 
     if (finalUrl !== parsedUrl.href) {
       lines.push(`Note: Page redirected from the requested URL.`);
+    }
+
+    // Detect auth challenges (login pages, 2FA, OAuth consent)
+    try {
+      const authChallenge = await detectAuthChallenge(page);
+      if (authChallenge) {
+        lines.push('');
+        lines.push(formatAuthChallenge(authChallenge));
+      }
+    } catch {
+      // Auth detection is best-effort; don't fail navigation
     }
 
     return { content: lines.join('\n'), isError: false };
