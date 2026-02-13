@@ -20,6 +20,7 @@ export type GatewayConfig = {
   runtimeProxyEnabled: boolean;
   runtimeProxyRequireAuth: boolean;
   runtimeProxyBearerToken: string | undefined;
+  shutdownDrainMs: number;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -115,6 +116,12 @@ export function loadConfig(): GatewayConfig {
   const runtimeProxyBearerToken =
     process.env.RUNTIME_PROXY_BEARER_TOKEN || undefined;
 
+  const shutdownDrainMsRaw = process.env.GATEWAY_SHUTDOWN_DRAIN_MS || "5000";
+  const shutdownDrainMs = Number(shutdownDrainMsRaw);
+  if (!Number.isFinite(shutdownDrainMs) || shutdownDrainMs < 0) {
+    throw new Error("GATEWAY_SHUTDOWN_DRAIN_MS must be a non-negative number");
+  }
+
   if (runtimeProxyEnabled && runtimeProxyRequireAuth && !runtimeProxyBearerToken) {
     throw new Error(
       "RUNTIME_PROXY_BEARER_TOKEN is required when proxy is enabled with auth required",
@@ -147,5 +154,6 @@ export function loadConfig(): GatewayConfig {
     runtimeProxyEnabled,
     runtimeProxyRequireAuth,
     runtimeProxyBearerToken,
+    shutdownDrainMs,
   };
 }
