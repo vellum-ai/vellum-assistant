@@ -170,6 +170,7 @@ export function clearAll(): { conversations: number; messages: number } {
   raw.exec('DELETE FROM memory_embeddings');
   raw.exec('DELETE FROM memory_jobs');
   raw.exec('DELETE FROM memory_checkpoints');
+  raw.exec('DELETE FROM llm_usage_events');
   raw.exec('DELETE FROM tool_invocations');
   raw.exec('DELETE FROM messages');
   raw.exec('DELETE FROM conversations');
