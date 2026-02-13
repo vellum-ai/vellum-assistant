@@ -219,6 +219,7 @@ struct ChatView: View {
                         }
                         .onKeyPress(.return, phases: .down) { keyPress in
                             if keyPress.modifiers.contains(.shift) { return .ignored }
+                            if ghostSuffix != nil { onAcceptSuggestion() }
                             if canSend { onSend() }
                             return .handled
                         }
