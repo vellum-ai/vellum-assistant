@@ -5,6 +5,8 @@ final class SkillsManager: ObservableObject {
     @Published var skills: [SkillInfo] = []
     @Published var loadedBodies: [String: String] = [:]
     @Published var isLoading = false
+    @Published var searchResults: [ClawhubSkillItem] = []
+    @Published var isSearching = false
 
     private let daemonClient: DaemonClient
 
@@ -62,6 +64,34 @@ final class SkillsManager: ObservableObject {
                     return
                 }
             }
+        }
+    }
+
+    func searchSkills(query: String = "") {
+        guard !isSearching else { return }
+        isSearching = true
+
+        Task {
+            let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.searchSkills(query: query)
+            } catch {
+                isSearching = false
+                return
+            }
+
+            for await message in stream {
+                if case .skillsOperationResponse(let response) = message,
+                   response.operation == "search" {
+                    if response.success, let data = response.data {
+                        searchResults = data.skills
+                    }
+                    isSearching = false
+                    return
+                }
+            }
+            isSearching = false
         }
     }
 

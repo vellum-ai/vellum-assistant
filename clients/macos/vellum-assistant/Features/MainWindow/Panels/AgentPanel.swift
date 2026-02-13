@@ -149,128 +149,184 @@ struct AgentPanel: View {
 
     // MARK: - Available Skills Tab
 
-    /// Hardcoded starter skill shown to new users as an onboarding tutorial.
-    private struct StarterSkill {
+    /// Bundled starter skills shown as featured in the Available Skills tab.
+    private struct BundledSkill: Identifiable {
+        var id: String { slug }
         let slug: String
         let name: String
         let description: String
         let emoji: String
 
-        static let summarizePage = StarterSkill(
-            slug: "summarize-page",
-            name: "Summarize Page",
-            description: "Read the current browser page and produce a concise summary",
-            emoji: "📄"
+        static let all: [BundledSkill] = [startTheDay]
+
+        static let startTheDay = BundledSkill(
+            slug: "start-the-day",
+            name: "Start the Day",
+            description: "Get a personalized daily briefing with weather, news, and actionable insights",
+            emoji: "🌅"
         )
     }
 
-    /// Whether the starter skill is already installed (exists in the skills list).
-    private var isStarterSkillInstalled: Bool {
-        skillsManager.skills.contains { $0.name == StarterSkill.summarizePage.name }
+    /// ClaWHub skills filtered to exclude already-installed ones.
+    private var availableClawhubSkills: [ClawhubSkillItem] {
+        let installedNames = Set(skillsManager.skills.map(\.name))
+        return skillsManager.searchResults.filter { !installedNames.contains($0.name) }
     }
 
     @ViewBuilder
     private var availableSkillsContent: some View {
-        if isStarterSkillInstalled {
-            // Starter skill already installed — point to ClawhHub
-            VStack(spacing: VSpacing.lg) {
-                VEmptyState(
-                    title: "You're all set!",
-                    subtitle: "Browse more community skills on ClawhHub",
-                    icon: "sparkles"
-                )
-                .frame(height: 200)
+        VStack(spacing: VSpacing.lg) {
+            // Bundled skills — always shown as featured
+            ForEach(BundledSkill.all) { starter in
+                bundledSkillCard(starter)
             }
-        } else {
-            VStack(spacing: VSpacing.lg) {
-                starterSkillCard(StarterSkill.summarizePage)
-            }
-        }
-    }
 
-    @State private var isInstallingStarter = false
-    @State private var hoveredStarterInstall = false
-
-    private func starterSkillCard(_ starter: StarterSkill) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            HStack(spacing: VSpacing.md) {
-                // Emoji icon
-                Text(starter.emoji)
-                    .font(.system(size: 20))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(starter.name)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
-
-                    Text(starter.description)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .lineLimit(2)
+            // ClaWHub skills
+            if skillsManager.isSearching {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                    Spacer()
                 }
-
-                Spacer()
-
-                // Install button
-                Button(action: {
-                    guard !isInstallingStarter else { return }
-                    isInstallingStarter = true
-                    skillsManager.installSkill(slug: starter.slug)
-                    // Reset after a delay in case the response is slow
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                        isInstallingStarter = false
-                    }
-                }) {
-                    HStack(spacing: VSpacing.sm) {
-                        if isInstallingStarter {
-                            ProgressView()
-                                .controlSize(.mini)
-                        } else {
-                            Image(systemName: "arrow.down.circle.fill")
-                                .font(.system(size: 12))
-                        }
-                        Text(isInstallingStarter ? "Installing…" : "Install")
-                            .font(VFont.mono)
-                    }
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.vertical, VSpacing.sm)
-                    .foregroundColor(hoveredStarterInstall ? Slate._900 : Emerald._400)
-                    .background(hoveredStarterInstall ? Emerald._400 : Slate._800)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(Emerald._500.opacity(0.6), lineWidth: 1.5)
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(isInstallingStarter)
-                .onHover { hovering in
-                    withAnimation(VAnimation.fast) {
-                        hoveredStarterInstall = hovering
-                    }
+                .frame(height: 60)
+            } else if !availableClawhubSkills.isEmpty {
+                ForEach(availableClawhubSkills) { skill in
+                    clawhubSkillCard(skill)
                 }
             }
-            .padding(VSpacing.lg)
-            .background(Slate._900)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(Emerald._700.opacity(0.4), lineWidth: 1)
-            )
 
-            // Onboarding hint
+            // Browse more nudge
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "lightbulb.fill")
+                Image(systemName: "sparkles")
                     .font(.system(size: 10))
-                    .foregroundColor(Amber._500)
-                Text("Install this skill to get started. More skills coming soon via ClawhHub.")
+                    .foregroundColor(Emerald._400)
+                Text("Browse more community skills on ClawhHub")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
             }
         }
+        .onAppear {
+            skillsManager.searchSkills()
+        }
+    }
+
+    @State private var installingSlug: String?
+    @State private var hoveredStarterInstall: String?
+
+    private func bundledSkillCard(_ starter: BundledSkill) -> some View {
+        HStack(spacing: VSpacing.md) {
+            Text(starter.emoji)
+                .font(.system(size: 20))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(starter.name)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.textPrimary)
+
+                Text(starter.description)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Text("Included")
+                .font(VFont.caption)
+                .foregroundColor(Emerald._400)
+        }
+        .padding(VSpacing.lg)
+        .background(Slate._900)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(Emerald._700.opacity(0.4), lineWidth: 1)
+        )
+    }
+
+    private func clawhubSkillCard(_ skill: ClawhubSkillItem) -> some View {
+        let isInstalling = installingSlug == skill.slug
+        let isHovered = hoveredStarterInstall == skill.slug
+
+        return HStack(spacing: VSpacing.md) {
+            Image(systemName: "shippingbox.fill")
+                .font(.system(size: 16))
+                .foregroundColor(VColor.textMuted)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(skill.name)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.textPrimary)
+
+                Text(skill.description)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Button(action: {
+                guard installingSlug == nil else { return }
+                installingSlug = skill.slug
+                skillsManager.installSkill(slug: skill.slug)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                    if installingSlug == skill.slug {
+                        installingSlug = nil
+                    }
+                }
+            }) {
+                HStack(spacing: VSpacing.sm) {
+                    if isInstalling {
+                        ProgressView()
+                            .controlSize(.mini)
+                    } else {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 12))
+                    }
+                    Text(isInstalling ? "Installing..." : "Install")
+                        .font(VFont.mono)
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.sm)
+                .foregroundColor(isHovered ? Slate._900 : Emerald._400)
+                .background(isHovered ? Emerald._400 : Slate._800)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(Emerald._500.opacity(0.6), lineWidth: 1.5)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(installingSlug != nil)
+            .onHover { hovering in
+                withAnimation(VAnimation.fast) {
+                    hoveredStarterInstall = hovering ? skill.slug : nil
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .background(Slate._900)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(Emerald._700.opacity(0.4), lineWidth: 1)
+        )
     }
 
     // MARK: - Skills Tab
+
+    /// Names of bundled starter skills featured in Available Skills (hidden from Skills tab).
+    private static let featuredBundledNames: Set<String> = Set(
+        BundledSkill.all.map(\.name)
+    )
+
+    /// Skills to show in the Skills tab (excludes bundled starters featured in Available Skills).
+    private var userSkills: [SkillInfo] {
+        skillsManager.skills.filter { !Self.featuredBundledNames.contains($0.name) }
+    }
 
     @ViewBuilder
     private var skillsContent: some View {
@@ -282,7 +338,7 @@ struct AgentPanel: View {
                 Spacer()
             }
             .frame(height: 250)
-        } else if skillsManager.skills.isEmpty {
+        } else if userSkills.isEmpty {
             VEmptyState(
                 title: "No skills",
                 subtitle: "Agent skills will appear here",
@@ -291,7 +347,7 @@ struct AgentPanel: View {
             .frame(height: 250)
         } else {
             VStack(spacing: VSpacing.md) {
-                ForEach(skillsManager.skills) { skill in
+                ForEach(userSkills) { skill in
                     skillCard(skill)
                 }
             }

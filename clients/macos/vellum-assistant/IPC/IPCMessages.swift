@@ -498,11 +498,44 @@ struct SkillsUpdatesAvailableMessage: Decodable, Sendable {
     let skills: [UpdateInfo]
 }
 
+/// A ClaWHub skill returned from a search or explore query.
+struct ClawhubSkillItem: Decodable, Sendable, Identifiable {
+    var id: String { slug }
+    let name: String
+    let slug: String
+    let description: String
+    let author: String
+    let stars: Int
+    let installs: Int
+    let version: String
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        slug = try container.decode(String.self, forKey: .slug)
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        author = try container.decodeIfPresent(String.self, forKey: .author) ?? ""
+        stars = try container.decodeIfPresent(Int.self, forKey: .stars) ?? 0
+        installs = try container.decodeIfPresent(Int.self, forKey: .installs) ?? 0
+        version = try container.decodeIfPresent(String.self, forKey: .version) ?? ""
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, slug, description, author, stars, installs, version
+    }
+}
+
+/// Wrapper for ClaWHub search results embedded in `skills_operation_response.data`.
+struct ClawhubSearchData: Decodable, Sendable {
+    let skills: [ClawhubSkillItem]
+}
+
 /// Generic operation response. Wire type: "skills_operation_response"
 struct SkillsOperationResponseMessage: Decodable, Sendable {
     let operation: String
     let success: Bool
     let error: String?
+    let data: ClawhubSearchData?
 }
 
 /// A single trust rule item returned from the daemon.

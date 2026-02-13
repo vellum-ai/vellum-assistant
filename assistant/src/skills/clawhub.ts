@@ -123,6 +123,11 @@ export async function clawhubUpdate(name: string): Promise<ClawhubUpdateResult> 
 }
 
 export async function clawhubSearch(query: string): Promise<ClawhubSearchResult> {
+  // Empty query: use explore (browse trending) instead of search
+  if (!query.trim()) {
+    return clawhubExplore();
+  }
+
   try {
     const result = await runClawhub(['search', query]);
     if (result.exitCode !== 0) {
@@ -143,6 +148,41 @@ export async function clawhubSearch(query: string): Promise<ClawhubSearchResult>
     return { skills: [] };
   } catch (err) {
     log.warn({ err }, 'clawhub search failed');
+    return { skills: [] };
+  }
+}
+
+export async function clawhubExplore(opts?: { limit?: number; sort?: string }): Promise<ClawhubSearchResult> {
+  const limit = String(opts?.limit ?? 25);
+  const sort = opts?.sort ?? 'trending';
+
+  try {
+    const result = await runClawhub(['explore', '--json', '--limit', limit, '--sort', sort]);
+    if (result.exitCode !== 0) {
+      return { skills: [] };
+    }
+    try {
+      const parsed = JSON.parse(result.stdout);
+      const items = parsed.items ?? parsed;
+      if (!Array.isArray(items)) return { skills: [] };
+
+      // Normalize explore response to ClawhubSearchResultItem shape
+      const skills: ClawhubSearchResultItem[] = items.map((item: Record<string, unknown>) => ({
+        name: (item.displayName as string) ?? (item.slug as string) ?? '',
+        slug: (item.slug as string) ?? '',
+        description: (item.summary as string) ?? '',
+        author: (item.author as string) ?? '',
+        stars: (item.stats as Record<string, number>)?.stars ?? 0,
+        installs: (item.stats as Record<string, number>)?.installsAllTime ?? 0,
+        version: (item.tags as Record<string, string>)?.latest ?? '',
+      }));
+      return { skills };
+    } catch {
+      // parse failure
+    }
+    return { skills: [] };
+  } catch (err) {
+    log.warn({ err }, 'clawhub explore failed');
     return { skills: [] };
   }
 }

@@ -55,9 +55,14 @@ final class OnboardingWindow {
         window.contentMinSize = NSSize(width: 800, height: 600)
 
         if let visibleFrame = Self.visibleScreenFrame() {
-            window.setFrame(visibleFrame, display: true)
+            // Start at minimum width, full height — centered on screen
+            let startWidth = window.contentMinSize.width
+            let startHeight = visibleFrame.height
+            let x = visibleFrame.midX - startWidth / 2
+            let y = visibleFrame.origin.y
+            window.setFrame(NSRect(x: x, y: y, width: startWidth, height: startHeight), display: true)
         } else {
-            window.setContentSize(NSSize(width: 1366, height: 849))
+            window.setContentSize(window.contentMinSize)
             window.center()
         }
 
