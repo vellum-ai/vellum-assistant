@@ -26,8 +26,10 @@ function resolveBunPath(): string {
   const fallback = join(homedir(), '.bun', 'bin', 'bun');
   if (existsSync(fallback)) return fallback;
 
-  // Last resort: hope process.execPath can handle it (shouldn't get here).
-  return process.execPath;
+  throw new Error(
+    'Cannot find a bun runtime to execute .ts hooks. ' +
+    'Install bun (https://bun.sh) or ensure it is on your PATH.',
+  );
 }
 
 function getSpawnArgs(scriptPath: string): { command: string; args: string[] } {
@@ -52,7 +54,14 @@ export async function runHookScript(
   const timeoutMs = options?.timeoutMs ?? 5000;
 
   return new Promise<HookRunResult>((resolve) => {
-    const { command, args } = getSpawnArgs(hook.scriptPath);
+    let spawnResult: { command: string; args: string[] };
+    try {
+      spawnResult = getSpawnArgs(hook.scriptPath);
+    } catch (err) {
+      resolve({ exitCode: null, stdout: '', stderr: (err as Error).message });
+      return;
+    }
+    const { command, args } = spawnResult;
     const child = spawn(command, args, {
       cwd: hook.dir,
       env: {
