@@ -4,10 +4,13 @@ import { verifyWebhookSecret } from "../../telegram/verify.js";
 import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
 import { handleInbound, type InboundResult } from "../../handlers/handle-inbound.js";
+import { sendTypingIndicator } from "../../telegram/send.js";
 import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
 import { uploadAttachment } from "../../runtime/client.js";
 
 const log = pino({ name: "gateway:telegram-webhook" });
+
+const MAX_TYPING_DURATION_MS = 60_000;
 
 export type OnReply = (
   chatId: string,
@@ -62,53 +65,68 @@ export function createTelegramWebhookHandler(
       return Response.json({ ok: true });
     }
 
+    // Check routing early so we can gate attachments and typing indicator
+    const chatId = normalized.message.externalChatId;
+    const routing = resolveAssistant(
+      config,
+      chatId,
+      normalized.sender.externalUserId,
+    );
+    const routable = !isRejection(routing);
+
     // Download and upload attachments if present
     let attachmentIds: string[] | undefined;
     const eventAttachments = normalized.message.attachments;
-    if (eventAttachments && eventAttachments.length > 0) {
-      const routing = resolveAssistant(
-        config,
-        normalized.message.externalChatId,
-        normalized.sender.externalUserId,
-      );
+    if (eventAttachments && eventAttachments.length > 0 && routable) {
+      try {
+        attachmentIds = [];
 
-      if (!isRejection(routing)) {
-        try {
-          attachmentIds = [];
-
-          // Filter oversized attachments
-          const eligible = eventAttachments.filter((att) => {
-            if (att.fileSize !== undefined && att.fileSize > config.maxAttachmentBytes) {
-              log.warn(
-                { fileId: att.fileId, fileSize: att.fileSize, limit: config.maxAttachmentBytes },
-                "Skipping oversized attachment",
-              );
-              return false;
-            }
-            return true;
-          });
-
-          // Process with bounded concurrency
-          for (let i = 0; i < eligible.length; i += config.maxAttachmentConcurrency) {
-            const batch = eligible.slice(i, i + config.maxAttachmentConcurrency);
-            const results = await Promise.all(
-              batch.map(async (att) => {
-                const downloaded = await downloadTelegramFile(config, att.fileId, {
-                  fileName: att.fileName,
-                  mimeType: att.mimeType,
-                });
-                return uploadAttachment(config, routing.assistantId, downloaded);
-              }),
+        // Filter oversized attachments
+        const eligible = eventAttachments.filter((att) => {
+          if (att.fileSize !== undefined && att.fileSize > config.maxAttachmentBytes) {
+            log.warn(
+              { fileId: att.fileId, fileSize: att.fileSize, limit: config.maxAttachmentBytes },
+              "Skipping oversized attachment",
             );
-            for (const uploaded of results) {
-              attachmentIds.push(uploaded.id);
-            }
+            return false;
           }
-        } catch (err) {
-          log.error({ err }, "Failed to process attachments");
-          return Response.json({ error: "Failed to process attachments" }, { status: 500 });
+          return true;
+        });
+
+        // Process with bounded concurrency
+        for (let i = 0; i < eligible.length; i += config.maxAttachmentConcurrency) {
+          const batch = eligible.slice(i, i + config.maxAttachmentConcurrency);
+          const results = await Promise.all(
+            batch.map(async (att) => {
+              const downloaded = await downloadTelegramFile(config, att.fileId, {
+                fileName: att.fileName,
+                mimeType: att.mimeType,
+              });
+              return uploadAttachment(config, routing.assistantId, downloaded);
+            }),
+          );
+          for (const uploaded of results) {
+            attachmentIds.push(uploaded.id);
+          }
         }
+      } catch (err) {
+        log.error({ err }, "Failed to process attachments");
+        return Response.json({ error: "Failed to process attachments" }, { status: 500 });
       }
+    }
+
+    // Start typing indicator only for routable chats.
+    // A safety timeout ensures the interval is cleared even if handleInbound hangs.
+    let typingInterval: ReturnType<typeof setInterval> | undefined;
+    let typingTimeout: ReturnType<typeof setTimeout> | undefined;
+    const clearTyping = () => {
+      clearInterval(typingInterval);
+      clearTimeout(typingTimeout);
+    };
+    if (routable) {
+      sendTypingIndicator(config, chatId);
+      typingInterval = setInterval(() => sendTypingIndicator(config, chatId), 5000);
+      typingTimeout = setTimeout(clearTyping, MAX_TYPING_DURATION_MS);
     }
 
     // Process inbound and only acknowledge after successful delivery
@@ -118,6 +136,8 @@ export function createTelegramWebhookHandler(
     } catch (err) {
       log.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
       return Response.json({ error: "Internal error" }, { status: 500 });
+    } finally {
+      clearTyping();
     }
 
     if (!result.forwarded && !result.rejected) {

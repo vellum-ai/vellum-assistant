@@ -42,4 +42,12 @@ export async function sendTelegramReply(
   log.debug({ chatId, chunks: chunks.length }, "Telegram reply sent");
 }
 
+export async function sendTypingIndicator(config: GatewayConfig, chatId: string): Promise<void> {
+  try {
+    await callTelegramApi(config, "sendChatAction", { chat_id: chatId, action: "typing" });
+  } catch (err) {
+    log.debug({ err, chatId }, "Failed to send typing indicator");
+  }
+}
+
 export { splitText };
