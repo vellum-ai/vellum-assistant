@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
     @State private var activePanel: SidePanelType?
+    @State private var hasAPIKey = APIKeyManager.getKey() != nil
     let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
 
@@ -37,12 +38,18 @@ struct MainWindowView: View {
                                 get: { viewModel.inputText },
                                 set: { viewModel.inputText = $0 }
                             ),
+                            hasAPIKey: hasAPIKey,
                             isThinking: viewModel.isThinking,
                             isSending: viewModel.isSending,
                             errorText: viewModel.errorText,
                             pendingQueuedCount: viewModel.pendingQueuedCount,
                             suggestion: viewModel.suggestion,
                             pendingAttachments: viewModel.pendingAttachments,
+                            onOpenSettings: {
+                                // Always provide an immediate, visible fallback.
+                                activePanel = .control
+                                Self.openSettings()
+                            },
                             onSend: viewModel.sendMessage,
                             onStop: viewModel.stopGenerating,
                             onDismissError: viewModel.dismissError,
@@ -63,6 +70,12 @@ struct MainWindowView: View {
             .background(VColor.background.ignoresSafeArea())
         }
         .frame(minWidth: 800, minHeight: 600)
+        .onAppear {
+            refreshAPIKeyState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
+            refreshAPIKeyState()
+        }
     }
 
     @MainActor
@@ -78,6 +91,26 @@ struct MainWindowView: View {
         for url in panel.urls {
             viewModel.addAttachment(url: url)
         }
+    }
+
+    @MainActor
+    private static func openSettings() {
+        NSApp.setActivationPolicy(.regular)
+
+        let selector = Selector(("showSettingsWindow:"))
+        if let delegate = NSApp.delegate as? NSObject, delegate.responds(to: selector) {
+            _ = delegate.perform(selector, with: nil)
+        } else {
+            _ = NSApp.sendAction(selector, to: nil, from: nil)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    private func refreshAPIKeyState() {
+        hasAPIKey = APIKeyManager.getKey() != nil
     }
 
     @ViewBuilder

@@ -36,6 +36,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var onboardingWindow: OnboardingWindow?
     private var mainWindow: MainWindow?
+    private var settingsWindow: NSWindow?
     #if DEBUG
     private var galleryWindow: ComponentGalleryWindow?
     #endif
@@ -502,6 +503,46 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         main.show()
         mainWindow = main
+    }
+
+    // MARK: - Settings
+
+    /// Explicit settings window entrypoint for NSApp.sendAction("showSettingsWindow:")
+    /// and direct calls from SwiftUI views. This avoids responder-chain misses.
+    @objc public func showSettingsWindow(_ sender: Any?) {
+        NSApp.setActivationPolicy(.regular)
+
+        if let existing = settingsWindow {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let hostingController = NSHostingController(rootView: SettingsView(ambientAgent: ambientAgent))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 450, height: 700),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Vellum Settings"
+        window.contentViewController = hostingController
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.settingsWindow = nil
+            }
+        }
+
+        settingsWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     // MARK: - Popover
