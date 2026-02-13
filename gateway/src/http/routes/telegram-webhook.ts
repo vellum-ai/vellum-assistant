@@ -44,8 +44,8 @@ export function createTelegramWebhookHandler(
       return Response.json({ error: "Failed to read body" }, { status: 400 });
     }
 
-    if (rawBody.length > config.maxWebhookPayloadBytes) {
-      log.warn({ bodyLength: rawBody.length }, "Webhook payload too large");
+    if (Buffer.byteLength(rawBody) > config.maxWebhookPayloadBytes) {
+      log.warn({ bodyLength: Buffer.byteLength(rawBody) }, "Webhook payload too large");
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
 
