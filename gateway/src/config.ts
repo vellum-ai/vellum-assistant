@@ -21,6 +21,10 @@ export type GatewayConfig = {
   runtimeProxyRequireAuth: boolean;
   runtimeProxyBearerToken: string | undefined;
   shutdownDrainMs: number;
+  runtimeTimeoutMs: number;
+  runtimeMaxRetries: number;
+  runtimeInitialBackoffMs: number;
+  telegramTimeoutMs: number;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -122,6 +126,26 @@ export function loadConfig(): GatewayConfig {
     throw new Error("GATEWAY_SHUTDOWN_DRAIN_MS must be a non-negative number");
   }
 
+  const runtimeTimeoutMs = Number(process.env.GATEWAY_RUNTIME_TIMEOUT_MS || "30000");
+  if (!Number.isFinite(runtimeTimeoutMs) || runtimeTimeoutMs <= 0) {
+    throw new Error("GATEWAY_RUNTIME_TIMEOUT_MS must be a positive number");
+  }
+
+  const runtimeMaxRetries = Number(process.env.GATEWAY_RUNTIME_MAX_RETRIES || "2");
+  if (!Number.isInteger(runtimeMaxRetries) || runtimeMaxRetries < 0) {
+    throw new Error("GATEWAY_RUNTIME_MAX_RETRIES must be a non-negative integer");
+  }
+
+  const runtimeInitialBackoffMs = Number(process.env.GATEWAY_RUNTIME_INITIAL_BACKOFF_MS || "500");
+  if (!Number.isFinite(runtimeInitialBackoffMs) || runtimeInitialBackoffMs <= 0) {
+    throw new Error("GATEWAY_RUNTIME_INITIAL_BACKOFF_MS must be a positive number");
+  }
+
+  const telegramTimeoutMs = Number(process.env.GATEWAY_TELEGRAM_TIMEOUT_MS || "15000");
+  if (!Number.isFinite(telegramTimeoutMs) || telegramTimeoutMs <= 0) {
+    throw new Error("GATEWAY_TELEGRAM_TIMEOUT_MS must be a positive number");
+  }
+
   if (runtimeProxyEnabled && runtimeProxyRequireAuth && !runtimeProxyBearerToken) {
     throw new Error(
       "RUNTIME_PROXY_BEARER_TOKEN is required when proxy is enabled with auth required",
@@ -155,5 +179,9 @@ export function loadConfig(): GatewayConfig {
     runtimeProxyRequireAuth,
     runtimeProxyBearerToken,
     shutdownDrainMs,
+    runtimeTimeoutMs,
+    runtimeMaxRetries,
+    runtimeInitialBackoffMs,
+    telegramTimeoutMs,
   };
 }

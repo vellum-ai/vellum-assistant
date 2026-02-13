@@ -38,6 +38,10 @@ bun run dev
 | `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH` | No | `true` | Require bearer auth for proxied requests |
 | `RUNTIME_PROXY_BEARER_TOKEN` | Conditional | — | Bearer token for proxy auth (required when proxy + auth enabled) |
 | `GATEWAY_SHUTDOWN_DRAIN_MS` | No | `5000` | Graceful shutdown drain window in milliseconds |
+| `GATEWAY_RUNTIME_TIMEOUT_MS` | No | `30000` | Timeout for runtime HTTP calls (ms) |
+| `GATEWAY_RUNTIME_MAX_RETRIES` | No | `2` | Max retries for runtime forward on 5xx/network errors |
+| `GATEWAY_RUNTIME_INITIAL_BACKOFF_MS` | No | `500` | Initial backoff between retries (doubles each attempt) |
+| `GATEWAY_TELEGRAM_TIMEOUT_MS` | No | `15000` | Timeout for Telegram API/download calls (ms) |
 
 ## Routing
 
