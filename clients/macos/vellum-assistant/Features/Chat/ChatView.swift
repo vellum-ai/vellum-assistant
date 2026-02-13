@@ -988,7 +988,6 @@ private class ComposerNSTextView: NSTextView {
 
         lm.ensureLayout(for: tc)
         let textLength = (string as NSString).length
-        let origin = textContainerOrigin
 
         let drawPoint: NSPoint
         if textLength == 0 {
