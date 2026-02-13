@@ -59,6 +59,12 @@ export function ensureHookInConfig(hookName: string, entry: HookConfigEntry): vo
   saveHooksConfig(config);
 }
 
+export function removeHook(hookName: string): void {
+  const config = loadHooksConfig();
+  delete config.hooks[hookName];
+  saveHooksConfig(config);
+}
+
 /**
  * Get merged settings for a hook. Manifest defaults are used as the base,
  * then user overrides from config.json are applied on top.
