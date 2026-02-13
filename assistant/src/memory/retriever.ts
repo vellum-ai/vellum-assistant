@@ -915,7 +915,21 @@ function applyAttentionOrdering(candidates: Candidate[]): Candidate[] {
 function formatCandidateLine(candidate: Candidate): string {
   const absolute = formatAbsoluteTime(candidate.createdAt);
   const relative = formatRelativeTime(candidate.createdAt);
-  return `- <kind>${candidate.kind}</kind> ${truncate(candidate.text, 320)} (${absolute} · ${relative})`;
+  return `- <kind>${candidate.kind}</kind> ${escapeXmlTags(truncate(candidate.text, 320))} (${absolute} · ${relative})`;
+}
+
+/**
+ * Escape XML-like tag sequences in recalled text to prevent delimiter injection.
+ * Recalled content is interpolated verbatim inside `<memory>` wrapper tags,
+ * so any literal `</memory>` (or similar) in the text could break the wrapper
+ * and let recalled content masquerade as top-level prompt instructions.
+ *
+ * Strategy: replace `<` in any XML-tag-like pattern with the Unicode full-width
+ * less-than sign (U+FF1C) which is visually similar but won't be parsed as XML.
+ */
+export function escapeXmlTags(text: string): string {
+  // Match anything that looks like an XML tag: <word...> or </word...>
+  return text.replace(/<\/?[a-zA-Z][a-zA-Z0-9_-]*[\s>\/]/g, (match) => '\uFF1C' + match.slice(1));
 }
 
 /**
