@@ -37,6 +37,7 @@ bun run dev
 | `GATEWAY_RUNTIME_PROXY_ENABLED` | No | `false` | Enable runtime proxy for non-Telegram requests |
 | `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH` | No | `true` | Require bearer auth for proxied requests |
 | `RUNTIME_PROXY_BEARER_TOKEN` | Conditional | — | Bearer token for proxy auth (required when proxy + auth enabled) |
+| `GATEWAY_SHUTDOWN_DRAIN_MS` | No | `5000` | Graceful shutdown drain window in milliseconds |
 
 ## Routing
 
@@ -99,6 +100,15 @@ curl -i -X POST http://localhost:7830/webhooks/telegram
 - Hop-by-hop headers (`connection`, `keep-alive`, `transfer-encoding`, etc.) are stripped from both request and response.
 - The `host` header is not forwarded to upstream.
 - Upstream connection failures return `502 Bad Gateway`.
+
+## Health & Readiness Probes
+
+| Endpoint | Method | Behavior |
+|----------|--------|----------|
+| `/healthz` | GET | Always returns `200` while the process is alive |
+| `/readyz` | GET | Returns `200` while accepting traffic; `503` during graceful shutdown drain |
+
+On `SIGTERM` the gateway enters drain mode: `/readyz` begins returning `503` so the load balancer stops sending new traffic. After `GATEWAY_SHUTDOWN_DRAIN_MS` (default 5 s) the process exits.
 
 ## Docker
 

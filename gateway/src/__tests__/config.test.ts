@@ -19,6 +19,7 @@ function withEnv(overrides: Record<string, string | undefined>, fn: () => void) 
     "GATEWAY_DEFAULT_ASSISTANT_ID",
     "GATEWAY_UNMAPPED_POLICY",
     "GATEWAY_PORT",
+    "GATEWAY_SHUTDOWN_DRAIN_MS",
   ];
 
   for (const key of allKeys) {

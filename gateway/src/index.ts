@@ -6,6 +6,8 @@ import { sendTelegramReply } from "./telegram/send.js";
 
 const log = pino({ name: "gateway" });
 
+let draining = false;
+
 function main() {
   log.info("Starting Vellum Gateway...");
 
@@ -34,6 +36,17 @@ function main() {
     async fetch(req) {
       const url = new URL(req.url);
 
+      if (url.pathname === "/healthz") {
+        return Response.json({ status: "ok" });
+      }
+
+      if (url.pathname === "/readyz") {
+        if (draining) {
+          return Response.json({ status: "draining" }, { status: 503 });
+        }
+        return Response.json({ status: "ok" });
+      }
+
       if (url.pathname === "/webhooks/telegram") {
         return handleTelegramWebhook(req);
       }
@@ -47,6 +60,18 @@ function main() {
   });
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
+
+  const drainMs = config.shutdownDrainMs;
+
+  process.on("SIGTERM", () => {
+    log.info("SIGTERM received, starting graceful shutdown");
+    draining = true;
+    setTimeout(() => {
+      log.info("Drain window elapsed, stopping server");
+      server.stop(true);
+      process.exit(0);
+    }, drainMs);
+  });
 }
 
 main();
