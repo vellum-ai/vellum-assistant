@@ -23,19 +23,19 @@ jobs:
         with:
           context: gateway
           push: false
+          load: true
           tags: vellum-gateway:pr-${{ github.event.pull_request.number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Smoke check - container boots
         run: |
-          docker build -t vellum-gateway:smoke gateway
           docker run --rm -d --name gateway-smoke \
             -e TELEGRAM_BOT_TOKEN=test \
             -e TELEGRAM_WEBHOOK_SECRET=test \
             -e ASSISTANT_RUNTIME_BASE_URL=http://localhost:7821 \
             -p 19830:7830 \
-            vellum-gateway:smoke
+            vellum-gateway:pr-${{ github.event.pull_request.number }}
           sleep 3
           STATUS=$(curl -sf http://localhost:19830/healthz | jq -r '.status' || echo "failed")
           docker stop gateway-smoke || true
