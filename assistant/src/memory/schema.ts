@@ -61,6 +61,7 @@ export const memoryItems = sqliteTable('memory_items', {
   status: text('status').notNull(),
   confidence: real('confidence').notNull(),
   importance: real('importance'),
+  accessCount: integer('access_count').notNull().default(0),
   fingerprint: text('fingerprint').notNull(),
   firstSeenAt: integer('first_seen_at').notNull(),
   lastSeenAt: integer('last_seen_at').notNull(),

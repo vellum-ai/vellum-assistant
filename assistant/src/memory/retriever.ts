@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import type { AssistantConfig } from '../config/types.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
@@ -18,6 +18,7 @@ interface Candidate {
   id: string;
   text: string;
   confidence: number;
+  importance: number;
   createdAt: number;
   lexical: number;
   semantic: number;
@@ -299,10 +300,11 @@ function lexicalSearch(query: string, limit: number, excludedMessageIds: string[
     const lexical = lexicalRankToScore(row.rank, minRank, maxRank);
     return {
       key: `segment:${row.segment_id}`,
-      type: 'segment',
+      type: 'segment' as CandidateType,
       id: row.segment_id,
       text: row.text,
       confidence: 0.55,
+      importance: 0.5,
       createdAt: row.created_at,
       lexical,
       semantic: 0,
@@ -349,6 +351,7 @@ async function semanticSearch(
         id: payload.target_id,
         text: payload.text,
         confidence: payload.confidence ?? 0.6,
+        importance: payload.importance ?? 0.5,
         createdAt: payload.last_seen_at ?? createdAt,
         lexical: 0,
         semantic,
@@ -362,6 +365,7 @@ async function semanticSearch(
         id: payload.target_id,
         text: payload.text,
         confidence: 0.6,
+        importance: 0.6,
         createdAt: payload.last_seen_at ?? createdAt,
         lexical: 0,
         semantic,
@@ -375,6 +379,7 @@ async function semanticSearch(
         id: payload.target_id,
         text: payload.text,
         confidence: 0.55,
+        importance: 0.5,
         createdAt,
         lexical: 0,
         semantic,
@@ -404,10 +409,11 @@ function recencySearch(conversationId: string, limit: number, excludedMessageIds
     .all();
   return rows.map((row) => ({
     key: `segment:${row.id}`,
-    type: 'segment',
+    type: 'segment' as CandidateType,
     id: row.id,
     text: row.text,
     confidence: 0.55,
+    importance: 0.5,
     createdAt: row.createdAt,
     lexical: 0,
     semantic: 0,
@@ -416,11 +422,24 @@ function recencySearch(conversationId: string, limit: number, excludedMessageIds
   }));
 }
 
+/**
+ * Reciprocal Rank Fusion (RRF) — merge candidates from independent ranking
+ * lists without assuming comparable score scales.
+ *
+ * Each candidate's RRF contribution from a list is `1 / (k + rank)` where
+ * rank is 1-based position in that list sorted by its native score.
+ * The final score is further modulated by importance so that high-importance
+ * memories surface more readily.
+ *
+ * For item-type candidates we also apply retrieval reinforcement: access_count
+ * from the DB boosts effective importance via `min(1, importance + 0.03 * accessCount)`.
+ */
 function mergeCandidates(
   lexical: Candidate[],
   semantic: Candidate[],
   recency: Candidate[],
 ): Candidate[] {
+  // Build merged candidate map (dedup by key, keep best metadata)
   const merged = new Map<string, Candidate>();
   for (const candidate of [...lexical, ...semantic, ...recency]) {
     const existing = merged.get(candidate.key);
@@ -432,19 +451,37 @@ function mergeCandidates(
     existing.semantic = Math.max(existing.semantic, candidate.semantic);
     existing.recency = Math.max(existing.recency, candidate.recency);
     existing.confidence = Math.max(existing.confidence, candidate.confidence);
+    existing.importance = Math.max(existing.importance, candidate.importance);
     if (candidate.text.length > existing.text.length) {
       existing.text = candidate.text;
     }
   }
 
+  // Build 1-based rank maps from each list (sorted by native score desc)
+  const lexicalRanks = buildRankMap(lexical, (c) => c.lexical);
+  const semanticRanks = buildRankMap(semantic, (c) => c.semantic);
+  const recencyRanks = buildRankMap(recency, (c) => c.recency);
+
+  // Look up access_count for item-type candidates (retrieval reinforcement)
+  const itemIds = [...merged.values()]
+    .filter((c) => c.type === 'item')
+    .map((c) => c.id);
+  const accessCounts = lookupAccessCounts(itemIds);
+
   const rows = [...merged.values()];
   for (const row of rows) {
-    row.finalScore = (
-      0.50 * row.semantic
-      + 0.25 * row.lexical
-      + 0.15 * row.recency
-      + 0.10 * row.confidence
-    );
+    const ranks: number[] = [];
+    if (lexicalRanks.has(row.key)) ranks.push(lexicalRanks.get(row.key)!);
+    if (semanticRanks.has(row.key)) ranks.push(semanticRanks.get(row.key)!);
+    if (recencyRanks.has(row.key)) ranks.push(recencyRanks.get(row.key)!);
+
+    const rrfScore = rrf(ranks);
+
+    // Retrieval reinforcement: boost importance by accessCount
+    const accessCount = accessCounts.get(row.id) ?? 0;
+    const effectiveImportance = Math.min(1, row.importance + 0.03 * accessCount);
+
+    row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance);
   }
 
   rows.sort((a, b) => {
@@ -455,6 +492,47 @@ function mergeCandidates(
     return a.key.localeCompare(b.key);
   });
   return rows;
+}
+
+/** Reciprocal Rank Fusion score: sum of 1/(k+rank) across all lists. */
+function rrf(ranks: number[], k = 60): number {
+  return ranks.reduce((sum, rank) => sum + 1 / (k + rank), 0);
+}
+
+/**
+ * Build a map from candidate key to 1-based rank within a list,
+ * sorted descending by the given score accessor.
+ */
+function buildRankMap(candidates: Candidate[], scoreAccessor: (c: Candidate) => number): Map<string, number> {
+  const sorted = [...candidates].sort((a, b) => scoreAccessor(b) - scoreAccessor(a));
+  const rankMap = new Map<string, number>();
+  for (let i = 0; i < sorted.length; i++) {
+    rankMap.set(sorted[i].key, i + 1);
+  }
+  return rankMap;
+}
+
+/**
+ * Look up access_count from the memory_items table for a batch of item IDs.
+ * Returns a map from item ID to access count.
+ */
+function lookupAccessCounts(itemIds: string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  if (itemIds.length === 0) return counts;
+  try {
+    const db = getDb();
+    const rows = db
+      .select({ id: memoryItems.id, accessCount: memoryItems.accessCount })
+      .from(memoryItems)
+      .where(inArray(memoryItems.id, itemIds))
+      .all();
+    for (const row of rows) {
+      counts.set(row.id, row.accessCount);
+    }
+  } catch (err) {
+    log.warn({ err }, 'Failed to look up access counts for retrieval reinforcement');
+  }
+  return counts;
 }
 
 function trimToTokenBudget(candidates: Candidate[], maxTokens: number, marker: string): Candidate[] {
@@ -485,7 +563,10 @@ function markItemUsage(candidates: Candidate[]): void {
   const db = getDb();
   const now = Date.now();
   db.update(memoryItems)
-    .set({ lastUsedAt: now })
+    .set({
+      lastUsedAt: now,
+      accessCount: sql`${memoryItems.accessCount} + 1`,
+    })
     .where(inArray(memoryItems.id, itemIds))
     .run();
 }
@@ -499,10 +580,20 @@ function lexicalRankToScore(rank: number, minRank: number, maxRank: number): num
   return (maxRank - rank) / span;
 }
 
+/**
+ * Logarithmic recency decay (ACT-R inspired).
+ *
+ * Old formula `1/(1+ageDays)` decays far too aggressively:
+ *   - 30 days -> 0.032, 1 year -> 0.003
+ *
+ * New formula `1/(1+log2(1+ageDays))` preserves long-term recall:
+ *   - 1 day -> 0.50, 7 days -> 0.25, 30 days -> 0.17
+ *   - 90 days -> 0.15, 1 year -> 0.12, 2 years -> 0.10
+ */
 function computeRecencyScore(createdAt: number): number {
   const ageMs = Math.max(0, Date.now() - createdAt);
   const ageDays = ageMs / (24 * 60 * 60 * 1000);
-  return 1 / (1 + ageDays);
+  return 1 / (1 + Math.log2(1 + ageDays));
 }
 
 function mapCosineToUnit(value: number): number {
