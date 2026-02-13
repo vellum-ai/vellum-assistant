@@ -505,6 +505,7 @@ export class DaemonServer {
       debounceTimers: this.debounceTimers,
       suppressConfigReload: this.suppressConfigReload,
       setSuppressConfigReload: (value: boolean) => { this.suppressConfigReload = value; },
+      updateConfigFingerprint: () => { this.lastConfigFingerprint = this.configFingerprint(getConfig()); },
       send: (socket, msg) => this.send(socket, msg),
       getOrCreateSession: (id, socket?, rebind?, options?) =>
         this.getOrCreateSession(id, socket, rebind, options),
