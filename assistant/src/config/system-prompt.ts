@@ -74,11 +74,24 @@ function buildConfigSection(configDir: string): string {
   ].join('\n');
 }
 
+/**
+ * Strip lines starting with `_` (comment convention for prompt .md files)
+ * and collapse any resulting consecutive blank lines.
+ */
+export function stripCommentLines(content: string): string {
+  return content
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('_'))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function readPromptFile(path: string): string | null {
   if (!existsSync(path)) return null;
 
   try {
-    const content = readFileSync(path, 'utf-8').trim();
+    const content = stripCommentLines(readFileSync(path, 'utf-8'));
     if (content.length === 0) return null;
     log.debug({ path }, 'Loaded prompt file');
     return content;

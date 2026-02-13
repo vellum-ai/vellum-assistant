@@ -32,7 +32,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 // Import after mock
-const { buildSystemPrompt, ensurePromptFiles } = await import('../config/system-prompt.js');
+const { buildSystemPrompt, ensurePromptFiles, stripCommentLines } = await import('../config/system-prompt.js');
 
 /** Strip the Configuration and Skills sections so base-prompt tests stay focused. */
 function basePrompt(result: string): string {
@@ -168,6 +168,52 @@ describe('buildSystemPrompt', () => {
     writeFileSync(join(TEST_DIR, 'USER.md'), '  \n  ');
     const result = buildSystemPrompt();
     expect(basePrompt(result)).toBe('');
+  });
+
+  test('strips comment lines starting with _ from prompt files', () => {
+    writeFileSync(
+      join(TEST_DIR, 'IDENTITY.md'),
+      '# Identity\n_ This is a comment\nI am Vellum.\n_ Another comment',
+    );
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe('# Identity\nI am Vellum.');
+  });
+
+  test('collapses whitespace around stripped comment lines', () => {
+    writeFileSync(
+      join(TEST_DIR, 'SOUL.md'),
+      'First paragraph\n\n_ Comment between paragraphs\n\nSecond paragraph',
+    );
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe('First paragraph\n\nSecond paragraph');
+  });
+
+  test('file with only comment lines is treated as empty', () => {
+    writeFileSync(join(TEST_DIR, 'SOUL.md'), '_ All comments\n_ Nothing else');
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe('');
+  });
+});
+
+describe('stripCommentLines', () => {
+  test('removes lines starting with _', () => {
+    expect(stripCommentLines('hello\n_ comment\nworld')).toBe('hello\nworld');
+  });
+
+  test('removes lines with leading whitespace before _', () => {
+    expect(stripCommentLines('hello\n  _ indented comment\nworld')).toBe('hello\nworld');
+  });
+
+  test('preserves underscores mid-line', () => {
+    expect(stripCommentLines('hello_world\nsome_var = 1')).toBe('hello_world\nsome_var = 1');
+  });
+
+  test('collapses triple+ newlines to double', () => {
+    expect(stripCommentLines('a\n\n_ removed\n\nb')).toBe('a\n\nb');
+  });
+
+  test('returns empty string for all-comment content', () => {
+    expect(stripCommentLines('_ one\n_ two')).toBe('');
   });
 });
 

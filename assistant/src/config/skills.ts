@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getConfig } from './loader.js';
 import { getRootDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
+import { stripCommentLines } from './system-prompt.js';
 
 const log = getLogger('skills');
 
@@ -229,7 +230,7 @@ function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontma
   return {
     name,
     description,
-    body: content.slice(match[0].length).trim(),
+    body: stripCommentLines(content.slice(match[0].length)),
     homepage,
     userInvocable,
     disableModelInvocation,
