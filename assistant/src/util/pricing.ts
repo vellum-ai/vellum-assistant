@@ -7,16 +7,6 @@ interface ModelPricing {
 }
 
 /**
- * Legacy pricing table keyed by exact model string.
- * Kept for backward compatibility with estimateCost().
- */
-const PRICING: Record<string, ModelPricing> = {
-  'claude-opus-4-5-20250929':   { inputPer1M: 15, outputPer1M: 75 },
-  'claude-sonnet-4-5-20250929': { inputPer1M: 3, outputPer1M: 15 },
-  'claude-haiku-4-5-20251001':  { inputPer1M: 0.80, outputPer1M: 4 },
-};
-
-/**
  * Multi-provider pricing catalog keyed by provider then model pattern.
  * Model patterns are matched by exact match first, then by prefix.
  */
@@ -138,26 +128,19 @@ export function resolvePricingWithOverrides(
 }
 
 /**
- * Estimate cost in USD for the given token counts and model.
- * Returns 0 if the model is not in the pricing table.
- *
- * @deprecated Prefer resolvePricing() or resolvePricingWithOverrides() for
- * provider-aware pricing with explicit priced/unpriced status.
+ * Estimate cost in USD for the given token counts, provider, and model.
+ * Returns 0 if the provider/model combination is not in the pricing table
+ * (e.g. Ollama local models).
  */
 export function estimateCost(
   inputTokens: number,
   outputTokens: number,
   model: string,
+  provider: string,
 ): number {
-  // Try the new provider-aware catalog first (default to anthropic for backward compat)
-  const result = resolvePricing('anthropic', model, inputTokens, outputTokens);
+  const result = resolvePricing(provider, model, inputTokens, outputTokens);
   if (result.pricingStatus === 'priced' && result.estimatedCostUsd !== null) {
     return result.estimatedCostUsd;
   }
-
-  // Fall back to legacy exact/prefix matching on the old PRICING table
-  const pricing = PRICING[model]
-    ?? Object.entries(PRICING).find(([key]) => model.startsWith(key))?.[1];
-  if (!pricing) return 0;
-  return calculateCost(pricing, inputTokens, outputTokens);
+  return 0;
 }
