@@ -15,6 +15,7 @@ export type RuntimeInboundPayload = {
   senderExternalUserId?: string;
   senderUsername?: string;
   sourceMetadata?: Record<string, unknown>;
+  attachmentIds?: string[];
 };
 
 export type RuntimeInboundResponse = {
@@ -94,4 +95,35 @@ export async function forwardToRuntime(
   }
 
   throw lastError ?? new Error("Runtime forward failed after retries");
+}
+
+export type UploadAttachmentInput = {
+  filename: string;
+  mimeType: string;
+  data: string; // base64-encoded
+};
+
+export type UploadAttachmentResponse = {
+  id: string;
+};
+
+export async function uploadAttachment(
+  config: GatewayConfig,
+  assistantId: string,
+  input: UploadAttachmentInput,
+): Promise<UploadAttachmentResponse> {
+  const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/attachments`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Attachment upload failed (${response.status}): ${body}`);
+  }
+
+  return (await response.json()) as UploadAttachmentResponse;
 }

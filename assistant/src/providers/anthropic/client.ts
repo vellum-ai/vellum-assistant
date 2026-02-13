@@ -124,9 +124,14 @@ export class AnthropicProvider implements Provider {
         };
       case "file":
         return {
-          type: "text",
-          text: this.fileBlockToText(block),
-        };
+          type: "document",
+          source: {
+            type: "base64",
+            media_type: block.source.media_type,
+            data: block.source.data,
+          },
+          ...(block.source.filename ? { title: block.source.filename } : {}),
+        } as unknown as Anthropic.ContentBlockParam;
       case "tool_use":
         return {
           type: "tool_use",
@@ -170,11 +175,4 @@ export class AnthropicProvider implements Provider {
     }
   }
 
-  private fileBlockToText(block: Extract<ContentBlock, { type: "file" }>): string {
-    const header = `[Attached file: ${block.source.filename} (${block.source.media_type})]`;
-    if (block.extracted_text?.trim()) {
-      return `${header}\n${block.extracted_text}`;
-    }
-    return `${header}\nNo extracted text available.`;
-  }
 }

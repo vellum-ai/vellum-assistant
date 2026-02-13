@@ -10,6 +10,12 @@ export type GatewayInboundEventV1 = {
     content: string;
     externalChatId: string;
     externalMessageId: string;
+    attachments?: {
+      type: "photo" | "document";
+      fileId: string;
+      fileName?: string;
+      mimeType?: string;
+    }[];
   };
   sender: {
     externalUserId: string;
