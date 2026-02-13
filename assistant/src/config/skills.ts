@@ -657,6 +657,8 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   if (!loaded) {
     return { error: `Failed to load SKILL.md for "${skill.id}"` };
   }
+  // Replace {baseDir} placeholders with the actual skill directory path
+  loaded.body = loaded.body.replaceAll('{baseDir}', loaded.directoryPath);
   return { skill: loaded };
 }
 

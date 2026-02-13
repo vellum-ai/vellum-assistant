@@ -34,10 +34,10 @@ mock.module('../util/logger.js', () => ({
 // Import after mock
 const { buildSystemPrompt, ensurePromptFiles } = await import('../config/system-prompt.js');
 
-/** Strip the Configuration and Skills Catalog suffixes so base-prompt tests stay focused. */
+/** Strip the Configuration and Skills sections so base-prompt tests stay focused. */
 function basePrompt(result: string): string {
   let s = result;
-  for (const heading of ['## Configuration', '## Skills Catalog']) {
+  for (const heading of ['## Configuration', '## Skills Catalog', '## Available Skills']) {
     if (s.startsWith(heading)) { s = ''; break; }
     const idx = s.indexOf(`\n\n${heading}`);
     if (idx !== -1) s = s.slice(0, idx);
@@ -110,8 +110,10 @@ describe('buildSystemPrompt', () => {
     writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'Custom identity');
     const result = buildSystemPrompt();
     expect(result).toContain('Custom identity');
-    expect(result).toContain('## Skills Catalog');
-    expect(result).toContain('`release-checklist` - Release Checklist: Deployment checks.');
+    expect(result).toContain('## Available Skills');
+    expect(result).toContain('<available_skills>');
+    expect(result).toContain('name="Release Checklist"');
+    expect(result).toContain('description="Deployment checks."');
     expect(result).toContain('call the `skill_load` tool');
   });
 
@@ -128,8 +130,8 @@ describe('buildSystemPrompt', () => {
 
     const result = buildSystemPrompt();
     expect(result).toContain('Identity content\n\nSoul content');
-    expect(result).toContain('## Skills Catalog');
-    expect(result.indexOf('Soul content')).toBeLessThan(result.indexOf('## Skills Catalog'));
+    expect(result).toContain('## Available Skills');
+    expect(result.indexOf('Soul content')).toBeLessThan(result.indexOf('## Available Skills'));
   });
 
   test('omits user skills from catalog when none are configured', () => {
