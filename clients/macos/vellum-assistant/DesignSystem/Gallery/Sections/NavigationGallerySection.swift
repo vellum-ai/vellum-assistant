@@ -157,6 +157,35 @@ struct NavigationGallerySection: View {
                     }
                 }
             }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
+            // MARK: - ThreadTab
+            GallerySectionHeader(
+                title: "ThreadTab",
+                description: "Thread-specific tab component. Selected state uses white text with no background or border."
+            )
+
+            VCard {
+                HStack(spacing: VSpacing.lg) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Default").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        ThreadTab(label: "Thread 1", icon: "flame", onSelect: {})
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Selected").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        ThreadTab(label: "Thread 1", icon: "flame", isSelected: true, onSelect: {})
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        ThreadTab(label: "Thread 2", icon: "flame", onSelect: {}, onClose: {})
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Selected + Closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        ThreadTab(label: "Thread 2", icon: "flame", isSelected: true, onSelect: {}, onClose: {})
+                    }
+                }
+            }
         }
     }
 }

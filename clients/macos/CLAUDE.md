@@ -123,7 +123,7 @@ DesignSystem/
 │   ├── Display/         (VEmptyState, VListRow)
 │   └── Navigation/      (VTab)
 ├── Components/          (composed from primitives, feature-aware)
-│   ├── Navigation/      (VTabBar, VSegmentedControl)
+│   ├── Navigation/      (VTabBar, VSegmentedControl, ThreadTab)
 │   ├── Layout/          (VSidePanel, VSplitView, VToolbar)
 │   └── Display/         (VCard)
 ├── Modifiers/           (.vCard(), .vHover(), .vPanelBackground())

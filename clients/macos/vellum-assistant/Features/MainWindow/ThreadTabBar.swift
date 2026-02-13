@@ -17,12 +17,11 @@ struct ThreadTabBar: View {
                             .frame(width: 1, height: 14)
                     }
 
-                    VTab(
+                    ThreadTab(
                         label: thread.title,
                         icon: "flame",
                         isSelected: thread.id == activeThreadId,
                         isCloseable: threads.count > 1,
-                        style: .rectangular,
                         onSelect: { onSelect(thread.id) },
                         onClose: { onClose(thread.id) }
                     )
