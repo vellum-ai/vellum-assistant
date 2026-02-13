@@ -49,8 +49,8 @@ FSWATCH_PID=""
 # Trap to clean up fswatch process and FIFO on exit
 trap 'if [ -n "$FSWATCH_PID" ]; then kill $FSWATCH_PID 2>/dev/null; fi; rm -f "$FIFO"; exit' INT TERM
 
-# Start fswatch as background process writing to FIFO
-# This allows us to capture its PID for proper cleanup
+# Read from FIFO in a loop - this processes fswatch events
+while read -r _; do
     echo ""
     echo -e "${YELLOW}📝 Change detected - rebuilding...${NC}"
 
