@@ -213,8 +213,9 @@ export async function executeGetWeather(
     condition: string;
   }> = [];
 
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  // The API returns dates in the location's local timezone (timezone=auto),
+  // so the first entry is always "today" for that location.
+  const todayStr = daily.time.length > 0 ? daily.time[0] : '';
 
   for (let i = 0; i < daily.time.length; i++) {
     const date = daily.time[i];
