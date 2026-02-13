@@ -28,11 +28,10 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     const start = performance.now();
     const url = new URL(req.url);
 
-    if (
-      config.runtimeProxyRequireAuth &&
-      config.runtimeProxyBearerToken &&
-      req.method !== "OPTIONS"
-    ) {
+    if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
+      if (!config.runtimeProxyBearerToken) {
+        return Response.json({ error: "Server misconfigured" }, { status: 500 });
+      }
       const authResult = validateBearerToken(
         req.headers.get("authorization"),
         config.runtimeProxyBearerToken,
