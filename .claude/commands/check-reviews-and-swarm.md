@@ -4,7 +4,7 @@ Arguments (optional): $ARGUMENTS
 
 Parse positional arguments (these are passed through to `/swarm`):
 
-- **First argument** (optional): number of parallel workers (default: 3).
+- **First argument** (optional): number of parallel workers (default: 12).
 - **Second argument** (optional): maximum number of tasks to complete before shutting down.
 
 ## Phase 1: Check reviews

@@ -11,7 +11,7 @@ If `$ARGUMENTS` is empty, stop and tell the user to provide a feature descriptio
 Extract these flags from `$ARGUMENTS` before treating the remainder as the feature description:
 
 - `--auto` — skip the pause between rounds (default: pause and ask before sweep)
-- `--workers N` — parallel worker count for swarm phases (default: 3)
+- `--workers N` — parallel worker count for swarm phases (default: 12)
 - `--skip-plan` — skip planning; use issues already in the "Ready" column of the GH project
 - `--branch NAME` — custom feature branch name (default: auto-generated from feature description as `feature/<kebab-case-summary>`)
 

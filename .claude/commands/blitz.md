@@ -9,7 +9,7 @@ If `$ARGUMENTS` is empty, stop and tell the user to provide a feature descriptio
 Extract these flags from `$ARGUMENTS` before treating the remainder as the feature description:
 
 - `--auto` — skip the pause between rounds (default: pause and ask before sweep)
-- `--workers N` — parallel worker count for swarm phases (default: 3)
+- `--workers N` — parallel worker count for swarm phases (default: 12)
 - `--skip-plan` — skip planning; use issues already in the "Ready" column of the GH project
 
 Everything after stripping flags is the **feature description**.
@@ -180,7 +180,7 @@ gh api graphql -f query='mutation {
 
 Read and follow the instructions in `.claude/commands/swarm.md` with these modifications:
 
-- Pass the `--workers` count (or default 3) as the first argument.
+- Pass the `--workers` count (or default 12) as the first argument.
 - **After each milestone task completes and its PR merges**, update the corresponding GitHub issue. Skip this for non-milestone tasks (e.g., "Address the feedback on ..." items from Phase 5 — those are PR-based and have no associated milestone issue):
   1. Set the project board status to "Done":
 
