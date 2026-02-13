@@ -948,10 +948,10 @@ private class ComposerNSTextView: NSTextView {
         if event.keyCode == 48 && !event.modifierFlags.contains(.shift) {
             if ghostSuffix != nil {
                 onTabAction?()
-                return
             }
+            return
         }
-        super.keyDown(with: event)
+
     }
 
     override func paste(_ sender: Any?) {
