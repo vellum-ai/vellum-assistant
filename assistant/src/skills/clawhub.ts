@@ -255,7 +255,7 @@ export async function clawhubInspect(slug: string): Promise<{ data?: ClawhubInsp
           version: parsed.latestVersion.version ?? '',
           changelog: parsed.latestVersion.changelog ?? undefined,
         } : null,
-        files: parsed.files ? parsed.files.map((f: Record<string, unknown>) => ({
+        files: Array.isArray(parsed.files) ? parsed.files.map((f: Record<string, unknown>) => ({
           path: (f.path as string) ?? '',
           size: (f.size as number) ?? 0,
           contentType: (f.contentType as string) ?? undefined,
