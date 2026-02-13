@@ -422,26 +422,27 @@ export function initializeDb(): void {
 }
 
 /**
- * One-time migration: reconcile old deferral history into the new `deferrals` column.
+ * One-shot migration: reconcile old deferral history into the new `deferrals` column.
  *
  * Before the `deferrals` column was added, `deferMemoryJob` incremented `attempts`.
- * After the column is added with DEFAULT 0, those jobs still carry the old attempt
- * count (which was really a deferral count) while `deferrals` is 0. This moves the
- * attempt count into `deferrals` and resets `attempts` to 0 for affected jobs.
+ * After the column is added with DEFAULT 0, those legacy jobs still carry the old
+ * attempt count (which was really a deferral count) while `deferrals` is 0. This
+ * moves the attempt count into `deferrals` and resets `attempts` to 0.
  *
- * Affected jobs: status='pending', attempts > 0, deferrals = 0 (not yet migrated),
- * and only embed job types (embed_segment, embed_item, embed_summary) since only
- * those can enter the deferral path via BackendUnavailableError.
+ * This migration MUST run only once. On subsequent startups, post-migration jobs
+ * that genuinely failed via `failMemoryJob` (attempts > 0, deferrals = 0, non-null
+ * last_error) must NOT be touched — resetting their attempts would let them bypass
+ * the configured maxAttempts budget across restarts.
  *
- * We clear `last_error` along with resetting `attempts` to give migrated jobs a
- * clean slate. Old `attempts` were a mix of true failures and deferrals that cannot
- * be distinguished, so the safest approach is to reset both counters and any stale
- * error state.
- *
- * Idempotent: once deferrals > 0 or attempts = 0, rows are no longer matched.
+ * We use a `memory_checkpoints` row to ensure the migration runs exactly once.
  */
 function migrateJobDeferrals(database: ReturnType<typeof drizzle<typeof schema>>): void {
   const raw = (database as unknown as { $client: Database }).$client;
+  const checkpoint = raw.query(
+    `SELECT 1 FROM memory_checkpoints WHERE key = 'migration_job_deferrals'`
+  ).get();
+  if (checkpoint) return;
+
   raw.exec(/*sql*/ `
     UPDATE memory_jobs
     SET deferrals = attempts,
@@ -452,6 +453,11 @@ function migrateJobDeferrals(database: ReturnType<typeof drizzle<typeof schema>>
       AND attempts > 0
       AND deferrals = 0
       AND type IN ('embed_segment', 'embed_item', 'embed_summary')
+  `);
+
+  raw.exec(/*sql*/ `
+    INSERT INTO memory_checkpoints (key, value, updated_at)
+    VALUES ('migration_job_deferrals', '1', ${Date.now()})
   `);
 }
 
