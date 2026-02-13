@@ -13,6 +13,7 @@
     "test": "bash scripts/test.sh"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.42",
     "@anthropic-ai/sdk": "^0.39.0",
     "@google/genai": "^1.40.0",
     "@huggingface/transformers": "^3.8.1",
