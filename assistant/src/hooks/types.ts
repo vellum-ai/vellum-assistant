@@ -20,6 +20,12 @@ export type HookEventName =
   // Error
   | 'on-error';
 
+export interface HookSettingsSchemaEntry {
+  type: string;
+  default?: unknown;
+  description?: string;
+}
+
 export interface HookManifest {
   name: string;
   description: string;
@@ -28,10 +34,14 @@ export interface HookManifest {
   script: string;
   /** When true, non-zero exit from this hook cancels pre-* actions. Default false. */
   blocking?: boolean;
+  /** Schema for per-hook settings with defaults and descriptions. */
+  settingsSchema?: Record<string, HookSettingsSchemaEntry>;
 }
 
 export interface HookConfigEntry {
   enabled: boolean;
+  /** Per-hook user settings that override manifest defaults. */
+  settings?: Record<string, unknown>;
 }
 
 export interface HookConfig {
