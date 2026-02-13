@@ -156,5 +156,44 @@ export async function initializeTools(): Promise<void> {
     },
   });
 
+  // Claude Code tool — delegates coding tasks to Claude Code via the Agent SDK.
+  // Registered lazily since the SDK spawns a subprocess and is only needed on demand.
+  registerLazyTool({
+    name: 'claude_code',
+    description: 'Delegate a coding task to Claude Code, an AI-powered coding agent that can read, write, and edit files, run shell commands, and perform complex multi-step software engineering tasks autonomously.',
+    category: 'coding',
+    defaultRiskLevel: RiskLevel.Medium,
+    definition: {
+      name: 'claude_code',
+      description: 'Delegate a coding task to Claude Code, an AI-powered coding agent that can read, write, and edit files, run shell commands, and perform complex multi-step software engineering tasks autonomously.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'The coding task or question for Claude Code to work on',
+          },
+          working_dir: {
+            type: 'string',
+            description: 'Working directory for Claude Code (defaults to session working directory)',
+          },
+          resume: {
+            type: 'string',
+            description: 'Claude Code session ID to resume a previous session',
+          },
+          model: {
+            type: 'string',
+            description: 'Model to use (defaults to claude-sonnet-4-5-20250929)',
+          },
+        },
+        required: ['prompt'],
+      },
+    },
+    loader: async () => {
+      const mod = await import('./claude-code/claude-code.js');
+      return mod.claudeCodeTool;
+    },
+  });
+
   log.info({ count: tools.size }, 'Tools initialized');
 }
