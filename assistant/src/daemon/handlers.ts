@@ -41,12 +41,16 @@ import type {
   RemoveTrustRule,
   UpdateTrustRule,
 } from './ipc-protocol.js';
+import { existsSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { addRule, removeRule, updateRule, getAllRules } from '../permissions/trust-store.js';
 import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon, readCachedSkillIcon } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } from '../memory/app-store.js';
+import { getRootDir } from '../util/platform.js';
+import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates } from '../skills/clawhub.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -835,74 +839,195 @@ function handleSkillsConfigure(
   }
 }
 
-function handleSkillsInstall(
+async function handleSkillsInstall(
   msg: SkillsInstallRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
-  log.warn({ slug: msg.slug }, 'skills_install not yet implemented');
-  ctx.send(socket, {
-    type: 'skills_operation_response',
-    operation: 'install',
-    success: false,
-    error: 'Not yet implemented',
-  });
+): Promise<void> {
+  try {
+    const result = await clawhubInstall(msg.slug, { version: msg.version });
+    if (!result.success) {
+      ctx.send(socket, {
+        type: 'skills_operation_response',
+        operation: 'install',
+        success: false,
+        error: result.error ?? 'Unknown error',
+      });
+      return;
+    }
+
+    // Reload skill catalog so the newly installed skill is picked up
+    loadSkillCatalog();
+
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'install',
+      success: true,
+    });
+    ctx.broadcast({
+      type: 'skills_state_changed',
+      name: result.skillName ?? msg.slug,
+      state: 'installed',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to install skill');
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'install',
+      success: false,
+      error: message,
+    });
+  }
 }
 
-function handleSkillsUninstall(
+async function handleSkillsUninstall(
   msg: SkillsUninstallRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
-  log.warn({ name: msg.name }, 'skills_uninstall not yet implemented');
-  ctx.send(socket, {
-    type: 'skills_operation_response',
-    operation: 'uninstall',
-    success: false,
-    error: 'Not yet implemented',
-  });
+): Promise<void> {
+  const skillDir = join(getRootDir(), 'skills', msg.name);
+  if (!existsSync(skillDir)) {
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'uninstall',
+      success: false,
+      error: 'Skill not found',
+    });
+    return;
+  }
+  try {
+    rmSync(skillDir, { recursive: true });
+
+    // Clean config entry
+    const raw = loadRawConfig();
+    const skills = raw.skills as Record<string, unknown> | undefined;
+    const entries = skills?.entries as Record<string, unknown> | undefined;
+    if (entries?.[msg.name]) {
+      delete entries[msg.name];
+
+      ctx.setSuppressConfigReload(true);
+      try {
+        saveRawConfig(raw);
+      } catch (err) {
+        ctx.setSuppressConfigReload(false);
+        throw err;
+      }
+      invalidateConfigCache();
+
+      const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
+      if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
+      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+      ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+
+      ctx.updateConfigFingerprint();
+    }
+
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'uninstall',
+      success: true,
+    });
+    ctx.broadcast({
+      type: 'skills_state_changed',
+      name: msg.name,
+      state: 'uninstalled',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to uninstall skill');
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'uninstall',
+      success: false,
+      error: message,
+    });
+  }
 }
 
-function handleSkillsUpdate(
+async function handleSkillsUpdate(
   msg: SkillsUpdateRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
-  log.warn({ name: msg.name }, 'skills_update not yet implemented');
-  ctx.send(socket, {
-    type: 'skills_operation_response',
-    operation: 'update',
-    success: false,
-    error: 'Not yet implemented',
-  });
+): Promise<void> {
+  try {
+    const result = await clawhubUpdate(msg.name);
+    if (!result.success) {
+      ctx.send(socket, {
+        type: 'skills_operation_response',
+        operation: 'update',
+        success: false,
+        error: result.error ?? 'Unknown error',
+      });
+      return;
+    }
+
+    // Reload skill catalog to pick up updated skill
+    loadSkillCatalog();
+
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'update',
+      success: true,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to update skill');
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'update',
+      success: false,
+      error: message,
+    });
+  }
 }
 
-function handleSkillsCheckUpdates(
+async function handleSkillsCheckUpdates(
   _msg: SkillsCheckUpdatesRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
-  log.warn('skills_check_updates not yet implemented');
-  ctx.send(socket, {
-    type: 'skills_operation_response',
-    operation: 'check_updates',
-    success: false,
-    error: 'Not yet implemented',
-  });
+): Promise<void> {
+  try {
+    const updates = await clawhubCheckUpdates();
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'check_updates',
+      success: true,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to check for skill updates');
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'check_updates',
+      success: false,
+      error: message,
+    });
+  }
 }
 
-function handleSkillsSearch(
+async function handleSkillsSearch(
   msg: SkillsSearchRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
-  log.warn({ query: msg.query }, 'skills_search not yet implemented');
-  ctx.send(socket, {
-    type: 'skills_operation_response',
-    operation: 'search',
-    success: false,
-    error: 'Not yet implemented',
-  });
+): Promise<void> {
+  try {
+    const result = await clawhubSearch(msg.query);
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'search',
+      success: true,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to search skills');
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'search',
+      success: false,
+      error: message,
+    });
+  }
 }
 
 async function handleSkillDetail(
