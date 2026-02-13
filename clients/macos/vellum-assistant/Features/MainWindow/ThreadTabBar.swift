@@ -50,6 +50,9 @@ struct ThreadTabBar: View {
                     VIconButton(label: "Control", icon: "gearshape", isActive: activePanel == .control) {
                         togglePanel(.control)
                     }
+                    VIconButton(label: "Usage", icon: "chart.bar", isActive: activePanel == .usage) {
+                        togglePanel(.usage)
+                    }
                     VIconButton(label: "Directory", icon: "doc.text", isActive: activePanel == .directory, iconOnly: true) {
                         togglePanel(.directory)
                     }
