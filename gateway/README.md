@@ -96,6 +96,17 @@ curl -i -X POST http://localhost:7830/webhooks/telegram
 - The `host` header is not forwarded to upstream.
 - Upstream connection failures return `502 Bad Gateway`.
 
+## Development
+
+```bash
+cd gateway
+bun install
+bun run typecheck   # TypeScript type check (tsc --noEmit)
+bun run test        # Run test suite
+```
+
+Both checks run in CI on every pull request touching `gateway/`.
+
 ## Troubleshooting
 
 | Symptom | Check |
