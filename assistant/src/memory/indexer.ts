@@ -64,6 +64,7 @@ export function indexMessageNow(
         updatedAt: now,
       },
     }).run();
+    enqueueMemoryJob('embed_segment', { segmentId });
   }
 
   const shouldExtract =
@@ -75,7 +76,7 @@ export function indexMessageNow(
   enqueueMemoryJob('build_conversation_summary', { conversationId: input.conversationId });
   enqueueSummaryRollupJobsIfDue();
 
-  const enqueuedJobs = shouldExtract ? 2 : 1;
+  const enqueuedJobs = segments.length + (shouldExtract ? 2 : 1);
   return {
     indexedSegments: segments.length,
     enqueuedJobs,

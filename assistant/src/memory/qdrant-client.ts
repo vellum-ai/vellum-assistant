@@ -200,9 +200,17 @@ export class VellumQdrantClient {
     ];
 
     if (excludeMessageIds && excludeMessageIds.length > 0) {
+      // Only require status=active for items; segments and summaries don't have a status field
       mustConditions.push({
-        key: 'status',
-        match: { value: 'active' },
+        should: [
+          {
+            must: [
+              { key: 'target_type', match: { value: 'item' } },
+              { key: 'status', match: { value: 'active' } },
+            ],
+          },
+          { key: 'target_type', match: { any: ['segment', 'summary'] } },
+        ],
       });
     }
 

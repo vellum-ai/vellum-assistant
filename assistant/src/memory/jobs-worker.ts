@@ -579,6 +579,11 @@ function rebuildIndexJob(): void {
   for (const summary of summaries) {
     enqueueMemoryJob('embed_summary', { summaryId: summary.id });
   }
+
+  const segments = db.select({ id: memorySegments.id }).from(memorySegments).all();
+  for (const segment of segments) {
+    enqueueMemoryJob('embed_segment', { segmentId: segment.id });
+  }
 }
 
 async function embedAndUpsert(
@@ -611,6 +616,7 @@ async function embedAndUpsert(
     });
   } catch (err) {
     log.warn({ err, targetType, targetId }, 'Failed to upsert embedding to Qdrant');
+    throw err;
   }
 }
 
