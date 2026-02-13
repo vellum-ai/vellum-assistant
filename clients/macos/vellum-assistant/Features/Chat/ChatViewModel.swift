@@ -629,6 +629,10 @@ final class ChatViewModel: ObservableObject {
             guard !isCancelling else { return }
             lastToolUseReceivedAt = Date()
             isThinking = false
+            // Suppress ToolCallChip for ui_show — the inline surface widget replaces it.
+            if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" || msg.toolName == "request_file" {
+                break
+            }
             let toolCall = ToolCallData(
                 toolName: toolDisplayName(msg.toolName),
                 inputSummary: summarizeToolInput(msg.input)
@@ -660,9 +664,40 @@ final class ChatViewModel: ObservableObject {
                 messages[msgIndex].toolCalls[tcIndex].isComplete = true
             }
 
+        case .uiSurfaceShow(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            guard msg.display == "inline" else { break }
+            guard let surface = Surface.from(msg) else { break }
+            let inlineSurface = InlineSurfaceData(
+                id: surface.id,
+                surfaceType: surface.type,
+                title: surface.title,
+                data: surface.data,
+                actions: surface.actions
+            )
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].inlineSurfaces.append(inlineSurface)
+            } else {
+                let newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, inlineSurfaces: [inlineSurface])
+                currentAssistantMessageId = newMsg.id
+                messages.append(newMsg)
+            }
+
         default:
             break
         }
+    }
+
+    func sendSurfaceAction(surfaceId: String, actionId: String, data: [String: AnyCodable]? = nil) {
+        guard let sessionId = sessionId else { return }
+        let msg = UiSurfaceActionMessage(
+            sessionId: sessionId,
+            surfaceId: surfaceId,
+            actionId: actionId,
+            data: data
+        )
+        try? daemonClient.send(msg)
     }
 
     func stopGenerating() {

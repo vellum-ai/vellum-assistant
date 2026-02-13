@@ -312,6 +312,8 @@ struct UiSurfaceShowMessage: Decodable, Sendable {
     let title: String?
     let data: AnyCodable
     let actions: [SurfaceActionData]?
+    /// `"inline"` embeds in chat, `"panel"` shows a floating window.
+    let display: String?
 }
 
 struct SurfaceActionData: Decodable, Sendable {

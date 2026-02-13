@@ -47,6 +47,19 @@ struct ToolCallData: Identifiable, Equatable {
     }
 }
 
+/// Data for an inline UI surface rendered within a chat message.
+struct InlineSurfaceData: Identifiable, Equatable {
+    let id: String
+    let surfaceType: SurfaceType
+    let title: String?
+    let data: SurfaceData
+    let actions: [SurfaceActionButton]
+
+    static func == (lhs: InlineSurfaceData, rhs: InlineSurfaceData) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
 /// A file or image attachment associated with a chat message.
 struct ChatAttachment: Identifiable {
     let id: String
@@ -69,8 +82,9 @@ struct ChatMessage: Identifiable {
     var confirmation: ToolConfirmationData?
     var attachments: [ChatAttachment]
     var toolCalls: [ToolCallData]
+    var inlineSurfaces: [InlineSurfaceData]
 
-    init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = []) {
+    init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = []) {
         self.id = id
         self.role = role
         self.text = text
@@ -80,5 +94,6 @@ struct ChatMessage: Identifiable {
         self.confirmation = confirmation
         self.attachments = attachments
         self.toolCalls = toolCalls
+        self.inlineSurfaces = inlineSurfaces
     }
 }

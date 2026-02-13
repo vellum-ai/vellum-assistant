@@ -6,6 +6,7 @@ enum SurfaceType: String, Codable, Sendable {
     case card
     case form
     case list
+    case table
     case confirmation
     case dynamicPage = "dynamic_page"
     case fileUpload = "file_upload"
@@ -129,10 +130,31 @@ struct FileUploadSurfaceData: Sendable {
     let maxSizeBytes: Int
 }
 
+struct TableColumn: Identifiable, Sendable {
+    let id: String
+    let label: String
+    let width: Int?
+}
+
+struct TableRow: Identifiable, Sendable {
+    let id: String
+    let cells: [String: String]
+    let selectable: Bool
+    let selected: Bool
+}
+
+struct TableSurfaceData: Sendable {
+    let columns: [TableColumn]
+    let rows: [TableRow]
+    let selectionMode: SelectionMode
+    let caption: String?
+}
+
 enum SurfaceData: Sendable {
     case card(CardSurfaceData)
     case form(FormSurfaceData)
     case list(ListSurfaceData)
+    case table(TableSurfaceData)
     case confirmation(ConfirmationSurfaceData)
     case dynamicPage(DynamicPageSurfaceData)
     case fileUpload(FileUploadSurfaceData)
@@ -216,6 +238,8 @@ extension Surface {
             return parseFormData(dict).map { .form($0) }
         case .list:
             return parseListData(dict).map { .list($0) }
+        case .table:
+            return parseTableData(dict).map { .table($0) }
         case .confirmation:
             return parseConfirmationData(dict).map { .confirmation($0) }
         case .dynamicPage:
@@ -240,6 +264,8 @@ extension Surface {
             return .list(mergeListData(existing: list, update: update))
         case .confirmation(let confirmation):
             return .confirmation(mergeConfirmationData(existing: confirmation, update: update))
+        case .table(let table):
+            return .table(mergeTableData(existing: table, update: update))
         case .dynamicPage(let dp):
             return .dynamicPage(mergeDynamicPageData(existing: dp, update: update))
         case .fileUpload(let fu):
@@ -461,6 +487,76 @@ extension Surface {
             height: dict["height"] as? Int,
             appId: dict["appId"] as? String
         )
+    }
+
+    private static func parseTableData(_ dict: [String: Any?]) -> TableSurfaceData? {
+        guard let columnsArray = dict["columns"] as? [[String: Any?]],
+              let rowsArray = dict["rows"] as? [[String: Any?]] else {
+            return nil
+        }
+
+        let columns: [TableColumn] = columnsArray.compactMap { colDict in
+            guard let id = colDict["id"] as? String,
+                  let label = colDict["label"] as? String else { return nil }
+            return TableColumn(id: id, label: label, width: colDict["width"] as? Int)
+        }
+
+        let rows: [TableRow] = rowsArray.compactMap { rowDict in
+            guard let id = rowDict["id"] as? String,
+                  let cellsRaw = rowDict["cells"] as? [String: Any?] else { return nil }
+            let cells = cellsRaw.compactMapValues { $0 as? String }
+            return TableRow(
+                id: id,
+                cells: cells,
+                selectable: rowDict["selectable"] as? Bool ?? false,
+                selected: rowDict["selected"] as? Bool ?? false
+            )
+        }
+
+        let selectionModeStr = dict["selectionMode"] as? String ?? "none"
+        let selectionMode = SelectionMode(rawValue: selectionModeStr) ?? .none
+        let caption = dict["caption"] as? String
+
+        return TableSurfaceData(columns: columns, rows: rows, selectionMode: selectionMode, caption: caption)
+    }
+
+    private static func mergeTableData(existing: TableSurfaceData, update: [String: Any?]) -> TableSurfaceData {
+        var columns = existing.columns
+        if let columnsArray = update["columns"] as? [[String: Any?]] {
+            columns = columnsArray.compactMap { colDict in
+                guard let id = colDict["id"] as? String,
+                      let label = colDict["label"] as? String else { return nil }
+                return TableColumn(id: id, label: label, width: colDict["width"] as? Int)
+            }
+        }
+
+        var rows = existing.rows
+        if let rowsArray = update["rows"] as? [[String: Any?]] {
+            rows = rowsArray.compactMap { rowDict in
+                guard let id = rowDict["id"] as? String,
+                      let cellsRaw = rowDict["cells"] as? [String: Any?] else { return nil }
+                let cells = cellsRaw.compactMapValues { $0 as? String }
+                return TableRow(
+                    id: id,
+                    cells: cells,
+                    selectable: rowDict["selectable"] as? Bool ?? false,
+                    selected: rowDict["selected"] as? Bool ?? false
+                )
+            }
+        }
+
+        let selectionMode: SelectionMode
+        if let modeStr = update["selectionMode"] as? String,
+           let mode = SelectionMode(rawValue: modeStr) {
+            selectionMode = mode
+        } else {
+            selectionMode = existing.selectionMode
+        }
+
+        let caption: String? = update.keys.contains("caption")
+            ? (update["caption"] as? String) : existing.caption
+
+        return TableSurfaceData(columns: columns, rows: rows, selectionMode: selectionMode, caption: caption)
     }
 
     private static func parseFileUploadData(_ dict: [String: Any?]) -> FileUploadSurfaceData? {
