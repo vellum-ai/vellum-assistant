@@ -13,6 +13,7 @@ export type {
   MemoryJobsConfig,
   MemoryRetentionConfig,
   MemoryExtractionConfig,
+  MemorySummarizationConfig,
   MemoryConfig,
   ModelPricingOverride,
   QdrantConfig,

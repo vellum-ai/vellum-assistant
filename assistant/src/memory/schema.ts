@@ -84,6 +84,7 @@ export const memorySummaries = sqliteTable('memory_summaries', {
   scopeKey: text('scope_key').notNull(),
   summary: text('summary').notNull(),
   tokenEstimate: integer('token_estimate').notNull(),
+  version: integer('version').notNull().default(1),
   startAt: integer('start_at').notNull(),
   endAt: integer('end_at').notNull(),
   createdAt: integer('created_at').notNull(),

@@ -1,3 +1,4 @@
+import Anthropic from '@anthropic-ai/sdk';
 import { and, asc, desc, eq, gt, gte, lt, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { AssistantConfig } from '../config/types.js';
@@ -23,6 +24,33 @@ import { memoryEmbeddings, memoryItems, memorySegments, memorySummaries, message
 const log = getLogger('memory-jobs-worker');
 const BACKFILL_CHECKPOINT_KEY = 'memory:backfill:last_created_at';
 const BACKFILL_CHECKPOINT_ID_KEY = 'memory:backfill:last_message_id';
+
+const SUMMARY_LLM_TIMEOUT_MS = 20_000;
+const SUMMARY_MAX_TOKENS = 800;
+
+const CONVERSATION_SUMMARY_SYSTEM_PROMPT = [
+  'You are a memory summarization system. Your job is to produce a compact, information-dense summary of a conversation.',
+  '',
+  'Guidelines:',
+  '- Focus on key facts, decisions, user preferences, and actionable information.',
+  '- Preserve concrete details: names, file paths, tool choices, technical decisions, constraints.',
+  '- Remove filler, pleasantries, and transient discussion that has no lasting value.',
+  '- Use concise bullet points grouped by topic.',
+  '- Target 400-600 tokens. Be dense but readable.',
+  '- If updating an existing summary with new data, merge new information and remove anything that was superseded.',
+].join('\n');
+
+const GLOBAL_SUMMARY_SYSTEM_PROMPT = [
+  'You are a memory summarization system. Your job is to synthesize a higher-level summary from multiple conversation summaries and memory items.',
+  '',
+  'Guidelines:',
+  '- Identify recurring themes, cross-cutting decisions, and persistent user preferences.',
+  '- Highlight the most important facts, active projects, and ongoing concerns.',
+  '- De-duplicate information that appears across multiple conversations.',
+  '- Use concise sections with bullet points.',
+  '- Target 400-600 tokens. Be dense but readable.',
+  '- If updating an existing summary with new data, merge new information and remove anything that was superseded.',
+].join('\n');
 
 export interface MemoryJobsWorker {
   runOnce(): Promise<number>;
@@ -102,13 +130,13 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
       await extractItemsJob(job);
       return;
     case 'build_conversation_summary':
-      buildConversationSummaryJob(job);
+      await buildConversationSummaryJob(job, config);
       return;
     case 'refresh_weekly_summary':
-      buildGlobalSummaryJob('weekly_global');
+      await buildGlobalSummaryJob('weekly_global', config);
       return;
     case 'refresh_monthly_summary':
-      buildGlobalSummaryJob('monthly_global');
+      await buildGlobalSummaryJob('monthly_global', config);
       return;
     case 'backfill':
       backfillJob(job, config);
@@ -182,7 +210,7 @@ async function extractItemsJob(job: MemoryJob): Promise<void> {
   await extractAndUpsertMemoryItemsForMessage(messageId);
 }
 
-function buildConversationSummaryJob(job: MemoryJob): void {
+async function buildConversationSummaryJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
   const conversationId = asString(job.payload.conversationId);
   if (!conversationId) return;
   const db = getDb();
@@ -194,15 +222,7 @@ function buildConversationSummaryJob(job: MemoryJob): void {
     .limit(40)
     .all();
   if (rows.length === 0) return;
-  const snippets = rows
-    .slice(0, 20)
-    .map((row) => `- ${truncate(row.text, 180)}`);
-  const summaryText = [
-    `Conversation ${conversationId}`,
-    '',
-    ...snippets,
-  ].join('\n');
-  const now = Date.now();
+
   const existing = db
     .select()
     .from(memorySummaries)
@@ -211,12 +231,31 @@ function buildConversationSummaryJob(job: MemoryJob): void {
       eq(memorySummaries.scopeKey, conversationId),
     ))
     .get();
+
+  // Build segment text for LLM input (chronological order)
+  const segmentTexts = rows
+    .slice(0, 30)
+    .reverse()
+    .map((row) => `[${row.role}] ${truncate(row.text, 400)}`)
+    .join('\n\n');
+
+  const summaryText = await summarizeWithLLM(
+    config,
+    CONVERSATION_SUMMARY_SYSTEM_PROMPT,
+    existing?.summary ?? null,
+    segmentTexts,
+    'conversation',
+  );
+
+  const now = Date.now();
   const summaryId = existing?.id ?? uuid();
+  const nextVersion = (existing?.version ?? 0) + 1;
   if (existing) {
     db.update(memorySummaries)
       .set({
         summary: summaryText,
         tokenEstimate: estimateTextTokens(summaryText),
+        version: nextVersion,
         startAt: rows[rows.length - 1].createdAt,
         endAt: rows[0].createdAt,
         updatedAt: now,
@@ -230,6 +269,7 @@ function buildConversationSummaryJob(job: MemoryJob): void {
       scopeKey: conversationId,
       summary: summaryText,
       tokenEstimate: estimateTextTokens(summaryText),
+      version: nextVersion,
       startAt: rows[rows.length - 1].createdAt,
       endAt: rows[0].createdAt,
       createdAt: now,
@@ -239,13 +279,14 @@ function buildConversationSummaryJob(job: MemoryJob): void {
   enqueueMemoryJob('embed_summary', { summaryId });
 }
 
-function buildGlobalSummaryJob(scope: 'weekly_global' | 'monthly_global'): void {
+async function buildGlobalSummaryJob(scope: 'weekly_global' | 'monthly_global', config: AssistantConfig): Promise<void> {
   const db = getDb();
   const now = new Date();
   const { startMs, endMs, scopeKey } = scope === 'weekly_global'
     ? currentWeekWindow(now)
     : currentMonthWindow(now);
 
+  // Gather active memory items from this period
   const items = db
     .select()
     .from(memoryItems)
@@ -258,13 +299,36 @@ function buildGlobalSummaryJob(scope: 'weekly_global' | 'monthly_global'): void 
     .limit(80)
     .all();
 
-  if (items.length === 0) return;
-  const lines = items.slice(0, 40).map((item) => `- [${item.kind}] ${item.subject}: ${truncate(item.statement, 180)}`);
-  const summaryText = [
-    scope === 'weekly_global' ? `Weekly memory summary (${scopeKey})` : `Monthly memory summary (${scopeKey})`,
-    '',
-    ...lines,
-  ].join('\n');
+  // Gather conversation summaries from this period for higher-level synthesis
+  const convSummaries = db
+    .select()
+    .from(memorySummaries)
+    .where(and(
+      eq(memorySummaries.scope, 'conversation'),
+      gte(memorySummaries.endAt, startMs),
+      lt(memorySummaries.startAt, endMs),
+    ))
+    .orderBy(desc(memorySummaries.endAt))
+    .limit(20)
+    .all();
+
+  if (items.length === 0 && convSummaries.length === 0) return;
+
+  // Build input for LLM: conversation summaries + active items
+  const parts: string[] = [];
+  if (convSummaries.length > 0) {
+    parts.push('## Conversation Summaries');
+    for (const cs of convSummaries) {
+      parts.push(`### ${cs.scopeKey}\n${truncate(cs.summary, 600)}`);
+    }
+  }
+  if (items.length > 0) {
+    parts.push('## Active Memory Items');
+    for (const item of items.slice(0, 40)) {
+      parts.push(`- [${item.kind}] ${item.subject}: ${truncate(item.statement, 180)}`);
+    }
+  }
+  const inputText = parts.join('\n\n');
 
   const existing = db
     .select()
@@ -275,13 +339,24 @@ function buildGlobalSummaryJob(scope: 'weekly_global' | 'monthly_global'): void 
     ))
     .get();
 
+  const label = scope === 'weekly_global' ? 'weekly' : 'monthly';
+  const summaryText = await summarizeWithLLM(
+    config,
+    GLOBAL_SUMMARY_SYSTEM_PROMPT,
+    existing?.summary ?? null,
+    inputText,
+    label,
+  );
+
   const ts = Date.now();
   const summaryId = existing?.id ?? uuid();
+  const nextVersion = (existing?.version ?? 0) + 1;
   if (existing) {
     db.update(memorySummaries)
       .set({
         summary: summaryText,
         tokenEstimate: estimateTextTokens(summaryText),
+        version: nextVersion,
         startAt: startMs,
         endAt: endMs,
         updatedAt: ts,
@@ -295,6 +370,7 @@ function buildGlobalSummaryJob(scope: 'weekly_global' | 'monthly_global'): void 
       scopeKey,
       summary: summaryText,
       tokenEstimate: estimateTextTokens(summaryText),
+      version: nextVersion,
       startAt: startMs,
       endAt: endMs,
       createdAt: ts,
@@ -302,6 +378,78 @@ function buildGlobalSummaryJob(scope: 'weekly_global' | 'monthly_global'): void 
     }).run();
   }
   enqueueMemoryJob('embed_summary', { summaryId });
+}
+
+async function summarizeWithLLM(
+  config: AssistantConfig,
+  systemPrompt: string,
+  existingSummary: string | null,
+  newContent: string,
+  label: string,
+): Promise<string> {
+  const summarizationConfig = config.memory.summarization;
+  if (!summarizationConfig.useLLM) {
+    log.debug({ label }, 'LLM summarization disabled, using fallback');
+    return buildFallbackSummary(existingSummary, newContent, label);
+  }
+
+  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    log.debug({ label }, 'No Anthropic API key available for summarization, using fallback');
+    return buildFallbackSummary(existingSummary, newContent, label);
+  }
+
+  const userParts: string[] = [];
+  if (existingSummary) {
+    userParts.push(
+      '### Existing Summary (update with new data, keep what is still relevant, remove superseded info)',
+      existingSummary,
+      '',
+    );
+  }
+  userParts.push('### New Data', newContent);
+
+  try {
+    const client = new Anthropic({ apiKey });
+    const response = await Promise.race([
+      client.messages.create({
+        model: summarizationConfig.model,
+        max_tokens: SUMMARY_MAX_TOKENS,
+        system: systemPrompt,
+        messages: [{ role: 'user' as const, content: userParts.join('\n') }],
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Summarization LLM timeout')), SUMMARY_LLM_TIMEOUT_MS),
+      ),
+    ]);
+
+    const textBlock = response.content.find((b) => b.type === 'text');
+    if (textBlock && textBlock.type === 'text' && textBlock.text.trim().length > 0) {
+      log.debug(
+        { label, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
+        'LLM summarization completed',
+      );
+      return textBlock.text.trim();
+    }
+
+    log.warn({ label }, 'LLM summarization returned empty text, using fallback');
+    return buildFallbackSummary(existingSummary, newContent, label);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn({ err: message, label }, 'LLM summarization failed, using fallback');
+    return buildFallbackSummary(existingSummary, newContent, label);
+  }
+}
+
+function buildFallbackSummary(existingSummary: string | null, newContent: string, label: string): string {
+  const lines = newContent.split('\n').filter((l) => l.trim().length > 0);
+  const snippets = lines.slice(0, 20).map((l) => `- ${truncate(l.trim(), 180)}`);
+  const parts: string[] = [`${label} summary`, ''];
+  if (existingSummary) {
+    parts.push(existingSummary, '');
+  }
+  parts.push(...snippets);
+  return parts.join('\n');
 }
 
 function backfillJob(job: MemoryJob, config: AssistantConfig): void {
