@@ -144,4 +144,6 @@ struct MainWindowView: View {
 #Preview {
     let dc = DaemonClient()
     return MainWindowView(threadManager: ThreadManager(daemonClient: dc), daemonClient: dc, ambientAgent: AmbientAgent())
+        .frame(width: 900, height: 600)
+        .padding(.top, 36)
 }
