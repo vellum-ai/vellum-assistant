@@ -78,14 +78,14 @@ function buildConfigSection(configDir: string): string {
  * Strip lines starting with `_` (comment convention for prompt .md files)
  * and collapse any resulting consecutive blank lines.
  *
- * Lines inside fenced code blocks (``` delimiters) are never stripped,
- * so code examples with `_`-prefixed identifiers are preserved.
+ * Lines inside fenced code blocks (``` or ~~~ delimiters per CommonMark)
+ * are never stripped, so code examples with `_`-prefixed identifiers are preserved.
  */
 export function stripCommentLines(content: string): string {
   const normalized = content.replace(/\r\n/g, '\n');
   let inCodeBlock = false;
   const filtered = normalized.split('\n').filter((line) => {
-    if (/^\s*```/.test(line)) {
+    if (/^ {0,3}(`{3,}|~{3,})/.test(line)) {
       inCodeBlock = !inCodeBlock;
     }
     if (inCodeBlock) return true;

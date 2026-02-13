@@ -266,6 +266,37 @@ describe('stripCommentLines', () => {
     expect(stripCommentLines(input)).toBe(expected);
   });
 
+  test('does not treat deeply indented backticks as fence delimiters', () => {
+    const input = [
+      'Some text',
+      '    ```',
+      '_ this should be stripped',
+      'End',
+    ].join('\n');
+    expect(stripCommentLines(input)).toBe('Some text\n    ```\nEnd');
+  });
+
+  test('recognizes tilde fences as code block delimiters', () => {
+    const input = [
+      '~~~',
+      '_keep_this',
+      '~~~',
+      '_ strip this',
+    ].join('\n');
+    expect(stripCommentLines(input)).toBe('~~~\n_keep_this\n~~~');
+  });
+
+  test('allows up to 3 spaces before a fence delimiter', () => {
+    const input = [
+      'Start',
+      '   ```python',
+      '_keep = True',
+      '   ```',
+      '_ strip this',
+    ].join('\n');
+    expect(stripCommentLines(input)).toBe('Start\n   ```python\n_keep = True\n   ```');
+  });
+
   test('normalizes CRLF line endings before processing', () => {
     const input = 'First\r\n\r\n_ comment\r\n\r\nSecond';
     expect(stripCommentLines(input)).toBe('First\n\nSecond');
