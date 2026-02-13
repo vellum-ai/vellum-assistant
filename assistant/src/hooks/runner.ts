@@ -1,27 +1,15 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { extname, join } from 'node:path';
-import { homedir } from 'node:os';
+import { extname } from 'node:path';
 import { getRootDir } from '../util/platform.js';
-import { getLogger } from '../util/logger.js';
 import { getHookSettings } from './config.js';
 import type { DiscoveredHook, HookEventData } from './types.js';
 
-const log = getLogger('hooks-runner');
-
-function resolveBunPath(): string | null {
-  const localBun = join(homedir(), '.bun', 'bin', 'bun');
-  if (existsSync(localBun)) return localBun;
-  // Fall back to PATH lookup — spawn will resolve it or fail with ENOENT
-  return 'bun';
-}
-
-function getSpawnArgs(scriptPath: string): { command: string; args: string[] } | null {
+function getSpawnArgs(scriptPath: string): { command: string; args: string[] } {
   const ext = extname(scriptPath);
   if (ext === '.ts') {
-    const bunPath = resolveBunPath();
-    if (bunPath === null) return null;
-    return { command: bunPath, args: ['run', scriptPath] };
+    // process.execPath is the bun runtime (or compiled bun binary) that
+    // started the daemon, so .ts hooks work without a separate bun install.
+    return { command: process.execPath, args: ['run', scriptPath] };
   }
   return { command: scriptPath, args: [] };
 }
@@ -40,13 +28,7 @@ export async function runHookScript(
   const timeoutMs = options?.timeoutMs ?? 5000;
 
   return new Promise<HookRunResult>((resolve) => {
-    const spawnArgs = getSpawnArgs(hook.scriptPath);
-    if (spawnArgs === null) {
-      log.warn({ hook: hook.name }, 'Skipping .ts hook: bun runtime not found');
-      resolve({ exitCode: null, stdout: '', stderr: 'bun runtime not found' });
-      return;
-    }
-    const { command, args } = spawnArgs;
+    const { command, args } = getSpawnArgs(hook.scriptPath);
     const child = spawn(command, args, {
       cwd: hook.dir,
       env: {
