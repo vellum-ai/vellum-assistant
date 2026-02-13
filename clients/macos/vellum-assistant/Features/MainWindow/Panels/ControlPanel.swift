@@ -9,6 +9,8 @@ struct ControlPanel: View {
     @State private var selectedTabIndex: Int = 1
     @State private var apiKeyText: String = ""
     @State private var hasKey: Bool = false
+    @State private var braveKeyText: String = ""
+    @State private var hasBraveKey: Bool = false
     @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
     @AppStorage("ambientAgentEnabled") private var ambientEnabled: Bool = false
     @State private var showingTrustRules = false
@@ -118,6 +120,62 @@ struct ControlPanel: View {
                         APIKeyManager.setKey(trimmed)
                         hasKey = true
                         apiKeyText = ""
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: Slate._900)
+
+            // BRAVE SEARCH section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("BRAVE SEARCH")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                if hasBraveKey {
+                    HStack {
+                        Text("BSA...configured")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        VButton(label: "Clear", style: .danger) {
+                            APIKeyManager.deleteKey(for: "brave")
+                            hasBraveKey = false
+                            braveKeyText = ""
+                        }
+                    }
+                } else {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Enter Brave Search API Key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.textMuted)
+                    }
+
+                    SecureField("Your Brave Search API key", text: $braveKeyText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    Text("Get your API key at brave.com/search/api")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    VButton(label: "Save", style: .primary) {
+                        let trimmed = braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { return }
+                        APIKeyManager.setKey(trimmed, for: "brave")
+                        hasBraveKey = true
+                        braveKeyText = ""
                     }
                 }
             }
@@ -284,6 +342,7 @@ struct ControlPanel: View {
 
     private func refreshAPIKeyState() {
         hasKey = APIKeyManager.getKey() != nil
+        hasBraveKey = APIKeyManager.getKey(for: "brave") != nil
     }
 
 }

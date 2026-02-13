@@ -3,6 +3,8 @@ import SwiftUI
 public struct SettingsView: View {
     @State private var apiKeyText = ""
     @State private var hasKey = APIKeyManager.getKey() != nil
+    @State private var braveKeyText = ""
+    @State private var hasBraveKey = APIKeyManager.getKey(for: "brave") != nil
     @State private var maxSteps: Double = {
         let val = UserDefaults.standard.double(forKey: "maxStepsPerSession")
         return val == 0 ? 50 : val
@@ -63,6 +65,39 @@ public struct SettingsView: View {
                             apiKeyText = ""
                         }
                         .disabled(apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+
+            Section("Brave Search API Key") {
+                if hasBraveKey {
+                    HStack {
+                        Text("BSA...configured")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Clear") {
+                            APIKeyManager.deleteKey(for: "brave")
+                            hasBraveKey = false
+                            braveKeyText = ""
+                        }
+                        .tint(.red)
+                    }
+                } else {
+                    SecureField("Enter Brave Search API key", text: $braveKeyText)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Text("Get your API key at brave.com/search/api")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Save") {
+                            let trimmed = braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !trimmed.isEmpty else { return }
+                            APIKeyManager.setKey(trimmed, for: "brave")
+                            hasBraveKey = true
+                            braveKeyText = ""
+                        }
+                        .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
             }
@@ -230,6 +265,7 @@ public struct SettingsView: View {
 
     private func refreshAPIKeyState() {
         hasKey = APIKeyManager.getKey() != nil
+        hasBraveKey = APIKeyManager.getKey(for: "brave") != nil
     }
 }
 
