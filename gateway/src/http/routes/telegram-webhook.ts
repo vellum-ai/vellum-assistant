@@ -1,6 +1,5 @@
 import pino from "pino";
 import type { GatewayConfig } from "../../config.js";
-import type { GatewayInboundEventV1 } from "../../types.js";
 import { verifyWebhookSecret } from "../../telegram/verify.js";
 import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
