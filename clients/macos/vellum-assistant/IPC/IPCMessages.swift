@@ -567,6 +567,18 @@ struct ClawhubInspectStats: Decodable, Sendable {
     let installs: Int
     let downloads: Int
     let versions: Int
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        stars = try container.decodeIfPresent(Int.self, forKey: .stars) ?? 0
+        installs = try container.decodeIfPresent(Int.self, forKey: .installs) ?? 0
+        downloads = try container.decodeIfPresent(Int.self, forKey: .downloads) ?? 0
+        versions = try container.decodeIfPresent(Int.self, forKey: .versions) ?? 0
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case stars, installs, downloads, versions
+    }
 }
 
 /// Version info from a ClaWHub inspect response.
