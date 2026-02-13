@@ -38,7 +38,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { addRule, removeRule, findMatchingRule, findDenyRule, findHighestPriorityRule, getAllRules, clearCache } from '../permissions/trust-store.js';
+import { addRule, removeRule, findMatchingRule, findDenyRule, findHighestPriorityRule, getAllRules, clearAllRules, clearCache } from '../permissions/trust-store.js';
 import { getDefaultRuleTemplates } from '../permissions/defaults.js';
 
 const trustPath = join(testDir, 'protected', 'trust.json');
@@ -606,6 +606,34 @@ describe('Trust Store', () => {
       const match = findHighestPriorityRule('file_read', [`file_read:${safePath}`], '/tmp');
       // Should not match a default deny rule
       expect(match === null || !match.id.startsWith('default:')).toBe(true);
+    });
+
+    test('default deny rules are backfilled after malformed JSON in trust file', () => {
+      mkdirSync(dirname(trustPath), { recursive: true });
+      writeFileSync(trustPath, 'NOT VALID JSON {{{');
+      clearCache();
+      const rules = getAllRules();
+      const defaults = rules.filter((r) => r.id.startsWith('default:'));
+      expect(defaults).toHaveLength(NUM_DEFAULTS);
+    });
+
+    test('default deny rules are backfilled after unknown file version', () => {
+      mkdirSync(dirname(trustPath), { recursive: true });
+      writeFileSync(trustPath, JSON.stringify({ version: 9999, rules: [] }));
+      clearCache();
+      const rules = getAllRules();
+      const defaults = rules.filter((r) => r.id.startsWith('default:'));
+      expect(defaults).toHaveLength(NUM_DEFAULTS);
+    });
+
+    test('clearAllRules preserves default deny rules', () => {
+      addRule('bash', 'git *', '/tmp');
+      clearAllRules();
+      const rules = getAllRules();
+      // User rules should be gone, but defaults should remain
+      expect(rules.filter((r) => !r.id.startsWith('default:'))).toHaveLength(0);
+      const defaults = rules.filter((r) => r.id.startsWith('default:'));
+      expect(defaults).toHaveLength(NUM_DEFAULTS);
     });
   });
 });

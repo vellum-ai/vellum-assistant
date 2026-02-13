@@ -3,7 +3,7 @@ import { findHighestPriorityRule } from './trust-store.js';
 import { parse } from '../tools/terminal/parser.js';
 import { resolveSkillSelector } from '../config/skills.js';
 import { getTool } from '../tools/registry.js';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
 
@@ -165,7 +165,14 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
   }
 
   const fileTarget = getStringField(input, 'path', 'file_path');
-  return [`${toolName}:${fileTarget}`];
+  const resolved = fileTarget ? resolve(fileTarget) : fileTarget;
+  const candidates = [`${toolName}:${resolved}`];
+  // Also include the raw path if it differs, so user-created rules with
+  // raw paths still match.
+  if (resolved !== fileTarget) {
+    candidates.push(`${toolName}:${fileTarget}`);
+  }
+  return candidates;
 }
 
 export async function classifyRisk(toolName: string, input: Record<string, unknown>): Promise<RiskLevel> {

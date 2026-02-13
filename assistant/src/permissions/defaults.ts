@@ -18,7 +18,9 @@ const FILE_TOOLS = ['file_read', 'file_write', 'file_edit'] as const;
  * Computed at runtime so paths reflect the configured root directory.
  */
 export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
-  const protectedDir = join(getRootDir(), 'protected');
+  // Use forward slashes so minimatch patterns work on all platforms
+  // (path.join produces backslashes on Windows, which minimatch treats as escapes).
+  const protectedDir = join(getRootDir(), 'protected').replaceAll('\\', '/');
 
   return FILE_TOOLS.map((tool) => ({
     id: `default:deny-${tool}-protected`,

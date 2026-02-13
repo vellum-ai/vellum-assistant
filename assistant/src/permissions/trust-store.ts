@@ -32,6 +32,31 @@ function ruleOrder(a: TrustRule, b: TrustRule): number {
   return 0;
 }
 
+/**
+ * Ensure default deny rules are always present in the rule set.
+ * Mutates the provided array and returns whether any rules were added.
+ */
+function backfillDefaults(rules: TrustRule[]): boolean {
+  let added = false;
+  const existingIds = new Set(rules.map((r) => r.id));
+  for (const template of getDefaultRuleTemplates()) {
+    if (!existingIds.has(template.id)) {
+      rules.push({
+        id: template.id,
+        tool: template.tool,
+        pattern: template.pattern,
+        scope: template.scope,
+        decision: template.decision,
+        priority: template.priority,
+        createdAt: Date.now(),
+      });
+      added = true;
+      log.info({ ruleId: template.id }, 'Backfilled default trust rule');
+    }
+  }
+  return added;
+}
+
 function loadFromDisk(): TrustRule[] {
   const path = getTrustPath();
   let rules: TrustRule[] = [];
@@ -54,30 +79,17 @@ function loadFromDisk(): TrustRule[] {
         rules = data.rules ?? [];
       } else {
         log.warn({ version: data.version }, 'Unknown trust file version, ignoring');
-        return [];
+        // Fall through to backfill defaults even for unknown versions
       }
     } catch (err) {
       log.error({ err }, 'Failed to load trust file');
-      return [];
+      // Fall through to backfill defaults even on parse errors
     }
   }
 
   // Backfill default rules at their declared priority
-  const existingIds = new Set(rules.map((r) => r.id));
-  for (const template of getDefaultRuleTemplates()) {
-    if (!existingIds.has(template.id)) {
-      rules.push({
-        id: template.id,
-        tool: template.tool,
-        pattern: template.pattern,
-        scope: template.scope,
-        decision: template.decision,
-        priority: template.priority,
-        createdAt: Date.now(),
-      });
-      needsSave = true;
-      log.info({ ruleId: template.id }, 'Backfilled default trust rule');
-    }
+  if (backfillDefaults(rules)) {
+    needsSave = true;
   }
 
   rules.sort(ruleOrder);
@@ -201,9 +213,13 @@ export function getAllRules(): TrustRule[] {
 }
 
 export function clearAllRules(): void {
-  cachedRules = [];
-  saveToDisk([]);
-  log.info('Cleared all trust rules');
+  // Re-backfill default deny rules so protected directory stays guarded.
+  const rules: TrustRule[] = [];
+  backfillDefaults(rules);
+  rules.sort(ruleOrder);
+  cachedRules = rules;
+  saveToDisk(rules);
+  log.info('Cleared all user trust rules (default deny rules preserved)');
 }
 
 export function clearCache(): void {
