@@ -18,6 +18,7 @@ import {
 } from './jobs-store.js';
 import { extractEntitiesWithLLM, upsertEntity, linkMemoryItemToEntity } from './entity-extractor.js';
 import { indexMessageNow } from './indexer.js';
+import { checkContradictions } from './contradiction-checker.js';
 import { extractAndUpsertMemoryItemsForMessage } from './items-extractor.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
 import { getQdrantClient } from './qdrant-client.js';
@@ -141,6 +142,9 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
       return;
     case 'extract_entities':
       await extractEntitiesJob(job, config);
+      return;
+    case 'check_contradictions':
+      await checkContradictionsJob(job);
       return;
     case 'build_conversation_summary':
       await buildConversationSummaryJob(job, config);
@@ -266,6 +270,12 @@ async function extractEntitiesJob(job: MemoryJob, config: AssistantConfig): Prom
   }
 
   log.debug({ messageId, entityCount: entities.length, linkedItems: itemIds.length }, 'Extracted entities from message');
+}
+
+async function checkContradictionsJob(job: MemoryJob): Promise<void> {
+  const itemId = asString(job.payload.itemId);
+  if (!itemId) return;
+  await checkContradictions(itemId);
 }
 
 async function buildConversationSummaryJob(job: MemoryJob, config: AssistantConfig): Promise<void> {

@@ -66,6 +66,8 @@ export const memoryItems = sqliteTable('memory_items', {
   firstSeenAt: integer('first_seen_at').notNull(),
   lastSeenAt: integer('last_seen_at').notNull(),
   lastUsedAt: integer('last_used_at'),
+  validFrom: integer('valid_from'),
+  invalidAt: integer('invalid_at'),
 });
 
 export const memoryItemSources = sqliteTable('memory_item_sources', {

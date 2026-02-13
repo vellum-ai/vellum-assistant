@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import Anthropic from '@anthropic-ai/sdk';
 import type { AssistantConfig, MemoryRerankingConfig } from '../config/types.js';
 import { getConfig } from '../config/loader.js';
@@ -546,6 +546,7 @@ function entitySearch(query: string): Candidate[] {
     .where(and(
       inArray(memoryItems.id, itemIds),
       eq(memoryItems.status, 'active'),
+      isNull(memoryItems.invalidAt),
     ))
     .all();
 
@@ -1054,7 +1055,7 @@ function directItemSearch(query: string, limit: number): Candidate[] {
   const sqlQuery = `
     SELECT id, kind, subject, statement, status, confidence, importance, first_seen_at, last_seen_at
     FROM memory_items
-    WHERE status = 'active' AND (${likeClauses.join(' OR ')})
+    WHERE status = 'active' AND invalid_at IS NULL AND (${likeClauses.join(' OR ')})
     ORDER BY last_seen_at DESC
     LIMIT ?
   `;
