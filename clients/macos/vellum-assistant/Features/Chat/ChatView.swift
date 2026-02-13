@@ -255,7 +255,7 @@ struct ChatView: View {
                         Image(systemName: "paperclip")
                             .font(.system(size: 16, weight: .medium))
                             .foregroundColor(VColor.textSecondary)
-                            .padding(10)
+                            .padding(6)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Attach file")
@@ -800,7 +800,7 @@ private struct MicrophoneButton: View {
                 Image(systemName: isRecording ? "mic.fill" : "mic")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(isRecording ? VColor.error : VColor.textSecondary)
-                    .padding(10)
+                    .padding(6)
             }
         }
         .buttonStyle(.plain)
