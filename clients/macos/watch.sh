@@ -16,8 +16,20 @@ NC='\033[0m' # No Color
 
 # Check if fswatch is installed
 if ! command -v fswatch &> /dev/null; then
-    echo -e "${YELLOW}Installing fswatch via Homebrew...${NC}"
-    brew install fswatch
+    if ! command -v brew &> /dev/null; then
+        echo -e "${RED}Error: fswatch is required but not installed, and Homebrew is not available.${NC}"
+        echo -e "Install fswatch manually: ${BLUE}https://github.com/emcrisostomo/fswatch${NC}"
+        exit 1
+    fi
+
+    echo -e "${YELLOW}fswatch is not installed. Install it via Homebrew? (y/N)${NC}"
+    read -r response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        brew install fswatch
+    else
+        echo -e "${RED}fswatch is required for watch mode. Exiting.${NC}"
+        exit 1
+    fi
 fi
 
 echo -e "${BLUE}👀 Watching for Swift file changes...${NC}"

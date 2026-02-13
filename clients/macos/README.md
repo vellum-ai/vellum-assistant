@@ -41,7 +41,7 @@ The build script uses incremental compilation and caching:
 
 - Running `./build.sh` again without code changes is nearly instant
 - Small code changes rebuild in ~4 seconds
-- Use `./build.sh clean` if you encounter build issues or need to force a complete rebuild
+- Use `./build.sh clean` if you encounter build issues, need to force a complete rebuild, or after removing resources/frameworks (incremental builds don't detect deletions)
 
 ## Auto-Rebuild on Save (Watch Mode)
 
@@ -56,6 +56,8 @@ For faster development iteration, use the watch script to automatically rebuild 
 2. Edit Swift files in your editor
 3. Save (Cmd+S)
 4. App automatically rebuilds and relaunches in ~4 seconds!
+
+## SwiftPM Commands
 
 The raw SwiftPM commands also work if you prefer:
 
