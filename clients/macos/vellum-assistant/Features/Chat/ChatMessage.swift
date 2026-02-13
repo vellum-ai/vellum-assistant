@@ -23,15 +23,41 @@ enum ToolConfirmationState: Equatable {
 struct ToolConfirmationData: Equatable {
     let requestId: String
     let toolName: String
+    let input: [String: AnyCodable]
     let riskLevel: String
     let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
     let allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption]
     let scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption]
     var state: ToolConfirmationState = .pending
 
-    init(requestId: String, toolName: String, riskLevel: String, diff: ConfirmationRequestMessage.ConfirmationDiffInfo? = nil, allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption] = [], scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption] = [], state: ToolConfirmationState = .pending) {
+    /// Human-readable preview of the tool input (e.g. the bash command or file path).
+    var commandPreview: String {
+        switch toolName {
+        case "bash":
+            return (input["command"]?.value as? String) ?? ""
+        case "file_read":
+            return "read \((input["path"]?.value as? String) ?? "")"
+        case "file_write":
+            return "write \((input["path"]?.value as? String) ?? "")"
+        case "file_edit":
+            return "edit \((input["file_path"]?.value as? String) ?? "")"
+        case "web_fetch":
+            return "fetch \((input["url"]?.value as? String) ?? "")"
+        case "browser_navigate":
+            return "navigate \((input["url"]?.value as? String) ?? "")"
+        default:
+            // Fallback: show first string value or tool name
+            if let firstString = input.values.compactMap({ $0.value as? String }).first {
+                return firstString
+            }
+            return toolName
+        }
+    }
+
+    init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestMessage.ConfirmationDiffInfo? = nil, allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption] = [], scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption] = [], state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
+        self.input = input
         self.riskLevel = riskLevel
         self.diff = diff
         self.allowlistOptions = allowlistOptions

@@ -616,6 +616,7 @@ final class ChatViewModel: ObservableObject {
             let confirmation = ToolConfirmationData(
                 requestId: msg.requestId,
                 toolName: msg.toolName,
+                input: msg.input,
                 riskLevel: msg.riskLevel,
                 diff: msg.diff,
                 allowlistOptions: msg.allowlistOptions,
