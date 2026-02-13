@@ -64,6 +64,10 @@ After deploying the gateway, register the webhook with Telegram using the `setWe
 
 See the [Telegram Bot API docs](https://core.telegram.org/bots/api#setwebhook) for the full API reference.
 
+## Default Mode: Telegram-Only
+
+By default the gateway only serves the Telegram webhook endpoint (`/webhooks/telegram`). All other HTTP requests return `404`. The runtime proxy is **opt-in** — set `GATEWAY_RUNTIME_PROXY_ENABLED=true` to enable it. This behavior is enforced by automated tests.
+
 ## Runtime Proxy Mode
 
 When `GATEWAY_RUNTIME_PROXY_ENABLED=true`, the gateway forwards all non-Telegram HTTP requests to the assistant runtime at `ASSISTANT_RUNTIME_BASE_URL`. This allows the gateway to serve as a single ingress point for both Telegram and API traffic.
