@@ -32,7 +32,7 @@ export interface InstallerSpec {
   [key: string]: unknown;
 }
 
-export type SkillSource = 'bundled' | 'managed' | 'workspace';
+export type SkillSource = 'bundled' | 'managed' | 'workspace' | 'extra';
 
 // ─── Core interfaces ─────────────────────────────────────────────────────────
 
@@ -124,7 +124,7 @@ export function checkSkillRequirements(
 
   // env: check process.env or envOverrides
   if (requires.env) {
-    const env = envOverrides ?? process.env;
+    const env = envOverrides ? { ...process.env, ...envOverrides } : process.env;
     for (const key of requires.env) {
       if (!env[key]) {
         missingEnv.push(key);
@@ -545,7 +545,7 @@ export function loadSkillCatalog(workspaceSkillsDir?: string, extraDirs?: string
             homepage: parsed.homepage,
             userInvocable: parsed.userInvocable,
             disableModelInvocation: parsed.disableModelInvocation,
-            source: 'managed',
+            source: 'extra',
             metadata: parsed.metadata,
           });
         } catch (err) {
@@ -561,7 +561,7 @@ export function loadSkillCatalog(workspaceSkillsDir?: string, extraDirs?: string
     if (seenIds.has(skill.id)) {
       // Bundled wins over extraDirs
       const existingIndex = catalog.findIndex((s) => s.id === skill.id);
-      if (existingIndex !== -1 && catalog[existingIndex].source === 'managed') {
+      if (existingIndex !== -1 && catalog[existingIndex].source === 'extra') {
         log.info({ id: skill.id, directory: skill.directoryPath }, 'Bundled skill overrides extraDirs skill');
         catalog[existingIndex] = skill;
         continue;
@@ -585,7 +585,7 @@ export function loadSkillCatalog(workspaceSkillsDir?: string, extraDirs?: string
     if (seenIds.has(skill.id)) {
       // If the existing entry is bundled, the user skill overrides it
       const existingIndex = catalog.findIndex((s) => s.id === skill.id);
-      if (existingIndex !== -1 && catalog[existingIndex].bundled) {
+      if (existingIndex !== -1 && (catalog[existingIndex].bundled || catalog[existingIndex].source === 'extra')) {
         log.info({ id: skill.id, directory }, 'User skill overrides bundled skill');
         catalog[existingIndex] = skillSummaryFromDefinition(skill, 'managed');
         continue;
