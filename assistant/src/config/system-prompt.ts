@@ -113,16 +113,17 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
 
   const lines = ['<available_skills>'];
   for (const skill of visible) {
+    const idAttr = escapeXml(skill.id);
     const nameAttr = escapeXml(skill.name);
     const descAttr = escapeXml(skill.description);
     const locAttr = escapeXml(skill.directoryPath);
-    lines.push(`<skill name="${nameAttr}" description="${descAttr}" location="${locAttr}" />`);
+    lines.push(`<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}" location="${locAttr}" />`);
   }
   lines.push('</available_skills>');
 
   return [
     '## Available Skills',
-    'The following skills are available. Before executing one, call the `skill_load` tool with its name to load the full instructions.',
+    'The following skills are available. Before executing one, call the `skill_load` tool with its `id` to load the full instructions.',
     '',
     lines.join('\n'),
   ].join('\n');

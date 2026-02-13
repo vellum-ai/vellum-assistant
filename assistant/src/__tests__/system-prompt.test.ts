@@ -112,9 +112,10 @@ describe('buildSystemPrompt', () => {
     expect(result).toContain('Custom identity');
     expect(result).toContain('## Available Skills');
     expect(result).toContain('<available_skills>');
+    expect(result).toContain('id="release-checklist"');
     expect(result).toContain('name="Release Checklist"');
     expect(result).toContain('description="Deployment checks."');
-    expect(result).toContain('call the `skill_load` tool');
+    expect(result).toContain('call the `skill_load` tool with its `id`');
   });
 
   test('keeps SOUL.md and IDENTITY.md additive with skills', () => {
