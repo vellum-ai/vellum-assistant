@@ -505,6 +505,8 @@ function sqliteFallbackSemanticSearch(
     } else {
       const segment = db.select().from(memorySegments).where(eq(memorySegments.id, targetId)).get();
       if (!segment) continue;
+      if (excludedMessageIds.length > 0 && excludedMessageIds.includes(segment.messageId)) continue;
+
       candidates.push({
         key: `segment:${targetId}`,
         type: 'segment',
