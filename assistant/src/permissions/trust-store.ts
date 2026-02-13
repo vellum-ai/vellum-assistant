@@ -171,11 +171,11 @@ export function updateRule(
   const index = rules.findIndex((r) => r.id === id);
   if (index === -1) throw new Error(`Trust rule not found: ${id}`);
   const rule = { ...rules[index] };
-  if (updates.tool !== undefined) rule.tool = updates.tool;
-  if (updates.pattern !== undefined) rule.pattern = updates.pattern;
-  if (updates.scope !== undefined) rule.scope = updates.scope;
-  if (updates.decision !== undefined) rule.decision = updates.decision;
-  if (updates.priority !== undefined) rule.priority = updates.priority;
+  if (updates.tool != null) rule.tool = updates.tool;
+  if (updates.pattern != null) rule.pattern = updates.pattern;
+  if (updates.scope != null) rule.scope = updates.scope;
+  if (updates.decision != null) rule.decision = updates.decision;
+  if (updates.priority != null) rule.priority = updates.priority;
   rules[index] = rule;
   rules.sort(ruleOrder);
   cachedRules = rules;
