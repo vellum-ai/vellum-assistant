@@ -62,6 +62,14 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     const reqHeaders = stripHopByHop(new Headers(req.headers));
     reqHeaders.delete("host");
 
+    // Use a manual AbortController so the timeout only covers the connection
+    // phase (waiting for response headers). Once headers arrive, the timeout is
+    // cleared so streaming responses (SSE, chunked) can run indefinitely.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+    }, config.runtimeTimeoutMs);
+
     let response: Response;
     try {
       response = await fetch(upstream, {
@@ -70,9 +78,11 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
         body: req.body,
         // @ts-expect-error Bun supports duplex on Request
         duplex: "half",
-        signal: AbortSignal.timeout(config.runtimeTimeoutMs),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
     } catch (err) {
+      clearTimeout(timeoutId);
       const duration = Math.round(performance.now() - start);
       if (err instanceof DOMException && err.name === "TimeoutError") {
         log.error(
