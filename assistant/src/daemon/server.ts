@@ -47,6 +47,8 @@ export class DaemonServer {
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private suppressConfigReload = false;
   private lastConfigFingerprint = '';
+  private lastConfigRefreshTime = 0;
+  private static readonly CONFIG_REFRESH_INTERVAL_MS = 30_000;
 
   constructor() {
     this.socketPath = getSocketPath();
@@ -505,7 +507,10 @@ export class DaemonServer {
       debounceTimers: this.debounceTimers,
       suppressConfigReload: this.suppressConfigReload,
       setSuppressConfigReload: (value: boolean) => { this.suppressConfigReload = value; },
-      updateConfigFingerprint: () => { this.lastConfigFingerprint = this.configFingerprint(getConfig()); },
+      updateConfigFingerprint: () => {
+        this.lastConfigFingerprint = this.configFingerprint(getConfig());
+        this.lastConfigRefreshTime = Date.now();
+      },
       send: (socket, msg) => this.send(socket, msg),
       getOrCreateSession: (id, socket?, rebind?, options?) =>
         this.getOrCreateSession(id, socket, rebind, options),
@@ -514,10 +519,14 @@ export class DaemonServer {
 
   private dispatchMessage(msg: ClientMessage, socket: net.Socket): void {
     if (msg.type !== 'ping') {
-      try {
-        this.refreshConfigFromSources();
-      } catch (err) {
-        log.warn({ err }, 'Failed to refresh config from secure sources before handling IPC message');
+      const now = Date.now();
+      if (now - this.lastConfigRefreshTime >= DaemonServer.CONFIG_REFRESH_INTERVAL_MS) {
+        try {
+          this.refreshConfigFromSources();
+          this.lastConfigRefreshTime = now;
+        } catch (err) {
+          log.warn({ err }, 'Failed to refresh config from secure sources before handling IPC message');
+        }
       }
     }
     handleMessage(msg, socket, this.handlerContext());
