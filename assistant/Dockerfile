@@ -1,5 +1,5 @@
 # Use debian as base image
-FROM debian:bookworm AS builder
+FROM us-central1-docker.pkg.dev/code-executor-service/base-images/debian:bookworm@sha256:940221f8c2564efc4e7909caba7014dc8bcba7f05b7881eb2b557b4058c41269 AS builder
 
 WORKDIR /app
 
