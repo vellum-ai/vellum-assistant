@@ -158,6 +158,29 @@ export function addRule(
   return rule;
 }
 
+export function updateRule(
+  id: string,
+  updates: { tool?: string; pattern?: string; scope?: string; decision?: 'allow' | 'deny'; priority?: number },
+): TrustRule {
+  // Re-read from disk to avoid lost updates from concurrent modifications.
+  cachedRules = null;
+  const rules = [...getRules()];
+  const index = rules.findIndex((r) => r.id === id);
+  if (index === -1) throw new Error(`Trust rule not found: ${id}`);
+  const rule = { ...rules[index] };
+  if (updates.tool !== undefined) rule.tool = updates.tool;
+  if (updates.pattern !== undefined) rule.pattern = updates.pattern;
+  if (updates.scope !== undefined) rule.scope = updates.scope;
+  if (updates.decision !== undefined) rule.decision = updates.decision;
+  if (updates.priority !== undefined) rule.priority = updates.priority;
+  rules[index] = rule;
+  rules.sort(ruleOrder);
+  cachedRules = rules;
+  saveToDisk(rules);
+  log.info({ rule }, 'Updated trust rule');
+  return rule;
+}
+
 export function removeRule(id: string): boolean {
   // Re-read from disk to avoid lost updates from concurrent modifications.
   cachedRules = null;

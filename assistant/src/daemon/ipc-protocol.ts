@@ -163,6 +163,25 @@ export interface AddTrustRule {
   decision: 'allow' | 'deny';
 }
 
+export interface TrustRulesList {
+  type: 'trust_rules_list';
+}
+
+export interface RemoveTrustRule {
+  type: 'remove_trust_rule';
+  id: string;
+}
+
+export interface UpdateTrustRule {
+  type: 'update_trust_rule';
+  id: string;
+  tool?: string;
+  pattern?: string;
+  scope?: string;
+  decision?: 'allow' | 'deny';
+  priority?: number;
+}
+
 // === Surface types ===
 
 export type SurfaceType = 'card' | 'form' | 'list' | 'table' | 'confirmation' | 'dynamic_page' | 'file_upload';
@@ -291,7 +310,10 @@ export type ClientMessage =
   | SkillsListRequest
   | SkillDetailRequest
   | SuggestionRequest
-  | AddTrustRule;
+  | AddTrustRule
+  | TrustRulesList
+  | RemoveTrustRule
+  | UpdateTrustRule;
 
 // === Server → Client messages ===
 
@@ -548,6 +570,19 @@ export interface SuggestionResponse {
   source: 'llm' | 'none';
 }
 
+export interface TrustRulesListResponse {
+  type: 'trust_rules_list_response';
+  rules: Array<{
+    id: string;
+    tool: string;
+    pattern: string;
+    scope: string;
+    decision: 'allow' | 'deny';
+    priority: number;
+    createdAt: number;
+  }>;
+}
+
 export interface TimerCompleted {
   type: 'timer_completed';
   sessionId: string;
@@ -673,7 +708,8 @@ export type ServerMessage =
   | SuggestionResponse
   | MessageQueued
   | MessageDequeued
-  | TimerCompleted;
+  | TimerCompleted
+  | TrustRulesListResponse;
 
 // === Serialization ===
 

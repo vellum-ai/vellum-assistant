@@ -137,6 +137,22 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     scope: '/projects/my-app',
     decision: 'allow',
   },
+  trust_rules_list: {
+    type: 'trust_rules_list',
+  },
+  remove_trust_rule: {
+    type: 'remove_trust_rule',
+    id: 'rule-001',
+  },
+  update_trust_rule: {
+    type: 'update_trust_rule',
+    id: 'rule-001',
+    tool: 'bash',
+    pattern: 'git push *',
+    scope: '/projects/my-app',
+    decision: 'allow',
+    priority: 50,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -392,6 +408,20 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     timerId: 'tmr-001',
     label: 'Focus time',
     durationMinutes: 25,
+  },
+  trust_rules_list_response: {
+    type: 'trust_rules_list_response',
+    rules: [
+      {
+        id: 'rule-001',
+        tool: 'bash',
+        pattern: 'git *',
+        scope: '/projects/my-app',
+        decision: 'allow',
+        priority: 100,
+        createdAt: 1700000000,
+      },
+    ],
   },
 };
 

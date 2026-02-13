@@ -39,7 +39,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { addRule, removeRule, findMatchingRule, findDenyRule, findHighestPriorityRule, getAllRules, clearAllRules, clearCache } from '../permissions/trust-store.js';
+import { addRule, removeRule, updateRule, findMatchingRule, findDenyRule, findHighestPriorityRule, getAllRules, clearAllRules, clearCache } from '../permissions/trust-store.js';
 import { getDefaultRuleTemplates } from '../permissions/defaults.js';
 
 const trustPath = join(testDir, 'protected', 'trust.json');
@@ -153,6 +153,64 @@ describe('Trust Store', () => {
       const remaining = getAllRules();
       expect(remaining).toHaveLength(1 + NUM_DEFAULTS);
       expect(remaining.find((r) => r.id === rule2.id)).toBeDefined();
+    });
+  });
+
+  // ── updateRule ─────────────────────────────────────────────────
+
+  describe('updateRule', () => {
+    test('updates pattern on an existing rule', () => {
+      const rule = addRule('bash', 'git *', '/tmp');
+      const updated = updateRule(rule.id, { pattern: 'git push *' });
+      expect(updated.pattern).toBe('git push *');
+      expect(updated.id).toBe(rule.id);
+      expect(updated.tool).toBe('bash');
+    });
+
+    test('updates multiple fields at once', () => {
+      const rule = addRule('bash', 'npm *', '/tmp');
+      const updated = updateRule(rule.id, { tool: 'file_write', scope: '/home', decision: 'deny', priority: 50 });
+      expect(updated.tool).toBe('file_write');
+      expect(updated.scope).toBe('/home');
+      expect(updated.decision).toBe('deny');
+      expect(updated.priority).toBe(50);
+    });
+
+    test('throws for non-existent rule ID', () => {
+      expect(() => updateRule('non-existent-id', { pattern: 'test' })).toThrow('Trust rule not found: non-existent-id');
+    });
+
+    test('persists update to disk', () => {
+      const rule = addRule('bash', 'git *', '/tmp');
+      updateRule(rule.id, { pattern: 'git status' });
+      clearCache();
+      const rules = getAllRules();
+      const found = rules.find((r) => r.id === rule.id);
+      expect(found).toBeDefined();
+      expect(found!.pattern).toBe('git status');
+    });
+
+    test('re-sorts rules after priority change', () => {
+      const rule1 = addRule('bash', 'low *', '/tmp', 'allow', 10);
+      const rule2 = addRule('bash', 'high *', '/tmp', 'allow', 200);
+      // rule2 should be first (higher priority)
+      let userRules = getAllRules().filter((r) => !r.id.startsWith('default:'));
+      expect(userRules[0].id).toBe(rule2.id);
+      // Update rule1 to have higher priority
+      updateRule(rule1.id, { priority: 300 });
+      userRules = getAllRules().filter((r) => !r.id.startsWith('default:'));
+      expect(userRules[0].id).toBe(rule1.id);
+    });
+
+    test('leaves unchanged fields intact', () => {
+      const rule = addRule('bash', 'git *', '/home/user', 'allow', 100);
+      updateRule(rule.id, { pattern: 'git push *' });
+      const updated = getAllRules().find((r) => r.id === rule.id)!;
+      expect(updated.tool).toBe('bash');
+      expect(updated.scope).toBe('/home/user');
+      expect(updated.decision).toBe('allow');
+      expect(updated.priority).toBe(100);
+      expect(updated.createdAt).toBe(rule.createdAt);
     });
   });
 

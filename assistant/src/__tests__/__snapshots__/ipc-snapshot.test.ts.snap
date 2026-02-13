@@ -618,3 +618,45 @@ exports[`IPC message snapshots ServerMessage types timer_completed serializes to
   "type": "timer_completed",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types trust_rules_list serializes to expected JSON 1`] = `
+{
+  "type": "trust_rules_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types remove_trust_rule serializes to expected JSON 1`] = `
+{
+  "id": "rule-001",
+  "type": "remove_trust_rule",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types update_trust_rule serializes to expected JSON 1`] = `
+{
+  "decision": "allow",
+  "id": "rule-001",
+  "pattern": "git push *",
+  "priority": 50,
+  "scope": "/projects/my-app",
+  "tool": "bash",
+  "type": "update_trust_rule",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types trust_rules_list_response serializes to expected JSON 1`] = `
+{
+  "rules": [
+    {
+      "createdAt": 1700000000,
+      "decision": "allow",
+      "id": "rule-001",
+      "pattern": "git *",
+      "priority": 100,
+      "scope": "/projects/my-app",
+      "tool": "bash",
+    },
+  ],
+  "type": "trust_rules_list_response",
+}
+`;
