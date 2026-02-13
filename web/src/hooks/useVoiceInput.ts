@@ -41,7 +41,9 @@ export function useVoiceInput({ onTranscript }: UseVoiceInputOptions) {
   const isListeningRef = useRef(false);
   const onTranscriptRef = useRef(onTranscript);
 
-  onTranscriptRef.current = onTranscript;
+  useEffect(() => {
+    onTranscriptRef.current = onTranscript;
+  });
 
   useEffect(() => {
     setIsSupported(getSpeechRecognition() !== null);

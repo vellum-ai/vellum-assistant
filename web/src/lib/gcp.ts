@@ -12,9 +12,6 @@ const GCP_ZONE = process.env.GCP_ZONE || "us-central1-a";
 const GCP_MACHINE_TYPE = process.env.GCP_MACHINE_TYPE || "e2-medium";
 const GCP_SERVICE_ACCOUNT = process.env.GCP_SERVICE_ACCOUNT || "nextjs-web@vellum-ai-prod.iam.gserviceaccount.com";
 
-// Templates are uploaded to GCS by GitHub Actions on merge to main
-const GCS_TEMPLATES_PREFIX = `${GCS_PREFIX_BASE}/templates`;
-
 function getGcpCredentials(): { projectId: string } {
   return { projectId: GCP_PROJECT_ID };
 }

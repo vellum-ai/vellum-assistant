@@ -28,6 +28,7 @@ export interface ResolvedRuntime {
  *   - `LOCAL_RUNTIME_URL`  — override the default local runtime URL
  *   - `CLOUD_RUNTIME_URL`  — base URL for the hosted cloud runtime
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function resolveRuntime(_assistantId: string): ResolvedRuntime {
   const mode = getAssistantConnectionMode();
 
