@@ -179,6 +179,7 @@ struct ChatView: View {
                         .font(VFont.mono)
                         .foregroundColor(VColor.textPrimary)
                         .lineLimit(1...3)
+                        .accessibilityLabel("Message")
                         .onKeyPress(.tab, phases: .down) { keyPress in
                             if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
                                 onAcceptSuggestion()
