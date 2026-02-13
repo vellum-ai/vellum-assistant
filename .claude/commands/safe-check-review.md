@@ -30,6 +30,7 @@ Using the PR number from the state file, run these commands in parallel:
    ```
    gh api graphql -f query='query { repository(owner:"vellum-ai", name:"vellum-assistant") { pullRequest(number:<number>) { reviewThreads(first:100) { nodes { id isResolved comments(first:5) { nodes { body author { login } path line } } } } } } }'
    ```
+4. **CI status:** `gh pr checks <number>`
 
 ### 3. Determine review status
 
@@ -55,26 +56,33 @@ Check for feedback from any reviewer — bots (chatgpt-codex-connector[bot], dev
 - **Approved:** Left an approving PR review with no unresolved threads
 - **Commented:** Left comments but all threads are resolved
 
+#### CI
+
+- **Passing:** All checks passed
+- **Failing:** One or more checks failed — read the failing check logs and fix the issues
+- **Pending:** Checks are still running
+
 ### 4. Display status
 
 Show a summary table:
 
 | Reviewer | Status | Details |
 | --- | --- | --- |
+| CI | Passing / Failing / Pending | brief summary |
 | codex | Approved / Changes requested / Pending | brief summary |
 | devin | Approved / Changes requested / Pending | brief summary |
 | <human> | Commented / Approved / Changes requested | brief summary |
 
 ### 5. Address feedback (if any)
 
-If any reviewer requested changes:
+If any reviewer requested changes OR CI is failing:
 
 1. Read the worktree path and branch from the state file.
 2. Pull latest changes in the worktree:
    ```bash
    cd <worktree> && git pull origin <branch>
    ```
-3. Read the **unresolved** review threads from step 2. Implement the requested fixes in the worktree.
+3. If CI is failing, read the failing check logs to understand what went wrong. If reviewers requested changes, read the **unresolved** review threads from step 2. Implement all fixes in the worktree.
 4. Validate:
    ```bash
    cd <worktree>/assistant && export PATH="$HOME/.bun/bin:$PATH" && bunx tsc --noEmit
@@ -96,7 +104,12 @@ EOF
    gh api graphql -f query='mutation { addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:"<thread-id>", body:"Addressed in latest push."}) { comment { id } } }'
    gh api graphql -f query='mutation { resolveReviewThread(input:{threadId:"<thread-id>"}) { thread { isResolved } } }'
    ```
-7. Tell the user what feedback was addressed and what changes were made.
+7. After pushing, request re-review by posting two separate comments on the PR:
+   ```bash
+   gh pr comment <number> --body "@codex review"
+   gh pr comment <number> --body "@devin review"
+   ```
+8. Tell the user what feedback was addressed and what changes were made.
 
 If any reviewer is still **Pending** (no response yet), tell the user:
 
@@ -104,7 +117,7 @@ If any reviewer is still **Pending** (no response yet), tell the user:
 
 Do NOT suggest running `/resume-plan` while reviews are pending.
 
-If all reviewers have responded and none requested changes (all approved), tell the user:
+If all reviewers have responded, none requested changes (all approved), and CI is passing, tell the user:
 
 > All reviews are in — no actionable feedback. Run `/resume-plan <plan file>` to merge and continue.
 
