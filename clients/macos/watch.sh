@@ -93,6 +93,7 @@ fswatch -o \
     --include='\.otf$' \
     --include='\.xcassets' \
     --include='Package\.resolved$' \
+    --include='daemon-bin/' \
     --exclude='.*' \
     --event Created \
     --event Updated \
