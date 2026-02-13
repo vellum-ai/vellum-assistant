@@ -323,6 +323,34 @@ final class ChatViewModel: ObservableObject {
         return messageSessionId == sessionId
     }
 
+    /// Summarize tool input for display, showing the first value truncated to 80 chars.
+    private func summarizeToolInput(_ input: [String: AnyCodable]) -> String {
+        guard let firstValue = input.values.first else { return "" }
+        let str: String
+        if let s = firstValue.value as? String {
+            str = s
+        } else if let encoder = try? JSONEncoder().encode(firstValue),
+                  let json = String(data: encoder, encoding: .utf8) {
+            str = json
+        } else {
+            str = String(describing: firstValue.value ?? "")
+        }
+        return str.count > 80 ? String(str.prefix(77)) + "..." : str
+    }
+
+    private func toolDisplayName(_ name: String) -> String {
+        switch name {
+        case "file_write": return "Write File"
+        case "file_edit": return "Edit File"
+        case "bash": return "Run Command"
+        case "web_fetch": return "Fetch URL"
+        case "file_read": return "Read File"
+        case "glob": return "Find Files"
+        case "grep": return "Search Files"
+        default: return name.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
     func handleServerMessage(_ message: ServerMessage) {
         switch message {
         case .sessionInfo(let info):
@@ -545,6 +573,37 @@ final class ChatViewModel: ObservableObject {
                 messages.insert(confirmMsg, at: index)
             } else {
                 messages.append(confirmMsg)
+            }
+
+        case .toolUseStart(let msg):
+            isThinking = false
+            let toolCall = ToolCallData(
+                toolName: toolDisplayName(msg.toolName),
+                inputSummary: summarizeToolInput(msg.input)
+            )
+            // Add to existing assistant message or create one
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].toolCalls.append(toolCall)
+            } else {
+                let newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, toolCalls: [toolCall])
+                currentAssistantMessageId = newMsg.id
+                messages.append(newMsg)
+            }
+
+        case .toolOutputChunk:
+            // Streaming output — ignore for now, we show the final result
+            break
+
+        case .toolResult(let msg):
+            // Find the most recent pending (incomplete) tool call and mark it complete
+            if let existingId = currentAssistantMessageId,
+               let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
+               let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                let truncatedResult = msg.result.count > 2000 ? String(msg.result.prefix(2000)) + "...[truncated]" : msg.result
+                messages[msgIndex].toolCalls[tcIndex].result = truncatedResult
+                messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
+                messages[msgIndex].toolCalls[tcIndex].isComplete = true
             }
 
         default:

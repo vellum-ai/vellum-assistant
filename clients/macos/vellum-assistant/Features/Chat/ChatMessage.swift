@@ -28,6 +28,25 @@ struct ToolConfirmationData: Equatable {
     var state: ToolConfirmationState = .pending
 }
 
+/// Data for a tool call displayed inline in an assistant message.
+struct ToolCallData: Identifiable, Equatable {
+    let id: UUID
+    let toolName: String
+    let inputSummary: String
+    var result: String?
+    var isError: Bool
+    var isComplete: Bool
+
+    init(id: UUID = UUID(), toolName: String, inputSummary: String, result: String? = nil, isError: Bool = false, isComplete: Bool = false) {
+        self.id = id
+        self.toolName = toolName
+        self.inputSummary = inputSummary
+        self.result = result
+        self.isError = isError
+        self.isComplete = isComplete
+    }
+}
+
 /// A file or image attachment associated with a chat message.
 struct ChatAttachment: Identifiable {
     let id: String
@@ -49,8 +68,9 @@ struct ChatMessage: Identifiable {
     /// Non-nil when this message is an inline tool confirmation request.
     var confirmation: ToolConfirmationData?
     var attachments: [ChatAttachment]
+    var toolCalls: [ToolCallData]
 
-    init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, attachments: [ChatAttachment] = []) {
+    init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = []) {
         self.id = id
         self.role = role
         self.text = text
@@ -59,5 +79,6 @@ struct ChatMessage: Identifiable {
         self.status = status
         self.confirmation = confirmation
         self.attachments = attachments
+        self.toolCalls = toolCalls
     }
 }
