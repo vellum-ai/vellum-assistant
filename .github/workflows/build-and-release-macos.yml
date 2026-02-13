@@ -127,10 +127,11 @@ jobs:
         run: |
           APP_PATH="dist/Vellum.app"
 
-          # Stage just the .app (create-dmg adds the Applications symlink)
+          # Stage the .app and an Applications symlink for the drop target
           DMG_STAGING="build/dmg-staging"
           mkdir -p "$DMG_STAGING"
           cp -R "$APP_PATH" "$DMG_STAGING/"
+          ln -s /Applications "$DMG_STAGING/Applications"
 
           echo "Staging directory size:"
           du -sh "$DMG_STAGING"
@@ -144,7 +145,7 @@ jobs:
             --icon-size 128 \
             --text-size 10 \
             --icon "Vellum.app" 175 190 \
-            --app-drop-link 485 190 \
+            --icon "Applications" 485 190 \
             --hide-extension "Vellum.app" \
             --no-internet-enable \
             "$DMG_PATH" \
