@@ -10,6 +10,8 @@ import { uploadAttachment } from "../../runtime/client.js";
 
 const log = pino({ name: "gateway:telegram-webhook" });
 
+const MAX_TYPING_DURATION_MS = 60_000;
+
 export type OnReply = (
   chatId: string,
   result: InboundResult,
@@ -113,11 +115,18 @@ export function createTelegramWebhookHandler(
       }
     }
 
-    // Start typing indicator only for routable chats
+    // Start typing indicator only for routable chats.
+    // A safety timeout ensures the interval is cleared even if handleInbound hangs.
     let typingInterval: ReturnType<typeof setInterval> | undefined;
+    let typingTimeout: ReturnType<typeof setTimeout> | undefined;
+    const clearTyping = () => {
+      clearInterval(typingInterval);
+      clearTimeout(typingTimeout);
+    };
     if (routable) {
       sendTypingIndicator(config, chatId);
       typingInterval = setInterval(() => sendTypingIndicator(config, chatId), 5000);
+      typingTimeout = setTimeout(clearTyping, MAX_TYPING_DURATION_MS);
     }
 
     // Process inbound and only acknowledge after successful delivery
@@ -128,7 +137,7 @@ export function createTelegramWebhookHandler(
       log.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
       return Response.json({ error: "Internal error" }, { status: 500 });
     } finally {
-      clearInterval(typingInterval);
+      clearTyping();
     }
 
     if (!result.forwarded && !result.rejected) {
