@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 const TEST_DIR = join(tmpdir(), `vellum-skills-test-${crypto.randomUUID()}`);
 
 mock.module('../util/platform.js', () => ({
+  getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
   ensureDataDir: () => {},
   getSocketPath: () => join(TEST_DIR, 'vellum.sock'),

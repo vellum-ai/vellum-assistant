@@ -9,6 +9,33 @@ const log = getLogger('skills');
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 
+// ─── New interfaces for extended skill metadata ──────────────────────────────
+
+export interface VellumMetadata {
+  emoji?: string;
+  os?: string[];
+  requires?: SkillRequirements;
+  primaryEnv?: string;
+  install?: InstallerSpec[];
+}
+
+export interface SkillRequirements {
+  bins?: string[];
+  anyBins?: string[];
+  env?: string[];
+  config?: string[];
+}
+
+export interface InstallerSpec {
+  id: string;
+  kind: 'brew' | 'node' | 'go' | 'uv' | 'download';
+  [key: string]: unknown;
+}
+
+export type SkillSource = 'bundled' | 'managed' | 'workspace';
+
+// ─── Core interfaces ─────────────────────────────────────────────────────────
+
 export interface SkillSummary {
   id: string;
   name: string;
@@ -17,6 +44,12 @@ export interface SkillSummary {
   skillFilePath: string;
   bundled?: boolean;
   icon?: string;
+  emoji?: string;
+  homepage?: string;
+  userInvocable: boolean;
+  disableModelInvocation: boolean;
+  source: SkillSource;
+  metadata?: VellumMetadata;
 }
 
 export interface SkillDefinition extends SkillSummary {
@@ -33,6 +66,86 @@ export interface SkillSelectorResult {
   error?: string;
 }
 
+// ─── Requirements check ──────────────────────────────────────────────────────
+
+export interface RequirementsCheckResult {
+  eligible: boolean;
+  missing: {
+    bins?: string[];
+    env?: string[];
+  };
+}
+
+export function checkSkillRequirements(
+  skill: SkillSummary,
+  envOverrides?: Record<string, string>,
+): RequirementsCheckResult {
+  const vellum = skill.metadata;
+  if (!vellum) {
+    return { eligible: true, missing: {} };
+  }
+
+  const missingBins: string[] = [];
+  const missingEnv: string[] = [];
+
+  // OS check
+  if (vellum.os && vellum.os.length > 0) {
+    if (!vellum.os.includes(process.platform)) {
+      return {
+        eligible: false,
+        missing: {
+          bins: [`(unsupported platform: ${process.platform}, requires: ${vellum.os.join(', ')})`],
+        },
+      };
+    }
+  }
+
+  const requires = vellum.requires;
+  if (!requires) {
+    return { eligible: true, missing: {} };
+  }
+
+  // bins: all must exist
+  if (requires.bins) {
+    for (const bin of requires.bins) {
+      if (!Bun.which(bin)) {
+        missingBins.push(bin);
+      }
+    }
+  }
+
+  // anyBins: at least one must exist
+  if (requires.anyBins && requires.anyBins.length > 0) {
+    const hasAny = requires.anyBins.some((bin) => Bun.which(bin) !== null);
+    if (!hasAny) {
+      missingBins.push(`(one of: ${requires.anyBins.join(', ')})`);
+    }
+  }
+
+  // env: check process.env or envOverrides
+  if (requires.env) {
+    const env = envOverrides ?? process.env;
+    for (const key of requires.env) {
+      if (!env[key]) {
+        missingEnv.push(key);
+      }
+    }
+  }
+
+  // config: skip for now (needs config integration from M2)
+
+  const missing: RequirementsCheckResult['missing'] = {};
+  if (missingBins.length > 0) missing.bins = missingBins;
+  if (missingEnv.length > 0) missing.env = missingEnv;
+
+  return {
+    eligible: missingBins.length === 0 && missingEnv.length === 0,
+    missing,
+  };
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 export function getSkillsDir(): string {
   return join(getRootDir(), 'skills');
 }
@@ -45,10 +158,16 @@ function getSkillsIndexPath(skillsDir: string): string {
   return join(skillsDir, 'SKILLS.md');
 }
 
+// ─── Frontmatter parsing ─────────────────────────────────────────────────────
+
 interface ParsedFrontmatter {
   name: string;
   description: string;
   body: string;
+  homepage?: string;
+  userInvocable: boolean;
+  disableModelInvocation: boolean;
+  metadata?: VellumMetadata;
 }
 
 function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontmatter | null {
@@ -84,12 +203,41 @@ function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontma
     return null;
   }
 
+  // Parse new optional fields
+  const homepage = fields.homepage?.trim() || undefined;
+
+  const userInvocableRaw = fields['user-invocable']?.trim().toLowerCase();
+  const userInvocable = userInvocableRaw !== 'false';
+
+  const disableModelInvocationRaw = fields['disable-model-invocation']?.trim().toLowerCase();
+  const disableModelInvocation = disableModelInvocationRaw === 'true';
+
+  // Parse metadata as single-line JSON string, extract .vellum namespace
+  let metadata: VellumMetadata | undefined;
+  const metadataRaw = fields.metadata?.trim();
+  if (metadataRaw) {
+    try {
+      const parsed = JSON.parse(metadataRaw);
+      if (parsed && typeof parsed === 'object' && parsed.vellum) {
+        metadata = parsed.vellum as VellumMetadata;
+      }
+    } catch (err) {
+      log.warn({ err, skillFilePath }, 'Failed to parse metadata JSON in frontmatter');
+    }
+  }
+
   return {
     name,
     description,
     body: content.slice(match[0].length).trim(),
+    homepage,
+    userInvocable,
+    disableModelInvocation,
+    metadata,
   };
 }
+
+// ─── Path utilities ──────────────────────────────────────────────────────────
 
 function getCanonicalPath(path: string): string {
   return existsSync(path) ? realpathSync(path) : resolve(path);
@@ -104,7 +252,9 @@ function isOutsideSkillsRoot(skillsDir: string, candidatePath: string): boolean 
   return relativePath.startsWith('..') || isAbsolute(relativePath);
 }
 
-function readSkillFromDirectory(directoryPath: string, skillsDir: string): SkillDefinition | null {
+// ─── Skill reading ───────────────────────────────────────────────────────────
+
+function readSkillFromDirectory(directoryPath: string, skillsDir: string, source: SkillSource): SkillDefinition | null {
   const skillFilePath = join(directoryPath, 'SKILL.md');
   if (!existsSync(skillFilePath)) {
     log.warn({ directoryPath }, 'Skipping skill directory without SKILL.md');
@@ -139,6 +289,12 @@ function readSkillFromDirectory(directoryPath: string, skillsDir: string): Skill
       directoryPath,
       skillFilePath,
       body: parsed.body,
+      emoji: parsed.metadata?.emoji,
+      homepage: parsed.homepage,
+      userInvocable: parsed.userInvocable,
+      disableModelInvocation: parsed.disableModelInvocation,
+      source,
+      metadata: parsed.metadata,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, 'Failed to read skill file');
@@ -172,12 +328,20 @@ function readBundledSkillFromDirectory(directoryPath: string): SkillDefinition |
       skillFilePath,
       body: parsed.body,
       bundled: true,
+      emoji: parsed.metadata?.emoji,
+      homepage: parsed.homepage,
+      userInvocable: parsed.userInvocable,
+      disableModelInvocation: parsed.disableModelInvocation,
+      source: 'bundled',
+      metadata: parsed.metadata,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, 'Failed to read bundled skill file');
     return null;
   }
 }
+
+// ─── Skill discovery ─────────────────────────────────────────────────────────
 
 function discoverBundledSkillDirectories(): string[] {
   const bundledDir = getBundledSkillsDir();
@@ -216,11 +380,19 @@ function loadBundledSkills(): SkillSummary[] {
       directoryPath: skill.directoryPath,
       skillFilePath: skill.skillFilePath,
       bundled: true,
+      emoji: skill.emoji,
+      homepage: skill.homepage,
+      userInvocable: skill.userInvocable,
+      disableModelInvocation: skill.disableModelInvocation,
+      source: 'bundled',
+      metadata: skill.metadata,
     });
   }
 
   return skills;
 }
+
+// ─── Index parsing ───────────────────────────────────────────────────────────
 
 function parseIndexEntry(line: string): string | null {
   const bulletMatch = line.trim().match(/^[-*]\s+(.+)$/);
@@ -316,7 +488,26 @@ function discoverSkillDirectories(skillsDir: string): string[] {
   return dirs.sort((a, b) => a.localeCompare(b));
 }
 
-export function loadSkillCatalog(): SkillSummary[] {
+// ─── Catalog loading ─────────────────────────────────────────────────────────
+
+function skillSummaryFromDefinition(skill: SkillDefinition, source: SkillSource): SkillSummary {
+  return {
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    directoryPath: skill.directoryPath,
+    skillFilePath: skill.skillFilePath,
+    bundled: skill.bundled,
+    emoji: skill.emoji,
+    homepage: skill.homepage,
+    userInvocable: skill.userInvocable,
+    disableModelInvocation: skill.disableModelInvocation,
+    source,
+    metadata: skill.metadata,
+  };
+}
+
+export function loadSkillCatalog(workspaceSkillsDir?: string): SkillSummary[] {
   const catalog: SkillSummary[] = [];
   const seenIds = new Set<string>();
 
@@ -331,13 +522,13 @@ export function loadSkillCatalog(): SkillSummary[] {
     catalog.push(skill);
   }
 
-  // Load user skills, which take precedence over bundled skills with the same ID
+  // Load managed (user) skills, which take precedence over bundled skills with the same ID
   const skillsDir = getSkillsDir();
   const indexedDirectories = getIndexedSkillDirectories(skillsDir);
   const directories = indexedDirectories ?? discoverSkillDirectories(skillsDir);
 
   for (const directory of directories) {
-    const skill = readSkillFromDirectory(directory, skillsDir);
+    const skill = readSkillFromDirectory(directory, skillsDir, 'managed');
     if (!skill) continue;
 
     if (seenIds.has(skill.id)) {
@@ -345,13 +536,7 @@ export function loadSkillCatalog(): SkillSummary[] {
       const existingIndex = catalog.findIndex((s) => s.id === skill.id);
       if (existingIndex !== -1 && catalog[existingIndex].bundled) {
         log.info({ id: skill.id, directory }, 'User skill overrides bundled skill');
-        catalog[existingIndex] = {
-          id: skill.id,
-          name: skill.name,
-          description: skill.description,
-          directoryPath: skill.directoryPath,
-          skillFilePath: skill.skillFilePath,
-        };
+        catalog[existingIndex] = skillSummaryFromDefinition(skill, 'managed');
         continue;
       }
       log.warn({ id: skill.id, directory }, 'Skipping duplicate skill id');
@@ -359,13 +544,56 @@ export function loadSkillCatalog(): SkillSummary[] {
     }
 
     seenIds.add(skill.id);
-    catalog.push({
-      id: skill.id,
-      name: skill.name,
-      description: skill.description,
-      directoryPath: skill.directoryPath,
-      skillFilePath: skill.skillFilePath,
-    });
+    catalog.push(skillSummaryFromDefinition(skill, 'managed'));
+  }
+
+  // Load workspace skills with highest precedence
+  if (workspaceSkillsDir && existsSync(workspaceSkillsDir)) {
+    const workspaceDirs = discoverSkillDirectories(workspaceSkillsDir);
+
+    for (const directory of workspaceDirs) {
+      const skillFilePath = join(directory, 'SKILL.md');
+      if (!existsSync(skillFilePath)) continue;
+
+      try {
+        const stat = statSync(skillFilePath);
+        if (!stat.isFile()) continue;
+
+        const content = readFileSync(skillFilePath, 'utf-8');
+        const parsed = parseFrontmatter(content, skillFilePath);
+        if (!parsed) continue;
+
+        const id = basename(directory);
+        const workspaceSkill: SkillSummary = {
+          id,
+          name: parsed.name,
+          description: parsed.description,
+          directoryPath: directory,
+          skillFilePath,
+          emoji: parsed.metadata?.emoji,
+          homepage: parsed.homepage,
+          userInvocable: parsed.userInvocable,
+          disableModelInvocation: parsed.disableModelInvocation,
+          source: 'workspace',
+          metadata: parsed.metadata,
+        };
+
+        if (seenIds.has(id)) {
+          // Workspace skills override any existing skill
+          const existingIndex = catalog.findIndex((s) => s.id === id);
+          if (existingIndex !== -1) {
+            log.info({ id, directory }, 'Workspace skill overrides existing skill');
+            catalog[existingIndex] = workspaceSkill;
+            continue;
+          }
+        }
+
+        seenIds.add(id);
+        catalog.push(workspaceSkill);
+      } catch (err) {
+        log.warn({ err, directory }, 'Failed to read workspace skill');
+      }
+    }
   }
 
   return catalog;
@@ -374,7 +602,7 @@ export function loadSkillCatalog(): SkillSummary[] {
 function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   const loaded = skill.bundled
     ? readBundledSkillFromDirectory(skill.directoryPath)
-    : readSkillFromDirectory(skill.directoryPath, getSkillsDir());
+    : readSkillFromDirectory(skill.directoryPath, getSkillsDir(), skill.source);
   if (!loaded) {
     return { error: `Failed to load SKILL.md for "${skill.id}"` };
   }
