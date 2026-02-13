@@ -61,8 +61,9 @@ struct WeatherForecastData {
     }
 
     func windSpeed(useFahrenheit: Bool) -> Int {
-        // Source wind speed is already in the right unit system
-        return windSpeed
+        if sourceIsFahrenheit == useFahrenheit { return windSpeed }
+        // Convert between mph (Fahrenheit) and km/h (Celsius)
+        return useFahrenheit ? Int(Double(windSpeed) / 1.60934) : Int(Double(windSpeed) * 1.60934)
     }
 
     static func parse(from dict: [String: Any?]) -> WeatherForecastData? {
@@ -242,7 +243,7 @@ struct InlineWeatherWidget: View {
             // Wind + Humidity chips
             HStack(spacing: VSpacing.md) {
                 Label {
-                    Text("\(data.windSpeed) \(speedUnit) \(data.windDirection)")
+                    Text("\(data.windSpeed(useFahrenheit: useFahrenheit)) \(speedUnit) \(data.windDirection)")
                         .font(VFont.caption)
                 } icon: {
                     Image(systemName: "wind")
