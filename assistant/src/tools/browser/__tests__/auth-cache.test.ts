@@ -137,6 +137,70 @@ describe('AuthSessionCache', () => {
     expect(cache.isAuthenticated('stale.com')).toBe(false);
   });
 
+  test('markAuthenticated on fresh cache preserves existing sessions on disk', () => {
+    // Write pre-existing sessions to disk
+    const sessions: AuthSession[] = [
+      {
+        domain: 'existing.com',
+        authenticatedAt: Date.now(),
+        expiresAt: Date.now() + 86_400_000,
+        method: 'stored',
+      },
+    ];
+    writeSessionsFile(tmpDir, sessions);
+
+    // Create a fresh cache — load() has NOT been called
+    const cache = new AuthSessionCache(tmpDir);
+
+    // markAuthenticated should ensureLoaded first, so existing sessions
+    // are not clobbered when save() writes to disk
+    cache.markAuthenticated('newdomain.com', 'jit');
+
+    // Verify existing session is still present
+    expect(cache.isAuthenticated('existing.com')).toBe(true);
+    expect(cache.isAuthenticated('newdomain.com')).toBe(true);
+
+    // Double-check by loading a second cache instance from the same disk file
+    const cache2 = new AuthSessionCache(tmpDir);
+    expect(cache2.isAuthenticated('existing.com')).toBe(true);
+    expect(cache2.isAuthenticated('newdomain.com')).toBe(true);
+  });
+
+  test('invalidate on fresh cache preserves unrelated sessions on disk', () => {
+    // Write pre-existing sessions to disk
+    const sessions: AuthSession[] = [
+      {
+        domain: 'keep-me.com',
+        authenticatedAt: Date.now(),
+        expiresAt: Date.now() + 86_400_000,
+        method: 'stored',
+      },
+      {
+        domain: 'remove-me.com',
+        authenticatedAt: Date.now(),
+        expiresAt: Date.now() + 86_400_000,
+        method: 'jit',
+      },
+    ];
+    writeSessionsFile(tmpDir, sessions);
+
+    // Create a fresh cache — load() has NOT been called
+    const cache = new AuthSessionCache(tmpDir);
+
+    // invalidate should ensureLoaded first, so unrelated sessions
+    // are not clobbered when save() writes to disk
+    cache.invalidate('remove-me.com');
+
+    // Verify the targeted session is gone but the other is preserved
+    expect(cache.isAuthenticated('remove-me.com')).toBe(false);
+    expect(cache.isAuthenticated('keep-me.com')).toBe(true);
+
+    // Double-check by loading a second cache instance from the same disk file
+    const cache2 = new AuthSessionCache(tmpDir);
+    expect(cache2.isAuthenticated('remove-me.com')).toBe(false);
+    expect(cache2.isAuthenticated('keep-me.com')).toBe(true);
+  });
+
   test('domain normalization: www prefix and case insensitivity', () => {
     const sessions: AuthSession[] = [
       {

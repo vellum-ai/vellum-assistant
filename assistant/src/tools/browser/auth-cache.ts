@@ -121,6 +121,7 @@ export class AuthSessionCache {
   }
 
   markAuthenticated(domain: string, method: 'jit' | 'stored'): void {
+    this.ensureLoaded();
     const key = normalizeDomain(domain);
     const now = Date.now();
     const session: AuthSession = {
@@ -134,6 +135,7 @@ export class AuthSessionCache {
   }
 
   invalidate(domain: string): void {
+    this.ensureLoaded();
     const key = normalizeDomain(domain);
     this.sessions.delete(key);
     void this.save();
