@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
+import { recordDirectLlmUsage } from '../usage/recorders.js';
 
 const log = getLogger('classifier');
 
@@ -56,6 +57,8 @@ export async function classifyInteraction(task: string, source?: 'voice' | 'text
         setTimeout(() => reject(new Error('Classification timeout')), 5000),
       ),
     ]);
+
+    recordDirectLlmUsage(response.usage, 'anthropic', 'claude-haiku-4-5-20251001', 'task_classifier');
 
     const toolBlock = response.content.find((b) => b.type === 'tool_use');
     if (toolBlock && toolBlock.type === 'tool_use') {
