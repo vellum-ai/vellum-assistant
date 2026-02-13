@@ -42,6 +42,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     #endif
     private var windowObserver: Any?
     private var settingsWindowObserver: Any?
+    private weak var recordingViewModel: ChatViewModel?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -414,8 +415,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // If there's an active conversation in ready state, route recording state there
             let hasActiveConvo = self?.currentTextSession?.state == .ready
 
-            // Sync recording state to the active ChatViewModel
-            self?.mainWindow?.activeViewModel?.isRecording = isRecording
+            // Sync recording state: clear on the view model that started recording
+            // to avoid stale isRecording when the user switches threads mid-recording.
+            if isRecording {
+                self?.recordingViewModel = self?.mainWindow?.activeViewModel
+            }
+            if let vm = self?.recordingViewModel {
+                vm.isRecording = isRecording
+            }
+            if !isRecording {
+                self?.recordingViewModel = nil
+            }
 
             if isRecording {
                 self?.statusItem.button?.image = NSImage(
