@@ -32,7 +32,7 @@ const MAX_AX_TREES_IN_HISTORY = 2;
 
 /** Regex that matches the `<ax-tree>…</ax-tree>` markers injected by buildObservationResultContent. */
 const AX_TREE_PATTERN = /<ax-tree>[\s\S]*?<\/ax-tree>/g;
-const AX_TREE_PLACEHOLDER = '[Previous screen state omitted for brevity]';
+const AX_TREE_PLACEHOLDER = '<ax_tree_omitted />';
 
 type SessionState = 'idle' | 'awaiting_observation' | 'inferring' | 'complete' | 'error';
 

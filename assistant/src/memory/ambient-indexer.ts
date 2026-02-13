@@ -81,7 +81,7 @@ export async function analyzeAndIndexAmbientObservation(
   const conversationId = getOrCreateAmbientConversation();
 
   const contentParts: string[] = [];
-  if (appName) contentParts.push(`[${appName}]`);
+  if (appName) contentParts.push(`<app>${appName}</app>`);
   if (windowTitle) contentParts.push(`${windowTitle}`);
   if (result.summary) contentParts.push(result.summary);
   if (result.suggestion) contentParts.push(`Suggestion: ${result.suggestion}`);

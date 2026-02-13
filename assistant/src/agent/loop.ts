@@ -297,7 +297,7 @@ export class AgentLoop {
           onEvent({ type: 'error', error: new Error(limitMessage) });
           resultBlocks.push({
             type: 'text',
-            text: `[System: ${limitMessage}]`,
+            text: `<system_notice>${limitMessage}</system_notice>`,
           });
           history.push({ role: 'user', content: resultBlocks });
           break;
@@ -305,7 +305,7 @@ export class AgentLoop {
         if (toolUseTurns % PROGRESS_CHECK_INTERVAL === 0) {
           resultBlocks.push({
             type: 'text',
-            text: `[System: ${PROGRESS_CHECK_REMINDER}]`,
+            text: `<system_notice>${PROGRESS_CHECK_REMINDER}</system_notice>`,
           });
         }
 

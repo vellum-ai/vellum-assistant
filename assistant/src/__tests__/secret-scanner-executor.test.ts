@@ -156,7 +156,7 @@ describe('Secret scanner executor integration', () => {
   // -----------------------------------------------------------------------
   // redact mode
   // -----------------------------------------------------------------------
-  test('redact mode: replaces secrets with [REDACTED:type] markers', async () => {
+  test('redact mode: replaces secrets with <redacted> markers', async () => {
     mockConfig.secretDetection.action = 'redact';
     const secret = 'AKIAIOSFODNN7REALKEY';
     fakeToolResult = { content: `Found key: ${secret}`, isError: false };
@@ -171,7 +171,7 @@ describe('Secret scanner executor integration', () => {
     const result = await executor.execute('file_read', {}, ctx);
 
     expect(result.content).not.toContain(secret);
-    expect(result.content).toContain('[REDACTED:AWS Access Key]');
+    expect(result.content).toContain('<redacted type="AWS Access Key" />');
     expect(result.isError).toBe(false);
     expect(getSecretEvents(lifecycleEvents)).toHaveLength(1);
   });
@@ -275,7 +275,7 @@ describe('Secret scanner executor integration', () => {
 
     expect(result.diff).toBeDefined();
     expect(result.diff!.newContent).not.toContain(secret);
-    expect(result.diff!.newContent).toContain('[REDACTED:AWS Access Key]');
+    expect(result.diff!.newContent).toContain('<redacted type="AWS Access Key" />');
     expect(getSecretEvents(lifecycleEvents)).toHaveLength(1);
   });
 

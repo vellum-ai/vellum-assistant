@@ -133,7 +133,7 @@ function formatBytes(sizeBytes: number): string {
 
 function clampAttachmentText(text: string): string {
   if (text.length <= HISTORY_ATTACHMENT_TEXT_LIMIT) return text;
-  return `${text.slice(0, HISTORY_ATTACHMENT_TEXT_LIMIT)}...[truncated]`;
+  return `${text.slice(0, HISTORY_ATTACHMENT_TEXT_LIMIT)}<truncated />`;
 }
 
 function renderImageBlockForHistory(block: Record<string, unknown>): string {

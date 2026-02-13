@@ -158,7 +158,7 @@ describe('createToolDomainEventPublisher', () => {
       sessionId: 'session-1',
       conversationId: 'conversation-1',
       action: 'redact',
-      matches: [{ type: 'AWS Access Key', redactedValue: '[REDACTED:AWS Access Key]' }],
+      matches: [{ type: 'AWS Access Key', redactedValue: '<redacted type="AWS Access Key" />' }],
       detectedAtMs: 55,
     });
 
@@ -169,7 +169,7 @@ describe('createToolDomainEventPublisher', () => {
       sessionId: 'session-1',
       toolName: 'file_read',
       action: 'redact',
-      matches: [{ type: 'AWS Access Key', redactedValue: '[REDACTED:AWS Access Key]' }],
+      matches: [{ type: 'AWS Access Key', redactedValue: '<redacted type="AWS Access Key" />' }],
       detectedAtMs: 55,
     });
   });

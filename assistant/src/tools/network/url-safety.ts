@@ -221,6 +221,6 @@ export function sanitizeUrlStringForOutput(url: string, base?: URL): string {
     const parsed = base ? new URL(url, base) : new URL(url);
     return sanitizeUrlForOutput(parsed);
   } catch {
-    return url.replace(/\/\/([^/?#\s@]+)@/g, '//[REDACTED]@');
+    return url.replace(/\/\/([^/?#\s@]+)@/g, '//<redacted />@');
   }
 }

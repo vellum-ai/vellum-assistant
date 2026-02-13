@@ -526,7 +526,7 @@ export function redactSecrets(text: string, entropyConfig?: Partial<EntropyConfi
       continue;
     }
     result += text.slice(lastIndex, match.startIndex);
-    result += `[REDACTED:${match.type}]`;
+    result += `<redacted type="${match.type}" />`;
     lastIndex = match.endIndex;
   }
   result += text.slice(lastIndex);

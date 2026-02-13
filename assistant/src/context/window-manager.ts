@@ -6,7 +6,7 @@ import { estimatePromptTokens, estimateTextTokens } from './token-estimator.js';
 
 const log = getLogger('context-window');
 
-export const CONTEXT_SUMMARY_MARKER = '[Context Summary v1]';
+export const CONTEXT_SUMMARY_MARKER = '<context_summary>';
 const CHUNK_MIN_TOKENS = 1000;
 const MAX_BLOCK_PREVIEW_CHARS = 3000;
 const MAX_FALLBACK_SUMMARY_CHARS = 12000;
@@ -304,19 +304,27 @@ export function getSummaryFromContextMessage(message: Message | undefined): stri
   const text = extractText(message.content).trim();
   if (!text.startsWith(CONTEXT_SUMMARY_MARKER)) return null;
   if (INTERNAL_CONTEXT_SUMMARY_MESSAGES.has(message)) {
-    return text.slice(CONTEXT_SUMMARY_MARKER.length).trim();
+    return stripContextSummaryTags(text);
   }
   // Backward compatibility for older in-memory sessions that used assistant-role summaries.
   if (message.role === 'assistant') {
-    return text.slice(CONTEXT_SUMMARY_MARKER.length).trim();
+    return stripContextSummaryTags(text);
   }
   return null;
+}
+
+function stripContextSummaryTags(text: string): string {
+  let inner = text.slice(CONTEXT_SUMMARY_MARKER.length);
+  if (inner.endsWith('</context_summary>')) {
+    inner = inner.slice(0, -'</context_summary>'.length);
+  }
+  return inner.trim();
 }
 
 export function createContextSummaryMessage(summary: string): Message {
   const message: Message = {
     role: 'user',
-    content: [{ type: 'text', text: `${CONTEXT_SUMMARY_MARKER}\n${clampSummary(summary)}` }],
+    content: [{ type: 'text', text: `${CONTEXT_SUMMARY_MARKER}\n${clampSummary(summary)}\n</context_summary>` }],
   };
   INTERNAL_CONTEXT_SUMMARY_MESSAGES.add(message);
   return message;

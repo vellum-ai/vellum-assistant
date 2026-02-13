@@ -16,26 +16,26 @@ export function extractTextFromStoredMessageContent(raw: string): string {
           lines.push(`Tool use (${block.name}): ${stableJson(block.input)}`);
           break;
         case 'tool_result':
-          lines.push(`Tool result${block.is_error ? ' [error]' : ''}: ${block.content}`);
+          lines.push(`Tool result${block.is_error ? ' <error />' : ''}: ${block.content}`);
           break;
         case 'thinking':
           lines.push(block.thinking);
           break;
         case 'redacted_thinking':
-          lines.push('[redacted_thinking]');
+          lines.push('<redacted_thinking />');
           break;
         case 'image':
-          lines.push(`[image ${block.source.media_type}]`);
+          lines.push(`<image type="${block.source.media_type}" />`);
           break;
         case 'file':
           if (block.extracted_text) {
             lines.push(`File (${block.source.filename}): ${block.extracted_text}`);
           } else {
-            lines.push(`[file ${block.source.filename} ${block.source.media_type}]`);
+            lines.push(`<file name="${block.source.filename}" type="${block.source.media_type}" />`);
           }
           break;
         default:
-          lines.push('[unknown content block]');
+          lines.push('<unknown_content_block />');
       }
     }
     return lines.join('\n').trim();
@@ -48,6 +48,6 @@ function stableJson(value: unknown): string {
   try {
     return JSON.stringify(value);
   } catch {
-    return '[unserializable]';
+    return '<unserializable />';
   }
 }

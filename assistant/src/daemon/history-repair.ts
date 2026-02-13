@@ -17,7 +17,7 @@ export interface RepairResult {
   stats: RepairStats;
 }
 
-const SYNTHETIC_RESULT = '[synthesized: tool result missing from history]';
+const SYNTHETIC_RESULT = '<synthesized_result>tool result missing from history</synthesized_result>';
 
 export function repairHistory(messages: Message[]): RepairResult {
   const stats: RepairStats = {

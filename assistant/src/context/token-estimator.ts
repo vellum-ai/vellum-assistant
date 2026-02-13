@@ -82,6 +82,6 @@ function stableJson(value: unknown): string {
   try {
     return JSON.stringify(value);
   } catch {
-    return '[unserializable]';
+    return '<unserializable />';
   }
 }

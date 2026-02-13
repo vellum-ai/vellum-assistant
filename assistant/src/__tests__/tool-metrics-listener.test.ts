@@ -147,8 +147,8 @@ describe('registerToolMetricsLoggingListener', () => {
       toolName: 'file_read',
       action: 'warn',
       matches: [
-        { type: 'AWS Access Key', redactedValue: '[REDACTED:AWS Access Key]' },
-        { type: 'GitHub Token', redactedValue: '[REDACTED:GitHub Token]' },
+        { type: 'AWS Access Key', redactedValue: '<redacted type="AWS Access Key" />' },
+        { type: 'GitHub Token', redactedValue: '<redacted type="GitHub Token" />' },
       ],
       detectedAtMs: 130,
     });

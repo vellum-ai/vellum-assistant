@@ -1219,8 +1219,9 @@ function buildMemoryQuery(content: string, messages: Message[]): string {
   if (summaryText.length <= maxLen) {
     compactSummary = summaryText;
   } else {
-    const half = Math.floor((maxLen - 5) / 2); // 5 chars for "[...]"
-    compactSummary = summaryText.slice(0, half) + '[...]' + summaryText.slice(-half);
+    const marker = '<truncated />';
+    const half = Math.floor((maxLen - marker.length) / 2);
+    compactSummary = summaryText.slice(0, half) + marker + summaryText.slice(-half);
   }
   return compactSummary.length > 0
     ? `${content}\n\nContext summary:\n${compactSummary}`

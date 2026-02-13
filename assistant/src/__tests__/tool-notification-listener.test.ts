@@ -15,7 +15,7 @@ describe('registerToolNotificationListener', () => {
       sessionId: 'session-1',
       toolName: 'file_read',
       action: 'warn',
-      matches: [{ type: 'AWS Access Key', redactedValue: '[REDACTED:AWS Access Key]' }],
+      matches: [{ type: 'AWS Access Key', redactedValue: '<redacted type="AWS Access Key" />' }],
       detectedAtMs: 123,
     });
 
@@ -24,7 +24,7 @@ describe('registerToolNotificationListener', () => {
         type: 'secret_detected',
         toolName: 'file_read',
         action: 'warn',
-        matches: [{ type: 'AWS Access Key', redactedValue: '[REDACTED:AWS Access Key]' }],
+        matches: [{ type: 'AWS Access Key', redactedValue: '<redacted type="AWS Access Key" />' }],
       },
     ]);
   });
@@ -40,7 +40,7 @@ describe('registerToolNotificationListener', () => {
       sessionId: 'session-1',
       toolName: 'file_read',
       action: 'warn',
-      matches: [{ type: 'AWS Access Key', redactedValue: '[REDACTED:AWS Access Key]' }],
+      matches: [{ type: 'AWS Access Key', redactedValue: '<redacted type="AWS Access Key" />' }],
       detectedAtMs: 123,
     });
 

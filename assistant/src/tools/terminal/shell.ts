@@ -136,22 +136,22 @@ class ShellTool implements Tool {
         const statusParts: string[] = [];
 
         if (timedOut) {
-          const msg = `[Command timed out after ${timeoutSec}s]`;
+          const msg = `<command_timeout seconds="${timeoutSec}" />`;
           output += `\n${msg}`;
           statusParts.push(msg);
         }
 
         // Truncate if too long
         if (output.length > MAX_OUTPUT_LENGTH) {
-          const msg = '[Output truncated at 50K characters]';
+          const msg = '<output_truncated limit="50K" />';
           output = output.slice(0, MAX_OUTPUT_LENGTH) + `\n${msg}`;
           statusParts.push(msg);
         }
 
         if (!output.trim()) {
-          output = code === 0 ? '[Command completed with no output]' : `[Command exited with code ${code}]`;
+          output = code === 0 ? '<command_completed />' : `<command_exit code="${code}" />`;
         } else if (code !== 0 && !timedOut) {
-          statusParts.push(`[Command exited with code ${code}]`);
+          statusParts.push(`<command_exit code="${code}" />`);
         }
 
         resolve({

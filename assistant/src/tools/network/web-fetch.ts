@@ -402,7 +402,7 @@ function formatWebFetchOutput(params: {
 
   lines.push('');
   lines.push('Content:');
-  lines.push(params.content || '[No textual content extracted]');
+  lines.push(params.content || '<no_content />');
 
   return lines.join('\n');
 }

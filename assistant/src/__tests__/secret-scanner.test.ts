@@ -392,7 +392,7 @@ describe('redaction', () => {
   test('redactSecrets replaces secrets in text', () => {
     const input = `export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7REALKEY`;
     const result = redactSecrets(input);
-    expect(result).toContain('[REDACTED:AWS Access Key]');
+    expect(result).toContain('<redacted type="AWS Access Key" />');
     expect(result).not.toContain('AKIAIOSFODNN7REALKEY');
   });
 
@@ -407,8 +407,8 @@ describe('redaction', () => {
       TOKEN=ghp_${'A'.repeat(36)}
     `;
     const result = redactSecrets(input);
-    expect(result).toContain('[REDACTED:AWS Access Key]');
-    expect(result).toContain('[REDACTED:GitHub Token]');
+    expect(result).toContain('<redacted type="AWS Access Key" />');
+    expect(result).toContain('<redacted type="GitHub Token" />');
   });
 });
 
@@ -660,7 +660,7 @@ describe('overlapping match redaction', () => {
     // Should redact correctly without duplicating markers or losing text
     expect(result).not.toContain('AKIAIOSFODNN7REALKEY');
     // The outer quotes should be preserved somewhere in the output
-    expect(result).toContain('[REDACTED:');
+    expect(result).toContain('<redacted type="');
   });
 
   test('skips nested match and preserves surrounding text', () => {
@@ -668,7 +668,7 @@ describe('overlapping match redaction', () => {
     const input = `password = "AKIAIOSFODNN7REALKEY inside text"`;
     const result = redactSecrets(input);
     // Should have at least one redaction
-    expect(result).toContain('[REDACTED:');
+    expect(result).toContain('<redacted type="');
     // Should not contain the raw key
     expect(result).not.toContain('AKIAIOSFODNN7REALKEY');
   });
@@ -681,7 +681,7 @@ describe('overlapping match redaction', () => {
     // Nothing from the original secret value should leak
     expect(result).not.toContain('extra-tail-secret');
     expect(result).not.toContain('AKIAIOSFODNN7REALKEY');
-    expect(result).toContain('[REDACTED:');
+    expect(result).toContain('<redacted type="');
   });
 
   test('wider match at same start position wins', () => {
@@ -690,7 +690,7 @@ describe('overlapping match redaction', () => {
     const result = redactSecrets(input);
     expect(result).not.toContain('AKIAIOSFODNN7REALKEY');
     expect(result).not.toContain('plus-extra-data');
-    expect(result).toContain('[REDACTED:');
+    expect(result).toContain('<redacted type="');
   });
 });
 
@@ -798,8 +798,8 @@ describe('base64 padding handling', () => {
     const input = `token: "${b64}"`;
     const result = redactSecrets(input);
     // No trailing '=' should leak after redaction
-    expect(result).not.toMatch(/\[REDACTED:[^\]]+\]=/);
-    expect(result).toContain('[REDACTED:');
+    expect(result).not.toMatch(/<redacted type="[^"]+" \/>=/)
+    expect(result).toContain('<redacted type="');
   });
 });
 

@@ -928,11 +928,11 @@ describe('Memory V2 regressions', () => {
       )
     `);
 
-    const candidateLine = '- [segment:seg-budget] remember budget token sentinel';
+    const candidateLine = '- <kind>segment:seg-budget</kind> remember budget token sentinel';
     const lineOnlyTokens = estimateTextTokens(candidateLine);
     const fullRecallTokens = estimateTextTokens(
-      '<memory_recall source="long_term_memory" confidence="approximate">\n' +
-      `## Relevant Context\n${candidateLine}\n</memory_recall>`,
+      '<memory source="long_term_memory" confidence="approximate">\n' +
+      `## Relevant Context\n${candidateLine}\n</memory>`,
     );
     expect(fullRecallTokens).toBeGreaterThan(lineOnlyTokens);
 

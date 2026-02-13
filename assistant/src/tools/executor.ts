@@ -396,7 +396,7 @@ export class ToolExecutor {
 function sanitizeToolInput(toolName: string, input: Record<string, unknown>): Record<string, unknown> {
   if (toolName === 'credential_store' && 'value' in input) {
     const { value: _redacted, ...rest } = input;
-    return { ...rest, value: '[REDACTED]' };
+    return { ...rest, value: '<redacted />' };
   }
   return input;
 }

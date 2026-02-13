@@ -406,7 +406,7 @@ describe('url-safety helpers', () => {
 
     test('redacts credentials in unparseable URL strings', () => {
       expect(sanitizeUrlStringForOutput('://user@example'))
-        .toContain('[REDACTED]');
+        .toContain('<redacted />');
     });
 
     test('resolves relative URLs with base', () => {

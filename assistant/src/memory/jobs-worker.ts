@@ -212,7 +212,7 @@ async function embedItemJob(job: MemoryJob, config: AssistantConfig): Promise<vo
     .where(eq(memoryItems.id, itemId))
     .get();
   if (!item || item.status !== 'active') return;
-  const text = `[${item.kind}] ${item.subject}: ${item.statement}`;
+  const text = `<kind>${item.kind}</kind> ${item.subject}: ${item.statement}`;
   await embedAndUpsert(config, 'item', item.id, text, {
     kind: item.kind,
     subject: item.subject,
