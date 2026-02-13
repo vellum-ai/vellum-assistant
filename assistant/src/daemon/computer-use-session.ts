@@ -18,6 +18,8 @@ import { allComputerUseTools } from '../tools/computer-use/definitions.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
 import { getLogger } from '../util/logger.js';
+import { recordUsageEvent } from '../memory/llm-usage-store.js';
+import { resolvePricing } from '../util/pricing.js';
 
 const log = getLogger('computer-use-session');
 
@@ -459,6 +461,32 @@ export class ComputerUseSession {
                 outputTokens: event.outputTokens,
                 model: event.model,
               }, 'Usage');
+              try {
+                const pricing = resolvePricing(
+                  this.provider.name,
+                  event.model,
+                  event.inputTokens,
+                  event.outputTokens,
+                );
+                recordUsageEvent(
+                  {
+                    actor: 'computer_use_agent',
+                    provider: this.provider.name,
+                    model: event.model,
+                    inputTokens: event.inputTokens,
+                    outputTokens: event.outputTokens,
+                    cacheCreationInputTokens: event.cacheCreationInputTokens ?? null,
+                    cacheReadInputTokens: event.cacheReadInputTokens ?? null,
+                    assistantId: null,
+                    conversationId: this.sessionId,
+                    runId: null,
+                    requestId: null,
+                  },
+                  pricing,
+                );
+              } catch (err) {
+                log.warn({ err, sessionId: this.sessionId }, 'Failed to persist usage event (non-fatal)');
+              }
               break;
             // Other events (text_delta, thinking_delta, etc.) are not surfaced to the CU client
           }
