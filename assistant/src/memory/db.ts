@@ -334,6 +334,7 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN context_summary TEXT`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN context_compacted_message_count INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN context_compacted_at INTEGER`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE memory_items ADD COLUMN importance REAL`); } catch { /* already exists */ }
 
   migrateToolInvocationsFk(database);
 

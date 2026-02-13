@@ -66,13 +66,16 @@ export function indexMessageNow(
     }).run();
   }
 
-  if (input.role === 'user') {
+  const shouldExtract =
+    input.role === 'user' ||
+    (input.role === 'assistant' && config.extraction.extractFromAssistant);
+  if (shouldExtract) {
     enqueueMemoryJob('extract_items', { messageId: input.messageId });
   }
   enqueueMemoryJob('build_conversation_summary', { conversationId: input.conversationId });
   enqueueSummaryRollupJobsIfDue();
 
-  const enqueuedJobs = input.role === 'user' ? 2 : 1;
+  const enqueuedJobs = shouldExtract ? 2 : 1;
   return {
     indexedSegments: segments.length,
     enqueuedJobs,

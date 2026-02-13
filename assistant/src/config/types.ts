@@ -12,6 +12,7 @@ export type {
   MemorySegmentationConfig,
   MemoryJobsConfig,
   MemoryRetentionConfig,
+  MemoryExtractionConfig,
   MemoryConfig,
   ModelPricingOverride,
   QdrantConfig,
