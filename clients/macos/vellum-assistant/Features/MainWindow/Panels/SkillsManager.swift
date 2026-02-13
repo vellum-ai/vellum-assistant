@@ -64,4 +64,27 @@ final class SkillsManager: ObservableObject {
             }
         }
     }
+
+    func installSkill(slug: String) {
+        Task {
+            let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.installSkill(slug: slug)
+            } catch {
+                return
+            }
+
+            for await message in stream {
+                if case .skillsOperationResponse(let response) = message,
+                   response.operation == "install" {
+                    if response.success {
+                        // Refresh the skills list after successful install
+                        fetchSkills()
+                    }
+                    return
+                }
+            }
+        }
+    }
 }

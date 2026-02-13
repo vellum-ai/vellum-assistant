@@ -119,12 +119,7 @@ struct AgentPanel: View {
                     case 0:
                         skillsContent
                     case 1:
-                        VEmptyState(
-                            title: "No available skills",
-                            subtitle: "Browse and add new skills",
-                            icon: "plus.square.on.square"
-                        )
-                        .frame(height: 250)
+                        availableSkillsContent
                     case 2:
                         VEmptyState(
                             title: "No nodes",
@@ -149,6 +144,129 @@ struct AgentPanel: View {
         .background(VColor.backgroundSubtle)
         .onAppear {
             skillsManager.fetchSkills()
+        }
+    }
+
+    // MARK: - Available Skills Tab
+
+    /// Hardcoded starter skill shown to new users as an onboarding tutorial.
+    private struct StarterSkill {
+        let slug: String
+        let name: String
+        let description: String
+        let emoji: String
+
+        static let summarizePage = StarterSkill(
+            slug: "summarize-page",
+            name: "Summarize Page",
+            description: "Read the current browser page and produce a concise summary",
+            emoji: "📄"
+        )
+    }
+
+    /// Whether the starter skill is already installed (exists in the skills list).
+    private var isStarterSkillInstalled: Bool {
+        skillsManager.skills.contains { $0.name == StarterSkill.summarizePage.name }
+    }
+
+    @ViewBuilder
+    private var availableSkillsContent: some View {
+        if isStarterSkillInstalled {
+            // Starter skill already installed — point to ClawhHub
+            VStack(spacing: VSpacing.lg) {
+                VEmptyState(
+                    title: "You're all set!",
+                    subtitle: "Browse more community skills on ClawhHub",
+                    icon: "sparkles"
+                )
+                .frame(height: 200)
+            }
+        } else {
+            VStack(spacing: VSpacing.lg) {
+                starterSkillCard(StarterSkill.summarizePage)
+            }
+        }
+    }
+
+    @State private var isInstallingStarter = false
+    @State private var hoveredStarterInstall = false
+
+    private func starterSkillCard(_ starter: StarterSkill) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            HStack(spacing: VSpacing.md) {
+                // Emoji icon
+                Text(starter.emoji)
+                    .font(.system(size: 20))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(starter.name)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+
+                    Text(starter.description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                // Install button
+                Button(action: {
+                    guard !isInstallingStarter else { return }
+                    isInstallingStarter = true
+                    skillsManager.installSkill(slug: starter.slug)
+                    // Reset after a delay in case the response is slow
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                        isInstallingStarter = false
+                    }
+                }) {
+                    HStack(spacing: VSpacing.sm) {
+                        if isInstallingStarter {
+                            ProgressView()
+                                .controlSize(.mini)
+                        } else {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.system(size: 12))
+                        }
+                        Text(isInstallingStarter ? "Installing…" : "Install")
+                            .font(VFont.mono)
+                    }
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.sm)
+                    .foregroundColor(hoveredStarterInstall ? Slate._900 : Emerald._400)
+                    .background(hoveredStarterInstall ? Emerald._400 : Slate._800)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(Emerald._500.opacity(0.6), lineWidth: 1.5)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(isInstallingStarter)
+                .onHover { hovering in
+                    withAnimation(VAnimation.fast) {
+                        hoveredStarterInstall = hovering
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .background(Slate._900)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(Emerald._700.opacity(0.4), lineWidth: 1)
+            )
+
+            // Onboarding hint
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "lightbulb.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(Amber._500)
+                Text("Install this skill to get started. More skills coming soon via ClawhHub.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
         }
     }
 
