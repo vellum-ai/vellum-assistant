@@ -163,6 +163,12 @@ exports[`IPC message snapshots ClientMessage types app_data_request serializes t
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types apps_list serializes to expected JSON 1`] = `
+{
+  "type": "apps_list",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types skills_list serializes to expected JSON 1`] = `
 {
   "type": "skills_list",
@@ -643,6 +649,21 @@ exports[`IPC message snapshots ServerMessage types app_data_response serializes 
   "success": true,
   "surfaceId": "surface-001",
   "type": "app_data_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types apps_list_response serializes to expected JSON 1`] = `
+{
+  "apps": [
+    {
+      "description": "Shows weather",
+      "icon": "<svg viewBox="0 0 16 16"></svg>",
+      "id": "app-001",
+      "name": "Weather App",
+      "updatedAt": 1700000000,
+    },
+  ],
+  "type": "apps_list_response",
 }
 `;
 

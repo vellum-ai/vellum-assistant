@@ -118,6 +118,9 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     method: 'query',
     appId: 'app-001',
   },
+  apps_list: {
+    type: 'apps_list',
+  },
   skills_list: {
     type: 'skills_list',
   },
@@ -408,6 +411,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     callId: 'call-001',
     success: true,
     result: [{ id: 'rec-001', appId: 'app-001', data: { name: 'Test' }, createdAt: 1700000000, updatedAt: 1700000000 }],
+  },
+  apps_list_response: {
+    type: 'apps_list_response',
+    apps: [
+      { id: 'app-001', name: 'Weather App', description: 'Shows weather', updatedAt: 1700000000, icon: '<svg viewBox="0 0 16 16"></svg>' },
+    ],
   },
   skills_list_response: {
     type: 'skills_list_response',
