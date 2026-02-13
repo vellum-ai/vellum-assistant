@@ -277,6 +277,7 @@ export interface ToolUseStart {
   type: 'tool_use_start';
   toolName: string;
   input: Record<string, unknown>;
+  sessionId?: string;
 }
 
 export interface ToolOutputChunk {
@@ -291,6 +292,7 @@ export interface ToolResult {
   isError?: boolean;
   diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
   status?: string;
+  sessionId?: string;
 }
 
 export interface ConfirmationRequest {

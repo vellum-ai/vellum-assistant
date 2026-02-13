@@ -472,13 +472,13 @@ export class Session {
             onEvent({ type: 'assistant_thinking_delta', thinking: event.thinking });
             break;
           case 'tool_use':
-            onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input });
+            onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input, sessionId: this.conversationId });
             break;
           case 'tool_output_chunk':
             onEvent({ type: 'tool_output_chunk', chunk: event.chunk });
             break;
           case 'tool_result':
-            onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status });
+            onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status, sessionId: this.conversationId });
             pendingToolResults.set(event.toolUseId, { content: event.content, isError: event.isError });
             break;
           case 'error':
