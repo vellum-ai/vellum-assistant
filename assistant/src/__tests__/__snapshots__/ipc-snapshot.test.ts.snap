@@ -302,6 +302,23 @@ exports[`IPC message snapshots ClientMessage types apps_list serializes to expec
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types sign_bundle_payload_response serializes to expected JSON 1`] = `
+{
+  "keyId": "abc123",
+  "publicKey": "dGVzdA==",
+  "signature": "dGVzdC1zaWduYXR1cmU=",
+  "type": "sign_bundle_payload_response",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types get_signing_identity_response serializes to expected JSON 1`] = `
+{
+  "keyId": "abc123",
+  "publicKey": "dGVzdA==",
+  "type": "get_signing_identity_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
 {
   "sessionId": "sess-001",
@@ -834,5 +851,18 @@ exports[`IPC message snapshots ServerMessage types apps_list_response serializes
     },
   ],
   "type": "apps_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types sign_bundle_payload serializes to expected JSON 1`] = `
+{
+  "payload": "{"content_hashes":{},"manifest":{}}",
+  "type": "sign_bundle_payload",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types get_signing_identity serializes to expected JSON 1`] = `
+{
+  "type": "get_signing_identity",
 }
 `;

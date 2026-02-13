@@ -436,6 +436,41 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(BundleAppRequestMessage(appId: appId))
     }
 
+    // MARK: - Signing Identity
+
+    /// Handle a sign_bundle_payload request from the daemon.
+    private func handleSignBundlePayload(_ msg: SignBundlePayloadMessage) {
+        do {
+            let payloadData = Data(msg.payload.utf8)
+            let signature = try SigningIdentityManager.shared.sign(payloadData)
+            let keyId = try SigningIdentityManager.shared.getKeyId()
+            let publicKey = try SigningIdentityManager.shared.getPublicKey()
+
+            try send(SignBundlePayloadResponseMessage(
+                signature: signature.base64EncodedString(),
+                keyId: keyId,
+                publicKey: publicKey.rawRepresentation.base64EncodedString()
+            ))
+        } catch {
+            log.error("Failed to sign bundle payload: \(error.localizedDescription)")
+        }
+    }
+
+    /// Handle a get_signing_identity request from the daemon.
+    private func handleGetSigningIdentity() {
+        do {
+            let keyId = try SigningIdentityManager.shared.getKeyId()
+            let publicKey = try SigningIdentityManager.shared.getPublicKey()
+
+            try send(GetSigningIdentityResponseMessage(
+                keyId: keyId,
+                publicKey: publicKey.rawRepresentation.base64EncodedString()
+            ))
+        } catch {
+            log.error("Failed to get signing identity: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Disconnect
 
     /// Disconnect from the daemon. Stops reconnect and ping timers.
@@ -578,6 +613,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onAppsListResponse?(msg)
         case .bundleAppResponse(let msg):
             onBundleAppResponse?(msg)
+        case .signBundlePayload(let msg):
+            handleSignBundlePayload(msg)
+        case .getSigningIdentity:
+            handleGetSigningIdentity()
         default:
             break
         }

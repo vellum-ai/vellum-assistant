@@ -327,6 +327,12 @@ const handlers: DispatchMap = {
   update_trust_rule: handleUpdateTrustRule,
   bundle_app: handleBundleApp,
   apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
+  sign_bundle_payload_response: (_msg, _socket, _ctx) => {
+    // Handled by pending promise resolution in signing flow — no-op in dispatch
+  },
+  get_signing_identity_response: (_msg, _socket, _ctx) => {
+    // Handled by pending promise resolution in signing flow — no-op in dispatch
+  },
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
