@@ -10,7 +10,7 @@ on:
         default: "v0.0.0-test"
       body:
         description: "Release body for testing"
-        default: "Test release notification"
+        default: "## Features\n- Test feature one\n- Test feature two\n\n## Fixes\n- Test fix one"
 
 jobs:
   notify:
@@ -20,40 +20,75 @@ jobs:
       RELEASE_BODY: ${{ github.event.release.body || inputs.body }}
       RELEASE_URL: ${{ github.event.release.html_url || format('https://github.com/{0}/releases', github.repository) }}
     steps:
-      - name: Post to Slack #releases channel
+      - name: Format release body for Slack
+        id: format
+        run: |
+          # Convert GitHub Markdown to Slack mrkdwn and count items
+          body="${RELEASE_BODY}"
+
+          # Convert ## headings to bold
+          slack_body=$(echo "$body" | sed 's/^## \(.*\)/*\1*/g')
+
+          # Count items per section
+          features=$(echo "$body" | awk '/^## Features/,/^## /' | grep -c '^- ' || true)
+          fixes=$(echo "$body" | awk '/^## Fixes/,/^## /' | grep -c '^- ' || true)
+          infra=$(echo "$body" | awk '/^## Infrastructure/,/^## /' | grep -c '^- ' || true)
+
+          # Build summary line
+          summary=""
+          [ "$features" -gt 0 ] 2>/dev/null && summary="${features} features"
+          [ "$fixes" -gt 0 ] 2>/dev/null && summary="${summary:+$summary, }${fixes} fixes"
+          [ "$infra" -gt 0 ] 2>/dev/null && summary="${summary:+$summary, }${infra} infra changes"
+          summary="${summary:-New release}"
+
+          # Write outputs (use heredoc for multiline)
+          echo "summary=$summary" >> "$GITHUB_OUTPUT"
+          {
+            echo "slack_body<<SLACKEOF"
+            echo "$slack_body"
+            echo "SLACKEOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post summary to Slack
+        id: summary
         uses: slackapi/slack-github-action@v2.1.0
         with:
-          webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
           payload: |
-            {
-              "blocks": [
-                {
-                  "type": "header",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "🚀 Vellum Assistant ${{ env.TAG_NAME }} Released"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": ${{ toJSON(env.RELEASE_BODY) }}
-                  }
-                },
-                {
-                  "type": "actions",
-                  "elements": [
-                    {
-                      "type": "button",
-                      "text": {
-                        "type": "plain_text",
-                        "text": "View Release"
-                      },
-                      "url": "${{ env.RELEASE_URL }}"
-                    }
-                  ]
-                }
-              ]
-            }
+            channel: ${{ secrets.SLACK_RELEASES_CHANNEL_ID }}
+            unfurl_links: false
+            unfurl_media: false
+            blocks:
+              - type: header
+                text:
+                  type: plain_text
+                  text: "🚀 Vellum Assistant ${{ env.TAG_NAME }} Released"
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: "${{ steps.format.outputs.summary }}"
+              - type: actions
+                elements:
+                  - type: button
+                    text:
+                      type: plain_text
+                      text: "View Release"
+                    url: "${{ env.RELEASE_URL }}"
+                    style: primary
+
+      - name: Post changelog in thread
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_RELEASES_CHANNEL_ID }}
+            thread_ts: "${{ fromJSON(steps.summary.outputs.response).ts }}"
+            unfurl_links: false
+            unfurl_media: false
+            blocks:
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: ${{ toJSON(steps.format.outputs.slack_body) }}
