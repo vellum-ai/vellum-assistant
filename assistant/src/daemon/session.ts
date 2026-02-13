@@ -394,10 +394,15 @@ export class Session {
     let yieldedForHandoff = false;
 
     try {
-      await getHookManager().trigger('pre-message', {
+      const preMessageResult = await getHookManager().trigger('pre-message', {
         sessionId: this.conversationId,
         messagePreview: content.slice(0, 200),
       });
+
+      if (preMessageResult.blocked) {
+        onEvent({ type: 'error', message: `Message blocked by hook "${preMessageResult.blockedBy}"` });
+        return;
+      }
 
       const isFirstMessage = this.messages.length === 1;
 
