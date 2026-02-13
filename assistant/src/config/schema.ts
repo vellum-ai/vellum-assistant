@@ -190,7 +190,7 @@ export const MemoryRetrievalConfigSchema = z.object({
     .number({ error: 'memory.retrieval.maxInjectTokens must be a number' })
     .int('memory.retrieval.maxInjectTokens must be an integer')
     .positive('memory.retrieval.maxInjectTokens must be a positive integer')
-    .default(1800),
+    .default(10000),
   reranking: MemoryRerankingConfigSchema.default({
     enabled: true,
     model: 'claude-haiku-4-5-20251001',

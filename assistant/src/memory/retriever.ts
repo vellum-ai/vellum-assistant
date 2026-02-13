@@ -10,7 +10,7 @@ import { getQdrantClient } from './qdrant-client.js';
 import { memoryEntities, memoryItemEntities, memoryItems, memorySegments } from './schema.js';
 
 const log = getLogger('memory-retriever');
-const MEMORY_RECALL_MARKER = '[Memory Recall v1]';
+const MEMORY_RECALL_MARKER = '[Memory Recall v2]';
 
 type CandidateType = 'segment' | 'item' | 'summary';
 
@@ -19,6 +19,7 @@ interface Candidate {
   type: CandidateType;
   id: string;
   text: string;
+  kind: string;
   confidence: number;
   importance: number;
   createdAt: number;
@@ -338,6 +339,7 @@ function lexicalSearch(query: string, limit: number, excludedMessageIds: string[
       type: 'segment' as CandidateType,
       id: row.segment_id,
       text: row.text,
+      kind: 'segment',
       confidence: 0.55,
       importance: 0.5,
       createdAt: row.created_at,
@@ -385,6 +387,7 @@ async function semanticSearch(
         type: 'item',
         id: payload.target_id,
         text: payload.text,
+        kind: payload.kind ?? 'fact',
         confidence: payload.confidence ?? 0.6,
         importance: payload.importance ?? 0.5,
         createdAt: payload.last_seen_at ?? createdAt,
@@ -399,6 +402,7 @@ async function semanticSearch(
         type: 'summary',
         id: payload.target_id,
         text: payload.text,
+        kind: payload.kind === 'global' ? 'global_summary' : 'conversation_summary',
         confidence: 0.6,
         importance: 0.6,
         createdAt: payload.last_seen_at ?? createdAt,
@@ -413,6 +417,7 @@ async function semanticSearch(
         type: 'segment',
         id: payload.target_id,
         text: payload.text,
+        kind: 'segment',
         confidence: 0.55,
         importance: 0.5,
         createdAt,
@@ -447,6 +452,7 @@ function recencySearch(conversationId: string, limit: number, excludedMessageIds
     type: 'segment' as CandidateType,
     id: row.id,
     text: row.text,
+    kind: 'segment',
     confidence: 0.55,
     importance: 0.5,
     createdAt: row.createdAt,
@@ -547,7 +553,8 @@ function entitySearch(query: string): Candidate[] {
     key: `item:${item.id}`,
     type: 'item' as CandidateType,
     id: item.id,
-    text: `[${item.kind}] ${item.subject}: ${item.statement}`,
+    text: `${item.subject}: ${item.statement}`,
+    kind: item.kind,
     confidence: item.confidence,
     importance: item.importance ?? 0.5,
     createdAt: item.lastSeenAt,
@@ -772,22 +779,70 @@ function trimToTokenBudget(candidates: Candidate[], maxTokens: number, marker: s
 }
 
 /**
- * Build injected text with attention-aware ordering.
+ * Section header mapping: group candidate kinds into logical sections.
+ */
+const SECTION_MAP: Record<string, string> = {
+  preference: 'Key Facts & Preferences',
+  profile: 'Key Facts & Preferences',
+  opinion: 'Key Facts & Preferences',
+  decision: 'Relevant Context',
+  project: 'Relevant Context',
+  fact: 'Relevant Context',
+  instruction: 'Relevant Context',
+  relationship: 'Relevant Context',
+  event: 'Relevant Context',
+  todo: 'Relevant Context',
+  constraint: 'Relevant Context',
+  conversation_summary: 'Recent Summaries',
+  global_summary: 'Recent Summaries',
+};
+
+/** Ordered section names for stable output. */
+const SECTION_ORDER = [
+  'Key Facts & Preferences',
+  'Relevant Context',
+  'Recent Summaries',
+  'Other',
+];
+
+/**
+ * Build injected text with structured grouping and temporal grounding.
  *
- * Based on "Lost in the Middle" (Liu et al., Stanford 2023): LLMs exhibit
- * U-shaped attention — beginning and end of context receive 20-40% more
- * attention than the middle. We place the top-ranked candidates at the
- * beginning and end to maximize signal.
+ * Groups candidates by kind into semantic sections, applies attention-aware
+ * ordering within each section (highest-scored items at beginning and end),
+ * and appends relative time from `createdAt` for temporal grounding.
  *
- * Layout: [#1, #2, ...middle ranked low-to-high..., #4, #3]
- * - Positions 0,1 (beginning): highest ranked
- * - Last positions (end): 3rd and 4th highest
- * - Middle: remaining items ordered from lowest to highest rank
+ * Layout per section uses "Lost in the Middle" (Liu et al., Stanford 2023)
+ * ordering — see applyAttentionOrdering().
  */
 function buildInjectedText(candidates: Candidate[], marker: string): string {
   if (candidates.length === 0) return '';
-  const ordered = applyAttentionOrdering(candidates);
-  return `${marker}\n${ordered.map(formatCandidateLine).join('\n')}`;
+
+  // Group candidates by section
+  const groups = new Map<string, Candidate[]>();
+  for (const candidate of candidates) {
+    const section = SECTION_MAP[candidate.kind] ?? 'Other';
+    let group = groups.get(section);
+    if (!group) {
+      group = [];
+      groups.set(section, group);
+    }
+    group.push(candidate);
+  }
+
+  // Build output in stable section order, applying attention-aware ordering within each section
+  const parts: string[] = [marker];
+  for (const section of SECTION_ORDER) {
+    const group = groups.get(section);
+    if (!group || group.length === 0) continue;
+    parts.push('');
+    parts.push(`## ${section}`);
+    const ordered = applyAttentionOrdering(group);
+    for (const candidate of ordered) {
+      parts.push(formatCandidateLine(candidate));
+    }
+  }
+  return parts.join('\n');
 }
 
 function applyAttentionOrdering(candidates: Candidate[]): Candidate[] {
@@ -814,7 +869,36 @@ function applyAttentionOrdering(candidates: Candidate[]): Candidate[] {
 }
 
 function formatCandidateLine(candidate: Candidate): string {
-  return `- [${candidate.type}:${candidate.id}] ${truncate(candidate.text, 320)}`;
+  const timeAgo = formatRelativeTime(candidate.createdAt);
+  return `- [${candidate.kind}] ${truncate(candidate.text, 320)} (${timeAgo})`;
+}
+
+/**
+ * Convert an epoch-ms timestamp to a human-readable relative time string.
+ */
+export function formatRelativeTime(epochMs: number): string {
+  const elapsed = Math.max(0, Date.now() - epochMs);
+  const hours = elapsed / (1000 * 60 * 60);
+  if (hours < 1) return 'just now';
+  if (hours < 24) {
+    const h = Math.floor(hours);
+    return `${h} hour${h === 1 ? '' : 's'} ago`;
+  }
+  const days = hours / 24;
+  if (days < 7) {
+    const d = Math.floor(days);
+    return `${d} day${d === 1 ? '' : 's'} ago`;
+  }
+  if (days < 30) {
+    const w = Math.floor(days / 7);
+    return `${w} week${w === 1 ? '' : 's'} ago`;
+  }
+  if (days < 365) {
+    const m = Math.floor(days / 30);
+    return `${m} month${m === 1 ? '' : 's'} ago`;
+  }
+  const y = Math.floor(days / 365);
+  return `${y} year${y === 1 ? '' : 's'} ago`;
 }
 
 function markItemUsage(candidates: Candidate[]): void {
