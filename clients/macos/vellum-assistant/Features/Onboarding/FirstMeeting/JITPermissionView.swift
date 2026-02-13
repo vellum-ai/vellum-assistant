@@ -12,6 +12,7 @@ struct JITPermissionView: View {
             // Dimmed backdrop
             Color.black.opacity(showContent ? 0.5 : 0)
                 .ignoresSafeArea()
+                .allowsHitTesting(manager.activePermissionRequest != nil)
                 .onTapGesture {
                     dismiss()
                 }
@@ -27,6 +28,16 @@ struct JITPermissionView: View {
             }
         }
         .animation(VAnimation.panel, value: manager.activePermissionRequest != nil)
+        .onAppear {
+            if manager.activePermissionRequest != nil {
+                showContent = false
+                iconScale = 1.0
+                withAnimation(.easeOut(duration: 0.4).delay(0.1)) {
+                    showContent = true
+                }
+                startIconBreathing()
+            }
+        }
         .onChange(of: manager.activePermissionRequest) { _, newValue in
             if newValue != nil {
                 showContent = false
