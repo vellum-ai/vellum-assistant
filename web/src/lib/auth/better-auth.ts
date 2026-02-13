@@ -1,15 +1,13 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@/lib/db";
-import * as schema from "@/lib/schema";
 
 // Initialize better-auth with Drizzle adapter
+// Note: Not passing custom schema - BetterAuth will auto-generate its own tables
+// (user, session, account, verification) with the correct structure
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "pg",
-    schema: {
-      ...schema,
-    },
   }),
   emailAndPassword: {
     enabled: true,
