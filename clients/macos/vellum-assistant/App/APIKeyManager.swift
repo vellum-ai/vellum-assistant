@@ -5,32 +5,39 @@ extension Notification.Name {
     static let apiKeyManagerDidChange = Notification.Name("APIKeyManager.didChange")
 }
 
-/// Manages the Anthropic API key in the macOS login keychain.
+/// Manages API keys in the macOS login keychain.
 ///
 /// Uses the `security` CLI tool for writes so entries are created without
 /// per-application ACLs — this lets the daemon (which also uses the `security`
 /// CLI) read the same keychain item.
 enum APIKeyManager {
-    /// Shared with the daemon (keychain.ts uses service "vellum-assistant", account "anthropic").
+    /// Shared with the daemon (keychain.ts uses service "vellum-assistant", account = provider name).
     private static let service = "vellum-assistant"
-    private static let account = "anthropic"
 
     // Legacy keychain entry (pre-daemon era). Migrated on first access.
     private static let legacyService = "com.vellum-assistant.anthropic-api-key"
     private static let legacyAccount = "anthropic-api-key"
 
-    static func getKey() -> String? {
-        migrateIfNeeded()
-        return cliGetKey(service: service, account: account)
+    // MARK: - Anthropic (convenience wrappers for backward compatibility)
+
+    static func getKey() -> String? { getKey(for: "anthropic") }
+    static func setKey(_ key: String) { setKey(key, for: "anthropic") }
+    static func deleteKey() { deleteKey(for: "anthropic") }
+
+    // MARK: - Generic provider access
+
+    static func getKey(for provider: String) -> String? {
+        if provider == "anthropic" { migrateIfNeeded() }
+        return cliGetKey(service: service, account: provider)
     }
 
-    static func setKey(_ key: String) {
-        cliSetKey(service: service, account: account, value: key)
+    static func setKey(_ key: String, for provider: String) {
+        cliSetKey(service: service, account: provider, value: key)
         notifyKeyDidChange()
     }
 
-    static func deleteKey() {
-        cliDeleteKey(service: service, account: account)
+    static func deleteKey(for provider: String) {
+        cliDeleteKey(service: service, account: provider)
         notifyKeyDidChange()
     }
 
@@ -82,7 +89,7 @@ enum APIKeyManager {
     /// One-time migration from the legacy keychain entry to the daemon-shared entry.
     private static func migrateIfNeeded() {
         // Skip if new entry already exists
-        if cliGetKey(service: service, account: account) != nil { return }
+        if cliGetKey(service: service, account: "anthropic") != nil { return }
 
         // Read from legacy entry (uses Security.framework since the old entry was created with SecItemAdd)
         let legacyQuery: [String: Any] = [
@@ -98,7 +105,7 @@ enum APIKeyManager {
               let key = String(data: data, encoding: .utf8) else { return }
 
         // Write to new entry via CLI (no ACL restrictions)
-        cliSetKey(service: service, account: account, value: key)
+        cliSetKey(service: service, account: "anthropic", value: key)
 
         // Delete legacy entry
         let deleteQuery: [String: Any] = [
