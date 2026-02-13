@@ -1,0 +1,50 @@
+import { existsSync, readdirSync, readFileSync, cpSync, chmodSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Dirent } from 'node:fs';
+import { getHooksDir } from '../util/platform.js';
+import { ensureHookInConfig } from './config.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('hooks-templates');
+
+/**
+ * Install bundled hook templates into the user's hooks directory.
+ * Templates are copied from `assistant/hook-templates/` to `~/.vellum/hooks/`.
+ * - Never overwrites existing hooks (user modifications are preserved).
+ * - Newly installed hooks are disabled by default.
+ */
+export function installTemplates(): void {
+  const templatesDir = join(import.meta.dirname ?? __dirname, '../../hook-templates');
+  if (!existsSync(templatesDir)) return;
+
+  const hooksDir = getHooksDir();
+  const entries = readdirSync(templatesDir, { withFileTypes: true }) as Dirent[];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+
+    const targetDir = join(hooksDir, entry.name);
+    if (existsSync(targetDir)) continue; // Never overwrite user hooks
+
+    try {
+      // Copy template directory
+      cpSync(join(templatesDir, entry.name), targetDir, { recursive: true });
+
+      // Make script executable
+      const manifestPath = join(targetDir, 'hook.json');
+      if (existsSync(manifestPath)) {
+        const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+        if (manifest.script) {
+          chmodSync(join(targetDir, manifest.script), 0o755);
+        }
+      }
+
+      // Add to config (disabled by default)
+      ensureHookInConfig(entry.name, { enabled: false });
+
+      log.info({ hook: entry.name }, 'Installed hook template (disabled by default)');
+    } catch (err) {
+      log.warn({ err, hook: entry.name }, 'Failed to install hook template');
+    }
+  }
+}
