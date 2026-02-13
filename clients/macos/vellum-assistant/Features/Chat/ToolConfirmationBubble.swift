@@ -185,7 +185,7 @@ struct ToolConfirmationBubble: View {
                         .foregroundColor(VColor.textSecondary)
                     Picker("", selection: $selectedPattern) {
                         ForEach(confirmation.allowlistOptions, id: \.pattern) { option in
-                            Text(option.description ?? option.label).tag(option.pattern)
+                            Text(option.label).tag(option.pattern)
                         }
                     }
                     .pickerStyle(.menu)
@@ -196,8 +196,8 @@ struct ToolConfirmationBubble: View {
                     Text("Pattern:")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
-                    Text(single.description ?? single.label)
-                        .font(VFont.caption)
+                    Text(single.label)
+                        .font(VFont.monoSmall)
                         .foregroundColor(VColor.textPrimary)
                 }
             }
