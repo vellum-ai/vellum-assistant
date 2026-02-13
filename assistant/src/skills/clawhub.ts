@@ -207,6 +207,71 @@ export async function clawhubExplore(opts?: { limit?: number; sort?: string }): 
   }
 }
 
+export interface ClawhubInspectResult {
+  skill: { slug: string; displayName: string; summary: string };
+  owner: { handle: string; displayName: string; image?: string } | null;
+  stats: { stars: number; installs: number; downloads: number; versions: number } | null;
+  createdAt: number | null;
+  updatedAt: number | null;
+  latestVersion: { version: string; changelog?: string } | null;
+  files: Array<{ path: string; size: number; contentType?: string }> | null;
+  skillMdContent: string | null;
+}
+
+export async function clawhubInspect(slug: string): Promise<{ data?: ClawhubInspectResult; error?: string }> {
+  if (!validateSlug(slug)) {
+    return { error: `Invalid skill slug: ${slug}` };
+  }
+
+  try {
+    const result = await runClawhub(['inspect', slug, '--json', '--files', '--file', 'SKILL.md']);
+    if (result.exitCode !== 0) {
+      const error = result.stderr.trim() || result.stdout.trim() || 'Unknown error';
+      return { error };
+    }
+    try {
+      const parsed = JSON.parse(result.stdout);
+      // Normalize the raw inspect response to our interface
+      const data: ClawhubInspectResult = {
+        skill: {
+          slug: parsed.slug ?? slug,
+          displayName: parsed.displayName ?? parsed.name ?? slug,
+          summary: parsed.summary ?? parsed.description ?? '',
+        },
+        owner: parsed.owner ? {
+          handle: parsed.owner.handle ?? parsed.owner.username ?? '',
+          displayName: parsed.owner.displayName ?? parsed.owner.name ?? '',
+          image: parsed.owner.image ?? parsed.owner.avatar ?? undefined,
+        } : null,
+        stats: parsed.stats ? {
+          stars: parsed.stats.stars ?? 0,
+          installs: parsed.stats.installsAllTime ?? parsed.stats.installs ?? 0,
+          downloads: parsed.stats.downloadsAllTime ?? parsed.stats.downloads ?? 0,
+          versions: parsed.stats.versions ?? 0,
+        } : null,
+        createdAt: parsed.createdAt ?? null,
+        updatedAt: parsed.updatedAt ?? null,
+        latestVersion: parsed.latestVersion ? {
+          version: parsed.latestVersion.version ?? '',
+          changelog: parsed.latestVersion.changelog ?? undefined,
+        } : null,
+        files: parsed.files ? parsed.files.map((f: Record<string, unknown>) => ({
+          path: (f.path as string) ?? '',
+          size: (f.size as number) ?? 0,
+          contentType: (f.contentType as string) ?? undefined,
+        })) : null,
+        skillMdContent: parsed.skillMdContent ?? parsed.fileContents?.['SKILL.md'] ?? null,
+      };
+      return { data };
+    } catch {
+      return { error: 'Failed to parse inspect output' };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { error: message };
+  }
+}
+
 export async function clawhubCheckUpdates(): Promise<ClawhubUpdateCheckItem[]> {
   // This is a placeholder -- clawhub doesn't have a dedicated check-updates command
   // For now return empty; will be implemented when the CLI supports it

@@ -160,6 +160,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'skills_search',
     query: 'weather',
   },
+  skills_inspect: {
+    type: 'skills_inspect',
+    slug: 'clawhub/my-skill',
+  },
   suggestion_request: {
     type: 'suggestion_request',
     sessionId: 'sess-001',
@@ -439,6 +443,20 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'skill_detail_response',
     skillId: 'my-skill',
     body: '# Skill content\n\nDo the thing.',
+  },
+  skills_inspect_response: {
+    type: 'skills_inspect_response',
+    slug: 'clawhub/my-skill',
+    data: {
+      skill: { slug: 'clawhub/my-skill', displayName: 'My Skill', summary: 'A test skill' },
+      owner: { handle: 'clawhub', displayName: 'ClaWHub' },
+      stats: { stars: 42, installs: 1000, downloads: 5000, versions: 3 },
+      createdAt: 1700000000,
+      updatedAt: 1700001000,
+      latestVersion: { version: '1.2.0', changelog: 'Bug fixes' },
+      files: [{ path: 'SKILL.md', size: 1024 }],
+      skillMdContent: '# My Skill\n\nDoes things.',
+    },
   },
   suggestion_response: {
     type: 'suggestion_response',
