@@ -348,11 +348,12 @@ export class RuntimeHttpServer {
     const textBlock = response.content.find((b) => b.type === 'text');
     const raw = textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
 
-    if (!raw || raw.length > 50) return null;
+    if (!raw) return null;
 
-    // Take first line only
+    // Take first line only, then enforce the length cap
     const firstLine = raw.split('\n')[0].trim();
-    return firstLine || null;
+    if (!firstLine || firstLine.length > 50) return null;
+    return firstLine;
   }
 
   private async handleSendMessage(assistantId: string, req: Request): Promise<Response> {
