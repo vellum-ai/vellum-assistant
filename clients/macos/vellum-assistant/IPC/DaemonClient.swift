@@ -243,12 +243,25 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Send
 
-    /// Send a message to the daemon. Fire-and-forget.
+    enum SendError: Error, LocalizedError {
+        case notConnected
+
+        var errorDescription: String? {
+            switch self {
+            case .notConnected:
+                return "Cannot send: not connected to daemon"
+            }
+        }
+    }
+
+    /// Send a message to the daemon.
     /// Encodes the message as JSON, appends a newline, and writes to the connection.
+    /// Throws `SendError.notConnected` when the connection is nil so callers can
+    /// distinguish a silently-dropped message from a successful write.
     func send<T: Encodable>(_ message: T) throws {
         guard let conn = connection else {
             log.warning("Cannot send: not connected")
-            return
+            throw SendError.notConnected
         }
 
         var data = try encoder.encode(message)
