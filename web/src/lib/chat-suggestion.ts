@@ -27,7 +27,7 @@ export interface ShouldShowSuggestionParams {
  * - Truncates to `maxLen` characters.
  * - Returns `null` for empty / whitespace-only input.
  */
-export function sanitizeSuggestion(raw: string, maxLen = 200): string | null {
+export function sanitizeSuggestion(raw: string, maxLen = 50): string | null {
   const firstLine = raw.split("\n")[0].trim();
   if (firstLine.length === 0) return null;
   return firstLine.length <= maxLen ? firstLine : firstLine.slice(0, maxLen);
