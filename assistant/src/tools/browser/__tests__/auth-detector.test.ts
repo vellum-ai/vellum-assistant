@@ -63,6 +63,14 @@ describe('identifyService', () => {
   it('returns undefined for unknown domains', () => {
     expect(identifyService('https://example.com/dashboard')).toBeUndefined();
   });
+
+  it('does not match service patterns in query parameters', () => {
+    expect(identifyService('https://example.com/page?redirect=https://accounts.google.com')).toBeUndefined();
+  });
+
+  it('returns undefined for invalid URLs', () => {
+    expect(identifyService('not-a-url')).toBeUndefined();
+  });
 });
 
 // ── URL auth-pattern matching ────────────────────────────────────────
@@ -103,6 +111,21 @@ describe('isAuthUrl', () => {
     expect(isAuthUrl('https://example.com/dashboard')).toBe(false);
     expect(isAuthUrl('https://example.com/blog/authentication-tips')).toBe(false);
     expect(isAuthUrl('https://example.com/')).toBe(false);
+  });
+
+  it('does not false-positive on auth-like words in query parameters', () => {
+    expect(isAuthUrl('https://example.com/dashboard?redirect=/login')).toBe(false);
+    expect(isAuthUrl('https://example.com/home?next=/signin')).toBe(false);
+    expect(isAuthUrl('https://example.com/page?return_to=/auth/callback')).toBe(false);
+  });
+
+  it('does not false-positive on auth-like words in URL fragments', () => {
+    expect(isAuthUrl('https://example.com/dashboard#/login')).toBe(false);
+    expect(isAuthUrl('https://example.com/app#/auth/settings')).toBe(false);
+  });
+
+  it('returns false for invalid URLs', () => {
+    expect(isAuthUrl('not-a-url')).toBe(false);
   });
 });
 
