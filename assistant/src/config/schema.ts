@@ -207,6 +207,33 @@ export const MemoryConfigSchema = z.object({
   }),
 });
 
+const VALID_BUDGET_PERIODS = ['day', 'week', 'month'] as const;
+const VALID_BUDGET_ACTIONS = ['warn', 'block'] as const;
+
+export const BudgetRuleSchema = z.object({
+  period: z
+    .enum(VALID_BUDGET_PERIODS, {
+      error: `costControls.budgets[].period must be one of: ${VALID_BUDGET_PERIODS.join(', ')}`,
+    }),
+  amountUsd: z
+    .number({ error: 'costControls.budgets[].amountUsd must be a number' })
+    .finite('costControls.budgets[].amountUsd must be finite')
+    .positive('costControls.budgets[].amountUsd must be a positive number'),
+  action: z
+    .enum(VALID_BUDGET_ACTIONS, {
+      error: `costControls.budgets[].action must be one of: ${VALID_BUDGET_ACTIONS.join(', ')}`,
+    }),
+});
+
+export const CostControlsConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'costControls.enabled must be a boolean' })
+    .default(false),
+  budgets: z
+    .array(BudgetRuleSchema)
+    .default([]),
+});
+
 export const ModelPricingOverrideSchema = z.object({
   provider: z.string({ error: 'pricingOverrides[].provider must be a string' }),
   modelPattern: z.string({ error: 'pricingOverrides[].modelPattern must be a string' }),
@@ -302,6 +329,10 @@ export const AssistantConfigSchema = z.object({
   pricingOverrides: z
     .array(ModelPricingOverrideSchema)
     .default([]),
+  costControls: CostControlsConfigSchema.default({
+    enabled: false,
+    budgets: [],
+  }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
     ctx.addIssue({
@@ -334,3 +365,5 @@ export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
 export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
+export type BudgetRule = z.infer<typeof BudgetRuleSchema>;
+export type CostControlsConfig = z.infer<typeof CostControlsConfigSchema>;
