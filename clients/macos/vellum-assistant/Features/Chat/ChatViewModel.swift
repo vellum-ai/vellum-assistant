@@ -538,7 +538,14 @@ final class ChatViewModel: ObservableObject {
                 text: "",
                 confirmation: confirmation
             )
-            messages.append(confirmMsg)
+            // Insert before the current streaming assistant message so the
+            // confirmation appears between the user message and the response.
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages.insert(confirmMsg, at: index)
+            } else {
+                messages.append(confirmMsg)
+            }
 
         default:
             break
