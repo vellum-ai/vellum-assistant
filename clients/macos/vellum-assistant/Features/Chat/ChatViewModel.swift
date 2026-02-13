@@ -685,6 +685,36 @@ final class ChatViewModel: ObservableObject {
                 messages.append(newMsg)
             }
 
+        case .uiSurfaceUpdate(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            // Find the inline surface across all messages and update its data
+            for msgIndex in messages.indices {
+                if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
+                    let existing = messages[msgIndex].inlineSurfaces[surfaceIndex]
+                    let tempSurface = Surface(id: existing.id, sessionId: msg.sessionId, type: existing.surfaceType, title: existing.title, data: existing.data, actions: existing.actions)
+                    if let updated = tempSurface.updated(with: msg) {
+                        messages[msgIndex].inlineSurfaces[surfaceIndex] = InlineSurfaceData(
+                            id: updated.id,
+                            surfaceType: updated.type,
+                            title: updated.title,
+                            data: updated.data,
+                            actions: updated.actions
+                        )
+                    }
+                    return
+                }
+            }
+
+        case .uiSurfaceDismiss(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            // Find and remove the inline surface across all messages
+            for msgIndex in messages.indices {
+                if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
+                    messages[msgIndex].inlineSurfaces.remove(at: surfaceIndex)
+                    return
+                }
+            }
+
         default:
             break
         }
