@@ -44,7 +44,7 @@ create-dmg \
   --icon-size 128 \
   --text-size 10 \
   --icon "Vellum.app" 175 190 \
-  --icon "Applications" 485 190 \
+  --icon "Applications" 530 190 \
   --hide-extension "Vellum.app" \
   --no-internet-enable \
   "$DMG_PATH" \
