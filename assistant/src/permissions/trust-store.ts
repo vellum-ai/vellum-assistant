@@ -162,6 +162,9 @@ export function updateRule(
   id: string,
   updates: { tool?: string; pattern?: string; scope?: string; decision?: 'allow' | 'deny'; priority?: number },
 ): TrustRule {
+  const defaultIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
+  if (defaultIds.has(id)) throw new Error(`Cannot modify default trust rule: ${id}`);
+
   // Re-read from disk to avoid lost updates from concurrent modifications.
   cachedRules = null;
   const rules = [...getRules()];
@@ -182,6 +185,9 @@ export function updateRule(
 }
 
 export function removeRule(id: string): boolean {
+  const defaultIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
+  if (defaultIds.has(id)) throw new Error(`Cannot remove default trust rule: ${id}`);
+
   // Re-read from disk to avoid lost updates from concurrent modifications.
   cachedRules = null;
   const rules = [...getRules()];
