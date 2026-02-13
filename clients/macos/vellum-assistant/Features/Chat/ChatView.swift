@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -201,55 +202,16 @@ struct ChatView: View {
             }
 
             HStack(spacing: VSpacing.sm) {
-                // Text field with ghost suffix overlay
-                ZStack(alignment: .leading) {
-                    TextField("", text: $inputText, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineLimit(1...8)
-                        .disabled(!hasAPIKey)
-                        .accessibilityLabel("Message")
-                        .onKeyPress(.tab, phases: .down) { keyPress in
-                            if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
-                                onAcceptSuggestion()
-                                return .handled
-                            }
-                            return .ignored
-                        }
-                        .onKeyPress(.return, phases: .down) { keyPress in
-                            if keyPress.modifiers.contains(.shift) { return .ignored }
-                            if canSend { onSend() }
-                            return .handled
-                        }
-                        .onKeyPress(characters: CharacterSet(charactersIn: "v"), phases: .down) { keyPress in
-                            if keyPress.modifiers.contains(.command) {
-                                onPaste()
-                                return .ignored
-                            }
-                            return .ignored
-                        }
-                        .onSubmit { if canSend { onSend() } }
-
-                    if let ghostSuffix {
-                        Text(inputText + ghostSuffix)
-                            .font(VFont.body)
-                            .foregroundColor(.clear)
-                            .lineLimit(1...8)
-                            .overlay(alignment: .leading) {
-                                HStack(spacing: 0) {
-                                    Text(inputText)
-                                        .font(VFont.body)
-                                        .foregroundColor(.clear)
-                                    Text(ghostSuffix)
-                                        .font(VFont.body)
-                                        .foregroundColor(VColor.textMuted.opacity(0.5))
-                                }
-                            }
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
-                }
+                ComposerTextView(
+                    text: $inputText,
+                    ghostSuffix: ghostSuffix,
+                    isDisabled: !hasAPIKey,
+                    maxVisibleLines: 3,
+                    onReturn: { if canSend { onSend() } },
+                    onTab: { onAcceptSuggestion() },
+                    onPaste: { onPaste() }
+                )
+                .accessibilityLabel("Message")
 
                 // Attachment / Stop button
                 if isSending {
@@ -827,6 +789,190 @@ private struct MicrophoneButton: View {
         .onAppear {
             isPulsing = isRecording
         }
+    }
+}
+
+// MARK: - Scrollable Composer Text View
+
+private struct ComposerTextView: NSViewRepresentable {
+    @Binding var text: String
+    var ghostSuffix: String?
+    var isDisabled: Bool
+    var maxVisibleLines: Int
+    var onReturn: () -> Void
+    var onTab: () -> Void
+    var onPaste: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeNSView(context: Context) -> ComposerContainerView {
+        let container = ComposerContainerView(maxVisibleLines: maxVisibleLines)
+        container.textView.delegate = context.coordinator
+        container.textView.onReturnAction = onReturn
+        container.textView.onTabAction = onTab
+        container.textView.onPasteAction = onPaste
+        context.coordinator.containerView = container
+        return container
+    }
+
+    func updateNSView(_ container: ComposerContainerView, context: Context) {
+        let textView = container.textView
+        textView.onReturnAction = onReturn
+        textView.onTabAction = onTab
+        textView.onPasteAction = onPaste
+        textView.isEditable = !isDisabled
+        textView.ghostSuffix = ghostSuffix
+        if textView.string != text {
+            textView.string = text
+            textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
+        }
+        textView.needsDisplay = true
+        container.invalidateIntrinsicContentSize()
+    }
+
+    class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: ComposerTextView
+        weak var containerView: ComposerContainerView?
+
+        init(_ parent: ComposerTextView) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+            containerView?.invalidateIntrinsicContentSize()
+        }
+    }
+}
+
+private class ComposerContainerView: NSView {
+    let scrollView: NSScrollView
+    let textView: ComposerNSTextView
+    private let maxVisibleLines: Int
+
+    init(maxVisibleLines: Int) {
+        self.maxVisibleLines = maxVisibleLines
+        self.scrollView = NSScrollView()
+        self.textView = ComposerNSTextView()
+        super.init(frame: .zero)
+
+        let bodyFont = NSFont(name: "DMMono-Regular", size: 13) ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let textColor = NSColor(srgbRed: 0xF8 / 255.0, green: 0xFA / 255.0, blue: 0xFC / 255.0, alpha: 1.0)
+
+        textView.font = bodyFont
+        textView.textColor = textColor
+        textView.insertionPointColor = textColor
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.lineBreakMode = .byWordWrapping
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainerInset = NSSize(width: 0, height: 2)
+
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
+
+    override var intrinsicContentSize: NSSize {
+        guard let font = textView.font else {
+            return NSSize(width: NSView.noIntrinsicMetric, height: 20)
+        }
+        let lineHeight = ceil(font.ascender + abs(font.descender) + font.leading)
+        let insetHeight = textView.textContainerInset.height * 2
+        let maxHeight = lineHeight * CGFloat(maxVisibleLines) + insetHeight
+
+        guard let lm = textView.layoutManager, let tc = textView.textContainer else {
+            return NSSize(width: NSView.noIntrinsicMetric, height: lineHeight + insetHeight)
+        }
+        lm.ensureLayout(for: tc)
+        let contentHeight = lm.usedRect(for: tc).height + insetHeight
+        let height = min(max(contentHeight, lineHeight + insetHeight), maxHeight)
+        return NSSize(width: NSView.noIntrinsicMetric, height: height)
+    }
+}
+
+private class ComposerNSTextView: NSTextView {
+    var onReturnAction: (() -> Void)?
+    var onTabAction: (() -> Void)?
+    var onPasteAction: (() -> Void)?
+    var ghostSuffix: String?
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 && !event.modifierFlags.contains(.shift) {
+            onReturnAction?()
+            return
+        }
+        if event.keyCode == 48 && !event.modifierFlags.contains(.shift) {
+            if ghostSuffix != nil {
+                onTabAction?()
+                return
+            }
+        }
+        super.keyDown(with: event)
+    }
+
+    override func paste(_ sender: Any?) {
+        onPasteAction?()
+        super.paste(sender)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard let ghost = ghostSuffix, !ghost.isEmpty,
+              let lm = layoutManager,
+              let tc = textContainer,
+              let font = font else { return }
+
+        let ghostColor = NSColor(srgbRed: 100 / 255.0, green: 116 / 255.0, blue: 139 / 255.0, alpha: 0.5)
+        let ghostAttrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: ghostColor,
+        ]
+
+        lm.ensureLayout(for: tc)
+        let textLength = (string as NSString).length
+        let origin = textContainerOrigin
+
+        let drawPoint: NSPoint
+        if textLength == 0 {
+            drawPoint = NSPoint(x: origin.x, y: origin.y)
+        } else if string.hasSuffix("\n"), lm.extraLineFragmentRect != .zero {
+            let extraRect = lm.extraLineFragmentRect
+            drawPoint = NSPoint(x: origin.x, y: origin.y + extraRect.minY)
+        } else {
+            let lastCharRange = NSRange(location: textLength - 1, length: 1)
+            let lastGlyphRange = lm.glyphRange(forCharacterRange: lastCharRange, actualCharacterRange: nil)
+            let boundingRect = lm.boundingRect(forGlyphRange: lastGlyphRange, in: tc)
+            drawPoint = NSPoint(x: origin.x + boundingRect.maxX, y: origin.y + boundingRect.minY)
+        }
+
+        ghost.draw(at: drawPoint, withAttributes: ghostAttrs)
     }
 }
 
