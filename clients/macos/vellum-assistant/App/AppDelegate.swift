@@ -228,6 +228,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             return true
         }
+        toolConfirmationManager.onAddTrustRule = { [weak self] toolName, pattern, scope, decision in
+            do {
+                try self?.daemonClient.sendAddTrustRule(
+                    toolName: toolName,
+                    pattern: pattern,
+                    scope: scope,
+                    decision: decision
+                )
+            } catch {
+                log.error("Failed to send add_trust_rule: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func setupWindowObserver() {
