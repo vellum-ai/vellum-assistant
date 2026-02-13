@@ -82,6 +82,7 @@ final class OnboardingState {
            let variant = OnboardingVariant(rawValue: rawVariant) {
             onboardingVariant = variant
         }
+        firstMeetingCrackProgress = CGFloat(UserDefaults.standard.double(forKey: "onboarding.firstMeetingCrackProgress"))
     }
 
     func advance() {
@@ -99,10 +100,11 @@ final class OnboardingState {
         UserDefaults.standard.set(hasHatched, forKey: "onboarding.hatched")
         UserDefaults.standard.set(interviewCompleted, forKey: "onboarding.interviewCompleted")
         UserDefaults.standard.set(onboardingVariant.rawValue, forKey: "onboarding.variant")
+        UserDefaults.standard.set(Double(firstMeetingCrackProgress), forKey: "onboarding.firstMeetingCrackProgress")
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
