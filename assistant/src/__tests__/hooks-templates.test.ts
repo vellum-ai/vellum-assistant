@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, statSync, readdirSync, cpSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -8,7 +8,7 @@ const testDir = join(tmpdir(), `hooks-templates-test-${Date.now()}`);
 process.env.BASE_DATA_DIR = testDir;
 
 import { installTemplates } from '../hooks/templates.js';
-import { loadHooksConfig } from '../hooks/config.js';
+import { loadHooksConfig, ensureHookInConfig, setHookEnabled } from '../hooks/config.js';
 
 /**
  * Create a fake hook-templates directory structure that mimics
@@ -51,7 +51,6 @@ describe('Hook Templates', () => {
     });
 
     // Manually simulate what installTemplates does
-    const { readdirSync, cpSync, chmodSync } = require('node:fs');
     const entries = readdirSync(templatesDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
@@ -97,7 +96,6 @@ describe('Hook Templates', () => {
     }, '#!/bin/bash\necho "template"');
 
     // Simulate install — should skip
-    const { readdirSync, cpSync } = require('node:fs');
     const entries = readdirSync(templatesDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
@@ -120,7 +118,6 @@ describe('Hook Templates', () => {
 
   test('config entry is added for installed template', () => {
     // Manually install a template and call ensureHookInConfig
-    const { ensureHookInConfig } = require('../hooks/config.js');
     ensureHookInConfig('new-template', { enabled: false });
 
     const config = loadHooksConfig();
@@ -129,7 +126,6 @@ describe('Hook Templates', () => {
 
   test('config entry preserves existing enabled state', () => {
     // Set hook as enabled first
-    const { setHookEnabled, ensureHookInConfig } = require('../hooks/config.js');
     setHookEnabled('my-hook', true);
 
     // ensureHookInConfig should not overwrite

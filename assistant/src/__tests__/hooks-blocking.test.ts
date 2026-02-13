@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, writeFileSync, rmSync, chmodSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, chmodSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -115,7 +115,7 @@ describe('Blocking Hooks', () => {
 
     // Logger should NOT have run because blocker runs first (alphabetical order)
     await new Promise((r) => setTimeout(r, 100));
-    expect(() => require('node:fs').readFileSync(outputFile, 'utf-8')).toThrow();
+    expect(() => readFileSync(outputFile, 'utf-8')).toThrow();
   });
 
   test('trigger returns not blocked when no hooks match', async () => {

@@ -37,14 +37,13 @@ import type {
   SkillsSearchRequest,
   SuggestionRequest,
   AddTrustRule,
-  TrustRulesList,
   RemoveTrustRule,
   UpdateTrustRule,
 } from './ipc-protocol.js';
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { addRule, removeRule, updateRule, getAllRules } from '../permissions/trust-store.js';
-import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon, readCachedSkillIcon } from '../config/skills.js';
+import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';

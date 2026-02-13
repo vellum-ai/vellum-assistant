@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, cpSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { discoverHooks } from '../hooks/discovery.js';
@@ -105,7 +105,7 @@ describe('hooks CLI operations', () => {
     writeFileSync(join(srcDir, 'run.sh'), '#!/bin/sh\necho installed\n', { mode: 0o755 });
 
     // Simulate install: copy to hooks dir
-    const { cpSync, chmodSync } = require('node:fs');
+    // cpSync and chmodSync imported at top level
     const targetDir = join(hooksDir, 'test-install');
     cpSync(srcDir, targetDir, { recursive: true });
     chmodSync(join(targetDir, 'run.sh'), 0o755);
