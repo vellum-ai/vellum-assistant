@@ -592,11 +592,9 @@ async function embedAndUpsert(
 ): Promise<void> {
   const status = getMemoryBackendStatus(config);
   if (!status.provider) {
-    log.debug(
-      { targetType, targetId, reason: status.reason ?? 'backend unavailable' },
-      'Skipping embedding job because no backend is configured',
+    throw new Error(
+      `Embedding backend unavailable (${status.reason ?? 'no provider'}); job will be retried`,
     );
-    return;
   }
 
   const embedded = await embedWithBackend(config, [text]);
