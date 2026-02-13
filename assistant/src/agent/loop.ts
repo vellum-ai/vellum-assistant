@@ -228,10 +228,18 @@ export class AgentLoop {
 
         let toolResults: Awaited<typeof toolExecutionPromise>;
         if (signal && !signal.aborted) {
+          let abortHandler!: () => void;
           const abortPromise = new Promise<never>((_, reject) => {
-            signal.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')), { once: true });
+            abortHandler = () => reject(new DOMException('The operation was aborted', 'AbortError'));
+            signal.addEventListener('abort', abortHandler, { once: true });
           });
-          toolResults = await Promise.race([toolExecutionPromise, abortPromise]);
+          try {
+            toolResults = await Promise.race([toolExecutionPromise, abortPromise]);
+          } finally {
+            signal.removeEventListener('abort', abortHandler);
+            // Suppress unhandled rejection from abandoned tool executions
+            toolExecutionPromise.catch(() => {});
+          }
         } else {
           toolResults = await toolExecutionPromise;
         }
