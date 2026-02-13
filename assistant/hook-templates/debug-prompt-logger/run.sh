@@ -14,7 +14,7 @@ echo "" >&2
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "(jq not found — install jq for formatted output)" >&2
-  printf '%s' "$data" | dd bs=3000 count=1 2>/dev/null >&2
+  printf '%s' "$data" | dd bs=3000 count=1 >&2 2>/dev/null
   echo "" >&2
   echo "════════════════════════════════════════════════════════════════" >&2
   echo "" >&2
@@ -23,7 +23,7 @@ fi
 
 # System prompt (first 2000 chars)
 echo "── System Prompt ──────────────────────────────────────────────" >&2
-printf '%s' "$data" | jq -r '.systemPrompt // "N/A"' | dd bs=2000 count=1 2>/dev/null >&2
+printf '%s' "$data" | jq -r '.systemPrompt // "N/A"' | dd bs=2000 count=1 >&2 2>/dev/null
 echo "" >&2
 echo "" >&2
 
