@@ -55,6 +55,9 @@ struct MainWindowView: View {
                             onDismissError: viewModel.dismissError,
                             onAcceptSuggestion: viewModel.acceptSuggestion,
                             onAttach: { Self.openFilePicker(viewModel: viewModel) },
+                            onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                            onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
+                            onPaste: { viewModel.addAttachmentFromPasteboard() },
                             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
                             onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") }
                         )

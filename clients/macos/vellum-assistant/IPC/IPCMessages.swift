@@ -400,6 +400,31 @@ struct SkillDetailResponseMessage: Decodable, Sendable {
     let error: String?
 }
 
+/// Tool execution started.
+/// Wire type: `"tool_use_start"`
+struct ToolUseStartMessage: Decodable, Sendable {
+    let toolName: String
+    let input: [String: AnyCodable]
+    let sessionId: String?
+}
+
+/// Streaming tool output chunk.
+/// Wire type: `"tool_output_chunk"`
+struct ToolOutputChunkMessage: Decodable, Sendable {
+    let chunk: String
+}
+
+/// Tool execution completed.
+/// Wire type: `"tool_result"`
+struct ToolResultMessage: Decodable, Sendable {
+    let toolName: String
+    let result: String
+    let isError: Bool?
+    let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
+    let status: String?
+    let sessionId: String?
+}
+
 /// Follow-up suggestion response from daemon.
 /// Wire type: `"suggestion_response"`
 struct SuggestionResponseMessage: Decodable, Sendable {
@@ -479,6 +504,9 @@ enum ServerMessage: Decodable, Sendable {
     case skillsListResponse(SkillsListResponseMessage)
     case skillDetailResponse(SkillDetailResponseMessage)
     case suggestionResponse(SuggestionResponseMessage)
+    case toolUseStart(ToolUseStartMessage)
+    case toolOutputChunk(ToolOutputChunkMessage)
+    case toolResult(ToolResultMessage)
     case pong
     case unknown(String)
 
@@ -557,6 +585,15 @@ enum ServerMessage: Decodable, Sendable {
         case "suggestion_response":
             let message = try SuggestionResponseMessage(from: decoder)
             self = .suggestionResponse(message)
+        case "tool_use_start":
+            let message = try ToolUseStartMessage(from: decoder)
+            self = .toolUseStart(message)
+        case "tool_output_chunk":
+            let message = try ToolOutputChunkMessage(from: decoder)
+            self = .toolOutputChunk(message)
+        case "tool_result":
+            let message = try ToolResultMessage(from: decoder)
+            self = .toolResult(message)
         case "pong":
             self = .pong
         default:

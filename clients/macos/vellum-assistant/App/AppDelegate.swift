@@ -180,22 +180,31 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupToolConfirmationManager() {
         daemonClient.onConfirmationRequest = { [weak self] msg in
-            // Only show floating panel if app is NOT focused
-            if !NSApp.isActive {
-                self?.toolConfirmationManager.showConfirmation(msg)
-            }
+            // Only show floating panel when the main chat window is not visible.
+            // When the main window is visible, the inline ToolConfirmationBubble
+            // handles the confirmation to avoid duplicate UIs for the same request.
+            guard self?.mainWindow?.isVisible != true else { return }
+            self?.toolConfirmationManager.showConfirmation(msg)
         }
         toolConfirmationManager.onResponse = { [weak self] requestId, decision in
-            // Send the response to daemon
-            try? self?.daemonClient.sendConfirmationResponse(
+            // Send the response to daemon; return false on failure so
+            // the floating panel stays visible for retry.
+            do {
+                try self?.daemonClient.sendConfirmationResponse(
+                    requestId: requestId,
+                    decision: decision
+                )
+            } catch {
+                log.error("Failed to send confirmation response: \(error.localizedDescription)")
+                return false
+            }
+            // Sync the inline message state across ALL ChatViewModels so the
+            // originating thread is updated even if the user switched threads.
+            self?.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
                 requestId: requestId,
                 decision: decision
             )
-            // Sync the inline message state in the active ChatViewModel
-            self?.mainWindow?.activeViewModel?.updateConfirmationState(
-                requestId: requestId,
-                decision: decision
-            )
+            return true
         }
     }
 

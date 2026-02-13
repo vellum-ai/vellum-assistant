@@ -92,6 +92,7 @@ Important notes about the data bridge:
 - Record IDs are UUIDs as strings
 - All operations are asynchronous -- use `async/await` or `.then()`
 - Handle errors with try/catch -- the bridge will reject promises on failure
+- **NEVER use `localStorage`, `sessionStorage`, or `indexedDB`** -- they are not available in the sandboxed WebView. ALL persistence must go through `window.vellum.data`. Using localStorage will throw a SecurityError and crash the app.
 
 #### JavaScript patterns
 

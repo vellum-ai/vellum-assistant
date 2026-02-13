@@ -17,6 +17,7 @@ export type InboundResult = {
 export async function handleInbound(
   config: GatewayConfig,
   event: Omit<GatewayInboundEventV1, "routing">,
+  options?: { attachmentIds?: string[] },
 ): Promise<InboundResult> {
   const routing = resolveAssistant(
     config,
@@ -50,6 +51,7 @@ export async function handleInbound(
         languageCode: event.sender.languageCode,
         isBot: event.sender.isBot,
       },
+      ...(options?.attachmentIds?.length ? { attachmentIds: options.attachmentIds } : {}),
     });
 
     log.info(

@@ -41,7 +41,7 @@ describe("normalizeTelegramUpdate", () => {
     expect(result!.raw).toEqual(validPayload);
   });
 
-  test("returns null for non-text messages", () => {
+  test("returns null for unsupported message types (e.g. sticker-only)", () => {
     const payload = {
       update_id: 1,
       message: {
@@ -51,6 +51,106 @@ describe("normalizeTelegramUpdate", () => {
       },
     };
     expect(normalizeTelegramUpdate(payload)).toBeNull();
+  });
+
+  test("normalizes a photo message", () => {
+    const payload = {
+      update_id: 100,
+      message: {
+        message_id: 10,
+        chat: { id: 200, type: "private" },
+        from: { id: 300, is_bot: false, username: "photouser", first_name: "Photo" },
+        photo: [
+          { file_id: "small_id", file_unique_id: "s1", width: 90, height: 90 },
+          { file_id: "medium_id", file_unique_id: "s2", width: 320, height: 320 },
+          { file_id: "large_id", file_unique_id: "s3", width: 800, height: 800 },
+        ],
+        caption: "Check this out",
+      },
+    };
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).not.toBeNull();
+    expect(result!.message.content).toBe("Check this out");
+    expect(result!.message.attachments).toHaveLength(1);
+    expect(result!.message.attachments![0]).toEqual({
+      type: "photo",
+      fileId: "large_id",
+    });
+  });
+
+  test("normalizes a photo message without caption", () => {
+    const payload = {
+      update_id: 101,
+      message: {
+        message_id: 11,
+        chat: { id: 200, type: "private" },
+        from: { id: 300, is_bot: false },
+        photo: [
+          { file_id: "only_id", file_unique_id: "s1", width: 800, height: 800 },
+        ],
+      },
+    };
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).not.toBeNull();
+    expect(result!.message.content).toBe("");
+    expect(result!.message.attachments).toHaveLength(1);
+    expect(result!.message.attachments![0].fileId).toBe("only_id");
+  });
+
+  test("normalizes a document message", () => {
+    const payload = {
+      update_id: 102,
+      message: {
+        message_id: 12,
+        chat: { id: 200, type: "private" },
+        from: { id: 300, is_bot: false, username: "docuser" },
+        document: {
+          file_id: "doc_file_id",
+          file_unique_id: "du1",
+          file_name: "report.pdf",
+          mime_type: "application/pdf",
+          file_size: 12345,
+        },
+        caption: "Here is the report",
+      },
+    };
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).not.toBeNull();
+    expect(result!.message.content).toBe("Here is the report");
+    expect(result!.message.attachments).toHaveLength(1);
+    expect(result!.message.attachments![0]).toEqual({
+      type: "document",
+      fileId: "doc_file_id",
+      fileName: "report.pdf",
+      mimeType: "application/pdf",
+    });
+  });
+
+  test("normalizes a document message without caption", () => {
+    const payload = {
+      update_id: 103,
+      message: {
+        message_id: 13,
+        chat: { id: 200, type: "private" },
+        from: { id: 300, is_bot: false },
+        document: {
+          file_id: "doc_id_2",
+          file_unique_id: "du2",
+          file_name: "data.csv",
+          mime_type: "text/csv",
+        },
+      },
+    };
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).not.toBeNull();
+    expect(result!.message.content).toBe("");
+    expect(result!.message.attachments).toHaveLength(1);
+  });
+
+  test("text-only messages have no attachments field", () => {
+    const result = normalizeTelegramUpdate(validPayload);
+    expect(result).not.toBeNull();
+    expect(result!.message.attachments).toBeUndefined();
   });
 
   test("returns null for group messages", () => {

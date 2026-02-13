@@ -819,7 +819,9 @@ async function handleSuggestionRequest(
   const rawMessages = conversationStore.getMessages(msg.sessionId);
   if (rawMessages.length === 0) { noSuggestion(); return; }
 
-  // Walk backwards to find the last assistant message with text content
+  // Find the most recent assistant message — only use it if it has text content.
+  // Do NOT fall back to older turns; if the latest assistant message is tool-only,
+  // return no suggestion rather than reusing stale text from a previous turn.
   for (let i = rawMessages.length - 1; i >= 0; i--) {
     const m = rawMessages[i];
     if (m.role !== 'assistant') continue;
@@ -828,7 +830,7 @@ async function handleSuggestionRequest(
     try { content = JSON.parse(m.content); } catch { content = m.content; }
     const rendered = renderHistoryContent(content);
     const text = rendered.text.trim();
-    if (!text) continue;
+    if (!text) { noSuggestion(); return; }
 
     // Return cached suggestion
     const cached = suggestionCache.get(m.id);

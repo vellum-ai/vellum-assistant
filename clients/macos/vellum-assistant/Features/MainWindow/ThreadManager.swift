@@ -72,6 +72,15 @@ final class ThreadManager: ObservableObject {
         activeThreadId = id
     }
 
+    /// Update confirmation state across ALL chat view models, not just the active one.
+    /// This ensures that when the floating panel responds, the originating thread's
+    /// inline confirmation is updated even if the user switched threads.
+    func updateConfirmationStateAcrossThreads(requestId: String, decision: String) {
+        for viewModel in chatViewModels.values {
+            viewModel.updateConfirmationState(requestId: requestId, decision: decision)
+        }
+    }
+
     // MARK: - Private
 
     /// Subscribe to the active ChatViewModel's objectWillChange so that

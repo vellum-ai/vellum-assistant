@@ -24,7 +24,7 @@ struct VToast: View {
         )
         .vShadow(VShadow.md)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(style): \(message)")
+        .accessibilityLabel(Text("\(String(describing: style)): \(message)"))
         .onAppear {
             NSAccessibility.post(
                 element: NSApp as Any,

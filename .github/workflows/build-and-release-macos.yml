@@ -227,7 +227,15 @@ jobs:
           xcrun stapler validate "$DMG_PATH"
           echo "Notarization ticket stapled and validated"
 
+      - name: Upload DMG artifact
+        if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: vellum-assistant.dmg
+          path: clients/macos/${{ env.DMG_PATH }}
+
       - name: Build ZIP for Sparkle auto-update
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         run: |
           cd dist
           ditto -c -k --keepParent Vellum.app vellum-assistant.zip
@@ -235,6 +243,7 @@ jobs:
           ls -lh vellum-assistant.zip
 
       - name: Install Sparkle sign_update tool
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         run: |
           brew install sparkle
           SPARKLE_BIN=$(find /opt/homebrew/Caskroom/sparkle -name sign_update -type f 2>/dev/null | head -1)
@@ -245,6 +254,7 @@ jobs:
           echo "$(dirname "$SPARKLE_BIN")" >> "$GITHUB_PATH"
 
       - name: Generate appcast.xml
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         env:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
@@ -286,6 +296,7 @@ jobs:
           echo "Appcast generated with signature"
 
       - name: Create GitHub Release on public repo
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
         run: |

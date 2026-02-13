@@ -1,5 +1,8 @@
 import SwiftUI
 @preconcurrency import WebKit
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DynamicPage")
 
 struct DynamicPageSurfaceView: NSViewRepresentable {
     let data: DynamicPageSurfaceData
@@ -27,7 +30,45 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> WKWebView {
+        // Console forwarding: capture JS console.log/error/warn and route to os.Logger.
         var jsSource = """
+            (function() {
+                var _origLog = console.log, _origErr = console.error, _origWarn = console.warn;
+                function _fwd(level, args) {
+                    try {
+                        var msg = Array.prototype.map.call(args, function(a) {
+                            return typeof a === 'object' ? JSON.stringify(a) : String(a);
+                        }).join(' ');
+                        window.webkit.messageHandlers.vellumBridge.postMessage({
+                            type: 'console', level: level, message: msg
+                        });
+                    } catch(e) {}
+                }
+                console.log = function() { _fwd('log', arguments); _origLog.apply(console, arguments); };
+                console.error = function() { _fwd('error', arguments); _origErr.apply(console, arguments); };
+                console.warn = function() { _fwd('warn', arguments); _origWarn.apply(console, arguments); };
+                window.onerror = function(msg, url, line, col, err) {
+                    _fwd('error', ['Uncaught: ' + msg + ' at line ' + line + ':' + col]);
+                };
+                window.onunhandledrejection = function(e) {
+                    _fwd('error', ['Unhandled rejection: ' + (e.reason || e)]);
+                };
+            })();
+            // In-memory localStorage/sessionStorage polyfill.
+            // The sandboxed WKWebView has an opaque origin so real Storage throws SecurityError.
+            (function() {
+                function MemoryStorage() { this._data = {}; }
+                MemoryStorage.prototype.getItem = function(k) { return this._data.hasOwnProperty(k) ? this._data[k] : null; };
+                MemoryStorage.prototype.setItem = function(k, v) { this._data[k] = String(v); };
+                MemoryStorage.prototype.removeItem = function(k) { delete this._data[k]; };
+                MemoryStorage.prototype.clear = function() { this._data = {}; };
+                MemoryStorage.prototype.key = function(i) { var keys = Object.keys(this._data); return i < keys.length ? keys[i] : null; };
+                Object.defineProperty(MemoryStorage.prototype, 'length', { get: function() { return Object.keys(this._data).length; } });
+                try { localStorage.setItem('__test__', '1'); localStorage.removeItem('__test__'); } catch(e) {
+                    Object.defineProperty(window, 'localStorage', { value: new MemoryStorage(), writable: false });
+                    Object.defineProperty(window, 'sessionStorage', { value: new MemoryStorage(), writable: false });
+                }
+            })();
             window.vellum = {
                 sendAction: function(actionId, data) {
                     window.webkit.messageHandlers.vellumBridge.postMessage({actionId: actionId, data: data});
@@ -57,13 +98,24 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     delete: function(recordId) { return this._call('delete', { recordId: recordId }); },
                     _resolve: function(callId, success, result, error) {
                         var p = this._pending[callId];
-                        if (!p) return;
+                        if (!p) {
+                            console.warn('[vellum.data] _resolve called for unknown callId:', callId);
+                            return;
+                        }
                         delete this._pending[callId];
                         if (success) p.resolve(result); else p.reject(new Error(error || 'Unknown error'));
                     }
                 };
                 """
         }
+
+        jsSource += """
+
+            document.addEventListener('DOMContentLoaded', function() {
+                var hasData = !!(window.vellum && window.vellum.data);
+                console.log('[vellum] Bridge check: vellum.data ' + (hasData ? 'available' : 'NOT available (appId not set)'));
+            });
+            """
 
         let userScript = WKUserScript(
             source: jsSource,
@@ -91,12 +143,24 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = contentController
 
+        #if DEBUG
+        // Enable Safari Web Inspector for debugging WKWebView content.
+        let webInspectorKey = ["developer", "Extras", "Enabled"].joined()
+        configuration.preferences.setValue(true, forKey: webInspectorKey)
+        #endif
+
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsLinkPreview = false
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
+
+        log.info("Creating DynamicPageSurfaceView: appId=\(self.appId ?? "nil", privacy: .public), dataBridge=\(self.appId != nil ? "injected" : "skipped", privacy: .public)")
+
         onCoordinatorReady?(context.coordinator)
-        webView.loadHTMLString(data.html, baseURL: nil)
+        // Use a per-app origin so localStorage/sessionStorage work natively,
+        // isolated per app. Non-app surfaces get a shared fallback origin.
+        let origin = appId.map { "https://\($0).vellum.local/" } ?? "https://surface.vellum.local/"
+        webView.loadHTMLString(data.html, baseURL: URL(string: origin))
 
         return webView
     }
@@ -108,7 +172,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         // Reload if the HTML content has changed.
         if data.html != context.coordinator.currentHTML {
             context.coordinator.currentHTML = data.html
-            webView.loadHTMLString(data.html, baseURL: nil)
+            let origin = appId.map { "https://\($0).vellum.local/" } ?? "https://surface.vellum.local/"
+            webView.loadHTMLString(data.html, baseURL: URL(string: origin))
         }
     }
 
@@ -140,12 +205,34 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         ) {
             guard let body = message.body as? [String: Any] else { return }
 
+            // Forward JS console messages to os.Logger.
+            if let type = body["type"] as? String, type == "console" {
+                let level = body["level"] as? String ?? "log"
+                let msg = body["message"] as? String ?? ""
+                switch level {
+                case "error":
+                    log.error("[WebView] \(msg, privacy: .public)")
+                case "warn":
+                    log.warning("[WebView] \(msg, privacy: .public)")
+                default:
+                    log.info("[WebView] \(msg, privacy: .public)")
+                }
+                return
+            }
+
             // Handle data_request messages from the RPC bridge.
             if let type = body["type"] as? String, type == "data_request" {
                 guard let callId = body["callId"] as? String,
-                      let method = body["method"] as? String else { return }
+                      let method = body["method"] as? String else {
+                    log.error("data_request missing callId or method: \(String(describing: body), privacy: .public)")
+                    return
+                }
                 let recordId = body["recordId"] as? String
                 let data = body["data"] as? [String: Any]
+                log.info("data_request: method=\(method, privacy: .public), callId=\(callId, privacy: .public), recordId=\(recordId ?? "nil", privacy: .public), hasData=\(data != nil)")
+                if onDataRequest == nil {
+                    log.error("data_request received but onDataRequest callback is nil — appId was likely not set")
+                }
                 onDataRequest?(callId, method, recordId, data)
                 return
             }
@@ -157,12 +244,15 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         }
 
         func resolveDataResponse(_ response: AppDataResponseMessage) {
+            log.info("resolveDataResponse: callId=\(response.callId, privacy: .public), success=\(response.success), hasResult=\(response.result != nil), error=\(response.error ?? "nil", privacy: .public)")
+
             let resultJson: String
             if let result = response.result {
                 if let jsonData = try? JSONEncoder().encode(result),
                    let jsonStr = String(data: jsonData, encoding: .utf8) {
                     resultJson = jsonStr
                 } else {
+                    log.error("resolveDataResponse: failed to re-encode AnyCodable result to JSON")
                     resultJson = "null"
                 }
             } else {
@@ -184,41 +274,24 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 .replacingOccurrences(of: "'", with: "\\'")
                 .replacingOccurrences(of: "\n", with: "\\n")
                 .replacingOccurrences(of: "\r", with: "\\r")
-            webView?.evaluateJavaScript(
-                "window.vellum.data._resolve('\(safeCallId)', \(response.success), \(resultJson), \(errorStr))"
-            )
+
+            let js = "window.vellum.data._resolve('\(safeCallId)', \(response.success), \(resultJson), \(errorStr))"
+
+            guard let webView else {
+                log.error("resolveDataResponse: webView is nil, cannot evaluate JS")
+                return
+            }
+
+            webView.evaluateJavaScript(js) { _, error in
+                if let error {
+                    log.error("resolveDataResponse: JS eval error: \(error.localizedDescription, privacy: .public)")
+                }
+            }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            webView.evaluateJavaScript(
-                "JSON.stringify({w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight})"
-            ) { result, _ in
-                guard let json = result as? String,
-                      let data = json.data(using: .utf8),
-                      let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let w = (dict["w"] as? NSNumber).map({ CGFloat($0.doubleValue) }),
-                      let h = (dict["h"] as? NSNumber).map({ CGFloat($0.doubleValue) }),
-                      let window = webView.window else { return }
-
-                let screen = NSScreen.main?.visibleFrame ?? window.screen?.visibleFrame
-                    ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-                let titleBarHeight = window.frame.height - window.contentRect(forFrameRect: window.frame).height
-                let minW = screen.width * 0.6
-                let minH = screen.height * 0.75
-                let maxW = screen.width * 0.9
-                let maxH = screen.height * 0.9
-                let targetW = min(max(max(w, minW), window.frame.width), maxW)
-                let targetH = min(max(max(h + titleBarHeight, minH), window.frame.height), maxH)
-
-                // Resize keeping center position
-                let currentCenter = NSPoint(x: window.frame.midX, y: window.frame.midY)
-                let newOrigin = NSPoint(x: currentCenter.x - targetW / 2, y: currentCenter.y - targetH / 2)
-                window.setFrame(
-                    NSRect(x: newOrigin.x, y: newOrigin.y, width: targetW, height: targetH),
-                    display: true,
-                    animate: true
-                )
-            }
+            // No auto-resize — the panel opens at a fixed default size and the user can
+            // resize manually. Content scrolls if it overflows.
         }
 
         func webView(

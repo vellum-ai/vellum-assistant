@@ -61,17 +61,26 @@ final class ChatViewModel: ObservableObject {
             return
         }
 
+        // Check file size via metadata before reading into memory to avoid
+        // loading very large files synchronously (which could freeze the UI).
+        do {
+            let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey])
+            if let fileSize = resourceValues.fileSize, fileSize > Self.maxFileSize {
+                errorText = "File exceeds 20 MB limit."
+                return
+            }
+        } catch {
+            log.error("Failed to read file attributes: \(error.localizedDescription)")
+            errorText = "Could not read file."
+            return
+        }
+
         let data: Data
         do {
             data = try Data(contentsOf: url)
         } catch {
             log.error("Failed to read attachment: \(error.localizedDescription)")
             errorText = "Could not read file."
-            return
-        }
-
-        guard data.count <= Self.maxFileSize else {
-            errorText = "File exceeds 20 MB limit."
             return
         }
 
@@ -96,6 +105,48 @@ final class ChatViewModel: ObservableObject {
 
     func removeAttachment(id: String) {
         pendingAttachments.removeAll { $0.id == id }
+    }
+
+    func addAttachmentFromPasteboard() {
+        let pasteboard = NSPasteboard.general
+        guard let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) else {
+            return
+        }
+
+        guard pendingAttachments.count < Self.maxAttachments else {
+            errorText = "Maximum \(Self.maxAttachments) attachments per message."
+            return
+        }
+
+        // Convert to PNG if needed
+        let pngData: Data
+        if pasteboard.data(forType: .png) != nil {
+            pngData = imageData
+        } else if let bitmapRep = NSBitmapImageRep(data: imageData),
+                  let converted = bitmapRep.representation(using: .png, properties: [:]) {
+            pngData = converted
+        } else {
+            log.error("Failed to convert pasted image to PNG")
+            errorText = "Could not process pasted image."
+            return
+        }
+
+        guard pngData.count <= Self.maxFileSize else {
+            errorText = "Pasted image exceeds 20 MB limit."
+            return
+        }
+
+        let base64 = pngData.base64EncodedString()
+        let thumbnail = Self.generateThumbnail(from: pngData, maxDimension: 120)
+
+        let attachment = ChatAttachment(
+            id: UUID().uuidString,
+            filename: "Pasted Image.png",
+            mimeType: "image/png",
+            data: base64,
+            thumbnailData: thumbnail
+        )
+        pendingAttachments.append(attachment)
     }
 
     /// Resize image data to fit within `maxDimension` and return PNG data.
@@ -279,6 +330,48 @@ final class ChatViewModel: ObservableObject {
             return true
         }
         return messageSessionId == sessionId
+    }
+
+    /// Priority list of input keys whose values are most useful as a tool call summary.
+    private static let toolInputPriorityKeys = [
+        "command", "file_path", "path", "query", "url", "pattern", "glob"
+    ]
+
+    /// Summarize tool input for display, picking the most relevant value truncated to 80 chars.
+    private func summarizeToolInput(_ input: [String: AnyCodable]) -> String {
+        // Pick the first matching priority key, falling back to the first sorted key.
+        let value: AnyCodable
+        if let match = Self.toolInputPriorityKeys.first(where: { input[$0] != nil }),
+           let v = input[match] {
+            value = v
+        } else if let firstKey = input.keys.sorted().first, let v = input[firstKey] {
+            value = v
+        } else {
+            return ""
+        }
+        let str: String
+        if let s = value.value as? String {
+            str = s
+        } else if let encoder = try? JSONEncoder().encode(value),
+                  let json = String(data: encoder, encoding: .utf8) {
+            str = json
+        } else {
+            str = String(describing: value.value ?? "")
+        }
+        return str.count > 80 ? String(str.prefix(77)) + "..." : str
+    }
+
+    private func toolDisplayName(_ name: String) -> String {
+        switch name {
+        case "file_write": return "Write File"
+        case "file_edit": return "Edit File"
+        case "bash": return "Run Command"
+        case "web_fetch": return "Fetch URL"
+        case "file_read": return "Read File"
+        case "glob": return "Find Files"
+        case "grep": return "Search Files"
+        default: return name.replacingOccurrences(of: "_", with: " ").capitalized
+        }
     }
 
     func handleServerMessage(_ message: ServerMessage) {
@@ -484,7 +577,12 @@ final class ChatViewModel: ObservableObject {
             }
 
         case .confirmationRequest(let msg):
-            guard belongsToSession(nil) else { return }
+            // ConfirmationRequestMessage doesn't include a sessionId, so we
+            // can't use belongsToSession. Instead, only accept the request
+            // when this ChatViewModel is actively sending (has an active
+            // session and is mid-generation). This ensures only the thread
+            // that triggered the tool call displays the confirmation.
+            guard isSending, sessionId != nil else { return }
             let confirmation = ToolConfirmationData(
                 requestId: msg.requestId,
                 toolName: msg.toolName,
@@ -496,7 +594,49 @@ final class ChatViewModel: ObservableObject {
                 text: "",
                 confirmation: confirmation
             )
-            messages.append(confirmMsg)
+            // Insert before the current streaming assistant message so the
+            // confirmation appears between the user message and the response.
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages.insert(confirmMsg, at: index)
+            } else {
+                messages.append(confirmMsg)
+            }
+
+        case .toolUseStart(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            guard !isCancelling else { return }
+            isThinking = false
+            let toolCall = ToolCallData(
+                toolName: toolDisplayName(msg.toolName),
+                inputSummary: summarizeToolInput(msg.input)
+            )
+            // Add to existing assistant message or create one
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].toolCalls.append(toolCall)
+            } else {
+                let newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, toolCalls: [toolCall])
+                currentAssistantMessageId = newMsg.id
+                messages.append(newMsg)
+            }
+
+        case .toolOutputChunk:
+            // Streaming output — ignore for now, we show the final result
+            break
+
+        case .toolResult(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            guard !isCancelling else { return }
+            // Find the most recent pending (incomplete) tool call and mark it complete
+            if let existingId = currentAssistantMessageId,
+               let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
+               let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                let truncatedResult = msg.result.count > 2000 ? String(msg.result.prefix(2000)) + "...[truncated]" : msg.result
+                messages[msgIndex].toolCalls[tcIndex].result = truncatedResult
+                messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
+                messages[msgIndex].toolCalls[tcIndex].isComplete = true
+            }
 
         default:
             break
@@ -596,15 +736,19 @@ final class ChatViewModel: ObservableObject {
 
     /// Respond to a tool confirmation request displayed inline in the chat.
     func respondToConfirmation(requestId: String, decision: String) {
-        // Update the message state
-        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-            messages[index].confirmation?.state = decision == "allow" ? .approved : .denied
-        }
-        // Send the response to the daemon
+        // Send the response to the daemon first, then update UI state only on success.
+        // This prevents the UI from showing a finalized decision when the IPC
+        // message was never delivered (e.g. daemon disconnected).
         do {
             try daemonClient.sendConfirmationResponse(requestId: requestId, decision: decision)
         } catch {
             log.error("Failed to send confirmation response: \(error.localizedDescription)")
+            errorText = "Failed to send confirmation response."
+            return
+        }
+        // IPC send succeeded — update the message state
+        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+            messages[index].confirmation?.state = decision == "allow" ? .approved : .denied
         }
         // Dismiss the corresponding floating panel if one exists
         onInlineConfirmationResponse?(requestId)
@@ -651,6 +795,7 @@ final class ChatViewModel: ObservableObject {
         } else if inputText.isEmpty {
             inputText = suggestion
         }
+        self.suggestion = nil
     }
 
     deinit {

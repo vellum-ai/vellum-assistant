@@ -16,7 +16,10 @@ final class ToolConfirmationManager {
     private let panelWidth: CGFloat = 420
     private let panelMargin: CGFloat = 20
 
-    var onResponse: ((String, String) -> Void)?
+    /// Called when the user responds to a floating confirmation panel.
+    /// Returns `true` if the IPC send succeeded, `false` otherwise.
+    /// The panel is only dismissed on success.
+    var onResponse: ((String, String) -> Bool)?
 
     func showConfirmation(_ message: ConfirmationRequestMessage) {
         // Dismiss existing panel for same request, if any
@@ -75,14 +78,18 @@ final class ToolConfirmationManager {
     func dismissAll() {
         for (requestId, panel) in panels {
             panel.close()
-            onResponse?(requestId, "deny")
+            _ = onResponse?(requestId, "deny")
         }
         panels.removeAll()
     }
 
     private func respond(requestId: String, decision: String) {
-        dismissConfirmation(requestId: requestId)
-        onResponse?(requestId, decision)
+        // Only dismiss the panel if the IPC send succeeds. If it fails,
+        // the panel stays visible so the user can retry.
+        let success = onResponse?(requestId, decision) ?? true
+        if success {
+            dismissConfirmation(requestId: requestId)
+        }
     }
 }
 

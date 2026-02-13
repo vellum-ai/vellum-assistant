@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ChatView: View {
     let messages: [ChatMessage]
@@ -16,6 +17,9 @@ struct ChatView: View {
     let onDismissError: () -> Void
     let onAcceptSuggestion: () -> Void
     let onAttach: () -> Void
+    let onRemoveAttachment: (String) -> Void
+    let onDropFiles: ([URL]) -> Void
+    let onPaste: () -> Void
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
 
@@ -32,7 +36,8 @@ struct ChatView: View {
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
-        messages.last?.text.count ?? 0
+        let last = messages.last
+        return (last?.text.count ?? 0) + (last?.toolCalls.count ?? 0)
     }
 
     var body: some View {
@@ -164,71 +169,82 @@ struct ChatView: View {
     // MARK: - Composer Area
 
     private var composerArea: some View {
-        HStack(spacing: VSpacing.sm) {
-            // Leading chat icon
-            VCircleButton(icon: "phone.fill", label: "Phone") { }
-
-            // Text field with ghost suffix overlay
-            ZStack(alignment: .leading) {
-                TextField("", text: $inputText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(1...3)
-                    .disabled(!hasAPIKey)
-                    .onKeyPress(.tab, phases: .down) { keyPress in
-                        if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
-                            onAcceptSuggestion()
-                            return .handled
-                        }
-                        return .ignored
-                    }
-                    .onKeyPress(.return, phases: .down) { keyPress in
-                        if keyPress.modifiers.contains(.shift) { return .ignored }
-                        if canSend { onSend() }
-                        return .handled
-                    }
-                    .onSubmit { if canSend { onSend() } }
-
-                if let ghostSuffix {
-                    Text(inputText + ghostSuffix)
-                        .font(VFont.mono)
-                        .foregroundColor(.clear)
-                        .lineLimit(1...3)
-                        .overlay(alignment: .leading) {
-                            HStack(spacing: 0) {
-                                Text(inputText)
-                                    .font(VFont.mono)
-                                    .foregroundColor(.clear)
-                                Text(ghostSuffix)
-                                    .font(VFont.mono)
-                                    .foregroundColor(VColor.textMuted.opacity(0.5))
-                            }
-                        }
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
+        VStack(spacing: 0) {
+            if !pendingAttachments.isEmpty {
+                attachmentStrip
             }
 
-            // Attachment / Stop button
-            if isSending {
-                Button(action: onStop) {
-                    Image(systemName: "stop.circle.fill")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(VColor.error)
+            HStack(spacing: VSpacing.sm) {
+                // Text field with ghost suffix overlay
+                ZStack(alignment: .leading) {
+                    TextField("", text: $inputText, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .lineLimit(1...3)
+                        .disabled(!hasAPIKey)
+                        .accessibilityLabel("Message")
+                        .onKeyPress(.tab, phases: .down) { keyPress in
+                            if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
+                                onAcceptSuggestion()
+                                return .handled
+                            }
+                            return .ignored
+                        }
+                        .onKeyPress(.return, phases: .down) { keyPress in
+                            if keyPress.modifiers.contains(.shift) { return .ignored }
+                            if canSend { onSend() }
+                            return .handled
+                        }
+                        .onKeyPress(characters: CharacterSet(charactersIn: "v"), phases: .down) { keyPress in
+                            if keyPress.modifiers.contains(.command) {
+                                onPaste()
+                                return .ignored
+                            }
+                            return .ignored
+                        }
+                        .onSubmit { if canSend { onSend() } }
+
+                    if let ghostSuffix {
+                        Text(inputText + ghostSuffix)
+                            .font(VFont.mono)
+                            .foregroundColor(.clear)
+                            .lineLimit(1...3)
+                            .overlay(alignment: .leading) {
+                                HStack(spacing: 0) {
+                                    Text(inputText)
+                                        .font(VFont.mono)
+                                        .foregroundColor(.clear)
+                                    Text(ghostSuffix)
+                                        .font(VFont.mono)
+                                        .foregroundColor(VColor.textMuted.opacity(0.5))
+                                }
+                            }
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Stop generation")
-            } else {
-                Button(action: onAttach) {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(VColor.textSecondary)
-                        .padding(10)
+
+                // Attachment / Stop button
+                if isSending {
+                    Button(action: onStop) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundColor(VColor.error)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Stop generation")
+                } else {
+                    Button(action: onAttach) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .padding(10)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Attach file")
+                    .disabled(!hasAPIKey)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Attach file")
-                .disabled(!hasAPIKey)
             }
         }
         .padding(VSpacing.xs)
@@ -242,6 +258,134 @@ struct ChatView: View {
         .padding(.vertical, VSpacing.lg)
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            var urls: [URL] = []
+            let group = DispatchGroup()
+            for provider in providers {
+                group.enter()
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    DispatchQueue.main.async {
+                        if let url { urls.append(url) }
+                        group.leave()
+                    }
+                }
+            }
+            group.notify(queue: .main) {
+                if !urls.isEmpty { onDropFiles(urls) }
+            }
+            return true
+        }
+    }
+
+    // MARK: - Attachment Preview Strip
+
+    private var attachmentStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: VSpacing.sm) {
+                ForEach(pendingAttachments) { attachment in
+                    attachmentChip(attachment)
+                }
+            }
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.top, VSpacing.sm)
+            .padding(.bottom, VSpacing.xs)
+        }
+    }
+
+    private func attachmentChip(_ attachment: ChatAttachment) -> some View {
+        let fileSize = formattedFileSize(base64Length: attachment.data.count)
+        let isImage = attachment.mimeType.hasPrefix("image/")
+
+        return VStack(spacing: VSpacing.xxs) {
+            ZStack(alignment: .topTrailing) {
+                if isImage, let thumbnailData = attachment.thumbnailData,
+                   let nsImage = NSImage(data: thumbnailData) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 48, height: 48)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                } else {
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(VColor.surfaceBorder.opacity(0.5))
+                        .frame(width: 48, height: 48)
+                        .overlay {
+                            VStack(spacing: VSpacing.xxs) {
+                                Image(systemName: iconForMimeType(attachment.mimeType, filename: attachment.filename))
+                                    .font(.system(size: 16))
+                                    .foregroundColor(VColor.textSecondary)
+                                Text(fileExtension(attachment.filename))
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                                    .lineLimit(1)
+                            }
+                        }
+                }
+
+                Button {
+                    onRemoveAttachment(attachment.id)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(VColor.textSecondary)
+                        .background(Circle().fill(VColor.surface))
+                }
+                .buttonStyle(.plain)
+                .offset(x: 4, y: -4)
+                .accessibilityLabel("Remove \(attachment.filename)")
+            }
+
+            Text(truncatedFilename(attachment.filename))
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .lineLimit(1)
+                .frame(width: 56)
+
+            Text(fileSize)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+        }
+    }
+
+    // MARK: - Attachment Helpers
+
+    private func formattedFileSize(base64Length: Int) -> String {
+        let bytes = base64Length * 3 / 4
+        if bytes < 1024 {
+            return "\(bytes) B"
+        } else if bytes < 1024 * 1024 {
+            return "\(bytes / 1024) KB"
+        } else {
+            let mb = Double(bytes) / (1024 * 1024)
+            return String(format: "%.1f MB", mb)
+        }
+    }
+
+    private func truncatedFilename(_ name: String) -> String {
+        if name.count <= 8 { return name }
+        let ext = fileExtension(name)
+        let base = String(name.prefix(name.count - ext.count - (ext.isEmpty ? 0 : 1)))
+        let truncBase = String(base.prefix(5))
+        return ext.isEmpty ? truncBase + "..." : truncBase + "..." + ext
+    }
+
+    private func fileExtension(_ filename: String) -> String {
+        let parts = filename.split(separator: ".")
+        guard parts.count > 1, let last = parts.last else { return "" }
+        return String(last).uppercased()
+    }
+
+    private func iconForMimeType(_ mimeType: String, filename: String) -> String {
+        if mimeType == "application/pdf" { return "doc.fill" }
+        if mimeType.hasPrefix("text/") { return "doc.text.fill" }
+        if mimeType.hasPrefix("image/") { return "photo" }
+        let ext = filename.split(separator: ".").last.map(String.init) ?? ""
+        switch ext.lowercased() {
+        case "pdf": return "doc.fill"
+        case "csv": return "tablecells"
+        case "md", "txt": return "doc.text.fill"
+        default: return "doc.fill"
+        }
     }
 
     private var canSend: Bool {
@@ -331,20 +475,155 @@ private struct ChatBubble: View {
         }
     }
 
+    private var hasText: Bool {
+        !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var attachmentSummary: String {
+        let count = message.attachments.count
+        if count == 1 {
+            return "Sent \(message.attachments[0].filename)"
+        }
+        return "Sent \(count) attachments"
+    }
+
+    private var imageAttachments: [ChatAttachment] {
+        message.attachments.filter { $0.mimeType.hasPrefix("image/") && nsImage(for: $0) != nil }
+    }
+
+    private var fileAttachments: [ChatAttachment] {
+        message.attachments.filter { !$0.mimeType.hasPrefix("image/") || nsImage(for: $0) == nil }
+    }
+
     private var bubbleContent: some View {
-        Text(markdownText)
-            .font(VFont.mono)
-            .foregroundColor(isUser ? .white : VColor.textPrimary)
-            .tint(isUser ? .white : VColor.accent)
-            .textSelection(.enabled)
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
-            )
-            .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
-            .opacity(bubbleOpacity)
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            if hasText {
+                Text(markdownText)
+                    .font(VFont.mono)
+                    .foregroundColor(isUser ? .white : VColor.textPrimary)
+                    .tint(isUser ? .white : VColor.accent)
+                    .textSelection(.enabled)
+            } else if !message.attachments.isEmpty {
+                // Show attachment summary when no text is provided
+                Text(attachmentSummary)
+                    .font(VFont.caption)
+                    .foregroundColor(isUser ? .white.opacity(0.8) : VColor.textSecondary)
+            }
+
+            if !imageAttachments.isEmpty {
+                attachmentImageGrid
+            }
+
+            if !fileAttachments.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    ForEach(fileAttachments) { attachment in
+                        fileAttachmentChip(attachment)
+                    }
+                }
+            }
+
+            if !message.toolCalls.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    ForEach(message.toolCalls) { toolCall in
+                        ToolCallChip(toolCall: toolCall)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
+        )
+        .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
+        .opacity(bubbleOpacity)
+    }
+
+    private var attachmentImageGrid: some View {
+        // Wrap images in a flexible horizontal layout
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            ForEach(imageAttachments) { attachment in
+                attachmentImage(attachment)
+            }
+        }
+    }
+
+    private func attachmentImage(_ attachment: ChatAttachment) -> some View {
+        Group {
+            if let nsImage = nsImage(for: attachment) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 280)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .onTapGesture {
+                        openImageInPreview(attachment)
+                    }
+            }
+        }
+    }
+
+    private func fileAttachmentChip(_ attachment: ChatAttachment) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            Image(systemName: fileIcon(for: attachment.mimeType))
+                .font(VFont.caption)
+                .foregroundColor(isUser ? .white.opacity(0.8) : VColor.textSecondary)
+
+            Text(attachment.filename)
+                .font(VFont.caption)
+                .foregroundColor(isUser ? .white : VColor.textPrimary)
+                .lineLimit(1)
+
+            Text(formattedFileSize(base64Length: attachment.data.count))
+                .font(VFont.small)
+                .foregroundColor(isUser ? .white.opacity(0.6) : VColor.textMuted)
+        }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .fill(isUser ? Color.white.opacity(0.15) : VColor.surfaceBorder.opacity(0.5))
+        )
+    }
+
+    private func nsImage(for attachment: ChatAttachment) -> NSImage? {
+        if let thumbnailData = attachment.thumbnailData, let img = NSImage(data: thumbnailData) {
+            return img
+        }
+        if let data = Data(base64Encoded: attachment.data), let img = NSImage(data: data) {
+            return img
+        }
+        return nil
+    }
+
+    private func openImageInPreview(_ attachment: ChatAttachment) {
+        guard let data = Data(base64Encoded: attachment.data) else { return }
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileURL = tempDir.appendingPathComponent(attachment.filename)
+        do {
+            try data.write(to: fileURL)
+            NSWorkspace.shared.open(fileURL)
+        } catch {
+            // Silently fail — not critical
+        }
+    }
+
+    private func fileIcon(for mimeType: String) -> String {
+        if mimeType.hasPrefix("text/") { return "doc.text.fill" }
+        if mimeType == "application/pdf" { return "doc.fill" }
+        if mimeType.contains("zip") || mimeType.contains("archive") { return "doc.zipper" }
+        if mimeType.contains("json") || mimeType.contains("xml") { return "doc.text.fill" }
+        return "doc.fill"
+    }
+
+    private func formattedFileSize(base64Length: Int) -> String {
+        let bytes = base64Length * 3 / 4
+        if bytes < 1024 { return "\(bytes) B" }
+        let kb = Double(bytes) / 1024
+        if kb < 1024 { return String(format: "%.1f KB", kb) }
+        let mb = kb / 1024
+        return String(format: "%.1f MB", mb)
     }
 
     private var markdownText: AttributedString {
@@ -445,6 +724,9 @@ private struct ThinkingIndicator: View {
             onDismissError: {},
             onAcceptSuggestion: {},
             onAttach: {},
+            onRemoveAttachment: { _ in },
+            onDropFiles: { _ in },
+            onPaste: {},
             onConfirmationAllow: { _ in },
             onConfirmationDeny: { _ in }
         )

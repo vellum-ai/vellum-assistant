@@ -97,6 +97,10 @@ final class SurfaceManager: ObservableObject {
         let dict = message.data.value as? [String: Any?] ?? [:]
         if let appId = dict["appId"] as? String {
             surfaceAppIds[surface.id] = appId
+            log.info("Extracted appId=\(appId, privacy: .public) for surface=\(surface.id, privacy: .public)")
+        } else if message.surfaceType == "dynamic_page" {
+            let keys = dict.keys.joined(separator: ", ")
+            log.warning("dynamic_page surface has no appId — data bridge will not be injected. Keys in data: [\(keys)]")
         }
 
         let appId = surfaceAppIds[surface.id]
@@ -136,10 +140,12 @@ final class SurfaceManager: ObservableObject {
         let surfacePanelHeight: CGFloat
         if case .dynamicPage(let dpData) = surface.data {
             let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-            let defaultW = Int(screen.width * 0.6)
-            let defaultH = Int(screen.height * 0.75)
-            surfacePanelWidth = CGFloat(max(dpData.width ?? defaultW, defaultW))
-            surfacePanelHeight = CGFloat(max(dpData.height ?? defaultH, defaultH))
+            let defaultW = Int(screen.width * 0.45)
+            let defaultH = Int(screen.height * 0.55)
+            let minW = 280
+            let minH = 200
+            surfacePanelWidth = CGFloat(max(dpData.width ?? defaultW, minW))
+            surfacePanelHeight = CGFloat(max(dpData.height ?? defaultH, minH))
         } else {
             surfacePanelWidth = panelWidth
             surfacePanelHeight = 300
@@ -198,7 +204,7 @@ final class SurfaceManager: ObservableObject {
 
         if isDynamicPage {
             let surfaceId = surface.id
-            weak var observedPanel = panel
+            weak let observedPanel = panel
             let observer = NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification,
                 object: panel,
@@ -289,7 +295,13 @@ final class SurfaceManager: ObservableObject {
 
     /// Routes a data response from the daemon back to the correct WebView coordinator.
     func resolveDataResponse(surfaceId: String, response: AppDataResponseMessage) {
-        surfaceCoordinators[surfaceId]?.resolveDataResponse(response)
+        guard let coordinator = surfaceCoordinators[surfaceId] else {
+            let knownIds = Array(self.surfaceCoordinators.keys).joined(separator: ", ")
+            log.error("resolveDataResponse: no coordinator for surfaceId=\(surfaceId). Known coordinators: [\(knownIds)]")
+            return
+        }
+        log.info("Routing data response to coordinator: surfaceId=\(surfaceId), callId=\(response.callId), success=\(response.success)")
+        coordinator.resolveDataResponse(response)
     }
 
     // MARK: - Positioning

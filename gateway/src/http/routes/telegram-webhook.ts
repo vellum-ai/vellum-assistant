@@ -3,7 +3,10 @@ import type { GatewayConfig } from "../../config.js";
 import type { GatewayInboundEventV1 } from "../../types.js";
 import { verifyWebhookSecret } from "../../telegram/verify.js";
 import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
+import { downloadTelegramFile } from "../../telegram/download.js";
 import { handleInbound, type InboundResult } from "../../handlers/handle-inbound.js";
+import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
+import { uploadAttachment } from "../../runtime/client.js";
 
 const log = pino({ name: "gateway:telegram-webhook" });
 
@@ -41,10 +44,42 @@ export function createTelegramWebhookHandler(
       return Response.json({ ok: true });
     }
 
+    // Download and upload attachments if present
+    let attachmentIds: string[] | undefined;
+    const eventAttachments = normalized.message.attachments;
+    if (eventAttachments && eventAttachments.length > 0) {
+      const routing = resolveAssistant(
+        config,
+        normalized.message.externalChatId,
+        normalized.sender.externalUserId,
+      );
+
+      if (!isRejection(routing)) {
+        try {
+          attachmentIds = [];
+          for (const att of eventAttachments) {
+            const downloaded = await downloadTelegramFile(config, att.fileId, {
+              fileName: att.fileName,
+              mimeType: att.mimeType,
+            });
+            const uploaded = await uploadAttachment(config, routing.assistantId, downloaded);
+            attachmentIds.push(uploaded.id);
+          }
+          log.info(
+            { count: attachmentIds.length, assistantId: routing.assistantId },
+            "Attachments downloaded and uploaded",
+          );
+        } catch (err) {
+          log.error({ err }, "Failed to process attachments");
+          return Response.json({ error: "Failed to process attachments" }, { status: 500 });
+        }
+      }
+    }
+
     // Process inbound and only acknowledge after successful delivery
     let result: InboundResult;
     try {
-      result = await handleInbound(config, normalized);
+      result = await handleInbound(config, normalized, { attachmentIds });
     } catch (err) {
       log.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
       return Response.json({ error: "Internal error" }, { status: 500 });
