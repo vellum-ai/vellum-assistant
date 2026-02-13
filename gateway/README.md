@@ -144,6 +144,10 @@ bun run test        # Run test suite
 
 Both checks run in CI on every pull request touching `gateway/`.
 
+## Load Testing
+
+See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for load-test scripts and throughput targets.
+
 ## Troubleshooting
 
 | Symptom | Check |
