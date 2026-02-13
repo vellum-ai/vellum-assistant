@@ -5,7 +5,7 @@ struct ControlPanel: View {
     var onClose: () -> Void
     var ambientAgent: AmbientAgent
 
-    @State private var selectedTab: ControlTab = .settings
+    @State private var selectedTabIndex: Int = 1
     @State private var apiKeyText: String = ""
     @State private var hasKey: Bool = false
     @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
@@ -15,48 +15,43 @@ struct ControlPanel: View {
         case profile, settings, channels, overview
     }
 
-    var body: some View {
-        VSidePanel(title: "Control", onClose: onClose) {
-            HStack(alignment: .top, spacing: 0) {
-                // Left nav
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    ForEach(ControlTab.allCases, id: \.self) { tab in
-                        navButton(tab.rawValue.capitalized, selected: selectedTab == tab) {
-                            selectedTab = tab
-                        }
-                    }
-                }
-                .frame(width: 100)
-                .padding(.top, VSpacing.md)
+    private var selectedTab: ControlTab {
+        ControlTab.allCases.indices.contains(selectedTabIndex)
+            ? ControlTab.allCases[selectedTabIndex]
+            : .settings
+    }
 
-                // Right content
-                ScrollView {
-                    Group {
-                        switch selectedTab {
-                        case .settings:
-                            settingsContent
-                        case .profile:
-                            VEmptyState(
-                                title: "Profile",
-                                subtitle: "User profile coming soon",
-                                icon: "person.circle"
-                            )
-                        case .channels:
-                            VEmptyState(
-                                title: "Channels",
-                                subtitle: "Channel configuration coming soon",
-                                icon: "antenna.radiowaves.left.and.right"
-                            )
-                        case .overview:
-                            VEmptyState(
-                                title: "Overview",
-                                subtitle: "System overview coming soon",
-                                icon: "chart.bar"
-                            )
-                        }
-                    }
-                    .padding(VSpacing.lg)
-                }
+    var body: some View {
+        VSidePanel(title: "Control", onClose: onClose, pinnedContent: {
+            VSegmentedControl(
+                items: ControlTab.allCases.map { $0.rawValue.capitalized },
+                selection: $selectedTabIndex
+            )
+            .padding(.horizontal, VSpacing.sm)
+
+            Divider().background(VColor.surfaceBorder)
+        }) {
+            switch selectedTab {
+            case .settings:
+                settingsContent
+            case .profile:
+                VEmptyState(
+                    title: "Profile",
+                    subtitle: "User profile coming soon",
+                    icon: "person.circle"
+                )
+            case .channels:
+                VEmptyState(
+                    title: "Channels",
+                    subtitle: "Channel configuration coming soon",
+                    icon: "antenna.radiowaves.left.and.right"
+                )
+            case .overview:
+                VEmptyState(
+                    title: "Overview",
+                    subtitle: "System overview coming soon",
+                    icon: "chart.bar"
+                )
             }
         }
         .onAppear {
@@ -65,23 +60,6 @@ struct ControlPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             refreshAPIKeyState()
         }
-    }
-
-    // MARK: - Nav Button
-
-    private func navButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(VFont.bodyMedium)
-                .foregroundColor(selected ? VColor.textPrimary : VColor.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
-        }
-        .buttonStyle(.plain)
-        .background(selected ? Slate._700 : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-        .vHover()
     }
 
     // MARK: - Settings Content
@@ -117,7 +95,16 @@ struct ControlPanel: View {
                     }
 
                     SecureField("This is your private generated key", text: $apiKeyText)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
 
                     Text("Get your API key at console.anthropic.com")
                         .font(VFont.caption)
@@ -197,17 +184,9 @@ struct ControlPanel: View {
                 .vCard(background: Slate._900)
 
                 permissionRow(
-                    icon: "record.circle",
+                    emoji: "\u{1F355}",
                     label: "Screen Recording",
                     granted: PermissionManager.screenRecordingStatus() == .granted
-                )
-                .padding(VSpacing.md)
-                .vCard(background: Slate._900)
-
-                permissionRow(
-                    icon: "key",
-                    label: "API Key",
-                    granted: APIKeyManager.getKey() != nil
                 )
                 .padding(VSpacing.md)
                 .vCard(background: Slate._900)
@@ -215,30 +194,20 @@ struct ControlPanel: View {
             .padding(VSpacing.lg)
             .vCard(background: Slate._900)
 
-            // ABOUT section
+            // PRIVACY & SECURITY section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("ABOUT")
+                Text("PRIVACY & SECURITY")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                HStack {
-                    Text("Version")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                    Spacer()
-                    Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                HStack {
-                    Text("Build")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                    Spacer()
-                    Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-")
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textSecondary)
+                VStack(alignment: .leading, spacing: 0) {
+                    privacyBullet(icon: "eye.slash", text: "AI only runs when you trigger it or enable ambient mode")
+                    Divider().background(VColor.surfaceBorder)
+                    privacyBullet(icon: "lock.shield", text: "API key stored in macOS Keychain")
+                    Divider().background(VColor.surfaceBorder)
+                    privacyBullet(icon: "xmark.shield", text: "Your data is not used to train AI models")
+                    Divider().background(VColor.surfaceBorder)
+                    privacyBullet(icon: "internaldrive", text: "Session logs and knowledge stored locally on your Mac")
                 }
             }
             .padding(VSpacing.lg)
@@ -247,25 +216,6 @@ struct ControlPanel: View {
     }
 
     // MARK: - Permission Row
-
-    private func permissionRow(icon: String, label: String, granted: Bool) -> some View {
-        HStack(spacing: VSpacing.md) {
-            Image(systemName: icon)
-                .font(.system(size: 14))
-                .foregroundColor(VColor.textSecondary)
-                .frame(width: 20)
-
-            Text(label)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-
-            Spacer()
-
-            Image(systemName: granted ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .font(.system(size: 16))
-                .foregroundColor(granted ? VColor.success : VColor.error)
-        }
-    }
 
     private func permissionRow(emoji: String, label: String, granted: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
@@ -284,6 +234,21 @@ struct ControlPanel: View {
                 .font(.system(size: 16))
                 .foregroundColor(granted ? VColor.success : VColor.error)
         }
+    }
+
+    // MARK: - Privacy Bullet
+
+    private func privacyBullet(icon: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .foregroundColor(VColor.textMuted)
+                .frame(width: 16)
+            Text(text)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+        }
+        .padding(.vertical, VSpacing.md)
     }
 
     private func refreshAPIKeyState() {
