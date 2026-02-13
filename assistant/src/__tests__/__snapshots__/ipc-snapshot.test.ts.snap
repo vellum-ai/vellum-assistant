@@ -176,6 +176,69 @@ exports[`IPC message snapshots ClientMessage types skill_detail serializes to ex
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types skills_enable serializes to expected JSON 1`] = `
+{
+  "name": "my-skill",
+  "type": "skills_enable",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types skills_disable serializes to expected JSON 1`] = `
+{
+  "name": "my-skill",
+  "type": "skills_disable",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types skills_configure serializes to expected JSON 1`] = `
+{
+  "apiKey": "sk-test",
+  "config": {
+    "verbose": true,
+  },
+  "env": {
+    "API_KEY": "test-key",
+  },
+  "name": "my-skill",
+  "type": "skills_configure",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types skills_install serializes to expected JSON 1`] = `
+{
+  "slug": "clawhub/my-skill",
+  "type": "skills_install",
+  "version": "1.0.0",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types skills_uninstall serializes to expected JSON 1`] = `
+{
+  "name": "my-skill",
+  "type": "skills_uninstall",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types skills_update serializes to expected JSON 1`] = `
+{
+  "name": "my-skill",
+  "type": "skills_update",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types skills_check_updates serializes to expected JSON 1`] = `
+{
+  "type": "skills_check_updates",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types skills_search serializes to expected JSON 1`] = `
+{
+  "query": "weather",
+  "type": "skills_search",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types suggestion_request serializes to expected JSON 1`] = `
 {
   "requestId": "req-suggest-001",
@@ -191,6 +254,31 @@ exports[`IPC message snapshots ClientMessage types add_trust_rule serializes to 
   "scope": "/projects/my-app",
   "toolName": "bash",
   "type": "add_trust_rule",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types trust_rules_list serializes to expected JSON 1`] = `
+{
+  "type": "trust_rules_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types remove_trust_rule serializes to expected JSON 1`] = `
+{
+  "id": "rule-001",
+  "type": "remove_trust_rule",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types update_trust_rule serializes to expected JSON 1`] = `
+{
+  "decision": "allow",
+  "id": "rule-001",
+  "pattern": "git push *",
+  "priority": 50,
+  "scope": "/projects/my-app",
+  "tool": "bash",
+  "type": "update_trust_rule",
 }
 `;
 
@@ -562,12 +650,33 @@ exports[`IPC message snapshots ServerMessage types skills_list_response serializ
 {
   "skills": [
     {
+      "degraded": false,
       "description": "A test skill",
-      "id": "my-skill",
+      "emoji": "🔧",
       "name": "My Skill",
+      "source": "bundled",
+      "state": "enabled",
+      "updateAvailable": false,
+      "userInvocable": true,
     },
   ],
   "type": "skills_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types skills_state_changed serializes to expected JSON 1`] = `
+{
+  "name": "my-skill",
+  "state": "enabled",
+  "type": "skills_state_changed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types skills_operation_response serializes to expected JSON 1`] = `
+{
+  "operation": "enable",
+  "success": true,
+  "type": "skills_operation_response",
 }
 `;
 
@@ -616,31 +725,6 @@ exports[`IPC message snapshots ServerMessage types timer_completed serializes to
   "sessionId": "sess-001",
   "timerId": "tmr-001",
   "type": "timer_completed",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types trust_rules_list serializes to expected JSON 1`] = `
-{
-  "type": "trust_rules_list",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types remove_trust_rule serializes to expected JSON 1`] = `
-{
-  "id": "rule-001",
-  "type": "remove_trust_rule",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types update_trust_rule serializes to expected JSON 1`] = `
-{
-  "decision": "allow",
-  "id": "rule-001",
-  "pattern": "git push *",
-  "priority": 50,
-  "scope": "/projects/my-app",
-  "tool": "bash",
-  "type": "update_trust_rule",
 }
 `;
 

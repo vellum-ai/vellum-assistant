@@ -408,6 +408,12 @@ export class DaemonServer {
     }
   }
 
+  private broadcast(msg: ServerMessage): void {
+    for (const socket of this.connectedSockets) {
+      this.send(socket, msg);
+    }
+  }
+
   private async sendInitialSession(socket: net.Socket): Promise<void> {
     // Get or create a session
     let conversation = conversationStore.getLatestConversation();
@@ -527,6 +533,7 @@ export class DaemonServer {
         this.lastConfigRefreshTime = Date.now();
       },
       send: (socket, msg) => this.send(socket, msg),
+      broadcast: (msg) => this.broadcast(msg),
       getOrCreateSession: (id, socket?, rebind?, options?) =>
         this.getOrCreateSession(id, socket, rebind, options),
     };

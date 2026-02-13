@@ -125,6 +125,41 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'skill_detail',
     skillId: 'my-skill',
   },
+  skills_enable: {
+    type: 'skills_enable',
+    name: 'my-skill',
+  },
+  skills_disable: {
+    type: 'skills_disable',
+    name: 'my-skill',
+  },
+  skills_configure: {
+    type: 'skills_configure',
+    name: 'my-skill',
+    env: { API_KEY: 'test-key' },
+    apiKey: 'sk-test',
+    config: { verbose: true },
+  },
+  skills_install: {
+    type: 'skills_install',
+    slug: 'clawhub/my-skill',
+    version: '1.0.0',
+  },
+  skills_uninstall: {
+    type: 'skills_uninstall',
+    name: 'my-skill',
+  },
+  skills_update: {
+    type: 'skills_update',
+    name: 'my-skill',
+  },
+  skills_check_updates: {
+    type: 'skills_check_updates',
+  },
+  skills_search: {
+    type: 'skills_search',
+    query: 'weather',
+  },
   suggestion_request: {
     type: 'suggestion_request',
     sessionId: 'sess-001',
@@ -377,8 +412,27 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   skills_list_response: {
     type: 'skills_list_response',
     skills: [
-      { id: 'my-skill', name: 'My Skill', description: 'A test skill' },
+      {
+        name: 'My Skill',
+        description: 'A test skill',
+        emoji: '🔧',
+        source: 'bundled',
+        state: 'enabled',
+        degraded: false,
+        updateAvailable: false,
+        userInvocable: true,
+      },
     ],
+  },
+  skills_state_changed: {
+    type: 'skills_state_changed',
+    name: 'my-skill',
+    state: 'enabled',
+  },
+  skills_operation_response: {
+    type: 'skills_operation_response',
+    operation: 'enable',
+    success: true,
   },
   skill_detail_response: {
     type: 'skill_detail_response',

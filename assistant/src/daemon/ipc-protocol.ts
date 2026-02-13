@@ -149,6 +149,49 @@ export interface SkillDetailRequest {
   skillId: string;
 }
 
+export interface SkillsEnableRequest {
+  type: 'skills_enable';
+  name: string;
+}
+
+export interface SkillsDisableRequest {
+  type: 'skills_disable';
+  name: string;
+}
+
+export interface SkillsConfigureRequest {
+  type: 'skills_configure';
+  name: string;
+  env?: Record<string, string>;
+  apiKey?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface SkillsInstallRequest {
+  type: 'skills_install';
+  slug: string;
+  version?: string;
+}
+
+export interface SkillsUninstallRequest {
+  type: 'skills_uninstall';
+  name: string;
+}
+
+export interface SkillsUpdateRequest {
+  type: 'skills_update';
+  name: string;
+}
+
+export interface SkillsCheckUpdatesRequest {
+  type: 'skills_check_updates';
+}
+
+export interface SkillsSearchRequest {
+  type: 'skills_search';
+  query: string;
+}
+
 export interface SuggestionRequest {
   type: 'suggestion_request';
   sessionId: string;
@@ -309,6 +352,14 @@ export type ClientMessage =
   | AppDataRequest
   | SkillsListRequest
   | SkillDetailRequest
+  | SkillsEnableRequest
+  | SkillsDisableRequest
+  | SkillsConfigureRequest
+  | SkillsInstallRequest
+  | SkillsUninstallRequest
+  | SkillsUpdateRequest
+  | SkillsCheckUpdatesRequest
+  | SkillsSearchRequest
   | SuggestionRequest
   | AddTrustRule
   | TrustRulesList
@@ -552,7 +603,34 @@ export interface AppDataResponse {
 
 export interface SkillsListResponse {
   type: 'skills_list_response';
-  skills: Array<{ id: string; name: string; description: string; icon?: string }>;
+  skills: Array<{
+    name: string;
+    description: string;
+    emoji?: string;
+    homepage?: string;
+    source: 'bundled' | 'managed' | 'workspace' | 'clawhub';
+    state: 'enabled' | 'disabled' | 'available';
+    degraded: boolean;
+    missingRequirements?: { bins?: string[]; env?: string[]; permissions?: string[] };
+    installedVersion?: string;
+    latestVersion?: string;
+    updateAvailable: boolean;
+    userInvocable: boolean;
+    clawhub?: { author: string; stars: number; installs: number; reports: number; publishedAt: string };
+  }>;
+}
+
+export interface SkillStateChanged {
+  type: 'skills_state_changed';
+  name: string;
+  state: 'enabled' | 'disabled' | 'installed' | 'uninstalled';
+}
+
+export interface SkillsOperationResponse {
+  type: 'skills_operation_response';
+  operation: string;
+  success: boolean;
+  error?: string;
 }
 
 export interface SkillDetailResponse {
@@ -705,6 +783,8 @@ export type ServerMessage =
   | AppDataResponse
   | SkillsListResponse
   | SkillDetailResponse
+  | SkillStateChanged
+  | SkillsOperationResponse
   | SuggestionResponse
   | MessageQueued
   | MessageDequeued

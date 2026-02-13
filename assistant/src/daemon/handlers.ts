@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
 import Anthropic from '@anthropic-ai/sdk';
-import { getConfig, loadRawConfig, saveRawConfig } from '../config/loader.js';
+import { getConfig, loadRawConfig, saveRawConfig, setNestedValue, invalidateConfigCache } from '../config/loader.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
 import * as conversationStore from '../memory/conversation-store.js';
@@ -27,6 +27,14 @@ import type {
   TaskSubmit,
   AppDataRequest,
   SkillDetailRequest,
+  SkillsEnableRequest,
+  SkillsDisableRequest,
+  SkillsConfigureRequest,
+  SkillsInstallRequest,
+  SkillsUninstallRequest,
+  SkillsUpdateRequest,
+  SkillsCheckUpdatesRequest,
+  SkillsSearchRequest,
   SuggestionRequest,
   AddTrustRule,
   TrustRulesList,
@@ -35,6 +43,7 @@ import type {
 } from './ipc-protocol.js';
 import { addRule, removeRule, updateRule, getAllRules } from '../permissions/trust-store.js';
 import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon, readCachedSkillIcon } from '../config/skills.js';
+import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } from '../memory/app-store.js';
@@ -255,6 +264,7 @@ export interface HandlerContext {
   setSuppressConfigReload(value: boolean): void;
   updateConfigFingerprint(): void;
   send(socket: net.Socket, msg: ServerMessage): void;
+  broadcast(msg: ServerMessage): void;
   getOrCreateSession(
     conversationId: string,
     socket?: net.Socket,
@@ -295,6 +305,14 @@ const handlers: DispatchMap = {
   app_data_request: handleAppDataRequest,
   skills_list: (_msg, socket, ctx) => handleSkillsList(socket, ctx),
   skill_detail: handleSkillDetail,
+  skills_enable: handleSkillsEnable,
+  skills_disable: handleSkillsDisable,
+  skills_configure: handleSkillsConfigure,
+  skills_install: handleSkillsInstall,
+  skills_uninstall: handleSkillsUninstall,
+  skills_update: handleSkillsUpdate,
+  skills_check_updates: handleSkillsCheckUpdates,
+  skills_search: handleSkillsSearch,
   suggestion_request: handleSuggestionRequest,
   add_trust_rule: handleAddTrustRule,
   trust_rules_list: (_msg, socket, ctx) => handleTrustRulesList(socket, ctx),
@@ -652,19 +670,239 @@ function handleUsageRequest(
 // ─── Skills handlers ─────────────────────────────────────────────────────────
 
 function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
+  const config = getConfig();
   const catalog = loadSkillCatalog();
-  // Respond immediately with cached icons (sync reads only)
-  const skills = catalog.map((s) => {
-    const icon = readCachedSkillIcon(s.directoryPath);
-    return { id: s.id, name: s.name, description: s.description, ...(icon ? { icon } : {}) };
-  });
-  ctx.send(socket, { type: 'skills_list_response', skills });
+  const resolved = resolveSkillStates(catalog, config);
 
-  // Generate missing icons in the background (fire-and-forget)
-  const missing = catalog.filter((s) => !readCachedSkillIcon(s.directoryPath));
-  if (missing.length > 0) {
-    Promise.all(missing.map((s) => ensureSkillIcon(s.directoryPath, s.name, s.description))).catch(() => {});
+  const skills = resolved.map((r) => ({
+    name: r.summary.name,
+    description: r.summary.description,
+    emoji: r.summary.emoji,
+    homepage: r.summary.homepage,
+    source: r.summary.source as 'bundled' | 'managed' | 'workspace' | 'clawhub',
+    state: (r.state === 'degraded' ? 'enabled' : r.state) as 'enabled' | 'disabled' | 'available',
+    degraded: r.degraded,
+    missingRequirements: r.missingRequirements,
+    updateAvailable: false,
+    userInvocable: r.summary.userInvocable,
+  }));
+
+  ctx.send(socket, { type: 'skills_list_response', skills });
+}
+
+function handleSkillsEnable(
+  msg: SkillsEnableRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const raw = loadRawConfig();
+    setNestedValue(raw, `skills.entries.${msg.name}.enabled`, true);
+
+    ctx.setSuppressConfigReload(true);
+    try {
+      saveRawConfig(raw);
+    } catch (err) {
+      ctx.setSuppressConfigReload(false);
+      throw err;
+    }
+    invalidateConfigCache();
+
+    const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
+    if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
+    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+    ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+
+    ctx.updateConfigFingerprint();
+
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'enable',
+      success: true,
+    });
+    ctx.broadcast({
+      type: 'skills_state_changed',
+      name: msg.name,
+      state: 'enabled',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to enable skill');
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'enable',
+      success: false,
+      error: message,
+    });
   }
+}
+
+function handleSkillsDisable(
+  msg: SkillsDisableRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const raw = loadRawConfig();
+    setNestedValue(raw, `skills.entries.${msg.name}.enabled`, false);
+
+    ctx.setSuppressConfigReload(true);
+    try {
+      saveRawConfig(raw);
+    } catch (err) {
+      ctx.setSuppressConfigReload(false);
+      throw err;
+    }
+    invalidateConfigCache();
+
+    const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
+    if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
+    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+    ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+
+    ctx.updateConfigFingerprint();
+
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'disable',
+      success: true,
+    });
+    ctx.broadcast({
+      type: 'skills_state_changed',
+      name: msg.name,
+      state: 'disabled',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to disable skill');
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'disable',
+      success: false,
+      error: message,
+    });
+  }
+}
+
+function handleSkillsConfigure(
+  msg: SkillsConfigureRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const raw = loadRawConfig();
+
+    if (msg.env) {
+      setNestedValue(raw, `skills.entries.${msg.name}.env`, msg.env);
+    }
+    if (msg.apiKey !== undefined) {
+      setNestedValue(raw, `skills.entries.${msg.name}.apiKey`, msg.apiKey);
+    }
+    if (msg.config) {
+      setNestedValue(raw, `skills.entries.${msg.name}.config`, msg.config);
+    }
+
+    ctx.setSuppressConfigReload(true);
+    try {
+      saveRawConfig(raw);
+    } catch (err) {
+      ctx.setSuppressConfigReload(false);
+      throw err;
+    }
+    invalidateConfigCache();
+
+    const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
+    if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
+    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+    ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+
+    ctx.updateConfigFingerprint();
+
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'configure',
+      success: true,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to configure skill');
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'configure',
+      success: false,
+      error: message,
+    });
+  }
+}
+
+function handleSkillsInstall(
+  msg: SkillsInstallRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  log.warn({ slug: msg.slug }, 'skills_install not yet implemented');
+  ctx.send(socket, {
+    type: 'skills_operation_response',
+    operation: 'install',
+    success: false,
+    error: 'Not yet implemented',
+  });
+}
+
+function handleSkillsUninstall(
+  msg: SkillsUninstallRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  log.warn({ name: msg.name }, 'skills_uninstall not yet implemented');
+  ctx.send(socket, {
+    type: 'skills_operation_response',
+    operation: 'uninstall',
+    success: false,
+    error: 'Not yet implemented',
+  });
+}
+
+function handleSkillsUpdate(
+  msg: SkillsUpdateRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  log.warn({ name: msg.name }, 'skills_update not yet implemented');
+  ctx.send(socket, {
+    type: 'skills_operation_response',
+    operation: 'update',
+    success: false,
+    error: 'Not yet implemented',
+  });
+}
+
+function handleSkillsCheckUpdates(
+  _msg: SkillsCheckUpdatesRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  log.warn('skills_check_updates not yet implemented');
+  ctx.send(socket, {
+    type: 'skills_operation_response',
+    operation: 'check_updates',
+    success: false,
+    error: 'Not yet implemented',
+  });
+}
+
+function handleSkillsSearch(
+  msg: SkillsSearchRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  log.warn({ query: msg.query }, 'skills_search not yet implemented');
+  ctx.send(socket, {
+    type: 'skills_operation_response',
+    operation: 'search',
+    success: false,
+    error: 'Not yet implemented',
+  });
 }
 
 async function handleSkillDetail(
