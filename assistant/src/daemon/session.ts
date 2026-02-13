@@ -400,10 +400,13 @@ export class Session {
       });
 
       if (preMessageResult.blocked) {
-        // Roll back the user message that was already persisted by persistUserMessage
-        // so it doesn't linger in conversation history or the database.
+        // Roll back the user message from in-memory history only.
+        // We intentionally do NOT call deleteLastExchange here because
+        // message_runs.message_id has ON DELETE CASCADE — deleting the
+        // message would cascade-delete the run record, causing
+        // runsStore.failRun/completeRun to be no-ops and clients
+        // polling GET /runs/{id} to get 404.
         this.messages.pop();
-        conversationStore.deleteLastExchange(this.conversationId);
         onEvent({ type: 'error', message: `Message blocked by hook "${preMessageResult.blockedBy}"` });
         return;
       }
