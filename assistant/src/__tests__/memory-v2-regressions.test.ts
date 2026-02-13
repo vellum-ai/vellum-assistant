@@ -233,8 +233,8 @@ describe('Memory V2 regressions', () => {
       config,
       { excludeMessageIds: ['msg-current'] },
     );
-    expect(recall.injectedText).toContain('[segment:seg-old]');
-    expect(recall.injectedText).not.toContain('[segment:seg-current]');
+    expect(recall.injectedText).toContain('Remember my timezone is PST.');
+    expect(recall.injectedText).not.toContain('What is my timezone again?');
   });
 
   test('semantic recall excludes items backed only by excluded message ids', async () => {
@@ -342,8 +342,8 @@ describe('Memory V2 regressions', () => {
       )
     ));
     expect(recall.semanticHits).toBe(1);
-    expect(recall.injectedText).toContain('[item:item-semantic-old]');
-    expect(recall.injectedText).not.toContain('[item:item-semantic-current]');
+    expect(recall.injectedText).toContain('User timezone is PST');
+    expect(recall.injectedText).not.toContain('(current turn)');
   });
 
   test('semantic recall skips active items that have no remaining evidence rows', async () => {
@@ -433,8 +433,8 @@ describe('Memory V2 regressions', () => {
       )
     ));
     expect(recall.semanticHits).toBe(1);
-    expect(recall.injectedText).toContain('[item:item-semantic-with-evidence]');
-    expect(recall.injectedText).not.toContain('[item:item-semantic-orphan]');
+    expect(recall.injectedText).toContain('User timezone is PST');
+    expect(recall.injectedText).not.toContain('Stale orphan fact');
   });
 
   test('semantic recall excludes conversation summaries that overlap excluded messages', async () => {
@@ -518,8 +518,8 @@ describe('Memory V2 regressions', () => {
       )
     ));
     expect(recall.semanticHits).toBe(1);
-    expect(recall.injectedText).not.toContain('[summary:summary-semantic-conversation]');
-    expect(recall.injectedText).toContain('[summary:summary-semantic-weekly]');
+    expect(recall.injectedText).not.toContain('Conversation summary containing current turn details');
+    expect(recall.injectedText).toContain('Weekly summary that should remain eligible');
   });
 
   test('memory recall injection remains user-role and is stripped from runtime history', () => {
