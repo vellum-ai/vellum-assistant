@@ -179,10 +179,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupToolConfirmationManager() {
         daemonClient.onConfirmationRequest = { [weak self] msg in
-            // Only show floating panel if app is NOT focused
-            if !NSApp.isActive {
-                self?.toolConfirmationManager.showConfirmation(msg)
-            }
+            // Only show floating panel when the main chat window is not visible.
+            // When the main window is visible, the inline ToolConfirmationBubble
+            // handles the confirmation to avoid duplicate UIs for the same request.
+            guard self?.mainWindow?.isVisible != true else { return }
+            self?.toolConfirmationManager.showConfirmation(msg)
         }
         toolConfirmationManager.onResponse = { [weak self] requestId, decision in
             // Send the response to daemon
