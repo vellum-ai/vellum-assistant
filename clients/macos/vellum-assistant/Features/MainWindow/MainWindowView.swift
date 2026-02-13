@@ -125,7 +125,7 @@ struct MainWindowView: View {
         if let panel = activePanel {
             switch panel {
             case .generated:
-                GeneratedPanel(onClose: { activePanel = nil })
+                GeneratedPanel(onClose: { activePanel = nil }, daemonClient: daemonClient)
             case .agent:
                 AgentPanel(onClose: { activePanel = nil }, daemonClient: daemonClient)
             case .control:

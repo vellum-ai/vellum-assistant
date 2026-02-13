@@ -49,7 +49,7 @@ import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../confi
 import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
-import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } from '../memory/app-store.js';
+import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps } from '../memory/app-store.js';
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
 import { packageApp } from '../bundler/app-bundler.js';
@@ -326,6 +326,7 @@ const handlers: DispatchMap = {
   remove_trust_rule: handleRemoveTrustRule,
   update_trust_rule: handleUpdateTrustRule,
   bundle_app: handleBundleApp,
+  apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
@@ -1387,6 +1388,27 @@ async function generateSuggestion(apiKey: string, assistantText: string): Promis
 
   const firstLine = raw.split('\n')[0].trim();
   return firstLine || null;
+}
+
+// ─── Apps list handler ──────────────────────────────────────────────────────
+
+function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
+  try {
+    const apps = listApps();
+    ctx.send(socket, {
+      type: 'apps_list_response',
+      apps: apps.map((a) => ({
+        id: a.id,
+        name: a.name,
+        description: a.description,
+        createdAt: a.createdAt,
+      })),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to list apps');
+    ctx.send(socket, { type: 'error', message: `Failed to list apps: ${message}` });
+  }
 }
 
 // ─── Bundle app handler ─────────────────────────────────────────────────────

@@ -74,6 +74,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `skills_inspect_response` message.
     var onSkillsInspectResponse: ((SkillsInspectResponseMessage) -> Void)?
 
+    /// Called when the daemon sends an `apps_list_response` message.
+    var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `bundle_app_response` message.
+    var onBundleAppResponse: ((BundleAppResponseMessage) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -418,6 +424,18 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(SkillsConfigureMessage(name: name, env: env, apiKey: apiKey, config: config))
     }
 
+    // MARK: - Apps
+
+    /// Request the list of all apps from the daemon.
+    func sendAppsList() throws {
+        try send(AppsListRequestMessage())
+    }
+
+    /// Request bundling an app for sharing.
+    func sendBundleApp(appId: String) throws {
+        try send(BundleAppRequestMessage(appId: appId))
+    }
+
     // MARK: - Disconnect
 
     /// Disconnect from the daemon. Stops reconnect and ping timers.
@@ -556,6 +574,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSkillsOperationResponse?(msg)
         case .skillsInspectResponse(let msg):
             onSkillsInspectResponse?(msg)
+        case .appsListResponse(let msg):
+            onAppsListResponse?(msg)
+        case .bundleAppResponse(let msg):
+            onBundleAppResponse?(msg)
         default:
             break
         }

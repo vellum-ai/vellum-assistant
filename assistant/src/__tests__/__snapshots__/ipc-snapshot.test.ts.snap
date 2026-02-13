@@ -239,6 +239,13 @@ exports[`IPC message snapshots ClientMessage types skills_search serializes to e
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types skills_inspect serializes to expected JSON 1`] = `
+{
+  "slug": "clawhub/my-skill",
+  "type": "skills_inspect",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types suggestion_request serializes to expected JSON 1`] = `
 {
   "requestId": "req-suggest-001",
@@ -279,6 +286,19 @@ exports[`IPC message snapshots ClientMessage types update_trust_rule serializes 
   "scope": "/projects/my-app",
   "tool": "bash",
   "type": "update_trust_rule",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types bundle_app serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "type": "bundle_app",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types apps_list serializes to expected JSON 1`] = `
+{
+  "type": "apps_list",
 }
 `;
 
@@ -693,6 +713,47 @@ Do the thing."
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types skills_inspect_response serializes to expected JSON 1`] = `
+{
+  "data": {
+    "createdAt": 1700000000,
+    "files": [
+      {
+        "path": "SKILL.md",
+        "size": 1024,
+      },
+    ],
+    "latestVersion": {
+      "changelog": "Bug fixes",
+      "version": "1.2.0",
+    },
+    "owner": {
+      "displayName": "ClaWHub",
+      "handle": "clawhub",
+    },
+    "skill": {
+      "displayName": "My Skill",
+      "slug": "clawhub/my-skill",
+      "summary": "A test skill",
+    },
+    "skillMdContent": 
+"# My Skill
+
+Does things."
+,
+    "stats": {
+      "downloads": 5000,
+      "installs": 1000,
+      "stars": 42,
+      "versions": 3,
+    },
+    "updatedAt": 1700001000,
+  },
+  "slug": "clawhub/my-skill",
+  "type": "skills_inspect_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types suggestion_response serializes to expected JSON 1`] = `
 {
   "requestId": "req-suggest-001",
@@ -743,5 +804,35 @@ exports[`IPC message snapshots ServerMessage types trust_rules_list_response ser
     },
   ],
   "type": "trust_rules_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types bundle_app_response serializes to expected JSON 1`] = `
+{
+  "bundlePath": "/tmp/My_App-abc12345.vellumapp",
+  "manifest": {
+    "capabilities": [],
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "created_by": "vellum-assistant/0.1.6",
+    "description": "A test app",
+    "entry": "index.html",
+    "format_version": 1,
+    "name": "My App",
+  },
+  "type": "bundle_app_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types apps_list_response serializes to expected JSON 1`] = `
+{
+  "apps": [
+    {
+      "createdAt": 1700000000,
+      "description": "A test app",
+      "id": "app-001",
+      "name": "My App",
+    },
+  ],
+  "type": "apps_list_response",
 }
 `;
