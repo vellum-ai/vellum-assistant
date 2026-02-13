@@ -26,10 +26,10 @@ describe("sanitizeSuggestion", () => {
     expect(sanitizeSuggestion("   \n\n  ")).toBeNull();
   });
 
-  test("truncates to default maxLen (200)", () => {
+  test("truncates to default maxLen (50)", () => {
     const long = "a".repeat(300);
     const result = sanitizeSuggestion(long);
-    expect(result).toHaveLength(200);
+    expect(result).toHaveLength(50);
   });
 
   test("truncates to custom maxLen", () => {

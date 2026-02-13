@@ -893,18 +893,18 @@ async function generateSuggestion(apiKey: string, assistantText: string): Promis
 
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 60,
+    max_tokens: 30,
     messages: [
       {
         role: 'user',
-        content: `The AI assistant just said the following to the user. Suggest a single short follow-up message (max 200 chars) the user might want to send next. Reply with ONLY the suggested message text, nothing else.\n\nAssistant's message:\n${truncated}`,
+        content: `Given this assistant message, write a very short tab-complete suggestion (max 50 chars) the user could send next to keep the conversation going. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`,
       },
     ],
   });
 
   const textBlock = response.content.find((b) => b.type === 'text');
   const raw = textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
-  if (!raw || raw.length > 200) return null;
+  if (!raw || raw.length > 50) return null;
 
   const firstLine = raw.split('\n')[0].trim();
   return firstLine || null;
