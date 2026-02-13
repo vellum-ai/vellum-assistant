@@ -15,6 +15,7 @@ mock.module('../util/platform.js', () => ({
   isMacOS: () => process.platform === 'darwin',
   isLinux: () => process.platform === 'linux',
   isWindows: () => process.platform === 'win32',
+  getPlatformName: () => process.platform,
 }));
 
 mock.module('../util/logger.js', () => ({
