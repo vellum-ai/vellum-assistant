@@ -173,8 +173,9 @@ struct AgentPanel: View {
     @ViewBuilder
     private var availableSkillsContent: some View {
         Group {
-            if let slug = selectedSkillSlug {
-                skillDetailView(slug: slug)
+            if let slug = selectedSkillSlug,
+               let searchItem = skillsManager.searchResults.first(where: { $0.slug == slug }) {
+                skillDetailView(slug: slug, searchItem: searchItem)
             } else {
                 availableSkillsList
             }
@@ -476,7 +477,11 @@ struct AgentPanel: View {
     // MARK: - Skill Detail View
 
     @ViewBuilder
-    private func skillDetailView(slug: String) -> some View {
+    private func skillDetailView(slug: String, searchItem: ClawhubSkillItem) -> some View {
+        let isNew = searchItem.createdAt > 0 && Date().timeIntervalSince(
+            Date(timeIntervalSince1970: Double(searchItem.createdAt) / 1000)
+        ) < 7 * 86400
+
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Back button
             Button(action: {
@@ -495,89 +500,122 @@ struct AgentPanel: View {
             }
             .buttonStyle(.plain)
 
+            // Title row — always visible from search data
+            HStack(spacing: VSpacing.sm) {
+                Text(skillsManager.inspectedSkill?.skill.displayName ?? searchItem.name)
+                    .font(VFont.cardTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                if isNew {
+                    Text("NEW")
+                        .font(VFont.small)
+                        .foregroundColor(Amber._500)
+                }
+            }
+
+            // Author row — use inspect owner if available, fall back to search author
+            if let owner = skillsManager.inspectedSkill?.owner {
+                HStack(spacing: VSpacing.sm) {
+                    if let imageURL = owner.image, let url = URL(string: imageURL) {
+                        AsyncImage(url: url) { image in
+                            image.resizable().aspectRatio(contentMode: .fill)
+                        } placeholder: {
+                            Image(systemName: "person.circle.fill")
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        .frame(width: 20, height: 20)
+                        .clipShape(Circle())
+                    } else {
+                        Image(systemName: "person.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    Text(owner.displayName.isEmpty ? owner.handle : owner.displayName)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            } else if !searchItem.author.isEmpty {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(VColor.textMuted)
+                    Text(searchItem.author)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            }
+
+            // Summary — use inspect summary if available, fall back to search description
+            let summary = skillsManager.inspectedSkill?.skill.summary ?? ""
+            let description = summary.isEmpty ? searchItem.description : summary
+            if !description.isEmpty {
+                Text(description)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Stats row — use inspect stats if available, fall back to search data
+            if let stats = skillsManager.inspectedSkill?.stats {
+                HStack(spacing: VSpacing.lg) {
+                    statItem(icon: "star.fill", value: "\(stats.stars)")
+                    statItem(icon: "arrow.down.circle", value: "\(stats.installs)")
+                    statItem(icon: "arrow.down.to.line", value: "\(stats.downloads)")
+                    if stats.versions > 0 {
+                        statItem(icon: "tag", value: "\(stats.versions) versions")
+                    }
+                    if !skillAge(searchItem.createdAt).isEmpty {
+                        statItem(icon: "clock", value: skillAge(searchItem.createdAt))
+                    }
+                }
+            } else {
+                // Baseline stats from search results
+                HStack(spacing: VSpacing.lg) {
+                    statItem(icon: "star.fill", value: "\(searchItem.stars)")
+                    statItem(icon: "arrow.down.circle", value: "\(searchItem.installs)")
+                    if !skillAge(searchItem.createdAt).isEmpty {
+                        statItem(icon: "clock", value: skillAge(searchItem.createdAt))
+                    }
+                }
+            }
+
+            // Inspect-only content (loading, error, or enriched details)
             if skillsManager.isInspecting {
-                // Loading state
                 HStack {
                     Spacer()
                     VStack(spacing: VSpacing.md) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Loading skill details...")
+                        Text("Loading more details...")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
                     Spacer()
                 }
-                .frame(height: 200)
+                .frame(height: 80)
             } else if let error = skillsManager.inspectError {
-                // Error state
-                VStack(spacing: VSpacing.md) {
+                HStack(spacing: VSpacing.sm) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 24))
+                        .font(.system(size: 11))
                         .foregroundColor(Amber._500)
                     Text(error)
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(VSpacing.xl)
             } else if let data = skillsManager.inspectedSkill {
-                // Detail content
-                skillDetailContent(data)
+                // Enriched content from inspect (version, README, files)
+                skillDetailEnrichedContent(data)
             }
+
+            // Install button — always visible
+            detailInstallButton(slug: slug)
         }
     }
 
+    /// Enriched content from inspect API — version, README, files.
+    /// Title, author, summary, and stats are handled by the parent `skillDetailView`.
     @ViewBuilder
-    private func skillDetailContent(_ data: ClawhubInspectData) -> some View {
-        // Title
-        Text(data.skill.displayName)
-            .font(VFont.cardTitle)
-            .foregroundColor(VColor.textPrimary)
-
-        // Author row
-        if let owner = data.owner {
-            HStack(spacing: VSpacing.sm) {
-                if let imageURL = owner.image, let url = URL(string: imageURL) {
-                    AsyncImage(url: url) { image in
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        Image(systemName: "person.circle.fill")
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    .frame(width: 20, height: 20)
-                    .clipShape(Circle())
-                } else {
-                    Image(systemName: "person.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(VColor.textMuted)
-                }
-                Text(owner.displayName.isEmpty ? owner.handle : owner.displayName)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-            }
-        }
-
-        // Summary
-        if !data.skill.summary.isEmpty {
-            Text(data.skill.summary)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-
-        // Stats row
-        if let stats = data.stats {
-            HStack(spacing: VSpacing.lg) {
-                statItem(icon: "star.fill", value: "\(stats.stars)")
-                statItem(icon: "arrow.down.circle", value: "\(stats.installs)")
-                statItem(icon: "arrow.down.to.line", value: "\(stats.downloads)")
-                if stats.versions > 0 {
-                    statItem(icon: "tag", value: "\(stats.versions) versions")
-                }
-            }
-        }
-
+    private func skillDetailEnrichedContent(_ data: ClawhubInspectData) -> some View {
         // Latest version
         if let version = data.latestVersion {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -645,9 +683,6 @@ struct AgentPanel: View {
                 }
             }
         }
-
-        // Install button (prominent)
-        detailInstallButton(slug: data.skill.slug)
     }
 
     private func statItem(icon: String, value: String) -> some View {
