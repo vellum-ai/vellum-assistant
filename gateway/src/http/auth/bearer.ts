@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "crypto";
+
 export type BearerAuthResult =
   | { authorized: true }
   | { authorized: false; reason: string };
@@ -10,13 +12,21 @@ export function validateBearerToken(
     return { authorized: false, reason: "Missing Authorization header" };
   }
 
-  if (!authorizationHeader.startsWith("Bearer ")) {
+  if (!authorizationHeader.slice(0, 7).toLowerCase().startsWith("bearer ")) {
     return { authorized: false, reason: "Invalid authorization scheme" };
   }
 
-  const token = authorizationHeader.slice("Bearer ".length);
+  const token = authorizationHeader.slice(7);
+  if (!token) {
+    return { authorized: false, reason: "Empty bearer token" };
+  }
 
-  if (token !== expectedToken) {
+  const a = Buffer.from(token);
+  const b = Buffer.from(expectedToken);
+  if (a.length !== b.length) {
+    return { authorized: false, reason: "Invalid bearer token" };
+  }
+  if (!timingSafeEqual(a, b)) {
     return { authorized: false, reason: "Invalid bearer token" };
   }
 
