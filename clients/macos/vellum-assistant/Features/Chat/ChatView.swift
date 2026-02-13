@@ -449,20 +449,134 @@ private struct ChatBubble: View {
         }
     }
 
+    private var hasText: Bool {
+        !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var imageAttachments: [ChatAttachment] {
+        message.attachments.filter { $0.mimeType.hasPrefix("image/") }
+    }
+
+    private var fileAttachments: [ChatAttachment] {
+        message.attachments.filter { !$0.mimeType.hasPrefix("image/") }
+    }
+
     private var bubbleContent: some View {
-        Text(markdownText)
-            .font(VFont.mono)
-            .foregroundColor(isUser ? .white : VColor.textPrimary)
-            .tint(isUser ? .white : VColor.accent)
-            .textSelection(.enabled)
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
-            )
-            .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
-            .opacity(bubbleOpacity)
+        VStack(alignment: .leading, spacing: hasText && !message.attachments.isEmpty ? VSpacing.sm : 0) {
+            if hasText {
+                Text(markdownText)
+                    .font(VFont.mono)
+                    .foregroundColor(isUser ? .white : VColor.textPrimary)
+                    .tint(isUser ? .white : VColor.accent)
+                    .textSelection(.enabled)
+            }
+
+            if !imageAttachments.isEmpty {
+                attachmentImageGrid
+            }
+
+            if !fileAttachments.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    ForEach(fileAttachments) { attachment in
+                        fileAttachmentChip(attachment)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
+        )
+        .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
+        .opacity(bubbleOpacity)
+    }
+
+    private var attachmentImageGrid: some View {
+        // Wrap images in a flexible horizontal layout
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            ForEach(imageAttachments) { attachment in
+                attachmentImage(attachment)
+            }
+        }
+    }
+
+    private func attachmentImage(_ attachment: ChatAttachment) -> some View {
+        Group {
+            if let nsImage = nsImage(for: attachment) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 280)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .onTapGesture {
+                        openImageInPreview(attachment)
+                    }
+            }
+        }
+    }
+
+    private func fileAttachmentChip(_ attachment: ChatAttachment) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            Image(systemName: fileIcon(for: attachment.mimeType))
+                .font(VFont.caption)
+                .foregroundColor(isUser ? .white.opacity(0.8) : VColor.textSecondary)
+
+            Text(attachment.filename)
+                .font(VFont.caption)
+                .foregroundColor(isUser ? .white : VColor.textPrimary)
+                .lineLimit(1)
+
+            Text(formattedFileSize(base64Length: attachment.data.count))
+                .font(VFont.small)
+                .foregroundColor(isUser ? .white.opacity(0.6) : VColor.textMuted)
+        }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .fill(isUser ? Color.white.opacity(0.15) : VColor.surfaceBorder.opacity(0.5))
+        )
+    }
+
+    private func nsImage(for attachment: ChatAttachment) -> NSImage? {
+        if let thumbnailData = attachment.thumbnailData, let img = NSImage(data: thumbnailData) {
+            return img
+        }
+        if let data = Data(base64Encoded: attachment.data), let img = NSImage(data: data) {
+            return img
+        }
+        return nil
+    }
+
+    private func openImageInPreview(_ attachment: ChatAttachment) {
+        guard let data = Data(base64Encoded: attachment.data) else { return }
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileURL = tempDir.appendingPathComponent(attachment.filename)
+        do {
+            try data.write(to: fileURL)
+            NSWorkspace.shared.open(fileURL)
+        } catch {
+            // Silently fail — not critical
+        }
+    }
+
+    private func fileIcon(for mimeType: String) -> String {
+        if mimeType.hasPrefix("text/") { return "doc.text.fill" }
+        if mimeType == "application/pdf" { return "doc.fill" }
+        if mimeType.contains("zip") || mimeType.contains("archive") { return "doc.zipper" }
+        if mimeType.contains("json") || mimeType.contains("xml") { return "doc.text.fill" }
+        return "doc.fill"
+    }
+
+    private func formattedFileSize(base64Length: Int) -> String {
+        let bytes = base64Length * 3 / 4
+        if bytes < 1024 { return "\(bytes) B" }
+        let kb = Double(bytes) / 1024
+        if kb < 1024 { return String(format: "%.1f KB", kb) }
+        let mb = kb / 1024
+        return String(format: "%.1f MB", mb)
     }
 
     private var markdownText: AttributedString {
