@@ -15,6 +15,7 @@ public struct SettingsView: View {
         return val == 0 ? 30 : val
     }()
     @State private var showingPrivacy = false
+    @State private var showingSkills = false
     @State private var showingTrustRules = false
     @State private var activationKey: ActivationKey = {
         let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
@@ -153,6 +154,26 @@ public struct SettingsView: View {
             }
 
             if let daemonClient {
+                Section("Skills") {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Manage Skills")
+                            Text("Enable, disable, and browse available skills")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Manage Skills...") {
+                            showingSkills = true
+                        }
+                    }
+                    .sheet(isPresented: $showingSkills) {
+                        SkillsSettingsView(
+                            viewModel: SkillsSettingsViewModel(daemonClient: daemonClient)
+                        )
+                    }
+                }
+
                 Section("Trust Rules") {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
