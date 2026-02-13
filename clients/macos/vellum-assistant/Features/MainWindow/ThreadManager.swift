@@ -35,6 +35,10 @@ final class ThreadManager: ObservableObject {
         viewModel.onInlineConfirmationResponse = { [weak self] requestId in
             self?.confirmationDismissHandler?(requestId)
         }
+        viewModel.shouldAcceptConfirmation = { [weak self, weak viewModel] in
+            guard let self, let viewModel else { return false }
+            return self.isLatestToolUseRecipient(viewModel)
+        }
         threads.append(thread)
         chatViewModels[thread.id] = viewModel
         activeThreadId = thread.id
@@ -79,6 +83,21 @@ final class ThreadManager: ObservableObject {
         for viewModel in chatViewModels.values {
             viewModel.updateConfirmationState(requestId: requestId, decision: decision)
         }
+    }
+
+    /// Returns true if the given ChatViewModel is the one that most recently
+    /// received a `toolUseStart` event across all threads. Used to route
+    /// `confirmationRequest` messages (which lack a sessionId) to exactly
+    /// one ChatViewModel, preventing duplicates and ensuring confirmations
+    /// are accepted even in flows that don't go through `sendMessage()`.
+    func isLatestToolUseRecipient(_ viewModel: ChatViewModel) -> Bool {
+        guard let timestamp = viewModel.lastToolUseReceivedAt else { return false }
+        for other in chatViewModels.values where other !== viewModel {
+            if let otherTimestamp = other.lastToolUseReceivedAt, otherTimestamp > timestamp {
+                return false
+            }
+        }
+        return true
     }
 
     // MARK: - Private
