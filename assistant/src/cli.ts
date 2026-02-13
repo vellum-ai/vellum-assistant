@@ -1,4 +1,5 @@
 import * as net from 'node:net';
+import { basename } from 'node:path';
 import * as readline from 'node:readline';
 import { readFileSync, appendFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -16,11 +17,110 @@ import { copyToClipboard, extractLastCodeBlock, formatSessionForExport } from '.
 import { timeAgo } from './util/time.js';
 import { ensureDaemonRunning } from './daemon/lifecycle.js';
 import { shouldAutoStartDaemon } from './daemon/connection-policy.js';
+import { loadConfig } from './config/loader.js';
+import { APP_VERSION } from './version.js';
+import { listConversations } from './memory/conversation-store.js';
+import { initializeDb } from './memory/db.js';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
 const RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_ATTEMPTS = 5;
+
+const VELLY_ART = [
+  '\x1b[35m       .-"""-.\x1b[0m',
+  '\x1b[35m      /        \\\x1b[0m',
+  '\x1b[35m     |  \x1b[37mO\x1b[35m  \x1b[37m.\x1b[35m  |\x1b[0m',
+  '\x1b[35m     |   \\__/  |\x1b[0m',
+  '\x1b[35m      \\  ~~~~  /\x1b[0m',
+  '\x1b[35m    ___\\.__.__/___\x1b[0m',
+  '\x1b[35m   /  / |    | \\  \\\x1b[0m',
+  '\x1b[35m  /  /  |    |  \\  \\\x1b[0m',
+  '\x1b[35m  \\_(   \\  /   )_/\x1b[0m',
+  '\x1b[35m      \\  \\\\/  /\x1b[0m',
+  '\x1b[35m       \\____/\x1b[0m',
+  '\x1b[35m       / || \\\x1b[0m',
+  '\x1b[35m      /  ||  \\\x1b[0m',
+  '\x1b[35m     (__)(__)\x1b[0m',
+];
+
+function renderWelcomeScreen(): void {
+  const config = loadConfig();
+  const cwd = process.cwd();
+  const dirName = basename(cwd);
+
+  let recentSessions: Array<{ title: string; updatedAt: number }> = [];
+  try {
+    initializeDb();
+    recentSessions = listConversations(3);
+  } catch {
+    // DB may not be initialized yet
+  }
+
+  const title = `Vellum Assistant v${APP_VERSION}`;
+  const modelInfo = `${config.model} (${config.provider})`;
+
+  const DIM = '\x1b[2m';
+  const RESET = '\x1b[0m';
+  const BOLD = '\x1b[1m';
+  const MAGENTA = '\x1b[35m';
+  const CYAN = '\x1b[36m';
+  const WHITE = '\x1b[37m';
+
+  const topBorder = `${DIM}${MAGENTA}--- ${WHITE}${title} ${MAGENTA}${'─'.repeat(Math.max(0, 60 - title.length))}${RESET}`;
+
+  const leftLines: string[] = [
+    '',
+    `${BOLD}${WHITE}    Welcome back!${RESET}`,
+    '',
+    ...VELLY_ART.map(l => `  ${l}`),
+    '',
+    `${DIM}  ${modelInfo}${RESET}`,
+    `${DIM}  ~/${dirName}${RESET}`,
+  ];
+
+  const tipsHeader = `${MAGENTA}Tips for getting started${RESET}`;
+  const tips = [
+    `Run ${CYAN}/help${RESET} to see available commands`,
+    `Try ${CYAN}"refactor <filepath>"${RESET}`,
+    `Use ${CYAN}/sessions${RESET} to switch conversations`,
+  ];
+
+  const activityHeader = `${MAGENTA}Recent activity${RESET}`;
+  const activityLines: string[] = recentSessions.length > 0
+    ? recentSessions.map(s => {
+        const t = s.title.length > 35 ? s.title.slice(0, 32) + '...' : s.title;
+        return `${t}  ${DIM}${timeAgo(s.updatedAt)}${RESET}`;
+      })
+    : [`${DIM}No recent activity${RESET}`];
+
+  const rightLines: string[] = [
+    '',
+    tipsHeader,
+    ...tips,
+    '',
+    activityHeader,
+    ...activityLines,
+  ];
+
+  const LEFT_WIDTH = 36;
+  const maxLines = Math.max(leftLines.length, rightLines.length);
+
+  process.stdout.write('\n');
+  process.stdout.write(`  ${topBorder}\n`);
+
+  for (let i = 0; i < maxLines; i++) {
+    const left = leftLines[i] ?? '';
+    const right = rightLines[i] ?? '';
+
+    const leftStripped = left.replace(/\x1b\[[0-9;]*m/g, '');
+    const pad = Math.max(0, LEFT_WIDTH - leftStripped.length);
+    process.stdout.write(`  ${left}${' '.repeat(pad)}   ${right}\n`);
+  }
+
+  process.stdout.write('\n');
+  process.stdout.write(`  ${DIM}? for shortcuts${RESET}\n\n`);
+}
 
 export interface CliOptions {
   noSandbox?: boolean;
@@ -56,6 +156,8 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
   let pendingCopySession = false;
   let toolStreaming = false;
   let reconnecting = false;
+  let connected = false;
+  let connecting = false;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
   const spinner = new Spinner();
@@ -126,6 +228,29 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
       return true;
     }
     return false;
+  }
+
+  async function ensureConnected(): Promise<boolean> {
+    if (connected && socket && !socket.destroyed) return true;
+    if (connecting) return false;
+    connecting = true;
+    spinner.start('Connecting to daemon...');
+    try {
+      if (shouldAutoStartDaemon()) await ensureDaemonRunning();
+      await connect();
+      connected = true;
+      if (options.noSandbox) {
+        send({ type: 'sandbox_set', enabled: false });
+      }
+      spinner.stop();
+      connecting = false;
+      return true;
+    } catch {
+      spinner.stop();
+      connecting = false;
+      process.stdout.write('\n  Failed to connect to daemon.\n  Start it with: vellum daemon start\n\n');
+      return false;
+    }
   }
 
   function formatCommandPreview(req: ConfirmationRequest): string {
@@ -648,9 +773,10 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       parser = createMessageParser();
       const newSocket = net.createConnection(socketPath);
-      let connected = false;
+      let socketConnected = false;
 
       newSocket.on('connect', () => {
+        socketConnected = true;
         connected = true;
         socket = newSocket;
         startHeartbeat();
@@ -666,8 +792,8 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
 
       newSocket.on('close', () => {
         stopHeartbeat();
-        if (!connected) return; // handled by 'error'
-        // Only auto-reconnect if we're not intentionally exiting
+        connected = false;
+        if (!socketConnected) return; // handled by 'error'
         if (!reconnecting) {
           reconnect();
         }
@@ -675,11 +801,11 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
 
       newSocket.on('error', (err) => {
         stopHeartbeat();
-        if (!connected) {
+        connected = false;
+        if (!socketConnected) {
           reject(err);
           return;
         }
-        // Connected socket error — will trigger 'close' → reconnect
       });
     });
   }
@@ -713,8 +839,11 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
 
     if (content === '/sessions') {
-      pendingSessionPick = true;
-      send({ type: 'session_list' });
+      ensureConnected().then((ok) => {
+        if (!ok) { prompt(); return; }
+        pendingSessionPick = true;
+        send({ type: 'session_list' });
+      });
       return;
     }
 
@@ -735,17 +864,23 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
 
     if (content === '/copy-session') {
-      if (!send({ type: 'history_request', sessionId })) {
-        process.stdout.write('[Not connected — command not sent]\n');
-        prompt();
-        return;
-      }
-      pendingCopySession = true;
+      ensureConnected().then((ok) => {
+        if (!ok) { prompt(); return; }
+        if (!send({ type: 'history_request', sessionId })) {
+          process.stdout.write('[Not connected — command not sent]\n');
+          prompt();
+          return;
+        }
+        pendingCopySession = true;
+      });
       return;
     }
 
     if (content === '/new') {
-      send({ type: 'session_create' });
+      ensureConnected().then((ok) => {
+        if (!ok) { prompt(); return; }
+        send({ type: 'session_create' });
+      });
       return;
     }
 
@@ -759,30 +894,42 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
 
     if (content === '/model' || content.startsWith('/model ')) {
       const modelArg = content.slice('/model'.length).trim();
-      if (modelArg) {
-        send({ type: 'model_set', model: modelArg });
-      } else {
-        send({ type: 'model_get' });
-      }
+      ensureConnected().then((ok) => {
+        if (!ok) { prompt(); return; }
+        if (modelArg) {
+          send({ type: 'model_set', model: modelArg });
+        } else {
+          send({ type: 'model_get' });
+        }
+      });
       return;
     }
 
     if (content === '/history') {
-      send({ type: 'history_request', sessionId });
+      ensureConnected().then((ok) => {
+        if (!ok) { prompt(); return; }
+        send({ type: 'history_request', sessionId });
+      });
       return;
     }
 
     if (content === '/undo') {
-      send({ type: 'undo', sessionId });
+      ensureConnected().then((ok) => {
+        if (!ok) { prompt(); return; }
+        send({ type: 'undo', sessionId });
+      });
       return;
     }
 
     if (content === '/usage') {
-      send({ type: 'usage_request', sessionId });
+      ensureConnected().then((ok) => {
+        if (!ok) { prompt(); return; }
+        send({ type: 'usage_request', sessionId });
+      });
       return;
     }
 
-    if (content === '/help') {
+    if (content === '/help' || content === '?') {
       process.stdout.write('\n  Available commands:\n');
       process.stdout.write('  /new              Start a new session\n');
       process.stdout.write('  /sessions         Switch between sessions\n');
@@ -801,13 +948,16 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
 
     lastResponse = '';
-    if (!send({ type: 'user_message', sessionId, content })) {
-      process.stdout.write('[Not connected — message not sent]\n');
-      prompt();
-      return;
-    }
-    generating = true;
-    spinner.start('Thinking...');
+    ensureConnected().then((ok) => {
+      if (!ok) { prompt(); return; }
+      if (!send({ type: 'user_message', sessionId, content })) {
+        process.stdout.write('[Not connected — message not sent]\n');
+        prompt();
+        return;
+      }
+      generating = true;
+      spinner.start('Thinking...');
+    });
   }
 
   rl.on('line', handleLine);
@@ -828,11 +978,6 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
   });
 
-  // Initial connection
-  await connect();
-
-  // Send sandbox override if --no-sandbox was passed
-  if (options.noSandbox) {
-    send({ type: 'sandbox_set', enabled: false });
-  }
+  renderWelcomeScreen();
+  prompt();
 }

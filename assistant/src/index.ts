@@ -99,9 +99,6 @@ program
   .version(version)
   .option('--no-sandbox', 'Disable sandbox for this session (runtime override, not persisted)')
   .action(async (opts: { sandbox?: boolean }) => {
-    if (shouldAutoStartDaemon()) {
-      await ensureDaemonRunning();
-    }
     await startCli({ noSandbox: opts.sandbox === false });
   });
 
