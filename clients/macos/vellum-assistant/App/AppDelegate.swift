@@ -80,7 +80,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     private var thinkingWindow: ThinkingIndicatorWindow?
     public let ambientAgent = AmbientAgent()
-    let daemonClient = DaemonClient()
+    public let daemonClient = DaemonClient()
     let surfaceManager = SurfaceManager()
     let toolConfirmationManager = ToolConfirmationManager()
     private let daemonLauncher = DaemonLauncher()
@@ -759,7 +759,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let hostingController = NSHostingController(rootView: SettingsView(ambientAgent: ambientAgent))
+        let hostingController = NSHostingController(rootView: SettingsView(ambientAgent: ambientAgent, daemonClient: daemonClient))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 450, height: 700),
             styleMask: [.titled, .closable, .miniaturizable],

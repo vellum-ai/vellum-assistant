@@ -20,7 +20,7 @@ protocol DaemonClientProtocol {
 /// stream, enabling multiple consumers (ComputerUseSession, AmbientAgent) to each receive all
 /// messages and filter for the ones relevant to them.
 @MainActor
-final class DaemonClient: ObservableObject, DaemonClientProtocol {
+public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Published State
 
