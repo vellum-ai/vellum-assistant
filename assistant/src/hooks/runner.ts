@@ -1,7 +1,16 @@
 import { spawn } from 'node:child_process';
+import { extname } from 'node:path';
 import { getRootDir } from '../util/platform.js';
 import { getHookSettings } from './config.js';
 import type { DiscoveredHook, HookEventData } from './types.js';
+
+function getSpawnArgs(scriptPath: string): { command: string; args: string[] } {
+  const ext = extname(scriptPath);
+  if (ext === '.ts') {
+    return { command: 'bun', args: ['run', scriptPath] };
+  }
+  return { command: scriptPath, args: [] };
+}
 
 export interface HookRunResult {
   exitCode: number | null;
@@ -17,7 +26,8 @@ export async function runHookScript(
   const timeoutMs = options?.timeoutMs ?? 5000;
 
   return new Promise<HookRunResult>((resolve) => {
-    const child = spawn(hook.scriptPath, [], {
+    const { command, args } = getSpawnArgs(hook.scriptPath);
+    const child = spawn(command, args, {
       cwd: hook.dir,
       env: {
         ...process.env,
