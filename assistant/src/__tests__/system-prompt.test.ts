@@ -9,6 +9,7 @@ const TEST_DIR = join(tmpdir(), `vellum-sysprompt-test-${crypto.randomUUID()}`);
 import { mock } from 'bun:test';
 
 mock.module('../util/platform.js', () => ({
+  getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
   ensureDataDir: () => {},
   getSocketPath: () => join(TEST_DIR, 'vellum.sock'),
@@ -33,10 +34,15 @@ mock.module('../util/logger.js', () => ({
 // Import after mock
 const { buildSystemPrompt, ensurePromptFiles } = await import('../config/system-prompt.js');
 
-/** Strip the bundled skills catalog suffix so base-prompt tests stay focused. */
+/** Strip the Configuration and Skills Catalog suffixes so base-prompt tests stay focused. */
 function basePrompt(result: string): string {
-  const idx = result.indexOf('\n\n## Skills Catalog');
-  return idx === -1 ? result : result.slice(0, idx);
+  let s = result;
+  for (const heading of ['## Configuration', '## Skills Catalog']) {
+    if (s.startsWith(heading)) { s = ''; break; }
+    const idx = s.indexOf(`\n\n${heading}`);
+    if (idx !== -1) s = s.slice(0, idx);
+  }
+  return s;
 }
 
 describe('buildSystemPrompt', () => {

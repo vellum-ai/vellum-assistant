@@ -218,7 +218,7 @@ struct AgentPanel: View {
                 Spacer()
 
                 // View button — expands skill details
-                VButton(label: "View", style: .ghost) {
+                VButton(label: isExpanded ? "Hide" : "View", style: .ghost) {
                     withAnimation(VAnimation.standard) {
                         if isExpanded {
                             expandedSkillId = nil

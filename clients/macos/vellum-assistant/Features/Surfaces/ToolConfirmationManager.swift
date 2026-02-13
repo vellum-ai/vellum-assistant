@@ -291,7 +291,7 @@ struct ToolConfirmationView: View {
                         .foregroundColor(VColor.textSecondary)
                     Picker("", selection: $selectedPattern) {
                         ForEach(allowlistOptions, id: \.pattern) { option in
-                            Text(option.label).tag(option.pattern)
+                            Text(option.description ?? option.label).tag(option.pattern)
                         }
                     }
                     .pickerStyle(.menu)
@@ -302,8 +302,8 @@ struct ToolConfirmationView: View {
                     Text("Pattern:")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
-                    Text(single.label)
-                        .font(.system(size: 11, design: .monospaced))
+                    Text(single.description ?? single.label)
+                        .font(VFont.caption)
                         .foregroundColor(VColor.textPrimary)
                 }
             }

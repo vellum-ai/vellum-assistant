@@ -17,6 +17,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeProxyEnabled: true,
     runtimeProxyRequireAuth: true,
     runtimeProxyBearerToken: TOKEN,
+    shutdownDrainMs: 5000,
     ...overrides,
   };
 }

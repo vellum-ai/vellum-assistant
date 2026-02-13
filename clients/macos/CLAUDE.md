@@ -116,23 +116,24 @@ The design system uses a two-tier architecture with functional subgrouping:
 ```
 DesignSystem/
 ├── Tokens/              (VColor, VFont, VSpacing, VRadius, VShadow, VAnimation)
-├── Primitives/          (atomic, single-element wrappers)
+├── Core/                (atomic building blocks — single-responsibility controls)
 │   ├── Buttons/         (VButton, VIconButton, VCircleButton)
 │   ├── Inputs/          (VSlider, VTextEditor, VTextField, VToggle)
 │   ├── Feedback/        (VBadge, VLoadingIndicator, VToast)
-│   ├── Display/         (VEmptyState, VListRow)
+│   ├── Display/         (VListRow)
 │   └── Navigation/      (VTab)
-├── Components/          (composed from primitives, feature-aware)
-│   ├── Navigation/      (VTabBar, VSegmentedControl, ThreadTab)
+├── Components/          (composed patterns — combine multiple Core elements)
+│   ├── Navigation/      (VTabBar, VSegmentedControl)
 │   ├── Layout/          (VSidePanel, VSplitView, VToolbar)
-│   └── Display/         (VCard)
+│   └── Display/         (VCard, VEmptyState)
 ├── Modifiers/           (.vCard(), .vHover(), .vPanelBackground())
 └── Gallery/             (ComponentGalleryView — visual catalog of all tokens/components)
 ```
 
 **Classification rule:**
-- **Primitive** = wraps a single native SwiftUI element (Button, Toggle, Slider, TextField, Circle). Place in `Primitives/`.
-- **Component** = composes multiple primitives or has internal layout logic (VTabBar arranges VTabs, VCard has header/body slots). Place in `Components/`.
+- **Core** = atomic, single-responsibility control (wraps one native SwiftUI element or thin styling layer). Place in `Core/`.
+- **Component** = composes multiple Core elements or has internal layout logic (VTabBar arranges VTabs, VCard has header/body slots, VEmptyState composes icon + title + subtitle). Place in `Components/`.
+- **Feature-specific** views (e.g. ThreadTab) belong in `Features/`, not in the design system.
 
 All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Always use design tokens instead of raw values — `VFont.body` not `Font.system(size: 13)`, `VColor.accent` not `Color.purple`.
 

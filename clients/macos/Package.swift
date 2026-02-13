@@ -29,7 +29,7 @@ let package = Package(
             resources: [
                 .process("Resources/Assets.xcassets"),
                 .process("Resources/meadow.svg"),
-                .process("Resources/bg.png"),
+                .process("Resources/background.png"),
                 .process("Resources/Fonts"),
                 .copy("Resources/Recipes"),
                 .process("Resources/Onboarding")

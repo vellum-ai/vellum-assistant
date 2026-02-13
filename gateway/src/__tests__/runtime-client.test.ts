@@ -14,6 +14,7 @@ const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
   runtimeProxyEnabled: false,
   runtimeProxyRequireAuth: true,
   runtimeProxyBearerToken: undefined,
+  shutdownDrainMs: 5000,
   ...overrides,
 });
 

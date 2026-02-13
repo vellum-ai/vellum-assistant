@@ -101,6 +101,7 @@ enum VColor {
     // Backgrounds
     static let background = Slate._950
     static let backgroundSubtle = Slate._800
+    static let chatBackground = Slate._900
     static let surface = Slate._800
     static let surfaceBorder = Slate._700
 

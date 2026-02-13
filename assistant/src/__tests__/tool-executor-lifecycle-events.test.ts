@@ -43,7 +43,7 @@ mock.module('../util/logger.js', () => ({
 mock.module('../permissions/checker.js', () => ({
   classifyRisk: async () => checkerRisk,
   check: async () => ({ decision: checkerDecision, reason: checkerReason }),
-  generateAllowlistOptions: () => [{ label: 'exact', pattern: 'exact' }],
+  generateAllowlistOptions: () => [{ label: 'exact', description: 'exact', pattern: 'exact' }],
   generateScopeOptions: () => [{ label: '/tmp', scope: '/tmp' }],
 }));
 
@@ -157,7 +157,7 @@ describe('ToolExecutor lifecycle events', () => {
     expect(promptEvent.riskLevel).toBe('medium');
     expect(promptEvent.reason).toBe('medium risk: requires approval');
     expect(promptEvent.sandboxed).toBe(true);
-    expect(promptEvent.allowlistOptions).toEqual([{ label: 'exact', pattern: 'exact' }]);
+    expect(promptEvent.allowlistOptions).toEqual([{ label: 'exact', description: 'exact', pattern: 'exact' }]);
     expect(promptEvent.scopeOptions).toEqual([{ label: '/tmp', scope: '/tmp' }]);
 
     const deniedEvent = events[2];

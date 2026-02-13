@@ -37,6 +37,7 @@ bun run dev
 | `GATEWAY_RUNTIME_PROXY_ENABLED` | No | `false` | Enable runtime proxy for non-Telegram requests |
 | `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH` | No | `true` | Require bearer auth for proxied requests |
 | `RUNTIME_PROXY_BEARER_TOKEN` | Conditional | — | Bearer token for proxy auth (required when proxy + auth enabled) |
+| `GATEWAY_SHUTDOWN_DRAIN_MS` | No | `5000` | Graceful shutdown drain window in milliseconds |
 
 ## Routing
 
@@ -63,6 +64,10 @@ After deploying the gateway, register the webhook with Telegram using the `setWe
 - `allowed_updates` — `["message"]`
 
 See the [Telegram Bot API docs](https://core.telegram.org/bots/api#setwebhook) for the full API reference.
+
+## Default Mode: Telegram-Only
+
+By default the gateway only serves the Telegram webhook endpoint (`/webhooks/telegram`). All other HTTP requests return `404`. The runtime proxy is **opt-in** — set `GATEWAY_RUNTIME_PROXY_ENABLED=true` to enable it. This behavior is enforced by automated tests.
 
 ## Runtime Proxy Mode
 
@@ -95,6 +100,42 @@ curl -i -X POST http://localhost:7830/webhooks/telegram
 - Hop-by-hop headers (`connection`, `keep-alive`, `transfer-encoding`, etc.) are stripped from both request and response.
 - The `host` header is not forwarded to upstream.
 - Upstream connection failures return `502 Bad Gateway`.
+
+## Health & Readiness Probes
+
+| Endpoint | Method | Behavior |
+|----------|--------|----------|
+| `/healthz` | GET | Always returns `200` while the process is alive |
+| `/readyz` | GET | Returns `200` while accepting traffic; `503` during graceful shutdown drain |
+
+On `SIGTERM` the gateway enters drain mode: `/readyz` begins returning `503` so the load balancer stops sending new traffic. After `GATEWAY_SHUTDOWN_DRAIN_MS` (default 5 s) the process exits.
+
+## Docker
+
+```bash
+# Build
+docker build -t vellum-gateway:local gateway
+
+# Run (pass required env vars)
+docker run --rm -p 7830:7830 \
+  -e TELEGRAM_BOT_TOKEN=... \
+  -e TELEGRAM_WEBHOOK_SECRET=... \
+  -e ASSISTANT_RUNTIME_BASE_URL=http://host.docker.internal:7821 \
+  vellum-gateway:local
+```
+
+The image runs as non-root user `gateway` (uid 1001) and exposes port `7830`.
+
+## Development
+
+```bash
+cd gateway
+bun install
+bun run typecheck   # TypeScript type check (tsc --noEmit)
+bun run test        # Run test suite
+```
+
+Both checks run in CI on every pull request touching `gateway/`.
 
 ## Troubleshooting
 

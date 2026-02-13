@@ -19,6 +19,7 @@ function withEnv(overrides: Record<string, string | undefined>, fn: () => void) 
     "GATEWAY_DEFAULT_ASSISTANT_ID",
     "GATEWAY_UNMAPPED_POLICY",
     "GATEWAY_PORT",
+    "GATEWAY_SHUTDOWN_DRAIN_MS",
   ];
 
   for (const key of allKeys) {
@@ -40,6 +41,22 @@ function withEnv(overrides: Record<string, string | undefined>, fn: () => void) 
     }
   }
 }
+
+describe("config: Telegram-only default mode", () => {
+  test("proxy is disabled when GATEWAY_RUNTIME_PROXY_ENABLED is unset", () => {
+    withEnv({}, () => {
+      const config = loadConfig();
+      expect(config.runtimeProxyEnabled).toBe(false);
+    });
+  });
+
+  test("proxy is disabled when GATEWAY_RUNTIME_PROXY_ENABLED is explicitly false", () => {
+    withEnv({ GATEWAY_RUNTIME_PROXY_ENABLED: "false" }, () => {
+      const config = loadConfig();
+      expect(config.runtimeProxyEnabled).toBe(false);
+    });
+  });
+});
 
 describe("config: runtime proxy flags", () => {
   test("proxy disabled by default", () => {

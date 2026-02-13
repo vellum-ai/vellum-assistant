@@ -185,7 +185,7 @@ struct ToolConfirmationBubble: View {
                         .foregroundColor(VColor.textSecondary)
                     Picker("", selection: $selectedPattern) {
                         ForEach(confirmation.allowlistOptions, id: \.pattern) { option in
-                            Text(option.label).tag(option.pattern)
+                            Text(option.description ?? option.label).tag(option.pattern)
                         }
                     }
                     .pickerStyle(.menu)
@@ -196,8 +196,8 @@ struct ToolConfirmationBubble: View {
                     Text("Pattern:")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
-                    Text(single.label)
-                        .font(VFont.monoSmall)
+                    Text(single.description ?? single.label)
+                        .font(VFont.caption)
                         .foregroundColor(VColor.textPrimary)
                 }
             }
@@ -262,8 +262,8 @@ struct ToolConfirmationBubble: View {
                 riskLevel: "medium",
                 diff: nil,
                 allowlistOptions: [
-                    .init(label: "git push", pattern: "git push"),
-                    .init(label: "All git commands", pattern: "git *"),
+                    .init(label: "git push", description: "This exact command", pattern: "git push"),
+                    .init(label: "git *", description: "Any git command", pattern: "git *"),
                 ],
                 scopeOptions: [
                     .init(label: "This project", scope: "/Users/test/project"),
@@ -297,7 +297,7 @@ struct ToolConfirmationBubble: View {
                 riskLevel: "medium",
                 diff: nil,
                 allowlistOptions: [
-                    .init(label: "npm install", pattern: "npm install"),
+                    .init(label: "npm install", description: "This exact command", pattern: "npm install"),
                 ],
                 scopeOptions: [
                     .init(label: "Everywhere", scope: "everywhere"),
