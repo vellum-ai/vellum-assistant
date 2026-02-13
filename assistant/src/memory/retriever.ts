@@ -375,6 +375,7 @@ async function semanticSearch(
     excludedMessageIds,
   );
 
+  const db = getDb();
   const candidates: Candidate[] = [];
   for (const result of results) {
     const { payload, score } = result;
@@ -382,18 +383,28 @@ async function semanticSearch(
     const createdAt = payload.created_at ?? Date.now();
 
     if (payload.target_type === 'item') {
+      // Validate the backing memory item is still active and has non-excluded evidence
+      const item = db.select().from(memoryItems).where(eq(memoryItems.id, payload.target_id)).get();
+      if (!item || item.status !== 'active') continue;
+      const sources = db.select().from(memoryItemSources)
+        .where(eq(memoryItemSources.memoryItemId, payload.target_id)).all();
+      if (sources.length === 0) continue;
+      if (excludedMessageIds.length > 0) {
+        const nonExcluded = sources.filter((s) => !excludedMessageIds.includes(s.messageId));
+        if (nonExcluded.length === 0) continue;
+      }
       candidates.push({
         key: `item:${payload.target_id}`,
         type: 'item',
         id: payload.target_id,
-        text: payload.text,
-        kind: payload.kind ?? 'fact',
-        confidence: payload.confidence ?? 0.6,
-        importance: payload.importance ?? 0.5,
-        createdAt: payload.last_seen_at ?? createdAt,
+        text: `${item.subject}: ${item.statement}`,
+        kind: item.kind,
+        confidence: item.confidence,
+        importance: item.importance ?? 0.5,
+        createdAt: item.lastSeenAt,
         lexical: 0,
         semantic,
-        recency: computeRecencyScore(payload.last_seen_at ?? createdAt),
+        recency: computeRecencyScore(item.lastSeenAt),
         finalScore: 0,
       });
     } else if (payload.target_type === 'summary') {
