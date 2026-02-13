@@ -19,6 +19,7 @@ struct VSegmentedControl: View {
                             .fill(selection == index ? VColor.accent : .clear)
                             .frame(height: 2)
                     }
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(items[index])

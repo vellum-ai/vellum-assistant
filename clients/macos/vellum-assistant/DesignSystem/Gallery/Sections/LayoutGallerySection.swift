@@ -4,6 +4,7 @@ import SwiftUI
 struct LayoutGallerySection: View {
     @State private var showPanel = true
     @State private var panelWidth: CGFloat = 280
+    @State private var pinnedTabSelection: Int = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
@@ -43,6 +44,35 @@ struct LayoutGallerySection: View {
                     }
                 }
                 .frame(width: 300, height: 200)
+            }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
+            // MARK: - VSidePanel with Pinned Content
+            GallerySectionHeader(
+                title: "VSidePanel (Pinned Content)",
+                description: "Side panel with sticky pinned content (e.g. tabs) above the scrollable area."
+            )
+
+            VCard(padding: 0) {
+                VSidePanel(title: "Control", onClose: {}, pinnedContent: {
+                    VSegmentedControl(
+                        items: ["Profile", "Settings", "Channels"],
+                        selection: $pinnedTabSelection
+                    )
+                    .padding(.horizontal, VSpacing.sm)
+                    Divider().background(VColor.surfaceBorder)
+                }) {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Tab \(pinnedTabSelection + 1) content")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                        Text("The tab bar above stays pinned while this content scrolls.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                }
+                .frame(width: 300, height: 250)
             }
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)

@@ -1,8 +1,9 @@
 import SwiftUI
 
-struct VSidePanel<Content: View>: View {
+struct VSidePanel<PinnedContent: View, Content: View>: View {
     let title: String
     var onClose: (() -> Void)? = nil
+    @ViewBuilder let pinnedContent: () -> PinnedContent
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -23,18 +24,30 @@ struct VSidePanel<Content: View>: View {
                     .accessibilityLabel("Close \(title)")
                 }
             }
-            .padding(VSpacing.xl)
+            .padding(VSpacing.lg)
 
             Divider()
                 .background(VColor.surfaceBorder)
 
-            // Content
+            // Pinned content (not scrollable)
+            pinnedContent()
+
+            // Scrollable content
             ScrollView {
                 content()
                     .padding(VSpacing.xl)
             }
         }
         .background(VColor.backgroundSubtle)
+    }
+}
+
+// Backward-compatible init (no pinnedContent)
+extension VSidePanel where PinnedContent == EmptyView {
+    init(title: String, onClose: (() -> Void)? = nil,
+         @ViewBuilder content: @escaping () -> Content) {
+        self.init(title: title, onClose: onClose,
+                  pinnedContent: { EmptyView() }, content: content)
     }
 }
 
