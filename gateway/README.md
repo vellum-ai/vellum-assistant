@@ -1,14 +1,16 @@
 # Vellum Gateway
 
-Standalone service that owns Telegram integration end-to-end. Receives Telegram webhooks, routes messages to the correct assistant runtime, and sends replies back to Telegram.
+Standalone service that owns Telegram integration end-to-end and optionally acts as an authenticated reverse proxy for the assistant runtime.
 
 ## Architecture
 
 ```
 Telegram → gateway/ → Assistant Runtime (/v1/assistants/:id/channels/inbound) → gateway/ → Telegram
+
+Client → gateway/ (Bearer auth) → Assistant Runtime (any path)
 ```
 
-The web app is **not** in the Telegram request path.
+The web app is **not** in the Telegram request path. When proxy mode is enabled, non-Telegram requests are forwarded to the assistant runtime with optional bearer token authentication.
 
 ## Setup
 
@@ -61,6 +63,38 @@ After deploying the gateway, register the webhook with Telegram using the `setWe
 - `allowed_updates` — `["message"]`
 
 See the [Telegram Bot API docs](https://core.telegram.org/bots/api#setwebhook) for the full API reference.
+
+## Runtime Proxy Mode
+
+When `GATEWAY_RUNTIME_PROXY_ENABLED=true`, the gateway forwards all non-Telegram HTTP requests to the assistant runtime at `ASSISTANT_RUNTIME_BASE_URL`. This allows the gateway to serve as a single ingress point for both Telegram and API traffic.
+
+### Auth behavior
+
+By default (`GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH=true`), proxied requests must include a valid `Authorization: Bearer <token>` header matching `RUNTIME_PROXY_BEARER_TOKEN`. Set `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH=false` to disable auth.
+
+`OPTIONS` requests are always allowed without auth (CORS preflight). Telegram webhook requests use their own secret-based verification and are not affected by proxy auth.
+
+### Examples
+
+```bash
+# Unauthorized (expect 401 when auth required)
+curl -i http://localhost:7830/v1/assistants/test/health
+
+# Authorized (expect 200)
+curl -i \
+  -H "Authorization: Bearer $RUNTIME_PROXY_BEARER_TOKEN" \
+  http://localhost:7830/v1/assistants/test/health
+
+# Telegram still uses webhook secret flow, not bearer auth
+curl -i -X POST http://localhost:7830/webhooks/telegram
+```
+
+### Proxy details
+
+- Method, path, query string, headers, and body are forwarded to upstream.
+- Hop-by-hop headers (`connection`, `keep-alive`, `transfer-encoding`, etc.) are stripped from both request and response.
+- The `host` header is not forwarded to upstream.
+- Upstream connection failures return `502 Bad Gateway`.
 
 ## Troubleshooting
 

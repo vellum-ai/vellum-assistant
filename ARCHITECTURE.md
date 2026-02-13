@@ -85,6 +85,7 @@ graph TB
         GW_ROUTE["Route Resolver<br/>chat_id → user_id → default"]
         GW_FORWARD["Runtime Client<br/>POST /channels/inbound"]
         GW_REPLY["Send Reply<br/>Telegram sendMessage"]
+        GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
     end
 
     subgraph "Web Server (Next.js + React)"
@@ -175,13 +176,16 @@ graph TB
     RECALL --> DB_FTS
     RECALL --> DB_EMB
 
-    %% Gateway flow
+    %% Gateway flow — Telegram path
     GW_WEBHOOK --> GW_VERIFY
     GW_VERIFY --> GW_NORMALIZE
     GW_NORMALIZE --> GW_ROUTE
     GW_ROUTE --> GW_FORWARD
     GW_FORWARD -->|"HTTP"| HTTP_SERVER
     GW_REPLY -->|"Telegram API"| GW_WEBHOOK
+
+    %% Gateway flow — Runtime proxy path (optional)
+    GW_PROXY -->|"HTTP (forwarded)"| HTTP_SERVER
 
     %% Web server
     WEB_API -->|"local mode"| LOCAL_IPC
