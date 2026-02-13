@@ -24,7 +24,8 @@ struct VSidePanel<PinnedContent: View, Content: View>: View {
                     .accessibilityLabel("Close \(title)")
                 }
             }
-            .padding(VSpacing.lg)
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.vertical, VSpacing.lg)
 
             Divider()
                 .background(VColor.surfaceBorder)
