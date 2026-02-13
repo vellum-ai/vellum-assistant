@@ -629,7 +629,6 @@ final class ChatViewModel: ObservableObject {
             guard belongsToSession(msg.sessionId) else { return }
             guard !isCancelling else { return }
             lastToolUseReceivedAt = Date()
-            isThinking = false
             // Suppress ToolCallChip for ui_show — the inline surface widget replaces it.
             if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" || msg.toolName == "request_file" {
                 break
@@ -669,6 +668,7 @@ final class ChatViewModel: ObservableObject {
             guard belongsToSession(msg.sessionId) else { return }
             guard msg.display == nil || msg.display == "inline" else { break }
             guard let surface = Surface.from(msg) else { break }
+            isThinking = false
             let inlineSurface = InlineSurfaceData(
                 id: surface.id,
                 surfaceType: surface.type,

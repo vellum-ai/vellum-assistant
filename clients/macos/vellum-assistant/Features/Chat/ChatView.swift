@@ -486,13 +486,16 @@ private struct ChatBubble: View {
     }
 
     /// Whether the bubble chrome should be rendered.
-    /// Hides the bubble when it would only contain tool-call chips and an
-    /// inline surface widget is present, since the widget already provides
-    /// visual feedback for the tool invocation.
+    /// Hides the bubble when an inline surface widget is present (the widget
+    /// replaces the text), and during streaming when only tool-call chips
+    /// exist (the thinking indicator already signals progress).
     private var shouldShowBubble: Bool {
         if isUser { return true }
         if !message.inlineSurfaces.isEmpty { return false }
         if hasText || !message.attachments.isEmpty { return true }
+        // During streaming, hide tool-call-only bubbles so the thinking
+        // indicator stays visible instead of showing raw tool progress.
+        if message.isStreaming { return false }
         return !message.toolCalls.isEmpty
     }
 
