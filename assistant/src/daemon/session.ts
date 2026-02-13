@@ -33,6 +33,7 @@ import {
   createContextSummaryMessage,
   getSummaryFromContextMessage,
 } from '../context/window-manager.js';
+import { getHookManager } from '../hooks/manager.js';
 import {
   buildMemoryRecall,
   injectMemoryRecallIntoUserMessage,
@@ -159,6 +160,11 @@ export class Session {
       systemPrompt,
       config.contextWindow,
     );
+
+    void getHookManager().trigger('session-start', {
+      sessionId: this.conversationId,
+      workingDir: this.workingDir,
+    });
   }
 
   async loadFromDb(): Promise<void> {
@@ -256,6 +262,9 @@ export class Session {
 
   /** Abort and permanently tear down this session. Call when removing from the sessions map. */
   dispose(): void {
+    void getHookManager().trigger('session-end', {
+      sessionId: this.conversationId,
+    });
     this.abort();
     this.eventBus.dispose();
   }
@@ -385,6 +394,11 @@ export class Session {
     let yieldedForHandoff = false;
 
     try {
+      await getHookManager().trigger('pre-message', {
+        sessionId: this.conversationId,
+        messagePreview: content.slice(0, 200),
+      });
+
       const isFirstMessage = this.messages.length === 1;
 
       const compacted = await this.contextWindowManager.maybeCompact(
@@ -645,6 +659,10 @@ export class Session {
 
       this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent');
 
+      void getHookManager().trigger('post-message', {
+        sessionId: this.conversationId,
+      });
+
       if (yieldedForHandoff) {
         onEvent({
           type: 'generation_handoff',
@@ -673,6 +691,12 @@ export class Session {
         const message = err instanceof Error ? err.message : String(err);
         rlog.error({ err }, 'Session processing error');
         onEvent({ type: 'error', message: `Failed to process message: ${message}` });
+        void getHookManager().trigger('on-error', {
+          error: err instanceof Error ? err.name : 'Error',
+          message,
+          stack: err instanceof Error ? err.stack : undefined,
+          sessionId: this.conversationId,
+        });
       }
     } finally {
       this.abortController = null;
