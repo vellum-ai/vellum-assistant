@@ -43,7 +43,7 @@ struct VTab: View {
                 Text(label)
                     .font(VFont.caption)
                     .lineLimit(1)
-                if isCloseable {
+                if isCloseable, onClose != nil {
                     Spacer().frame(width: 16)
                 }
             }
