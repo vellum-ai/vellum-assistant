@@ -27,7 +27,6 @@ struct ControlPanel: View {
                 items: ControlTab.allCases.map { $0.rawValue.capitalized },
                 selection: $selectedTabIndex
             )
-            .padding(.horizontal, VSpacing.sm)
             .padding(.top, VSpacing.sm)
 
             Divider().background(VColor.surfaceBorder)
