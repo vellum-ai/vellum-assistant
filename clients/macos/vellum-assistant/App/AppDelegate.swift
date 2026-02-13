@@ -13,7 +13,12 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 func writeVellumIdentityFile(name: String) {
     let vellumDir = NSHomeDirectory() + "/.vellum"
     let identityPath = vellumDir + "/IDENTITY.md"
-    let content = "Your name is \(name). When asked who you are or what your name is, always introduce yourself as \(name)."
+    let content = """
+    # IDENTITY
+
+    - **Name:** \(name)
+    - **Role:** Personal AI assistant
+    """
 
     do {
         try FileManager.default.createDirectory(
