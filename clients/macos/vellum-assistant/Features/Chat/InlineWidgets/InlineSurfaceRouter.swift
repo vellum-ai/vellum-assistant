@@ -51,6 +51,7 @@ struct InlineSurfaceRouter: View {
             InlineTableWidget(data: data) { actionId, payload in
                 if actionId == "selection_changed" {
                     selectionPayload = payload
+                    return
                 }
                 onAction(surface.id, actionId, payload)
             }
@@ -58,6 +59,7 @@ struct InlineSurfaceRouter: View {
             InlineListWidget(data: data) { actionId, payload in
                 if actionId == "selection_changed" {
                     selectionPayload = payload
+                    return
                 }
                 onAction(surface.id, actionId, payload)
             }
