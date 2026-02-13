@@ -6,6 +6,7 @@ struct ThreadTabBar: View {
     let onSelect: (UUID) -> Void
     let onClose: (UUID) -> Void
     let onCreate: () -> Void
+    @Binding var activePanel: SidePanelType?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,7 +27,7 @@ struct ThreadTabBar: View {
                         onClose: { onClose(thread.id) }
                     )
                 }
-                
+
                 Rectangle()
                     .fill(Slate._600)
                     .frame(width: 1, height: 14)
@@ -37,6 +38,28 @@ struct ThreadTabBar: View {
                     .accessibilityLabel("New Thread")
 
                 Spacer()
+
+                // Panel toggle buttons
+                HStack(spacing: VSpacing.sm) {
+                    VIconButton(label: "Generated", icon: "wand.and.stars", isActive: activePanel == .generated) {
+                        togglePanel(.generated)
+                    }
+                    VIconButton(label: "Agent", icon: "exclamationmark.triangle", isActive: activePanel == .agent) {
+                        togglePanel(.agent)
+                    }
+                    VIconButton(label: "Control", icon: "gearshape", isActive: activePanel == .control) {
+                        togglePanel(.control)
+                    }
+                    VIconButton(label: "Directory", icon: "doc.text", isActive: activePanel == .directory, iconOnly: true) {
+                        togglePanel(.directory)
+                    }
+                    VIconButton(label: "Debug", icon: "ant", isActive: activePanel == .debug, iconOnly: true) {
+                        togglePanel(.debug)
+                    }
+                    VIconButton(label: "Doctor", icon: "stethoscope", isActive: activePanel == .doctor, iconOnly: true) {
+                        togglePanel(.doctor)
+                    }
+                }
             }
             .padding(.leading, 78)
             .padding(.trailing, VSpacing.lg)
@@ -45,9 +68,18 @@ struct ThreadTabBar: View {
         }
         .ignoresSafeArea(edges: .top)
     }
+
+    private func togglePanel(_ panel: SidePanelType) {
+        if activePanel == panel {
+            activePanel = nil
+        } else {
+            activePanel = panel
+        }
+    }
 }
 
 #Preview("ThreadTabBar") {
+    @Previewable @State var panel: SidePanelType? = .control
     let threads = [
         ThreadModel(title: "New Thread"),
     ]
@@ -59,7 +91,8 @@ struct ThreadTabBar: View {
             activeThreadId: threads.first?.id,
             onSelect: { _ in },
             onClose: { _ in },
-            onCreate: {}
+            onCreate: {},
+            activePanel: $panel
         )
     }
     .frame(width: 600, height: 60)

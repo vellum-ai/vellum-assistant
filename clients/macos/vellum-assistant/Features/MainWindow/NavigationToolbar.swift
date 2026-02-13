@@ -6,9 +6,6 @@ struct NavigationToolbar: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: VSpacing.sm) {
-                // Left group
-                VTab(label: "Chat", icon: "bubble.left", isSelected: true, isCloseable: false, onSelect: {})
-
                 Spacer()
 
                 // Right group — labeled buttons
