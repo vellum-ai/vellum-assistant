@@ -47,8 +47,8 @@ struct ThreadTabBar: View {
                     VIconButton(label: "Agent", icon: "exclamationmark.triangle", isActive: activePanel == .agent) {
                         togglePanel(.agent)
                     }
-                    VIconButton(label: "Control", icon: "gearshape", isActive: activePanel == .control) {
-                        togglePanel(.control)
+                    VIconButton(label: "Settings", icon: "gearshape", isActive: activePanel == .settings) {
+                        togglePanel(.settings)
                     }
                     VIconButton(label: "Directory", icon: "doc.text", isActive: activePanel == .directory, iconOnly: true) {
                         togglePanel(.directory)
@@ -79,7 +79,7 @@ struct ThreadTabBar: View {
 }
 
 #Preview("ThreadTabBar") {
-    @Previewable @State var panel: SidePanelType? = .control
+    @Previewable @State var panel: SidePanelType? = .settings
     let threads = [
         ThreadModel(title: "New Thread"),
     ]

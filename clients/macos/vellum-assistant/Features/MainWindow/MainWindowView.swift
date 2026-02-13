@@ -48,7 +48,7 @@ struct MainWindowView: View {
                             isRecording: viewModel.isRecording,
                             onOpenSettings: {
                                 // Always provide an immediate, visible fallback.
-                                activePanel = .control
+                                activePanel = .settings
                                 Self.openSettings()
                             },
                             onSend: viewModel.sendMessage,
@@ -128,8 +128,8 @@ struct MainWindowView: View {
                 GeneratedPanel(onClose: { activePanel = nil })
             case .agent:
                 AgentPanel(onClose: { activePanel = nil }, daemonClient: daemonClient)
-            case .control:
-                ControlPanel(onClose: { activePanel = nil }, ambientAgent: ambientAgent, daemonClient: daemonClient)
+            case .settings:
+                SettingsPanel(onClose: { activePanel = nil }, ambientAgent: ambientAgent, daemonClient: daemonClient)
             case .directory:
                 DirectoryPanel(onClose: { activePanel = nil })
             case .debug:

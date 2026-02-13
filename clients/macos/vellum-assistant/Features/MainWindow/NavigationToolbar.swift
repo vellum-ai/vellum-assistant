@@ -15,8 +15,8 @@ struct NavigationToolbar: View {
                 VIconButton(label: "Agent", icon: "exclamationmark.triangle", isActive: activePanel == .agent) {
                     togglePanel(.agent)
                 }
-                VIconButton(label: "Control", icon: "gearshape", isActive: activePanel == .control) {
-                    togglePanel(.control)
+                VIconButton(label: "Settings", icon: "gearshape", isActive: activePanel == .settings) {
+                    togglePanel(.settings)
                 }
 
                 // Right group — icon-only buttons
@@ -47,7 +47,7 @@ struct NavigationToolbar: View {
 
 #if DEBUG
 #Preview("NavigationToolbar") {
-    @Previewable @State var panel: SidePanelType? = .control
+    @Previewable @State var panel: SidePanelType? = .settings
     NavigationToolbar(activePanel: $panel)
         .frame(width: 700)
 }
