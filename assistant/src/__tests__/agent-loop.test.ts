@@ -256,6 +256,37 @@ describe('AgentLoop', () => {
     expect(hasToolUse).toBe(true);
   });
 
+  // 6b. Abort signal during long-running tool execution — loop exits immediately
+  test('stops immediately when abort fires during a stuck tool execution', async () => {
+    const controller = new AbortController();
+
+    const { provider } = createMockProvider([
+      toolUseResponse('t1', 'read_file', { path: '/stuck.txt' }),
+      textResponse('Should not reach'),
+    ]);
+
+    // Simulate a stuck tool that never resolves — abort fires while it's running
+    const toolExecutor = async () => {
+      // Abort from a timer while this tool is "stuck"
+      setTimeout(() => controller.abort(), 50);
+      // Simulate being stuck for a long time
+      await new Promise(resolve => setTimeout(resolve, 10_000));
+      return { content: 'should never return', isError: false };
+    };
+
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+    const start = Date.now();
+    const history = await loop.run([userMessage], () => {}, controller.signal);
+    const elapsed = Date.now() - start;
+
+    // The loop should exit quickly (~50ms for abort), not wait 10s for the tool
+    expect(elapsed).toBeLessThan(2000);
+
+    // Only the user message + assistant tool_use message should be in history
+    // (no tool results since abort interrupted before tool completed)
+    expect(history).toHaveLength(2);
+  });
+
   // 7. Events — verify text_delta and other events are emitted
   test('emits text_delta events during streaming', async () => {
     const { provider } = createMockProvider([textResponse('Hello world')]);

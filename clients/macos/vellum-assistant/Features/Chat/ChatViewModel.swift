@@ -43,6 +43,9 @@ final class ChatViewModel: ObservableObject {
     private var pendingMessageIds: [UUID] = []
     /// Tracks the current in-flight suggestion request so stale responses are ignored.
     private var pendingSuggestionRequestId: String?
+    /// Safety timer that force-resets the UI if the daemon never acknowledges
+    /// a cancel request (e.g. a stuck tool blocks the generation_cancelled event).
+    private var cancelTimeoutTask: Task<Void, Never>?
 
     /// Timestamp of the most recent `toolUseStart` event received by this view model.
     /// Used by ThreadManager to route `confirmationRequest` messages to the correct
@@ -460,6 +463,8 @@ final class ChatViewModel: ObservableObject {
 
         case .messageComplete(let complete):
             guard belongsToSession(complete.sessionId) else { return }
+            cancelTimeoutTask?.cancel()
+            cancelTimeoutTask = nil
             isCancelling = false
             isThinking = false
             // Only clear isSending if no messages are still queued
@@ -485,6 +490,8 @@ final class ChatViewModel: ObservableObject {
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
+            cancelTimeoutTask?.cancel()
+            cancelTimeoutTask = nil
             isCancelling = false
             isThinking = false
             if pendingQueuedCount == 0 {
@@ -826,6 +833,23 @@ final class ChatViewModel: ObservableObject {
             for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
                 messages[index].toolCalls[j].isComplete = true
             }
+        }
+
+        // Safety timeout: if the daemon never acknowledges the cancel (e.g. a
+        // tool is stuck and blocks the response), force-reset the UI so the
+        // user can start a new interaction.
+        cancelTimeoutTask?.cancel()
+        cancelTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
+            guard let self, !Task.isCancelled else { return }
+            guard self.isCancelling else { return }
+            log.warning("Cancel acknowledgment timed out after 5s — force-resetting UI state")
+            self.isCancelling = false
+            self.isSending = false
+            self.currentAssistantMessageId = nil
+            self.pendingQueuedCount = 0
+            self.pendingMessageIds = []
+            self.requestIdToMessageId = [:]
         }
     }
 

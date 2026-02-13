@@ -200,8 +200,10 @@ export class AgentLoop {
           break;
         }
 
-        // Execute all tools concurrently for reduced latency
-        const toolResults = await Promise.all(
+        // Execute all tools concurrently for reduced latency.
+        // Race against the abort signal so cancellation isn't blocked by
+        // stuck tools (e.g. a hung browser navigation).
+        const toolExecutionPromise = Promise.all(
           toolUseBlocks.map(async (toolUse) => {
             const toolStart = Date.now();
 
@@ -223,6 +225,16 @@ export class AgentLoop {
             return { toolUse, result };
           }),
         );
+
+        let toolResults: Awaited<typeof toolExecutionPromise>;
+        if (signal && !signal.aborted) {
+          const abortPromise = new Promise<never>((_, reject) => {
+            signal.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')), { once: true });
+          });
+          toolResults = await Promise.race([toolExecutionPromise, abortPromise]);
+        } else {
+          toolResults = await toolExecutionPromise;
+        }
 
         // Emit tool_result events in deterministic tool_use order after all complete
         for (const { toolUse, result } of toolResults) {
