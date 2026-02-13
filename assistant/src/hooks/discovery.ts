@@ -17,11 +17,13 @@ const VALID_EVENTS = new Set<string>([
   'on-error',
 ]);
 
-function isValidManifest(manifest: unknown): manifest is HookManifest {
+export function isValidManifest(manifest: unknown): manifest is HookManifest {
   if (typeof manifest !== 'object' || manifest === null) return false;
   const m = manifest as Record<string, unknown>;
   if (typeof m.name !== 'string' || !m.name) return false;
   if (typeof m.script !== 'string' || !m.script) return false;
+  if (typeof m.description !== 'string') return false;
+  if (typeof m.version !== 'string') return false;
   if (!Array.isArray(m.events) || m.events.length === 0) return false;
   for (const e of m.events) {
     if (typeof e !== 'string' || !VALID_EVENTS.has(e)) return false;

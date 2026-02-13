@@ -1,10 +1,9 @@
 import { Command } from 'commander';
 import { existsSync, cpSync, readFileSync, chmodSync, rmSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { discoverHooks } from './discovery.js';
+import { join, resolve, sep } from 'node:path';
+import { discoverHooks, isValidManifest } from './discovery.js';
 import { setHookEnabled, ensureHookInConfig, removeHook } from './config.js';
 import { getHooksDir } from '../util/platform.js';
-import type { HookManifest } from './types.js';
 
 export function registerHooksCommand(program: Command): void {
   const hooks = program.command('hooks').description('Manage hooks');
@@ -88,21 +87,33 @@ export function registerHooksCommand(program: Command): void {
         process.exit(1);
       }
 
-      let manifest: HookManifest;
+      let manifest: unknown;
       try {
-        manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as HookManifest;
+        manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
       } catch {
         console.error(`Failed to parse hook.json in ${srcDir}`);
         process.exit(1);
       }
 
-      if (!manifest.name || !manifest.script || !Array.isArray(manifest.events)) {
-        console.error('Invalid hook.json: missing required fields (name, script, events)');
+      if (!isValidManifest(manifest)) {
+        console.error('Invalid hook.json: must have a non-empty name, script, description (string), version (string), and at least one valid event');
         process.exit(1);
       }
 
       const hooksDir = getHooksDir();
-      const targetDir = join(hooksDir, manifest.name);
+      const resolvedHooksDir = resolve(hooksDir);
+      const targetDir = resolve(join(hooksDir, manifest.name));
+      if (!targetDir.startsWith(resolvedHooksDir + sep)) {
+        console.error(`Invalid hook name: "${manifest.name}" would escape the hooks directory`);
+        process.exit(1);
+      }
+
+      const scriptPath = resolve(join(targetDir, manifest.script));
+      if (!scriptPath.startsWith(targetDir + sep)) {
+        console.error(`Invalid hook script: "${manifest.script}" would escape the hook directory`);
+        process.exit(1);
+      }
+
       if (existsSync(targetDir)) {
         console.error(`Hook already installed: ${manifest.name}`);
         process.exit(1);
@@ -111,7 +122,6 @@ export function registerHooksCommand(program: Command): void {
       cpSync(srcDir, targetDir, { recursive: true });
 
       // Make script executable
-      const scriptPath = join(targetDir, manifest.script);
       if (existsSync(scriptPath)) {
         chmodSync(scriptPath, 0o755);
       }
