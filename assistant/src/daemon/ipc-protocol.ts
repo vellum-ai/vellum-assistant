@@ -631,6 +631,7 @@ export interface SkillsOperationResponse {
   operation: string;
   success: boolean;
   error?: string;
+  data?: unknown;
 }
 
 export interface SkillDetailResponse {

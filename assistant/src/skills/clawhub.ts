@@ -9,9 +9,9 @@ function getManagedSkillsDir(): string {
   return join(getRootDir(), 'skills');
 }
 
-// Validate slug format (alphanumeric + hyphens only)
+// Validate slug format (alphanumeric, hyphens, dots, underscores; optional namespace with single slash)
 function validateSlug(slug: string): boolean {
-  return /^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(slug) || /^[a-z0-9]$/.test(slug);
+  return /^[a-zA-Z0-9]([a-zA-Z0-9._-]*(\/[a-zA-Z0-9][a-zA-Z0-9._-]*)?)?$/.test(slug);
 }
 
 export interface ClawhubInstallResult {
@@ -92,9 +92,8 @@ export async function clawhubInstall(slug: string, opts?: { version?: string }):
     return { success: false, error: `Invalid skill slug: ${slug}` };
   }
 
-  const args = ['install', slug];
-  if (opts?.version) args.push(`@${opts.version}`);
-  args.push('--force'); // non-interactive
+  const installSlug = opts?.version ? `${slug}@${opts.version}` : slug;
+  const args = ['install', installSlug, '--force']; // non-interactive
 
   try {
     const result = await runClawhub(args);

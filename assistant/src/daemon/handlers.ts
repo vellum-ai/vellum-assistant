@@ -886,6 +886,16 @@ async function handleSkillsUninstall(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
+  // Validate skill name to prevent path traversal
+  if (msg.name.includes('/') || msg.name.includes('\\') || msg.name.includes('..')) {
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'uninstall',
+      success: false,
+      error: 'Invalid skill name',
+    });
+    return;
+  }
   const skillDir = join(getRootDir(), 'skills', msg.name);
   if (!existsSync(skillDir)) {
     ctx.send(socket, {
@@ -993,6 +1003,7 @@ async function handleSkillsCheckUpdates(
       type: 'skills_operation_response',
       operation: 'check_updates',
       success: true,
+      data: updates,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1017,6 +1028,7 @@ async function handleSkillsSearch(
       type: 'skills_operation_response',
       operation: 'search',
       success: true,
+      data: result,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
