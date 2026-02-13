@@ -258,7 +258,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let contentView = TaskInputView(onSubmit: { [weak self] submission in
             self?.startSession(submission: submission)
-        })
+        }, daemonClient: daemonClient)
 
         popover = NSPopover()
         popover.contentSize = NSSize(width: 320, height: 200)

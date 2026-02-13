@@ -6,6 +6,7 @@ struct TaskInputView: View {
     private static let maxAttachmentCount = 10
     private static let maxTotalAttachmentBytes = 50 * 1024 * 1024
     let onSubmit: (TaskSubmission) -> Void
+    @ObservedObject var daemonClient: DaemonClient
     @State private var taskText = ""
     @State private var hasAPIKey = APIKeyManager.getKey() != nil
     @State private var attachments: [TaskAttachment] = []
@@ -139,6 +140,9 @@ struct TaskInputView: View {
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             refreshAPIKeyState()
         }
+        .onReceive(daemonClient.$isConnected) { _ in
+            refreshAPIKeyState()
+        }
     }
 
     private func submitTask() {
@@ -156,7 +160,7 @@ struct TaskInputView: View {
     }
 
     private func refreshAPIKeyState() {
-        hasAPIKey = APIKeyManager.getKey() != nil
+        hasAPIKey = APIKeyManager.getKey() != nil || daemonClient.isConnected
     }
 
     private func pickerTypes() -> [UTType] {
@@ -327,7 +331,7 @@ struct TaskInputView: View {
 }
 
 #Preview {
-    TaskInputView(onSubmit: { _ in })
+    TaskInputView(onSubmit: { _ in }, daemonClient: DaemonClient())
 }
 
 private extension NSImage {
