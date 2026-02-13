@@ -11,7 +11,7 @@ enum VFont {
     static let onboardingSubtitle = Font.custom("Silkscreen-Regular", size: 15)
 
     // MARK: - Headings (Silkscreen)
-
+    // TODO: Clean up typography once we solidify the design system - we dont seem to use Bold
     static let largeTitle = Font.custom("Silkscreen-Bold", size: 26)
     static let title      = Font.custom("Silkscreen-Bold", size: 22)
     static let headline   = Font.custom("Silkscreen-Bold", size: 13)
@@ -34,6 +34,8 @@ enum VFont {
 
     /// All-caps pixel display font (used for panel headers like "AGENT", "GENERATED CONTENT")
     static let display    = Font.custom("Silkscreen-Bold", size: 18)
+    static let panelTitle   = Font.custom("Silkscreen-Regular", size: 24)
+    static let sectionTitle   = Font.custom("Silkscreen-Regular", size: 18)
 
     /// Small Silkscreen label (used for thread tab names)
     static let tabLabel   = Font.custom("Silkscreen-Regular", size: 11)
