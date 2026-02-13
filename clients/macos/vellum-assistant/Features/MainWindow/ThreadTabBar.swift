@@ -10,7 +10,13 @@ struct ThreadTabBar: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                ForEach(threads) { thread in
+                ForEach(Array(threads.enumerated()), id: \.element.id) { index, thread in
+                    if index > 0 {
+                        Rectangle()
+                            .fill(Slate._600)
+                            .frame(width: 1, height: 14)
+                    }
+
                     VTab(
                         label: thread.title,
                         icon: "flame",
