@@ -45,7 +45,6 @@ export function isValidCronExpression(expr: string): boolean {
 export function computeNextRunAt(cronExpression: string, timezone?: string | null): number {
   const cron = new Cron(cronExpression, {
     timezone: timezone ?? undefined,
-    maxRuns: 0,
   });
   const next = cron.nextRun();
   if (!next) {
@@ -285,6 +284,17 @@ export function getCronRuns(jobId: string, limit?: number): CronRun[] {
     .limit(limit ?? 10)
     .all();
   return rows.map(parseRunRow);
+}
+
+export function formatLocalDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
 }
 
 function parseJobRow(row: typeof cronJobs.$inferSelect): CronJob {

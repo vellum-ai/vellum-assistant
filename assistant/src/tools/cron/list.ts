@@ -2,7 +2,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { listCronJobs, getCronJob, getCronRuns } from '../../cron/cron-store.js';
+import { listCronJobs, getCronJob, getCronRuns, formatLocalDate } from '../../cron/cron-store.js';
 
 class CronListTool implements Tool {
   name = 'cron_list';
@@ -49,18 +49,18 @@ class CronListTool implements Tool {
         `  Schedule: ${job.cronExpression}${job.timezone ? ` (${job.timezone})` : ''}`,
         `  Enabled: ${job.enabled}`,
         `  Message: ${job.message}`,
-        `  Next run: ${new Date(job.nextRunAt).toISOString()}`,
-        `  Last run: ${job.lastRunAt ? new Date(job.lastRunAt).toISOString() : 'never'}`,
+        `  Next run: ${formatLocalDate(job.nextRunAt)}`,
+        `  Last run: ${job.lastRunAt ? formatLocalDate(job.lastRunAt) : 'never'}`,
         `  Last status: ${job.lastStatus ?? 'n/a'}`,
         `  Retry count: ${job.retryCount}`,
-        `  Created: ${new Date(job.createdAt).toISOString()}`,
+        `  Created: ${formatLocalDate(job.createdAt)}`,
       ];
 
       if (runs.length > 0) {
         lines.push('', `Recent runs (${runs.length}):`);
         for (const run of runs) {
           const dur = run.durationMs != null ? `${run.durationMs}ms` : 'n/a';
-          lines.push(`  - ${run.status} at ${new Date(run.startedAt).toISOString()} (${dur})${run.error ? ` error: ${run.error}` : ''}`);
+          lines.push(`  - ${run.status} at ${formatLocalDate(run.startedAt)} (${dur})${run.error ? ` error: ${run.error}` : ''}`);
         }
       } else {
         lines.push('', 'No runs yet.');
@@ -78,7 +78,7 @@ class CronListTool implements Tool {
     const lines = [`Cron Jobs (${jobs.length}):`];
     for (const job of jobs) {
       const status = job.enabled ? 'enabled' : 'disabled';
-      const next = job.enabled ? new Date(job.nextRunAt).toISOString() : 'n/a';
+      const next = job.enabled ? formatLocalDate(job.nextRunAt) : 'n/a';
       lines.push(`  - [${status}] ${job.name} (${job.cronExpression}) — next: ${next} — id: ${job.id}`);
     }
 

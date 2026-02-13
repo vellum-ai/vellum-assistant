@@ -2,7 +2,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { createCronJob, isValidCronExpression, computeNextRunAt } from '../../cron/cron-store.js';
+import { createCronJob, isValidCronExpression, computeNextRunAt, formatLocalDate } from '../../cron/cron-store.js';
 
 class CronCreateTool implements Tool {
   name = 'cron_create';
@@ -65,7 +65,7 @@ class CronCreateTool implements Tool {
 
     try {
       const job = createCronJob({ name, cronExpression, timezone, message, enabled });
-      const nextRunDate = new Date(job.nextRunAt).toISOString();
+      const nextRunDate = formatLocalDate(job.nextRunAt);
       return {
         content: [
           `Cron job created successfully.`,
