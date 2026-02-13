@@ -554,7 +554,12 @@ final class ChatViewModel: ObservableObject {
             }
 
         case .confirmationRequest(let msg):
-            guard belongsToSession(nil) else { return }
+            // ConfirmationRequestMessage doesn't include a sessionId, so we
+            // can't use belongsToSession. Instead, only accept the request
+            // when this ChatViewModel is actively sending (has an active
+            // session and is mid-generation). This ensures only the thread
+            // that triggered the tool call displays the confirmation.
+            guard isSending, sessionId != nil else { return }
             let confirmation = ToolConfirmationData(
                 requestId: msg.requestId,
                 toolName: msg.toolName,
@@ -704,15 +709,19 @@ final class ChatViewModel: ObservableObject {
 
     /// Respond to a tool confirmation request displayed inline in the chat.
     func respondToConfirmation(requestId: String, decision: String) {
-        // Update the message state
-        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-            messages[index].confirmation?.state = decision == "allow" ? .approved : .denied
-        }
-        // Send the response to the daemon
+        // Send the response to the daemon first, then update UI state only on success.
+        // This prevents the UI from showing a finalized decision when the IPC
+        // message was never delivered (e.g. daemon disconnected).
         do {
             try daemonClient.sendConfirmationResponse(requestId: requestId, decision: decision)
         } catch {
             log.error("Failed to send confirmation response: \(error.localizedDescription)")
+            errorText = "Failed to send confirmation response."
+            return
+        }
+        // IPC send succeeded — update the message state
+        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+            messages[index].confirmation?.state = decision == "allow" ? .approved : .denied
         }
         // Dismiss the corresponding floating panel if one exists
         onInlineConfirmationResponse?(requestId)
