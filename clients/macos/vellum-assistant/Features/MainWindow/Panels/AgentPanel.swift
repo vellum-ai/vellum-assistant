@@ -172,17 +172,19 @@ struct AgentPanel: View {
 
     @ViewBuilder
     private var availableSkillsContent: some View {
-        if let slug = selectedSkillSlug {
-            skillDetailView(slug: slug)
-                .onChange(of: skillsManager.installResult?.slug) {
-                    if let result = skillsManager.installResult {
-                        if result.slug == installingSlug {
-                            installingSlug = nil
-                        }
-                    }
+        Group {
+            if let slug = selectedSkillSlug {
+                skillDetailView(slug: slug)
+            } else {
+                availableSkillsList
+            }
+        }
+        .onChange(of: skillsManager.installResult?.slug) {
+            if let result = skillsManager.installResult {
+                if result.slug == installingSlug {
+                    installingSlug = nil
                 }
-        } else {
-            availableSkillsList
+            }
         }
     }
 
@@ -677,6 +679,11 @@ struct AgentPanel: View {
             guard installingSlug == nil, !isSuccess else { return }
             installingSlug = slug
             skillsManager.installSkill(slug: slug)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                if installingSlug == slug {
+                    installingSlug = nil
+                }
+            }
         }) {
             HStack(spacing: VSpacing.sm) {
                 if isSuccess {
