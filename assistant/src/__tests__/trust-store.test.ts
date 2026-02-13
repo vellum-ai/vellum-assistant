@@ -39,8 +39,10 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { addRule, removeRule, findMatchingRule, findDenyRule, findHighestPriorityRule, getAllRules, clearCache } from '../permissions/trust-store.js';
+import { getDefaultRuleTemplates } from '../permissions/defaults.js';
 
 const trustPath = join(testDir, 'protected', 'trust.json');
+const NUM_DEFAULTS = getDefaultRuleTemplates().length;
 
 describe('Trust Store', () => {
   beforeEach(() => {
@@ -77,16 +79,17 @@ describe('Trust Store', () => {
       const raw = readFileSync(trustPath, 'utf-8');
       const data = JSON.parse(raw);
       expect(data.version).toBe(2);
-      expect(data.rules).toHaveLength(1);
-      expect(data.rules[0].pattern).toBe('git push');
-      expect(data.rules[0].priority).toBe(100);
+      expect(data.rules).toHaveLength(1 + NUM_DEFAULTS);
+      const userRule = data.rules.find((r: { pattern: string }) => r.pattern === 'git push');
+      expect(userRule).toBeDefined();
+      expect(userRule.priority).toBe(100);
     });
 
     test('multiple rules accumulate', () => {
       addRule('bash', 'git *', '/tmp');
       addRule('file_write', '/tmp/*', '/tmp');
       addRule('bash', 'npm *', '/tmp');
-      expect(getAllRules()).toHaveLength(3);
+      expect(getAllRules()).toHaveLength(3 + NUM_DEFAULTS);
     });
 
     test('default priority is 100', () => {
@@ -104,17 +107,20 @@ describe('Trust Store', () => {
       addRule('bash', 'high *', '/tmp', 'allow', 2);
       addRule('bash', 'med *', '/tmp', 'allow', 1);
       const rules = getAllRules();
-      expect(rules[0].priority).toBe(2);
-      expect(rules[1].priority).toBe(1);
-      expect(rules[2].priority).toBe(0);
+      // Default deny rules are at priority 1000, then user rules
+      expect(rules[0].priority).toBe(1000);
+      const userRules = rules.filter((r) => !r.id.startsWith('default:'));
+      expect(userRules[0].priority).toBe(2);
+      expect(userRules[1].priority).toBe(1);
+      expect(userRules[2].priority).toBe(0);
     });
 
     test('at same priority deny rules sort before allow rules', () => {
       addRule('bash', 'allow *', '/tmp', 'allow', 100);
       addRule('bash', 'deny *', '/tmp', 'deny', 100);
-      const rules = getAllRules();
-      expect(rules[0].decision).toBe('deny');
-      expect(rules[1].decision).toBe('allow');
+      const userRules = getAllRules().filter((r) => !r.id.startsWith('default:'));
+      expect(userRules[0].decision).toBe('deny');
+      expect(userRules[1].decision).toBe('allow');
     });
   });
 
@@ -124,7 +130,7 @@ describe('Trust Store', () => {
     test('removes an existing rule', () => {
       const rule = addRule('bash', 'git *', '/tmp');
       expect(removeRule(rule.id)).toBe(true);
-      expect(getAllRules()).toHaveLength(0);
+      expect(getAllRules()).toHaveLength(NUM_DEFAULTS);
     });
 
     test('returns false for non-existent ID', () => {
@@ -136,7 +142,7 @@ describe('Trust Store', () => {
       removeRule(rule.id);
       // Reload from disk to verify
       clearCache();
-      expect(getAllRules()).toHaveLength(0);
+      expect(getAllRules()).toHaveLength(NUM_DEFAULTS);
     });
 
     test('only removes the targeted rule', () => {
@@ -144,8 +150,8 @@ describe('Trust Store', () => {
       const rule2 = addRule('bash', 'npm *', '/tmp');
       removeRule(rule1.id);
       const remaining = getAllRules();
-      expect(remaining).toHaveLength(1);
-      expect(remaining[0].id).toBe(rule2.id);
+      expect(remaining).toHaveLength(1 + NUM_DEFAULTS);
+      expect(remaining.find((r) => r.id === rule2.id)).toBeDefined();
     });
   });
 
@@ -303,8 +309,10 @@ describe('Trust Store', () => {
   // ── getAllRules ─────────────────────────────────────────────────
 
   describe('getAllRules', () => {
-    test('returns empty array when no rules exist', () => {
-      expect(getAllRules()).toEqual([]);
+    test('returns default rules when no user rules exist', () => {
+      const rules = getAllRules();
+      expect(rules).toHaveLength(NUM_DEFAULTS);
+      expect(rules.every((r) => r.id.startsWith('default:'))).toBe(true);
     });
 
     test('returns a copy (not the internal array)', () => {
@@ -321,10 +329,10 @@ describe('Trust Store', () => {
   describe('clearCache', () => {
     test('forces reload from disk on next access', () => {
       addRule('bash', 'git *', '/tmp');
-      expect(getAllRules()).toHaveLength(1);
+      expect(getAllRules()).toHaveLength(1 + NUM_DEFAULTS);
       clearCache();
       // After clearing cache, rules are reloaded from disk
-      expect(getAllRules()).toHaveLength(1);
+      expect(getAllRules()).toHaveLength(1 + NUM_DEFAULTS);
     });
   });
 
@@ -335,8 +343,8 @@ describe('Trust Store', () => {
       const rule = addRule('bash', 'npm *', '/tmp');
       clearCache();
       const rules = getAllRules();
-      expect(rules).toHaveLength(1);
-      expect(rules[0].id).toBe(rule.id);
+      expect(rules).toHaveLength(1 + NUM_DEFAULTS);
+      expect(rules.find((r) => r.id === rule.id)).toBeDefined();
     });
 
     test('trust file has correct structure', () => {
@@ -345,7 +353,8 @@ describe('Trust Store', () => {
       expect(data).toHaveProperty('version', 2);
       expect(data).toHaveProperty('rules');
       expect(Array.isArray(data.rules)).toBe(true);
-      expect(data.rules[0]).toHaveProperty('priority', 100);
+      const userRule = data.rules.find((r: { pattern: string }) => r.pattern === 'git *');
+      expect(userRule).toHaveProperty('priority', 100);
     });
   });
 
@@ -363,8 +372,10 @@ describe('Trust Store', () => {
       addRule('bash', 'rm *', '/tmp', 'deny');
       clearCache();
       const rules = getAllRules();
-      expect(rules).toHaveLength(1);
-      expect(rules[0].decision).toBe('deny');
+      expect(rules).toHaveLength(1 + NUM_DEFAULTS);
+      const userRule = rules.find((r) => r.pattern === 'rm *');
+      expect(userRule).toBeDefined();
+      expect(userRule!.decision).toBe('deny');
     });
 
     test('findDenyRule finds deny rules', () => {
@@ -429,9 +440,10 @@ describe('Trust Store', () => {
       }));
       clearCache();
       const rules = getAllRules();
-      expect(rules).toHaveLength(1);
-      expect(rules[0].priority).toBe(100);
-      expect(rules[0].id).toBe('test-v1-id');
+      expect(rules).toHaveLength(1 + NUM_DEFAULTS);
+      const migratedRule = rules.find((r) => r.id === 'test-v1-id');
+      expect(migratedRule).toBeDefined();
+      expect(migratedRule!.priority).toBe(100);
     });
 
     test('v1 file is upgraded to v2 on disk', () => {
@@ -451,7 +463,112 @@ describe('Trust Store', () => {
       getAllRules(); // triggers load + migration
       const data = JSON.parse(readFileSync(trustPath, 'utf-8'));
       expect(data.version).toBe(2);
-      expect(data.rules[0].priority).toBe(100);
+      const migratedRule = data.rules.find((r: { id: string }) => r.id === 'migrate-me');
+      expect(migratedRule.priority).toBe(100);
+    });
+  });
+
+  // ── default rules ─────────────────────────────────────────────
+
+  describe('default rules', () => {
+    test('backfills default deny rules for protected directory on first load', () => {
+      const rules = getAllRules();
+      const defaults = rules.filter((r) => r.id.startsWith('default:'));
+      expect(defaults).toHaveLength(NUM_DEFAULTS);
+      for (const rule of defaults) {
+        expect(rule.decision).toBe('deny');
+        expect(rule.priority).toBe(1000);
+        expect(rule.scope).toBe('everywhere');
+        expect(rule.pattern).toContain(`${testDir}/protected/`);
+      }
+    });
+
+    test('default rules cover file_read, file_write, and file_edit', () => {
+      const rules = getAllRules();
+      const defaultTools = rules
+        .filter((r) => r.id.startsWith('default:'))
+        .map((r) => r.tool)
+        .sort();
+      expect(defaultTools).toEqual(['file_edit', 'file_read', 'file_write']);
+    });
+
+    test('default rules are not duplicated on reload', () => {
+      getAllRules(); // first load
+      clearCache();
+      const rules = getAllRules(); // second load
+      const defaults = rules.filter((r) => r.id.startsWith('default:'));
+      expect(defaults).toHaveLength(NUM_DEFAULTS);
+    });
+
+    test('default rules persist to disk', () => {
+      getAllRules(); // triggers backfill + save
+      const data = JSON.parse(readFileSync(trustPath, 'utf-8'));
+      const defaults = data.rules.filter((r: { id: string }) => r.id.startsWith('default:'));
+      expect(defaults).toHaveLength(NUM_DEFAULTS);
+    });
+
+    test('default rules are backfilled alongside v1 migration', () => {
+      mkdirSync(dirname(trustPath), { recursive: true });
+      writeFileSync(trustPath, JSON.stringify({
+        version: 1,
+        rules: [{
+          id: 'v1-user-rule',
+          tool: 'bash',
+          pattern: 'git *',
+          scope: '/tmp',
+          decision: 'allow',
+          createdAt: 1000,
+        }],
+      }));
+      clearCache();
+      const rules = getAllRules();
+      expect(rules).toHaveLength(1 + NUM_DEFAULTS);
+      expect(rules.find((r) => r.id === 'v1-user-rule')!.priority).toBe(100);
+      const defaults = rules.filter((r) => r.id.startsWith('default:'));
+      expect(defaults).toHaveLength(NUM_DEFAULTS);
+      expect(defaults.every((r) => r.priority === 1000)).toBe(true);
+    });
+
+    test('removed default rule is re-backfilled on next load', () => {
+      // First load backfills defaults
+      getAllRules();
+      // Remove one default rule
+      const defaultRule = getAllRules().find((r) => r.id === 'default:deny-file_read-protected');
+      expect(defaultRule).toBeDefined();
+      removeRule(defaultRule!.id);
+      // After reload, the rule is re-backfilled (defaults are always present)
+      clearCache();
+      const rules = getAllRules();
+      expect(rules.find((r) => r.id === 'default:deny-file_read-protected')).toBeDefined();
+    });
+
+    test('findHighestPriorityRule matches default deny for protected file_read', () => {
+      const protectedPath = join(testDir, 'protected', 'trust.json');
+      const match = findHighestPriorityRule('file_read', [`file_read:${protectedPath}`], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.decision).toBe('deny');
+      expect(match!.priority).toBe(1000);
+    });
+
+    test('findHighestPriorityRule matches default deny for protected file_write', () => {
+      const protectedPath = join(testDir, 'protected', 'keys.enc');
+      const match = findHighestPriorityRule('file_write', [`file_write:${protectedPath}`], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.decision).toBe('deny');
+    });
+
+    test('findHighestPriorityRule matches default deny for protected file_edit', () => {
+      const protectedPath = join(testDir, 'protected', 'secret-allowlist.json');
+      const match = findHighestPriorityRule('file_edit', [`file_edit:${protectedPath}`], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.decision).toBe('deny');
+    });
+
+    test('default deny does not block files outside protected directory', () => {
+      const safePath = join(testDir, 'data', 'assistant.db');
+      const match = findHighestPriorityRule('file_read', [`file_read:${safePath}`], '/tmp');
+      // Should not match a default deny rule
+      expect(match === null || !match.id.startsWith('default:')).toBe(true);
     });
   });
 });

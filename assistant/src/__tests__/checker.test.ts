@@ -473,6 +473,44 @@ describe('Permission Checker', () => {
     });
   });
 
+  // ── default protected directory deny rules ─────────────────────
+
+  describe('default protected directory deny rules', () => {
+    test('file_read of protected file is denied', async () => {
+      const protectedPath = join(checkerTestDir, 'protected', 'trust.json');
+      const result = await check('file_read', { path: protectedPath }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+    });
+
+    test('file_write to protected file is denied', async () => {
+      const protectedPath = join(checkerTestDir, 'protected', 'keys.enc');
+      const result = await check('file_write', { path: protectedPath }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+    });
+
+    test('file_edit of protected file is denied', async () => {
+      const protectedPath = join(checkerTestDir, 'protected', 'secret-allowlist.json');
+      const result = await check('file_edit', { path: protectedPath }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+    });
+
+    test('file_read of non-protected file is not denied', async () => {
+      const safePath = join(checkerTestDir, 'data', 'assistant.db');
+      const result = await check('file_read', { path: safePath }, '/tmp');
+      expect(result.decision).toBe('allow');
+    });
+
+    test('file_write to non-protected file is not auto-denied', async () => {
+      const safePath = '/tmp/safe-file.txt';
+      const result = await check('file_write', { path: safePath }, '/tmp');
+      // Medium risk with no matching rule → prompt (not deny)
+      expect(result.decision).not.toBe('deny');
+    });
+  });
+
   // ── generateAllowlistOptions ───────────────────────────────────
 
   describe('generateAllowlistOptions', () => {

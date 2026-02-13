@@ -4,7 +4,7 @@ import { v4 as uuid } from 'uuid';
 import { minimatch } from 'minimatch';
 import { getRootDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
-import { DEFAULT_RULE_TEMPLATES } from './defaults.js';
+import { getDefaultRuleTemplates } from './defaults.js';
 import type { TrustRule } from './types.js';
 
 const log = getLogger('trust-store');
@@ -62,9 +62,9 @@ function loadFromDisk(): TrustRule[] {
     }
   }
 
-  // Backfill default rules (priority 0)
+  // Backfill default rules at their declared priority
   const existingIds = new Set(rules.map((r) => r.id));
-  for (const template of DEFAULT_RULE_TEMPLATES) {
+  for (const template of getDefaultRuleTemplates()) {
     if (!existingIds.has(template.id)) {
       rules.push({
         id: template.id,
@@ -72,7 +72,7 @@ function loadFromDisk(): TrustRule[] {
         pattern: template.pattern,
         scope: template.scope,
         decision: template.decision,
-        priority: 0,
+        priority: template.priority,
         createdAt: Date.now(),
       });
       needsSave = true;
