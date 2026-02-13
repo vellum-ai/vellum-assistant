@@ -23,15 +23,16 @@ struct UserProfile: Codable, Sendable {
 
 private struct ExtractionResponse: Codable {
     let profile: UserProfile
-    let soul: String
+    let personality: String
+    let userBehavior: String
 }
 
 // MARK: - ProfileExtractor
 
 /// Extracts a structured user profile from an interview transcript by sending
 /// the conversation to a new daemon session with a profile-extraction system prompt.
-/// Writes the `soul` field to `~/.vellum/SOUL.md` and stores the profile
-/// in UserDefaults for client-side use.
+/// Merges `personality` and `userBehavior` into `~/.vellum/SOUL.md` and stores the
+/// profile in UserDefaults for client-side use.
 ///
 /// Designed to run in the background after onboarding completes. Fails silently
 /// on any error — logs but does not crash or surface errors to the user.
@@ -76,12 +77,15 @@ final class ProfileExtractor {
     - interests: string[] (topics they care about)
     - personality: string (1-2 sentence description)
 
-    Then generate a SOUL.md section — a natural-language identity prompt for the assistant \
-    that incorporates what was learned. Write it as instructions to the assistant about how \
-    to interact with THIS specific human. Keep it to 5-8 lines.
+    Then generate two additional fields based on what you learned:
+    - personality: A 2-3 sentence personality description for the assistant that reflects \
+    what was learned about this user. Write it as a description of the assistant's personality.
+    - userBehavior: 3-5 bullet points (each starting with "- ") describing how the assistant \
+    should interact with THIS specific human based on their preferences, communication style, \
+    and needs.
 
     Output ONLY valid JSON in this format:
-    {"profile": {...}, "soul": "..."}
+    {"profile": {...}, "personality": "...", "userBehavior": "- point 1\\n- point 2\\n..."}
     """
 
     private func performExtraction(from messages: [InterviewMessage], assistantName: String) async throws {
@@ -179,7 +183,7 @@ final class ProfileExtractor {
 
         do {
             let response = try JSONDecoder().decode(ExtractionResponse.self, from: jsonData)
-            writeSoulFile(response.soul)
+            updateSoulFile(personality: response.personality, userBehavior: response.userBehavior)
             storeProfile(response.profile)
             log.info("Profile extraction complete — name: \(response.profile.name ?? "unknown")")
         } catch {
@@ -223,13 +227,14 @@ final class ProfileExtractor {
         writeVellumIdentityFile(name: trimmed)
     }
 
-    /// Writes the soul text to `~/.vellum/SOUL.md`.
-    private func writeSoulFile(_ soulContent: String) {
-        guard !soulContent.isEmpty else {
-            log.warning("No soul text to write")
-            return
-        }
-
+    /// Updates `~/.vellum/SOUL.md` by merging personality and user-behavior
+    /// content into the existing file's `## Personality` and `## User-Specific Behavior`
+    /// sections rather than overwriting the whole file (which would nuke Core Principles,
+    /// Boundaries, Evolution guardrails, etc.).
+    ///
+    /// If SOUL.md doesn't exist yet, writes a minimal file with just these two sections;
+    /// the daemon's `ensurePromptFiles()` will seed the full template on next startup.
+    private func updateSoulFile(personality: String, userBehavior: String) {
         let vellumDir = NSHomeDirectory() + "/.vellum"
         let soulPath = vellumDir + "/SOUL.md"
 
@@ -239,11 +244,72 @@ final class ProfileExtractor {
                 withIntermediateDirectories: true,
                 attributes: nil
             )
-            try soulContent.write(toFile: soulPath, atomically: true, encoding: .utf8)
-            log.info("Wrote SOUL.md to \(soulPath)")
+
+            let content: String
+            if FileManager.default.fileExists(atPath: soulPath),
+               let existing = try? String(contentsOfFile: soulPath, encoding: .utf8) {
+                // Merge into existing SOUL.md by replacing section content
+                var updated = existing
+                updated = replaceSectionContent(in: updated, section: "## Personality", newContent: personality)
+                updated = replaceSectionContent(in: updated, section: "## User-Specific Behavior", newContent: userBehavior)
+                content = updated
+            } else {
+                // No existing SOUL.md — write minimal sections
+                content = """
+                # SOUL
+
+                ## Personality
+
+                \(personality)
+
+                ## User-Specific Behavior
+
+                \(userBehavior)
+                """
+            }
+
+            try content.write(toFile: soulPath, atomically: true, encoding: .utf8)
+            log.info("Updated SOUL.md at \(soulPath)")
         } catch {
-            log.error("Failed to write SOUL.md: \(error.localizedDescription)")
+            log.error("Failed to update SOUL.md: \(error.localizedDescription)")
         }
+    }
+
+    /// Replaces the content of a markdown section (everything between the section heading
+    /// and the next `##` heading) with new content, preserving the heading itself.
+    private func replaceSectionContent(in text: String, section: String, newContent: String) -> String {
+        // Find the section heading
+        guard let sectionRange = text.range(of: section) else {
+            // Section doesn't exist — append it at the end
+            return text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n\(section)\n\n\(newContent)\n"
+        }
+
+        // Find what comes after this section heading: the next ## heading (or end of file)
+        let afterHeadingStr = String(text[sectionRange.upperBound...])
+        let nextSectionPattern = #"\n## "#
+        let nextSectionOffset: String.Index?
+        if let regex = try? NSRegularExpression(pattern: nextSectionPattern),
+           let match = regex.firstMatch(
+               in: afterHeadingStr,
+               range: NSRange(afterHeadingStr.startIndex..., in: afterHeadingStr)
+           ),
+           let matchRange = Range(match.range, in: afterHeadingStr) {
+            // Convert the offset back to the original text index
+            let offset = afterHeadingStr.distance(from: afterHeadingStr.startIndex, to: matchRange.lowerBound)
+            nextSectionOffset = text.index(sectionRange.upperBound, offsetBy: offset)
+        } else {
+            nextSectionOffset = nil
+        }
+
+        let sectionContentEnd = nextSectionOffset ?? text.endIndex
+
+        // Build replacement: heading + newline + new content + trailing newline
+        let replacement = "\(section)\n\n\(newContent)\n"
+
+        var result = text
+        let replaceRange = sectionRange.lowerBound..<sectionContentEnd
+        result.replaceSubrange(replaceRange, with: replacement)
+        return result
     }
 
     /// Stores the full profile as JSON in UserDefaults.
