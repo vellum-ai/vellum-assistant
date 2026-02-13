@@ -4,21 +4,18 @@ AI-powered assistant platform by Vellum.
 
 ## Architecture
 
-The platform has three main components:
+The platform has two main components:
 
-- **Assistant runtime** (`assistant/`): Bun + TypeScript daemon that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes an HTTP API consumed by the web app and gateway.
-- **Web app** (`web/`): Next.js frontend and API layer. Stores assistant metadata, auth, and channel config in Postgres. All chat operations proxy through the assistant runtime via a unified `RuntimeClient`.
+- **Assistant runtime** (`assistant/`): Bun + TypeScript daemon that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes an HTTP API consumed by the gateway.
 - **Gateway** (`gateway/`): Standalone Bun + TypeScript service that owns Telegram integration end-to-end. Receives Telegram webhooks, routes to the correct assistant via static settings, forwards to the assistant runtime, and sends replies back to Telegram.
 
 ## Repository Structure
 
 ```
 /
-├── web/               # Next.js web application
 ├── assistant/         # Bun-based assistant runtime
 ├── clients/           # Desktop clients
 ├── gateway/           # Telegram gateway service
-├── sanity-content/    # Sanity content
 ├── scripts/           # Utility scripts
 └── .github/           # GitHub Actions workflows
 ```
@@ -28,10 +25,6 @@ The platform has three main components:
 ```bash
 # Start local services (Postgres + MinIO)
 docker compose up -d
-
-# Start the web app
-cd web
-bun run dev
 ```
 
 ## Git Hooks
@@ -44,16 +37,6 @@ To manually install or update hooks:
 ```
 
 See [.githooks/README.md](./.githooks/README.md) for more details about available hooks.
-
-## Web Application
-
-The web app lives in `/web`. See [web/README.md](./web/README.md) for setup instructions.
-
-```bash
-cd web
-npm install
-npm run dev
-```
 
 ## Assistant Runtime
 
@@ -68,24 +51,6 @@ bun run src/index.ts daemon start
 ## Remote Access
 
 Access a remote assistant daemon from your local machine via SSH.
-
-### Web (runtime HTTP tunnel)
-
-The web app connects to the runtime via HTTP. Use the tunnel helper to forward the runtime port:
-
-```bash
-# On your local machine — forward remote runtime port
-scripts/vellum-runtime-tunnel.sh start user@remote-host
-
-# Print env vars for web local mode
-scripts/vellum-runtime-tunnel.sh print-env
-# Output:
-#   ASSISTANT_CONNECTION_MODE=local
-#   LOCAL_RUNTIME_URL=http://127.0.0.1:7821
-
-# On the remote host, start the daemon with HTTP enabled
-RUNTIME_HTTP_PORT=7821 bun run src/index.ts daemon start
-```
 
 ### CLI (socket forwarding)
 
@@ -111,8 +76,6 @@ VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock open -a Vellum
 
 | Symptom | Check |
 |---|---|
-| Web: "Failed to connect to runtime" | Is the tunnel running? (`scripts/vellum-runtime-tunnel.sh status`) |
-| Web: "CLOUD_RUNTIME_URL must be set" | Set `ASSISTANT_CONNECTION_MODE=local` |
 | CLI: "could not connect to daemon socket" | Is the SSH socket tunnel active? Check `VELLUM_DAEMON_SOCKET` path |
 | CLI: daemon starts locally despite socket override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1` |
 | macOS: not connecting | Verify socket path in `VELLUM_DAEMON_SOCKET` exists and is writable |
