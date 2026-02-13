@@ -12,22 +12,31 @@ echo "  PRE-LLM-CALL" >&2
 echo "════════════════════════════════════════════════════════════════" >&2
 echo "" >&2
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo "(jq not found — install jq for formatted output)" >&2
+  printf '%s' "$data" | cut -c1-3000 >&2
+  echo "" >&2
+  echo "════════════════════════════════════════════════════════════════" >&2
+  echo "" >&2
+  exit 0
+fi
+
 # System prompt (first 2000 chars)
 echo "── System Prompt ──────────────────────────────────────────────" >&2
-echo "$data" | jq -r '.systemPrompt // "N/A"' | head -c 2000 >&2
+printf '%s' "$data" | jq -r '.systemPrompt // "N/A"' | cut -c1-2000 >&2
 echo "" >&2
 echo "" >&2
 
 # Message count and model
-model=$(echo "$data" | jq -r '.model // "unknown"')
-msgCount=$(echo "$data" | jq '.messages | length')
-toolCount=$(echo "$data" | jq -r '.toolCount // 0')
+model=$(printf '%s' "$data" | jq -r '.model // "unknown"')
+msgCount=$(printf '%s' "$data" | jq '.messages | length')
+toolCount=$(printf '%s' "$data" | jq -r '.toolCount // 0')
 echo "Model: $model | Messages: $msgCount | Tools: $toolCount" >&2
 echo "" >&2
 
 # Last 10 messages (compact)
 echo "── Recent Messages (last 10) ──────────────────────────────────" >&2
-echo "$data" | jq -r '
+printf '%s' "$data" | jq -r '
   .messages[-10:][] |
   "\(.role): " + (
     if (.content | type) == "string" then
