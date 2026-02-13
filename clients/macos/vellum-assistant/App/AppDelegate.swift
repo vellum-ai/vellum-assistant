@@ -21,29 +21,22 @@ enum AssistantStatus {
         }
     }
 
-    var statusIcon: NSImage? {
-        let symbolName: String
-        let tintColor: NSColor
+    var statusColor: NSColor {
         switch self {
-        case .idle:
-            symbolName = "circle.fill"
-            tintColor = .systemGray
-        case .thinking:
-            symbolName = "circle.fill"
-            tintColor = .systemGreen
-        case .error:
-            symbolName = "circle.fill"
-            tintColor = .systemRed
+        case .idle: return .systemGray
+        case .thinking: return .systemGreen
+        case .error: return .systemRed
         }
-        let config = NSImage.SymbolConfiguration(pointSize: 8, weight: .regular)
-        guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
-            .withSymbolConfiguration(config) else { return nil }
-        let tinted = image.copy() as! NSImage
-        tinted.lockFocus()
-        tintColor.set()
-        NSRect(origin: .zero, size: tinted.size).fill(using: .sourceAtop)
-        tinted.unlockFocus()
-        return tinted
+    }
+
+    var statusIcon: NSImage? {
+        let size: CGFloat = 8
+        let image = NSImage(size: NSSize(width: size, height: size))
+        image.lockFocus()
+        statusColor.setFill()
+        NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: size, height: size)).fill()
+        image.unlockFocus()
+        return image
     }
 }
 
@@ -347,12 +340,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let status = currentAssistantStatus
-        let dotColor: NSColor
-        switch status {
-        case .idle: dotColor = .systemGray
-        case .thinking: dotColor = .systemGreen
-        case .error: dotColor = .systemRed
-        }
+        let dotColor = status.statusColor
 
         let composited = NSImage(size: NSSize(width: iconSize, height: iconSize))
         composited.lockFocus()
