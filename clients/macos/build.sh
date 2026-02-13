@@ -147,24 +147,25 @@ if [ "$NEEDS_REBUILD" = true ]; then
     else
         echo "No daemon binary at $DAEMON_BIN — skipping (dev mode)"
     fi
-
-    # Copy SPM resource bundles into Contents/Resources/
-    # ResourceBundle.swift checks Bundle.main.resourceURL (Contents/Resources/) first,
-    # then falls back to Bundle.main.bundleURL (for direct `swift run`).
-    # Only copy if missing or changed
-    for SPM_BUNDLE in "$BIN_PATH"/*.bundle; do
-        if [ -d "$SPM_BUNDLE" ]; then
-            BUNDLE_NAME=$(basename "$SPM_BUNDLE")
-            if [ ! -d "$RESOURCES_DIR/$BUNDLE_NAME" ] || [ "$SPM_BUNDLE" -nt "$RESOURCES_DIR/$BUNDLE_NAME" ]; then
-                echo "Bundling $BUNDLE_NAME"
-                rm -rf "$RESOURCES_DIR/$BUNDLE_NAME"
-                cp -R "$SPM_BUNDLE" "$RESOURCES_DIR/"
-            fi
-        fi
-    done
 else
-    echo "Binaries unchanged, skipping repackaging"
+    echo "Binaries unchanged, skipping binary/framework repackaging"
 fi
+
+# Always check resource bundles (they change independently of binaries)
+# Copy SPM resource bundles into Contents/Resources/
+# ResourceBundle.swift checks Bundle.main.resourceURL (Contents/Resources/) first,
+# then falls back to Bundle.main.bundleURL (for direct `swift run`).
+# Only copy if missing or changed (has its own timestamp check)
+for SPM_BUNDLE in "$BIN_PATH"/*.bundle; do
+    if [ -d "$SPM_BUNDLE" ]; then
+        BUNDLE_NAME=$(basename "$SPM_BUNDLE")
+        if [ ! -d "$RESOURCES_DIR/$BUNDLE_NAME" ] || [ "$SPM_BUNDLE" -nt "$RESOURCES_DIR/$BUNDLE_NAME" ]; then
+            echo "Bundling $BUNDLE_NAME"
+            rm -rf "$RESOURCES_DIR/$BUNDLE_NAME"
+            cp -R "$SPM_BUNDLE" "$RESOURCES_DIR/"
+        fi
+    fi
+done
 
 # Always regenerate Info.plist (fast, depends on env vars like DISPLAY_VERSION)
 cat > "$CONTENTS/Info.plist" <<PLIST
