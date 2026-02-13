@@ -372,6 +372,7 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE memory_summaries ADD COLUMN version INTEGER NOT NULL DEFAULT 1`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE memory_items ADD COLUMN valid_from INTEGER`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE memory_items ADD COLUMN invalid_at INTEGER`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE memory_jobs ADD COLUMN deferrals INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
 
   migrateToolInvocationsFk(database);
 

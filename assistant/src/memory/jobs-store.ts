@@ -24,6 +24,7 @@ export interface MemoryJob<T = Record<string, unknown>> {
   payload: T;
   status: 'pending' | 'running' | 'completed' | 'failed';
   attempts: number;
+  deferrals: number;
   runAfter: number;
   lastError: string | null;
   createdAt: number;
@@ -44,6 +45,7 @@ export function enqueueMemoryJob(
     payload: JSON.stringify(payload),
     status: 'pending',
     attempts: 0,
+    deferrals: 0,
     runAfter,
     lastError: null,
     createdAt: now,
@@ -115,9 +117,10 @@ const DEFER_MAX_DELAY_MS = 5 * 60 * 1000;
 /**
  * Move a running job back to pending with exponential backoff.
  * Used when the failure is a missing configuration (not a transient error).
- * The job's attempt counter is incremented so that backoff grows and the job
- * eventually fails after {@link MAX_DEFERRALS} deferrals instead of retrying
- * indefinitely.
+ * The job's deferral counter is incremented (separate from the retry attempt
+ * counter used by {@link failMemoryJob}) so that backoff grows and the job
+ * eventually fails after {@link MAX_DEFERRALS} deferrals without consuming
+ * the retry budget for transient errors.
  *
  * Returns `'deferred'` if the job was put back, or `'failed'` if max deferrals
  * were exceeded and the job was marked as failed.
@@ -131,16 +134,16 @@ export function deferMemoryJob(id: string): 'deferred' | 'failed' {
     .get();
   if (!row) return 'failed';
 
-  const attempts = row.attempts + 1;
+  const deferrals = row.deferrals + 1;
   const now = Date.now();
 
-  if (attempts >= MAX_DEFERRALS) {
+  if (deferrals >= MAX_DEFERRALS) {
     db.update(memoryJobs)
       .set({
         status: 'failed',
-        attempts,
+        deferrals,
         updatedAt: now,
-        lastError: `Backend unavailable after ${attempts} deferrals`,
+        lastError: `Backend unavailable after ${deferrals} deferrals`,
       })
       .where(eq(memoryJobs.id, id))
       .run();
@@ -148,9 +151,9 @@ export function deferMemoryJob(id: string): 'deferred' | 'failed' {
   }
 
   // Exponential backoff: 30s, 60s, 120s, ... capped at 5 minutes
-  const delay = Math.min(DEFER_BASE_DELAY_MS * Math.pow(2, Math.min(attempts - 1, 10)), DEFER_MAX_DELAY_MS);
+  const delay = Math.min(DEFER_BASE_DELAY_MS * Math.pow(2, Math.min(deferrals - 1, 10)), DEFER_MAX_DELAY_MS);
   db.update(memoryJobs)
-    .set({ status: 'pending', attempts, runAfter: now + delay, updatedAt: now })
+    .set({ status: 'pending', deferrals, runAfter: now + delay, updatedAt: now })
     .where(eq(memoryJobs.id, id))
     .run();
   return 'deferred';
@@ -238,6 +241,7 @@ function parseRow(row: typeof memoryJobs.$inferSelect): MemoryJob {
     payload,
     status: row.status as MemoryJob['status'],
     attempts: row.attempts,
+    deferrals: row.deferrals,
     runAfter: row.runAfter,
     lastError: row.lastError,
     createdAt: row.createdAt,

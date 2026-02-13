@@ -112,6 +112,7 @@ export const memoryJobs = sqliteTable('memory_jobs', {
   payload: text('payload').notNull(),
   status: text('status').notNull(),
   attempts: integer('attempts').notNull().default(0),
+  deferrals: integer('deferrals').notNull().default(0),
   runAfter: integer('run_after').notNull(),
   lastError: text('last_error'),
   createdAt: integer('created_at').notNull(),
