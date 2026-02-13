@@ -52,6 +52,7 @@ import {
   requestMemoryBackfill,
   requestMemoryRebuildIndex,
 } from './memory/admin.js';
+import { registerHooksCommand } from './hooks/cli.js';
 
 function sendOneMessage(
   msg: ClientMessage,
@@ -866,6 +867,9 @@ program
     }
   });
 
+// --- Hooks commands ---
+registerHooksCommand(program);
+
 // --- Completions command ---
 program
   .command('completions')
@@ -879,10 +883,11 @@ program
       keys: ['list', 'set', 'delete'],
       trust: ['list', 'remove', 'clear'],
       memory: ['status', 'backfill', 'query', 'rebuild-index'],
+      hooks: ['list', 'enable', 'disable', 'install', 'remove'],
     };
     const topLevel = [
       'daemon', 'dev', 'sessions', 'config', 'keys', 'trust', 'memory',
-      'audit', 'doctor', 'completions', 'help',
+      'hooks', 'audit', 'doctor', 'completions', 'help',
     ];
 
     switch (shell) {
@@ -951,6 +956,7 @@ _vellum() {
         'keys:Manage API keys in secure storage'
         'trust:Manage trust rules'
         'memory:Manage long-term memory'
+        'hooks:Manage hooks'
         'audit:Show recent tool invocations'
         'doctor:Run diagnostic checks'
         'completions:Generate shell completion script'
@@ -993,6 +999,7 @@ function generateFishCompletion(
     keys: 'Manage API keys in secure storage',
     trust: 'Manage trust rules',
     memory: 'Manage long-term memory',
+    hooks: 'Manage hooks',
     audit: 'Show recent tool invocations',
     doctor: 'Run diagnostic checks',
     completions: 'Generate shell completion script',
