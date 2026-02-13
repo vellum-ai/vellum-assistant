@@ -26,6 +26,11 @@ mock.module('../util/logger.js', () => ({
 
 const { loadSkillCatalog } = await import('../config/skills.js');
 
+/** Return only user-installed skills (filters out bundled skills that ship with the source tree). */
+function loadUserSkillCatalog() {
+  return loadSkillCatalog().filter((s) => !s.bundled);
+}
+
 function writeSkill(skillId: string, name: string, description: string, body: string = 'Skill body'): void {
   const skillDir = join(TEST_DIR, 'skills', skillId);
   mkdirSync(skillDir, { recursive: true });
@@ -54,7 +59,7 @@ describe('skills catalog loading', () => {
       '- alpha\n- beta/SKILL.md\n',
     );
 
-    const catalog = loadSkillCatalog();
+    const catalog = loadUserSkillCatalog();
     expect(catalog.map((skill) => skill.id)).toEqual(['alpha', 'beta']);
   });
 
@@ -66,7 +71,7 @@ describe('skills catalog loading', () => {
       '- [Lint](lint)\n- [Tests](test)\n',
     );
 
-    const catalog = loadSkillCatalog();
+    const catalog = loadUserSkillCatalog();
     expect(catalog.map((skill) => skill.id)).toEqual(['lint', 'test']);
   });
 
@@ -77,7 +82,7 @@ describe('skills catalog loading', () => {
       '- ../escape\n- /tmp/absolute\n- safe\n',
     );
 
-    const catalog = loadSkillCatalog();
+    const catalog = loadUserSkillCatalog();
     expect(catalog.map((skill) => skill.id)).toEqual(['safe']);
   });
 
@@ -92,7 +97,7 @@ describe('skills catalog loading', () => {
     symlinkSync(externalSkillDir, join(TEST_DIR, 'skills', 'linked-skill'));
     writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- linked-skill\n');
 
-    const catalog = loadSkillCatalog();
+    const catalog = loadUserSkillCatalog();
     expect(catalog).toHaveLength(0);
   });
 
@@ -111,7 +116,7 @@ describe('skills catalog loading', () => {
     symlinkSync(externalSkillFile, join(linkedSkillDir, 'SKILL.md'));
     writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- linked-file-skill\n');
 
-    const catalog = loadSkillCatalog();
+    const catalog = loadUserSkillCatalog();
     expect(catalog).toHaveLength(0);
   });
 
@@ -123,7 +128,7 @@ describe('skills catalog loading', () => {
       '- second\n- first\n',
     );
 
-    const catalog = loadSkillCatalog();
+    const catalog = loadUserSkillCatalog();
     expect(catalog.map((skill) => skill.id)).toEqual(['second', 'first']);
   });
 
@@ -131,7 +136,7 @@ describe('skills catalog loading', () => {
     writeSkill('zeta', 'Zeta Skill', 'Zeta');
     writeSkill('alpha', 'Alpha Skill', 'Alpha');
 
-    const catalog = loadSkillCatalog();
+    const catalog = loadUserSkillCatalog();
     expect(catalog.map((skill) => skill.id)).toEqual(['alpha', 'zeta']);
   });
 
@@ -142,7 +147,7 @@ describe('skills catalog loading', () => {
       '- ../invalid-only\n',
     );
 
-    const catalog = loadSkillCatalog();
+    const catalog = loadUserSkillCatalog();
     expect(catalog).toHaveLength(0);
   });
 });
