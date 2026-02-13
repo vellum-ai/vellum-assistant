@@ -64,21 +64,18 @@ struct VSlider: View {
     // MARK: - Track
 
     private func trackView(thumbOffset: CGFloat, trackWidth: CGFloat) -> some View {
-        let cornerRadius: CGFloat = VRadius.md
-
-        return ZStack(alignment: .leading) {
-            // Unfilled track
-            RoundedRectangle(cornerRadius: cornerRadius)
+        ZStack(alignment: .leading) {
+            // Unfilled track (edge-to-edge)
+            Rectangle()
                 .fill(Slate._700)
                 .frame(height: trackHeight)
-                .padding(.horizontal, thumbWidth / 2)
 
-            // Filled track
-            RoundedRectangle(cornerRadius: cornerRadius)
+            // Filled track (from left edge to thumb center)
+            Rectangle()
                 .fill(VColor.accent)
-                .frame(width: thumbOffset, height: trackHeight)
-                .padding(.leading, thumbWidth / 2)
+                .frame(width: thumbOffset + thumbWidth / 2, height: trackHeight)
         }
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 
     // MARK: - Thumb
