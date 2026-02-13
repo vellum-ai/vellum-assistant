@@ -237,7 +237,10 @@ export async function runDaemon(): Promise<void> {
   writePid(process.pid);
   log.info({ pid: process.pid }, 'Daemon started');
 
-  void getHookManager().trigger('daemon-start', {
+  const hookManager = getHookManager();
+  hookManager.watch();
+
+  void hookManager.trigger('daemon-start', {
     pid: process.pid,
     socketPath: getSocketPath(),
   });
@@ -260,8 +263,10 @@ export async function runDaemon(): Promise<void> {
     shuttingDown = true;
     log.info('Shutting down daemon...');
 
+    hookManager.stopWatching();
+
     try {
-      await getHookManager().trigger('daemon-stop', { pid: process.pid });
+      await hookManager.trigger('daemon-stop', { pid: process.pid });
     } catch {
       // Don't let hook failures block shutdown
     }

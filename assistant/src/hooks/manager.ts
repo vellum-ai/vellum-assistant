@@ -1,6 +1,8 @@
+import { watch, existsSync, type FSWatcher } from 'node:fs';
 import { discoverHooks } from './discovery.js';
 import { runHookScript } from './runner.js';
 import { getLogger, isDebug } from '../util/logger.js';
+import { getHooksDir } from '../util/platform.js';
 import type { DiscoveredHook, HookEventName, HookEventData, HookTriggerResult } from './types.js';
 
 const log = getLogger('hooks-manager');
@@ -8,6 +10,8 @@ const log = getLogger('hooks-manager');
 export class HookManager {
   private hooks: DiscoveredHook[] = [];
   private eventIndex = new Map<HookEventName, DiscoveredHook[]>();
+  private watcher: FSWatcher | null = null;
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   initialize(): void {
     this.hooks = discoverHooks();
@@ -61,6 +65,43 @@ export class HookManager {
     }
 
     return { blocked: false };
+  }
+
+  reload(): void {
+    this.hooks = discoverHooks();
+    this.buildEventIndex();
+    const enabled = this.hooks.filter((h) => h.enabled).length;
+    log.info({ enabled, total: this.hooks.length }, 'Hooks reloaded');
+  }
+
+  watch(): void {
+    const hooksDir = getHooksDir();
+    if (!existsSync(hooksDir)) return;
+
+    try {
+      this.watcher = watch(hooksDir, { recursive: true }, (_eventType, filename) => {
+        if (this.debounceTimer) clearTimeout(this.debounceTimer);
+        this.debounceTimer = setTimeout(() => {
+          this.debounceTimer = null;
+          log.info({ filename: String(filename ?? '') }, 'Hooks directory changed, reloading');
+          this.reload();
+        }, 500);
+      });
+      log.info({ dir: hooksDir }, 'Watching hooks directory for changes');
+    } catch (err) {
+      log.warn({ err, dir: hooksDir }, 'Failed to watch hooks directory. Hot-reload will be unavailable.');
+    }
+  }
+
+  stopWatching(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    if (this.watcher) {
+      this.watcher.close();
+      this.watcher = null;
+    }
   }
 
   getDiscoveredHooks(): DiscoveredHook[] {
