@@ -39,6 +39,8 @@ final class OnboardingState {
     var capabilitiesBriefingShown: Bool = false
     var observationCompleted: Bool = false
     var firstTaskCandidate: String? = nil
+    var observationDurationMinutes: Int = 5
+    var observationInsights: [String] = []
 
     var anyPermissionDenied: Bool {
         !speechGranted || !accessibilityGranted || !screenGranted

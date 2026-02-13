@@ -8,6 +8,14 @@ struct FirstMeetingFlowView: View {
     var onComplete: () -> Void
     var onOpenSettings: () -> Void
 
+    /// Tracks sub-phase within the observation step (step 4).
+    enum ObservationPhase {
+        case pitch
+        case session
+        case summary
+    }
+    @State private var observationPhase: ObservationPhase = .pitch
+
     /// Shared SpriteKit scene for the egg/hatch animation across steps 0-1.
     @State private var eggScene: EggHatchScene = {
         let s = EggHatchScene()
@@ -70,9 +78,7 @@ struct FirstMeetingFlowView: View {
                         case 3:
                             CapabilitiesBriefingView(state: state, onComplete: { state.advance() })
                         case 4:
-                            Text("Observation mode — coming soon")
-                                .font(VFont.headline)
-                                .foregroundColor(VColor.textPrimary)
+                            observationStep
                         default:
                             EmptyView()
                         }
@@ -83,7 +89,7 @@ struct FirstMeetingFlowView: View {
                             removal: .opacity.combined(with: .offset(y: -8))
                         )
                     )
-                    .id(state.currentStep)
+                    .id("\(state.currentStep)-\(observationPhase)")
 
                     OnboardingProgressDots(currentStep: state.currentStep)
                         .padding(.top, VSpacing.xs)
@@ -111,6 +117,55 @@ struct FirstMeetingFlowView: View {
             .padding(.vertical, VSpacing.xxxl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Observation Step
+
+    @ViewBuilder
+    private var observationStep: some View {
+        switch observationPhase {
+        case .pitch:
+            ObservationModeView(
+                state: state,
+                onStartObserving: {
+                    withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
+                        observationPhase = .session
+                    }
+                },
+                onSkip: {
+                    completeOnboarding()
+                }
+            )
+        case .session:
+            ObservationSessionView(
+                state: state,
+                onComplete: {
+                    withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
+                        observationPhase = .summary
+                    }
+                },
+                onStopEarly: {
+                    withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
+                        observationPhase = .summary
+                    }
+                }
+            )
+        case .summary:
+            ObservationSummaryView(
+                state: state,
+                onAccept: {
+                    completeOnboarding()
+                },
+                onDecline: {
+                    completeOnboarding()
+                }
+            )
+        }
+    }
+
+    private func completeOnboarding() {
+        state.observationCompleted = true
+        onComplete()
     }
 
     // MARK: - Mock Chrome
