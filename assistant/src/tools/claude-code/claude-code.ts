@@ -139,6 +139,7 @@ export const claudeCodeTool: Tool = {
       const conversation = query({ prompt, options: queryOptions });
       let resultText = '';
       let sessionId = '';
+      let hasError = false;
 
       for await (const message of conversation) {
         switch (message.type) {
@@ -163,6 +164,7 @@ export const claudeCodeTool: Tool = {
               }
             } else {
               // Error result
+              hasError = true;
               const errors = message.errors ?? [];
               if (errors.length > 0) {
                 resultText += `\n\nErrors: ${errors.join(', ')}`;
@@ -181,7 +183,7 @@ export const claudeCodeTool: Tool = {
 
       return {
         content: output + sessionInfo,
-        isError: false,
+        isError: hasError,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
