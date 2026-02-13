@@ -374,6 +374,7 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE memory_items ADD COLUMN invalid_at INTEGER`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE memory_jobs ADD COLUMN deferrals INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
 
+  migrateJobDeferrals(database);
   migrateToolInvocationsFk(database);
 
   // Indexes for query performance on large datasets
@@ -418,6 +419,32 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_entities_entity ON memory_item_entities(entity_id)`);
 
   migrateMemoryFtsBackfill(database);
+}
+
+/**
+ * One-time migration: reconcile old deferral history into the new `deferrals` column.
+ *
+ * Before the `deferrals` column was added, `deferMemoryJob` incremented `attempts`.
+ * After the column is added with DEFAULT 0, those jobs still carry the old attempt
+ * count (which was really a deferral count) while `deferrals` is 0. This moves the
+ * attempt count into `deferrals` and resets `attempts` to 0 for affected jobs.
+ *
+ * Affected jobs: status='pending' (deferred jobs are returned to pending), attempts > 0,
+ * deferrals = 0 (not yet migrated).
+ *
+ * Idempotent: once deferrals > 0 or attempts = 0, rows are no longer matched.
+ */
+function migrateJobDeferrals(database: ReturnType<typeof drizzle<typeof schema>>): void {
+  const raw = (database as unknown as { $client: Database }).$client;
+  raw.exec(/*sql*/ `
+    UPDATE memory_jobs
+    SET deferrals = attempts,
+        attempts = 0,
+        updated_at = ${Date.now()}
+    WHERE status = 'pending'
+      AND attempts > 0
+      AND deferrals = 0
+  `);
 }
 
 /**
