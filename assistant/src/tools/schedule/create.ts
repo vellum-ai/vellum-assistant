@@ -69,9 +69,8 @@ class ScheduleCreateTool implements Tool {
       return {
         content: [
           `Schedule created successfully.`,
-          `  ID: ${job.id}`,
           `  Name: ${job.name}`,
-          `  Schedule: ${describeCronExpression(job.cronExpression)} (${job.cronExpression})${job.timezone ? ` (${job.timezone})` : ''}`,
+          `  Schedule: ${describeCronExpression(job.cronExpression)}${job.timezone ? ` (${job.timezone})` : ''}`,
           `  Enabled: ${job.enabled}`,
           `  Next run: ${nextRunDate}`,
         ].join('\n'),

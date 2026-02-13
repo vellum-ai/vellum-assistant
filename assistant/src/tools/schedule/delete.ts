@@ -45,7 +45,7 @@ class ScheduleDeleteTool implements Tool {
     }
 
     return {
-      content: `Schedule deleted: "${job.name}" (${jobId})`,
+      content: `Schedule deleted: "${job.name}"`,
       isError: false,
     };
   }

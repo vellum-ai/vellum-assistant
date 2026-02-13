@@ -45,8 +45,7 @@ class ScheduleListTool implements Tool {
       const runs = getScheduleRuns(jobId, 5);
       const lines = [
         `Schedule: ${job.name}`,
-        `  ID: ${job.id}`,
-        `  Schedule: ${describeCronExpression(job.cronExpression)} (${job.cronExpression})${job.timezone ? ` (${job.timezone})` : ''}`,
+        `  Schedule: ${describeCronExpression(job.cronExpression)}${job.timezone ? ` (${job.timezone})` : ''}`,
         `  Enabled: ${job.enabled}`,
         `  Message: ${job.message}`,
         `  Next run: ${formatLocalDate(job.nextRunAt)}`,
@@ -79,7 +78,7 @@ class ScheduleListTool implements Tool {
     for (const job of jobs) {
       const status = job.enabled ? 'enabled' : 'disabled';
       const next = job.enabled ? formatLocalDate(job.nextRunAt) : 'n/a';
-      lines.push(`  - [${status}] ${job.name} (${describeCronExpression(job.cronExpression)}) — next: ${next} — id: ${job.id}`);
+      lines.push(`  - [${status}] ${job.name} (${describeCronExpression(job.cronExpression)}) — next: ${next}`);
     }
 
     return { content: lines.join('\n'), isError: false };
