@@ -1,0 +1,46 @@
+name: PR Gateway Image Build
+
+on:
+  pull_request:
+    paths:
+      - 'gateway/**'
+      - '.github/workflows/ci-gateway-image.yml'
+
+jobs:
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: gateway
+          push: false
+          tags: vellum-gateway:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke check - container boots
+        run: |
+          docker build -t vellum-gateway:smoke gateway
+          docker run --rm -d --name gateway-smoke \
+            -e TELEGRAM_BOT_TOKEN=test \
+            -e TELEGRAM_WEBHOOK_SECRET=test \
+            -e ASSISTANT_RUNTIME_BASE_URL=http://localhost:7821 \
+            -p 19830:7830 \
+            vellum-gateway:smoke
+          sleep 3
+          STATUS=$(curl -sf http://localhost:19830/healthz | jq -r '.status' || echo "failed")
+          docker stop gateway-smoke || true
+          if [ "$STATUS" != "ok" ]; then
+            echo "Smoke check failed: healthz returned '$STATUS'"
+            exit 1
+          fi
+          echo "Smoke check passed"
