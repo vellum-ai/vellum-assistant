@@ -67,8 +67,8 @@ function buildConfigSection(configDir: string): string {
     '## Configuration',
     `Your configuration directory is \`${configDir}/\`. Key files you may read or edit:`,
     '',
-    '- `IDENTITY.md` — Your name, role, and tone. Edit to change your persona.',
-    '- `SOUL.md` — Core principles and behavioral boundaries.',
+    '- `IDENTITY.md` — Your name and role. Slim metadata — rarely changes.',
+    '- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.',
     '- `USER.md` — Profile of the user. Update as you learn about them over time.',
     '- `skills/` — Directory of installed skills (loaded automatically at startup).',
   ].join('\n');
