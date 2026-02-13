@@ -39,8 +39,7 @@ jobs:
           IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           TAGS="${IMAGE}:${{ github.sha }}"
           if [ "${{ github.ref_name }}" = "main" ]; then
-            TAGS="${TAGS}
-${IMAGE}:latest"
+            TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:latest")
           fi
           echo "tags<<EOF" >> "$GITHUB_OUTPUT"
           echo "$TAGS" >> "$GITHUB_OUTPUT"
