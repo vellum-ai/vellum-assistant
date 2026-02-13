@@ -43,9 +43,11 @@ struct FirstMeetingFlowView: View {
                                 .font(VFont.headline)
                                 .foregroundColor(VColor.textPrimary)
                         case 2:
-                            Text("Introduction — coming soon")
-                                .font(VFont.headline)
-                                .foregroundColor(VColor.textPrimary)
+                            FirstMeetingIntroductionView(
+                                state: state,
+                                daemonClient: daemonClient,
+                                onComplete: { state.advance() }
+                            )
                         case 3:
                             Text("Capabilities briefing — coming soon")
                                 .font(VFont.headline)
