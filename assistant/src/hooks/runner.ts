@@ -1,13 +1,27 @@
 import { spawn } from 'node:child_process';
-import { extname } from 'node:path';
+import { existsSync } from 'node:fs';
+import { extname, join } from 'node:path';
+import { homedir } from 'node:os';
 import { getRootDir } from '../util/platform.js';
+import { getLogger } from '../util/logger.js';
 import { getHookSettings } from './config.js';
 import type { DiscoveredHook, HookEventData } from './types.js';
 
-function getSpawnArgs(scriptPath: string): { command: string; args: string[] } {
+const log = getLogger('hooks-runner');
+
+function resolveBunPath(): string | null {
+  const localBun = join(homedir(), '.bun', 'bin', 'bun');
+  if (existsSync(localBun)) return localBun;
+  // Fall back to PATH lookup — spawn will resolve it or fail with ENOENT
+  return 'bun';
+}
+
+function getSpawnArgs(scriptPath: string): { command: string; args: string[] } | null {
   const ext = extname(scriptPath);
   if (ext === '.ts') {
-    return { command: 'bun', args: ['run', scriptPath] };
+    const bunPath = resolveBunPath();
+    if (bunPath === null) return null;
+    return { command: bunPath, args: ['run', scriptPath] };
   }
   return { command: scriptPath, args: [] };
 }
@@ -26,7 +40,13 @@ export async function runHookScript(
   const timeoutMs = options?.timeoutMs ?? 5000;
 
   return new Promise<HookRunResult>((resolve) => {
-    const { command, args } = getSpawnArgs(hook.scriptPath);
+    const spawnArgs = getSpawnArgs(hook.scriptPath);
+    if (spawnArgs === null) {
+      log.warn({ hook: hook.name }, 'Skipping .ts hook: bun runtime not found');
+      resolve({ exitCode: null, stdout: '', stderr: 'bun runtime not found' });
+      return;
+    }
+    const { command, args } = spawnArgs;
     const child = spawn(command, args, {
       cwd: hook.dir,
       env: {
