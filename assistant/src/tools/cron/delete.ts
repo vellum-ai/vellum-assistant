@@ -5,9 +5,9 @@ import { registerTool } from '../registry.js';
 import { deleteCronJob, getCronJob } from '../../cron/cron-store.js';
 
 class CronDeleteTool implements Tool {
-  name = 'cron_delete';
-  description = 'Delete a cron job and all its run history';
-  category = 'cron';
+  name = 'schedule_delete';
+  description = 'Delete a scheduled task and all its run history';
+  category = 'schedule';
   defaultRiskLevel = RiskLevel.High;
 
   getDefinition(): ToolDefinition {
@@ -19,7 +19,7 @@ class CronDeleteTool implements Tool {
         properties: {
           job_id: {
             type: 'string',
-            description: 'The ID of the cron job to delete',
+            description: 'The ID of the schedule to delete',
           },
         },
         required: ['job_id'],
@@ -36,16 +36,16 @@ class CronDeleteTool implements Tool {
     // Fetch the job first for the confirmation message
     const job = getCronJob(jobId);
     if (!job) {
-      return { content: `Error: Cron job not found: ${jobId}`, isError: true };
+      return { content: `Error: Schedule not found: ${jobId}`, isError: true };
     }
 
     const deleted = deleteCronJob(jobId);
     if (!deleted) {
-      return { content: `Error: Failed to delete cron job: ${jobId}`, isError: true };
+      return { content: `Error: Failed to delete schedule: ${jobId}`, isError: true };
     }
 
     return {
-      content: `Cron job deleted: "${job.name}" (${jobId})`,
+      content: `Schedule deleted: "${job.name}" (${jobId})`,
       isError: false,
     };
   }

@@ -5,9 +5,9 @@ import { registerTool } from '../registry.js';
 import { listCronJobs, getCronJob, getCronRuns, formatLocalDate, describeCronExpression } from '../../cron/cron-store.js';
 
 class CronListTool implements Tool {
-  name = 'cron_list';
-  description = 'List cron jobs, or show details and recent runs for a specific job';
-  category = 'cron';
+  name = 'schedule_list';
+  description = 'List scheduled tasks, or show details and recent runs for a specific task';
+  category = 'schedule';
   defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
@@ -39,12 +39,12 @@ class CronListTool implements Tool {
     if (jobId) {
       const job = getCronJob(jobId);
       if (!job) {
-        return { content: `Error: Cron job not found: ${jobId}`, isError: true };
+        return { content: `Error: Schedule not found: ${jobId}`, isError: true };
       }
 
       const runs = getCronRuns(jobId, 5);
       const lines = [
-        `Cron Job: ${job.name}`,
+        `Schedule: ${job.name}`,
         `  ID: ${job.id}`,
         `  Schedule: ${describeCronExpression(job.cronExpression)} (${job.cronExpression})${job.timezone ? ` (${job.timezone})` : ''}`,
         `  Enabled: ${job.enabled}`,
@@ -72,10 +72,10 @@ class CronListTool implements Tool {
     // List mode
     const jobs = listCronJobs({ enabledOnly });
     if (jobs.length === 0) {
-      return { content: 'No cron jobs found.', isError: false };
+      return { content: 'No schedules found.', isError: false };
     }
 
-    const lines = [`Cron Jobs (${jobs.length}):`];
+    const lines = [`Schedules (${jobs.length}):`];
     for (const job of jobs) {
       const status = job.enabled ? 'enabled' : 'disabled';
       const next = job.enabled ? formatLocalDate(job.nextRunAt) : 'n/a';

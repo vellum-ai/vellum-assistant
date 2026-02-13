@@ -5,9 +5,9 @@ import { registerTool } from '../registry.js';
 import { updateCronJob, formatLocalDate, describeCronExpression } from '../../cron/cron-store.js';
 
 class CronUpdateTool implements Tool {
-  name = 'cron_update';
-  description = 'Update an existing cron job (schedule, message, name, or enabled state)';
-  category = 'cron';
+  name = 'schedule_update';
+  description = 'Update an existing scheduled task (schedule, message, name, or enabled state)';
+  category = 'schedule';
   defaultRiskLevel = RiskLevel.Medium;
 
   getDefinition(): ToolDefinition {
@@ -19,7 +19,7 @@ class CronUpdateTool implements Tool {
         properties: {
           job_id: {
             type: 'string',
-            description: 'The ID of the cron job to update',
+            description: 'The ID of the schedule to update',
           },
           name: {
             type: 'string',
@@ -74,12 +74,12 @@ class CronUpdateTool implements Tool {
       });
 
       if (!job) {
-        return { content: `Error: Cron job not found: ${jobId}`, isError: true };
+        return { content: `Error: Schedule not found: ${jobId}`, isError: true };
       }
 
       return {
         content: [
-          `Cron job updated successfully.`,
+          `Schedule updated successfully.`,
           `  ID: ${job.id}`,
           `  Name: ${job.name}`,
           `  Schedule: ${describeCronExpression(job.cronExpression)} (${job.cronExpression})${job.timezone ? ` (${job.timezone})` : ''}`,
@@ -90,7 +90,7 @@ class CronUpdateTool implements Tool {
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { content: `Error updating cron job: ${msg}`, isError: true };
+      return { content: `Error updating schedule: ${msg}`, isError: true };
     }
   }
 }

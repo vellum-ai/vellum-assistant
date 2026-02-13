@@ -201,7 +201,7 @@ export async function runDaemon(): Promise<void> {
   await server.start();
   const memoryWorker = startMemoryJobsWorker();
   const cronScheduler = startCronScheduler(async (conversationId, message) => {
-    await server.processMessage('cron', conversationId, message);
+    await server.processMessage('schedule', conversationId, message);
   });
 
   // Start optional runtime HTTP server when RUNTIME_HTTP_PORT is set

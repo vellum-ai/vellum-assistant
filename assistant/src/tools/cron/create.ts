@@ -5,9 +5,9 @@ import { registerTool } from '../registry.js';
 import { createCronJob, isValidCronExpression, formatLocalDate, describeCronExpression } from '../../cron/cron-store.js';
 
 class CronCreateTool implements Tool {
-  name = 'cron_create';
-  description = 'Create a scheduled cron job that sends a message at a recurring interval';
-  category = 'cron';
+  name = 'schedule_create';
+  description = 'Create a scheduled task that sends a message at a recurring interval';
+  category = 'schedule';
   defaultRiskLevel = RiskLevel.Medium;
 
   getDefinition(): ToolDefinition {
@@ -19,7 +19,7 @@ class CronCreateTool implements Tool {
         properties: {
           name: {
             type: 'string',
-            description: 'A human-readable name for the cron job',
+            description: 'A human-readable name for the scheduled task',
           },
           cron_expression: {
             type: 'string',
@@ -31,7 +31,7 @@ class CronCreateTool implements Tool {
           },
           message: {
             type: 'string',
-            description: 'The message to send to the assistant when the cron job triggers',
+            description: 'The message to send to the assistant when the schedule triggers',
           },
           enabled: {
             type: 'boolean',
@@ -68,7 +68,7 @@ class CronCreateTool implements Tool {
       const nextRunDate = formatLocalDate(job.nextRunAt);
       return {
         content: [
-          `Cron job created successfully.`,
+          `Schedule created successfully.`,
           `  ID: ${job.id}`,
           `  Name: ${job.name}`,
           `  Schedule: ${describeCronExpression(job.cronExpression)} (${job.cronExpression})${job.timezone ? ` (${job.timezone})` : ''}`,
@@ -79,7 +79,7 @@ class CronCreateTool implements Tool {
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { content: `Error creating cron job: ${msg}`, isError: true };
+      return { content: `Error creating schedule: ${msg}`, isError: true };
     }
   }
 }

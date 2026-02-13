@@ -30,7 +30,7 @@ export function startCronScheduler(processMessage: CronMessageProcessor): CronSc
     try {
       await runCronOnce(processMessage);
     } catch (err) {
-      log.error({ err }, 'Cron scheduler tick failed');
+      log.error({ err }, 'Schedule tick failed');
     } finally {
       tickRunning = false;
     }
@@ -58,21 +58,21 @@ async function runCronOnce(processMessage: CronMessageProcessor): Promise<number
 
   let processed = 0;
   for (const job of jobs) {
-    const conversation = createConversation(`Cron: ${job.name}`);
+    const conversation = createConversation(`Schedule: ${job.name}`);
     const runId = createCronRun(job.id, conversation.id);
 
     try {
-      log.info({ jobId: job.id, name: job.name, conversationId: conversation.id }, 'Executing cron job');
+      log.info({ jobId: job.id, name: job.name, conversationId: conversation.id }, 'Executing schedule');
       await processMessage(conversation.id, job.message);
       completeCronRun(runId, { status: 'ok' });
       processed += 1;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.warn({ err, jobId: job.id, name: job.name }, 'Cron job execution failed');
+      log.warn({ err, jobId: job.id, name: job.name }, 'Schedule execution failed');
       completeCronRun(runId, { status: 'error', error: message });
     }
   }
 
-  log.info({ processed, total: jobs.length }, 'Cron tick complete');
+  log.info({ processed, total: jobs.length }, 'Schedule tick complete');
   return processed;
 }
