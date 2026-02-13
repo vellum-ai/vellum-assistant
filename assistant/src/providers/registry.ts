@@ -7,7 +7,7 @@ import { RetryProvider } from "./retry.js";
 import { ConfigError } from "../util/errors.js";
 
 const DEFAULT_MODELS: Record<string, string> = {
-  anthropic: 'claude-sonnet-4-5-20250929',
+  anthropic: 'claude-opus-4-6',
   openai: 'gpt-5.2',
   gemini: 'gemini-3-flash',
   ollama: 'llama3.2',

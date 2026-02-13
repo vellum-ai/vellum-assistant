@@ -3,7 +3,7 @@ import type { AssistantConfig } from './types.js';
 
 export const DEFAULT_CONFIG: AssistantConfig = {
   provider: 'anthropic',
-  model: 'claude-sonnet-4-5-20250929', // alias: claude-sonnet-4-5
+  model: 'claude-opus-4-6', // alias: claude-opus-4
   apiKeys: {},
   maxTokens: 64000,
   thinking: {

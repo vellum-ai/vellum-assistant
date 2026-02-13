@@ -6,7 +6,7 @@ describe('provider registry (ollama)', () => {
     initializeProviders({
       apiKeys: {},
       provider: 'ollama',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-opus-4-6',
     });
 
     const provider = getProvider('ollama');

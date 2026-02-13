@@ -52,7 +52,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   model_set: {
     type: 'model_set',
-    model: 'claude-sonnet-4-5-20250929',
+    model: 'claude-opus-4-6',
   },
   history_request: {
     type: 'history_request',
@@ -225,7 +225,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   model_info: {
     type: 'model_info',
-    model: 'claude-sonnet-4-5-20250929',
+    model: 'claude-opus-4-6',
     provider: 'anthropic',
   },
   history_response: {
@@ -246,14 +246,14 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     totalInputTokens: 1500,
     totalOutputTokens: 500,
     estimatedCost: 0.025,
-    model: 'claude-sonnet-4-5-20250929',
+    model: 'claude-opus-4-6',
   },
   usage_response: {
     type: 'usage_response',
     totalInputTokens: 1500,
     totalOutputTokens: 500,
     estimatedCost: 0.025,
-    model: 'claude-sonnet-4-5-20250929',
+    model: 'claude-opus-4-6',
   },
   context_compacted: {
     type: 'context_compacted',
@@ -265,7 +265,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     summaryCalls: 3,
     summaryInputTokens: 4200,
     summaryOutputTokens: 900,
-    summaryModel: 'claude-sonnet-4-5-20250929',
+    summaryModel: 'claude-opus-4-6',
   },
   secret_detected: {
     type: 'secret_detected',
