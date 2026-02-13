@@ -5,6 +5,7 @@ import { getConfig } from '../config/loader.js';
 import { getDb } from './db.js';
 import { conversations } from './schema.js';
 import { getLogger } from '../util/logger.js';
+import { recordDirectLlmUsage } from '../usage/recorders.js';
 
 const log = getLogger('ambient-indexer');
 
@@ -53,6 +54,8 @@ export async function analyzeAndIndexAmbientObservation(
       content: `${ANALYSIS_PROMPT}\n\n${contextParts.join('\n')}`,
     }],
   });
+
+  recordDirectLlmUsage(response.usage, 'anthropic', 'claude-haiku-4-5-20251001', 'ambient_analyzer');
 
   const textBlock = response.content.find((b) => b.type === 'text');
   if (!textBlock || textBlock.type !== 'text') {

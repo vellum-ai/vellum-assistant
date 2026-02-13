@@ -18,6 +18,7 @@ import { renderHistoryContent, mergeToolResults } from '../daemon/handlers.js';
 import { getConfig } from '../config/loader.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 import { addRule } from '../permissions/trust-store.js';
+import { recordDirectLlmUsage } from '../usage/recorders.js';
 
 const log = getLogger('runtime-http');
 
@@ -351,6 +352,8 @@ export class RuntimeHttpServer {
         },
       ],
     });
+
+    recordDirectLlmUsage(response.usage, 'anthropic', 'claude-haiku-4-5-20251001', 'suggestion_generator');
 
     const textBlock = response.content.find((b) => b.type === 'text');
     const raw = textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
