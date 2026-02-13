@@ -11,6 +11,7 @@ import { getDb } from './db.js';
 import {
   claimMemoryJobs,
   completeMemoryJob,
+  deferMemoryJob,
   enqueueMemoryJob,
   failMemoryJob,
   type MemoryJob,
@@ -32,6 +33,15 @@ import {
 } from './schema.js';
 
 const log = getLogger('memory-jobs-worker');
+
+/** Sentinel error: the embedding backend is not configured yet. */
+class BackendUnavailableError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'BackendUnavailableError';
+  }
+}
+
 const BACKFILL_CHECKPOINT_KEY = 'memory:backfill:last_created_at';
 const BACKFILL_CHECKPOINT_ID_KEY = 'memory:backfill:last_message_id';
 
@@ -117,9 +127,16 @@ export async function runMemoryJobsOnce(): Promise<number> {
       completeMemoryJob(job.id);
       processed += 1;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      failMemoryJob(job.id, message);
-      log.warn({ err, jobId: job.id, type: job.type }, 'Memory job failed');
+      if (err instanceof BackendUnavailableError) {
+        // Backend not configured yet -- put the job back without counting an attempt
+        // so it stays pending until the provider becomes available.
+        deferMemoryJob(job.id, 30_000);
+        log.debug({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, deferring job');
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        failMemoryJob(job.id, message);
+        log.warn({ err, jobId: job.id, type: job.type }, 'Memory job failed');
+      }
     }
   }
   return processed;
@@ -592,8 +609,8 @@ async function embedAndUpsert(
 ): Promise<void> {
   const status = getMemoryBackendStatus(config);
   if (!status.provider) {
-    throw new Error(
-      `Embedding backend unavailable (${status.reason ?? 'no provider'}); job will be retried`,
+    throw new BackendUnavailableError(
+      `Embedding backend unavailable (${status.reason ?? 'no provider'})`,
     );
   }
 

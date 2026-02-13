@@ -86,6 +86,20 @@ export function completeMemoryJob(id: string): void {
     .run();
 }
 
+/**
+ * Move a running job back to pending without incrementing its attempt count.
+ * Used when the failure is a missing configuration (not a transient error)
+ * so the job can be retried indefinitely once the config is available.
+ */
+export function deferMemoryJob(id: string, delayMs = 30_000): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(memoryJobs)
+    .set({ status: 'pending', runAfter: now + delayMs, updatedAt: now })
+    .where(eq(memoryJobs.id, id))
+    .run();
+}
+
 export function failMemoryJob(
   id: string,
   error: string,
