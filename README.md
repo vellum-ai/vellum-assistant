@@ -143,7 +143,7 @@ This repo includes Claude Code slash commands (in `.claude/commands/`) for agent
 | Command | Purpose |
 |---------|---------|
 | `/brainstorm` | Deep-read the codebase, generate a prioritized list of improvements, and update `.private/TODO.md` after approval. |
-| `/swarm [workers] [max-tasks]` | Parallel execution — spawns a pool of agents (default 3) that work through `.private/TODO.md` concurrently, each in its own worktree. PRs are auto-assigned to the current user. |
+| `/swarm [workers] [max-tasks]` | Parallel execution — spawns a pool of agents (default 12) that work through `.private/TODO.md` concurrently, each in its own worktree. PRs are auto-assigned to the current user. |
 | `/blitz <feature>` | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, sweeps for review feedback, addresses it, and reports. Merges directly to main. |
 | `/safe-blitz <feature>` | End-to-end feature delivery on a feature branch — plans, creates issues, swarm-executes in parallel, sweeps for review feedback. All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Supports `--auto`, `--workers N`, `--skip-plan`, `--branch NAME`. |
 | `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merges the feature branch PR into main, sets the project issue to Done, closes the issue, and deletes the local branch. Auto-detects the PR from current branch, open `feature/*` PRs, or project board "In Review" items. |
