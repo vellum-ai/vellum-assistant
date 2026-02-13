@@ -86,9 +86,14 @@ struct MainWindowView: View {
         }
     }
 
+    @MainActor
     private static func openSettings() {
+        // Match the proven flow used in TaskInputView.
+        NSApp.setActivationPolicy(.regular)
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     private func refreshAPIKeyState() {

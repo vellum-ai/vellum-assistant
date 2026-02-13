@@ -44,12 +44,12 @@ struct ChatView: View {
                 .allowsHitTesting(false)
 
             VStack(spacing: 0) {
+                apiKeyBanner
                 messageList
                 if let errorText {
                     errorBanner(errorText)
                 }
                 queueSummary
-                apiKeyBanner
                 composerArea
             }
         }
