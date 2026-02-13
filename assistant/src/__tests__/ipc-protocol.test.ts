@@ -40,7 +40,6 @@ describe('IPC Protocol', () => {
       test('does NOT throw on large messages', () => {
         const parser = createMessageParser();
         const largePayload = 'x'.repeat(MAX_LINE_SIZE + 1000);
-        // Feed a large partial line (no newline) — should not throw
         expect(() => parser.feed(largePayload)).not.toThrow();
       });
 
@@ -67,7 +66,6 @@ describe('IPC Protocol', () => {
         const parser = createMessageParser({ maxLineSize: 100 });
         const largePayload = 'x'.repeat(150);
         expect(() => parser.feed(largePayload)).toThrow();
-        // After the throw, the buffer should be cleared and parsing should work again
         const messages = parser.feed('{"type":"ping"}\n');
         expect(messages).toEqual([{ type: 'ping' }]);
       });
@@ -79,8 +77,6 @@ describe('IPC Protocol', () => {
 
       test('does not throw for complete messages regardless of size', () => {
         const parser = createMessageParser({ maxLineSize: 100 });
-        // A long complete line (terminated by \n) is consumed immediately,
-        // so the buffer is empty after processing.
         const longLine = JSON.stringify({ type: 'ping', data: 'x'.repeat(200) }) + '\n';
         expect(() => parser.feed(longLine)).not.toThrow();
       });

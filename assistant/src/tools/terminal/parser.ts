@@ -90,7 +90,6 @@ async function ensureParser(): Promise<Parser> {
       const treeSitterWasm = findWasmPath('web-tree-sitter', 'web-tree-sitter.wasm');
       const bashWasmPath = findWasmPath('tree-sitter-bash', 'tree-sitter-bash.wasm');
 
-      // Verify WASM integrity before loading
       verifyWasmChecksum(treeSitterWasm, 'web-tree-sitter.wasm');
       verifyWasmChecksum(bashWasmPath, 'tree-sitter-bash.wasm');
 
@@ -207,7 +206,6 @@ function extractSegments(node: TSNode): CommandSegment[] {
 function detectDangerousPatterns(node: TSNode, segments: CommandSegment[]): DangerousPattern[] {
   const patterns: DangerousPattern[] = [];
 
-  // Check pipeline ending in shell
   for (let i = 1; i < segments.length; i++) {
     if (segments[i].operator === '|') {
       const prog = segments[i].program;
@@ -221,7 +219,6 @@ function detectDangerousPatterns(node: TSNode, segments: CommandSegment[]): Dang
     }
   }
 
-  // Check base64 piped to shell
   for (let i = 0; i < segments.length - 1; i++) {
     if (segments[i].program === 'base64' && segments[i].args.includes('-d')) {
       if (i + 1 < segments.length && segments[i + 1].operator === '|') {
@@ -237,9 +234,7 @@ function detectDangerousPatterns(node: TSNode, segments: CommandSegment[]): Dang
     }
   }
 
-  // Walk AST for structural patterns
   function walkForPatterns(n: TSNode): void {
-    // Process substitution
     if (n.type === 'process_substitution') {
       patterns.push({
         type: 'process_substitution',
@@ -248,7 +243,6 @@ function detectDangerousPatterns(node: TSNode, segments: CommandSegment[]): Dang
       });
     }
 
-    // Sensitive file redirects
     if (n.type === 'file_redirect') {
       const dest = n.lastChild;
       if (dest) {
@@ -266,7 +260,6 @@ function detectDangerousPatterns(node: TSNode, segments: CommandSegment[]): Dang
       }
     }
 
-    // Command substitution as arg to dangerous commands
     if (n.type === 'command_substitution' && n.parent) {
       const parent = n.parent;
       if (parent.type === 'command') {
@@ -281,7 +274,6 @@ function detectDangerousPatterns(node: TSNode, segments: CommandSegment[]): Dang
       }
     }
 
-    // Environment variable injection
     if (n.type === 'variable_assignment') {
       const varName = n.firstChild;
       if (varName && varName.type === 'variable_name') {
@@ -315,7 +307,6 @@ function detectOpaqueConstructs(node: TSNode, segments: CommandSegment[]): boole
     }
   }
 
-  // Walk AST for structural opacity
   function walkForOpacity(n: TSNode): boolean {
     // Heredocs / herestrings
     if (n.type === 'heredoc_redirect' || n.type === 'heredoc_body' ||

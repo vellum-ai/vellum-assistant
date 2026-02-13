@@ -76,7 +76,6 @@ describe('HookManager', () => {
 
     const manager = new HookManager();
     manager.initialize();
-    // Should not throw — hook runs successfully
     await manager.trigger('pre-tool-execute', { tool: 'Bash' });
   });
 
@@ -86,7 +85,6 @@ describe('HookManager', () => {
 
     const manager = new HookManager();
     manager.initialize();
-    // Hook is discovered but disabled, so trigger should be a no-op for this event
     await manager.trigger('on-error', {});
   });
 
@@ -103,7 +101,6 @@ describe('HookManager', () => {
 
     const manager = new HookManager();
     manager.initialize();
-    // Should only run tool-hook, not error-hook
     await manager.trigger('pre-tool-execute', {});
   });
 
@@ -126,7 +123,6 @@ describe('HookManager', () => {
     manager.initialize();
     await manager.trigger('post-message', {});
 
-    // Wait a moment for file writes to flush
     await new Promise((r) => setTimeout(r, 100));
     const { readFileSync } = await import('node:fs');
     const order = readFileSync(orderFile, 'utf-8').trim().split('\n');
@@ -139,7 +135,6 @@ describe('HookManager', () => {
 
     const manager = new HookManager();
     manager.initialize();
-    // Should not throw despite hook exiting with non-zero
     await manager.trigger('on-error', { message: 'test error' });
   });
 
@@ -153,7 +148,7 @@ describe('HookManager', () => {
     const hooks1 = manager.getDiscoveredHooks();
     const hooks2 = manager.getDiscoveredHooks();
     expect(hooks1).toEqual(hooks2);
-    expect(hooks1).not.toBe(hooks2); // Different array references
+    expect(hooks1).not.toBe(hooks2);
   });
 
   test('getHookManager returns singleton', () => {

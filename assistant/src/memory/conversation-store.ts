@@ -229,7 +229,6 @@ export function deleteLastExchange(conversationId: string): number {
     sql`rowid >= ${rowidSubquery}`,
   );
 
-  // Count messages to delete, then delete them atomically
   const [{ deleted }] = db.select({ deleted: count() }).from(messages).where(condition).all();
   if (deleted === 0) return 0;
 

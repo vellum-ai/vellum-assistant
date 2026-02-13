@@ -87,7 +87,6 @@ export async function handleMemorySave(
     const normalized = `${kind}|${subject.toLowerCase()}|${trimmedStatement.toLowerCase()}`;
     const fingerprint = createHash('sha256').update(normalized).digest('hex');
 
-    // Check for existing item with same fingerprint
     const existing = db
       .select()
       .from(memoryItems)
@@ -95,7 +94,6 @@ export async function handleMemorySave(
       .get();
 
     if (existing) {
-      // Update existing item's lastSeenAt and ensure active
       db.update(memoryItems)
         .set({
           status: 'active',
@@ -171,11 +169,9 @@ export async function handleMemoryUpdate(
     const now = Date.now();
     const trimmedStatement = statement.trim().slice(0, 500);
 
-    // Recompute fingerprint with updated statement
     const normalized = `${existing.kind}|${existing.subject.toLowerCase()}|${trimmedStatement.toLowerCase()}`;
     const fingerprint = createHash('sha256').update(normalized).digest('hex');
 
-    // Check if another item already has this fingerprint
     const collision = db
       .select({ id: memoryItems.id })
       .from(memoryItems)
@@ -198,7 +194,6 @@ export async function handleMemoryUpdate(
       .where(eq(memoryItems.id, existing.id))
       .run();
 
-    // Queue re-embedding with updated text
     enqueueMemoryJob('embed_item', { itemId: existing.id });
 
     log.debug({ id: existing.id, kind: existing.kind }, 'Memory item updated via tool');

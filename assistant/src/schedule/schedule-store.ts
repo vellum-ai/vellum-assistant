@@ -142,7 +142,6 @@ export function updateSchedule(
   if (updates.message !== undefined) set.message = updates.message;
   if (updates.enabled !== undefined) set.enabled = updates.enabled;
 
-  // Recompute nextRunAt if expression, timezone, or enabled changed
   const newExpr = updates.cronExpression ?? existing.cronExpression;
   const newTimezone = updates.timezone !== undefined ? updates.timezone : existing.timezone;
   const newEnabled = updates.enabled !== undefined ? updates.enabled : existing.enabled;
@@ -239,7 +238,6 @@ export function completeScheduleRun(
   const db = getDb();
   const now = Date.now();
 
-  // Get the run to compute duration and get jobId
   const run = db.select().from(cronRuns).where(eq(cronRuns.id, runId)).get();
   if (!run) return;
 

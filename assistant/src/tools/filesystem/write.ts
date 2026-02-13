@@ -57,13 +57,11 @@ class FileWriteTool implements Tool {
     }
 
     try {
-      // Create parent directories if needed
       const dir = dirname(filePath);
       if (!existsSync(dir)) {
         mkdirSync(dir, { recursive: true });
       }
 
-      // Capture old content for diff (if file exists)
       let oldContent: string | null = null;
       const isNewFile = !existsSync(filePath);
       if (!isNewFile) {

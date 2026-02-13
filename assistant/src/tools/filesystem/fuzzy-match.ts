@@ -127,23 +127,19 @@ const FUZZY_THRESHOLD = 0.8;
 export function findMatch(content: string, target: string): MatchResult | null {
   if (target.length === 0) return null;
 
-  // 1. Exact match
   const exact = tryExactMatch(content, target);
   if (exact) return exact;
 
   const contentLines = indexLines(content);
   const targetNorm = normalizeLines(target);
 
-  // 2. Whitespace-normalized match
   const wsMatches = tryWhitespaceMatch(contentLines, targetNorm);
   if (wsMatches.length === 1) return wsMatches[0];
   if (wsMatches.length > 1) return wsMatches[0]; // findAllMatches handles ambiguity
 
-  // 3. Fuzzy/Levenshtein match
   const fuzzyMatches = tryFuzzyMatch(contentLines, targetNorm, FUZZY_THRESHOLD);
   if (fuzzyMatches.length === 0) return null;
 
-  // Return best match
   fuzzyMatches.sort((a, b) => b.similarity - a.similarity);
   return fuzzyMatches[0];
 }
@@ -151,18 +147,15 @@ export function findMatch(content: string, target: string): MatchResult | null {
 export function findAllMatches(content: string, target: string): MatchResult[] {
   if (target.length === 0) return [];
 
-  // 1. Exact matches
   const exactMatches = findAllExactMatches(content, target);
   if (exactMatches.length > 0) return exactMatches;
 
   const contentLines = indexLines(content);
   const targetNorm = normalizeLines(target);
 
-  // 2. Whitespace-normalized matches
   const wsMatches = tryWhitespaceMatch(contentLines, targetNorm);
   if (wsMatches.length > 0) return wsMatches;
 
-  // 3. Fuzzy matches
   const fuzzyMatches = tryFuzzyMatch(contentLines, targetNorm, FUZZY_THRESHOLD);
   fuzzyMatches.sort((a, b) => b.similarity - a.similarity);
   return fuzzyMatches;
@@ -189,7 +182,6 @@ export function adjustIndentation(oldString: string, matched: string, newString:
   const matchedIndent = getLeadingWhitespace(matchedLine);
   if (oldIndent === matchedIndent) return newString;
 
-  // Compute the difference: how many chars to add/remove
   const oldLen = oldIndent.length;
   const matchedLen = matchedIndent.length;
 
@@ -197,11 +189,9 @@ export function adjustIndentation(oldString: string, matched: string, newString:
     if (line.trim().length === 0) return line;
     const currentIndent = getLeadingWhitespace(line);
     if (matchedLen > oldLen) {
-      // File has more indentation — add the difference
       const diff = matchedIndent.slice(0, matchedLen - oldLen);
       return diff + line;
     } else {
-      // File has less indentation — remove the difference
       const removeCount = oldLen - matchedLen;
       if (currentIndent.length >= removeCount) {
         return line.slice(removeCount);

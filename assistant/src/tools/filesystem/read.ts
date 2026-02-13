@@ -67,11 +67,10 @@ class FileReadTool implements Tool {
       const content = readFileSync(filePath, 'utf-8');
       const lines = content.split('\n');
 
-      const offset = (typeof input.offset === 'number' ? input.offset : 1) - 1; // Convert to 0-indexed
+      const offset = (typeof input.offset === 'number' ? input.offset : 1) - 1;
       const limit = typeof input.limit === 'number' ? input.limit : lines.length;
       const selectedLines = lines.slice(Math.max(0, offset), offset + limit);
 
-      // Add line numbers
       const numbered = selectedLines.map((line, i) => {
         const lineNum = offset + i + 1;
         return `${String(lineNum).padStart(6)}  ${line}`;

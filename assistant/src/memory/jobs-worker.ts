@@ -373,7 +373,6 @@ async function buildGlobalSummaryJob(scope: 'weekly_global' | 'monthly_global', 
     ? currentWeekWindow(now)
     : currentMonthWindow(now);
 
-  // Gather active memory items from this period
   const items = db
     .select()
     .from(memoryItems)

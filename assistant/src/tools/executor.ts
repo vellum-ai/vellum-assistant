@@ -99,7 +99,6 @@ export class ToolExecutor {
         // Compute preview diff for file tools so the user sees what will change
         const previewDiff = computePreviewDiff(name, input, context.workingDir);
 
-        // Check if this bash command will run sandboxed
         let sandboxed: boolean | undefined;
         if (name === 'bash' && typeof input.command === 'string') {
           const sandboxEnabled = context.sandboxOverride ?? getConfig().sandbox.enabled;

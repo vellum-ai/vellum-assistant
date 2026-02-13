@@ -16,7 +16,6 @@ function computeLineDiff(oldLines: string[], newLines: string[]): DiffEntry[] {
   const m = oldLines.length;
   const n = newLines.length;
 
-  // Build LCS table
   const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
@@ -28,7 +27,6 @@ function computeLineDiff(oldLines: string[], newLines: string[]): DiffEntry[] {
     }
   }
 
-  // Backtrack to build diff
   const result: DiffEntry[] = [];
   let i = m, j = n;
   while (i > 0 || j > 0) {
@@ -62,12 +60,10 @@ const MAX_DIFF_LINES = 1000;
  * Group diff entries into hunks with surrounding context lines.
  */
 function buildHunks(entries: DiffEntry[]): Hunk[] {
-  // Find ranges of changed lines
   const changeRanges: Array<{ start: number; end: number }> = [];
   for (let i = 0; i < entries.length; i++) {
     if (entries[i].type !== 'same') {
       if (changeRanges.length > 0 && i - changeRanges[changeRanges.length - 1].end <= CONTEXT_LINES * 2) {
-        // Merge with previous range if close enough
         changeRanges[changeRanges.length - 1].end = i + 1;
       } else {
         changeRanges.push({ start: i, end: i + 1 });
@@ -75,14 +71,12 @@ function buildHunks(entries: DiffEntry[]): Hunk[] {
     }
   }
 
-  // Build hunks with context
   const hunks: Hunk[] = [];
   for (const range of changeRanges) {
     const contextStart = Math.max(0, range.start - CONTEXT_LINES);
     const contextEnd = Math.min(entries.length, range.end + CONTEXT_LINES);
     const hunkEntries = entries.slice(contextStart, contextEnd);
 
-    // Count old/new lines for hunk header
     let oldLine = 1, newLine = 1;
     for (let i = 0; i < contextStart; i++) {
       if (entries[i].type === 'same' || entries[i].type === 'remove') oldLine++;

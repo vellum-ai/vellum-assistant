@@ -19,7 +19,6 @@ export function validateFilePath(
 ): { ok: true; resolved: string } | { ok: false; error: string } {
   const mustExist = options?.mustExist ?? true;
 
-  // Resolve to absolute path (handles relative paths and ..)
   const resolved = resolve(workingDir, rawPath);
 
   // Resolve symlinks to catch symlink-based escapes.
@@ -57,7 +56,6 @@ export function validateFilePath(
     realWorkingDir = workingDir;
   }
 
-  // Check that the resolved path is within the working directory
   const rel = relative(realWorkingDir, realResolved);
   if (rel.startsWith('..') || resolve(realWorkingDir, rel) !== realResolved) {
     return {

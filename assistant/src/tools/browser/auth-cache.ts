@@ -109,7 +109,6 @@ export class AuthSessionCache {
     const session = this.sessions.get(key);
     if (!session) return false;
 
-    // Check expiry
     if (session.expiresAt != null && session.expiresAt <= Date.now()) {
       this.sessions.delete(key);
       // Fire-and-forget save for cleanup
