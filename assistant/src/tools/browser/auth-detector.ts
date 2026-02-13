@@ -24,7 +24,7 @@ interface ServicePattern {
 
 const SERVICE_PATTERNS: ServicePattern[] = [
   { pattern: /accounts\.google\.com/, service: 'Google' },
-  { pattern: /github\.com\/login/, service: 'GitHub' },
+  { pattern: /github\.com/, service: 'GitHub' },
   { pattern: /login\.microsoftonline\.com/, service: 'Microsoft' },
   { pattern: /appleid\.apple\.com/, service: 'Apple' },
   { pattern: /login\.salesforce\.com/, service: 'Salesforce' },
@@ -47,8 +47,14 @@ const GENERIC_AUTH_PATTERNS: RegExp[] = [
  * service is matched.
  */
 export function identifyService(url: string): string | undefined {
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return undefined;
+  }
   for (const { pattern, service } of SERVICE_PATTERNS) {
-    if (pattern.test(url)) return service;
+    if (pattern.test(hostname)) return service;
   }
   return undefined;
 }
@@ -57,10 +63,17 @@ export function identifyService(url: string): string | undefined {
  * Check whether a URL matches a known auth-related path pattern.
  */
 export function isAuthUrl(url: string): boolean {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return false;
+  }
   // Known service URLs are always auth-related
-  if (SERVICE_PATTERNS.some(({ pattern }) => pattern.test(url))) return true;
-  // Generic path patterns
-  return GENERIC_AUTH_PATTERNS.some((p) => p.test(url));
+  if (SERVICE_PATTERNS.some(({ pattern }) => pattern.test(parsedUrl.hostname))) return true;
+  // Generic path patterns — match against pathname only to avoid false positives
+  // from query parameters or fragments that happen to contain auth-related words.
+  return GENERIC_AUTH_PATTERNS.some((p) => p.test(parsedUrl.pathname));
 }
 
 // ── DOM-based detection ──────────────────────────────────────────────
