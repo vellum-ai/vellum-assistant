@@ -17,6 +17,18 @@ const HOP_BY_HOP_HEADERS = [
 
 function stripHopByHop(headers: Headers): Headers {
   const cleaned = new Headers(headers);
+
+  // Also strip any headers listed in the Connection header value
+  const connectionValue = cleaned.get("connection");
+  if (connectionValue) {
+    for (const name of connectionValue.split(",")) {
+      const trimmed = name.trim().toLowerCase();
+      if (trimmed) {
+        cleaned.delete(trimmed);
+      }
+    }
+  }
+
   for (const h of HOP_BY_HOP_HEADERS) {
     cleaned.delete(h);
   }
