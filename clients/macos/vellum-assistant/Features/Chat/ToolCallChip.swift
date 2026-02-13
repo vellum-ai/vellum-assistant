@@ -19,7 +19,7 @@ struct ToolCallChip: View {
                 HStack(spacing: VSpacing.xs) {
                     // Terminal icon
                     Image(systemName: "terminal")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundColor(toolCall.isError ? VColor.error : VColor.textSecondary)
 
                     // Tool name
@@ -40,8 +40,8 @@ struct ToolCallChip: View {
                     if !toolCall.isComplete {
                         // Spinning indicator for in-progress
                         ProgressView()
-                            .scaleEffect(0.5)
-                            .frame(width: 12, height: 12)
+                            .scaleEffect(0.6)
+                            .frame(width: 14, height: 14)
                     } else if toolCall.result != nil {
                         // Chevron for expandable result
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
@@ -49,8 +49,8 @@ struct ToolCallChip: View {
                             .foregroundColor(VColor.textMuted)
                     }
                 }
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
             }
             .buttonStyle(.plain)
 
@@ -69,13 +69,13 @@ struct ToolCallChip: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: VRadius.sm)
+            RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(toolCall.isError
                     ? VColor.error.opacity(0.08)
                     : VColor.surfaceBorder.opacity(0.3))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: VRadius.sm)
+            RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(toolCall.isError
                     ? VColor.error.opacity(0.3)
                     : VColor.surfaceBorder.opacity(0.5), lineWidth: 0.5)

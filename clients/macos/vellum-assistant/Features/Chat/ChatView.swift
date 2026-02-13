@@ -45,7 +45,7 @@ struct ChatView: View {
             Image("bg", bundle: ResourceBundle.bundle)
                 .resizable()
                 .scaledToFit()
-                .opacity(0.3)
+                .opacity(0.15)
                 .allowsHitTesting(false)
 
             VStack(spacing: 0) {
@@ -62,11 +62,21 @@ struct ChatView: View {
 
     // MARK: - Message List
 
+    private func shouldShowTimestamp(at index: Int) -> Bool {
+        if index == 0 { return true }
+        let gap = messages[index].timestamp.timeIntervalSince(messages[index - 1].timestamp)
+        return gap > 300
+    }
+
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: VSpacing.md) {
-                    ForEach(messages) { message in
+                LazyVStack(spacing: VSpacing.lg) {
+                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                        if shouldShowTimestamp(at: index) {
+                            TimestampDivider(date: message.timestamp)
+                        }
+
                         if let confirmation = message.confirmation {
                             ToolConfirmationBubble(
                                 confirmation: confirmation,
@@ -177,9 +187,9 @@ struct ChatView: View {
             HStack(spacing: VSpacing.sm) {
                 // Text field with ghost suffix overlay
                 ZStack(alignment: .leading) {
-                    TextField("", text: $inputText, axis: .vertical)
+                    TextField("Message...", text: $inputText, axis: .vertical)
                         .textFieldStyle(.plain)
-                        .font(VFont.mono)
+                        .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
                         .lineLimit(1...3)
                         .disabled(!hasAPIKey)
@@ -207,16 +217,16 @@ struct ChatView: View {
 
                     if let ghostSuffix {
                         Text(inputText + ghostSuffix)
-                            .font(VFont.mono)
+                            .font(VFont.body)
                             .foregroundColor(.clear)
                             .lineLimit(1...3)
                             .overlay(alignment: .leading) {
                                 HStack(spacing: 0) {
                                     Text(inputText)
-                                        .font(VFont.mono)
+                                        .font(VFont.body)
                                         .foregroundColor(.clear)
                                     Text(ghostSuffix)
-                                        .font(VFont.mono)
+                                        .font(VFont.body)
                                         .foregroundColor(VColor.textMuted.opacity(0.5))
                                 }
                             }
@@ -440,6 +450,20 @@ private struct ChatBubble: View {
         }
     }
 
+    private var bubbleFill: AnyShapeStyle {
+        if isUser {
+            AnyShapeStyle(
+                LinearGradient(
+                    colors: [Meadow.userBubbleGradientStart, Meadow.userBubbleGradientEnd],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+        } else {
+            AnyShapeStyle(VColor.surface)
+        }
+    }
+
     private var formattedTimestamp: String {
         let calendar = Calendar.current
         let formatter = DateFormatter()
@@ -466,10 +490,6 @@ private struct ChatBubble: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                 }
-
-                Text(formattedTimestamp)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
             }
 
             if !isUser { Spacer(minLength: 0) }
@@ -508,7 +528,7 @@ private struct ChatBubble: View {
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             if hasText {
                 Text(markdownText)
-                    .font(VFont.mono)
+                    .font(VFont.body)
                     .foregroundColor(isUser ? .white : VColor.textPrimary)
                     .tint(isUser ? .white : VColor.accent)
                     .textSelection(.enabled)
@@ -542,10 +562,11 @@ private struct ChatBubble: View {
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
         .background(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(isUser ? VColor.accent : VColor.surface.opacity(0.5))
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(bubbleFill)
         )
-        .frame(maxWidth: 500, alignment: isUser ? .trailing : .leading)
+        .vShadow(VShadow.sm)
+        .frame(maxWidth: 520, alignment: isUser ? .trailing : .leading)
         .opacity(bubbleOpacity)
     }
 
@@ -687,6 +708,45 @@ private struct ThinkingIndicator: View {
                 phase = (phase + 1) % 3
             }
         }
+    }
+}
+
+// MARK: - Timestamp Divider
+
+private struct TimestampDivider: View {
+    let date: Date
+
+    private var formattedTime: String {
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        let timeString = formatter.string(from: date)
+        if calendar.isDateInToday(date) {
+            return "Today at \(timeString)"
+        } else if calendar.isDateInYesterday(date) {
+            return "Yesterday at \(timeString)"
+        } else {
+            let dayFormatter = DateFormatter()
+            dayFormatter.dateFormat = "MMM d"
+            return "\(dayFormatter.string(from: date)) at \(timeString)"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: VSpacing.sm) {
+            line
+            Text(formattedTime)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+            line
+        }
+        .padding(.vertical, VSpacing.xs)
+    }
+
+    private var line: some View {
+        Rectangle()
+            .fill(VColor.surfaceBorder.opacity(0.3))
+            .frame(height: 0.5)
     }
 }
 

@@ -66,7 +66,7 @@ struct ToolConfirmationBubble: View {
                     .frame(maxHeight: 120)
                     .padding(VSpacing.sm)
                     .background(VColor.backgroundSubtle)
-                    .cornerRadius(VRadius.sm)
+                    .cornerRadius(VRadius.md)
                 }
             }
 
@@ -113,14 +113,14 @@ struct ToolConfirmationBubble: View {
         }
         .padding(VSpacing.lg)
         .background(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surface.opacity(0.5))
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surface)
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(isHighRisk ? VColor.error.opacity(0.3) : VColor.warning.opacity(0.3), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .stroke(isHighRisk ? VColor.error.opacity(0.4) : VColor.warning.opacity(0.4), lineWidth: 1)
                 )
         )
-        .frame(maxWidth: 500)
+        .frame(maxWidth: 520)
     }
 }
 
