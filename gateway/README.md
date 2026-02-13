@@ -144,6 +144,21 @@ bun run test        # Run test suite
 
 Both checks run in CI on every pull request touching `gateway/`.
 
+## CI/CD
+
+| Workflow | Trigger | What it does |
+|----------|---------|--------------|
+| `ci-gateway.yml` | PR (`gateway/**`) | Typecheck + tests |
+| `ci-gateway-image.yml` | PR (`gateway/**`) | Build Docker image + smoke check |
+| `cd-gateway-image.yml` | Push to `main` (`gateway/**`) | Build + push image to GCR |
+
+The CD workflow requires these GitHub repository variables:
+- `GCP_WORKLOAD_IDENTITY_PROVIDER` — OIDC provider for keyless auth
+- `GCP_SERVICE_ACCOUNT` — Service account with push permissions
+- `GCP_PROJECT_ID` — GCP project ID
+- `GATEWAY_IMAGE_NAME` — Image name (e.g. `vellum-gateway`)
+- `GCP_REGISTRY_HOST` — Registry host (e.g. `gcr.io`)
+
 ## Load Testing
 
 See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for load-test scripts and throughput targets.
