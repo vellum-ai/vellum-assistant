@@ -39,6 +39,7 @@ import {
 } from '../memory/retriever.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
 import type { UsageActor } from '../usage/actors.js';
+import { recordDirectLlmUsage } from '../usage/recorders.js';
 
 const log = getLogger('session');
 
@@ -1043,6 +1044,14 @@ export class Session {
         content: `Generate a short title (3-6 words, no quotes) for this conversation:\n\nUser: ${userMessage.slice(0, 200)}\nAssistant: ${assistantResponse.slice(0, 200)}`,
       }],
     });
+
+    recordDirectLlmUsage(
+      response.usage,
+      'anthropic',
+      'claude-haiku-4-5-20251001',
+      'title_generator',
+      { conversationId: this.conversationId },
+    );
 
     const textBlock = response.content.find((b) => b.type === 'text');
     if (textBlock && textBlock.type === 'text') {
