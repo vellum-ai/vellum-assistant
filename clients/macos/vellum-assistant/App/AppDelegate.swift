@@ -230,8 +230,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
         toolConfirmationManager.onAddTrustRule = { [weak self] toolName, pattern, scope, decision in
+            guard let self else { return false }
             do {
-                try self?.daemonClient.sendAddTrustRule(
+                try self.daemonClient.sendAddTrustRule(
                     toolName: toolName,
                     pattern: pattern,
                     scope: scope,
