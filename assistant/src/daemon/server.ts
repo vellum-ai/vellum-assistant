@@ -227,9 +227,12 @@ export class DaemonServer {
     if (fingerprint === this.lastConfigFingerprint) {
       return false;
     }
+    const isFirstInit = this.lastConfigFingerprint === '';
     initializeProviders(config);
     this.lastConfigFingerprint = fingerprint;
-    this.evictSessionsForReload();
+    if (!isFirstInit) {
+      this.evictSessionsForReload();
+    }
     return true;
   }
 
