@@ -121,54 +121,57 @@ async function extractItemsWithLLM(
     const client = new Anthropic({ apiKey });
     const abortController = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
-    const response = await Promise.race([
-      client.messages.create({
-        model: extractionConfig.model,
-        max_tokens: 1024,
-        system: EXTRACTION_SYSTEM_PROMPT,
-        tools: [{
-          name: 'store_memory_items',
-          description: 'Store extracted memory items from the message',
-          input_schema: {
-            type: 'object' as const,
-            properties: {
+    const apiCall = client.messages.create({
+      model: extractionConfig.model,
+      max_tokens: 1024,
+      system: EXTRACTION_SYSTEM_PROMPT,
+      tools: [{
+        name: 'store_memory_items',
+        description: 'Store extracted memory items from the message',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            items: {
+              type: 'array',
               items: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    kind: {
-                      type: 'string',
-                      enum: [...VALID_KINDS],
-                      description: 'Category of memory item',
-                    },
-                    subject: {
-                      type: 'string',
-                      description: 'Short label (2-8 words) for what this is about',
-                    },
-                    statement: {
-                      type: 'string',
-                      description: 'Full factual statement to remember (1-2 sentences)',
-                    },
-                    confidence: {
-                      type: 'number',
-                      description: 'Confidence that this is accurate (0.0-1.0)',
-                    },
-                    importance: {
-                      type: 'number',
-                      description: 'How valuable this is to remember (0.0-1.0)',
-                    },
+                type: 'object',
+                properties: {
+                  kind: {
+                    type: 'string',
+                    enum: [...VALID_KINDS],
+                    description: 'Category of memory item',
                   },
-                  required: ['kind', 'subject', 'statement', 'confidence', 'importance'],
+                  subject: {
+                    type: 'string',
+                    description: 'Short label (2-8 words) for what this is about',
+                  },
+                  statement: {
+                    type: 'string',
+                    description: 'Full factual statement to remember (1-2 sentences)',
+                  },
+                  confidence: {
+                    type: 'number',
+                    description: 'Confidence that this is accurate (0.0-1.0)',
+                  },
+                  importance: {
+                    type: 'number',
+                    description: 'How valuable this is to remember (0.0-1.0)',
+                  },
                 },
+                required: ['kind', 'subject', 'statement', 'confidence', 'importance'],
               },
             },
-            required: ['items'],
           },
-        }],
-        tool_choice: { type: 'tool' as const, name: 'store_memory_items' },
-        messages: [{ role: 'user' as const, content: text }],
-      }, { signal: abortController.signal }).finally(() => clearTimeout(timer)),
+          required: ['items'],
+        },
+      }],
+      tool_choice: { type: 'tool' as const, name: 'store_memory_items' },
+      messages: [{ role: 'user' as const, content: text }],
+    }, { signal: abortController.signal });
+    // Swallow the abort rejection that fires when the timeout wins the race
+    apiCall.catch(() => {});
+    const response = await Promise.race([
+      apiCall.finally(() => clearTimeout(timer)),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           abortController.abort();
@@ -195,10 +198,8 @@ async function extractItemsWithLLM(
       if (!raw.subject || !raw.statement) continue;
       const subject = String(raw.subject).slice(0, 80);
       const statement = String(raw.statement).slice(0, 500);
-      const rawConfidence = Number(raw.confidence);
-      const confidence = clamp(Number.isFinite(rawConfidence) ? rawConfidence : 0.5, 0, 1);
-      const rawImportance = Number(raw.importance);
-      const importance = clamp(Number.isFinite(rawImportance) ? rawImportance : 0.5, 0, 1);
+      const confidence = clamp(parseScore(raw.confidence, 0.5), 0, 1);
+      const importance = clamp(parseScore(raw.importance, 0.5), 0, 1);
       const normalized = `${raw.kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`;
       const fingerprint = createHash('sha256').update(normalized).digest('hex');
       items.push({
@@ -403,6 +404,13 @@ function deduplicateItems(items: ExtractedItem[]): ExtractedItem[] {
     unique.push(item);
   }
   return unique;
+}
+
+/** Parse a score value, returning `fallback` for null, undefined, empty strings, and non-finite numbers. */
+function parseScore(value: unknown, fallback: number): number {
+  if (value == null || value === '') return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function clamp(value: number, min: number, max: number): number {
