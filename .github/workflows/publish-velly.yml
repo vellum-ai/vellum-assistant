@@ -31,12 +31,6 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Set version from release tag
-        run: |
-          VERSION="${{ github.event.release.tag_name }}"
-          VERSION="${VERSION#v}"
-          npm version "$VERSION" --no-git-tag-version
-
       - name: Publish to npm
         run: npm publish --provenance --access public
         env:
