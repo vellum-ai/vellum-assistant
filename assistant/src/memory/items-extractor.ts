@@ -119,6 +119,8 @@ async function extractItemsWithLLM(
 
   try {
     const client = new Anthropic({ apiKey });
+    const abortController = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
     const response = await Promise.race([
       client.messages.create({
         model: extractionConfig.model,
@@ -166,10 +168,13 @@ async function extractItemsWithLLM(
         }],
         tool_choice: { type: 'tool' as const, name: 'store_memory_items' },
         messages: [{ role: 'user' as const, content: text }],
+      }, { signal: abortController.signal }).finally(() => clearTimeout(timer)),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          abortController.abort();
+          reject(new Error('LLM extraction timeout'));
+        }, 15000);
       }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('LLM extraction timeout')), 15000),
-      ),
     ]);
 
     const toolBlock = response.content.find((b) => b.type === 'tool_use');
@@ -190,8 +195,10 @@ async function extractItemsWithLLM(
       if (!raw.subject || !raw.statement) continue;
       const subject = String(raw.subject).slice(0, 80);
       const statement = String(raw.statement).slice(0, 500);
-      const confidence = clamp(Number(raw.confidence) || 0.5, 0, 1);
-      const importance = clamp(Number(raw.importance) || 0.5, 0, 1);
+      const rawConfidence = Number(raw.confidence);
+      const confidence = clamp(Number.isFinite(rawConfidence) ? rawConfidence : 0.5, 0, 1);
+      const rawImportance = Number(raw.importance);
+      const importance = clamp(Number.isFinite(rawImportance) ? rawImportance : 0.5, 0, 1);
       const normalized = `${raw.kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`;
       const fingerprint = createHash('sha256').update(normalized).digest('hex');
       items.push({
@@ -259,7 +266,7 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string): 
         .set({
           status: 'active',
           confidence: Math.max(existing.confidence, item.confidence),
-          importance: item.importance,
+          importance: Math.max(existing.importance ?? 0, item.importance),
           lastSeenAt: Math.max(existing.lastSeenAt, seenAt),
         })
         .where(eq(memoryItems.id, existing.id))
