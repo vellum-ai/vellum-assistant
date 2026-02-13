@@ -130,6 +130,8 @@ struct MainWindowView: View {
                 AgentPanel(onClose: { activePanel = nil }, daemonClient: daemonClient)
             case .control:
                 ControlPanel(onClose: { activePanel = nil }, ambientAgent: ambientAgent)
+            case .usage:
+                UsagePanel(onClose: { activePanel = nil }, daemonClient: daemonClient)
             case .directory:
                 DirectoryPanel(onClose: { activePanel = nil })
             case .debug:

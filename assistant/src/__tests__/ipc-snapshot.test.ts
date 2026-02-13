@@ -188,6 +188,13 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     decision: 'allow',
     priority: 50,
   },
+  usage_summary_request: {
+    type: 'usage_summary_request',
+    preset: '24h',
+  },
+  budget_status_request: {
+    type: 'budget_status_request',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -451,6 +458,32 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     requestId: 'req-suggest-001',
     suggestion: 'Tell me more about that',
     source: 'llm',
+  },
+  usage_summary_response: {
+    type: 'usage_summary_response',
+    preset: '24h',
+    totalPricedCostUsd: 1.25,
+    totalInputTokens: 50000,
+    totalOutputTokens: 15000,
+    eventCount: 42,
+    byProvider: [
+      { key: 'anthropic', totalCost: 1.25, eventCount: 42 },
+    ],
+    byModel: [
+      { key: 'sonnet-4.5', totalCost: 1.25, eventCount: 42 },
+    ],
+    dailyBuckets: [
+      { date: '2025-01-15', totalCost: 0.75, eventCount: 25 },
+      { date: '2025-01-16', totalCost: 0.50, eventCount: 17 },
+    ],
+  },
+  budget_status_response: {
+    type: 'budget_status_response',
+    enabled: true,
+    budgets: [
+      { period: 'day', amountUsd: 10, currentSpend: 1.25, action: 'warn', exceeded: false },
+      { period: 'month', amountUsd: 100, currentSpend: 45.00, action: 'block', exceeded: false },
+    ],
   },
   message_queued: {
     type: 'message_queued',

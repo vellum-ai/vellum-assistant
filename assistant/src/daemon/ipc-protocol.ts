@@ -225,6 +225,15 @@ export interface UpdateTrustRule {
   priority?: number;
 }
 
+export interface UsageSummaryRequest {
+  type: 'usage_summary_request';
+  preset: '24h' | '7d' | '30d';
+}
+
+export interface BudgetStatusRequest {
+  type: 'budget_status_request';
+}
+
 // === Surface types ===
 
 export type SurfaceType = 'card' | 'form' | 'list' | 'table' | 'confirmation' | 'dynamic_page' | 'file_upload';
@@ -364,7 +373,9 @@ export type ClientMessage =
   | AddTrustRule
   | TrustRulesList
   | RemoveTrustRule
-  | UpdateTrustRule;
+  | UpdateTrustRule
+  | UsageSummaryRequest
+  | BudgetStatusRequest;
 
 // === Server → Client messages ===
 
@@ -681,6 +692,30 @@ export interface TimerCompleted {
   durationMinutes: number;
 }
 
+export interface UsageSummaryResponse {
+  type: 'usage_summary_response';
+  preset: '24h' | '7d' | '30d';
+  totalPricedCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  eventCount: number;
+  byProvider: Array<{ key: string; totalCost: number | null; eventCount: number }>;
+  byModel: Array<{ key: string; totalCost: number | null; eventCount: number }>;
+  dailyBuckets: Array<{ date: string; totalCost: number | null; eventCount: number }>;
+}
+
+export interface BudgetStatusResponse {
+  type: 'budget_status_response';
+  enabled: boolean;
+  budgets: Array<{
+    period: string;
+    amountUsd: number;
+    currentSpend: number;
+    action: string;
+    exceeded: boolean;
+  }>;
+}
+
 export interface MessageQueued {
   type: 'message_queued';
   sessionId: string;
@@ -799,6 +834,8 @@ export type ServerMessage =
   | SkillStateChanged
   | SkillsOperationResponse
   | SuggestionResponse
+  | UsageSummaryResponse
+  | BudgetStatusResponse
   | MessageQueued
   | MessageDequeued
   | TimerCompleted

@@ -1,4 +1,4 @@
-// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+// Bun Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`IPC message snapshots ClientMessage types user_message serializes to expected JSON 1`] = `
 {
@@ -282,6 +282,19 @@ exports[`IPC message snapshots ClientMessage types update_trust_rule serializes 
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types usage_summary_request serializes to expected JSON 1`] = `
+{
+  "preset": "24h",
+  "type": "usage_summary_request",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types budget_status_request serializes to expected JSON 1`] = `
+{
+  "type": "budget_status_request",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
 {
   "sessionId": "sess-001",
@@ -537,6 +550,20 @@ exports[`IPC message snapshots ServerMessage types memory_status serializes to e
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types budget_warning serializes to expected JSON 1`] = `
+{
+  "type": "budget_warning",
+  "violations": [
+    {
+      "action": "warn",
+      "amountUsd": 10,
+      "currentSpend": 10.5,
+      "period": "day",
+    },
+  ],
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types cu_action serializes to expected JSON 1`] = `
 {
   "input": {
@@ -699,6 +726,66 @@ exports[`IPC message snapshots ServerMessage types suggestion_response serialize
   "source": "llm",
   "suggestion": "Tell me more about that",
   "type": "suggestion_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types usage_summary_response serializes to expected JSON 1`] = `
+{
+  "byModel": [
+    {
+      "eventCount": 42,
+      "key": "sonnet-4.5",
+      "totalCost": 1.25,
+    },
+  ],
+  "byProvider": [
+    {
+      "eventCount": 42,
+      "key": "anthropic",
+      "totalCost": 1.25,
+    },
+  ],
+  "dailyBuckets": [
+    {
+      "date": "2025-01-15",
+      "eventCount": 25,
+      "totalCost": 0.75,
+    },
+    {
+      "date": "2025-01-16",
+      "eventCount": 17,
+      "totalCost": 0.5,
+    },
+  ],
+  "eventCount": 42,
+  "preset": "24h",
+  "totalInputTokens": 50000,
+  "totalOutputTokens": 15000,
+  "totalPricedCostUsd": 1.25,
+  "type": "usage_summary_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types budget_status_response serializes to expected JSON 1`] = `
+{
+  "budgets": [
+    {
+      "action": "warn",
+      "amountUsd": 10,
+      "currentSpend": 1.25,
+      "exceeded": false,
+      "period": "day",
+    },
+    {
+      "action": "block",
+      "amountUsd": 100,
+      "currentSpend": 45,
+      "exceeded": false,
+      "period": "month",
+    },
+  ],
+  "enabled": true,
+  "type": "budget_status_response",
 }
 `;
 

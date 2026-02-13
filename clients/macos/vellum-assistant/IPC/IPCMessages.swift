@@ -271,6 +271,19 @@ struct SkillsSearchMessage: Encodable, Sendable {
     let query: String
 }
 
+/// Sent to request aggregated usage summary for a time window.
+/// Wire type: `"usage_summary_request"`
+struct UsageSummaryRequestMessage: Encodable, Sendable {
+    let type: String = "usage_summary_request"
+    let preset: String // "24h" | "7d" | "30d"
+}
+
+/// Sent to request current budget evaluation status.
+/// Wire type: `"budget_status_request"`
+struct BudgetStatusRequestMessage: Encodable, Sendable {
+    let type: String = "budget_status_request"
+}
+
 // MARK: - Server → Client Messages (Decodable)
 
 /// Action to execute from the inference server.
@@ -564,6 +577,66 @@ struct SuggestionResponseMessage: Decodable, Sendable {
     let source: String
 }
 
+/// A single entry in a usage breakdown (by provider or model).
+struct UsageBreakdownEntry: Decodable, Sendable, Identifiable {
+    let key: String
+    let totalCost: Double?
+    let eventCount: Int
+    var id: String { key }
+}
+
+/// A single daily bucket in usage data.
+struct UsageDailyBucket: Decodable, Sendable, Identifiable {
+    let date: String
+    let totalCost: Double?
+    let eventCount: Int
+    var id: String { date }
+}
+
+/// Response containing aggregated usage summary.
+/// Wire type: `"usage_summary_response"`
+struct UsageSummaryResponseMessage: Decodable, Sendable {
+    let preset: String
+    let totalPricedCostUsd: Double
+    let totalInputTokens: Int
+    let totalOutputTokens: Int
+    let eventCount: Int
+    let byProvider: [UsageBreakdownEntry]
+    let byModel: [UsageBreakdownEntry]
+    let dailyBuckets: [UsageDailyBucket]
+}
+
+/// A single budget violation entry.
+struct BudgetViolationEntry: Decodable, Sendable, Identifiable {
+    let period: String
+    let amountUsd: Double
+    let currentSpend: Double
+    let action: String
+    let exceeded: Bool
+    var id: String { "\(period)-\(action)" }
+}
+
+/// Response containing budget evaluation status.
+/// Wire type: `"budget_status_response"`
+struct BudgetStatusResponseMessage: Decodable, Sendable {
+    let enabled: Bool
+    let budgets: [BudgetViolationEntry]
+}
+
+/// Budget warning push notification from daemon.
+/// Wire type: `"budget_warning"`
+struct BudgetWarningMessage: Decodable, Sendable {
+    let violations: [BudgetWarningViolation]
+
+    struct BudgetWarningViolation: Decodable, Sendable, Identifiable {
+        let period: String
+        let amountUsd: Double
+        let currentSpend: Double
+        let action: String
+        var id: String { "\(period)-\(action)" }
+    }
+}
+
 /// Permission confirmation request from daemon.
 /// Wire type: `"confirmation_request"`
 struct ConfirmationRequestMessage: Decodable, Sendable {
@@ -680,6 +753,9 @@ enum ServerMessage: Decodable, Sendable {
     case toolResult(ToolResultMessage)
     case timerCompleted(TimerCompletedMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
+    case usageSummaryResponse(UsageSummaryResponseMessage)
+    case budgetStatusResponse(BudgetStatusResponseMessage)
+    case budgetWarning(BudgetWarningMessage)
     case pong
     case unknown(String)
 
@@ -782,6 +858,15 @@ enum ServerMessage: Decodable, Sendable {
         case "trust_rules_list_response":
             let message = try TrustRulesListResponseMessage(from: decoder)
             self = .trustRulesListResponse(message)
+        case "usage_summary_response":
+            let message = try UsageSummaryResponseMessage(from: decoder)
+            self = .usageSummaryResponse(message)
+        case "budget_status_response":
+            let message = try BudgetStatusResponseMessage(from: decoder)
+            self = .budgetStatusResponse(message)
+        case "budget_warning":
+            let message = try BudgetWarningMessage(from: decoder)
+            self = .budgetWarning(message)
         case "pong":
             self = .pong
         default:

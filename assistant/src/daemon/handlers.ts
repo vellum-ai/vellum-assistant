@@ -51,7 +51,8 @@ import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } fr
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates } from '../skills/clawhub.js';
 import { evaluateBudgets } from '../usage/budget-policy.js';
-import type { BudgetWarning } from './ipc-protocol.js';
+import { getUsageSummary } from '../usage/summary.js';
+import type { BudgetWarning, UsageSummaryRequest, BudgetStatusRequest } from './ipc-protocol.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -323,6 +324,8 @@ const handlers: DispatchMap = {
   trust_rules_list: (_msg, socket, ctx) => handleTrustRulesList(socket, ctx),
   remove_trust_rule: handleRemoveTrustRule,
   update_trust_rule: handleUpdateTrustRule,
+  usage_summary_request: handleUsageSummaryRequest,
+  budget_status_request: (_msg, socket, ctx) => handleBudgetStatusRequest(socket, ctx),
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
@@ -1168,6 +1171,69 @@ async function handleSkillDetail(
       body: '',
       error: result.error ?? 'Skill not found',
     });
+  }
+}
+
+// ─── Usage summary / budget status handlers ─────────────────────────────────
+
+const PRESET_DURATIONS_MS: Record<string, number> = {
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+};
+
+function handleUsageSummaryRequest(
+  msg: UsageSummaryRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const now = Date.now();
+    const windowMs = PRESET_DURATIONS_MS[msg.preset] ?? PRESET_DURATIONS_MS['24h'];
+    const summary = getUsageSummary({ startAt: now - windowMs, endAt: now });
+
+    ctx.send(socket, {
+      type: 'usage_summary_response',
+      preset: msg.preset,
+      totalPricedCostUsd: summary.totalPricedCostUsd,
+      totalInputTokens: summary.totalInputTokens,
+      totalOutputTokens: summary.totalOutputTokens,
+      eventCount: summary.eventCount,
+      byProvider: summary.byProvider.map((e) => ({ key: e.key, totalCost: e.totalCost, eventCount: e.eventCount })),
+      byModel: summary.byModel.map((e) => ({ key: e.key, totalCost: e.totalCost, eventCount: e.eventCount })),
+      dailyBuckets: summary.dailyBuckets.map((b) => ({ date: b.date, totalCost: b.totalCost, eventCount: b.eventCount })),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Error handling usage_summary_request');
+    ctx.send(socket, { type: 'error', message: `Failed to get usage summary: ${message}` });
+  }
+}
+
+function handleBudgetStatusRequest(
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const config = getConfig();
+    const enabled = config.costControls.enabled;
+    const evaluation = evaluateBudgets(config.costControls);
+
+    ctx.send(socket, {
+      type: 'budget_status_response',
+      enabled,
+      budgets: evaluation.violations.map((v) => ({
+        period: v.period,
+        amountUsd: v.amountUsd,
+        currentSpend: v.currentSpend,
+        action: v.action,
+        exceeded: v.exceeded,
+      })),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Error handling budget_status_request');
+    ctx.send(socket, { type: 'error', message: `Failed to get budget status: ${message}` });
   }
 }
 
