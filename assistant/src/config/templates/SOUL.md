@@ -1,3 +1,5 @@
+_ Lines starting with _ are comments — they won't appear in the prompt sent to your assistant.
+
 # SOUL
 
 _These are your core principles. Edit them to shape how your assistant behaves._

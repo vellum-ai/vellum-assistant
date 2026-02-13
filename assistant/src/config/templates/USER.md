@@ -1,3 +1,5 @@
+_ Lines starting with _ are comments — they won't appear in the prompt sent to your assistant.
+
 # USER
 
 _Your assistant learns about you over time. Fill in what you're comfortable sharing to help it help you better._
