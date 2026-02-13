@@ -1,5 +1,5 @@
-import { mkdirSync, existsSync, statSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, existsSync, statSync, unlinkSync, copyFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 
 export function isMacOS(): boolean {
@@ -97,6 +97,17 @@ export function ensureDataDir(): void {
   for (const dir of dirs) {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
+    }
+  }
+
+  const templatesDir = join(dirname(import.meta.dirname ?? __dirname), 'config', 'templates');
+  for (const file of ['IDENTITY.md', 'SOUL.md']) {
+    const dest = join(base, file);
+    if (!existsSync(dest)) {
+      const src = join(templatesDir, file);
+      if (existsSync(src)) {
+        copyFileSync(src, dest);
+      }
     }
   }
 }
