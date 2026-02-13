@@ -850,6 +850,14 @@ final class ChatViewModel: ObservableObject {
             self.pendingQueuedCount = 0
             self.pendingMessageIds = []
             self.requestIdToMessageId = [:]
+            // Reset queued/processing messages to sent (matches other cancel-failure paths)
+            for i in self.messages.indices {
+                if case .queued = self.messages[i].status, self.messages[i].role == .user {
+                    self.messages[i].status = .sent
+                } else if self.messages[i].role == .user && self.messages[i].status == .processing {
+                    self.messages[i].status = .sent
+                }
+            }
         }
     }
 
