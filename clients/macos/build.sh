@@ -123,6 +123,10 @@ if [ "$NEEDS_REBUILD" = true ]; then
 
     # Copy Sparkle.framework into bundle (required — it's a dynamic framework)
     # Only copy if missing or changed (it rarely changes)
+    # Note: Directory timestamp (-nt) only updates when direct entries are added/removed,
+    # not when files inside subdirectories change. This is reliable for SPM-built artifacts
+    # since SPM recreates directories entirely, but manual edits inside .framework bundles
+    # won't be detected. Use './build.sh clean' if you manually modify frameworks/bundles.
     SPARKLE_FW="$BIN_PATH/Sparkle.framework"
     if [ -d "$SPARKLE_FW" ]; then
         if [ ! -d "$FRAMEWORKS_DIR/Sparkle.framework" ] || [ "$SPARKLE_FW" -nt "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
