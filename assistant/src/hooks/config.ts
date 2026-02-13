@@ -21,7 +21,7 @@ export function loadHooksConfig(): HookConfig {
   try {
     const raw = readFileSync(configPath, 'utf-8');
     const parsed = JSON.parse(raw) as HookConfig;
-    if (typeof parsed.version !== 'number' || typeof parsed.hooks !== 'object') {
+    if (typeof parsed.version !== 'number' || typeof parsed.hooks !== 'object' || parsed.hooks === null) {
       log.warn({ configPath }, 'Invalid hooks config, using defaults');
       return { version: HOOKS_CONFIG_VERSION, hooks: {} };
     }

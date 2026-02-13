@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, existsSync, type Dirent } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { getHooksDir } from '../util/platform.js';
 import { loadHooksConfig } from './config.js';
 import { getLogger } from '../util/logger.js';
@@ -21,6 +21,8 @@ function isValidManifest(manifest: unknown): manifest is HookManifest {
   if (typeof manifest !== 'object' || manifest === null) return false;
   const m = manifest as Record<string, unknown>;
   if (typeof m.name !== 'string' || !m.name) return false;
+  if (typeof m.description !== 'string' || !m.description) return false;
+  if (typeof m.version !== 'string' || !m.version) return false;
   if (typeof m.script !== 'string' || !m.script) return false;
   if (!Array.isArray(m.events) || m.events.length === 0) return false;
   for (const e of m.events) {
@@ -64,7 +66,11 @@ export function discoverHooks(hooksDir?: string): DiscoveredHook[] {
       continue;
     }
 
-    const scriptPath = join(hookDir, manifest.script);
+    const scriptPath = resolve(hookDir, manifest.script);
+    if (!scriptPath.startsWith(hookDir + '/')) {
+      log.warn({ hookDir, script: manifest.script }, 'Hook script path traversal detected, skipping');
+      continue;
+    }
     if (!existsSync(scriptPath)) {
       log.warn({ hookDir, script: manifest.script }, 'Hook script not found, skipping');
       continue;
