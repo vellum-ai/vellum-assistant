@@ -26,7 +26,7 @@ import {
   handleGetSuggestion,
   HandlerException,
   type HandlerResponse,
-} from './handlers/index.js';
+} from './handlers/handlers.js';
 
 const log = getLogger('runtime-http');
 
