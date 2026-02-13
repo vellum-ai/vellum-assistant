@@ -2,9 +2,9 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { deleteCronJob, getCronJob } from '../../cron/cron-store.js';
+import { deleteSchedule, getSchedule } from '../../schedule/schedule-store.js';
 
-class CronDeleteTool implements Tool {
+class ScheduleDeleteTool implements Tool {
   name = 'schedule_delete';
   description = 'Delete a scheduled task and all its run history';
   category = 'schedule';
@@ -34,12 +34,12 @@ class CronDeleteTool implements Tool {
     }
 
     // Fetch the job first for the confirmation message
-    const job = getCronJob(jobId);
+    const job = getSchedule(jobId);
     if (!job) {
       return { content: `Error: Schedule not found: ${jobId}`, isError: true };
     }
 
-    const deleted = deleteCronJob(jobId);
+    const deleted = deleteSchedule(jobId);
     if (!deleted) {
       return { content: `Error: Failed to delete schedule: ${jobId}`, isError: true };
     }
@@ -51,4 +51,4 @@ class CronDeleteTool implements Tool {
   }
 }
 
-registerTool(new CronDeleteTool());
+registerTool(new ScheduleDeleteTool());

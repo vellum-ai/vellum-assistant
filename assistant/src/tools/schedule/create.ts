@@ -2,9 +2,9 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { createCronJob, isValidCronExpression, formatLocalDate, describeCronExpression } from '../../cron/cron-store.js';
+import { createSchedule, isValidCronExpression, formatLocalDate, describeCronExpression } from '../../schedule/schedule-store.js';
 
-class CronCreateTool implements Tool {
+class ScheduleCreateTool implements Tool {
   name = 'schedule_create';
   description = 'Create a scheduled task that sends a message at a recurring interval';
   category = 'schedule';
@@ -64,7 +64,7 @@ class CronCreateTool implements Tool {
     }
 
     try {
-      const job = createCronJob({ name, cronExpression, timezone, message, enabled });
+      const job = createSchedule({ name, cronExpression, timezone, message, enabled });
       const nextRunDate = formatLocalDate(job.nextRunAt);
       return {
         content: [
@@ -84,4 +84,4 @@ class CronCreateTool implements Tool {
   }
 }
 
-registerTool(new CronCreateTool());
+registerTool(new ScheduleCreateTool());

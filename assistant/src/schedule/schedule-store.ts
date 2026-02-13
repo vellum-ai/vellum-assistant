@@ -4,7 +4,7 @@ import { Cron } from 'croner';
 import { getDb } from '../memory/db.js';
 import { cronJobs, cronRuns } from '../memory/schema.js';
 
-export interface CronJob {
+export interface ScheduleJob {
   id: string;
   name: string;
   enabled: boolean;
@@ -20,7 +20,7 @@ export interface CronJob {
   updatedAt: number;
 }
 
-export interface CronRun {
+export interface ScheduleRun {
   id: string;
   jobId: string;
   status: string;
@@ -53,14 +53,14 @@ export function computeNextRunAt(cronExpression: string, timezone?: string | nul
   return next.getTime();
 }
 
-export function createCronJob(params: {
+export function createSchedule(params: {
   name: string;
   cronExpression: string;
   timezone?: string | null;
   message: string;
   enabled?: boolean;
   createdBy?: string;
-}): CronJob {
+}): ScheduleJob {
   if (!isValidCronExpression(params.cronExpression)) {
     throw new Error(`Invalid cron expression: "${params.cronExpression}"`);
   }
@@ -92,7 +92,7 @@ export function createCronJob(params: {
   return row;
 }
 
-export function getCronJob(id: string): CronJob | null {
+export function getSchedule(id: string): ScheduleJob | null {
   const db = getDb();
   const row = db
     .select()
@@ -103,7 +103,7 @@ export function getCronJob(id: string): CronJob | null {
   return parseJobRow(row);
 }
 
-export function listCronJobs(options?: { enabledOnly?: boolean }): CronJob[] {
+export function listSchedules(options?: { enabledOnly?: boolean }): ScheduleJob[] {
   const db = getDb();
   const conditions = options?.enabledOnly ? eq(cronJobs.enabled, true) : undefined;
   const rows = db
@@ -115,7 +115,7 @@ export function listCronJobs(options?: { enabledOnly?: boolean }): CronJob[] {
   return rows.map(parseJobRow);
 }
 
-export function updateCronJob(
+export function updateSchedule(
   id: string,
   updates: {
     name?: string;
@@ -124,7 +124,7 @@ export function updateCronJob(
     message?: string;
     enabled?: boolean;
   },
-): CronJob | null {
+): ScheduleJob | null {
   const db = getDb();
   const existing = db.select().from(cronJobs).where(eq(cronJobs.id, id)).get();
   if (!existing) return null;
@@ -157,21 +157,21 @@ export function updateCronJob(
 
   db.update(cronJobs).set(set).where(eq(cronJobs.id, id)).run();
 
-  return getCronJob(id);
+  return getSchedule(id);
 }
 
-export function deleteCronJob(id: string): boolean {
+export function deleteSchedule(id: string): boolean {
   const db = getDb();
   const result = db.delete(cronJobs).where(eq(cronJobs.id, id)).run() as unknown as { changes?: number };
   return (result.changes ?? 0) > 0;
 }
 
 /**
- * Claim due cron jobs atomically. For each candidate where enabled=true and
+ * Claim due schedules atomically. For each candidate where enabled=true and
  * next_run_at <= now, we advance next_run_at using optimistic locking on the
  * old value to prevent double-claiming by concurrent ticks.
  */
-export function claimDueCronJobs(now: number): CronJob[] {
+export function claimDueSchedules(now: number): ScheduleJob[] {
   const db = getDb();
   const candidates = db
     .select()
@@ -180,7 +180,7 @@ export function claimDueCronJobs(now: number): CronJob[] {
     .orderBy(asc(cronJobs.nextRunAt))
     .all();
 
-  const claimed: CronJob[] = [];
+  const claimed: ScheduleJob[] = [];
   for (const row of candidates) {
     let newNextRunAt: number;
     try {
@@ -213,7 +213,7 @@ export function claimDueCronJobs(now: number): CronJob[] {
   return claimed;
 }
 
-export function createCronRun(jobId: string, conversationId: string): string {
+export function createScheduleRun(jobId: string, conversationId: string): string {
   const db = getDb();
   const id = uuid();
   const now = Date.now();
@@ -232,7 +232,7 @@ export function createCronRun(jobId: string, conversationId: string): string {
   return id;
 }
 
-export function completeCronRun(
+export function completeScheduleRun(
   runId: string,
   result: { status: 'ok' | 'error'; output?: string; error?: string },
 ): void {
@@ -274,7 +274,7 @@ export function completeCronRun(
   }
 }
 
-export function getCronRuns(jobId: string, limit?: number): CronRun[] {
+export function getScheduleRuns(jobId: string, limit?: number): ScheduleRun[] {
   const db = getDb();
   const rows = db
     .select()
@@ -420,7 +420,7 @@ export function describeCronExpression(expr: string): string {
   }
 }
 
-function parseJobRow(row: typeof cronJobs.$inferSelect): CronJob {
+function parseJobRow(row: typeof cronJobs.$inferSelect): ScheduleJob {
   return {
     id: row.id,
     name: row.name,
@@ -438,7 +438,7 @@ function parseJobRow(row: typeof cronJobs.$inferSelect): CronJob {
   };
 }
 
-function parseRunRow(row: typeof cronRuns.$inferSelect): CronRun {
+function parseRunRow(row: typeof cronRuns.$inferSelect): ScheduleRun {
   return {
     id: row.id,
     jobId: row.jobId,

@@ -2,9 +2,9 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { listCronJobs, getCronJob, getCronRuns, formatLocalDate, describeCronExpression } from '../../cron/cron-store.js';
+import { listSchedules, getSchedule, getScheduleRuns, formatLocalDate, describeCronExpression } from '../../schedule/schedule-store.js';
 
-class CronListTool implements Tool {
+class ScheduleListTool implements Tool {
   name = 'schedule_list';
   description = 'List scheduled tasks, or show details and recent runs for a specific task';
   category = 'schedule';
@@ -37,12 +37,12 @@ class CronListTool implements Tool {
 
     // Detail mode for a specific job
     if (jobId) {
-      const job = getCronJob(jobId);
+      const job = getSchedule(jobId);
       if (!job) {
         return { content: `Error: Schedule not found: ${jobId}`, isError: true };
       }
 
-      const runs = getCronRuns(jobId, 5);
+      const runs = getScheduleRuns(jobId, 5);
       const lines = [
         `Schedule: ${job.name}`,
         `  ID: ${job.id}`,
@@ -70,7 +70,7 @@ class CronListTool implements Tool {
     }
 
     // List mode
-    const jobs = listCronJobs({ enabledOnly });
+    const jobs = listSchedules({ enabledOnly });
     if (jobs.length === 0) {
       return { content: 'No schedules found.', isError: false };
     }
@@ -86,4 +86,4 @@ class CronListTool implements Tool {
   }
 }
 
-registerTool(new CronListTool());
+registerTool(new ScheduleListTool());

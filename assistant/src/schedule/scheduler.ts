@@ -1,26 +1,26 @@
 import { getLogger } from '../util/logger.js';
 import { createConversation } from '../memory/conversation-store.js';
 import {
-  claimDueCronJobs,
-  createCronRun,
-  completeCronRun,
-} from './cron-store.js';
+  claimDueSchedules,
+  createScheduleRun,
+  completeScheduleRun,
+} from './schedule-store.js';
 
-const log = getLogger('cron-scheduler');
+const log = getLogger('scheduler');
 
-export type CronMessageProcessor = (
+export type ScheduleMessageProcessor = (
   conversationId: string,
   message: string,
 ) => Promise<unknown>;
 
-export interface CronScheduler {
+export interface SchedulerHandle {
   runOnce(): Promise<number>;
   stop(): void;
 }
 
 const TICK_INTERVAL_MS = 15_000;
 
-export function startCronScheduler(processMessage: CronMessageProcessor): CronScheduler {
+export function startScheduler(processMessage: ScheduleMessageProcessor): SchedulerHandle {
   let stopped = false;
   let tickRunning = false;
 
@@ -28,7 +28,7 @@ export function startCronScheduler(processMessage: CronMessageProcessor): CronSc
     if (stopped || tickRunning) return;
     tickRunning = true;
     try {
-      await runCronOnce(processMessage);
+      await runScheduleOnce(processMessage);
     } catch (err) {
       log.error({ err }, 'Schedule tick failed');
     } finally {
@@ -42,7 +42,7 @@ export function startCronScheduler(processMessage: CronMessageProcessor): CronSc
 
   return {
     async runOnce(): Promise<number> {
-      return runCronOnce(processMessage);
+      return runScheduleOnce(processMessage);
     },
     stop(): void {
       stopped = true;
@@ -51,25 +51,25 @@ export function startCronScheduler(processMessage: CronMessageProcessor): CronSc
   };
 }
 
-async function runCronOnce(processMessage: CronMessageProcessor): Promise<number> {
+async function runScheduleOnce(processMessage: ScheduleMessageProcessor): Promise<number> {
   const now = Date.now();
-  const jobs = claimDueCronJobs(now);
+  const jobs = claimDueSchedules(now);
   if (jobs.length === 0) return 0;
 
   let processed = 0;
   for (const job of jobs) {
     const conversation = createConversation(`Schedule: ${job.name}`);
-    const runId = createCronRun(job.id, conversation.id);
+    const runId = createScheduleRun(job.id, conversation.id);
 
     try {
       log.info({ jobId: job.id, name: job.name, conversationId: conversation.id }, 'Executing schedule');
       await processMessage(conversation.id, job.message);
-      completeCronRun(runId, { status: 'ok' });
+      completeScheduleRun(runId, { status: 'ok' });
       processed += 1;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn({ err, jobId: job.id, name: job.name }, 'Schedule execution failed');
-      completeCronRun(runId, { status: 'error', error: message });
+      completeScheduleRun(runId, { status: 'error', error: message });
     }
   }
 

@@ -2,9 +2,9 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { updateCronJob, formatLocalDate, describeCronExpression } from '../../cron/cron-store.js';
+import { updateSchedule, formatLocalDate, describeCronExpression } from '../../schedule/schedule-store.js';
 
-class CronUpdateTool implements Tool {
+class ScheduleUpdateTool implements Tool {
   name = 'schedule_update';
   description = 'Update an existing scheduled task (schedule, message, name, or enabled state)';
   category = 'schedule';
@@ -65,7 +65,7 @@ class CronUpdateTool implements Tool {
     }
 
     try {
-      const job = updateCronJob(jobId, updates as {
+      const job = updateSchedule(jobId, updates as {
         name?: string;
         cronExpression?: string;
         timezone?: string | null;
@@ -95,4 +95,4 @@ class CronUpdateTool implements Tool {
   }
 }
 
-registerTool(new CronUpdateTool());
+registerTool(new ScheduleUpdateTool());
