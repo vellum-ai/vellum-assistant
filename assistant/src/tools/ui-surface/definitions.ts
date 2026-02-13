@@ -33,6 +33,7 @@ export const uiShowTool: Tool = {
     'data shape: { title: string, subtitle?: string, body: string, metadata?: Array<{ label: string, value: string }>, template?: string, templateData?: object }\n' +
     '  Template "weather_forecast": renders an Apple Weather-style forecast widget. ' +
     'templateData shape: { location: string, currentTemp: number, feelsLike: number, unit: "F"|"C", condition: string, humidity: number, windSpeed: number, windDirection: string, ' +
+    'hourly: Array<{ time: string, icon: string (SF Symbol name), temp: number }>, ' +
     'forecast: Array<{ day: string, icon: string (SF Symbol name), low: number, high: number, precip: number|null, condition: string }> }\n' +
     '- table: Data table with columns, selectable rows, and action buttons. ' +
     'data shape: { columns: Array<{ id: string, label: string }>, rows: Array<{ id: string, cells: Record<string, string>, selectable?: boolean, selected?: boolean }>, selectionMode?: "none"|"single"|"multiple", caption?: string }\n' +
