@@ -508,6 +508,8 @@ struct ClawhubSkillItem: Decodable, Sendable, Identifiable {
     let stars: Int
     let installs: Int
     let version: String
+    /// Epoch milliseconds when the skill was first published.
+    let createdAt: Int
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -518,10 +520,11 @@ struct ClawhubSkillItem: Decodable, Sendable, Identifiable {
         stars = try container.decodeIfPresent(Int.self, forKey: .stars) ?? 0
         installs = try container.decodeIfPresent(Int.self, forKey: .installs) ?? 0
         version = try container.decodeIfPresent(String.self, forKey: .version) ?? ""
+        createdAt = try container.decodeIfPresent(Int.self, forKey: .createdAt) ?? 0
     }
 
     private enum CodingKeys: String, CodingKey {
-        case name, slug, description, author, stars, installs, version
+        case name, slug, description, author, stars, installs, version, createdAt
     }
 }
 

@@ -167,10 +167,30 @@ struct AgentPanel: View {
         )
     }
 
-    /// ClaWHub skills filtered to exclude already-installed ones.
+    /// ClaWHub skills filtered to exclude already-installed ones, with local search and sort.
     private var availableClawhubSkills: [ClawhubSkillItem] {
         let installedNames = Set(skillsManager.skills.map(\.name))
-        return skillsManager.searchResults.filter { !installedNames.contains($0.name) }
+        var filtered = skillsManager.searchResults
+            .filter { !installedNames.contains($0.name) }
+
+        // Local fuzzy filter by name/description
+        if !skillSearchQuery.isEmpty {
+            let query = skillSearchQuery.lowercased()
+            filtered = filtered.filter {
+                $0.name.lowercased().contains(query) ||
+                $0.description.lowercased().contains(query) ||
+                $0.slug.lowercased().contains(query)
+            }
+        }
+
+        switch skillSortOrder {
+        case .installs:
+            return filtered.sorted { $0.installs > $1.installs }
+        case .stars:
+            return filtered.sorted { $0.stars > $1.stars }
+        case .newest:
+            return filtered.sorted { $0.createdAt > $1.createdAt }
+        }
     }
 
     @ViewBuilder
@@ -179,6 +199,52 @@ struct AgentPanel: View {
             // Bundled skills — always shown as featured
             ForEach(BundledSkill.all) { starter in
                 bundledSkillCard(starter)
+            }
+
+            // Search bar — filters locally, no API call
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12))
+                    .foregroundColor(VColor.textMuted)
+
+                TextField("Filter skills...", text: $skillSearchQuery)
+                    .textFieldStyle(.plain)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.textPrimary)
+
+                if !skillSearchQuery.isEmpty {
+                    Button(action: { skillSearchQuery = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(VSpacing.md)
+            .background(Slate._800)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+            // Sort picker
+            HStack(spacing: VSpacing.sm) {
+                Text("Sort:")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+
+                ForEach(SkillSortOrder.allCases, id: \.self) { order in
+                    Button(action: { skillSortOrder = order }) {
+                        Text(order.rawValue)
+                            .font(VFont.caption)
+                            .foregroundColor(skillSortOrder == order ? Emerald._400 : VColor.textMuted)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                            .background(skillSortOrder == order ? Emerald._400.opacity(0.15) : Color.clear)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer()
             }
 
             // ClaWHub skills
@@ -194,16 +260,34 @@ struct AgentPanel: View {
                 ForEach(availableClawhubSkills) { skill in
                     clawhubSkillCard(skill)
                 }
+            } else if !skillSearchQuery.isEmpty {
+                VEmptyState(
+                    title: "No results",
+                    subtitle: "No skills matched \"\(skillSearchQuery)\"",
+                    icon: "magnifyingglass"
+                )
+                .frame(height: 100)
             }
 
-            // Browse more nudge
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 10))
-                    .foregroundColor(Emerald._400)
-                Text("Browse more community skills on ClawhHub")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+            // Community disclaimer
+            VStack(spacing: VSpacing.sm) {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.shield.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(Amber._500)
+                    Text("Community skills are not verified by Vellum. Review before installing.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10))
+                        .foregroundColor(Emerald._400)
+                    Text("Browse more on ClawhHub")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
             }
         }
         .onAppear {
@@ -213,6 +297,14 @@ struct AgentPanel: View {
 
     @State private var installingSlug: String?
     @State private var hoveredStarterInstall: String?
+    @State private var skillSearchQuery = ""
+    @State private var skillSortOrder: SkillSortOrder = .installs
+
+    private enum SkillSortOrder: String, CaseIterable {
+        case installs = "Installs"
+        case stars = "Stars"
+        case newest = "Newest"
+    }
 
     private func bundledSkillCard(_ starter: BundledSkill) -> some View {
         HStack(spacing: VSpacing.md) {
@@ -245,74 +337,134 @@ struct AgentPanel: View {
         )
     }
 
+    /// How long ago a skill was published, as a human-readable string.
+    private func skillAge(_ createdAt: Int) -> String {
+        guard createdAt > 0 else { return "" }
+        let date = Date(timeIntervalSince1970: Double(createdAt) / 1000)
+        let days = Int(Date().timeIntervalSince(date) / 86400)
+        if days < 1 { return "today" }
+        if days == 1 { return "1 day ago" }
+        if days < 30 { return "\(days) days ago" }
+        let months = days / 30
+        if months == 1 { return "1 month ago" }
+        return "\(months) months ago"
+    }
+
     private func clawhubSkillCard(_ skill: ClawhubSkillItem) -> some View {
         let isInstalling = installingSlug == skill.slug
         let isHovered = hoveredStarterInstall == skill.slug
+        let isNew = skill.createdAt > 0 && Date().timeIntervalSince(
+            Date(timeIntervalSince1970: Double(skill.createdAt) / 1000)
+        ) < 7 * 86400
 
-        return HStack(spacing: VSpacing.md) {
-            Image(systemName: "shippingbox.fill")
-                .font(.system(size: 16))
-                .foregroundColor(VColor.textMuted)
-                .frame(width: 24)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(skill.name)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textPrimary)
-
-                Text(skill.description)
-                    .font(VFont.caption)
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.md) {
+                Image(systemName: "shippingbox.fill")
+                    .font(.system(size: 16))
                     .foregroundColor(VColor.textMuted)
-                    .lineLimit(2)
-            }
+                    .frame(width: 24)
 
-            Spacer()
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: VSpacing.sm) {
+                        Text(skill.name)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textPrimary)
 
-            Button(action: {
-                guard installingSlug == nil else { return }
-                installingSlug = skill.slug
-                skillsManager.installSkill(slug: skill.slug)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                    if installingSlug == skill.slug {
-                        installingSlug = nil
+                        if isNew {
+                            Text("NEW")
+                                .font(VFont.small)
+                                .foregroundColor(Amber._500)
+                        }
+                    }
+
+                    Text(skill.description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                Button(action: {
+                    guard installingSlug == nil else { return }
+                    installingSlug = skill.slug
+                    skillsManager.installSkill(slug: skill.slug)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                        if installingSlug == skill.slug {
+                            installingSlug = nil
+                        }
+                    }
+                }) {
+                    HStack(spacing: VSpacing.sm) {
+                        if isInstalling {
+                            ProgressView()
+                                .controlSize(.mini)
+                        } else {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.system(size: 12))
+                        }
+                        Text(isInstalling ? "Installing..." : "Install")
+                            .font(VFont.mono)
+                    }
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.sm)
+                    .foregroundColor(isHovered ? Slate._900 : Emerald._400)
+                    .background(isHovered ? Emerald._400 : Slate._800)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(Emerald._500.opacity(0.6), lineWidth: 1.5)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(installingSlug != nil)
+                .onHover { hovering in
+                    withAnimation(VAnimation.fast) {
+                        hoveredStarterInstall = hovering ? skill.slug : nil
                     }
                 }
-            }) {
-                HStack(spacing: VSpacing.sm) {
-                    if isInstalling {
-                        ProgressView()
-                            .controlSize(.mini)
-                    } else {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .font(.system(size: 12))
+            }
+
+            // Trust signals row
+            HStack(spacing: VSpacing.lg) {
+                if !skill.author.isEmpty {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 9))
+                        Text(skill.author)
                     }
-                    Text(isInstalling ? "Installing..." : "Install")
-                        .font(VFont.mono)
                 }
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.vertical, VSpacing.sm)
-                .foregroundColor(isHovered ? Slate._900 : Emerald._400)
-                .background(isHovered ? Emerald._400 : Slate._800)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(Emerald._500.opacity(0.6), lineWidth: 1.5)
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(installingSlug != nil)
-            .onHover { hovering in
-                withAnimation(VAnimation.fast) {
-                    hoveredStarterInstall = hovering ? skill.slug : nil
+
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 9))
+                    Text("\(skill.stars)")
+                }
+
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 9))
+                    Text("\(skill.installs)")
+                }
+
+                if !skillAge(skill.createdAt).isEmpty {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 9))
+                        Text(skillAge(skill.createdAt))
+                    }
                 }
             }
+            .font(VFont.small)
+            .foregroundColor(VColor.textMuted)
+            .padding(.leading, 24 + VSpacing.md)
         }
         .padding(VSpacing.lg)
         .background(Slate._900)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(Emerald._700.opacity(0.4), lineWidth: 1)
+                .stroke(isNew ? Amber._700.opacity(0.4) : Emerald._700.opacity(0.4), lineWidth: 1)
         )
     }
 
