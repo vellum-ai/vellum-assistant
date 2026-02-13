@@ -96,6 +96,22 @@ curl -i -X POST http://localhost:7830/webhooks/telegram
 - The `host` header is not forwarded to upstream.
 - Upstream connection failures return `502 Bad Gateway`.
 
+## Docker
+
+```bash
+# Build
+docker build -t vellum-gateway:local gateway
+
+# Run (pass required env vars)
+docker run --rm -p 7830:7830 \
+  -e TELEGRAM_BOT_TOKEN=... \
+  -e TELEGRAM_WEBHOOK_SECRET=... \
+  -e ASSISTANT_RUNTIME_BASE_URL=http://host.docker.internal:7821 \
+  vellum-gateway:local
+```
+
+The image runs as non-root user `gateway` (uid 1001) and exposes port `7830`.
+
 ## Development
 
 ```bash
