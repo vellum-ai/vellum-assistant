@@ -665,6 +665,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Writes (or updates) `~/.vellum/IDENTITY.md` with the user-chosen assistant name.
+    ///
+    /// If the file already exists, only the `- **Name:** …` line is replaced so that
+    /// user customizations (extra persona instructions, changed role/tone, etc.) are preserved.
+    /// If the file does not exist, a fresh template is created.
     private func writeIdentityFile(name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
@@ -672,22 +676,39 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let vellumDir = NSHomeDirectory() + "/.vellum"
         let identityPath = vellumDir + "/IDENTITY.md"
 
-        let content = """
-        # IDENTITY
-
-        _Customize this file to give your assistant a distinct identity._
-
-        - **Name:** \(trimmed)
-        - **Role:** Personal AI assistant
-        - **Tone:** Direct, concise, and helpful
-        """
-
         do {
             try FileManager.default.createDirectory(
                 atPath: vellumDir,
                 withIntermediateDirectories: true,
                 attributes: nil
             )
+
+            let content: String
+            if FileManager.default.fileExists(atPath: identityPath),
+               let existing = try? String(contentsOfFile: identityPath, encoding: .utf8) {
+                // Replace only the Name line, preserving everything else
+                let namePattern = #"^- \*\*Name:\*\*.*$"#
+                if let regex = try? NSRegularExpression(pattern: namePattern, options: .anchorsMatchLines) {
+                    let range = NSRange(existing.startIndex..., in: existing)
+                    let replacement = "- **Name:** \(trimmed)"
+                    let updated = regex.stringByReplacingMatches(in: existing, range: range, withTemplate: NSRegularExpression.escapedTemplate(for: replacement))
+                    // Only use the updated content if a substitution actually happened
+                    content = updated != existing ? updated : existing
+                } else {
+                    content = existing
+                }
+            } else {
+                content = """
+                # IDENTITY
+
+                _Customize this file to give your assistant a distinct identity._
+
+                - **Name:** \(trimmed)
+                - **Role:** Personal AI assistant
+                - **Tone:** Direct, concise, and helpful
+                """
+            }
+
             try content.write(toFile: identityPath, atomically: true, encoding: .utf8)
             log.info("Wrote IDENTITY.md with name: \(trimmed)")
         } catch {
