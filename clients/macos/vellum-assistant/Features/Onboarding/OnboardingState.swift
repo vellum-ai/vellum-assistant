@@ -1,5 +1,10 @@
 import SwiftUI
 
+enum OnboardingVariant: String {
+    case `default`
+    case firstMeeting = "first_meeting"
+}
+
 enum ActivationKey: String, CaseIterable {
     case fn
     case ctrl
@@ -26,6 +31,13 @@ final class OnboardingState {
     var skipPermissionChecks: Bool = false
     var hasHatched: Bool = false
     var interviewCompleted: Bool = false
+    var onboardingVariant: OnboardingVariant = .default
+
+    // First-meeting-specific state
+    var conversationCompleted: Bool = false
+    var capabilitiesBriefingShown: Bool = false
+    var observationCompleted: Bool = false
+    var firstTaskCandidate: String? = nil
 
     var anyPermissionDenied: Bool {
         !speechGranted || !accessibilityGranted || !screenGranted
@@ -59,6 +71,10 @@ final class OnboardingState {
             hasHatched = UserDefaults.standard.bool(forKey: "onboarding.hatched")
             interviewCompleted = UserDefaults.standard.bool(forKey: "onboarding.interviewCompleted")
         }
+        if let rawVariant = UserDefaults.standard.string(forKey: "onboarding.variant"),
+           let variant = OnboardingVariant(rawValue: rawVariant) {
+            onboardingVariant = variant
+        }
     }
 
     func advance() {
@@ -75,10 +91,11 @@ final class OnboardingState {
         UserDefaults.standard.set(chosenKey.rawValue, forKey: "onboarding.key")
         UserDefaults.standard.set(hasHatched, forKey: "onboarding.hatched")
         UserDefaults.standard.set(interviewCompleted, forKey: "onboarding.interviewCompleted")
+        UserDefaults.standard.set(onboardingVariant.rawValue, forKey: "onboarding.variant")
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }

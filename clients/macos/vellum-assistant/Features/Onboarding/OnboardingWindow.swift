@@ -17,26 +17,44 @@ final class OnboardingWindow {
         if CommandLine.arguments.contains("--skip-permission-checks") {
             state.skipPermissionChecks = true
         }
+        if let idx = CommandLine.arguments.firstIndex(of: "--onboarding-variant"),
+           idx + 1 < CommandLine.arguments.count,
+           CommandLine.arguments[idx + 1] == "first_meeting" {
+            state.onboardingVariant = .firstMeeting
+        }
         #endif
 
-        let flowView = OnboardingFlowView(
-            state: state,
-            daemonClient: daemonClient,
-            onComplete: { [weak self] in
-                guard let self else { return }
-                self.onComplete?(self.state)
-            },
-            onOpenSettings: { [weak self] in
-                guard let self else { return }
-                self.onComplete?(self.state)
-                // Settings will be opened by AppDelegate after onComplete
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                }
+        let onComplete: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.onComplete?(self.state)
+        }
+        let onOpenSettings: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.onComplete?(self.state)
+            // Settings will be opened by AppDelegate after onComplete
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
             }
-        )
+        }
 
-        let hostingController = NSHostingController(rootView: flowView)
+        let contentView: AnyView
+        if state.onboardingVariant == .firstMeeting {
+            contentView = AnyView(FirstMeetingFlowView(
+                state: state,
+                daemonClient: daemonClient,
+                onComplete: onComplete,
+                onOpenSettings: onOpenSettings
+            ))
+        } else {
+            contentView = AnyView(OnboardingFlowView(
+                state: state,
+                daemonClient: daemonClient,
+                onComplete: onComplete,
+                onOpenSettings: onOpenSettings
+            ))
+        }
+
+        let hostingController = NSHostingController(rootView: contentView)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1366, height: 849),
