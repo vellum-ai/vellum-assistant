@@ -16,6 +16,8 @@ import type { Session } from '../daemon/session.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getLogger } from '../util/logger.js';
+import { getConfig } from '../config/loader.js';
+import { evaluateBudgets } from '../usage/budget-policy.js';
 
 const log = getLogger('run-orchestrator');
 
@@ -67,6 +69,25 @@ export class RunOrchestrator {
     content: string,
     attachmentIds?: string[],
   ): Promise<Run> {
+    // Pre-request budget check
+    try {
+      const config = getConfig();
+      const evaluation = evaluateBudgets(config.costControls);
+      if (evaluation.hasBlocks) {
+        const v = evaluation.violations.find((v) => v.exceeded && v.action === 'block');
+        throw new Error(
+          `Budget limit exceeded: you have spent $${v!.currentSpend.toFixed(2)} ` +
+          `of your $${v!.amountUsd.toFixed(2)} ${v!.period} budget. ` +
+          `Please adjust your budget settings or wait for the next period.`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Budget limit exceeded')) {
+        throw err;
+      }
+      log.warn({ err }, 'Budget check failed (non-fatal), allowing run to proceed');
+    }
+
     const session = await this.deps.getOrCreateSession(conversationId);
 
     if (session.isProcessing()) {
