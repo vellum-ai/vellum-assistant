@@ -34,7 +34,7 @@ struct ThreadTabBar: View {
 
 
                 VTab(label: "Thread", icon: "plus", isCloseable: false, style: .rectangular, onSelect: { onCreate() })
-                    
+                    .accessibilityLabel("New Thread")
 
                 Spacer()
             }
