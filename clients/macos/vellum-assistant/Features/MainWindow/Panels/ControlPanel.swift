@@ -4,12 +4,14 @@ import SwiftUI
 struct ControlPanel: View {
     var onClose: () -> Void
     var ambientAgent: AmbientAgent
+    var daemonClient: DaemonClient?
 
     @State private var selectedTabIndex: Int = 1
     @State private var apiKeyText: String = ""
     @State private var hasKey: Bool = false
     @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
     @AppStorage("ambientAgentEnabled") private var ambientEnabled: Bool = false
+    @State private var showingTrustRules = false
 
     private enum ControlTab: String, CaseIterable {
         case profile, settings, channels, overview
@@ -193,6 +195,35 @@ struct ControlPanel: View {
             }
             .padding(VSpacing.lg)
             .vCard(background: Slate._900)
+
+            // TRUST RULES section
+            if let daemonClient {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("TRUST RULES")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Manage Trust Rules")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Text("Control which tool actions are automatically allowed or denied")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        VButton(label: "Manage...", style: .ghost) {
+                            showingTrustRules = true
+                        }
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: Slate._900)
+                .sheet(isPresented: $showingTrustRules) {
+                    TrustRulesView(daemonClient: daemonClient)
+                }
+            }
 
             // PRIVACY & SECURITY section
             VStack(alignment: .leading, spacing: VSpacing.md) {
