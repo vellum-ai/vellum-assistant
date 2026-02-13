@@ -86,8 +86,8 @@ export async function runHookScript(
       }, 2000);
       child.once('close', () => {
         clearTimeout(killTimer);
+        resolve({ exitCode: null, stdout, stderr: stderr + '\nHook timed out' });
       });
-      resolve({ exitCode: null, stdout, stderr: stderr + '\nHook timed out' });
     }, timeoutMs);
 
     child.on('close', (code) => {
