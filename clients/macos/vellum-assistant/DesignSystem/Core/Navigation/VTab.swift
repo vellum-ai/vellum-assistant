@@ -34,22 +34,26 @@ struct VTab: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Button(action: onSelect) {
-                HStack(spacing: VSpacing.xs) {
-                    if let icon = icon {
-                        Image(systemName: icon)
-                            .font(.system(size: 12))
-                    }
-                    Text(label)
-                        .font(VFont.caption)
-                        .lineLimit(1)
+        Button(action: onSelect) {
+            HStack(spacing: VSpacing.xs) {
+                if let icon = icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 12))
                 }
-                .foregroundColor(isSelected && (style == .pill || style == .rectangular) ? Slate._900 : (isSelected ? VColor.textPrimary : VColor.textSecondary))
-                .contentShape(Rectangle())
+                Text(label)
+                    .font(VFont.caption)
+                    .lineLimit(1)
+                if isCloseable {
+                    Spacer().frame(width: 16)
+                }
             }
-            .buttonStyle(.plain)
-
+            .foregroundColor(isSelected && (style == .pill || style == .rectangular) ? Slate._900 : (isSelected ? VColor.textPrimary : VColor.textSecondary))
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .trailing) {
             if isCloseable, let onClose = onClose {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
@@ -58,11 +62,9 @@ struct VTab: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close \(label)")
+                .padding(.trailing, VSpacing.sm)
             }
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
-        .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
         .background(background)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .overlay(
