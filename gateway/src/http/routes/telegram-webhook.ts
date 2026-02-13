@@ -4,6 +4,7 @@ import { verifyWebhookSecret } from "../../telegram/verify.js";
 import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
 import { handleInbound, type InboundResult } from "../../handlers/handle-inbound.js";
+import { sendTypingIndicator } from "../../telegram/send.js";
 import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
 import { uploadAttachment } from "../../runtime/client.js";
 
@@ -111,6 +112,11 @@ export function createTelegramWebhookHandler(
       }
     }
 
+    // Start typing indicator
+    const chatId = normalized.message.externalChatId;
+    sendTypingIndicator(config, chatId);
+    const typingInterval = setInterval(() => sendTypingIndicator(config, chatId), 5000);
+
     // Process inbound and only acknowledge after successful delivery
     let result: InboundResult;
     try {
@@ -118,6 +124,8 @@ export function createTelegramWebhookHandler(
     } catch (err) {
       log.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
       return Response.json({ error: "Internal error" }, { status: 500 });
+    } finally {
+      clearInterval(typingInterval);
     }
 
     if (!result.forwarded && !result.rejected) {
