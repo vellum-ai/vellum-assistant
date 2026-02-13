@@ -17,6 +17,9 @@ export type GatewayConfig = {
   defaultAssistantId: string | undefined;
   unmappedPolicy: "reject" | "default";
   port: number;
+  runtimeProxyEnabled: boolean;
+  runtimeProxyRequireAuth: boolean;
+  runtimeProxyBearerToken: string | undefined;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -93,6 +96,21 @@ export function loadConfig(): GatewayConfig {
     throw new Error("GATEWAY_PORT must be a valid port number");
   }
 
+  const runtimeProxyEnabled =
+    process.env.GATEWAY_RUNTIME_PROXY_ENABLED === "true";
+
+  const runtimeProxyRequireAuth =
+    process.env.GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH !== "false";
+
+  const runtimeProxyBearerToken =
+    process.env.RUNTIME_PROXY_BEARER_TOKEN || undefined;
+
+  if (runtimeProxyEnabled && runtimeProxyRequireAuth && !runtimeProxyBearerToken) {
+    throw new Error(
+      "RUNTIME_PROXY_BEARER_TOKEN is required when proxy is enabled with auth required",
+    );
+  }
+
   log.info(
     {
       telegramApiBaseUrl,
@@ -101,6 +119,8 @@ export function loadConfig(): GatewayConfig {
       unmappedPolicy,
       hasDefaultAssistant: !!defaultAssistantId,
       port,
+      runtimeProxyEnabled,
+      runtimeProxyRequireAuth,
     },
     "Configuration loaded",
   );
@@ -114,5 +134,8 @@ export function loadConfig(): GatewayConfig {
     defaultAssistantId,
     unmappedPolicy,
     port,
+    runtimeProxyEnabled,
+    runtimeProxyRequireAuth,
+    runtimeProxyBearerToken,
   };
 }
