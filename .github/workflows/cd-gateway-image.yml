@@ -6,6 +6,7 @@ on:
     paths:
       - 'gateway/**'
       - '.github/workflows/cd-gateway-image.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -32,15 +33,26 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Compute image tags
+        id: tags
+        run: |
+          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          TAGS="${IMAGE}:${{ github.sha }}"
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            TAGS="${TAGS}
+${IMAGE}:latest"
+          fi
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         id: build
         uses: docker/build-push-action@v6
         with:
           context: gateway
           push: true
-          tags: |
-            ${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}:${{ github.sha }}
-            ${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}:latest
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
