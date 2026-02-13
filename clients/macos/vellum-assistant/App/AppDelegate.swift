@@ -76,9 +76,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var hasSetupApp = false
+
     private func proceedToApp() {
         authWindow?.close()
         authWindow = nil
+
+        guard !hasSetupApp else {
+            showMainWindow()
+            return
+        }
+        hasSetupApp = true
 
         setupDaemonClient()
         setupMenuBar()
@@ -408,10 +416,21 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func performLogout() {
         Task {
             await authManager.logout()
+
             mainWindow?.close()
             mainWindow = nil
             settingsWindow?.close()
             settingsWindow = nil
+
+            hotKey = nil
+            if let escapeMonitor {
+                NSEvent.removeMonitor(escapeMonitor)
+                self.escapeMonitor = nil
+            }
+            voiceInput = nil
+            ambientAgent.stop()
+
+            hasSetupApp = false
             showAuthWindow()
         }
     }

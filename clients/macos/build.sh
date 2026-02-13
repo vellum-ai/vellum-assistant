@@ -160,6 +160,17 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <true/>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>$BUNDLE_ID.auth</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>vellum-assistant</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST

@@ -1,3 +1,4 @@
+import AppKit
 import AuthenticationServices
 import CryptoKit
 import Foundation
@@ -160,7 +161,9 @@ final class AuthManager {
             let stateParam = generateRandomString(length: 32)
             let redirectURI = "\(Self.callbackScheme)://auth/callback"
 
-            var components = URLComponents(string: authEndpoint)!
+            guard var components = URLComponents(string: authEndpoint) else {
+                throw AuthServiceError.invalidURL
+            }
             components.queryItems = [
                 URLQueryItem(name: "response_type", value: "code"),
                 URLQueryItem(name: "client_id", value: clientId),
