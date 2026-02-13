@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { getHooksDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
-import type { HookConfig, HookConfigEntry } from './types.js';
+import type { HookConfig, HookConfigEntry, HookManifest } from './types.js';
 
 const log = getLogger('hooks-config');
 
@@ -57,4 +57,26 @@ export function ensureHookInConfig(hookName: string, entry: HookConfigEntry): vo
   if (hookName in config.hooks) return;
   config.hooks[hookName] = entry;
   saveHooksConfig(config);
+}
+
+/**
+ * Get merged settings for a hook. Manifest defaults are used as the base,
+ * then user overrides from config.json are applied on top.
+ */
+export function getHookSettings(hookName: string, manifest: HookManifest): Record<string, unknown> {
+  // Start with defaults from manifest schema
+  const defaults: Record<string, unknown> = {};
+  if (manifest.settingsSchema) {
+    for (const [key, schema] of Object.entries(manifest.settingsSchema)) {
+      if (schema.default !== undefined) {
+        defaults[key] = schema.default;
+      }
+    }
+  }
+
+  // Merge user overrides from config
+  const config = loadHooksConfig();
+  const userSettings = config.hooks[hookName]?.settings ?? {};
+
+  return { ...defaults, ...userSettings };
 }
