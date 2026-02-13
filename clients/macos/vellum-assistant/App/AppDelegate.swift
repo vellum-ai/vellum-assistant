@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CoreText
 import HotKey
 import SwiftUI
