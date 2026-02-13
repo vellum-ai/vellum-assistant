@@ -535,6 +535,7 @@ memory
     console.log(`Lexical hits: ${result.lexicalHits}`);
     console.log(`Semantic hits: ${result.semanticHits}`);
     console.log(`Recency hits: ${result.recencyHits}`);
+    console.log(`Entity hits: ${result.entityHits}`);
     console.log(`Injected tokens: ${result.injectedTokens}`);
     console.log(`Latency: ${result.latencyMs}ms`);
     if (result.injectedText.length > 0) {

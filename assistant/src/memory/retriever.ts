@@ -7,7 +7,7 @@ import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
 import { getDb } from './db.js';
 import { getQdrantClient } from './qdrant-client.js';
-import { memoryItems, memorySegments } from './schema.js';
+import { memoryEntities, memoryItemEntities, memoryItems, memorySegments } from './schema.js';
 
 const log = getLogger('memory-retriever');
 const MEMORY_RECALL_MARKER = '[Memory Recall v1]';
@@ -37,6 +37,7 @@ export interface MemoryRecallResult {
   lexicalHits: number;
   semanticHits: number;
   recencyHits: number;
+  entityHits: number;
   injectedTokens: number;
   injectedText: string;
   latencyMs: number;
@@ -115,6 +116,7 @@ export async function buildMemoryRecall(
   let lexicalCandidates: Candidate[] = [];
   let recencyCandidates: Candidate[] = [];
   let semanticCandidates: Candidate[] = [];
+  let entityCandidates: Candidate[] = [];
   try {
     lexicalCandidates = lexicalSearch(query, config.memory.retrieval.lexicalTopK, excludeMessageIds);
     recencyCandidates = recencySearch(
@@ -125,6 +127,9 @@ export async function buildMemoryRecall(
     semanticCandidates = queryVector
       ? await semanticSearch(queryVector, provider!, model!, config.memory.retrieval.semanticTopK, excludeMessageIds)
       : [];
+    if (config.memory.entity.enabled) {
+      entityCandidates = entitySearch(query);
+    }
   } catch (err) {
     if (signal?.aborted || isAbortError(err)) {
       return emptyResult({
@@ -147,7 +152,7 @@ export async function buildMemoryRecall(
     });
   }
 
-  let merged = mergeCandidates(lexicalCandidates, semanticCandidates, recencyCandidates);
+  let merged = mergeCandidates(lexicalCandidates, semanticCandidates, recencyCandidates, entityCandidates);
 
   // LLM re-ranking: send top candidates to Haiku for relevance scoring
   const rerankingConfig = config.memory.retrieval.reranking;
@@ -185,6 +190,7 @@ export async function buildMemoryRecall(
     lexicalHits: lexicalCandidates.length,
     semanticHits: semanticCandidates.length,
     recencyHits: recencyCandidates.length,
+    entityHits: entityCandidates.length,
     selected: selected.length,
     injectedTokens: estimateTextTokens(injectedText),
     latencyMs,
@@ -199,6 +205,7 @@ export async function buildMemoryRecall(
     lexicalHits: lexicalCandidates.length,
     semanticHits: semanticCandidates.length,
     recencyHits: recencyCandidates.length,
+    entityHits: entityCandidates.length,
     injectedTokens: estimateTextTokens(injectedText),
     injectedText,
     latencyMs,
@@ -451,6 +458,111 @@ function recencySearch(conversationId: string, limit: number, excludedMessageIds
 }
 
 /**
+ * Entity-based retrieval: extract entity names from the query,
+ * fuzzy match against known entities (name + aliases), and return
+ * all memory items linked to those entities.
+ */
+function entitySearch(query: string): Candidate[] {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) return [];
+
+  const db = getDb();
+  const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
+
+  // Tokenize query into words for entity matching
+  const tokens = trimmed
+    .toLowerCase()
+    .split(/[^a-z0-9_.-]+/g)
+    .filter((t) => t.length >= 2);
+  if (tokens.length === 0) return [];
+
+  // Build LIKE conditions for each token against entity name and aliases
+  const likeClauses = tokens.map((t) => `(LOWER(name) LIKE '%${escapeSqlLike(t)}%' OR LOWER(aliases) LIKE '%${escapeSqlLike(t)}%')`);
+  const entityQuery = `
+    SELECT id, name, type, aliases, mention_count
+    FROM memory_entities
+    WHERE ${likeClauses.join(' OR ')}
+    LIMIT 20
+  `;
+
+  let matchedEntities: Array<{
+    id: string;
+    name: string;
+    type: string;
+    aliases: string | null;
+    mention_count: number;
+  }> = [];
+  try {
+    matchedEntities = raw.query(entityQuery).all() as Array<{
+      id: string;
+      name: string;
+      type: string;
+      aliases: string | null;
+      mention_count: number;
+    }>;
+  } catch (err) {
+    log.warn({ err }, 'Entity search query failed');
+    return [];
+  }
+
+  if (matchedEntities.length === 0) return [];
+
+  // Get all entity IDs
+  const entityIds = matchedEntities.map((e) => e.id);
+
+  // Find all memory items linked to these entities
+  const placeholders = entityIds.map(() => '?').join(',');
+  let linkedRows: Array<{
+    memory_item_id: string;
+    entity_id: string;
+  }> = [];
+  try {
+    linkedRows = raw.query(`
+      SELECT memory_item_id, entity_id
+      FROM memory_item_entities
+      WHERE entity_id IN (${placeholders})
+    `).all(...entityIds) as Array<{
+      memory_item_id: string;
+      entity_id: string;
+    }>;
+  } catch (err) {
+    log.warn({ err }, 'Entity item link query failed');
+    return [];
+  }
+
+  if (linkedRows.length === 0) return [];
+
+  // Fetch the actual memory items
+  const itemIds = [...new Set(linkedRows.map((r) => r.memory_item_id))];
+  const items = db
+    .select()
+    .from(memoryItems)
+    .where(and(
+      inArray(memoryItems.id, itemIds),
+      eq(memoryItems.status, 'active'),
+    ))
+    .all();
+
+  return items.map((item) => ({
+    key: `item:${item.id}`,
+    type: 'item' as CandidateType,
+    id: item.id,
+    text: `[${item.kind}] ${item.subject}: ${item.statement}`,
+    confidence: item.confidence,
+    importance: item.importance ?? 0.5,
+    createdAt: item.lastSeenAt,
+    lexical: 0,
+    semantic: 0,
+    recency: computeRecencyScore(item.lastSeenAt),
+    finalScore: 0,
+  }));
+}
+
+function escapeSqlLike(s: string): string {
+  return s.replace(/'/g, "''").replace(/%/g, '').replace(/_/g, '');
+}
+
+/**
  * Reciprocal Rank Fusion (RRF) — merge candidates from independent ranking
  * lists without assuming comparable score scales.
  *
@@ -466,10 +578,11 @@ function mergeCandidates(
   lexical: Candidate[],
   semantic: Candidate[],
   recency: Candidate[],
+  entity: Candidate[] = [],
 ): Candidate[] {
   // Build merged candidate map (dedup by key, keep best metadata)
   const merged = new Map<string, Candidate>();
-  for (const candidate of [...lexical, ...semantic, ...recency]) {
+  for (const candidate of [...lexical, ...semantic, ...recency, ...entity]) {
     const existing = merged.get(candidate.key);
     if (!existing) {
       merged.set(candidate.key, { ...candidate });
@@ -489,6 +602,7 @@ function mergeCandidates(
   const lexicalRanks = buildRankMap(lexical, (c) => c.lexical);
   const semanticRanks = buildRankMap(semantic, (c) => c.semantic);
   const recencyRanks = buildRankMap(recency, (c) => c.recency);
+  const entityRanks = buildRankMap(entity, (c) => c.confidence);
 
   // Look up access_count for item-type candidates (retrieval reinforcement)
   const itemIds = [...merged.values()]
@@ -502,6 +616,7 @@ function mergeCandidates(
     if (lexicalRanks.has(row.key)) ranks.push(lexicalRanks.get(row.key)!);
     if (semanticRanks.has(row.key)) ranks.push(semanticRanks.get(row.key)!);
     if (recencyRanks.has(row.key)) ranks.push(recencyRanks.get(row.key)!);
+    if (entityRanks.has(row.key)) ranks.push(entityRanks.get(row.key)!);
 
     const rrfScore = rrf(ranks);
 
@@ -757,6 +872,7 @@ function emptyResult(
     lexicalHits: 0,
     semanticHits: 0,
     recencyHits: 0,
+    entityHits: 0,
     injectedTokens: 0,
     injectedText: '',
     latencyMs: init.latencyMs,

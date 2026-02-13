@@ -451,6 +451,7 @@ export class Session {
             lexicalHits: recall.lexicalHits,
             semanticHits: recall.semanticHits,
             recencyHits: recall.recencyHits,
+            entityHits: recall.entityHits,
             injectedTokens: recall.injectedTokens,
             latencyMs: recall.latencyMs,
           });

@@ -283,6 +283,39 @@ export function initializeDb(): void {
     )
   `);
 
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_entities (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      aliases TEXT,
+      description TEXT,
+      first_seen_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL,
+      mention_count INTEGER NOT NULL DEFAULT 1
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_entity_relations (
+      id TEXT PRIMARY KEY,
+      source_entity_id TEXT NOT NULL,
+      target_entity_id TEXT NOT NULL,
+      relation TEXT NOT NULL,
+      evidence TEXT,
+      first_seen_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_item_entities (
+      memory_item_id TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      PRIMARY KEY (memory_item_id, entity_id)
+    )
+  `);
+
   // FTS table for lexical retrieval over memory_segments.text.
   database.run(/*sql*/ `
     CREATE VIRTUAL TABLE IF NOT EXISTS memory_segment_fts USING fts5(
@@ -373,6 +406,13 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_provider ON llm_usage_events(provider)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_model ON llm_usage_events(model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_actor ON llm_usage_events(actor)`);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entities_name ON memory_entities(name)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entities_type ON memory_entities(type)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entity_relations_source ON memory_entity_relations(source_entity_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entity_relations_target ON memory_entity_relations(target_entity_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_entities_memory_item ON memory_item_entities(memory_item_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_entities_entity ON memory_item_entities(entity_id)`);
 
   migrateMemoryFtsBackfill(database);
 }
