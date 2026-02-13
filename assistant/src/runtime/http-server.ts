@@ -16,6 +16,7 @@ import * as attachmentsStore from '../memory/attachments-store.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import { renderHistoryContent, mergeToolResults } from '../daemon/handlers.js';
 import { getConfig } from '../config/loader.js';
+import { getUsageSummary } from '../usage/summary.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 import { recordDirectLlmUsage } from '../usage/recorders.js';
 
@@ -155,6 +156,10 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {
         return await this.handleChannelDeliveryAck(assistantId, req);
+      }
+
+      if (endpoint === 'usage' && req.method === 'GET') {
+        return this.handleGetUsage(assistantId, url);
       }
 
       return Response.json({ error: 'Not found' }, { status: 404 });
@@ -732,6 +737,66 @@ export class RuntimeHttpServer {
       eventId: result.eventId,
       ...(assistantMessage ? { assistantMessage } : {}),
     });
+  }
+
+  // ── Usage endpoint ──────────────────────────────────────────────────
+
+  private handleGetUsage(assistantId: string, url: URL): Response {
+    const preset = url.searchParams.get('preset');
+    const startParam = url.searchParams.get('start');
+    const endParam = url.searchParams.get('end');
+
+    let startAt: number;
+    let endAt: number;
+
+    if (preset) {
+      const now = Date.now();
+      endAt = now;
+      switch (preset) {
+        case '24h':
+          startAt = now - 24 * 60 * 60 * 1000;
+          break;
+        case '7d':
+          startAt = now - 7 * 24 * 60 * 60 * 1000;
+          break;
+        case '30d':
+          startAt = now - 30 * 24 * 60 * 60 * 1000;
+          break;
+        default:
+          return Response.json(
+            { error: 'Invalid preset. Must be one of: 24h, 7d, 30d' },
+            { status: 400 },
+          );
+      }
+    } else if (startParam && endParam) {
+      startAt = Number(startParam);
+      endAt = Number(endParam);
+      if (isNaN(startAt) || isNaN(endAt)) {
+        return Response.json(
+          { error: 'start and end must be valid epoch milliseconds' },
+          { status: 400 },
+        );
+      }
+      if (startAt >= endAt) {
+        return Response.json(
+          { error: 'start must be before end' },
+          { status: 400 },
+        );
+      }
+    } else {
+      return Response.json(
+        { error: 'Either preset (24h|7d|30d) or start+end (epoch ms) query params are required' },
+        { status: 400 },
+      );
+    }
+
+    try {
+      const summary = getUsageSummary({ startAt, endAt, assistantId });
+      return Response.json(summary);
+    } catch (err) {
+      log.error({ err, assistantId }, 'Failed to fetch usage summary');
+      return Response.json({ error: 'Failed to fetch usage summary' }, { status: 500 });
+    }
   }
 
   private async handleChannelDeliveryAck(assistantId: string, req: Request): Promise<Response> {
