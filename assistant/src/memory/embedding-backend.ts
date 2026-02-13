@@ -141,6 +141,14 @@ export async function embedWithBackend(
       if (vectors.length !== texts.length) {
         throw new Error(`Embedding backend returned ${vectors.length} vectors for ${texts.length} texts`);
       }
+      const expectedDim = config.memory.qdrant.vectorSize;
+      for (const vec of vectors) {
+        if (vec.length !== expectedDim) {
+          throw new Error(
+            `Embedding backend "${backend.provider}" (model ${backend.model}) returned vectors of dimension ${vec.length}, but Qdrant collection expects ${expectedDim}`,
+          );
+        }
+      }
       return { provider: backend.provider, model: backend.model, vectors };
     } catch (err) {
       lastErr = err;
