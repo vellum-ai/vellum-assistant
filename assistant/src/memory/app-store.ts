@@ -28,6 +28,7 @@ export interface AppDefinition {
   description?: string;
   schemaJson: string;
   htmlDefinition: string;
+  icon?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -101,7 +102,7 @@ export function listApps(): AppDefinition[] {
 
 export function updateApp(
   id: string,
-  updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'schemaJson' | 'htmlDefinition'>>,
+  updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'schemaJson' | 'htmlDefinition' | 'icon'>>,
 ): AppDefinition {
   validateId(id);
   const existing = getApp(id);

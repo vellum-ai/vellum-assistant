@@ -3,14 +3,16 @@ import UniformTypeIdentifiers
 
 struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
+    @ObservedObject var appsManager: AppsManager
     @State private var activePanel: SidePanelType?
     @State private var hasAPIKey = APIKeyManager.getKey() != nil
     let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
     let onMicrophoneToggle: () -> Void
 
-    init(threadManager: ThreadManager, daemonClient: DaemonClient, ambientAgent: AmbientAgent, onMicrophoneToggle: @escaping () -> Void = {}) {
+    init(threadManager: ThreadManager, appsManager: AppsManager, daemonClient: DaemonClient, ambientAgent: AmbientAgent, onMicrophoneToggle: @escaping () -> Void = {}) {
         self.threadManager = threadManager
+        self.appsManager = appsManager
         self.daemonClient = daemonClient
         self.ambientAgent = ambientAgent
         self.onMicrophoneToggle = onMicrophoneToggle
@@ -127,7 +129,7 @@ struct MainWindowView: View {
         if let panel = activePanel {
             switch panel {
             case .generated:
-                GeneratedPanel(onClose: { activePanel = nil })
+                GeneratedPanel(onClose: { activePanel = nil }, appsManager: appsManager)
             case .agent:
                 AgentPanel(onClose: { activePanel = nil }, daemonClient: daemonClient)
             case .control:
@@ -145,5 +147,5 @@ struct MainWindowView: View {
 
 #Preview {
     let dc = DaemonClient()
-    return MainWindowView(threadManager: ThreadManager(daemonClient: dc), daemonClient: dc, ambientAgent: AmbientAgent())
+    return MainWindowView(threadManager: ThreadManager(daemonClient: dc), appsManager: AppsManager(daemonClient: dc), daemonClient: dc, ambientAgent: AmbientAgent())
 }

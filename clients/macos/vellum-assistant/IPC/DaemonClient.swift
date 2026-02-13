@@ -62,6 +62,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `trust_rules_list_response` message.
     var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
 
+    /// Called when the daemon sends an `apps_list_response` message.
+    var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `skills_state_changed` push event.
     var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
 
@@ -410,6 +413,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(SkillsConfigureMessage(name: name, env: env, apiKey: apiKey, config: config))
     }
 
+    func requestAppsList() throws {
+        try send(AppsListRequestMessage())
+    }
+
     // MARK: - Disconnect
 
     /// Disconnect from the daemon. Stops reconnect and ping timers.
@@ -540,6 +547,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onTimerCompleted?(msg)
         case .trustRulesListResponse(let msg):
             onTrustRulesListResponse?(msg.rules)
+        case .appsListResponse(let msg):
+            onAppsListResponse?(msg)
         case .skillStateChanged(let msg):
             onSkillStateChanged?(msg)
         case .skillsUpdatesAvailable(let msg):

@@ -207,6 +207,12 @@ struct AppDataRequestMessage: Encodable, Sendable {
     let data: [String: AnyCodable]?
 }
 
+/// Sent to request the list of generated apps.
+/// Wire type: `"apps_list"`
+struct AppsListRequestMessage: Encodable, Sendable {
+    let type: String = "apps_list"
+}
+
 /// Sent to request the list of available skills.
 /// Wire type: `"skills_list"`
 struct SkillsListRequestMessage: Encodable, Sendable {
@@ -468,6 +474,21 @@ struct SkillInfo: Codable, Sendable, Identifiable {
 /// Backward-compatible alias for code referencing the old name.
 typealias SkillSummaryItem = SkillInfo
 
+/// Summary of a single app returned from the daemon.
+struct AppSummaryItem: Decodable, Sendable, Identifiable {
+    let id: String
+    let name: String
+    let description: String?
+    let updatedAt: Double
+    let icon: String?
+}
+
+/// Response containing the list of generated apps.
+/// Wire type: `"apps_list_response"`
+struct AppsListResponseMessage: Decodable, Sendable {
+    let apps: [AppSummaryItem]
+}
+
 /// Response containing the list of available skills.
 /// Wire type: `"skills_list_response"`
 struct SkillsListResponseMessage: Decodable, Sendable {
@@ -669,6 +690,7 @@ enum ServerMessage: Decodable, Sendable {
     case appDataResponse(AppDataResponseMessage)
     case messageQueued(MessageQueuedMessage)
     case messageDequeued(MessageDequeuedMessage)
+    case appsListResponse(AppsListResponseMessage)
     case skillsListResponse(SkillsListResponseMessage)
     case skillDetailResponse(SkillDetailResponseMessage)
     case skillStateChanged(SkillStateChangedMessage)
@@ -749,6 +771,9 @@ enum ServerMessage: Decodable, Sendable {
         case "message_dequeued":
             let message = try MessageDequeuedMessage(from: decoder)
             self = .messageDequeued(message)
+        case "apps_list_response":
+            let message = try AppsListResponseMessage(from: decoder)
+            self = .appsListResponse(message)
         case "skills_list_response":
             let message = try SkillsListResponseMessage(from: decoder)
             self = .skillsListResponse(message)
