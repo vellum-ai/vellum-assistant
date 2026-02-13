@@ -62,8 +62,10 @@ export async function checkContradictions(newItemId: string): Promise<void> {
     try {
       const result = await classifyRelationship(apiKey, existing, newItem);
       await handleRelationship(result, existing, newItem);
-      // Stop after the new item's disposition has been decided (invalidated or superseded)
-      if (result.relationship !== 'complement') break;
+      // Only stop when the new item itself is invalidated (update case).
+      // For contradiction, the old item is invalidated but the new item remains
+      // active and should continue to be checked against remaining candidates.
+      if (result.relationship === 'update') break;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn({ err: message, newItemId, existingId: existing.id }, 'Contradiction classification failed for pair');
