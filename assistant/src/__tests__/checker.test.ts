@@ -513,13 +513,13 @@ describe('Permission Checker', () => {
     test('relative path to protected file is still denied', async () => {
       // Simulate a relative path that resolves to the protected directory.
       // The default deny pattern uses an absolute path, so the checker
-      // must resolve relative paths before matching.
-      const cwd = process.cwd();
+      // must resolve relative paths against workingDir before matching.
+      const workingDir = '/tmp';
       const protectedPath = join(checkerTestDir, 'protected', 'trust.json');
-      // Build a relative path from cwd to the protected file
+      // Build a relative path from workingDir to the protected file
       const { relative } = await import('node:path');
-      const relPath = relative(cwd, protectedPath);
-      const result = await check('file_read', { path: relPath }, '/tmp');
+      const relPath = relative(workingDir, protectedPath);
+      const result = await check('file_read', { path: relPath }, workingDir);
       expect(result.decision).toBe('deny');
     });
   });

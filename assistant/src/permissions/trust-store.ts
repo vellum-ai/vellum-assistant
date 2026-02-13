@@ -78,8 +78,14 @@ function loadFromDisk(): TrustRule[] {
       } else if (data.version === TRUST_FILE_VERSION) {
         rules = data.rules ?? [];
       } else {
-        log.warn({ version: data.version }, 'Unknown trust file version, ignoring');
-        // Fall through to backfill defaults even for unknown versions
+        log.warn({ version: data.version }, 'Unknown trust file version, applying defaults in-memory only');
+        // Apply default deny rules in-memory so the assistant is still
+        // protected, but do NOT persist — we must not overwrite a newer
+        // trust file format we don't understand.
+        const memRules: TrustRule[] = [];
+        backfillDefaults(memRules);
+        memRules.sort(ruleOrder);
+        return memRules;
       }
     } catch (err) {
       log.error({ err }, 'Failed to load trust file');

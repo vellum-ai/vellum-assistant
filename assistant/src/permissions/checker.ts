@@ -123,7 +123,7 @@ function escapeMinimatchLiteral(value: string): string {
   return value.replace(/([\\*?[\]{}()!+@|])/g, '\\$1');
 }
 
-function buildCommandCandidates(toolName: string, input: Record<string, unknown>): string[] {
+function buildCommandCandidates(toolName: string, input: Record<string, unknown>, workingDir: string): string[] {
   if (toolName === 'bash') {
     return [getStringField(input, 'command')];
   }
@@ -165,7 +165,7 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
   }
 
   const fileTarget = getStringField(input, 'path', 'file_path');
-  const resolved = fileTarget ? resolve(fileTarget) : fileTarget;
+  const resolved = fileTarget ? resolve(workingDir, fileTarget) : fileTarget;
   const candidates = [`${toolName}:${resolved}`];
   // Also include the raw path if it differs, so user-created rules with
   // raw paths still match.
@@ -268,7 +268,7 @@ export async function check(
   const risk = await classifyRisk(toolName, input);
 
   // Build command string candidates for rule matching
-  const commandCandidates = buildCommandCandidates(toolName, input);
+  const commandCandidates = buildCommandCandidates(toolName, input, workingDir);
 
   // Find the highest-priority matching rule across all candidates
   const matchedRule = findHighestPriorityRule(toolName, commandCandidates, workingDir);

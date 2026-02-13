@@ -617,13 +617,18 @@ describe('Trust Store', () => {
       expect(defaults).toHaveLength(NUM_DEFAULTS);
     });
 
-    test('default deny rules are backfilled after unknown file version', () => {
+    test('default deny rules are backfilled in-memory after unknown file version without overwriting disk', () => {
       mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(trustPath, JSON.stringify({ version: 9999, rules: [] }));
+      const originalContent = JSON.stringify({ version: 9999, rules: [{ id: 'future-rule', tool: 'bash', pattern: 'future *', scope: 'everywhere', decision: 'allow', priority: 50, createdAt: 1000 }] });
+      writeFileSync(trustPath, originalContent);
       clearCache();
       const rules = getAllRules();
+      // Defaults should be present in-memory
       const defaults = rules.filter((r) => r.id.startsWith('default:'));
       expect(defaults).toHaveLength(NUM_DEFAULTS);
+      // The on-disk file must NOT be overwritten — it preserves the unknown format
+      const diskContent = readFileSync(trustPath, 'utf-8');
+      expect(diskContent).toBe(originalContent);
     });
 
     test('clearAllRules preserves default deny rules', () => {
