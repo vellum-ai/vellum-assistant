@@ -443,21 +443,26 @@ function migrateJobDeferrals(database: ReturnType<typeof drizzle<typeof schema>>
   ).get();
   if (checkpoint) return;
 
-  raw.exec(/*sql*/ `
-    BEGIN;
-    UPDATE memory_jobs
-    SET deferrals = attempts,
-        attempts = 0,
-        last_error = NULL,
-        updated_at = ${Date.now()}
-    WHERE status = 'pending'
-      AND attempts > 0
-      AND deferrals = 0
-      AND type IN ('embed_segment', 'embed_item', 'embed_summary');
-    INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at)
-    VALUES ('migration_job_deferrals', '1', ${Date.now()});
-    COMMIT;
-  `);
+  try {
+    raw.exec(/*sql*/ `
+      BEGIN;
+      UPDATE memory_jobs
+      SET deferrals = attempts,
+          attempts = 0,
+          last_error = NULL,
+          updated_at = ${Date.now()}
+      WHERE status = 'pending'
+        AND attempts > 0
+        AND deferrals = 0
+        AND type IN ('embed_segment', 'embed_item', 'embed_summary');
+      INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at)
+      VALUES ('migration_job_deferrals', '1', ${Date.now()});
+      COMMIT;
+    `);
+  } catch (e) {
+    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    throw e;
+  }
 }
 
 /**
