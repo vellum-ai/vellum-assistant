@@ -49,7 +49,7 @@ function renderWelcomeScreen(): void {
   const cwd = process.cwd();
   const dirName = basename(cwd);
 
-  let recentSessions: Array<{ title: string; updatedAt: number }> = [];
+  let recentSessions: Array<{ title: string | null; updatedAt: number }> = [];
   try {
     initializeDb();
     recentSessions = listConversations(3);
@@ -89,7 +89,8 @@ function renderWelcomeScreen(): void {
   const activityHeader = `${MAGENTA}Recent activity${RESET}`;
   const activityLines: string[] = recentSessions.length > 0
     ? recentSessions.map(s => {
-        const t = s.title.length > 35 ? s.title.slice(0, 32) + '...' : s.title;
+        const title = s.title ?? 'Untitled';
+        const t = title.length > 35 ? title.slice(0, 32) + '...' : title;
         return `${t}  ${DIM}${timeAgo(s.updatedAt)}${RESET}`;
       })
     : [`${DIM}No recent activity${RESET}`];
