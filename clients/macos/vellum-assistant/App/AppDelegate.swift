@@ -598,6 +598,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
 
+            self?.writeIdentityFile(name: state.assistantName)
+
             onboarding.close()
             self?.onboardingWindow = nil
             self?.showMainWindow()
@@ -618,6 +620,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
 
+            self?.writeIdentityFile(name: state.assistantName)
+
             onboarding.close()
             self?.onboardingWindow = nil
 
@@ -636,6 +640,37 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         onboarding.show()
         onboardingWindow = onboarding
+    }
+
+    /// Writes (or updates) `~/.vellum/IDENTITY.md` with the user-chosen assistant name.
+    private func writeIdentityFile(name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+
+        let vellumDir = NSHomeDirectory() + "/.vellum"
+        let identityPath = vellumDir + "/IDENTITY.md"
+
+        let content = """
+        # IDENTITY
+
+        _Customize this file to give your assistant a distinct identity._
+
+        - **Name:** \(trimmed)
+        - **Role:** Personal AI assistant
+        - **Tone:** Direct, concise, and helpful
+        """
+
+        do {
+            try FileManager.default.createDirectory(
+                atPath: vellumDir,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            try content.write(toFile: identityPath, atomically: true, encoding: .utf8)
+            log.info("Wrote IDENTITY.md with name: \(trimmed)")
+        } catch {
+            log.error("Failed to write IDENTITY.md: \(error.localizedDescription)")
+        }
     }
 
     private func showMainWindow() {
