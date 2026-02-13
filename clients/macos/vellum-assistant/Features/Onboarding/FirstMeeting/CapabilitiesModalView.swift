@@ -59,7 +59,7 @@ struct CapabilitiesModalView: View {
             .padding(.horizontal, VSpacing.xxl)
             .padding(.vertical, VSpacing.lg)
         }
-        .frame(width: 400, minHeight: 480)
+        .frame(width: 400, height: 480)
         .background(
             RoundedRectangle(cornerRadius: VRadius.xl)
                 .fill(.ultraThinMaterial)

@@ -1,5 +1,6 @@
 import Foundation
 import Speech
+import SwiftUI
 
 @Observable
 @MainActor
