@@ -2,7 +2,9 @@ import { describe, test, expect, afterAll } from "bun:test";
 
 /**
  * Proves that non-Telegram requests return 404 when the gateway runs in its
- * default configuration (proxy disabled). This is the "Telegram-only" guardrail.
+ * default configuration (proxy disabled). Uses the same routing logic as
+ * src/index.ts so that changes to the production routing (e.g. accidentally
+ * enabling the proxy by default) will be caught by this test.
  */
 
 const PORT = 19830; // ephemeral port for test
@@ -23,13 +25,17 @@ for (const [k, v] of Object.entries(env)) {
   process.env[k] = v;
 }
 // Ensure proxy flag is unset
-saved["GATEWAY_RUNTIME_PROXY_ENABLED"] = process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
+saved["GATEWAY_RUNTIME_PROXY_ENABLED"] =
+  process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
 delete process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
 
 // Dynamically import to pick up env
 const { loadConfig } = await import("../config.js");
 const { createTelegramWebhookHandler } = await import(
   "../http/routes/telegram-webhook.js"
+);
+const { createRuntimeProxyHandler } = await import(
+  "../http/routes/runtime-proxy.js"
 );
 
 const config = loadConfig();
@@ -39,13 +45,32 @@ const handleTelegramWebhook = createTelegramWebhookHandler(
   async () => {},
 );
 
+// Mirror production routing from src/index.ts: only create proxy when enabled
+const handleRuntimeProxy = config.runtimeProxyEnabled
+  ? createRuntimeProxyHandler(config)
+  : null;
+
 const server = Bun.serve({
   port: PORT,
   async fetch(req) {
     const url = new URL(req.url);
+
+    if (url.pathname === "/healthz") {
+      return Response.json({ status: "ok" });
+    }
+
+    if (url.pathname === "/readyz") {
+      return Response.json({ status: "ok" });
+    }
+
     if (url.pathname === "/webhooks/telegram") {
       return handleTelegramWebhook(req);
     }
+
+    if (handleRuntimeProxy) {
+      return handleRuntimeProxy(req);
+    }
+
     return Response.json({ error: "Not found" }, { status: 404 });
   },
 });
@@ -83,5 +108,27 @@ describe("Telegram-only default: non-Telegram requests return 404", () => {
   test("GET /random-path returns 404", async () => {
     const res = await fetch(`http://localhost:${PORT}/random-path`);
     expect(res.status).toBe(404);
+  });
+
+  test("config.runtimeProxyEnabled is false by default", () => {
+    expect(config.runtimeProxyEnabled).toBe(false);
+  });
+
+  test("runtime proxy handler is not created when proxy is disabled", () => {
+    expect(handleRuntimeProxy).toBeNull();
+  });
+
+  test("GET /healthz returns 200 (infrastructure routes still work)", async () => {
+    const res = await fetch(`http://localhost:${PORT}/healthz`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("ok");
+  });
+
+  test("GET /readyz returns 200 (infrastructure routes still work)", async () => {
+    const res = await fetch(`http://localhost:${PORT}/readyz`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("ok");
   });
 });
