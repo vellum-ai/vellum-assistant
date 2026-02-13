@@ -10,6 +10,7 @@ struct VEmptyState: View {
             if let icon = icon {
                 Image(systemName: icon)
                     .font(.system(size: 48))
+                    .frame(width: 48, height: 48)
                     .foregroundColor(VColor.textMuted)
             }
             Text(title)
