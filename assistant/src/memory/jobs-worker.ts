@@ -128,10 +128,13 @@ export async function runMemoryJobsOnce(): Promise<number> {
       processed += 1;
     } catch (err) {
       if (err instanceof BackendUnavailableError) {
-        // Backend not configured yet -- put the job back without counting an attempt
-        // so it stays pending until the provider becomes available.
-        deferMemoryJob(job.id, 30_000);
-        log.debug({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, deferring job');
+        // Backend not configured yet -- put the job back with exponential backoff.
+        const result = deferMemoryJob(job.id);
+        if (result === 'failed') {
+          log.warn({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, job exceeded max deferrals');
+        } else {
+          log.debug({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, deferring job');
+        }
       } else {
         const message = err instanceof Error ? err.message : String(err);
         failMemoryJob(job.id, message);

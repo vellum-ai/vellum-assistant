@@ -1,4 +1,4 @@
-import { and, asc, eq, lte } from 'drizzle-orm';
+import { and, asc, eq, lte, notInArray, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { memoryJobs } from './schema.js';
@@ -15,6 +15,8 @@ export type MemoryJobType =
   | 'build_conversation_summary'
   | 'backfill'
   | 'rebuild_index';
+
+const EMBED_JOB_TYPES: MemoryJobType[] = ['embed_segment', 'embed_item', 'embed_summary'];
 
 export interface MemoryJob<T = Record<string, unknown>> {
   id: string;
@@ -54,13 +56,30 @@ export function claimMemoryJobs(limit: number): MemoryJob[] {
   if (limit <= 0) return [];
   const db = getDb();
   const now = Date.now();
-  const candidates = db
+  const pendingFilter = and(eq(memoryJobs.status, 'pending'), lte(memoryJobs.runAfter, now));
+
+  // Claim non-embed jobs first, then fill remaining slots with embed jobs.
+  // This prevents embed retries from starving other job types during a backend outage.
+  const nonEmbedCandidates = db
     .select()
     .from(memoryJobs)
-    .where(and(eq(memoryJobs.status, 'pending'), lte(memoryJobs.runAfter, now)))
+    .where(and(pendingFilter, notInArray(memoryJobs.type, EMBED_JOB_TYPES)))
     .orderBy(asc(memoryJobs.runAfter), asc(memoryJobs.createdAt))
     .limit(limit)
     .all();
+
+  const remainingSlots = limit - nonEmbedCandidates.length;
+  const embedCandidates = remainingSlots > 0
+    ? db
+        .select()
+        .from(memoryJobs)
+        .where(and(pendingFilter, inArray(memoryJobs.type, EMBED_JOB_TYPES)))
+        .orderBy(asc(memoryJobs.runAfter), asc(memoryJobs.createdAt))
+        .limit(remainingSlots)
+        .all()
+    : [];
+
+  const candidates = [...nonEmbedCandidates, ...embedCandidates];
 
   const claimed: MemoryJob[] = [];
   for (const row of candidates) {
@@ -86,18 +105,55 @@ export function completeMemoryJob(id: string): void {
     .run();
 }
 
+/** Max times a job can be deferred before it is marked as failed. */
+const MAX_DEFERRALS = 200;
+/** Base delay in ms for deferred jobs (grows with exponential backoff). */
+const DEFER_BASE_DELAY_MS = 30_000;
+/** Maximum delay cap for deferred jobs (5 minutes). */
+const DEFER_MAX_DELAY_MS = 5 * 60 * 1000;
+
 /**
- * Move a running job back to pending without incrementing its attempt count.
- * Used when the failure is a missing configuration (not a transient error)
- * so the job can be retried indefinitely once the config is available.
+ * Move a running job back to pending with exponential backoff.
+ * Used when the failure is a missing configuration (not a transient error).
+ * The job's attempt counter is incremented so that backoff grows and the job
+ * eventually fails after {@link MAX_DEFERRALS} deferrals instead of retrying
+ * indefinitely.
+ *
+ * Returns `'deferred'` if the job was put back, or `'failed'` if max deferrals
+ * were exceeded and the job was marked as failed.
  */
-export function deferMemoryJob(id: string, delayMs = 30_000): void {
+export function deferMemoryJob(id: string): 'deferred' | 'failed' {
   const db = getDb();
+  const row = db
+    .select()
+    .from(memoryJobs)
+    .where(eq(memoryJobs.id, id))
+    .get();
+  if (!row) return 'failed';
+
+  const attempts = row.attempts + 1;
   const now = Date.now();
+
+  if (attempts >= MAX_DEFERRALS) {
+    db.update(memoryJobs)
+      .set({
+        status: 'failed',
+        attempts,
+        updatedAt: now,
+        lastError: `Backend unavailable after ${attempts} deferrals`,
+      })
+      .where(eq(memoryJobs.id, id))
+      .run();
+    return 'failed';
+  }
+
+  // Exponential backoff: 30s, 60s, 120s, ... capped at 5 minutes
+  const delay = Math.min(DEFER_BASE_DELAY_MS * Math.pow(2, Math.min(attempts - 1, 10)), DEFER_MAX_DELAY_MS);
   db.update(memoryJobs)
-    .set({ status: 'pending', runAfter: now + delayMs, updatedAt: now })
+    .set({ status: 'pending', attempts, runAfter: now + delay, updatedAt: now })
     .where(eq(memoryJobs.id, id))
     .run();
+  return 'deferred';
 }
 
 export function failMemoryJob(
