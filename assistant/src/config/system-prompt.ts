@@ -83,12 +83,18 @@ function buildConfigSection(configDir: string): string {
  */
 export function stripCommentLines(content: string): string {
   const normalized = content.replace(/\r\n/g, '\n');
-  let inCodeBlock = false;
+  let openFenceChar: string | null = null;
   const filtered = normalized.split('\n').filter((line) => {
-    if (/^ {0,3}(`{3,}|~{3,})/.test(line)) {
-      inCodeBlock = !inCodeBlock;
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const char = fenceMatch[1][0];
+      if (!openFenceChar) {
+        openFenceChar = char;
+      } else if (char === openFenceChar) {
+        openFenceChar = null;
+      }
     }
-    if (inCodeBlock) return true;
+    if (openFenceChar) return true;
     return !line.trimStart().startsWith('_');
   });
   return filtered
