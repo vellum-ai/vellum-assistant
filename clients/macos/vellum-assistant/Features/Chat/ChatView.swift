@@ -34,7 +34,8 @@ struct ChatView: View {
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
-        messages.last?.text.count ?? 0
+        let last = messages.last
+        return (last?.text.count ?? 0) + (last?.toolCalls.count ?? 0)
     }
 
     var body: some View {
@@ -462,7 +463,7 @@ private struct ChatBubble: View {
     }
 
     private var bubbleContent: some View {
-        VStack(alignment: .leading, spacing: hasText && !message.attachments.isEmpty ? VSpacing.sm : 0) {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
             if hasText {
                 Text(markdownText)
                     .font(VFont.mono)
@@ -479,6 +480,14 @@ private struct ChatBubble: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     ForEach(fileAttachments) { attachment in
                         fileAttachmentChip(attachment)
+                    }
+                }
+            }
+
+            if !message.toolCalls.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    ForEach(message.toolCalls) { toolCall in
+                        ToolCallChip(toolCall: toolCall)
                     }
                 }
             }
