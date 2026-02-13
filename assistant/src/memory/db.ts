@@ -444,6 +444,7 @@ function migrateJobDeferrals(database: ReturnType<typeof drizzle<typeof schema>>
   if (checkpoint) return;
 
   raw.exec(/*sql*/ `
+    BEGIN;
     UPDATE memory_jobs
     SET deferrals = attempts,
         attempts = 0,
@@ -452,12 +453,10 @@ function migrateJobDeferrals(database: ReturnType<typeof drizzle<typeof schema>>
     WHERE status = 'pending'
       AND attempts > 0
       AND deferrals = 0
-      AND type IN ('embed_segment', 'embed_item', 'embed_summary')
-  `);
-
-  raw.exec(/*sql*/ `
-    INSERT INTO memory_checkpoints (key, value, updated_at)
-    VALUES ('migration_job_deferrals', '1', ${Date.now()})
+      AND type IN ('embed_segment', 'embed_item', 'embed_summary');
+    INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at)
+    VALUES ('migration_job_deferrals', '1', ${Date.now()});
+    COMMIT;
   `);
 }
 
