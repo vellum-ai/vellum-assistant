@@ -462,16 +462,24 @@ private struct ChatBubble: View {
         return "Sent \(count) attachments"
     }
 
-    private var imageAttachments: [ChatAttachment] {
-        message.attachments.filter { $0.mimeType.hasPrefix("image/") && nsImage(for: $0) != nil }
-    }
-
-    private var fileAttachments: [ChatAttachment] {
-        message.attachments.filter { !$0.mimeType.hasPrefix("image/") || nsImage(for: $0) == nil }
+    /// Partitions attachments into decoded images and non-image files in a single pass,
+    /// avoiding redundant base64 decoding and NSImage construction across render calls.
+    private var partitionedAttachments: (images: [(ChatAttachment, NSImage)], files: [ChatAttachment]) {
+        var images: [(ChatAttachment, NSImage)] = []
+        var files: [ChatAttachment] = []
+        for attachment in message.attachments {
+            if attachment.mimeType.hasPrefix("image/"), let img = nsImage(for: attachment) {
+                images.append((attachment, img))
+            } else {
+                files.append(attachment)
+            }
+        }
+        return (images, files)
     }
 
     private var bubbleContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        let partitioned = partitionedAttachments
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
             if hasText {
                 Text(markdownText)
                     .font(VFont.mono)
@@ -485,13 +493,13 @@ private struct ChatBubble: View {
                     .foregroundColor(isUser ? .white.opacity(0.8) : VColor.textSecondary)
             }
 
-            if !imageAttachments.isEmpty {
-                attachmentImageGrid
+            if !partitioned.images.isEmpty {
+                attachmentImageGrid(partitioned.images)
             }
 
-            if !fileAttachments.isEmpty {
+            if !partitioned.files.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    ForEach(fileAttachments) { attachment in
+                    ForEach(partitioned.files) { attachment in
                         fileAttachmentChip(attachment)
                     }
                 }
@@ -515,18 +523,9 @@ private struct ChatBubble: View {
         .opacity(bubbleOpacity)
     }
 
-    private var attachmentImageGrid: some View {
-        // Wrap images in a flexible horizontal layout
+    private func attachmentImageGrid(_ images: [(ChatAttachment, NSImage)]) -> some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
-            ForEach(imageAttachments) { attachment in
-                attachmentImage(attachment)
-            }
-        }
-    }
-
-    private func attachmentImage(_ attachment: ChatAttachment) -> some View {
-        Group {
-            if let nsImage = nsImage(for: attachment) {
+            ForEach(images, id: \.0.id) { attachment, nsImage in
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
