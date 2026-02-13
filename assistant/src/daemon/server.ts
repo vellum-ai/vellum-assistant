@@ -22,6 +22,7 @@ import {
 } from './ipc-protocol.js';
 import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
+import { evaluateBudgets } from '../usage/budget-policy.js';
 
 const log = getLogger('server');
 
@@ -566,6 +567,26 @@ export class DaemonServer {
     content: string,
     attachmentIds?: string[],
   ): Promise<{ messageId: string }> {
+    // Pre-request budget check
+    try {
+      const config = getConfig();
+      const evaluation = evaluateBudgets(config.costControls);
+      if (evaluation.hasBlocks) {
+        const v = evaluation.violations.find((v) => v.exceeded && v.action === 'block');
+        throw new Error(
+          `Budget limit exceeded: you have spent $${v!.currentSpend.toFixed(2)} ` +
+          `of your $${v!.amountUsd.toFixed(2)} ${v!.period} budget. ` +
+          `Please adjust your budget settings or wait for the next period.`,
+        );
+      }
+    } catch (err) {
+      // Re-throw budget-blocked errors; swallow unexpected evaluation failures
+      if (err instanceof Error && err.message.startsWith('Budget limit exceeded')) {
+        throw err;
+      }
+      log.warn({ err }, 'Budget check failed (non-fatal), allowing request to proceed');
+    }
+
     const session = await this.getOrCreateSession(conversationId);
 
     // Reject concurrent requests upfront. The HTTP path should never use
@@ -608,6 +629,25 @@ export class DaemonServer {
     content: string,
     attachmentIds?: string[],
   ): Promise<{ messageId: string }> {
+    // Pre-request budget check
+    try {
+      const config = getConfig();
+      const evaluation = evaluateBudgets(config.costControls);
+      if (evaluation.hasBlocks) {
+        const v = evaluation.violations.find((v) => v.exceeded && v.action === 'block');
+        throw new Error(
+          `Budget limit exceeded: you have spent $${v!.currentSpend.toFixed(2)} ` +
+          `of your $${v!.amountUsd.toFixed(2)} ${v!.period} budget. ` +
+          `Please adjust your budget settings or wait for the next period.`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Budget limit exceeded')) {
+        throw err;
+      }
+      log.warn({ err }, 'Budget check failed (non-fatal), allowing request to proceed');
+    }
+
     const session = await this.getOrCreateSession(conversationId);
 
     if (session.isProcessing()) {

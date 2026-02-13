@@ -529,6 +529,16 @@ export interface MemoryRecalled {
   latencyMs: number;
 }
 
+export interface BudgetWarning {
+  type: 'budget_warning';
+  violations: Array<{
+    period: string;
+    amountUsd: number;
+    currentSpend: number;
+    action: string;
+  }>;
+}
+
 export interface MemoryStatus {
   type: 'memory_status';
   enabled: boolean;
@@ -774,6 +784,7 @@ export type ServerMessage =
   | SecretDetected
   | MemoryRecalled
   | MemoryStatus
+  | BudgetWarning
   | CuAction
   | CuComplete
   | CuError
