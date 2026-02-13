@@ -186,16 +186,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.toolConfirmationManager.showConfirmation(msg)
         }
         toolConfirmationManager.onResponse = { [weak self] requestId, decision in
-            // Send the response to daemon
-            try? self?.daemonClient.sendConfirmationResponse(
+            // Send the response to daemon; return false on failure so
+            // the floating panel stays visible for retry.
+            do {
+                try self?.daemonClient.sendConfirmationResponse(
+                    requestId: requestId,
+                    decision: decision
+                )
+            } catch {
+                log.error("Failed to send confirmation response: \(error.localizedDescription)")
+                return false
+            }
+            // Sync the inline message state across ALL ChatViewModels so the
+            // originating thread is updated even if the user switched threads.
+            self?.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
                 requestId: requestId,
                 decision: decision
             )
-            // Sync the inline message state in the active ChatViewModel
-            self?.mainWindow?.activeViewModel?.updateConfirmationState(
-                requestId: requestId,
-                decision: decision
-            )
+            return true
         }
     }
 
