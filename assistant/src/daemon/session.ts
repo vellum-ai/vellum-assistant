@@ -11,7 +11,7 @@ import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { getApp } from '../memory/app-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
-import { addRule } from '../permissions/trust-store.js';
+import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { ToolLifecycleEventHandler, ToolExecutionResult } from '../tools/types.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
@@ -147,6 +147,17 @@ export class Session {
         onToolLifecycleEvent: handleToolLifecycleEvent,
         proxyToolResolver: this.surfaceProxyResolver.bind(this),
         requestConfirmation: async (req) => {
+          // Check trust store before prompting
+          const existingRule = findHighestPriorityRule(
+            'cc:' + req.toolName,
+            [req.toolName, `cc:${req.toolName}`, 'cc:*'],
+            this.workingDir,
+          );
+          if (existingRule) {
+            return {
+              decision: existingRule.decision === 'allow' ? 'allow' as const : 'deny' as const,
+            };
+          }
           const allowlistOptions = [
             { label: `cc:${req.toolName}`, description: `Claude Code ${req.toolName}`, pattern: `cc:${req.toolName}` },
             { label: 'cc:*', description: 'All Claude Code sub-tools', pattern: 'cc:*' },
