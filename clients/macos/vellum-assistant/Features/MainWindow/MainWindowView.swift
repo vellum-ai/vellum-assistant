@@ -45,7 +45,11 @@ struct MainWindowView: View {
                             pendingQueuedCount: viewModel.pendingQueuedCount,
                             suggestion: viewModel.suggestion,
                             pendingAttachments: viewModel.pendingAttachments,
-                            onOpenSettings: Self.openSettings,
+                            onOpenSettings: {
+                                // Always provide an immediate, visible fallback.
+                                activePanel = .control
+                                Self.openSettings()
+                            },
                             onSend: viewModel.sendMessage,
                             onStop: viewModel.stopGenerating,
                             onDismissError: viewModel.dismissError,
