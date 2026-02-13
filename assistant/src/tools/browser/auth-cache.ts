@@ -39,6 +39,35 @@ export class AuthSessionCache {
     this.defaultExpiryMs = defaultExpiryMs ?? DEFAULT_EXPIRY_MS;
   }
 
+  /**
+   * Synchronously loads sessions from disk if they have not been loaded yet.
+   * This ensures that `isAuthenticated()` returns correct results even before
+   * `ensureContext()` triggers the async `load()`.
+   */
+  ensureLoaded(): void {
+    if (this.loaded) return;
+    try {
+      if (existsSync(this.filePath)) {
+        const raw = readFileSync(this.filePath, 'utf-8');
+        const entries: AuthSession[] = JSON.parse(raw);
+        this.sessions.clear();
+        const now = Date.now();
+        for (const entry of entries) {
+          const key = normalizeDomain(entry.domain);
+          if (entry.expiresAt != null && entry.expiresAt <= now) {
+            log.debug({ domain: key }, 'Skipping expired session during ensureLoaded');
+            continue;
+          }
+          this.sessions.set(key, { ...entry, domain: key });
+        }
+      }
+    } catch (err) {
+      log.warn({ err }, 'Failed to load auth session cache, starting fresh');
+      this.sessions.clear();
+    }
+    this.loaded = true;
+  }
+
   async load(): Promise<void> {
     try {
       if (existsSync(this.filePath)) {
@@ -75,6 +104,7 @@ export class AuthSessionCache {
   }
 
   isAuthenticated(domain: string): boolean {
+    this.ensureLoaded();
     const key = normalizeDomain(domain);
     const session = this.sessions.get(key);
     if (!session) return false;
