@@ -7,11 +7,13 @@ struct MainWindowView: View {
     @State private var hasAPIKey = APIKeyManager.getKey() != nil
     let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
+    let onMicrophoneToggle: () -> Void
 
-    init(threadManager: ThreadManager, daemonClient: DaemonClient, ambientAgent: AmbientAgent) {
+    init(threadManager: ThreadManager, daemonClient: DaemonClient, ambientAgent: AmbientAgent, onMicrophoneToggle: @escaping () -> Void = {}) {
         self.threadManager = threadManager
         self.daemonClient = daemonClient
         self.ambientAgent = ambientAgent
+        self.onMicrophoneToggle = onMicrophoneToggle
     }
 
     var body: some View {
@@ -45,6 +47,7 @@ struct MainWindowView: View {
                             pendingQueuedCount: viewModel.pendingQueuedCount,
                             suggestion: viewModel.suggestion,
                             pendingAttachments: viewModel.pendingAttachments,
+                            isRecording: viewModel.isRecording,
                             onOpenSettings: {
                                 // Always provide an immediate, visible fallback.
                                 activePanel = .control
@@ -58,6 +61,7 @@ struct MainWindowView: View {
                             onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
                             onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
                             onPaste: { viewModel.addAttachmentFromPasteboard() },
+                            onMicrophoneToggle: onMicrophoneToggle,
                             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
                             onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
                             onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) }

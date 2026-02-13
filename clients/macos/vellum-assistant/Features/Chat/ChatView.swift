@@ -11,6 +11,7 @@ struct ChatView: View {
     let pendingQueuedCount: Int
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
+    let isRecording: Bool
     let onOpenSettings: () -> Void
     let onSend: () -> Void
     let onStop: () -> Void
@@ -20,6 +21,7 @@ struct ChatView: View {
     let onRemoveAttachment: (String) -> Void
     let onDropFiles: ([URL]) -> Void
     let onPaste: () -> Void
+    let onMicrophoneToggle: () -> Void
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
@@ -246,6 +248,9 @@ struct ChatView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Stop generation")
                 } else {
+                    MicrophoneButton(isRecording: isRecording, action: onMicrophoneToggle)
+                        .disabled(!hasAPIKey)
+
                     Button(action: onAttach) {
                         Image(systemName: "paperclip")
                             .font(.system(size: 16, weight: .medium))
@@ -480,12 +485,25 @@ private struct ChatBubble: View {
         }
     }
 
+    /// Whether the bubble chrome should be rendered.
+    /// Hides the bubble when it would only contain tool-call chips and an
+    /// inline surface widget is present, since the widget already provides
+    /// visual feedback for the tool invocation.
+    private var shouldShowBubble: Bool {
+        if isUser { return true }
+        if hasText || !message.attachments.isEmpty { return true }
+        if !message.inlineSurfaces.isEmpty { return false }
+        return !message.toolCalls.isEmpty
+    }
+
     var body: some View {
         HStack {
             if isUser { Spacer(minLength: 0) }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
-                bubbleContent
+                if shouldShowBubble {
+                    bubbleContent
+                }
 
                 // Inline surfaces render below the bubble as separate cards
                 if !message.inlineSurfaces.isEmpty {
@@ -760,6 +778,39 @@ private struct TimestampDivider: View {
     }
 }
 
+// MARK: - Microphone Button
+
+private struct MicrophoneButton: View {
+    let isRecording: Bool
+    let action: () -> Void
+    @State private var isPulsing = false
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                if isRecording {
+                    Circle()
+                        .fill(VColor.error.opacity(0.2))
+                        .frame(width: 30, height: 30)
+                        .scaleEffect(isPulsing ? 1.3 : 1.0)
+                        .opacity(isPulsing ? 0.0 : 1.0)
+                        .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: false), value: isPulsing)
+                }
+
+                Image(systemName: isRecording ? "mic.fill" : "mic")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(isRecording ? VColor.error : VColor.textSecondary)
+                    .padding(10)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isRecording ? "Stop recording" : "Start voice input")
+        .onChange(of: isRecording) {
+            isPulsing = isRecording
+        }
+    }
+}
+
 // MARK: - Preview
 
 #if DEBUG
@@ -788,6 +839,7 @@ private struct TimestampDivider: View {
             pendingQueuedCount: 0,
             suggestion: "That sounds great, thanks!",
             pendingAttachments: [],
+            isRecording: false,
             onOpenSettings: {},
             onSend: {},
             onStop: {},
@@ -797,6 +849,7 @@ private struct TimestampDivider: View {
             onRemoveAttachment: { _ in },
             onDropFiles: { _ in },
             onPaste: {},
+            onMicrophoneToggle: {},
             onConfirmationAllow: { _ in },
             onConfirmationDeny: { _ in },
             onSurfaceAction: { _, _, _ in }

@@ -15,6 +15,7 @@ final class ChatViewModel: ObservableObject {
     @Published var pendingQueuedCount: Int = 0
     @Published var suggestion: String?
     @Published var pendingAttachments: [ChatAttachment] = []
+    @Published var isRecording: Bool = false
 
     /// Maximum file size per attachment (20 MB).
     private static let maxFileSize = 20 * 1024 * 1024

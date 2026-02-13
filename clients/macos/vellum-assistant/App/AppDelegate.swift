@@ -414,6 +414,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // If there's an active conversation in ready state, route recording state there
             let hasActiveConvo = self?.currentTextSession?.state == .ready
 
+            // Sync recording state to the active ChatViewModel
+            self?.mainWindow?.activeViewModel?.isRecording = isRecording
+
             if isRecording {
                 self?.statusItem.button?.image = NSImage(
                     systemSymbolName: "mic.fill",
@@ -518,6 +521,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let main = MainWindow(daemonClient: daemonClient, ambientAgent: ambientAgent)
+        main.onMicrophoneToggle = { [weak self] in
+            self?.voiceInput?.toggleRecording()
+        }
         // Wire inline confirmation dismiss to close the corresponding floating panel
         main.threadManager.confirmationDismissHandler = { [weak self] requestId in
             self?.toolConfirmationManager.dismissConfirmation(requestId: requestId)
