@@ -26,10 +26,10 @@ enum AssistantStatus {
         switch self {
         case .idle:
             symbolName = "circle.fill"
-            tintColor = .systemGreen
+            tintColor = .systemGray
         case .thinking:
             symbolName = "circle.fill"
-            tintColor = .systemOrange
+            tintColor = .systemGreen
         case .error:
             symbolName = "circle.fill"
             tintColor = .systemRed
@@ -336,17 +336,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let dotSize: CGFloat = 6
         let dotPadding: CGFloat = 0.5
 
-        let appIcon: NSImage? = {
-            if let url = ResourceBundle.bundle.url(forResource: "64-mac", withExtension: "png"),
-               let img = NSImage(contentsOf: url) {
-                return img
-            }
-            if let url = ResourceBundle.bundle.url(forResource: "32-mac", withExtension: "png"),
-               let img = NSImage(contentsOf: url) {
-                return img
-            }
-            return NSImage(named: "AppIcon") ?? NSApp.applicationIconImage
-        }()
+        let appIcon = ResourceBundle.bundle.image(forResource: "MenuBarIcon")
+            ?? NSImage(named: "MenuBarIcon")
+            ?? NSApp.applicationIconImage
         guard let appIcon else {
             button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Vellum")
             return
@@ -355,8 +347,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let status = currentAssistantStatus
         let dotColor: NSColor
         switch status {
-        case .idle: dotColor = .systemGreen
-        case .thinking: dotColor = .systemOrange
+        case .idle: dotColor = .systemGray
+        case .thinking: dotColor = .systemGreen
         case .error: dotColor = .systemRed
         }
 
