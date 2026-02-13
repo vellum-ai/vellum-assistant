@@ -263,6 +263,7 @@ if [ "$CMD" = "run" ]; then
         done
     fi
     pkill -x "vellum-assistant" 2>/dev/null || true
+    sleep 0.3
     # Launch via `open` so Launch Services registers the bundle —
     # this is required for macOS TCC to associate the app with its
     # bundle ID and show it in System Settings > Privacy & Security.
