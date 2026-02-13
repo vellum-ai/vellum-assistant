@@ -46,7 +46,7 @@ async function worker() {
       const elapsed = performance.now() - start;
       latencies.push(elapsed);
       total++;
-      if (res.status >= 500) errors++;
+      if (res.status < 200 || res.status >= 300) errors++;
     } catch {
       errors++;
       total++;
