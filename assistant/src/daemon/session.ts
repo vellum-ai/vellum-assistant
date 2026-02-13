@@ -400,6 +400,10 @@ export class Session {
       });
 
       if (preMessageResult.blocked) {
+        // Roll back the user message that was already persisted by persistUserMessage
+        // so it doesn't linger in conversation history or the database.
+        this.messages.pop();
+        conversationStore.deleteLastExchange(this.conversationId);
         onEvent({ type: 'error', message: `Message blocked by hook "${preMessageResult.blockedBy}"` });
         return;
       }
