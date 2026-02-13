@@ -52,12 +52,11 @@ final class MainWindow {
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 800, height: 600)
 
-        if let visibleFrame = Self.visibleScreenFrame() {
-            window.setFrame(visibleFrame, display: true)
-        } else {
-            window.setContentSize(NSSize(width: 1366, height: 849))
-            window.center()
-        }
+        let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let w = min(1366, screenFrame.width)
+        let h = min(849, screenFrame.height)
+        window.setContentSize(NSSize(width: w, height: h))
+        window.center()
 
         // Keep regular activation policy — the main window should appear in Dock and Cmd+Tab
         NSApp.setActivationPolicy(.regular)
@@ -71,12 +70,5 @@ final class MainWindow {
     func close() {
         window?.close()
         window = nil
-    }
-
-    private static func visibleScreenFrame() -> NSRect? {
-        if let screen = NSScreen.main {
-            return screen.visibleFrame
-        }
-        return NSScreen.screens.first?.visibleFrame
     }
 }
