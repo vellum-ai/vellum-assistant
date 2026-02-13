@@ -22,7 +22,7 @@ let leftIconX = 175 * 2   // 350
 let rightIconX = 485 * 2  // 970
 let iconCenterY = 190 * 2 // 380
 
-// --- Colors (Vellum brand: dark purple theme) ---
+// --- Colors (Vellum brand: light purple theme for readable Finder labels) ---
 func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1.0) -> [CGFloat] {
     [r / 255.0, g / 255.0, b / 255.0, a]
 }
@@ -47,8 +47,8 @@ ctx.scaleBy(x: 1, y: -1)
 
 // --- Background gradient ---
 let gradientColors = [
-    CGColor(colorSpace: colorSpace, components: rgb(22, 14, 36))!,   // Deep purple-black (top)
-    CGColor(colorSpace: colorSpace, components: rgb(15, 10, 26))!,   // Even darker (bottom)
+    CGColor(colorSpace: colorSpace, components: rgb(210, 190, 235))!, // Light lavender (top)
+    CGColor(colorSpace: colorSpace, components: rgb(180, 155, 215))!, // Muted violet (bottom)
 ]
 let gradient = CGGradient(
     colorsSpace: colorSpace,
@@ -81,12 +81,12 @@ func drawGlow(centerX: Int, centerY: Int, radius: CGFloat, color: CGColor) {
     )
 }
 
-// Purple glow behind Vellum icon
-let purpleGlow = CGColor(colorSpace: colorSpace, components: rgb(88, 28, 135, 0.15))!
+// Soft white glow behind Vellum icon
+let purpleGlow = CGColor(colorSpace: colorSpace, components: rgb(255, 255, 255, 0.2))!
 drawGlow(centerX: leftIconX, centerY: iconCenterY, radius: 200, color: purpleGlow)
 
-// Lighter glow behind Applications icon
-let blueGlow = CGColor(colorSpace: colorSpace, components: rgb(59, 34, 112, 0.12))!
+// Soft white glow behind Applications icon
+let blueGlow = CGColor(colorSpace: colorSpace, components: rgb(255, 255, 255, 0.15))!
 drawGlow(centerX: rightIconX, centerY: iconCenterY, radius: 200, color: blueGlow)
 
 // --- Arrow between icons ---
@@ -96,8 +96,8 @@ let arrowEndX = CGFloat(rightIconX - 130)    // Left of right icon
 let arrowHeadSize: CGFloat = 20
 let arrowLineWidth: CGFloat = 4.0
 
-// Arrow color: muted purple-white
-let arrowColor = CGColor(colorSpace: colorSpace, components: rgb(168, 140, 210, 0.7))!
+// Arrow color: darker purple for contrast on light background
+let arrowColor = CGColor(colorSpace: colorSpace, components: rgb(100, 70, 150, 0.6))!
 ctx.setFillColor(arrowColor)
 
 // Single filled polygon: shaft rectangle merging into arrowhead triangle
@@ -134,13 +134,13 @@ func drawCenteredText(_ text: String, centerX: CGFloat, y: CGFloat, font: CTFont
 }
 
 // Note: "Vellum" and "Applications" labels are drawn natively by Finder
-// (white text on dark backgrounds). Don't bake them into the background
+// (black text on light backgrounds). Don't bake them into the background
 // or they'll overlap and look blurry.
 
 // --- "Drag to install" text ---
 let textY = CGFloat(iconCenterY + 150)  // Below the icons
 let dragFont = CTFontCreateWithName("Helvetica Neue" as CFString, 28.0, nil)
-let dragColor = CGColor(colorSpace: colorSpace, components: rgb(255, 255, 255, 0.5))!
+let dragColor = CGColor(colorSpace: colorSpace, components: rgb(60, 30, 90, 0.6))!
 
 drawCenteredText("Drag to Applications to install", centerX: CGFloat(width) / 2.0, y: textY, font: dragFont, color: dragColor)
 
