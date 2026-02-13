@@ -136,6 +136,9 @@ struct TaskInputView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshAPIKeyState()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
+            refreshAPIKeyState()
+        }
     }
 
     private func submitTask() {

@@ -167,10 +167,14 @@ public struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 450, height: 700)
         .onAppear {
+            refreshAPIKeyState()
             checkPermissions()
         }
         .onReceive(permissionTimer) { _ in
             checkPermissions()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
+            refreshAPIKeyState()
         }
     }
 
@@ -178,6 +182,10 @@ public struct SettingsView: View {
         accessibilityGranted = PermissionManager.accessibilityStatus() == .granted
         let status = PermissionManager.screenRecordingStatus()
         screenRecordingGranted = status == .granted
+    }
+
+    private func refreshAPIKeyState() {
+        hasKey = APIKeyManager.getKey() != nil
     }
 }
 
