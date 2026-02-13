@@ -1,15 +1,39 @@
 import { spawn } from 'node:child_process';
-import { extname } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, extname, join } from 'node:path';
+import { homedir } from 'node:os';
 import { getRootDir } from '../util/platform.js';
 import { getHookSettings } from './config.js';
 import type { DiscoveredHook, HookEventData } from './types.js';
 
+/**
+ * Resolve a usable bun runtime path. When the daemon runs under plain bun
+ * (dev mode), `process.execPath` is the bun CLI and works directly.  When the
+ * daemon is a `bun build --compile` binary, `process.execPath` points to the
+ * compiled binary itself -- spawning it with `['run', script]` would re-launch
+ * the daemon.  In that case we locate bun via PATH or at `~/.bun/bin/bun`.
+ */
+function resolveBunPath(): string {
+  const execBasename = basename(process.execPath);
+  if (execBasename === 'bun' || execBasename === 'bun.exe') {
+    return process.execPath;
+  }
+
+  // Compiled-binary mode -- find a standalone bun runtime.
+  const found = Bun.which('bun');
+  if (found) return found;
+
+  const fallback = join(homedir(), '.bun', 'bin', 'bun');
+  if (existsSync(fallback)) return fallback;
+
+  // Last resort: hope process.execPath can handle it (shouldn't get here).
+  return process.execPath;
+}
+
 function getSpawnArgs(scriptPath: string): { command: string; args: string[] } {
   const ext = extname(scriptPath);
   if (ext === '.ts') {
-    // process.execPath is the bun runtime (or compiled bun binary) that
-    // started the daemon, so .ts hooks work without a separate bun install.
-    return { command: process.execPath, args: ['run', scriptPath] };
+    return { command: resolveBunPath(), args: ['run', scriptPath] };
   }
   return { command: scriptPath, args: [] };
 }
