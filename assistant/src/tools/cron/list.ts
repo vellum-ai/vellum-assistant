@@ -2,7 +2,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { listCronJobs, getCronJob, getCronRuns, formatLocalDate } from '../../cron/cron-store.js';
+import { listCronJobs, getCronJob, getCronRuns, formatLocalDate, describeCronExpression } from '../../cron/cron-store.js';
 
 class CronListTool implements Tool {
   name = 'cron_list';
@@ -46,7 +46,7 @@ class CronListTool implements Tool {
       const lines = [
         `Cron Job: ${job.name}`,
         `  ID: ${job.id}`,
-        `  Schedule: ${job.cronExpression}${job.timezone ? ` (${job.timezone})` : ''}`,
+        `  Schedule: ${describeCronExpression(job.cronExpression)} (${job.cronExpression})${job.timezone ? ` (${job.timezone})` : ''}`,
         `  Enabled: ${job.enabled}`,
         `  Message: ${job.message}`,
         `  Next run: ${formatLocalDate(job.nextRunAt)}`,
@@ -79,7 +79,7 @@ class CronListTool implements Tool {
     for (const job of jobs) {
       const status = job.enabled ? 'enabled' : 'disabled';
       const next = job.enabled ? formatLocalDate(job.nextRunAt) : 'n/a';
-      lines.push(`  - [${status}] ${job.name} (${job.cronExpression}) — next: ${next} — id: ${job.id}`);
+      lines.push(`  - [${status}] ${job.name} (${describeCronExpression(job.cronExpression)}) — next: ${next} — id: ${job.id}`);
     }
 
     return { content: lines.join('\n'), isError: false };

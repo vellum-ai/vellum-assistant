@@ -2,7 +2,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { updateCronJob, formatLocalDate } from '../../cron/cron-store.js';
+import { updateCronJob, formatLocalDate, describeCronExpression } from '../../cron/cron-store.js';
 
 class CronUpdateTool implements Tool {
   name = 'cron_update';
@@ -82,7 +82,7 @@ class CronUpdateTool implements Tool {
           `Cron job updated successfully.`,
           `  ID: ${job.id}`,
           `  Name: ${job.name}`,
-          `  Schedule: ${job.cronExpression}${job.timezone ? ` (${job.timezone})` : ''}`,
+          `  Schedule: ${describeCronExpression(job.cronExpression)} (${job.cronExpression})${job.timezone ? ` (${job.timezone})` : ''}`,
           `  Enabled: ${job.enabled}`,
           `  Next run: ${job.enabled ? formatLocalDate(job.nextRunAt) : 'n/a (disabled)'}`,
         ].join('\n'),
