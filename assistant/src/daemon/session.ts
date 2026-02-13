@@ -18,6 +18,7 @@ import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { allAppTools } from '../tools/apps/definitions.js';
 import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
 import type { UserDecision } from '../permissions/types.js';
+import { generateScopeOptions } from '../permissions/checker.js';
 import { getConfig } from '../config/loader.js';
 import { estimateCost, resolvePricing } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
@@ -144,6 +145,25 @@ export class Session {
         sandboxOverride: this.sandboxOverride,
         onToolLifecycleEvent: handleToolLifecycleEvent,
         proxyToolResolver: this.surfaceProxyResolver.bind(this),
+        requestConfirmation: async (req) => {
+          const allowlistOptions = [
+            { label: `cc:${req.toolName}`, description: `Claude Code ${req.toolName}`, pattern: `cc:${req.toolName}` },
+            { label: 'cc:*', description: 'All Claude Code sub-tools', pattern: 'cc:*' },
+          ];
+          const scopeOptions = generateScopeOptions(this.workingDir);
+          const response = await this.prompter.prompt(
+            `cc:${req.toolName}`,
+            req.input,
+            req.riskLevel,
+            allowlistOptions,
+            scopeOptions,
+            undefined, undefined,
+            this.conversationId,
+          );
+          return {
+            decision: (response.decision === 'allow' || response.decision === 'always_allow') ? 'allow' as const : 'deny' as const,
+          };
+        },
       });
     };
 

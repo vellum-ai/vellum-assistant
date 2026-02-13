@@ -88,6 +88,12 @@ export interface ToolContext {
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools — delegates execution to an external client. */
   proxyToolResolver?: ProxyToolResolver;
+  /** Request user confirmation for a sub-tool operation (used by claude_code tool). */
+  requestConfirmation?: (req: {
+    toolName: string;
+    input: Record<string, unknown>;
+    riskLevel: string;
+  }) => Promise<{ decision: 'allow' | 'deny' }>;
 }
 
 export interface DiffInfo {
