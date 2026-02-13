@@ -653,6 +653,7 @@ exports[`IPC message snapshots ServerMessage types skills_list_response serializ
       "degraded": false,
       "description": "A test skill",
       "emoji": "🔧",
+      "id": "my-skill",
       "name": "My Skill",
       "source": "bundled",
       "state": "enabled",
