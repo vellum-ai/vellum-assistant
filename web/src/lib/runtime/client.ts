@@ -25,6 +25,8 @@ import type {
   RunResponse,
   RunDecisionParams,
   RunDecisionResponse,
+  GetUsageParams,
+  UsageSummaryResponse,
 } from "./types";
 
 function sanitizeUrl(url: string): string {
@@ -164,6 +166,14 @@ export function createRuntimeClient(
         method: "POST",
         body: JSON.stringify(params),
       });
+    },
+
+    getUsage(params: GetUsageParams) {
+      const qs = new URLSearchParams();
+      if (params.preset) qs.set("preset", params.preset);
+      if (params.start != null) qs.set("start", String(params.start));
+      if (params.end != null) qs.set("end", String(params.end));
+      return request<UsageSummaryResponse>(`/usage?${qs.toString()}`);
     },
   };
 }

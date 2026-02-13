@@ -158,6 +158,45 @@ export interface RunDecisionResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Usage
+// ---------------------------------------------------------------------------
+
+export interface GetUsageParams {
+  preset?: "24h" | "7d" | "30d";
+  start?: number; // epoch ms
+  end?: number;   // epoch ms
+}
+
+export interface UsageBreakdownEntry {
+  key: string;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCost: number | null;
+  eventCount: number;
+}
+
+export interface UsageDailyBucket {
+  date: string; // YYYY-MM-DD
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCost: number | null;
+  eventCount: number;
+}
+
+export interface UsageSummaryResponse {
+  totalPricedCostUsd: number;
+  totalUnpricedInputTokens: number;
+  totalUnpricedOutputTokens: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  eventCount: number;
+  byProvider: UsageBreakdownEntry[];
+  byModel: UsageBreakdownEntry[];
+  byActor: UsageBreakdownEntry[];
+  dailyBuckets: UsageDailyBucket[];
+}
+
+// ---------------------------------------------------------------------------
 // Client interface
 // ---------------------------------------------------------------------------
 
@@ -178,4 +217,6 @@ export interface RuntimeClient {
   createRun(params: CreateRunParams): Promise<RunResponse>;
   getRun(runId: string): Promise<RunResponse>;
   submitRunDecision(runId: string, params: RunDecisionParams): Promise<RunDecisionResponse>;
+
+  getUsage(params: GetUsageParams): Promise<UsageSummaryResponse>;
 }
