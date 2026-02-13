@@ -48,6 +48,16 @@ describe('identifyService', () => {
     expect(identifyService('https://github.com/login')).toBe('GitHub');
   });
 
+  it('identifies GitHub from github.com/session', () => {
+    expect(identifyService('https://github.com/session')).toBe('GitHub');
+  });
+
+  it('does not identify GitHub from regular github.com pages', () => {
+    expect(identifyService('https://github.com/vellum-ai/vellum-assistant')).toBeUndefined();
+    expect(identifyService('https://github.com/pulls')).toBeUndefined();
+    expect(identifyService('https://github.com/')).toBeUndefined();
+  });
+
   it('identifies Microsoft from login.microsoftonline.com', () => {
     expect(identifyService('https://login.microsoftonline.com/common/oauth2/v2.0/authorize')).toBe('Microsoft');
   });
@@ -105,6 +115,13 @@ describe('isAuthUrl', () => {
 
   it('matches /sso path', () => {
     expect(isAuthUrl('https://example.com/sso/login')).toBe(true);
+  });
+
+  it('does not treat regular github.com URLs as auth URLs', () => {
+    expect(isAuthUrl('https://github.com/vellum-ai/vellum-assistant')).toBe(false);
+    expect(isAuthUrl('https://github.com/pulls')).toBe(false);
+    expect(isAuthUrl('https://github.com/')).toBe(false);
+    expect(isAuthUrl('https://github.com/notifications')).toBe(false);
   });
 
   it('does not match unrelated URLs', () => {
@@ -255,6 +272,13 @@ describe('detectAuthChallenge — OAuth consent', () => {
 describe('detectAuthChallenge — non-auth pages', () => {
   it('returns null for a regular page', async () => {
     const page = mockPage('https://example.com/dashboard', null);
+
+    const result = await detectAuthChallenge(page);
+    expect(result).toBeNull();
+  });
+
+  it('returns null for a regular github.com page with no auth elements', async () => {
+    const page = mockPage('https://github.com/vellum-ai/vellum-assistant', null);
 
     const result = await detectAuthChallenge(page);
     expect(result).toBeNull();
