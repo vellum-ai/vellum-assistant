@@ -115,14 +115,28 @@ final class VoiceInputManager {
             return
         }
 
+        // Check microphone access first
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        if micStatus == .notDetermined {
+            AVCaptureDevice.requestAccess(for: .audio) { _ in }
+            log.info("Requested microphone authorization — try again after approving")
+            return
+        }
+        if micStatus == .denied || micStatus == .restricted {
+            log.warning("Microphone access denied — opening System Settings")
+            openPrivacySettings(for: "Privacy_Microphone")
+            return
+        }
+
         let authStatus = SFSpeechRecognizer.authorizationStatus()
         if authStatus == .notDetermined {
             SFSpeechRecognizer.requestAuthorization { _ in }
-            log.info("Requested speech recognition authorization — hold Fn again after approving")
+            log.info("Requested speech recognition authorization — try again after approving")
             return
         }
-        guard authStatus == .authorized else {
-            log.error("Speech recognition not authorized (status: \(authStatus.rawValue))")
+        if authStatus == .denied || authStatus == .restricted {
+            log.warning("Speech recognition denied — opening System Settings")
+            openPrivacySettings(for: "Privacy_SpeechRecognition")
             return
         }
 
@@ -181,6 +195,12 @@ final class VoiceInputManager {
             onRecordingStateChanged?(false)
             recognitionRequest = nil
             recognitionTask = nil
+        }
+    }
+
+    private func openPrivacySettings(for pane: String) {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
+            NSWorkspace.shared.open(url)
         }
     }
 

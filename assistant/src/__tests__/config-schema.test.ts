@@ -31,7 +31,8 @@ mock.module('../util/logger.js', () => ({
 }));
 
 mock.module('../util/platform.js', () => ({
-  getDataDir: () => TEST_DIR,
+  getRootDir: () => TEST_DIR,
+  getDataDir: () => join(TEST_DIR, 'data'),
   getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
   ensureDataDir: () => ensureTestDir(),
   isMacOS: () => false,
@@ -60,7 +61,7 @@ describe('AssistantConfigSchema', () => {
   test('parses empty object with full defaults', () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.provider).toBe('anthropic');
-    expect(result.model).toBe('claude-sonnet-4-5-20250929');
+    expect(result.model).toBe('claude-opus-4-6');
     expect(result.maxTokens).toBe(64000);
     expect(result.apiKeys).toEqual({});
     expect(result.thinking).toEqual({ enabled: false, budgetTokens: 10000 });
@@ -320,7 +321,7 @@ describe('loadConfig with schema validation', () => {
     writeConfig({});
     const config = loadConfig();
     expect(config.provider).toBe('anthropic');
-    expect(config.model).toBe('claude-sonnet-4-5-20250929');
+    expect(config.model).toBe('claude-opus-4-6');
     expect(config.maxTokens).toBe(64000);
     expect(config.thinking).toEqual({ enabled: false, budgetTokens: 10000 });
     expect(config.contextWindow).toEqual({

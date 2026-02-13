@@ -20,7 +20,7 @@ import {
 import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { hostname, userInfo } from 'node:os';
-import { getDataDir, getPlatformName } from '../util/platform.js';
+import { getRootDir, getPlatformName } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('encrypted-store');
@@ -59,7 +59,7 @@ interface EncryptedEntry {
 let storePathOverride: string | null = null;
 
 function getStorePath(): string {
-  return storePathOverride ?? join(getDataDir(), 'keys.enc');
+  return storePathOverride ?? join(getRootDir(), 'protected', 'keys.enc');
 }
 
 /** @internal Test-only: override the store file path. Pass `null` to reset. */

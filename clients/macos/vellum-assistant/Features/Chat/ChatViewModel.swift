@@ -15,6 +15,7 @@ final class ChatViewModel: ObservableObject {
     @Published var pendingQueuedCount: Int = 0
     @Published var suggestion: String?
     @Published var pendingAttachments: [ChatAttachment] = []
+    @Published var isRecording: Bool = false
 
     /// Maximum file size per attachment (20 MB).
     private static let maxFileSize = 20 * 1024 * 1024
@@ -42,6 +43,9 @@ final class ChatViewModel: ObservableObject {
     private var pendingMessageIds: [UUID] = []
     /// Tracks the current in-flight suggestion request so stale responses are ignored.
     private var pendingSuggestionRequestId: String?
+    /// Safety timer that force-resets the UI if the daemon never acknowledges
+    /// a cancel request (e.g. a stuck tool blocks the generation_cancelled event).
+    private var cancelTimeoutTask: Task<Void, Never>?
 
     /// Timestamp of the most recent `toolUseStart` event received by this view model.
     /// Used by ThreadManager to route `confirmationRequest` messages to the correct
@@ -459,6 +463,8 @@ final class ChatViewModel: ObservableObject {
 
         case .messageComplete(let complete):
             guard belongsToSession(complete.sessionId) else { return }
+            cancelTimeoutTask?.cancel()
+            cancelTimeoutTask = nil
             isCancelling = false
             isThinking = false
             // Only clear isSending if no messages are still queued
@@ -484,6 +490,8 @@ final class ChatViewModel: ObservableObject {
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
+            cancelTimeoutTask?.cancel()
+            cancelTimeoutTask = nil
             isCancelling = false
             isThinking = false
             if pendingQueuedCount == 0 {
@@ -604,11 +612,14 @@ final class ChatViewModel: ObservableObject {
                       lastToolUseReceivedAt != nil,
                       shouldAcceptConfirmation?() ?? false else { return }
             }
+            isThinking = false
             let confirmation = ToolConfirmationData(
                 requestId: msg.requestId,
                 toolName: msg.toolName,
                 riskLevel: msg.riskLevel,
-                diff: msg.diff
+                diff: msg.diff,
+                allowlistOptions: msg.allowlistOptions,
+                scopeOptions: msg.scopeOptions
             )
             let confirmMsg = ChatMessage(
                 role: .assistant,
@@ -628,7 +639,6 @@ final class ChatViewModel: ObservableObject {
             guard belongsToSession(msg.sessionId) else { return }
             guard !isCancelling else { return }
             lastToolUseReceivedAt = Date()
-            isThinking = false
             // Suppress ToolCallChip for ui_show — the inline surface widget replaces it.
             if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" || msg.toolName == "request_file" {
                 break
@@ -668,6 +678,7 @@ final class ChatViewModel: ObservableObject {
             guard belongsToSession(msg.sessionId) else { return }
             guard msg.display == nil || msg.display == "inline" else { break }
             guard let surface = Surface.from(msg) else { break }
+            isThinking = false
             let inlineSurface = InlineSurfaceData(
                 id: surface.id,
                 surfaceType: surface.type,
@@ -682,6 +693,36 @@ final class ChatViewModel: ObservableObject {
                 let newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, inlineSurfaces: [inlineSurface])
                 currentAssistantMessageId = newMsg.id
                 messages.append(newMsg)
+            }
+
+        case .uiSurfaceUpdate(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            // Find the inline surface across all messages and update its data
+            for msgIndex in messages.indices {
+                if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
+                    let existing = messages[msgIndex].inlineSurfaces[surfaceIndex]
+                    let tempSurface = Surface(id: existing.id, sessionId: msg.sessionId, type: existing.surfaceType, title: existing.title, data: existing.data, actions: existing.actions)
+                    if let updated = tempSurface.updated(with: msg) {
+                        messages[msgIndex].inlineSurfaces[surfaceIndex] = InlineSurfaceData(
+                            id: updated.id,
+                            surfaceType: updated.type,
+                            title: updated.title,
+                            data: updated.data,
+                            actions: updated.actions
+                        )
+                    }
+                    return
+                }
+            }
+
+        case .uiSurfaceDismiss(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            // Find and remove the inline surface across all messages
+            for msgIndex in messages.indices {
+                if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
+                    messages[msgIndex].inlineSurfaces.remove(at: surfaceIndex)
+                    return
+                }
             }
 
         default:
@@ -795,6 +836,31 @@ final class ChatViewModel: ObservableObject {
                 messages[index].toolCalls[j].isComplete = true
             }
         }
+
+        // Safety timeout: if the daemon never acknowledges the cancel (e.g. a
+        // tool is stuck and blocks the response), force-reset the UI so the
+        // user can start a new interaction.
+        cancelTimeoutTask?.cancel()
+        cancelTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
+            guard let self, !Task.isCancelled else { return }
+            guard self.isCancelling else { return }
+            log.warning("Cancel acknowledgment timed out after 5s — force-resetting UI state")
+            self.isCancelling = false
+            self.isSending = false
+            self.currentAssistantMessageId = nil
+            self.pendingQueuedCount = 0
+            self.pendingMessageIds = []
+            self.requestIdToMessageId = [:]
+            // Reset queued/processing messages to sent (matches other cancel-failure paths)
+            for i in self.messages.indices {
+                if case .queued = self.messages[i].status, self.messages[i].role == .user {
+                    self.messages[i].status = .sent
+                } else if self.messages[i].role == .user && self.messages[i].status == .processing {
+                    self.messages[i].status = .sent
+                }
+            }
+        }
     }
 
     func dismissError() {
@@ -841,6 +907,27 @@ final class ChatViewModel: ObservableObject {
             default:
                 break
             }
+        }
+    }
+
+    /// Send an add_trust_rule message to persist a trust rule.
+    /// Returns `true` if the IPC send succeeded, `false` otherwise.
+    func addTrustRule(toolName: String, pattern: String, scope: String, decision: String) -> Bool {
+        guard daemonClient.isConnected else {
+            log.warning("Cannot send add_trust_rule: daemon not connected")
+            return false
+        }
+        do {
+            try daemonClient.sendAddTrustRule(
+                toolName: toolName,
+                pattern: pattern,
+                scope: scope,
+                decision: decision
+            )
+            return true
+        } catch {
+            log.error("Failed to send add_trust_rule: \(error.localizedDescription)")
+            return false
         }
     }
 

@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -9,6 +9,7 @@ const TEST_DIR = join(tmpdir(), `vellum-sysprompt-test-${crypto.randomUUID()}`);
 import { mock } from 'bun:test';
 
 mock.module('../util/platform.js', () => ({
+  getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
   ensureDataDir: () => {},
   getSocketPath: () => join(TEST_DIR, 'vellum.sock'),
@@ -31,13 +32,17 @@ mock.module('../util/logger.js', () => ({
 }));
 
 // Import after mock
-const { buildSystemPrompt } = await import('../config/system-prompt.js');
-const { DEFAULT_SYSTEM_PROMPT } = await import('../config/defaults.js');
+const { buildSystemPrompt, ensurePromptFiles } = await import('../config/system-prompt.js');
 
-/** Strip the bundled skills catalog suffix so base-prompt tests stay focused. */
+/** Strip the Configuration and Skills Catalog suffixes so base-prompt tests stay focused. */
 function basePrompt(result: string): string {
-  const idx = result.indexOf('\n\n## Skills Catalog');
-  return idx === -1 ? result : result.slice(0, idx);
+  let s = result;
+  for (const heading of ['## Configuration', '## Skills Catalog']) {
+    if (s.startsWith(heading)) { s = ''; break; }
+    const idx = s.indexOf(`\n\n${heading}`);
+    if (idx !== -1) s = s.slice(0, idx);
+  }
+  return s;
 }
 
 describe('buildSystemPrompt', () => {
@@ -51,14 +56,9 @@ describe('buildSystemPrompt', () => {
     }
   });
 
-  test('returns DEFAULT_SYSTEM_PROMPT when no files exist and no config', () => {
+  test('returns empty string when no files exist', () => {
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe(DEFAULT_SYSTEM_PROMPT);
-  });
-
-  test('returns config systemPrompt when no files exist', () => {
-    const result = buildSystemPrompt('Custom config prompt');
-    expect(basePrompt(result)).toBe('Custom config prompt');
+    expect(basePrompt(result)).toBe('');
   });
 
   test('uses SOUL.md when it exists', () => {
@@ -80,22 +80,16 @@ describe('buildSystemPrompt', () => {
     expect(basePrompt(result)).toBe('# Identity\n\nI am Vellum.\n\n# Soul\n\nBe thoughtful.');
   });
 
-  test('SOUL.md and IDENTITY.md take priority over config systemPrompt', () => {
-    writeFileSync(join(TEST_DIR, 'SOUL.md'), 'Soul content');
-    const result = buildSystemPrompt('Should be ignored');
-    expect(basePrompt(result)).toBe('Soul content');
-  });
-
   test('ignores empty SOUL.md', () => {
     writeFileSync(join(TEST_DIR, 'SOUL.md'), '   \n  \n  ');
-    const result = buildSystemPrompt('Fallback');
-    expect(basePrompt(result)).toBe('Fallback');
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe('');
   });
 
   test('ignores empty IDENTITY.md', () => {
     writeFileSync(join(TEST_DIR, 'IDENTITY.md'), '');
-    const result = buildSystemPrompt('Fallback');
-    expect(basePrompt(result)).toBe('Fallback');
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe('');
   });
 
   test('trims whitespace from file content', () => {
@@ -113,8 +107,9 @@ describe('buildSystemPrompt', () => {
     );
     writeFileSync(join(skillsDir, 'SKILLS.md'), '- release-checklist\n');
 
-    const result = buildSystemPrompt('Custom config prompt');
-    expect(result).toContain('Custom config prompt');
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'Custom identity');
+    const result = buildSystemPrompt();
+    expect(result).toContain('Custom identity');
     expect(result).toContain('## Skills Catalog');
     expect(result).toContain('`release-checklist` - Release Checklist: Deployment checks.');
     expect(result).toContain('call the `skill_load` tool');
@@ -131,18 +126,89 @@ describe('buildSystemPrompt', () => {
     writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'Identity content');
     writeFileSync(join(TEST_DIR, 'SOUL.md'), 'Soul content');
 
-    const result = buildSystemPrompt('Fallback');
+    const result = buildSystemPrompt();
     expect(result).toContain('Identity content\n\nSoul content');
     expect(result).toContain('## Skills Catalog');
     expect(result.indexOf('Soul content')).toBeLessThan(result.indexOf('## Skills Catalog'));
   });
 
   test('omits user skills from catalog when none are configured', () => {
-    const result = buildSystemPrompt('No skills prompt');
-    expect(basePrompt(result)).toBe('No skills prompt');
+    const result = buildSystemPrompt();
     // No user skill directories exist, so no user skills should appear.
     // Bundled skills (e.g. app-builder) may still be present.
     expect(result).not.toContain('release-checklist');
     expect(result).not.toContain('incident-response');
+  });
+
+  test('appends USER.md after base prompt', () => {
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'Base prompt');
+    writeFileSync(join(TEST_DIR, 'USER.md'), '# User\n\nName: Alice');
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe('Base prompt\n\n# User\n\nName: Alice');
+  });
+
+  test('appends USER.md after IDENTITY + SOUL', () => {
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'Identity');
+    writeFileSync(join(TEST_DIR, 'SOUL.md'), 'Soul');
+    writeFileSync(join(TEST_DIR, 'USER.md'), 'User info');
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe('Identity\n\nSoul\n\nUser info');
+  });
+
+  test('USER.md alone becomes the prompt', () => {
+    writeFileSync(join(TEST_DIR, 'USER.md'), 'Just user');
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe('Just user');
+  });
+
+  test('ignores empty USER.md', () => {
+    writeFileSync(join(TEST_DIR, 'USER.md'), '  \n  ');
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe('');
+  });
+});
+
+describe('ensurePromptFiles', () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
+  });
+
+  test('creates all 3 files from templates when none exist', () => {
+    ensurePromptFiles();
+
+    for (const file of ['SOUL.md', 'IDENTITY.md', 'USER.md']) {
+      const dest = join(TEST_DIR, file);
+      expect(existsSync(dest)).toBe(true);
+      const content = readFileSync(dest, 'utf-8');
+      expect(content.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('does not overwrite existing files', () => {
+    const customContent = 'My custom identity';
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), customContent);
+
+    ensurePromptFiles();
+
+    const content = readFileSync(join(TEST_DIR, 'IDENTITY.md'), 'utf-8');
+    expect(content).toBe(customContent);
+
+    // Other files should be created
+    expect(existsSync(join(TEST_DIR, 'SOUL.md'))).toBe(true);
+    expect(existsSync(join(TEST_DIR, 'USER.md'))).toBe(true);
+  });
+
+  test('handles missing template gracefully (warn, no crash)', () => {
+    // ensurePromptFiles resolves templates from the actual templates/ dir.
+    // Since templates exist in the repo this test verifies the function
+    // doesn't crash. A true "missing template" scenario would require
+    // mocking the filesystem, but the important contract is: no throw.
+    expect(() => ensurePromptFiles()).not.toThrow();
   });
 });

@@ -5,9 +5,20 @@ struct InlineSurfaceRouter: View {
     let surface: InlineSurfaceData
     let onAction: (String, String, [String: AnyCodable]?) -> Void
 
+    @State private var selectionPayload: [String: AnyCodable]?
+
+    /// Whether the surface content handles its own header/chrome.
+    private var isTemplateCard: Bool {
+        if case .card(let data) = surface.data, data.template != nil {
+            return true
+        }
+        return false
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            if let title = surface.title {
+            // Template cards handle their own header — skip the generic title
+            if !isTemplateCard, let title = surface.title {
                 Text(title)
                     .font(VFont.cardTitle)
                     .foregroundColor(VColor.textPrimary)
@@ -38,10 +49,20 @@ struct InlineSurfaceRouter: View {
             InlineCardWidget(data: data)
         case .table(let data):
             InlineTableWidget(data: data) { actionId, payload in
+                if actionId == "selection_changed" {
+                    selectionPayload = payload
+                    return
+                }
                 onAction(surface.id, actionId, payload)
             }
         case .list(let data):
-            InlineListWidget(data: data)
+            InlineListWidget(data: data) { actionId, payload in
+                if actionId == "selection_changed" {
+                    selectionPayload = payload
+                    return
+                }
+                onAction(surface.id, actionId, payload)
+            }
         default:
             InlineFallbackChip(surfaceType: surface.surfaceType)
         }
@@ -52,7 +73,7 @@ struct InlineSurfaceRouter: View {
             Spacer()
             ForEach(surface.actions) { action in
                 Button {
-                    onAction(surface.id, action.id, nil)
+                    onAction(surface.id, action.id, selectionPayload)
                 } label: {
                     Text(action.label)
                         .font(VFont.bodyMedium)

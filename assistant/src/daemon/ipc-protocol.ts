@@ -155,6 +155,14 @@ export interface SuggestionRequest {
   requestId: string;
 }
 
+export interface AddTrustRule {
+  type: 'add_trust_rule';
+  toolName: string;
+  pattern: string;
+  scope: string;
+  decision: 'allow' | 'deny';
+}
+
 // === Surface types ===
 
 export type SurfaceType = 'card' | 'form' | 'list' | 'table' | 'confirmation' | 'dynamic_page' | 'file_upload';
@@ -282,7 +290,8 @@ export type ClientMessage =
   | AppDataRequest
   | SkillsListRequest
   | SkillDetailRequest
-  | SuggestionRequest;
+  | SuggestionRequest
+  | AddTrustRule;
 
 // === Server → Client messages ===
 
@@ -325,7 +334,7 @@ export interface ConfirmationRequest {
   toolName: string;
   input: Record<string, unknown>;
   riskLevel: string;
-  allowlistOptions: Array<{ label: string; pattern: string }>;
+  allowlistOptions: Array<{ label: string; description: string; pattern: string }>;
   scopeOptions: Array<{ label: string; scope: string }>;
   diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
   sandboxed?: boolean;

@@ -55,12 +55,20 @@ interface GeocodingResult {
 }
 
 interface CurrentWeather {
+  time: string;
   temperature_2m: number;
   relative_humidity_2m: number;
   apparent_temperature: number;
   weather_code: number;
   wind_speed_10m: number;
   wind_direction_10m: number;
+}
+
+interface HourlyForecast {
+  time: string[];
+  temperature_2m: number[];
+  weather_code: number[];
+  is_day: number[];
 }
 
 interface DailyForecast {
@@ -74,17 +82,20 @@ interface DailyForecast {
 interface ForecastResponse {
   current: CurrentWeather;
   current_units: Record<string, string>;
+  hourly: HourlyForecast;
+  hourly_units: Record<string, string>;
   daily: DailyForecast;
   daily_units: Record<string, string>;
 }
 
 /**
  * Maps WMO weather codes to SF Symbol icon names for native rendering.
+ * When `isDay` is false, uses moon/night variants for clear and partly cloudy.
  */
-export function weatherCodeToSFSymbol(code: number): string {
-  if (code === 0) return 'sun.max.fill';
-  if (code === 1) return 'sun.max.fill';
-  if (code === 2) return 'cloud.sun.fill';
+export function weatherCodeToSFSymbol(code: number, isDay: boolean = true): string {
+  if (code === 0) return isDay ? 'sun.max.fill' : 'moon.fill';
+  if (code === 1) return isDay ? 'sun.max.fill' : 'moon.fill';
+  if (code === 2) return isDay ? 'cloud.sun.fill' : 'cloud.moon.fill';
   if (code === 3) return 'cloud.fill';
   if (code === 45 || code === 48) return 'cloud.fog.fill';
   if (code >= 51 && code <= 57) return 'cloud.rain.fill';
@@ -128,6 +139,10 @@ export async function executeGetWeather(
 
   const useFahrenheit = units === 'fahrenheit';
 
+  // Forecast days: default 10, clamp to 1-16 (Open-Meteo max)
+  const rawDays = typeof input.days === 'number' ? input.days : 10;
+  const forecastDays = Math.max(1, Math.min(16, Math.round(rawDays)));
+
   // Step 1: Geocode the location
   let geo: GeocodingResult;
   try {
@@ -154,7 +169,7 @@ export async function executeGetWeather(
   // Step 2: Fetch the weather forecast
   let forecast: ForecastResponse;
   try {
-    const weatherUrl = `${FORECAST_API}?latitude=${geo.latitude}&longitude=${geo.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=10`;
+    const weatherUrl = `${FORECAST_API}?latitude=${geo.latitude}&longitude=${geo.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&hourly=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=${forecastDays}`;
     log.debug({ url: weatherUrl }, 'Fetching weather forecast');
 
     const weatherResponse = await fetchFn(weatherUrl, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
@@ -196,7 +211,7 @@ export async function executeGetWeather(
     `Wind: ${currentWind} ${speedUnit} ${windDir}`,
     `Conditions: ${currentDescription}`,
     '',
-    '--- 5-Day Forecast ---',
+    `--- ${forecastDays}-Day Forecast ---`,
   ];
 
   const daily = forecast.daily;
@@ -209,8 +224,9 @@ export async function executeGetWeather(
     condition: string;
   }> = [];
 
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  // The API returns dates in the location's local timezone (timezone=auto),
+  // so the first entry is always "today" for that location.
+  const todayStr = daily.time.length > 0 ? daily.time[0] : '';
 
   for (let i = 0; i < daily.time.length; i++) {
     const date = daily.time[i];
@@ -234,6 +250,41 @@ export async function executeGetWeather(
     forecastItems.push({ day: dayLabel, icon, low, high, precip: precip > 0 ? precip : null, condition: desc });
   }
 
+  // Process hourly data: next 24 hours from the current hour.
+  // Use the current time from the API response (which is in the location's local
+  // timezone, thanks to timezone=auto) to find the correct starting index.
+  const hourlyItems: Array<{ time: string; icon: string; temp: number }> = [];
+  if (forecast.hourly?.time) {
+    const currentTimeLocal = forecast.current.time; // e.g. "2026-02-12T22:00"
+    const currentHourPrefix = currentTimeLocal.slice(0, 13); // e.g. "2026-02-12T22"
+    let startIndex = forecast.hourly.time.findIndex((t) => t.startsWith(currentHourPrefix));
+    if (startIndex < 0) startIndex = 0;
+
+    const count = Math.min(24, forecast.hourly.time.length - startIndex);
+    for (let i = 0; i < count; i++) {
+      const idx = startIndex + i;
+      const hourTemp = useFahrenheit
+        ? celsiusToFahrenheit(forecast.hourly.temperature_2m[idx])
+        : Math.round(forecast.hourly.temperature_2m[idx]);
+      const isDay = forecast.hourly.is_day[idx] === 1;
+      const icon = weatherCodeToSFSymbol(forecast.hourly.weather_code[idx], isDay);
+
+      let timeLabel: string;
+      if (i === 0) {
+        timeLabel = 'Now';
+      } else {
+        // Parse the hour directly from the time string (already in location-local
+        // timezone) instead of relying on Date parsing which is runtime-dependent.
+        const hour = parseInt(forecast.hourly.time[idx].slice(11, 13), 10);
+        const suffix = hour >= 12 ? 'PM' : 'AM';
+        const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+        timeLabel = `${displayHour}${suffix}`;
+      }
+
+      hourlyItems.push({ time: timeLabel, icon, temp: hourTemp });
+    }
+  }
+
   // Include structured data for ui_show weather_forecast template
   const structured = {
     location: locationDisplay,
@@ -244,6 +295,7 @@ export async function executeGetWeather(
     humidity: current.relative_humidity_2m,
     windSpeed: currentWind,
     windDirection: windDir,
+    hourly: hourlyItems,
     forecast: forecastItems,
   };
 
@@ -274,6 +326,10 @@ class GetWeatherTool implements Tool {
             type: 'string',
             enum: ['celsius', 'fahrenheit'],
             description: 'Temperature units to use (default: fahrenheit)',
+          },
+          days: {
+            type: 'number',
+            description: 'Number of forecast days to return (1-16, default: 10)',
           },
         },
         required: ['location'],

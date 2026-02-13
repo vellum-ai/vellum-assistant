@@ -92,6 +92,8 @@ export class RunOrchestrator {
           toolUseId: msg.requestId,
           input: msg.input,
           riskLevel: msg.riskLevel,
+          allowlistOptions: msg.allowlistOptions,
+          scopeOptions: msg.scopeOptions,
         });
         this.pending.set(run.id, {
           prompterRequestId: msg.requestId,

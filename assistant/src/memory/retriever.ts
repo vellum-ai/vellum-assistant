@@ -368,9 +368,11 @@ async function semanticSearch(
     return sqliteFallbackSemanticSearch(queryVector, limit, excludedMessageIds);
   }
 
+  // Overfetch to account for items filtered out post-query (invalidated, excluded, etc.)
+  const fetchLimit = limit * 2;
   const results = await qdrant.searchWithFilter(
     queryVector,
-    limit,
+    fetchLimit,
     ['item', 'summary', 'segment'],
     excludedMessageIds,
   );
@@ -427,7 +429,7 @@ async function semanticSearch(
         key: `segment:${payload.target_id}`,
         type: 'segment',
         id: payload.target_id,
-        text: payload.text.replace(/^\[[^\]]+\]\s*/, ''),
+        text: payload.text,
         kind: 'segment',
         confidence: 0.55,
         importance: 0.5,
@@ -438,6 +440,7 @@ async function semanticSearch(
         finalScore: 0,
       });
     }
+    if (candidates.length >= limit) break;
   }
   return candidates;
 }
@@ -600,20 +603,39 @@ function entitySearch(query: string): Candidate[] {
     .toLowerCase()
     .split(/[^a-z0-9_.-]+/g)
     .filter((t) => t.length >= 3);
-  if (tokens.length === 0) return [];
+  const fullQuery = trimmed.toLowerCase();
 
-  // Use exact matching on entity names and json_each() for individual alias values
-  const namePlaceholders = tokens.map(() => '?').join(',');
-  const entityQuery = `
-    SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
-    FROM memory_entities me
-    WHERE LOWER(me.name) IN (${namePlaceholders})
-    UNION
-    SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
-    FROM memory_entities me, json_each(me.aliases) je
-    WHERE me.aliases IS NOT NULL AND LOWER(je.value) IN (${namePlaceholders})
-    LIMIT 20
-  `;
+  // Use exact matching on entity names and json_each() for individual alias values.
+  // Also match the full trimmed query to support multi-word entity names (e.g. "Visual Studio Code").
+  // When tokens is empty (all words < 3 chars), only match on fullQuery.
+  let entityQuery: string;
+  let queryParams: string[];
+  if (tokens.length > 0) {
+    const namePlaceholders = tokens.map(() => '?').join(',');
+    entityQuery = `
+      SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
+      FROM memory_entities me
+      WHERE LOWER(me.name) IN (${namePlaceholders}) OR LOWER(me.name) = ?
+      UNION
+      SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
+      FROM memory_entities me, json_each(me.aliases) je
+      WHERE me.aliases IS NOT NULL AND (LOWER(je.value) IN (${namePlaceholders}) OR LOWER(je.value) = ?)
+      LIMIT 20
+    `;
+    queryParams = [...tokens, fullQuery, ...tokens, fullQuery];
+  } else {
+    entityQuery = `
+      SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
+      FROM memory_entities me
+      WHERE LOWER(me.name) = ?
+      UNION
+      SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
+      FROM memory_entities me, json_each(me.aliases) je
+      WHERE me.aliases IS NOT NULL AND LOWER(je.value) = ?
+      LIMIT 20
+    `;
+    queryParams = [fullQuery, fullQuery];
+  }
 
   let matchedEntities: Array<{
     id: string;
@@ -623,7 +645,7 @@ function entitySearch(query: string): Candidate[] {
     mention_count: number;
   }> = [];
   try {
-    matchedEntities = raw.query(entityQuery).all(...tokens, ...tokens) as Array<{
+    matchedEntities = raw.query(entityQuery).all(...queryParams) as Array<{
       id: string;
       name: string;
       type: string;

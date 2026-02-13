@@ -25,7 +25,19 @@ struct ToolConfirmationData: Equatable {
     let toolName: String
     let riskLevel: String
     let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
+    let allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption]
+    let scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption]
     var state: ToolConfirmationState = .pending
+
+    init(requestId: String, toolName: String, riskLevel: String, diff: ConfirmationRequestMessage.ConfirmationDiffInfo? = nil, allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption] = [], scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption] = [], state: ToolConfirmationState = .pending) {
+        self.requestId = requestId
+        self.toolName = toolName
+        self.riskLevel = riskLevel
+        self.diff = diff
+        self.allowlistOptions = allowlistOptions
+        self.scopeOptions = scopeOptions
+        self.state = state
+    }
 }
 
 /// Data for a tool call displayed inline in an assistant message.

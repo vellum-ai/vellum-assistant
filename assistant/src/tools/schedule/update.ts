@@ -80,9 +80,8 @@ class ScheduleUpdateTool implements Tool {
       return {
         content: [
           `Schedule updated successfully.`,
-          `  ID: ${job.id}`,
           `  Name: ${job.name}`,
-          `  Schedule: ${describeCronExpression(job.cronExpression)} (${job.cronExpression})${job.timezone ? ` (${job.timezone})` : ''}`,
+          `  Schedule: ${describeCronExpression(job.cronExpression)}${job.timezone ? ` (${job.timezone})` : ''}`,
           `  Enabled: ${job.enabled}`,
           `  Next run: ${job.enabled ? formatLocalDate(job.nextRunAt) : 'n/a (disabled)'}`,
         ].join('\n'),

@@ -91,7 +91,7 @@ struct ControlPanel: View {
             // ANTHROPIC section
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("ANTHROPIC")
-                    .font(VFont.display)
+                    .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
                 if hasKey {
@@ -138,13 +138,13 @@ struct ControlPanel: View {
             // COMPUTER USAGE section
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("COMPUTER USAGE")
-                    .font(VFont.display)
+                    .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
                 HStack {
                     Text("Max Steps per Session")
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.textSecondary)
                     Image(systemName: "info.circle")
                         .font(.system(size: 12))
                         .foregroundColor(VColor.textMuted)
@@ -162,7 +162,7 @@ struct ControlPanel: View {
             // AMBIENT AGENT section
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("AMBIENT AGENT")
-                    .font(VFont.display)
+                    .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
                 HStack {
@@ -185,7 +185,7 @@ struct ControlPanel: View {
             // PERMISSIONS section
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("PERMISSIONS")
-                    .font(VFont.display)
+                    .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
                 permissionRow(
@@ -218,7 +218,7 @@ struct ControlPanel: View {
             // ABOUT section
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("ABOUT")
-                    .font(VFont.display)
+                    .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
                 HStack {

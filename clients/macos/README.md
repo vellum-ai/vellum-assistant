@@ -81,6 +81,16 @@ scripts/run-dev.sh --clean
 scripts/run-dev.sh --team YOUR_TEAM_ID
 ```
 
+## Test DMG Installer
+
+To preview the DMG installer layout locally (requires `brew install create-dmg`):
+
+```bash
+./dmg/test-dmg.sh
+```
+
+This builds the app (if needed), generates the background image, creates a styled DMG, and opens it in Finder.
+
 ## Daemon
 
 The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **daemon**, a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to the daemon via a Unix domain socket at `~/.vellum/vellum.sock`.

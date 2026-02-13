@@ -459,6 +459,7 @@ struct ConfirmationRequestMessage: Decodable, Sendable {
 
     struct ConfirmationAllowlistOption: Decodable, Sendable, Equatable {
         let label: String
+        let description: String?
         let pattern: String
     }
     struct ConfirmationScopeOption: Decodable, Sendable, Equatable {
@@ -489,6 +490,16 @@ struct ConfirmationResponseMessage: Encodable, Sendable {
     let decision: String
     let selectedPattern: String?
     let selectedScope: String?
+}
+
+/// Sent to add a trust rule (allowlist/denylist) independently of a confirmation response.
+/// Wire type: `"add_trust_rule"`
+struct AddTrustRuleMessage: Encodable, Sendable {
+    let type: String = "add_trust_rule"
+    let toolName: String
+    let pattern: String
+    let scope: String
+    let decision: String
 }
 
 /// Discriminated union of all server → client message types relevant to the macOS client.

@@ -17,6 +17,7 @@ import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import { renderHistoryContent, mergeToolResults } from '../daemon/handlers.js';
 import { getConfig } from '../config/loader.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
+import { addRule } from '../permissions/trust-store.js';
 
 const log = getLogger('runtime-http');
 
@@ -136,12 +137,22 @@ export class RuntimeHttpServer {
         return await this.handleCreateRun(assistantId, req);
       }
 
-      // Match runs/:runId and runs/:runId/decision
-      const runsMatch = endpoint.match(/^runs\/([^/]+)(\/decision)?$/);
+      // Match runs/:runId, runs/:runId/decision, runs/:runId/trust-rule
+      const runsMatch = endpoint.match(/^runs\/([^/]+)(\/decision|\/trust-rule)?$/);
       if (runsMatch) {
         const runId = runsMatch[1];
         if (runsMatch[2] === '/decision' && req.method === 'POST') {
           return await this.handleRunDecision(assistantId, runId, req);
+        }
+        if (runsMatch[2] === '/trust-rule' && req.method === 'POST') {
+          if (!this.runOrchestrator) {
+            return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
+          }
+          const run = this.runOrchestrator.getRun(runId);
+          if (!run || run.assistantId !== assistantId) {
+            return Response.json({ error: 'Run not found' }, { status: 404 });
+          }
+          return await this.handleAddTrustRule(req);
         }
         if (req.method === 'GET') {
           return this.handleGetRun(assistantId, runId);
@@ -332,11 +343,11 @@ export class RuntimeHttpServer {
 
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 60,
+      max_tokens: 30,
       messages: [
         {
           role: 'user',
-          content: `The AI assistant just said the following to the user. Suggest a single short follow-up message (max 200 chars) the user might want to send next. Reply with ONLY the suggested message text, nothing else.\n\nAssistant's message:\n${truncated}`,
+          content: `Given this assistant message, write a very short tab-complete suggestion (max 50 chars) the user could send next to keep the conversation going. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`,
         },
       ],
     });
@@ -344,11 +355,12 @@ export class RuntimeHttpServer {
     const textBlock = response.content.find((b) => b.type === 'text');
     const raw = textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
 
-    if (!raw || raw.length > 200) return null;
+    if (!raw) return null;
 
-    // Take first line only
+    // Take first line only, then enforce the length cap
     const firstLine = raw.split('\n')[0].trim();
-    return firstLine || null;
+    if (!firstLine || firstLine.length > 50) return null;
+    return firstLine;
   }
 
   private async handleSendMessage(assistantId: string, req: Request): Promise<Response> {
@@ -549,6 +561,39 @@ export class RuntimeHttpServer {
     }
 
     return Response.json({ accepted: true });
+  }
+
+  private async handleAddTrustRule(req: Request): Promise<Response> {
+    const body = await req.json() as {
+      toolName?: string;
+      pattern?: string;
+      scope?: string;
+      decision?: string;
+    };
+
+    const { toolName, pattern, scope, decision } = body;
+
+    if (!toolName || typeof toolName !== 'string') {
+      return Response.json({ error: 'toolName is required' }, { status: 400 });
+    }
+    if (!pattern || typeof pattern !== 'string') {
+      return Response.json({ error: 'pattern is required' }, { status: 400 });
+    }
+    if (!scope || typeof scope !== 'string') {
+      return Response.json({ error: 'scope is required' }, { status: 400 });
+    }
+    if (decision !== 'allow' && decision !== 'deny') {
+      return Response.json({ error: 'decision must be "allow" or "deny"' }, { status: 400 });
+    }
+
+    try {
+      addRule(toolName, pattern, scope, decision);
+      log.info({ tool: toolName, pattern, scope, decision }, 'Trust rule added via HTTP');
+      return Response.json({ accepted: true });
+    } catch (err) {
+      log.error({ err }, 'Failed to add trust rule');
+      return Response.json({ error: 'Failed to add trust rule' }, { status: 500 });
+    }
   }
 
   // ── Attachment endpoints ────────────────────────────────────────────

@@ -7,6 +7,7 @@ import {
   getSocketPath,
   getPidPath,
   ensureDataDir,
+  migrateToDataLayout,
   removeSocketFile,
 } from '../util/platform.js';
 import { initializeDb } from '../memory/db.js';
@@ -14,6 +15,7 @@ import { rotateToolInvocations } from '../memory/tool-usage-store.js';
 import { initializeProviders } from '../providers/registry.js';
 import { initializeTools } from '../tools/registry.js';
 import { loadConfig } from '../config/loader.js';
+import { ensurePromptFiles } from '../config/system-prompt.js';
 import { DaemonServer } from './server.js';
 import { getLogger } from '../util/logger.js';
 import { DaemonError } from '../util/errors.js';
@@ -170,7 +172,9 @@ export async function ensureDaemonRunning(): Promise<void> {
 
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
+  migrateToDataLayout();
   ensureDataDir();
+  ensurePromptFiles();
   initializeDb();
 
   const config = loadConfig();

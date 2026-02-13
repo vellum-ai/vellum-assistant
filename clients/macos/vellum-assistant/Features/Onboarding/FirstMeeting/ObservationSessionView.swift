@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 /// Active observation session view — shows a timer countdown and running narration
@@ -11,7 +12,7 @@ struct ObservationSessionView: View {
 
     @State private var remainingSeconds: Int = 0
     @State private var totalSeconds: Int = 0
-    @State private var timer: Timer?
+    @State private var timerActive: Bool = false
     @State private var narrationMessages: [InterviewMessage] = []
     @State private var narrationIndex: Int = 0
     @State private var stopped = false
@@ -144,7 +145,16 @@ struct ObservationSessionView: View {
             startObservation()
         }
         .onDisappear {
-            timer?.invalidate()
+            timerActive = false
+        }
+        .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
+            guard timerActive else { return }
+            if remainingSeconds > 0 {
+                remainingSeconds -= 1
+            } else {
+                stopObservation()
+                onComplete()
+            }
         }
     }
 
@@ -174,14 +184,7 @@ struct ObservationSessionView: View {
         }
 
         // Start countdown timer
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            if remainingSeconds > 0 {
-                remainingSeconds -= 1
-            } else {
-                stopObservation()
-                onComplete()
-            }
-        }
+        timerActive = true
 
         // Schedule narration messages at intervals
         let narrationInterval = max(Double(totalSeconds) / Double(Self.stubNarrations.count), 15.0)
@@ -210,8 +213,7 @@ struct ObservationSessionView: View {
 
     private func stopObservation() {
         stopped = true
-        timer?.invalidate()
-        timer = nil
+        timerActive = false
     }
 }
 

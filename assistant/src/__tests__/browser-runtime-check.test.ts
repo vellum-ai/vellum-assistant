@@ -1,7 +1,9 @@
 import { describe, test, expect, mock, beforeEach } from 'bun:test';
 
-// Mock playwright before importing runtime-check
-let mockExecPath = '/fake/chromium';
+// Mock playwright before importing runtime-check.
+// Use real filesystem paths so we don't need to mock node:fs
+// (mocking node:fs globally poisons other test files in the same worker).
+let mockExecPath = '/bin/sh'; // a path that always exists
 let mockExecThrows = false;
 
 mock.module('playwright', () => {
@@ -15,37 +17,25 @@ mock.module('playwright', () => {
   };
 });
 
-// Mock fs.existsSync for Chromium path checks
-let mockFileExists = true;
-const actualFs = await import('node:fs');
-mock.module('node:fs', () => ({
-  ...actualFs,
-  existsSync: (path: string) => {
-    if (path === mockExecPath) return mockFileExists;
-    return actualFs.existsSync(path);
-  },
-}));
-
 // Re-import after mocks
 const { checkBrowserRuntime } = await import('../tools/browser/runtime-check.js');
 
 describe('browser runtime check', () => {
   beforeEach(() => {
-    mockExecPath = '/fake/chromium';
+    mockExecPath = '/bin/sh';
     mockExecThrows = false;
-    mockFileExists = true;
   });
 
   test('reports success when playwright and chromium are available', async () => {
     const status = await checkBrowserRuntime();
     expect(status.playwrightAvailable).toBe(true);
     expect(status.chromiumInstalled).toBe(true);
-    expect(status.chromiumPath).toBe('/fake/chromium');
+    expect(status.chromiumPath).toBe('/bin/sh');
     expect(status.error).toBeNull();
   });
 
   test('reports chromium not installed when executable is missing', async () => {
-    mockFileExists = false;
+    mockExecPath = '/nonexistent/chromium/path';
     const status = await checkBrowserRuntime();
     expect(status.playwrightAvailable).toBe(true);
     expect(status.chromiumInstalled).toBe(false);

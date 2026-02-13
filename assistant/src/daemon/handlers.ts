@@ -28,7 +28,9 @@ import type {
   AppDataRequest,
   SkillDetailRequest,
   SuggestionRequest,
+  AddTrustRule,
 } from './ipc-protocol.js';
+import { addRule } from '../permissions/trust-store.js';
 import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon, readCachedSkillIcon } from '../config/skills.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
@@ -291,6 +293,7 @@ const handlers: DispatchMap = {
   skills_list: (_msg, socket, ctx) => handleSkillsList(socket, ctx),
   skill_detail: handleSkillDetail,
   suggestion_request: handleSuggestionRequest,
+  add_trust_rule: handleAddTrustRule,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
@@ -797,6 +800,21 @@ async function handleTaskSubmit(
   }
 }
 
+// ─── Trust rule handler ─────────────────────────────────────────────────────
+
+function handleAddTrustRule(
+  msg: AddTrustRule,
+  _socket: net.Socket,
+  _ctx: HandlerContext,
+): void {
+  try {
+    addRule(msg.toolName, msg.pattern, msg.scope, msg.decision);
+    log.info({ tool: msg.toolName, pattern: msg.pattern, scope: msg.scope, decision: msg.decision }, 'Trust rule added via client');
+  } catch (err) {
+    log.error({ err }, 'Failed to add trust rule');
+  }
+}
+
 // ─── Suggestion handler ─────────────────────────────────────────────────────
 
 const SUGGESTION_CACHE_MAX = 100;
@@ -893,18 +911,18 @@ async function generateSuggestion(apiKey: string, assistantText: string): Promis
 
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 60,
+    max_tokens: 30,
     messages: [
       {
         role: 'user',
-        content: `The AI assistant just said the following to the user. Suggest a single short follow-up message (max 200 chars) the user might want to send next. Reply with ONLY the suggested message text, nothing else.\n\nAssistant's message:\n${truncated}`,
+        content: `Given this assistant message, write a very short tab-complete suggestion (max 50 chars) the user could send next to keep the conversation going. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`,
       },
     ],
   });
 
   const textBlock = response.content.find((b) => b.type === 'text');
   const raw = textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
-  if (!raw || raw.length > 200) return null;
+  if (!raw || raw.length > 50) return null;
 
   const firstLine = raw.split('\n')[0].trim();
   return firstLine || null;

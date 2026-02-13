@@ -3,6 +3,7 @@ import SwiftUI
 /// Inline list widget for selectable items in chat.
 struct InlineListWidget: View {
     let data: ListSurfaceData
+    let onAction: (String, [String: AnyCodable]?) -> Void
 
     @State private var selectedIds: Set<String> = []
 
@@ -65,6 +66,7 @@ struct InlineListWidget: View {
                     selectedIds.insert(item.id)
                 }
             }
+            onAction("selection_changed", ["selectedIds": AnyCodable(Array(selectedIds))])
         }
     }
 }
@@ -73,14 +75,17 @@ struct InlineListWidget: View {
 #Preview("InlineListWidget") {
     ZStack {
         VColor.background.ignoresSafeArea()
-        InlineListWidget(data: ListSurfaceData(
-            items: [
-                ListItemData(id: "1", title: "Option A", subtitle: "First choice", icon: nil, selected: false),
-                ListItemData(id: "2", title: "Option B", subtitle: "Second choice", icon: nil, selected: true),
-                ListItemData(id: "3", title: "Option C", subtitle: nil, icon: nil, selected: false),
-            ],
-            selectionMode: .single
-        ))
+        InlineListWidget(
+            data: ListSurfaceData(
+                items: [
+                    ListItemData(id: "1", title: "Option A", subtitle: "First choice", icon: nil, selected: false),
+                    ListItemData(id: "2", title: "Option B", subtitle: "Second choice", icon: nil, selected: true),
+                    ListItemData(id: "3", title: "Option C", subtitle: nil, icon: nil, selected: false),
+                ],
+                selectionMode: .single
+            ),
+            onAction: { _, _ in }
+        )
         .padding()
     }
     .frame(width: 400, height: 250)

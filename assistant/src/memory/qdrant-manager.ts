@@ -40,8 +40,8 @@ export class QdrantManager {
     const parsed = new URL(config.url);
     this.host = parsed.hostname;
     this.port = parseInt(parsed.port || '6333', 10);
-    this.storagePath = config.storagePath ?? join(getDataDir(), 'data', 'qdrant');
-    this.pidPath = join(getDataDir(), 'qdrant.pid');
+    this.storagePath = config.storagePath ?? join(getDataDir(), 'qdrant');
+    this.pidPath = join(getDataDir(), 'qdrant', 'qdrant.pid');
 
     // External mode if QDRANT_URL is explicitly set or no local binary exists
     const hasEnvUrl = Boolean(process.env.QDRANT_URL?.trim());
@@ -143,7 +143,7 @@ export class QdrantManager {
   }
 
   private getBinaryPath(): string {
-    return join(getDataDir(), 'bin', 'qdrant');
+    return join(getDataDir(), 'qdrant', 'bin', 'qdrant');
   }
 
   private cleanupStaleProcess(): void {

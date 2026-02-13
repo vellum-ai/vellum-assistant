@@ -10,6 +10,7 @@ export interface TrustRule {
   pattern: string;
   scope: string;
   decision: 'allow' | 'deny';
+  priority: number;
   createdAt: number;
 }
 
@@ -23,6 +24,7 @@ export interface PermissionCheckResult {
 
 export interface AllowlistOption {
   label: string;
+  description: string;
   pattern: string;
 }
 

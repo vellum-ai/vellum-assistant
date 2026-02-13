@@ -4,10 +4,10 @@ Arguments (optional): $ARGUMENTS
 
 Parse positional arguments:
 
-- **First argument** (optional): number of parallel workers (default: 3). Example: `/swarm 5` runs 5 workers.
-- **Second argument** (optional): maximum number of tasks to complete before automatically shutting down. Example: `/swarm 3 10` runs 3 workers and stops after completing 10 tasks.
+- **First argument** (optional): number of parallel workers (default: 12). Example: `/swarm 5` runs 5 workers.
+- **Second argument** (optional): maximum number of tasks to complete before automatically shutting down. Example: `/swarm 12 10` runs 12 workers and stops after completing 10 tasks.
 
-If no arguments are provided, default to 3 workers with no task limit (run until TODO.md is empty or the user says to stop).
+If no arguments are provided, default to 12 workers with no task limit (run until TODO.md is empty or the user says to stop).
 
 ## Repo-specific gotchas (include these in every agent prompt)
 
@@ -18,7 +18,7 @@ If no arguments are provided, default to 3 workers with no task limit (run until
 ## Phase 1: Setup
 
 1. Read .private/TODO.md. Keep an internal list of which items are currently in-flight.
-2. Parse the arguments: note the worker count (default: 3) and max-tasks limit (if provided). Track a **completed count** starting at 0.
+2. Parse the arguments: note the worker count (default: 12) and max-tasks limit (if provided). Track a **completed count** starting at 0.
 3. Create a team with `TeamCreate` (team name: `swarm`).
 
 ## Phase 2: Pick the next task

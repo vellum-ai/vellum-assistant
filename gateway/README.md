@@ -1,14 +1,16 @@
 # Vellum Gateway
 
-Standalone service that owns Telegram integration end-to-end. Receives Telegram webhooks, routes messages to the correct assistant runtime, and sends replies back to Telegram.
+Standalone service that owns Telegram integration end-to-end and optionally acts as an authenticated reverse proxy for the assistant runtime.
 
 ## Architecture
 
 ```
 Telegram → gateway/ → Assistant Runtime (/v1/assistants/:id/channels/inbound) → gateway/ → Telegram
+
+Client → gateway/ (Bearer auth) → Assistant Runtime (any path)
 ```
 
-The web app is **not** in the Telegram request path.
+The web app is **not** in the Telegram request path. When proxy mode is enabled, non-Telegram requests are forwarded to the assistant runtime with optional bearer token authentication.
 
 ## Setup
 
@@ -32,6 +34,14 @@ bun run dev
 | `GATEWAY_DEFAULT_ASSISTANT_ID` | No | — | Default assistant ID for unmapped users |
 | `GATEWAY_UNMAPPED_POLICY` | No | `reject` | Policy for unmapped users: `reject` or `default` |
 | `GATEWAY_PORT` | No | `7830` | Port for the gateway HTTP server |
+| `GATEWAY_RUNTIME_PROXY_ENABLED` | No | `false` | Enable runtime proxy for non-Telegram requests |
+| `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH` | No | `true` | Require bearer auth for proxied requests |
+| `RUNTIME_PROXY_BEARER_TOKEN` | Conditional | — | Bearer token for proxy auth (required when proxy + auth enabled) |
+| `GATEWAY_SHUTDOWN_DRAIN_MS` | No | `5000` | Graceful shutdown drain window in milliseconds |
+| `GATEWAY_RUNTIME_TIMEOUT_MS` | No | `30000` | Timeout for runtime HTTP calls (ms) |
+| `GATEWAY_RUNTIME_MAX_RETRIES` | No | `2` | Max retries for runtime forward on 5xx/network errors |
+| `GATEWAY_RUNTIME_INITIAL_BACKOFF_MS` | No | `500` | Initial backoff between retries (doubles each attempt) |
+| `GATEWAY_TELEGRAM_TIMEOUT_MS` | No | `15000` | Timeout for Telegram API/download calls (ms) |
 
 ## Routing
 
@@ -58,6 +68,78 @@ After deploying the gateway, register the webhook with Telegram using the `setWe
 - `allowed_updates` — `["message"]`
 
 See the [Telegram Bot API docs](https://core.telegram.org/bots/api#setwebhook) for the full API reference.
+
+## Default Mode: Telegram-Only
+
+By default the gateway only serves the Telegram webhook endpoint (`/webhooks/telegram`). All other HTTP requests return `404`. The runtime proxy is **opt-in** — set `GATEWAY_RUNTIME_PROXY_ENABLED=true` to enable it. This behavior is enforced by automated tests.
+
+## Runtime Proxy Mode
+
+When `GATEWAY_RUNTIME_PROXY_ENABLED=true`, the gateway forwards all non-Telegram HTTP requests to the assistant runtime at `ASSISTANT_RUNTIME_BASE_URL`. This allows the gateway to serve as a single ingress point for both Telegram and API traffic.
+
+### Auth behavior
+
+By default (`GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH=true`), proxied requests must include a valid `Authorization: Bearer <token>` header matching `RUNTIME_PROXY_BEARER_TOKEN`. Set `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH=false` to disable auth.
+
+`OPTIONS` requests are always allowed without auth (CORS preflight). Telegram webhook requests use their own secret-based verification and are not affected by proxy auth.
+
+### Examples
+
+```bash
+# Unauthorized (expect 401 when auth required)
+curl -i http://localhost:7830/v1/assistants/test/health
+
+# Authorized (expect 200)
+curl -i \
+  -H "Authorization: Bearer $RUNTIME_PROXY_BEARER_TOKEN" \
+  http://localhost:7830/v1/assistants/test/health
+
+# Telegram still uses webhook secret flow, not bearer auth
+curl -i -X POST http://localhost:7830/webhooks/telegram
+```
+
+### Proxy details
+
+- Method, path, query string, headers, and body are forwarded to upstream.
+- Hop-by-hop headers (`connection`, `keep-alive`, `transfer-encoding`, etc.) are stripped from both request and response.
+- The `host` header is not forwarded to upstream.
+- Upstream connection failures return `502 Bad Gateway`.
+
+## Health & Readiness Probes
+
+| Endpoint | Method | Behavior |
+|----------|--------|----------|
+| `/healthz` | GET | Always returns `200` while the process is alive |
+| `/readyz` | GET | Returns `200` while accepting traffic; `503` during graceful shutdown drain |
+
+On `SIGTERM` the gateway enters drain mode: `/readyz` begins returning `503` so the load balancer stops sending new traffic. After `GATEWAY_SHUTDOWN_DRAIN_MS` (default 5 s) the process exits.
+
+## Docker
+
+```bash
+# Build
+docker build -t vellum-gateway:local gateway
+
+# Run (pass required env vars)
+docker run --rm -p 7830:7830 \
+  -e TELEGRAM_BOT_TOKEN=... \
+  -e TELEGRAM_WEBHOOK_SECRET=... \
+  -e ASSISTANT_RUNTIME_BASE_URL=http://host.docker.internal:7821 \
+  vellum-gateway:local
+```
+
+The image runs as non-root user `gateway` (uid 1001) and exposes port `7830`.
+
+## Development
+
+```bash
+cd gateway
+bun install
+bun run typecheck   # TypeScript type check (tsc --noEmit)
+bun run test        # Run test suite
+```
+
+Both checks run in CI on every pull request touching `gateway/`.
 
 ## Troubleshooting
 

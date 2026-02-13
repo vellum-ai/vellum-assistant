@@ -15,7 +15,7 @@ import {
 import { existsSync, statSync, readFileSync } from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
 import { startCli } from './cli.js';
-import { getSocketPath, getDataDir, getDbPath, getLogPath } from './util/platform.js';
+import { getSocketPath, getRootDir, getDataDir, getDbPath, getLogPath } from './util/platform.js';
 import {
   serialize,
   createMessageParser,
@@ -420,14 +420,18 @@ trust
     const toolW = 12;
     const patternW = 30;
     const scopeW = 20;
+    const decW = 6;
+    const priW = 4;
     console.log(
       'ID'.padEnd(idW) +
       'Tool'.padEnd(toolW) +
       'Pattern'.padEnd(patternW) +
       'Scope'.padEnd(scopeW) +
+      'Dcn'.padEnd(decW) +
+      'Pri'.padEnd(priW) +
       'Created',
     );
-    console.log('-'.repeat(idW + toolW + patternW + scopeW + 20));
+    console.log('-'.repeat(idW + toolW + patternW + scopeW + decW + priW + 20));
     for (const r of rules) {
       const id = r.id.slice(0, 8);
       const created = new Date(r.createdAt).toISOString().slice(0, 10);
@@ -436,6 +440,8 @@ trust
         r.tool.padEnd(toolW) +
         r.pattern.slice(0, patternW - 2).padEnd(patternW) +
         r.scope.slice(0, scopeW - 2).padEnd(scopeW) +
+        r.decision.slice(0, decW - 1).padEnd(decW) +
+        String(r.priority).padEnd(priW) +
         created,
       );
     }
@@ -696,8 +702,9 @@ program
     }
 
     // 5. ~/.vellum/ directory structure
+    const rootDir = getRootDir();
     const dataDir = getDataDir();
-    const requiredDirs = [dataDir, `${dataDir}/data`, `${dataDir}/logs`, `${dataDir}/skills`];
+    const requiredDirs = [rootDir, dataDir, `${dataDir}/db`, `${dataDir}/logs`, `${rootDir}/skills`, `${rootDir}/protected`];
     const missing = requiredDirs.filter((d) => !existsSync(d));
     if (missing.length === 0) {
       pass('Directory structure exists');
@@ -707,7 +714,7 @@ program
 
     // 6. Disk space
     try {
-      const output = execSync(`df -k "${dataDir}"`, { stdio: 'pipe', encoding: 'utf-8' });
+      const output = execSync(`df -k "${rootDir}"`, { stdio: 'pipe', encoding: 'utf-8' });
       const lines = output.trim().split('\n');
       if (lines.length >= 2) {
         const cols = lines[1].trim().split(/\s+/);
@@ -783,7 +790,7 @@ program
     }
 
     // 10. Trust rule syntax
-    const trustPath = `${dataDir}/trust.json`;
+    const trustPath = `${rootDir}/protected/trust.json`;
     if (existsSync(trustPath)) {
       try {
         const raw = readFileSync(trustPath, 'utf-8');

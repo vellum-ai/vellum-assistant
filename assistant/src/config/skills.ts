@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFil
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { getConfig } from './loader.js';
-import { getDataDir } from '../util/platform.js';
+import { getRootDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('skills');
@@ -34,7 +34,7 @@ export interface SkillSelectorResult {
 }
 
 export function getSkillsDir(): string {
-  return join(getDataDir(), 'skills');
+  return join(getRootDir(), 'skills');
 }
 
 export function getBundledSkillsDir(): string {

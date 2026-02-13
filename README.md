@@ -4,45 +4,32 @@ AI-powered assistant platform by Vellum.
 
 ## Architecture
 
-The platform has three main components:
+The platform has two main components:
 
-- **Assistant runtime** (`assistant/`): Bun + TypeScript daemon that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes an HTTP API consumed by the web app and gateway.
-- **Web app** (`web/`): Next.js frontend and API layer. Stores assistant metadata, auth, and channel config in Postgres. All chat operations proxy through the assistant runtime via a unified `RuntimeClient`.
-- **Gateway** (`gateway/`): Standalone Bun + TypeScript service that owns Telegram integration end-to-end. Receives Telegram webhooks, routes to the correct assistant via static settings, forwards to the assistant runtime, and sends replies back to Telegram.
+- **Assistant runtime** (`assistant/`): Bun + TypeScript daemon that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes an HTTP API consumed by the gateway.
+- **Gateway** (`gateway/`): Standalone Bun + TypeScript service that owns Telegram integration end-to-end. Receives Telegram webhooks, routes to the correct assistant via static settings, forwards to the assistant runtime, and sends replies back to Telegram. Optionally acts as an authenticated reverse proxy for the assistant runtime API (client → gateway → runtime).
 
 ## Repository Structure
 
 ```
 /
-├── web/               # Next.js web application
 ├── assistant/         # Bun-based assistant runtime
+├── clients/           # Desktop clients
 ├── gateway/           # Telegram gateway service
-├── platform/          # Terraform infrastructure
-├── vel/               # Development toolkit CLI
+├── scripts/           # Utility scripts
 └── .github/           # GitHub Actions workflows
 ```
 
-## Development Toolkit
-
-The `vel` CLI provides common development operations. After running `./setup.sh`, you can use `vel` directly:
+## Local Development
 
 ```bash
-./setup.sh          # Sets up vel CLI and creates symlink
-
-vel up              # Start development environment
-vel down            # Stop development environment
-vel setup           # Run initial setup
-vel ps              # List running services
-vel help            # Show help
+# Start local services (Postgres + MinIO)
+docker compose up -d
 ```
-
-The setup script creates a symlink at `~/.local/bin/vel` for easy access from anywhere.
-
-See [vel/README.md](./vel/README.md) for more details.
 
 ## Git Hooks
 
-This repository includes git hooks to help maintain code quality and security. The hooks are automatically installed when you run `./setup.sh`.
+This repository includes git hooks to help maintain code quality and security. The hooks are installed by running the install script directly.
 
 To manually install or update hooks:
 ```bash
@@ -50,16 +37,6 @@ To manually install or update hooks:
 ```
 
 See [.githooks/README.md](./.githooks/README.md) for more details about available hooks.
-
-## Web Application
-
-The web app lives in `/web`. See [web/README.md](./web/README.md) for setup instructions.
-
-```bash
-cd web
-npm install
-npm run dev
-```
 
 ## Assistant Runtime
 
@@ -74,24 +51,6 @@ bun run src/index.ts daemon start
 ## Remote Access
 
 Access a remote assistant daemon from your local machine via SSH.
-
-### Web (runtime HTTP tunnel)
-
-The web app connects to the runtime via HTTP. Use the tunnel helper to forward the runtime port:
-
-```bash
-# On your local machine — forward remote runtime port
-scripts/vellum-runtime-tunnel.sh start user@remote-host
-
-# Print env vars for web local mode
-scripts/vellum-runtime-tunnel.sh print-env
-# Output:
-#   ASSISTANT_CONNECTION_MODE=local
-#   LOCAL_RUNTIME_URL=http://127.0.0.1:7821
-
-# On the remote host, start the daemon with HTTP enabled
-RUNTIME_HTTP_PORT=7821 bun run src/index.ts daemon start
-```
 
 ### CLI (socket forwarding)
 
@@ -117,8 +76,6 @@ VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock open -a Vellum
 
 | Symptom | Check |
 |---|---|
-| Web: "Failed to connect to runtime" | Is the tunnel running? (`scripts/vellum-runtime-tunnel.sh status`) |
-| Web: "CLOUD_RUNTIME_URL must be set" | Set `ASSISTANT_CONNECTION_MODE=local` |
 | CLI: "could not connect to daemon socket" | Is the SSH socket tunnel active? Check `VELLUM_DAEMON_SOCKET` path |
 | CLI: daemon starts locally despite socket override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1` |
 | macOS: not connecting | Verify socket path in `VELLUM_DAEMON_SOCKET` exists and is writable |
@@ -143,7 +100,7 @@ This repo includes Claude Code slash commands (in `.claude/commands/`) for agent
 | Command | Purpose |
 |---------|---------|
 | `/brainstorm` | Deep-read the codebase, generate a prioritized list of improvements, and update `.private/TODO.md` after approval. |
-| `/swarm [workers] [max-tasks]` | Parallel execution — spawns a pool of agents (default 3) that work through `.private/TODO.md` concurrently, each in its own worktree. PRs are auto-assigned to the current user. |
+| `/swarm [workers] [max-tasks]` | Parallel execution — spawns a pool of agents (default 12) that work through `.private/TODO.md` concurrently, each in its own worktree. PRs are auto-assigned to the current user. |
 | `/blitz <feature>` | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, sweeps for review feedback, addresses it, and reports. Merges directly to main. |
 | `/safe-blitz <feature>` | End-to-end feature delivery on a feature branch — plans, creates issues, swarm-executes in parallel, sweeps for review feedback. All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Supports `--auto`, `--workers N`, `--skip-plan`, `--branch NAME`. |
 | `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merges the feature branch PR into main, sets the project issue to Done, closes the issue, and deletes the local branch. Auto-detects the PR from current branch, open `feature/*` PRs, or project board "In Review" items. |
@@ -192,6 +149,35 @@ Or for a focused feature: **`/blitz <feature>`** handles all of the above in one
 For controlled, sequential plan execution with human review at every step: **`/safe-execute-plan <file>`** → **`/safe-check-review`** → **`/resume-plan`** → repeat.
 
 All workflows use squash-merge (no merge commits), worktree isolation for parallel work, and track state in `.private/TODO.md`, `.private/DONE.md`, and `.private/UNREVIEWED_PRS.md`.
+
+## Release Management
+
+Releases are cut using the `/release` Claude Code command and follow a fully automated pipeline from tag to client update.
+
+### Cutting a release
+
+Run `/release [version]` in Claude Code. If no version is provided, the patch version is auto-incremented from the latest git tag (e.g. `v0.1.5` becomes `v0.1.6`). The command:
+
+1. Pulls the latest `main` branch
+2. Generates release notes from commits since the last tag, grouped into Features, Fixes, and Infrastructure
+3. Creates a GitHub Release with the corresponding git tag
+4. Confirms the CI build was triggered
+
+### What happens after a release is created
+
+Creating the GitHub Release triggers three workflows in parallel:
+
+- **Build and Release macOS App** (`build-and-release-macos.yml`): Builds the macOS `.app` from source, compiles the Bun daemon binary, code-signs it with a Developer ID certificate, notarizes it with Apple, creates a DMG installer, and publishes both the DMG and a Sparkle-compatible ZIP + `appcast.xml` to the public updates repo ([alex-nork/vellum-assistant-macos-updates](https://github.com/alex-nork/vellum-assistant-macos-updates)). This takes ~15-20 minutes.
+- **Publish velly to npm** (`publish-velly.yml`): Publishes the `velly` CLI package to npm with provenance.
+- **Slack Release Notification** (`slack-release-notification.yml`): Posts a summary message to the releases Slack channel with a threaded changelog.
+
+### Auto-updates for macOS clients
+
+The macOS app uses [Sparkle](https://sparkle-project.org/) for automatic updates. When a new release is published to the public updates repo, existing client installations detect the update via the `appcast.xml` feed, download the new version, and install it automatically — no manual action required from users. The update check happens periodically in the background while the app is running.
+
+### First-time installation
+
+New users download the latest DMG from the [public updates repo releases page](https://github.com/alex-nork/vellum-assistant-macos-updates/releases/latest), open it, and drag the app to their Applications folder. All subsequent updates are handled automatically by Sparkle.
 
 ## License
 

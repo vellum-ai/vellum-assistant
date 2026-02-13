@@ -42,7 +42,7 @@ Slash commands for Claude Code that automate development workflows. They live in
 
 ### 1. Run `vel setup`
 
-Run `vel setup` (or `./setup.sh`) to create the required `.private/` tracking files. The `.private/` directory is gitignored, so every developer needs to run this locally.
+Create the required `.private/` tracking files manually. The `.private/` directory is gitignored, so every developer needs to set this up locally.
 
 The slash commands themselves are committed at `.claude/commands/` and available automatically — no setup needed.
 
@@ -89,9 +89,9 @@ Spawns a pool of agents that work through `.private/TODO.md` in parallel using i
 **Frequency:** On demand. Can run for extended periods.
 
 ```
-/swarm       # 3 parallel workers, runs until TODO.md is empty
-/swarm 5     # 5 parallel workers
-/swarm 3 10  # 3 workers, stop after 10 tasks completed
+/swarm        # 12 parallel workers, runs until TODO.md is empty
+/swarm 5      # 5 parallel workers
+/swarm 12 10  # 12 workers, stop after 10 tasks completed
 ```
 
 ### `/check-reviews` - Process PR review feedback
@@ -115,9 +115,9 @@ Combines `/check-reviews` and `/swarm` into a single command. First triages all 
 **Frequency:** Every 30-60 minutes while PRs are pending review.
 
 ```
-/check-reviews-and-swarm       # check reviews, then swarm with 3 workers
-/check-reviews-and-swarm 5     # check reviews, then swarm with 5 workers
-/check-reviews-and-swarm 3 10  # check reviews, then swarm with 3 workers, max 10 tasks
+/check-reviews-and-swarm        # check reviews, then swarm with 12 workers
+/check-reviews-and-swarm 5      # check reviews, then swarm with 5 workers
+/check-reviews-and-swarm 12 10  # check reviews, then swarm with 12 workers, max 10 tasks
 ```
 
 ### `/mainline` - Ship current changes to main
@@ -190,7 +190,7 @@ The project board is created under the `vellum-ai` org with the naming conventio
 
 **Flags:**
 - `--auto` — skip the pause between swarm and sweep phases (default: pause and ask)
-- `--workers N` — number of parallel swarm workers (default: 3)
+- `--workers N` — number of parallel swarm workers (default: 12)
 - `--skip-plan` — skip issue creation; use issues already in the "Ready" column of the project board
 
 ## Typical workflow

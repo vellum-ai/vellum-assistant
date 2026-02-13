@@ -78,7 +78,6 @@ mock.module('../config/loader.js', () => ({
     provider: 'mock-provider',
     maxTokens: 4096,
     thinking: false,
-    systemPrompt: {},
     contextWindow: {
       maxInputTokens: 100000,
       thresholdTokens: 80000,

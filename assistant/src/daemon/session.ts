@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, ListSurfaceData, DynamicPageSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, DynamicPageSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { CheckpointDecision } from '../agent/loop.js';
@@ -763,6 +763,13 @@ export class Session {
       log.warn({ surfaceId, actionId }, 'No pending surface action found');
       return;
     }
+    // selection_changed is a non-terminal state update — don't consume the
+    // pending entry or send a message. The selection state will be included
+    // in the data payload when the user clicks a real action button.
+    if (actionId === 'selection_changed') {
+      log.debug({ surfaceId, data }, 'Selection changed (non-terminal, not forwarding)');
+      return;
+    }
     const content = JSON.stringify({
       surfaceAction: true,
       surfaceId,
@@ -892,10 +899,15 @@ export class Session {
       const data = input.data as SurfaceData;
       const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
       // Interactive surfaces default to awaiting user action.
-      // Lists with selectionMode "none" are passive (no actions emitted) so they don't block.
+      // Tables and lists only block when explicit action buttons are provided;
+      // selectionMode alone should not gate blocking because selection_changed
+      // fires on every click and would immediately resolve multi-select surfaces.
+      const hasActions = Array.isArray(actions) && actions.length > 0;
       const isInteractive = surfaceType === 'list'
-        ? ((data as ListSurfaceData).selectionMode ?? 'none') !== 'none'
-        : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
+        ? hasActions
+        : surfaceType === 'table'
+          ? hasActions
+          : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
       const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
       // Track surface state for ui_update merging

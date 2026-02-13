@@ -59,7 +59,7 @@ exports[`IPC message snapshots ClientMessage types model_get serializes to expec
 
 exports[`IPC message snapshots ClientMessage types model_set serializes to expected JSON 1`] = `
 {
-  "model": "claude-sonnet-4-5-20250929",
+  "model": "claude-opus-4-6",
   "type": "model_set",
 }
 `;
@@ -184,6 +184,16 @@ exports[`IPC message snapshots ClientMessage types suggestion_request serializes
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types add_trust_rule serializes to expected JSON 1`] = `
+{
+  "decision": "allow",
+  "pattern": "git *",
+  "scope": "/projects/my-app",
+  "toolName": "bash",
+  "type": "add_trust_rule",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
 {
   "sessionId": "sess-001",
@@ -240,6 +250,7 @@ exports[`IPC message snapshots ServerMessage types confirmation_request serializ
 {
   "allowlistOptions": [
     {
+      "description": "Allow rm commands",
       "label": "Allow rm commands",
       "pattern": "bash:rm *",
     },
@@ -332,7 +343,7 @@ exports[`IPC message snapshots ServerMessage types generation_handoff serializes
 
 exports[`IPC message snapshots ServerMessage types model_info serializes to expected JSON 1`] = `
 {
-  "model": "claude-sonnet-4-5-20250929",
+  "model": "claude-opus-4-6",
   "provider": "anthropic",
   "type": "model_info",
 }
@@ -367,7 +378,7 @@ exports[`IPC message snapshots ServerMessage types usage_update serializes to ex
 {
   "estimatedCost": 0.025,
   "inputTokens": 150,
-  "model": "claude-sonnet-4-5-20250929",
+  "model": "claude-opus-4-6",
   "outputTokens": 50,
   "totalInputTokens": 1500,
   "totalOutputTokens": 500,
@@ -378,7 +389,7 @@ exports[`IPC message snapshots ServerMessage types usage_update serializes to ex
 exports[`IPC message snapshots ServerMessage types usage_response serializes to expected JSON 1`] = `
 {
   "estimatedCost": 0.025,
-  "model": "claude-sonnet-4-5-20250929",
+  "model": "claude-opus-4-6",
   "totalInputTokens": 1500,
   "totalOutputTokens": 500,
   "type": "usage_response",
@@ -393,7 +404,7 @@ exports[`IPC message snapshots ServerMessage types context_compacted serializes 
   "previousEstimatedInputTokens": 220000,
   "summaryCalls": 3,
   "summaryInputTokens": 4200,
-  "summaryModel": "claude-sonnet-4-5-20250929",
+  "summaryModel": "claude-opus-4-6",
   "summaryOutputTokens": 900,
   "thresholdTokens": 144000,
   "type": "context_compacted",

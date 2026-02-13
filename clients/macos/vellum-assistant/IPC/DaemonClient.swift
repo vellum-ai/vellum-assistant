@@ -308,6 +308,23 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
         ))
     }
 
+    // MARK: - Trust Rule Addition
+
+    /// Send an add_trust_rule message to persist a trust rule on the daemon.
+    func sendAddTrustRule(
+        toolName: String,
+        pattern: String,
+        scope: String,
+        decision: String
+    ) throws {
+        try send(AddTrustRuleMessage(
+            toolName: toolName,
+            pattern: pattern,
+            scope: scope,
+            decision: decision
+        ))
+    }
+
     // MARK: - Disconnect
 
     /// Disconnect from the daemon. Stops reconnect and ping timers.

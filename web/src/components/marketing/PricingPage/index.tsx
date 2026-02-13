@@ -1,1 +1,0 @@
-export { PricingBody } from "./PricingBody";

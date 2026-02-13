@@ -26,7 +26,7 @@ enum SelectionMode: String, Sendable {
 
 // MARK: - Surface Data Models
 
-struct CardSurfaceData: Sendable {
+struct CardSurfaceData: @unchecked Sendable {
     let title: String
     let subtitle: String?
     let body: String

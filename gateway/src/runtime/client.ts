@@ -3,9 +3,6 @@ import type { GatewayConfig } from "../config.js";
 
 const log = pino({ name: "gateway:runtime-client" });
 
-const MAX_RETRIES = 2;
-const INITIAL_BACKOFF_MS = 500;
-
 export type RuntimeInboundPayload = {
   sourceChannel: string;
   externalChatId: string;
@@ -40,9 +37,9 @@ export async function forwardToRuntime(
 
   let lastError: Error | null = null;
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= config.runtimeMaxRetries; attempt++) {
     if (attempt > 0) {
-      const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1);
+      const delay = config.runtimeInitialBackoffMs * Math.pow(2, attempt - 1);
       log.debug({ attempt, delay, assistantId }, "Retrying runtime forward");
       await new Promise((r) => setTimeout(r, delay));
     }
@@ -52,6 +49,7 @@ export async function forwardToRuntime(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(config.runtimeTimeoutMs),
       });
 
       if (response.status >= 400 && response.status < 500) {
@@ -118,6 +116,7 @@ export async function uploadAttachment(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
+    signal: AbortSignal.timeout(config.runtimeTimeoutMs),
   });
 
   if (!response.ok) {

@@ -7,7 +7,8 @@ import { join } from 'node:path';
 const checkerTestDir = mkdtempSync(join(tmpdir(), 'checker-test-'));
 
 mock.module('../util/platform.js', () => ({
-  getDataDir: () => checkerTestDir,
+  getRootDir: () => checkerTestDir,
+  getDataDir: () => join(checkerTestDir, 'data'),
   isMacOS: () => process.platform === 'darwin',
   isLinux: () => process.platform === 'linux',
   isWindows: () => process.platform === 'win32',
@@ -46,7 +47,7 @@ describe('Permission Checker', () => {
   beforeEach(() => {
     // Reset trust-store state between tests
     clearCache();
-    try { rmSync(join(checkerTestDir, 'trust.json')); } catch { /* may not exist */ }
+    try { rmSync(join(checkerTestDir, 'protected', 'trust.json')); } catch { /* may not exist */ }
     try { rmSync(join(checkerTestDir, 'skills'), { recursive: true, force: true }); } catch { /* may not exist */ }
   });
 
@@ -443,6 +444,84 @@ describe('Permission Checker', () => {
       const result = await check('web_fetch', { url: 'https://example.com/%70rivate/doc' }, '/tmp');
       expect(result.decision).toBe('deny');
     });
+
+    // Priority-based rule resolution
+    test('higher-priority allow rule overrides lower-priority deny rule', async () => {
+      addRule('bash', 'rm *', '/tmp', 'deny', 0);
+      addRule('bash', 'rm *', '/tmp', 'allow', 100);
+      const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      expect(result.decision).toBe('allow');
+    });
+
+    test('higher-priority deny rule overrides lower-priority allow rule', async () => {
+      addRule('bash', 'rm *', '/tmp', 'allow', 0);
+      addRule('bash', 'rm *', '/tmp', 'deny', 100);
+      const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    test('high-risk command still prompts even with high-priority allow rule', async () => {
+      addRule('bash', 'sudo *', 'everywhere', 'allow', 100);
+      const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('high-risk command is denied by deny rule without prompting', async () => {
+      addRule('bash', 'sudo *', 'everywhere', 'deny', 100);
+      const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+  });
+
+  // ── default protected directory deny rules ─────────────────────
+
+  describe('default protected directory deny rules', () => {
+    test('file_read of protected file is denied', async () => {
+      const protectedPath = join(checkerTestDir, 'protected', 'trust.json');
+      const result = await check('file_read', { path: protectedPath }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+    });
+
+    test('file_write to protected file is denied', async () => {
+      const protectedPath = join(checkerTestDir, 'protected', 'keys.enc');
+      const result = await check('file_write', { path: protectedPath }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+    });
+
+    test('file_edit of protected file is denied', async () => {
+      const protectedPath = join(checkerTestDir, 'protected', 'secret-allowlist.json');
+      const result = await check('file_edit', { path: protectedPath }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+    });
+
+    test('file_read of non-protected file is not denied', async () => {
+      const safePath = join(checkerTestDir, 'data', 'assistant.db');
+      const result = await check('file_read', { path: safePath }, '/tmp');
+      expect(result.decision).toBe('allow');
+    });
+
+    test('file_write to non-protected file is not auto-denied', async () => {
+      const safePath = '/tmp/safe-file.txt';
+      const result = await check('file_write', { path: safePath }, '/tmp');
+      // Medium risk with no matching rule → prompt (not deny)
+      expect(result.decision).not.toBe('deny');
+    });
+
+    test('relative path to protected file is still denied', async () => {
+      // Simulate a relative path that resolves to the protected directory.
+      // The default deny pattern uses an absolute path, so the checker
+      // must resolve relative paths against workingDir before matching.
+      const workingDir = '/tmp';
+      const protectedPath = join(checkerTestDir, 'protected', 'trust.json');
+      // Build a relative path from workingDir to the protected file
+      const { relative } = await import('node:path');
+      const relPath = relative(workingDir, protectedPath);
+      const result = await check('file_read', { path: relPath }, workingDir);
+      expect(result.decision).toBe('deny');
+    });
   });
 
   // ── generateAllowlistOptions ───────────────────────────────────
@@ -451,9 +530,9 @@ describe('Permission Checker', () => {
     test('shell: generates exact, subcommand wildcard, and program wildcard', () => {
       const options = generateAllowlistOptions('bash', { command: 'npm install express' });
       expect(options).toHaveLength(3);
-      expect(options[0]).toEqual({ label: 'npm install express', pattern: 'npm install express' });
-      expect(options[1]).toEqual({ label: 'npm install *', pattern: 'npm install *' });
-      expect(options[2]).toEqual({ label: 'npm *', pattern: 'npm *' });
+      expect(options[0]).toEqual({ label: 'npm install express', description: 'This exact command', pattern: 'npm install express' });
+      expect(options[1]).toEqual({ label: 'npm install *', description: 'Any "npm install" command', pattern: 'npm install *' });
+      expect(options[2]).toEqual({ label: 'npm *', description: 'Any npm command', pattern: 'npm *' });
     });
 
     test('shell: single-word command deduplicates', () => {

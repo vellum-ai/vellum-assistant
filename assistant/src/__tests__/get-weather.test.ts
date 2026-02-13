@@ -26,8 +26,22 @@ function createMockFetch(options?: {
     { name: 'San Francisco', latitude: 37.7749, longitude: -122.4194, country: 'United States', admin1: 'California' },
   ];
 
+  // Generate 48 hourly entries starting from 2025-01-15T00:00
+  const hourlyTimes: string[] = [];
+  const hourlyTemps: number[] = [];
+  const hourlyCodes: number[] = [];
+  const hourlyIsDay: number[] = [];
+  for (let i = 0; i < 48; i++) {
+    const h = i % 24;
+    hourlyTimes.push(`2025-01-${15 + Math.floor(i / 24)}T${String(h).padStart(2, '0')}:00`);
+    hourlyTemps.push(10 + Math.sin(i / 4) * 5);
+    hourlyCodes.push(i % 3 === 0 ? 0 : 2);
+    hourlyIsDay.push(h >= 7 && h < 19 ? 1 : 0);
+  }
+
   const defaultForecastData = {
     current: {
+      time: '2025-01-15T08:00',
       temperature_2m: 15.0,
       relative_humidity_2m: 72,
       apparent_temperature: 13.5,
@@ -41,6 +55,17 @@ function createMockFetch(options?: {
       apparent_temperature: '\u00B0C',
       wind_speed_10m: 'km/h',
       wind_direction_10m: '\u00B0',
+    },
+    hourly: {
+      time: hourlyTimes,
+      temperature_2m: hourlyTemps,
+      weather_code: hourlyCodes,
+      is_day: hourlyIsDay,
+    },
+    hourly_units: {
+      temperature_2m: '\u00B0C',
+      weather_code: 'wmo code',
+      is_day: '',
     },
     daily: {
       time: ['2025-01-15', '2025-01-16', '2025-01-17', '2025-01-18', '2025-01-19'],
@@ -176,12 +201,12 @@ describe('weather output formatting', () => {
     expect(result.content).toContain('Humidity: 72%');
   });
 
-  test('includes 5-day forecast', async () => {
+  test('includes 10-day forecast by default', async () => {
     const mockFetch = createMockFetch();
     const result = await executeGetWeather({ location: 'San Francisco' }, mockFetch);
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('5-Day Forecast');
+    expect(result.content).toContain('10-Day Forecast');
     expect(result.content).toContain('2025-01-15');
     expect(result.content).toContain('2025-01-19');
     expect(result.content).toContain('Precip');

@@ -157,6 +157,7 @@ struct NavigationGallerySection: View {
                     }
                 }
             }
+
         }
     }
 }

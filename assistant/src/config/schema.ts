@@ -328,13 +328,10 @@ export const AssistantConfigSchema = z.object({
     .default('anthropic'),
   model: z
     .string({ error: 'model must be a string' })
-    .default('claude-sonnet-4-5-20250929'),
+    .default('claude-opus-4-6'),
   apiKeys: z
     .record(z.string(), z.string({ error: 'Each apiKeys value must be a string' }))
     .default({}),
-  systemPrompt: z
-    .string({ error: 'systemPrompt must be a string' })
-    .optional(),
   maxTokens: z
     .number({ error: 'maxTokens must be a number' })
     .int('maxTokens must be an integer')
