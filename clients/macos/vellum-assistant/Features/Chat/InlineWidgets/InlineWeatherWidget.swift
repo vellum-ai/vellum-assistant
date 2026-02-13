@@ -41,6 +41,16 @@ struct WeatherForecastData {
         return useFahrenheit ? Int(currentTemp * 9 / 5 + 32) : Int((currentTemp - 32) * 5 / 9)
     }
 
+    func feelsLike(useFahrenheit: Bool) -> Int {
+        if sourceIsFahrenheit == useFahrenheit { return Int(feelsLike) }
+        return useFahrenheit ? Int(feelsLike * 9 / 5 + 32) : Int((feelsLike - 32) * 5 / 9)
+    }
+
+    func windSpeed(useFahrenheit: Bool) -> Int {
+        // Source wind speed is already in the right unit system
+        return windSpeed
+    }
+
     static func parse(from dict: [String: Any?]) -> WeatherForecastData? {
         guard let location = dict["location"] as? String else { return nil }
 
@@ -100,6 +110,7 @@ struct InlineWeatherWidget: View {
     }
 
     private var unit: String { useFahrenheit ? "F" : "C" }
+    private var speedUnit: String { useFahrenheit ? "mph" : "km/h" }
 
     /// Global min/max across all forecast days, used to normalize the temperature bars.
     private var globalRange: (min: Int, max: Int) {
@@ -110,9 +121,17 @@ struct InlineWeatherWidget: View {
         return (allMin, allMax)
     }
 
+    /// Today's H/L from the first forecast item.
+    private var todayHighLow: (high: Int, low: Int)? {
+        guard let today = data.forecast.first else { return nil }
+        return (today.high(useFahrenheit: useFahrenheit), today.low(useFahrenheit: useFahrenheit))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
+            heroSection
+            Divider().background(Slate._700.opacity(0.3))
+            forecastHeader
             Divider().background(Slate._700.opacity(0.3))
 
             ForEach(Array(data.forecast.enumerated()), id: \.element.id) { index, item in
@@ -124,9 +143,94 @@ struct InlineWeatherWidget: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Hero Section (Current Conditions)
 
-    private var header: some View {
+    private var heroSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            // Location + unit toggle
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(data.location)
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.textPrimary)
+                }
+                Spacer()
+                Picker("", selection: $useFahrenheit) {
+                    Text("°F").tag(true)
+                    Text("°C").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 80)
+            }
+
+            // Big temperature + condition
+            HStack(alignment: .top, spacing: VSpacing.md) {
+                // Large temp display
+                HStack(alignment: .top, spacing: 0) {
+                    Text("\(data.currentTemp(useFahrenheit: useFahrenheit))")
+                        .font(.system(size: 48, weight: .thin, design: .rounded))
+                        .foregroundColor(VColor.textPrimary)
+                    Text("°")
+                        .font(.system(size: 28, weight: .thin, design: .rounded))
+                        .foregroundColor(VColor.textSecondary)
+                        .offset(y: 4)
+                }
+
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    // Condition with icon
+                    HStack(spacing: VSpacing.xs) {
+                        if let firstItem = data.forecast.first {
+                            Image(systemName: firstItem.icon)
+                                .font(.system(size: 14))
+                                .foregroundColor(iconColor(for: firstItem.icon))
+                        }
+                        Text(data.condition)
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(VColor.textPrimary)
+                    }
+
+                    // Feels like
+                    Text("Feels like \(data.feelsLike(useFahrenheit: useFahrenheit))°")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+
+                    // H/L
+                    if let hl = todayHighLow {
+                        Text("H:\(hl.high)°  L:\(hl.low)°")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                }
+                .padding(.top, VSpacing.sm)
+            }
+
+            // Wind + Humidity chips
+            HStack(spacing: VSpacing.md) {
+                Label {
+                    Text("\(data.windSpeed) \(speedUnit) \(data.windDirection)")
+                        .font(VFont.caption)
+                } icon: {
+                    Image(systemName: "wind")
+                        .font(VFont.caption)
+                }
+                .foregroundColor(VColor.textMuted)
+
+                Label {
+                    Text("\(data.humidity)%")
+                        .font(VFont.caption)
+                } icon: {
+                    Image(systemName: "humidity")
+                        .font(VFont.caption)
+                }
+                .foregroundColor(VColor.textMuted)
+            }
+        }
+        .padding(.vertical, VSpacing.sm)
+    }
+
+    // MARK: - Forecast Header
+
+    private var forecastHeader: some View {
         HStack {
             Image(systemName: "calendar")
                 .font(VFont.caption)
@@ -135,12 +239,6 @@ struct InlineWeatherWidget: View {
                 .font(VFont.captionMedium)
                 .foregroundColor(VColor.textMuted)
             Spacer()
-            Picker("", selection: $useFahrenheit) {
-                Text("°F").tag(true)
-                Text("°C").tag(false)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 80)
         }
         .padding(.vertical, VSpacing.sm)
     }
@@ -286,6 +384,6 @@ struct InlineWeatherWidget: View {
         .padding()
         .frame(width: 450)
     }
-    .frame(width: 500, height: 600)
+    .frame(width: 500, height: 700)
 }
 #endif

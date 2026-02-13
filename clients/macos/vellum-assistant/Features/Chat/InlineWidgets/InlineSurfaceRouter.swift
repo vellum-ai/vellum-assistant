@@ -5,9 +5,18 @@ struct InlineSurfaceRouter: View {
     let surface: InlineSurfaceData
     let onAction: (String, String, [String: AnyCodable]?) -> Void
 
+    /// Whether the surface content handles its own header/chrome.
+    private var isTemplateCard: Bool {
+        if case .card(let data) = surface.data, data.template != nil {
+            return true
+        }
+        return false
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            if let title = surface.title {
+            // Template cards handle their own header — skip the generic title
+            if !isTemplateCard, let title = surface.title {
                 Text(title)
                     .font(VFont.cardTitle)
                     .foregroundColor(VColor.textPrimary)
