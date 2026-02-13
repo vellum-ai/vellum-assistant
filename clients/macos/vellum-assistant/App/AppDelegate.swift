@@ -689,11 +689,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Replace only the Name line, preserving everything else
                 let namePattern = #"^- \*\*Name:\*\*.*$"#
                 if let regex = try? NSRegularExpression(pattern: namePattern, options: .anchorsMatchLines) {
-                    let range = NSRange(existing.startIndex..., in: existing)
-                    let replacement = "- **Name:** \(trimmed)"
-                    let updated = regex.stringByReplacingMatches(in: existing, range: range, withTemplate: NSRegularExpression.escapedTemplate(for: replacement))
-                    // Only use the updated content if a substitution actually happened
-                    content = updated != existing ? updated : existing
+                    let fullRange = NSRange(existing.startIndex..., in: existing)
+                    if let match = regex.firstMatch(in: existing, range: fullRange),
+                       let matchRange = Range(match.range, in: existing) {
+                        var updated = existing
+                        updated.replaceSubrange(matchRange, with: "- **Name:** \(trimmed)")
+                        content = updated
+                    } else {
+                        content = existing
+                    }
                 } else {
                     content = existing
                 }
