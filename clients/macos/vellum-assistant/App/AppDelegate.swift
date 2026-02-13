@@ -800,7 +800,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func registerBundledFonts() {
-        for name in ["Silkscreen-Regular", "Silkscreen-Bold"] {
+        for name in ["Silkscreen-Regular", "Silkscreen-Bold", "DMMono-Regular", "DMMono-Medium"] {
             guard let url = ResourceBundle.bundle.url(forResource: name, withExtension: "ttf") else {
                 log.warning("Font file \(name).ttf not found in bundle")
                 continue
