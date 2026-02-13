@@ -85,62 +85,38 @@ struct AgentPanel: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header (matches VSidePanel style)
-            HStack {
-                Text("AGENT")
-                    .font(VFont.panelTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close Agent")
-            }
-            .padding(VSpacing.xl)
-
-            // Tabbed navigation — pinned above scroll
+        VSidePanel(title: "Agent", onClose: onClose, pinnedContent: {
             VSegmentedControl(
                 items: ["Skills", "Available Skills", "Nodes", "Personality"],
                 selection: $selectedTab
             )
+            .padding(.top, VSpacing.sm)
 
-            Divider()
-                .background(VColor.surfaceBorder)
-
-            // Scrollable tab content
-            ScrollView {
-                Group {
-                    switch selectedTab {
-                    case 0:
-                        skillsContent
-                    case 1:
-                        availableSkillsContent
-                    case 2:
-                        VEmptyState(
-                            title: "No nodes",
-                            subtitle: "Agent nodes will appear here",
-                            icon: "point.3.connected.trianglepath.dotted"
-                        )
-                        .frame(height: 250)
-                    case 3:
-                        VEmptyState(
-                            title: "Personality",
-                            subtitle: "Configure agent personality here",
-                            icon: "person.text.rectangle"
-                        )
-                        .frame(height: 250)
-                    default:
-                        EmptyView()
-                    }
-                }
-                .padding(VSpacing.xl)
+            Divider().background(VColor.surfaceBorder)
+        }) {
+            switch selectedTab {
+            case 0:
+                skillsContent
+            case 1:
+                availableSkillsContent
+            case 2:
+                VEmptyState(
+                    title: "No nodes",
+                    subtitle: "Agent nodes will appear here",
+                    icon: "point.3.connected.trianglepath.dotted"
+                )
+                .frame(height: 250)
+            case 3:
+                VEmptyState(
+                    title: "Personality",
+                    subtitle: "Configure agent personality here",
+                    icon: "person.text.rectangle"
+                )
+                .frame(height: 250)
+            default:
+                EmptyView()
             }
         }
-        .background(VColor.backgroundSubtle)
         .onAppear {
             skillsManager.fetchSkills()
         }
