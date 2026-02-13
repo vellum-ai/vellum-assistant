@@ -17,6 +17,7 @@ import {
 } from './jobs-store.js';
 import { indexMessageNow } from './indexer.js';
 import { extractAndUpsertMemoryItemsForMessage } from './items-extractor.js';
+import { getQdrantClient } from './qdrant-client.js';
 import { memoryEmbeddings, memoryItems, memorySegments, memorySummaries, messages } from './schema.js';
 
 const log = getLogger('memory-jobs-worker');
@@ -120,12 +121,21 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
   }
 }
 
-async function embedSegmentJob(job: MemoryJob, _config: AssistantConfig): Promise<void> {
+async function embedSegmentJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
   const segmentId = asString(job.payload.segmentId);
   if (!segmentId) return;
-  // Segment embeddings are intentionally disabled: retrieval only consumes
-  // semantic vectors for items and summaries.
-  log.debug({ segmentId }, 'Skipping segment embedding job');
+  const db = getDb();
+  const segment = db
+    .select()
+    .from(memorySegments)
+    .where(eq(memorySegments.id, segmentId))
+    .get();
+  if (!segment) return;
+  await embedAndUpsert(config, 'segment', segment.id, segment.text, {
+    conversation_id: segment.conversationId,
+    message_id: segment.messageId,
+    created_at: segment.createdAt,
+  });
 }
 
 async function embedItemJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
@@ -139,7 +149,14 @@ async function embedItemJob(job: MemoryJob, config: AssistantConfig): Promise<vo
     .get();
   if (!item || item.status !== 'active') return;
   const text = `[${item.kind}] ${item.subject}: ${item.statement}`;
-  await embedAndUpsert(config, 'item', item.id, text);
+  await embedAndUpsert(config, 'item', item.id, text, {
+    kind: item.kind,
+    subject: item.subject,
+    status: item.status,
+    confidence: item.confidence,
+    created_at: item.firstSeenAt,
+    last_seen_at: item.lastSeenAt,
+  });
 }
 
 async function embedSummaryJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
@@ -152,7 +169,11 @@ async function embedSummaryJob(job: MemoryJob, config: AssistantConfig): Promise
     .where(eq(memorySummaries.id, summaryId))
     .get();
   if (!summary) return;
-  await embedAndUpsert(config, 'summary', summary.id, `[${summary.scope}] ${summary.summary}`);
+  await embedAndUpsert(config, 'summary', summary.id, `[${summary.scope}] ${summary.summary}`, {
+    kind: summary.scope,
+    created_at: summary.startAt,
+    last_seen_at: summary.endAt,
+  });
 }
 
 function extractItemsJob(job: MemoryJob): void {
@@ -350,6 +371,7 @@ async function embedAndUpsert(
   targetType: 'segment' | 'item' | 'summary',
   targetId: string,
   text: string,
+  extraPayload?: Record<string, unknown>,
 ): Promise<void> {
   const status = getMemoryBackendStatus(config);
   if (!status.provider) {
@@ -364,42 +386,17 @@ async function embedAndUpsert(
   const vector = embedded.vectors[0];
   if (!vector) return;
 
-  const db = getDb();
-  const now = Date.now();
-  const existing = db
-    .select()
-    .from(memoryEmbeddings)
-    .where(and(
-      eq(memoryEmbeddings.targetType, targetType),
-      eq(memoryEmbeddings.targetId, targetId),
-      eq(memoryEmbeddings.provider, embedded.provider),
-      eq(memoryEmbeddings.model, embedded.model),
-    ))
-    .get();
-
-  if (existing) {
-    db.update(memoryEmbeddings)
-      .set({
-        dimensions: vector.length,
-        vectorJson: JSON.stringify(vector),
-        updatedAt: now,
-      })
-      .where(eq(memoryEmbeddings.id, existing.id))
-      .run();
-    return;
+  try {
+    const qdrant = getQdrantClient();
+    const now = Date.now();
+    await qdrant.upsert(targetType, targetId, vector, {
+      text,
+      created_at: (extraPayload?.created_at as number) ?? now,
+      ...(extraPayload as Record<string, unknown> | undefined),
+    });
+  } catch (err) {
+    log.warn({ err, targetType, targetId }, 'Failed to upsert embedding to Qdrant');
   }
-
-  db.insert(memoryEmbeddings).values({
-    id: uuid(),
-    targetType,
-    targetId,
-    provider: embedded.provider,
-    model: embedded.model,
-    dimensions: vector.length,
-    vectorJson: JSON.stringify(vector),
-    createdAt: now,
-    updatedAt: now,
-  }).run();
 }
 
 function asString(value: unknown): string | null {

@@ -14,4 +14,5 @@ export type {
   MemoryRetentionConfig,
   MemoryConfig,
   ModelPricingOverride,
+  QdrantConfig,
 } from './schema.js';

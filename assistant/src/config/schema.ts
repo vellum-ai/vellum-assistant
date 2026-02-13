@@ -3,7 +3,7 @@ import { getDataDir } from '../util/platform.js';
 
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama'] as const;
 const VALID_SECRET_ACTIONS = ['redact', 'warn', 'block'] as const;
-const VALID_MEMORY_EMBEDDING_PROVIDERS = ['auto', 'openai', 'gemini', 'ollama'] as const;
+const VALID_MEMORY_EMBEDDING_PROVIDERS = ['auto', 'local', 'openai', 'gemini', 'ollama'] as const;
 
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
@@ -123,6 +123,9 @@ export const MemoryEmbeddingsConfigSchema = z.object({
       error: `memory.embeddings.provider must be one of: ${VALID_MEMORY_EMBEDDING_PROVIDERS.join(', ')}`,
     })
     .default('auto'),
+  localModel: z
+    .string({ error: 'memory.embeddings.localModel must be a string' })
+    .default('Xenova/bge-small-en-v1.5'),
   openaiModel: z
     .string({ error: 'memory.embeddings.openaiModel must be a string' })
     .default('text-embedding-3-small'),
@@ -132,6 +135,30 @@ export const MemoryEmbeddingsConfigSchema = z.object({
   ollamaModel: z
     .string({ error: 'memory.embeddings.ollamaModel must be a string' })
     .default('nomic-embed-text'),
+});
+
+const VALID_QDRANT_QUANTIZATION = ['scalar', 'none'] as const;
+
+export const QdrantConfigSchema = z.object({
+  url: z
+    .string({ error: 'memory.qdrant.url must be a string' })
+    .default('http://127.0.0.1:6333'),
+  collection: z
+    .string({ error: 'memory.qdrant.collection must be a string' })
+    .default('memory'),
+  vectorSize: z
+    .number({ error: 'memory.qdrant.vectorSize must be a number' })
+    .int('memory.qdrant.vectorSize must be an integer')
+    .positive('memory.qdrant.vectorSize must be a positive integer')
+    .default(384),
+  onDisk: z
+    .boolean({ error: 'memory.qdrant.onDisk must be a boolean' })
+    .default(true),
+  quantization: z
+    .enum(VALID_QDRANT_QUANTIZATION, {
+      error: `memory.qdrant.quantization must be one of: ${VALID_QDRANT_QUANTIZATION.join(', ')}`,
+    })
+    .default('scalar'),
 });
 
 export const MemoryRetrievalConfigSchema = z.object({
@@ -186,14 +213,22 @@ export const MemoryConfigSchema = z.object({
   embeddings: MemoryEmbeddingsConfigSchema.default({
     required: true,
     provider: 'auto',
+    localModel: 'Xenova/bge-small-en-v1.5',
     openaiModel: 'text-embedding-3-small',
     geminiModel: 'gemini-embedding-001',
     ollamaModel: 'nomic-embed-text',
   }),
+  qdrant: QdrantConfigSchema.default({
+    url: 'http://127.0.0.1:6333',
+    collection: 'memory',
+    vectorSize: 384,
+    onDisk: true,
+    quantization: 'scalar',
+  }),
   retrieval: MemoryRetrievalConfigSchema.default({
     lexicalTopK: 80,
     semanticTopK: 40,
-    maxInjectTokens: 1800,
+    maxInjectTokens: 10000,
   }),
   segmentation: MemorySegmentationConfigSchema.default({
     targetTokens: 450,
@@ -256,14 +291,22 @@ export const AssistantConfigSchema = z.object({
     embeddings: {
       required: true,
       provider: 'auto',
+      localModel: 'Xenova/bge-small-en-v1.5',
       openaiModel: 'text-embedding-3-small',
       geminiModel: 'gemini-embedding-001',
       ollamaModel: 'nomic-embed-text',
     },
+    qdrant: {
+      url: 'http://127.0.0.1:6333',
+      collection: 'memory',
+      vectorSize: 384,
+      onDisk: true,
+      quantization: 'scalar',
+    },
     retrieval: {
       lexicalTopK: 80,
       semanticTopK: 40,
-      maxInjectTokens: 1800,
+      maxInjectTokens: 10000,
     },
     segmentation: {
       targetTokens: 450,
@@ -333,4 +376,5 @@ export type MemorySegmentationConfig = z.infer<typeof MemorySegmentationConfigSc
 export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
 export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
+export type QdrantConfig = z.infer<typeof QdrantConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
