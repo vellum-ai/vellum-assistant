@@ -23,6 +23,7 @@ struct VButton: View {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(borderColor, lineWidth: style == .ghost ? 1 : 0)
                 )
+                .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
         .buttonStyle(VButtonPressStyle())
         .disabled(isDisabled)
