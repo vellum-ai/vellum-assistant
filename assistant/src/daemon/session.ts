@@ -243,6 +243,7 @@ export class Session {
       this.prompter.dispose();
       this.pendingSurfaceActions.clear();
       this.surfaceState.clear();
+      unregisterTimerCompletionNotifier(this.conversationId);
 
       // Clear queued messages and notify each caller
       for (const queued of this.messageQueue) {
