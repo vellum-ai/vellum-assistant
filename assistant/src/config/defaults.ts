@@ -92,4 +92,10 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     retentionDays: 0,
   },
   pricingOverrides: [],
+  skills: {
+    entries: {},
+    load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
+    install: { nodeManager: 'npm' },
+    allowBundled: null,
+  },
 };

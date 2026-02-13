@@ -19,4 +19,8 @@ export type {
   MemoryConfig,
   ModelPricingOverride,
   QdrantConfig,
+  SkillEntryConfig,
+  SkillsLoadConfig,
+  SkillsInstallConfig,
+  SkillsConfig,
 } from './schema.js';

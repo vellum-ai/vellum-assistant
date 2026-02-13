@@ -507,14 +507,65 @@ function skillSummaryFromDefinition(skill: SkillDefinition, source: SkillSource)
   };
 }
 
-export function loadSkillCatalog(workspaceSkillsDir?: string): SkillSummary[] {
+export function loadSkillCatalog(workspaceSkillsDir?: string, extraDirs?: string[]): SkillSummary[] {
   const catalog: SkillSummary[] = [];
   const seenIds = new Set<string>();
 
-  // Load bundled skills first
+  // Load extra directories first (lowest precedence, before bundled)
+  if (extraDirs) {
+    for (const dir of extraDirs) {
+      if (!existsSync(dir)) continue;
+      const dirs = discoverSkillDirectories(dir);
+      for (const directory of dirs) {
+        const skillFilePath = join(directory, 'SKILL.md');
+        if (!existsSync(skillFilePath)) continue;
+
+        try {
+          const stat = statSync(skillFilePath);
+          if (!stat.isFile()) continue;
+
+          const content = readFileSync(skillFilePath, 'utf-8');
+          const parsed = parseFrontmatter(content, skillFilePath);
+          if (!parsed) continue;
+
+          const id = basename(directory);
+          if (seenIds.has(id)) {
+            log.warn({ id, directory }, 'Skipping duplicate skill id from extraDirs');
+            continue;
+          }
+
+          seenIds.add(id);
+          catalog.push({
+            id,
+            name: parsed.name,
+            description: parsed.description,
+            directoryPath: directory,
+            skillFilePath,
+            emoji: parsed.metadata?.emoji,
+            homepage: parsed.homepage,
+            userInvocable: parsed.userInvocable,
+            disableModelInvocation: parsed.disableModelInvocation,
+            source: 'managed',
+            metadata: parsed.metadata,
+          });
+        } catch (err) {
+          log.warn({ err, directory }, 'Failed to read skill from extraDirs');
+        }
+      }
+    }
+  }
+
+  // Load bundled skills (override extraDirs skills with same ID)
   const bundledSkills = loadBundledSkills();
   for (const skill of bundledSkills) {
     if (seenIds.has(skill.id)) {
+      // Bundled wins over extraDirs
+      const existingIndex = catalog.findIndex((s) => s.id === skill.id);
+      if (existingIndex !== -1 && catalog[existingIndex].source === 'managed') {
+        log.info({ id: skill.id, directory: skill.directoryPath }, 'Bundled skill overrides extraDirs skill');
+        catalog[existingIndex] = skill;
+        continue;
+      }
       log.warn({ id: skill.id, directory: skill.directoryPath }, 'Skipping duplicate bundled skill id');
       continue;
     }
