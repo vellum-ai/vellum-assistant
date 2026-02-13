@@ -1,7 +1,7 @@
 import { discoverHooks } from './discovery.js';
 import { runHookScript } from './runner.js';
 import { getLogger, isDebug } from '../util/logger.js';
-import type { DiscoveredHook, HookEventName, HookEventData } from './types.js';
+import type { DiscoveredHook, HookEventName, HookEventData, HookTriggerResult } from './types.js';
 
 const log = getLogger('hooks-manager');
 
@@ -34,16 +34,22 @@ export class HookManager {
     }
   }
 
-  async trigger(event: HookEventName, data: Record<string, unknown>): Promise<void> {
+  async trigger(event: HookEventName, data: Record<string, unknown>): Promise<HookTriggerResult> {
     const hooks = this.eventIndex.get(event);
-    if (!hooks || hooks.length === 0) return;
+    if (!hooks || hooks.length === 0) return { blocked: false };
 
+    const isPreEvent = event.startsWith('pre-');
     const eventData: HookEventData = { event, ...data };
 
     for (const hook of hooks) {
       try {
         const result = await runHookScript(hook, eventData);
         if (result.exitCode !== null && result.exitCode !== 0) {
+          // Blocking hooks on pre-* events cancel the action
+          if (isPreEvent && hook.manifest.blocking) {
+            log.info({ hook: hook.name, event, exitCode: result.exitCode }, 'Blocking hook rejected action');
+            return { blocked: true, blockedBy: hook.name };
+          }
           log.warn({ hook: hook.name, event, exitCode: result.exitCode }, 'Hook exited with non-zero code');
         }
         if (result.stderr && isDebug()) {
@@ -53,6 +59,8 @@ export class HookManager {
         log.warn({ err, hook: hook.name, event }, 'Hook execution failed');
       }
     }
+
+    return { blocked: false };
   }
 
   getDiscoveredHooks(): DiscoveredHook[] {

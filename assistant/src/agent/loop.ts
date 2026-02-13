@@ -106,11 +106,16 @@ export class AgentLoop {
           }, 'Sending request to provider');
         }
 
-        await getHookManager().trigger('pre-llm-call', {
+        const preLlmResult = await getHookManager().trigger('pre-llm-call', {
           systemPrompt: this.systemPrompt,
           messages: history,
           toolCount: this.tools.length,
         });
+
+        if (preLlmResult.blocked) {
+          onEvent({ type: 'error', error: new Error(`LLM call blocked by hook "${preLlmResult.blockedBy}"`) });
+          break;
+        }
 
         const providerStart = Date.now();
 

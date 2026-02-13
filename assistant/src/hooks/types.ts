@@ -26,6 +26,8 @@ export interface HookManifest {
   version: string;
   events: HookEventName[];
   script: string;
+  /** When true, non-zero exit from this hook cancels pre-* actions. Default false. */
+  blocking?: boolean;
 }
 
 export interface HookConfigEntry {
@@ -50,4 +52,11 @@ export interface DiscoveredHook {
 export interface HookEventData {
   event: HookEventName;
   [key: string]: unknown;
+}
+
+export interface HookTriggerResult {
+  /** True if a blocking hook rejected the action (non-zero exit). */
+  blocked: boolean;
+  /** Name of the hook that blocked, if any. */
+  blockedBy?: string;
 }
