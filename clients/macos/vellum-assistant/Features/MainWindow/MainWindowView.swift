@@ -88,11 +88,18 @@ struct MainWindowView: View {
 
     @MainActor
     private static func openSettings() {
-        if let delegate = NSApp.delegate as? AppDelegate {
-            delegate.showSettingsWindow(nil)
-            return
+        NSApp.setActivationPolicy(.regular)
+
+        let selector = Selector(("showSettingsWindow:"))
+        if let delegate = NSApp.delegate as? NSObject, delegate.responds(to: selector) {
+            _ = delegate.perform(selector, with: nil)
+        } else {
+            _ = NSApp.sendAction(selector, to: nil, from: nil)
         }
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     private func refreshAPIKeyState() {

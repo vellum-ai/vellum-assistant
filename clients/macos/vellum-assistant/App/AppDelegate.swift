@@ -500,7 +500,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Explicit settings window entrypoint for NSApp.sendAction("showSettingsWindow:")
     /// and direct calls from SwiftUI views. This avoids responder-chain misses.
-    @objc func showSettingsWindow(_ sender: Any?) {
+    @objc public func showSettingsWindow(_ sender: Any?) {
         NSApp.setActivationPolicy(.regular)
 
         if let existing = settingsWindow {
