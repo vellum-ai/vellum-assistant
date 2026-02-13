@@ -4,7 +4,8 @@ import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
 import { getDb } from './db.js';
-import { memoryEmbeddings, memoryItems, memoryItemSources, memorySegments, memorySummaries, messages } from './schema.js';
+import { getQdrantClient } from './qdrant-client.js';
+import { memoryItems, memorySegments } from './schema.js';
 
 const log = getLogger('memory-retriever');
 const MEMORY_RECALL_MARKER = '[Memory Recall v1]';
@@ -313,132 +314,74 @@ function lexicalSearch(query: string, limit: number, excludedMessageIds: string[
 
 async function semanticSearch(
   queryVector: number[],
-  provider: string,
-  model: string,
+  _provider: string,
+  _model: string,
   limit: number,
   excludedMessageIds: string[] = [],
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
-  const db = getDb();
-  const excludedMessageSet = new Set(excludedMessageIds);
-  const rows = db
-    .select()
-    .from(memoryEmbeddings)
-    .where(and(
-      eq(memoryEmbeddings.provider, provider),
-      eq(memoryEmbeddings.model, model),
-      inArray(memoryEmbeddings.targetType, ['item', 'summary']),
-    ))
-    .orderBy(desc(memoryEmbeddings.updatedAt))
-    .limit(5000)
-    .all();
 
-  type Scored = { row: typeof memoryEmbeddings.$inferSelect; score: number };
-  const scored: Scored[] = [];
-  for (const row of rows) {
-    const vector = parseVector(row.vectorJson);
-    if (!vector) continue;
-    const score = cosineSimilarity(queryVector, vector);
-    scored.push({ row, score });
+  let qdrant: ReturnType<typeof getQdrantClient>;
+  try {
+    qdrant = getQdrantClient();
+  } catch {
+    log.warn('Qdrant client not initialized, skipping semantic search');
+    return [];
   }
 
-  scored.sort((a, b) => b.score - a.score);
-  const top = scored.slice(0, limit);
-  const itemIds = top
-    .filter((entry) => entry.row.targetType === 'item')
-    .map((entry) => entry.row.targetId);
-  const summaryIds = top
-    .filter((entry) => entry.row.targetType === 'summary')
-    .map((entry) => entry.row.targetId);
-
-  const itemRows = itemIds.length > 0
-    ? db.select().from(memoryItems).where(inArray(memoryItems.id, itemIds)).all()
-    : [];
-  const itemSourceRows = itemIds.length > 0
-    ? db
-      .select({
-        memoryItemId: memoryItemSources.memoryItemId,
-        messageId: memoryItemSources.messageId,
-      })
-      .from(memoryItemSources)
-      .where(inArray(memoryItemSources.memoryItemId, itemIds))
-      .all()
-    : [];
-  const summaryRows = summaryIds.length > 0
-    ? db.select().from(memorySummaries).where(inArray(memorySummaries.id, summaryIds)).all()
-    : [];
-  const excludedMessagesByConversation = summaryIds.length > 0 && excludedMessageSet.size > 0
-    ? db
-      .select({
-        conversationId: messages.conversationId,
-        createdAt: messages.createdAt,
-      })
-      .from(messages)
-      .where(inArray(messages.id, [...excludedMessageSet]))
-      .all()
-    : [];
-  const itemMap = new Map(itemRows.map((item) => [item.id, item]));
-  const summaryMap = new Map(summaryRows.map((summary) => [summary.id, summary]));
-  const itemEvidenceStats = new Map<string, { total: number; nonExcluded: number }>();
-  for (const source of itemSourceRows) {
-    const existing = itemEvidenceStats.get(source.memoryItemId) ?? { total: 0, nonExcluded: 0 };
-    existing.total += 1;
-    if (!excludedMessageSet.has(source.messageId)) {
-      existing.nonExcluded += 1;
-    }
-    itemEvidenceStats.set(source.memoryItemId, existing);
-  }
-  const excludedSummaryTimestampsByConversation = new Map<string, number[]>();
-  for (const row of excludedMessagesByConversation) {
-    const existing = excludedSummaryTimestampsByConversation.get(row.conversationId) ?? [];
-    existing.push(row.createdAt);
-    excludedSummaryTimestampsByConversation.set(row.conversationId, existing);
-  }
+  const results = await qdrant.searchWithFilter(
+    queryVector,
+    limit,
+    ['item', 'summary', 'segment'],
+    excludedMessageIds,
+  );
 
   const candidates: Candidate[] = [];
-  for (const entry of top) {
-    const semantic = mapCosineToUnit(entry.score);
-    if (entry.row.targetType === 'item') {
-      const item = itemMap.get(entry.row.targetId);
-      if (!item || item.status !== 'active') continue;
-      const evidence = itemEvidenceStats.get(item.id);
-      if (!evidence || evidence.total <= 0) continue;
-      if (excludedMessageSet.size > 0 && evidence.nonExcluded <= 0) continue;
+  for (const result of results) {
+    const { payload, score } = result;
+    const semantic = mapCosineToUnit(score);
+    const createdAt = payload.created_at ?? Date.now();
+
+    if (payload.target_type === 'item') {
       candidates.push({
-        key: `item:${item.id}`,
+        key: `item:${payload.target_id}`,
         type: 'item',
-        id: item.id,
-        text: `[${item.kind}] ${item.subject}: ${item.statement}`,
-        confidence: item.confidence,
-        createdAt: item.lastSeenAt,
+        id: payload.target_id,
+        text: payload.text,
+        confidence: payload.confidence ?? 0.6,
+        createdAt: payload.last_seen_at ?? createdAt,
         lexical: 0,
         semantic,
-        recency: computeRecencyScore(item.lastSeenAt),
+        recency: computeRecencyScore(payload.last_seen_at ?? createdAt),
         finalScore: 0,
       });
-      continue;
+    } else if (payload.target_type === 'summary') {
+      candidates.push({
+        key: `summary:${payload.target_id}`,
+        type: 'summary',
+        id: payload.target_id,
+        text: payload.text,
+        confidence: 0.6,
+        createdAt: payload.last_seen_at ?? createdAt,
+        lexical: 0,
+        semantic,
+        recency: computeRecencyScore(payload.last_seen_at ?? createdAt),
+        finalScore: 0,
+      });
+    } else {
+      candidates.push({
+        key: `segment:${payload.target_id}`,
+        type: 'segment',
+        id: payload.target_id,
+        text: payload.text,
+        confidence: 0.55,
+        createdAt,
+        lexical: 0,
+        semantic,
+        recency: computeRecencyScore(createdAt),
+        finalScore: 0,
+      });
     }
-    const summary = summaryMap.get(entry.row.targetId);
-    if (!summary) continue;
-    if (summary.scope === 'conversation' && excludedMessageSet.size > 0) {
-      const excludedTimestamps = excludedSummaryTimestampsByConversation.get(summary.scopeKey) ?? [];
-      const overlapsExcludedMessage = excludedTimestamps.some((timestamp) => (
-        timestamp >= summary.startAt && timestamp <= summary.endAt
-      ));
-      if (overlapsExcludedMessage) continue;
-    }
-    candidates.push({
-      key: `summary:${summary.id}`,
-      type: 'summary',
-      id: summary.id,
-      text: `[${summary.scope}] ${summary.summary}`,
-      confidence: 0.6,
-      createdAt: summary.endAt,
-      lexical: 0,
-      semantic,
-      recency: computeRecencyScore(summary.endAt),
-      finalScore: 0,
-    });
   }
   return candidates;
 }
@@ -564,32 +507,6 @@ function computeRecencyScore(createdAt: number): number {
 
 function mapCosineToUnit(value: number): number {
   return Math.max(0, Math.min(1, (value + 1) / 2));
-}
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return -1;
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  if (normA === 0 || normB === 0) return -1;
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-}
-
-function parseVector(raw: string): number[] | null {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return null;
-    if (parsed.length === 0) return null;
-    if (!parsed.every((value) => typeof value === 'number')) return null;
-    return parsed as number[];
-  } catch {
-    return null;
-  }
 }
 
 function emptyResult(

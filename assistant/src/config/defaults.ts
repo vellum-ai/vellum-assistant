@@ -24,14 +24,22 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     embeddings: {
       required: true,
       provider: 'auto',
+      localModel: 'Xenova/bge-small-en-v1.5',
       openaiModel: 'text-embedding-3-small',
       geminiModel: 'gemini-embedding-001',
       ollamaModel: 'nomic-embed-text',
     },
+    qdrant: {
+      url: 'http://127.0.0.1:6333',
+      collection: 'memory',
+      vectorSize: 384,
+      onDisk: true,
+      quantization: 'scalar',
+    },
     retrieval: {
       lexicalTopK: 80,
       semanticTopK: 40,
-      maxInjectTokens: 1800,
+      maxInjectTokens: 10000,
     },
     segmentation: {
       targetTokens: 450,

@@ -1,12 +1,13 @@
 import type { AssistantConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { GeminiEmbeddingBackend } from './embedding-gemini.js';
+import { LocalEmbeddingBackend } from './embedding-local.js';
 import { OllamaEmbeddingBackend } from './embedding-ollama.js';
 import { OpenAIEmbeddingBackend } from './embedding-openai.js';
 
 const log = getLogger('memory-embeddings');
 
-export type EmbeddingProviderName = 'openai' | 'gemini' | 'ollama';
+export type EmbeddingProviderName = 'local' | 'openai' | 'gemini' | 'ollama';
 
 export interface EmbeddingRequestOptions {
   signal?: AbortSignal;
@@ -25,6 +26,12 @@ export interface EmbeddingBackendSelection {
 
 export function selectEmbeddingBackend(config: AssistantConfig): EmbeddingBackendSelection {
   const requested = config.memory.embeddings.provider;
+  if (requested === 'local') {
+    return {
+      backend: new LocalEmbeddingBackend(config.memory.embeddings.localModel),
+      reason: null,
+    };
+  }
   if (requested === 'ollama') {
     return {
       backend: new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
@@ -33,12 +40,20 @@ export function selectEmbeddingBackend(config: AssistantConfig): EmbeddingBacken
       reason: null,
     };
   }
+
+  // Auto order: local → openai → gemini → ollama
   const order: EmbeddingProviderName[] = requested === 'auto'
-    ? ['openai', 'gemini', 'ollama']
+    ? ['local', 'openai', 'gemini', 'ollama']
     : [requested];
 
   for (const provider of order) {
     switch (provider) {
+      case 'local':
+        // Local embeddings are always available (model downloaded on first use)
+        return {
+          backend: new LocalEmbeddingBackend(config.memory.embeddings.localModel),
+          reason: null,
+        };
       case 'openai':
         if (!config.apiKeys.openai) continue;
         return {
@@ -63,7 +78,7 @@ export function selectEmbeddingBackend(config: AssistantConfig): EmbeddingBacken
   }
 
   const reason = requested === 'auto'
-    ? 'No embedding backend configured (openai/gemini keys missing and ollama not configured)'
+    ? 'No embedding backend configured'
     : `Embedding backend "${requested}" is not configured`;
   return { backend: null, reason };
 }

@@ -18,6 +18,8 @@ import { DaemonServer } from './server.js';
 import { getLogger } from '../util/logger.js';
 import { DaemonError } from '../util/errors.js';
 import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
+import { QdrantManager } from '../memory/qdrant-manager.js';
+import { initQdrantClient } from '../memory/qdrant-client.js';
 import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 
@@ -175,6 +177,25 @@ export async function runDaemon(): Promise<void> {
   initializeProviders(config);
   await initializeTools();
 
+  // Initialize Qdrant vector store
+  const qdrantUrl = process.env.QDRANT_URL?.trim() || config.memory.qdrant.url;
+  const qdrantManager = new QdrantManager({
+    url: qdrantUrl,
+  });
+  try {
+    await qdrantManager.start();
+    initQdrantClient({
+      url: qdrantUrl,
+      collection: config.memory.qdrant.collection,
+      vectorSize: config.memory.qdrant.vectorSize,
+      onDisk: config.memory.qdrant.onDisk,
+      quantization: config.memory.qdrant.quantization,
+    });
+    log.info('Qdrant vector store initialized');
+  } catch (err) {
+    log.warn({ err }, 'Failed to initialize Qdrant vector store, memory semantic search will be degraded');
+  }
+
   const server = new DaemonServer();
   await server.start();
   const memoryWorker = startMemoryJobsWorker();
@@ -235,6 +256,7 @@ export async function runDaemon(): Promise<void> {
     if (runtimeHttp) await runtimeHttp.stop();
     await browserManager.closeAllPages();
     memoryWorker.stop();
+    await qdrantManager.stop();
     await Sentry.flush(2000);
     cleanupPidFile();
     process.exit(0);

@@ -15,6 +15,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@google/genai": "^1.40.0",
+    "@huggingface/transformers": "^3.8.1",
+    "@qdrant/js-client-rest": "^1.16.2",
     "@sentry/node": "^10.38.0",
     "commander": "^13.1.0",
     "drizzle-orm": "^0.38.4",
