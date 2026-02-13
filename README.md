@@ -92,6 +92,7 @@ This repo includes Claude Code slash commands (in `.claude/commands/`) for agent
 | Command | Purpose |
 |---------|---------|
 | `/do <description>` | Implement a change in an isolated worktree, create a PR, squash-merge it to main, and clean up. |
+| `/safe-do <description>` | Like `/do` but creates a PR without auto-merging — pauses for human review. Keeps the worktree for feedback. |
 | `/mainline` | Ship uncommitted changes already in your working tree to main via a squash-merged PR. |
 | `/work` | Pick up the next task from `.private/TODO.md` (or a task you specify), implement it, PR it, and merge it. |
 
