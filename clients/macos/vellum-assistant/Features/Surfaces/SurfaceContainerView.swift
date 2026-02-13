@@ -161,7 +161,9 @@ private struct ConditionalPanelBackground: ViewModifier {
                     title: "Screenshot Captured",
                     subtitle: "Step 2 of 5",
                     body: "Captured the current screen state for analysis.",
-                    metadata: nil
+                    metadata: nil,
+                    template: nil,
+                    templateData: nil
                 )),
                 actions: [
                     SurfaceActionButton(id: "dismiss", label: "Dismiss", style: .secondary),

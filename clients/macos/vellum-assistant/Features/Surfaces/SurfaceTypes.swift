@@ -31,6 +31,10 @@ struct CardSurfaceData: Sendable {
     let subtitle: String?
     let body: String
     let metadata: [(label: String, value: String)]?
+    /// Optional template name for specialized rendering (e.g. "weather_forecast").
+    let template: String?
+    /// Arbitrary data consumed by the template renderer. Shape depends on template.
+    let templateData: [String: Any?]?
 }
 
 struct FormFieldOption: Sendable {
@@ -292,7 +296,12 @@ extension Surface {
             }
         }
 
-        return CardSurfaceData(title: title, subtitle: subtitle, body: body, metadata: metadata)
+        let template: String? = update.keys.contains("template")
+            ? (update["template"] as? String) : existing.template
+        let templateData: [String: Any?]? = update.keys.contains("templateData")
+            ? (update["templateData"] as? [String: Any?]) : existing.templateData
+
+        return CardSurfaceData(title: title, subtitle: subtitle, body: body, metadata: metadata, template: template, templateData: templateData)
     }
 
     private static func mergeFormData(existing: FormSurfaceData, update: [String: Any?]) -> FormSurfaceData {
@@ -401,12 +410,14 @@ extension Surface {
     // MARK: - Full Parse Helpers
 
     private static func parseCardData(_ dict: [String: Any?]) -> CardSurfaceData? {
-        guard let title = dict["title"] as? String,
-              let body = dict["body"] as? String else {
+        guard let title = dict["title"] as? String else {
             return nil
         }
 
+        let body = (dict["body"] as? String) ?? ""
         let subtitle = dict["subtitle"] as? String
+        let template = dict["template"] as? String
+        let templateData = dict["templateData"] as? [String: Any?]
 
         var metadata: [(label: String, value: String)]?
         if let metaArray = dict["metadata"] as? [[String: Any?]] {
@@ -421,7 +432,9 @@ extension Surface {
             title: title,
             subtitle: subtitle,
             body: body,
-            metadata: metadata
+            metadata: metadata,
+            template: template,
+            templateData: templateData
         )
     }
 

@@ -53,7 +53,9 @@ struct CardSurfaceView: View {
         metadata: [
             (label: "Duration", value: "12s"),
             (label: "Steps", value: "3"),
-        ]
+        ],
+        template: nil,
+        templateData: nil
     ))
     .padding()
 }

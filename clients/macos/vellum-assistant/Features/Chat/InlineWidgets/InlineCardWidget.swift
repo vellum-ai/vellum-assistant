@@ -1,10 +1,21 @@
 import SwiftUI
 
 /// Inline card widget for displaying structured information in chat.
+/// Supports template-based rendering for specialized layouts (e.g. weather forecasts).
 struct InlineCardWidget: View {
     let data: CardSurfaceData
 
     var body: some View {
+        if data.template == "weather_forecast",
+           let templateData = data.templateData,
+           let weatherData = WeatherForecastData.parse(from: templateData) {
+            InlineWeatherWidget(data: weatherData)
+        } else {
+            standardCardLayout
+        }
+    }
+
+    private var standardCardLayout: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             // Title + subtitle
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
@@ -20,10 +31,12 @@ struct InlineCardWidget: View {
             }
 
             // Body text
-            Text(markdownBody)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .textSelection(.enabled)
+            if !data.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(markdownBody)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
+            }
 
             // Metadata grid
             if let metadata = data.metadata, !metadata.isEmpty {
@@ -78,7 +91,9 @@ struct InlineCardWidget: View {
                 (label: "Low", value: "45°F"),
                 (label: "Humidity", value: "65%"),
                 (label: "Wind", value: "12 mph NW"),
-            ]
+            ],
+            template: nil,
+            templateData: nil
         ))
         .padding()
     }

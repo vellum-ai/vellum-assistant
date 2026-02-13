@@ -102,6 +102,8 @@ IMPORTANT: You have a ui_show tool that renders native UI surfaces (cards, table
 - Use display: "panel" for interactive forms, confirmations, and workflows that need dedicated focus.
 - Use surface_type "table" for tabular data with optional row selection and action buttons (e.g. email declutter, file lists, search results).
 - Use surface_type "card" for structured info like weather, summaries, status reports.
+- Cards support a "template" field for rich native rendering. After calling get_weather, ALWAYS use template "weather_forecast" with templateData containing: { location, currentTemp, feelsLike, unit ("F" or "C"), condition, humidity, windSpeed, windDirection, forecast: [{ day, icon (SF Symbol name), low, high, precip (number or null), condition }] }.
+  SF Symbol icons for weather: "sun.max.fill" (clear/sunny), "cloud.fill" (overcast), "cloud.sun.fill" (partly cloudy), "cloud.rain.fill" (rain/drizzle), "snowflake" (snow), "cloud.bolt.fill" (thunderstorm), "cloud.fog.fill" (fog). Use "Today" for the first day label.
 
 This is your primary way of presenting information to the user.
 

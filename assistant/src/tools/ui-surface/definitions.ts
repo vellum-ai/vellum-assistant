@@ -29,7 +29,11 @@ export const uiShowTool: Tool = {
     'Show a UI surface to the user. Use display: "inline" (default) to embed in chat, or "panel" for a floating window.\n\n' +
     'Supported surface types:\n' +
     '- card: Informational card with title, subtitle, body text, and optional metadata key-value pairs. ' +
-    'data shape: { title: string, subtitle?: string, body: string, metadata?: Array<{ label: string, value: string }> }\n' +
+    'Cards support an optional template field for specialized native rendering. ' +
+    'data shape: { title: string, subtitle?: string, body: string, metadata?: Array<{ label: string, value: string }>, template?: string, templateData?: object }\n' +
+    '  Template "weather_forecast": renders an Apple Weather-style forecast widget. ' +
+    'templateData shape: { location: string, currentTemp: number, feelsLike: number, unit: "F"|"C", condition: string, humidity: number, windSpeed: number, windDirection: string, ' +
+    'forecast: Array<{ day: string, icon: string (SF Symbol name), low: number, high: number, precip: number|null, condition: string }> }\n' +
     '- table: Data table with columns, selectable rows, and action buttons. ' +
     'data shape: { columns: Array<{ id: string, label: string }>, rows: Array<{ id: string, cells: Record<string, string>, selectable?: boolean, selected?: boolean }>, selectionMode?: "none"|"single"|"multiple", caption?: string }\n' +
     '- form: Input form with typed fields. ' +

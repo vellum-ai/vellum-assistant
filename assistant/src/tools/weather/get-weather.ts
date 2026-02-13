@@ -78,6 +78,24 @@ interface ForecastResponse {
   daily_units: Record<string, string>;
 }
 
+/**
+ * Maps WMO weather codes to SF Symbol icon names for native rendering.
+ */
+export function weatherCodeToSFSymbol(code: number): string {
+  if (code === 0) return 'sun.max.fill';
+  if (code === 1) return 'sun.max.fill';
+  if (code === 2) return 'cloud.sun.fill';
+  if (code === 3) return 'cloud.fill';
+  if (code === 45 || code === 48) return 'cloud.fog.fill';
+  if (code >= 51 && code <= 57) return 'cloud.rain.fill';
+  if (code >= 61 && code <= 67) return 'cloud.rain.fill';
+  if (code >= 71 && code <= 77) return 'snowflake';
+  if (code >= 80 && code <= 82) return 'cloud.rain.fill';
+  if (code >= 85 && code <= 86) return 'snowflake';
+  if (code >= 95) return 'cloud.bolt.fill';
+  return 'cloud.fill';
+}
+
 function windDirectionToCompass(degrees: number): string {
   const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
   const index = Math.round(degrees / 22.5) % 16;
@@ -136,7 +154,7 @@ export async function executeGetWeather(
   // Step 2: Fetch the weather forecast
   let forecast: ForecastResponse;
   try {
-    const weatherUrl = `${FORECAST_API}?latitude=${geo.latitude}&longitude=${geo.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=5`;
+    const weatherUrl = `${FORECAST_API}?latitude=${geo.latitude}&longitude=${geo.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=10`;
     log.debug({ url: weatherUrl }, 'Fetching weather forecast');
 
     const weatherResponse = await fetchFn(weatherUrl, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
@@ -182,14 +200,55 @@ export async function executeGetWeather(
   ];
 
   const daily = forecast.daily;
+  const forecastItems: Array<{
+    day: string;
+    icon: string;
+    low: number;
+    high: number;
+    precip: number | null;
+    condition: string;
+  }> = [];
+
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
   for (let i = 0; i < daily.time.length; i++) {
     const date = daily.time[i];
     const high = useFahrenheit ? celsiusToFahrenheit(daily.temperature_2m_max[i]) : Math.round(daily.temperature_2m_max[i]);
     const low = useFahrenheit ? celsiusToFahrenheit(daily.temperature_2m_min[i]) : Math.round(daily.temperature_2m_min[i]);
     const precip = daily.precipitation_probability_max[i];
     const desc = weatherCodeToDescription(daily.weather_code[i]);
+    const icon = weatherCodeToSFSymbol(daily.weather_code[i]);
+
+    // Format day label: "Today" for today, otherwise abbreviated weekday
+    let dayLabel: string;
+    if (date === todayStr) {
+      dayLabel = 'Today';
+    } else {
+      const d = new Date(date + 'T12:00:00');
+      dayLabel = d.toLocaleDateString('en-US', { weekday: 'short' });
+    }
+
     lines.push(`${date}: High ${high}\u00B0${tempUnit}, Low ${low}\u00B0${tempUnit}, Precip ${precip}%, ${desc}`);
+
+    forecastItems.push({ day: dayLabel, icon, low, high, precip: precip > 0 ? precip : null, condition: desc });
   }
+
+  // Include structured data for ui_show weather_forecast template
+  const structured = {
+    location: locationDisplay,
+    currentTemp,
+    feelsLike: currentFeelsLike,
+    unit: tempUnit,
+    condition: currentDescription,
+    humidity: current.relative_humidity_2m,
+    windSpeed: currentWind,
+    windDirection: windDir,
+    forecast: forecastItems,
+  };
+
+  lines.push('', '--- Structured Data (for ui_show template "weather_forecast") ---');
+  lines.push(JSON.stringify(structured));
 
   return { content: lines.join('\n'), isError: false };
 }

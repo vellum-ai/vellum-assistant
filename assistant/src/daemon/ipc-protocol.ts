@@ -172,6 +172,10 @@ export interface CardSurfaceData {
   subtitle?: string;
   body: string;
   metadata?: Array<{ label: string; value: string }>;
+  /** Optional template name for specialized rendering (e.g. "weather_forecast"). */
+  template?: string;
+  /** Arbitrary data consumed by the template renderer. Shape depends on template. */
+  templateData?: Record<string, unknown>;
 }
 
 export interface FormField {
