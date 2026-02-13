@@ -491,8 +491,8 @@ private struct ChatBubble: View {
     /// visual feedback for the tool invocation.
     private var shouldShowBubble: Bool {
         if isUser { return true }
-        if hasText || !message.attachments.isEmpty { return true }
         if !message.inlineSurfaces.isEmpty { return false }
+        if hasText || !message.attachments.isEmpty { return true }
         return !message.toolCalls.isEmpty
     }
 
@@ -505,11 +505,11 @@ private struct ChatBubble: View {
                     bubbleContent
                 }
 
-                // Inline surfaces render below the bubble as separate cards
+                // Inline surfaces render below the bubble as full-width cards
                 if !message.inlineSurfaces.isEmpty {
                     ForEach(message.inlineSurfaces) { surface in
                         InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
-                            .frame(maxWidth: 560, alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
 
