@@ -17,19 +17,34 @@ const VALID_EVENTS = new Set<string>([
   'on-error',
 ]);
 
+/**
+ * Validates the core manifest fields required for discovery.
+ * `description` and `version` are optional here so that legacy hook manifests
+ * (created before those fields were added) continue to be discovered.
+ */
 export function isValidManifest(manifest: unknown): manifest is HookManifest {
   if (typeof manifest !== 'object' || manifest === null) return false;
   const m = manifest as Record<string, unknown>;
   if (typeof m.name !== 'string' || !m.name) return false;
-  if (typeof m.description !== 'string' || !m.description) return false;
-  if (typeof m.version !== 'string' || !m.version) return false;
   if (typeof m.script !== 'string' || !m.script) return false;
-  if (typeof m.description !== 'string') return false;
-  if (typeof m.version !== 'string') return false;
   if (!Array.isArray(m.events) || m.events.length === 0) return false;
   for (const e of m.events) {
     if (typeof e !== 'string' || !VALID_EVENTS.has(e)) return false;
   }
+  // Optional fields: allow if present but must be strings
+  if (m.description !== undefined && typeof m.description !== 'string') return false;
+  if (m.version !== undefined && typeof m.version !== 'string') return false;
+  return true;
+}
+
+/**
+ * Stricter validation for installing new hooks.
+ * Requires `description` and `version` in addition to the core fields.
+ */
+export function isValidInstallManifest(manifest: unknown): manifest is HookManifest & { description: string; version: string } {
+  if (!isValidManifest(manifest)) return false;
+  if (typeof manifest.description !== 'string' || !manifest.description) return false;
+  if (typeof manifest.version !== 'string' || !manifest.version) return false;
   return true;
 }
 

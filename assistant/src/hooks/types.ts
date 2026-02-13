@@ -28,8 +28,8 @@ export interface HookSettingsSchemaEntry {
 
 export interface HookManifest {
   name: string;
-  description: string;
-  version: string;
+  description?: string;
+  version?: string;
   events: HookEventName[];
   script: string;
   /** When true, non-zero exit from this hook cancels pre-* actions. Default false. */

@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { existsSync, cpSync, readFileSync, chmodSync, rmSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { discoverHooks, isValidManifest } from './discovery.js';
+import { discoverHooks, isValidInstallManifest } from './discovery.js';
 import { setHookEnabled, ensureHookInConfig, removeHook } from './config.js';
 import { getHooksDir } from '../util/platform.js';
 
@@ -95,7 +95,7 @@ export function registerHooksCommand(program: Command): void {
         process.exit(1);
       }
 
-      if (!isValidManifest(manifest)) {
+      if (!isValidInstallManifest(manifest)) {
         console.error('Invalid hook.json: must have a non-empty name, script, description (string), version (string), and at least one valid event');
         process.exit(1);
       }
