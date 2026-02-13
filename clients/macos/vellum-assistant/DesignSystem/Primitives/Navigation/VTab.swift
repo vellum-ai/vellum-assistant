@@ -35,19 +35,16 @@ struct VTab: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Button(action: onSelect) {
-                HStack(spacing: VSpacing.xs) {
-                    if let icon = icon {
-                        Image(systemName: icon)
-                            .font(.system(size: 12))
-                    }
-                    Text(label)
-                        .font(VFont.caption)
-                        .lineLimit(1)
+            HStack(spacing: VSpacing.xs) {
+                if let icon = icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 12))
                 }
-                .foregroundColor(isSelected && (style == .pill || style == .rectangular) ? Slate._900 : (isSelected ? VColor.textPrimary : VColor.textSecondary))
+                Text(label)
+                    .font(VFont.caption)
+                    .lineLimit(1)
             }
-            .buttonStyle(.plain)
+            .foregroundColor(isSelected && (style == .pill || style == .rectangular) ? Slate._900 : (isSelected ? VColor.textPrimary : VColor.textSecondary))
 
             if isCloseable, let onClose = onClose {
                 Button(action: onClose) {
@@ -61,6 +58,8 @@ struct VTab: View {
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
+        .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .onTapGesture { onSelect() }
         .background(background)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .overlay(
