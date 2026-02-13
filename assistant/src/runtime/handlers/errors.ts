@@ -22,6 +22,8 @@ export class HandlerException extends Error {
   ) {
     super(error.message);
     this.name = 'HandlerException';
+    // Set the prototype explicitly for proper instanceof checks
+    Object.setPrototypeOf(this, HandlerException.prototype);
   }
 }
 

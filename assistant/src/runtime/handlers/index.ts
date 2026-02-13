@@ -6,7 +6,9 @@
  * HandlerException.
  */
 
-import { HandlerException, Errors } from './errors.js';
+import { HandlerException, Errors, type HandlerError } from './errors.js';
+
+export { HandlerException, Errors, type HandlerError };
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
@@ -252,7 +254,7 @@ export async function handleCreateRun(
       conversationId: string,
       content: string,
       attachmentIds?: string[],
-    ) => Promise<{ id: string; status: string; messageId: string; createdAt: number }>;
+    ) => Promise<{ id: string; status: string; messageId: string | null; createdAt: number }>;
   },
 ): Promise<HandlerResponse<RunResponse>> {
   if (!runOrchestrator) {
@@ -299,7 +301,7 @@ export async function handleCreateRun(
       body: {
         id: run.id,
         status: run.status,
-        messageId: run.messageId,
+        messageId: run.messageId ?? '',
         createdAt: new Date(run.createdAt).toISOString(),
       },
     };
@@ -334,10 +336,10 @@ export function handleGetRun(
     getRun: (runId: string) => {
       id: string;
       status: string;
-      messageId: string;
+      messageId: string | null;
       assistantId: string;
       pendingConfirmation?: unknown;
-      error?: string;
+      error?: string | null;
       createdAt: number;
       updatedAt: number;
     } | null;
@@ -357,9 +359,9 @@ export function handleGetRun(
     body: {
       id: run.id,
       status: run.status,
-      messageId: run.messageId,
+      messageId: run.messageId ?? '',
       pendingConfirmation: run.pendingConfirmation,
-      error: run.error,
+      error: run.error ?? undefined,
       createdAt: new Date(run.createdAt).toISOString(),
       updatedAt: new Date(run.updatedAt).toISOString(),
     },

@@ -7,20 +7,60 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { getLogger } from '../util/logger.js';
-import {
-  getConversationByKey,
-  getOrCreateConversation,
-} from '../memory/conversation-key-store.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import * as attachmentsStore from '../memory/attachments-store.js';
-import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
-import { renderHistoryContent, mergeToolResults } from '../daemon/handlers.js';
 import { getConfig } from '../config/loader.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
+import { renderHistoryContent } from '../daemon/handlers.js';
+import { getConversationByKey } from '../memory/conversation-key-store.js';
+import * as conversationStore from '../memory/conversation-store.js';
+import {
+  handleHealth,
+  handleListMessages,
+  handleSendMessage,
+  handleUploadAttachment,
+  handleDeleteAttachment,
+  handleGetRun,
+  handleCreateRun,
+  handleRunDecision,
+  handleChannelInbound,
+  handleChannelDeliveryAck,
+  handleGetSuggestion,
+  HandlerException,
+  type HandlerResponse,
+} from './handlers/index.js';
 
 const log = getLogger('runtime-http');
 
 const DEFAULT_PORT = 7821;
+
+/**
+ * Convert a HandlerResponse to an HTTP Response.
+ */
+function toHttpResponse<T>(result: HandlerResponse<T>): Response {
+  if (result.status === 204) {
+    return new Response(null, { status: 204 });
+  }
+  return Response.json(result.body, { status: result.status });
+}
+
+/**
+ * Execute a handler function and convert the result or error to an HTTP Response.
+ */
+async function executeHandler<T>(
+  fn: () => Promise<HandlerResponse<T>> | HandlerResponse<T>,
+): Promise<Response> {
+  try {
+    const result = await fn();
+    return toHttpResponse(result);
+  } catch (err: unknown) {
+    if (err instanceof HandlerException) {
+      return Response.json(
+        { error: err.error.message, code: err.error.code, ...err.error.details },
+        { status: err.error.status },
+      );
+    }
+    throw err;
+  }
+}
 
 export type MessageProcessor = (
   assistantId: string,
@@ -113,7 +153,7 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'messages' && req.method === 'GET') {
-        return this.handleListMessages(assistantId, url);
+        return await this.handleListMessages(assistantId, url);
       }
 
       if (endpoint === 'messages' && req.method === 'POST') {
@@ -144,7 +184,7 @@ export class RuntimeHttpServer {
           return await this.handleRunDecision(assistantId, runId, req);
         }
         if (req.method === 'GET') {
-          return this.handleGetRun(assistantId, runId);
+          return await this.handleGetRun(assistantId, runId);
         }
       }
 
@@ -164,13 +204,10 @@ export class RuntimeHttpServer {
   }
 
   private handleHealth(): Response {
-    return Response.json({
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-    });
+    return toHttpResponse(handleHealth());
   }
 
-  private handleListMessages(assistantId: string, url: URL): Response {
+  private async handleListMessages(assistantId: string, url: URL): Promise<Response> {
     const conversationKey = url.searchParams.get('conversationKey');
     if (!conversationKey) {
       return Response.json(
@@ -179,41 +216,7 @@ export class RuntimeHttpServer {
       );
     }
 
-    const mapping = getConversationByKey(assistantId, conversationKey);
-    if (!mapping) {
-      return Response.json({ messages: [] });
-    }
-    const rawMessages = conversationStore.getMessages(mapping.conversationId);
-
-    // Parse content blocks and extract text + tool calls
-    const parsed = rawMessages.map((msg) => {
-      let content: unknown;
-      try { content = JSON.parse(msg.content); } catch { content = msg.content; }
-      const rendered = renderHistoryContent(content);
-      return {
-        role: msg.role,
-        text: rendered.text,
-        timestamp: msg.createdAt,
-        toolCalls: rendered.toolCalls,
-        id: msg.id,
-      };
-    });
-
-    // Merge tool_result data from internal user messages into the
-    // preceding assistant message's toolCalls, and suppress those
-    // internal user messages from the visible history.
-    const merged = mergeToolResults(parsed);
-
-    const messages: RuntimeMessagePayload[] = merged.map((m) => ({
-      id: m.id ?? '',
-      role: m.role,
-      content: m.text,
-      timestamp: new Date(m.timestamp).toISOString(),
-      attachments: [],
-      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
-    }));
-
-    return Response.json({ messages });
+    return executeHandler(() => handleListMessages({ assistantId, conversationKey }));
   }
 
   private async handleGetSuggestion(assistantId: string, url: URL): Promise<Response> {
@@ -225,102 +228,83 @@ export class RuntimeHttpServer {
       );
     }
 
+    const messageId = url.searchParams.get('messageId') ?? undefined;
+
+    // Try the shared handler first (checks cache and validates)
+    const result = await executeHandler(() =>
+      handleGetSuggestion(
+        { assistantId, conversationKey, messageId },
+        this.suggestionCache,
+      ),
+    );
+
+    // If the shared handler returned a cached result or error, return it
+    const body = await result.json();
+    if (body.source === 'llm' || body.stale || !body.messageId) {
+      return Response.json(body, { status: result.status });
+    }
+
+    // Otherwise, try LLM generation for this uncached message
+    const apiKey = getConfig().apiKeys.anthropic;
+    if (!apiKey) {
+      return Response.json(body, { status: result.status });
+    }
+
+    // Get the message text for LLM generation
     const mapping = getConversationByKey(assistantId, conversationKey);
     if (!mapping) {
-      return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
+      return Response.json(body, { status: result.status });
     }
 
     const rawMessages = conversationStore.getMessages(mapping.conversationId);
-    if (rawMessages.length === 0) {
-      return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
+    const msg = rawMessages.find((m) => m.id === body.messageId && m.role === 'assistant');
+    if (!msg) {
+      return Response.json(body, { status: result.status });
     }
 
-    // Staleness check: compare requested messageId against the latest
-    // assistant message BEFORE filtering by text content.  This ensures
-    // that a newer tool-only assistant turn (empty text) still causes
-    // older messageId requests to be correctly marked as stale.
-    const requestedMessageId = url.searchParams.get('messageId');
-    if (requestedMessageId) {
-      for (let i = rawMessages.length - 1; i >= 0; i--) {
-        if (rawMessages[i].role === 'assistant') {
-          if (rawMessages[i].id !== requestedMessageId) {
-            return Response.json({ suggestion: null, messageId: null, source: 'none' as const, stale: true });
-          }
-          break;
+    let content: unknown;
+    try {
+      content = JSON.parse(msg.content);
+    } catch {
+      content = msg.content;
+    }
+    const rendered = renderHistoryContent(content);
+    const text = rendered.text.trim();
+    if (!text) {
+      return Response.json(body, { status: result.status });
+    }
+
+    try {
+      // Deduplicate concurrent requests
+      let promise = this.suggestionInFlight.get(body.messageId);
+      if (!promise) {
+        promise = this.generateLlmSuggestion(apiKey, text);
+        this.suggestionInFlight.set(body.messageId, promise);
+      }
+
+      const llmSuggestion = await promise;
+      this.suggestionInFlight.delete(body.messageId);
+
+      if (llmSuggestion) {
+        // Evict oldest entries if cache is at capacity
+        if (this.suggestionCache.size >= SUGGESTION_CACHE_MAX) {
+          const oldest = this.suggestionCache.keys().next().value!;
+          this.suggestionCache.delete(oldest);
         }
-      }
-    }
+        this.suggestionCache.set(body.messageId, llmSuggestion);
 
-    // Walk backwards to find the last assistant message with text content
-    for (let i = rawMessages.length - 1; i >= 0; i--) {
-      const msg = rawMessages[i];
-      if (msg.role !== 'assistant') continue;
-
-      let content: unknown;
-      try { content = JSON.parse(msg.content); } catch { content = msg.content; }
-      const rendered = renderHistoryContent(content);
-      const text = rendered.text.trim();
-      if (!text) continue;
-
-      // If a messageId was requested and the first text-bearing assistant
-      // message is a *different* message, the request is stale.  This
-      // prevents returning a suggestion for an older assistant turn when
-      // the latest turn was a tool-only message (empty text) that passed
-      // the pre-check above.
-      if (requestedMessageId && msg.id !== requestedMessageId) {
-        return Response.json({ suggestion: null, messageId: null, source: 'none' as const, stale: true });
-      }
-
-      // Return cached suggestion if we already generated one for this message
-      const cached = this.suggestionCache.get(msg.id);
-      if (cached !== undefined) {
         return Response.json({
-          suggestion: cached,
-          messageId: msg.id,
+          suggestion: llmSuggestion,
+          messageId: body.messageId,
           source: 'llm' as const,
         });
       }
-
-      // Try LLM suggestion if an Anthropic API key is configured
-      const apiKey = getConfig().apiKeys.anthropic;
-      if (apiKey) {
-        try {
-          // Deduplicate concurrent requests: if an LLM call is already
-          // in-flight for this messageId, await the same promise instead
-          // of starting a duplicate call.
-          let promise = this.suggestionInFlight.get(msg.id);
-          if (!promise) {
-            promise = this.generateLlmSuggestion(apiKey, text);
-            this.suggestionInFlight.set(msg.id, promise);
-          }
-
-          const llmSuggestion = await promise;
-          this.suggestionInFlight.delete(msg.id);
-
-          if (llmSuggestion) {
-            // Evict oldest entries if cache is at capacity
-            if (this.suggestionCache.size >= SUGGESTION_CACHE_MAX) {
-              const oldest = this.suggestionCache.keys().next().value!;
-              this.suggestionCache.delete(oldest);
-            }
-            this.suggestionCache.set(msg.id, llmSuggestion);
-
-            return Response.json({
-              suggestion: llmSuggestion,
-              messageId: msg.id,
-              source: 'llm' as const,
-            });
-          }
-        } catch (err) {
-          this.suggestionInFlight.delete(msg.id);
-          log.warn({ err }, 'LLM suggestion failed');
-        }
-      }
-
-      return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
+    } catch (err) {
+      this.suggestionInFlight.delete(body.messageId);
+      log.warn({ err }, 'LLM suggestion failed');
     }
 
-    return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
+    return Response.json(body, { status: result.status });
   }
 
   private async generateLlmSuggestion(apiKey: string, assistantText: string): Promise<string | null> {
@@ -358,197 +342,62 @@ export class RuntimeHttpServer {
       attachmentIds?: string[];
     };
 
-    const { conversationKey, content, attachmentIds } = body;
-
-    if (!conversationKey) {
-      return Response.json(
-        { error: 'conversationKey is required' },
-        { status: 400 },
-      );
-    }
-
-    // P2: Reject non-string content values (numbers, objects, etc.)
-    if (content !== undefined && content !== null && typeof content !== 'string') {
-      return Response.json(
-        { error: 'content must be a string' },
-        { status: 400 },
-      );
-    }
-
-    const trimmedContent = typeof content === 'string' ? content.trim() : '';
-    const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
-
-    if (trimmedContent.length === 0 && !hasAttachments) {
-      return Response.json(
-        { error: 'content or attachmentIds is required' },
-        { status: 400 },
-      );
-    }
-
-    // P1: Validate that all attachment IDs resolve
-    if (hasAttachments) {
-      const resolved = attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds);
-      if (resolved.length !== attachmentIds.length) {
-        const resolvedIds = new Set(resolved.map((a) => a.id));
-        const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
-        return Response.json(
-          { error: `Attachment IDs not found: ${missing.join(', ')}` },
-          { status: 400 },
-        );
-      }
-    }
-
-    const mapping = getOrCreateConversation(assistantId, conversationKey);
-
     const processor = this.persistAndProcessMessage ?? this.processMessage;
-    if (!processor) {
-      return Response.json({ error: 'Message processing not configured' }, { status: 503 });
-    }
 
-    try {
-      const result = await processor(
-        assistantId,
-        mapping.conversationId,
-        content ?? '',
-        hasAttachments ? attachmentIds : undefined,
-      );
-      return Response.json({ accepted: true, messageId: result.messageId });
-    } catch (err) {
-      if (err instanceof Error && err.message === 'Session is already processing a message') {
-        return Response.json(
-          { error: 'Session is busy processing another message. Please retry.' },
-          { status: 409 },
-        );
-      }
-      throw err;
-    }
+    return executeHandler(() =>
+      handleSendMessage(
+        {
+          assistantId,
+          conversationKey: body.conversationKey ?? '',
+          content: body.content,
+          attachmentIds: body.attachmentIds,
+        },
+        processor,
+      ),
+    );
   }
 
   // ── Run endpoints ────────────────────────────────────────────────────
 
   private async handleCreateRun(assistantId: string, req: Request): Promise<Response> {
-    if (!this.runOrchestrator) {
-      return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
-    }
-
     const body = await req.json() as {
       conversationKey?: string;
       content?: string;
       attachmentIds?: string[];
     };
 
-    const { conversationKey, content, attachmentIds } = body;
-
-    if (!conversationKey) {
-      return Response.json({ error: 'conversationKey is required' }, { status: 400 });
-    }
-
-    if (content !== undefined && content !== null && typeof content !== 'string') {
-      return Response.json({ error: 'content must be a string' }, { status: 400 });
-    }
-
-    const trimmedContent = typeof content === 'string' ? content.trim() : '';
-    const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
-
-    if (trimmedContent.length === 0 && !hasAttachments) {
-      return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
-    }
-
-    if (hasAttachments) {
-      const resolved = attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds);
-      if (resolved.length !== attachmentIds.length) {
-        const resolvedIds = new Set(resolved.map((a) => a.id));
-        const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
-        return Response.json(
-          { error: `Attachment IDs not found: ${missing.join(', ')}` },
-          { status: 400 },
-        );
-      }
-    }
-
-    const mapping = getOrCreateConversation(assistantId, conversationKey);
-
-    try {
-      const run = await this.runOrchestrator.startRun(
-        assistantId,
-        mapping.conversationId,
-        content ?? '',
-        hasAttachments ? attachmentIds : undefined,
-      );
-      return Response.json({
-        id: run.id,
-        status: run.status,
-        messageId: run.messageId,
-        createdAt: new Date(run.createdAt).toISOString(),
-      }, { status: 201 });
-    } catch (err) {
-      if (err instanceof Error && err.message === 'Session is already processing a message') {
-        return Response.json(
-          { error: 'Session is busy processing another message. Please retry.' },
-          { status: 409 },
-        );
-      }
-      throw err;
-    }
+    return executeHandler(() =>
+      handleCreateRun(
+        {
+          assistantId,
+          conversationKey: body.conversationKey ?? '',
+          content: body.content,
+          attachmentIds: body.attachmentIds,
+        },
+        this.runOrchestrator,
+      ),
+    );
   }
 
-  private handleGetRun(assistantId: string, runId: string): Response {
-    if (!this.runOrchestrator) {
-      return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
-    }
-
-    const run = this.runOrchestrator.getRun(runId);
-    if (!run || run.assistantId !== assistantId) {
-      return Response.json({ error: 'Run not found' }, { status: 404 });
-    }
-
-    return Response.json({
-      id: run.id,
-      status: run.status,
-      messageId: run.messageId,
-      pendingConfirmation: run.pendingConfirmation,
-      error: run.error,
-      createdAt: new Date(run.createdAt).toISOString(),
-      updatedAt: new Date(run.updatedAt).toISOString(),
-    });
+  private async handleGetRun(assistantId: string, runId: string): Promise<Response> {
+    return executeHandler(() =>
+      handleGetRun({ assistantId, runId }, this.runOrchestrator),
+    );
   }
 
   private async handleRunDecision(assistantId: string, runId: string, req: Request): Promise<Response> {
-    if (!this.runOrchestrator) {
-      return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
-    }
-
-    // Verify the run belongs to this assistant before applying a decision
-    const run = this.runOrchestrator.getRun(runId);
-    if (!run || run.assistantId !== assistantId) {
-      return Response.json({ error: 'Run not found' }, { status: 404 });
-    }
-
     const body = await req.json() as { decision?: string };
-    const { decision } = body;
 
-    if (decision !== 'allow' && decision !== 'deny') {
-      return Response.json(
-        { error: 'decision must be "allow" or "deny"' },
-        { status: 400 },
-      );
-    }
-
-    const result = this.runOrchestrator.submitDecision(runId, decision);
-    if (result === 'run_not_found') {
-      return Response.json(
-        { error: 'Run not found' },
-        { status: 404 },
-      );
-    }
-    if (result === 'no_pending_decision') {
-      return Response.json(
-        { error: 'No confirmation pending for this run' },
-        { status: 409 },
-      );
-    }
-
-    return Response.json({ accepted: true });
+    return executeHandler(() =>
+      handleRunDecision(
+        {
+          assistantId,
+          runId,
+          decision: body.decision ?? '',
+        },
+        this.runOrchestrator,
+      ),
+    );
   }
 
   // ── Attachment endpoints ────────────────────────────────────────────
@@ -560,43 +409,14 @@ export class RuntimeHttpServer {
       data?: string;
     };
 
-    const { filename, mimeType, data } = body;
-
-    if (!filename || typeof filename !== 'string') {
-      return Response.json(
-        { error: 'filename is required' },
-        { status: 400 },
-      );
-    }
-
-    if (!mimeType || typeof mimeType !== 'string') {
-      return Response.json(
-        { error: 'mimeType is required' },
-        { status: 400 },
-      );
-    }
-
-    if (!data || typeof data !== 'string') {
-      return Response.json(
-        { error: 'data (base64) is required' },
-        { status: 400 },
-      );
-    }
-
-    const attachment = attachmentsStore.uploadAttachment(
-      assistantId,
-      filename,
-      mimeType,
-      data,
+    return executeHandler(() =>
+      handleUploadAttachment({
+        assistantId,
+        filename: body.filename ?? '',
+        mimeType: body.mimeType ?? '',
+        data: body.data ?? '',
+      }),
     );
-
-    return Response.json({
-      id: attachment.id,
-      original_filename: attachment.originalFilename,
-      mime_type: attachment.mimeType,
-      size_bytes: attachment.sizeBytes,
-      kind: attachment.kind,
-    });
   }
 
   private async handleDeleteAttachment(assistantId: string, req: Request): Promise<Response> {
@@ -610,25 +430,12 @@ export class RuntimeHttpServer {
       );
     }
 
-    const { attachmentId } = body;
-
-    if (!attachmentId || typeof attachmentId !== 'string') {
-      return Response.json(
-        { error: 'attachmentId is required' },
-        { status: 400 },
-      );
-    }
-
-    const deleted = attachmentsStore.deleteAttachment(assistantId, attachmentId);
-
-    if (!deleted) {
-      return Response.json(
-        { error: 'Attachment not found' },
-        { status: 404 },
-      );
-    }
-
-    return new Response(null, { status: 204 });
+    return executeHandler(() =>
+      handleDeleteAttachment({
+        assistantId,
+        attachmentId: body.attachmentId ?? '',
+      }),
+    );
   }
 
   private async handleChannelInbound(assistantId: string, req: Request): Promise<Response> {
@@ -637,98 +444,22 @@ export class RuntimeHttpServer {
       externalChatId?: string;
       externalMessageId?: string;
       content?: string;
-      senderName?: string;
       attachmentIds?: string[];
-      senderExternalUserId?: string;
-      senderUsername?: string;
-      sourceMetadata?: Record<string, unknown>;
     };
 
-    const { sourceChannel, externalChatId, externalMessageId, content, attachmentIds } = body;
-
-    if (!sourceChannel || typeof sourceChannel !== 'string') {
-      return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
-    }
-    if (!externalChatId || typeof externalChatId !== 'string') {
-      return Response.json({ error: 'externalChatId is required' }, { status: 400 });
-    }
-    if (!externalMessageId || typeof externalMessageId !== 'string') {
-      return Response.json({ error: 'externalMessageId is required' }, { status: 400 });
-    }
-
-    // Reject non-string content regardless of whether attachments are present.
-    if (content !== undefined && content !== null && typeof content !== 'string') {
-      return Response.json({ error: 'content must be a string' }, { status: 400 });
-    }
-
-    const trimmedContent = typeof content === 'string' ? content.trim() : '';
-    const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
-
-    if (trimmedContent.length === 0 && !hasAttachments) {
-      return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
-    }
-
-    if (hasAttachments) {
-      const resolved = attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds);
-      if (resolved.length !== attachmentIds.length) {
-        const resolvedIds = new Set(resolved.map((a) => a.id));
-        const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
-        return Response.json(
-          { error: `Attachment IDs not found: ${missing.join(', ')}` },
-          { status: 400 },
-        );
-      }
-    }
-
-    const result = channelDeliveryStore.recordInbound(
-      assistantId,
-      sourceChannel,
-      externalChatId,
-      externalMessageId,
+    return executeHandler(() =>
+      handleChannelInbound(
+        {
+          assistantId,
+          sourceChannel: body.sourceChannel ?? '',
+          externalChatId: body.externalChatId ?? '',
+          externalMessageId: body.externalMessageId ?? '',
+          content: body.content,
+          attachmentIds: body.attachmentIds,
+        },
+        this.processMessage,
+      ),
     );
-
-    // For new (non-duplicate) messages, run the agent loop to generate a reply.
-    let processingSucceeded = false;
-    if (!result.duplicate && this.processMessage) {
-      try {
-        await this.processMessage(assistantId, result.conversationId, content ?? '', hasAttachments ? attachmentIds : undefined);
-        processingSucceeded = true;
-      } catch (err) {
-        log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
-      }
-    }
-
-    // Only look up the assistant reply when processing succeeded for a new
-    // (non-duplicate) message.  For duplicates or failed processing, returning
-    // a stale assistant message could cause the caller to resend old replies.
-    let assistantMessage: RuntimeMessagePayload | undefined;
-    if (processingSucceeded) {
-      const msgs = conversationStore.getMessages(result.conversationId);
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        if (msgs[i].role === 'assistant') {
-          let parsed: unknown;
-          try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
-          const rendered = renderHistoryContent(parsed);
-          if (rendered.text) {
-            assistantMessage = {
-              id: msgs[i].id,
-              role: 'assistant',
-              content: rendered.text,
-              timestamp: new Date(msgs[i].createdAt).toISOString(),
-              attachments: [],
-            };
-          }
-          break;
-        }
-      }
-    }
-
-    return Response.json({
-      accepted: result.accepted,
-      duplicate: result.duplicate,
-      eventId: result.eventId,
-      ...(assistantMessage ? { assistantMessage } : {}),
-    });
   }
 
   private async handleChannelDeliveryAck(assistantId: string, req: Request): Promise<Response> {
@@ -738,29 +469,13 @@ export class RuntimeHttpServer {
       externalMessageId?: string;
     };
 
-    const { sourceChannel, externalChatId, externalMessageId } = body;
-
-    if (!sourceChannel || typeof sourceChannel !== 'string') {
-      return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
-    }
-    if (!externalChatId || typeof externalChatId !== 'string') {
-      return Response.json({ error: 'externalChatId is required' }, { status: 400 });
-    }
-    if (!externalMessageId || typeof externalMessageId !== 'string') {
-      return Response.json({ error: 'externalMessageId is required' }, { status: 400 });
-    }
-
-    const acked = channelDeliveryStore.acknowledgeDelivery(
-      assistantId,
-      sourceChannel,
-      externalChatId,
-      externalMessageId,
+    return executeHandler(() =>
+      handleChannelDeliveryAck({
+        assistantId,
+        sourceChannel: body.sourceChannel ?? '',
+        externalChatId: body.externalChatId ?? '',
+        externalMessageId: body.externalMessageId ?? '',
+      }),
     );
-
-    if (!acked) {
-      return Response.json({ error: 'Inbound event not found' }, { status: 404 });
-    }
-
-    return new Response(null, { status: 204 });
   }
 }
