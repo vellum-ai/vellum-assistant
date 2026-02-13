@@ -7,7 +7,7 @@ import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
 import { getDb } from './db.js';
 import { getQdrantClient } from './qdrant-client.js';
-import { memoryEntities, memoryItemEntities, memoryItems, memorySegments } from './schema.js';
+import { memoryEmbeddings, memoryEntities, memoryItemEntities, memoryItems, memoryItemSources, memorySegments, memorySummaries, messages } from './schema.js';
 
 const log = getLogger('memory-retriever');
 const MEMORY_RECALL_MARKER = '[Memory Recall v2]';
@@ -364,8 +364,8 @@ async function semanticSearch(
   try {
     qdrant = getQdrantClient();
   } catch {
-    log.warn('Qdrant client not initialized, skipping semantic search');
-    return [];
+    log.warn('Qdrant client not initialized, falling back to SQLite semantic search');
+    return sqliteFallbackSemanticSearch(queryVector, limit, excludedMessageIds);
   }
 
   const results = await qdrant.searchWithFilter(
@@ -429,6 +429,113 @@ async function semanticSearch(
     }
   }
   return candidates;
+}
+
+function sqliteFallbackSemanticSearch(
+  queryVector: number[],
+  limit: number,
+  excludedMessageIds: string[],
+): Candidate[] {
+  const db = getDb();
+  const allEmbeddings = db.select().from(memoryEmbeddings).all();
+
+  const scored = allEmbeddings
+    .map((emb) => ({
+      targetType: emb.targetType,
+      targetId: emb.targetId,
+      similarity: cosineSimilarity(queryVector, JSON.parse(emb.vectorJson) as number[]),
+    }))
+    .sort((a, b) => b.similarity - a.similarity);
+
+  let excludedConversationIds: Set<string> | undefined;
+  if (excludedMessageIds.length > 0) {
+    const rows = db.select({ conversationId: messages.conversationId })
+      .from(messages)
+      .where(inArray(messages.id, excludedMessageIds))
+      .all();
+    excludedConversationIds = new Set(rows.map((r) => r.conversationId));
+  }
+
+  const candidates: Candidate[] = [];
+  for (const { targetType, targetId, similarity } of scored) {
+    const semantic = mapCosineToUnit(similarity);
+
+    if (targetType === 'item') {
+      const item = db.select().from(memoryItems).where(eq(memoryItems.id, targetId)).get();
+      if (!item || item.status !== 'active') continue;
+      const sources = db.select().from(memoryItemSources)
+        .where(eq(memoryItemSources.memoryItemId, targetId)).all();
+      if (sources.length === 0) continue;
+      if (excludedMessageIds.length > 0) {
+        const nonExcluded = sources.filter((s) => !excludedMessageIds.includes(s.messageId));
+        if (nonExcluded.length === 0) continue;
+      }
+      candidates.push({
+        key: `item:${targetId}`,
+        type: 'item',
+        id: targetId,
+        text: `[${item.kind}] ${item.subject}: ${item.statement}`,
+        kind: item.kind,
+        confidence: item.confidence,
+        importance: item.importance ?? 0.5,
+        createdAt: item.lastSeenAt,
+        lexical: 0,
+        semantic,
+        recency: computeRecencyScore(item.lastSeenAt),
+        finalScore: 0,
+      });
+    } else if (targetType === 'summary') {
+      const summary = db.select().from(memorySummaries).where(eq(memorySummaries.id, targetId)).get();
+      if (!summary) continue;
+      if (excludedConversationIds && summary.scope === 'conversation' && excludedConversationIds.has(summary.scopeKey)) continue;
+      candidates.push({
+        key: `summary:${targetId}`,
+        type: 'summary',
+        id: targetId,
+        text: summary.summary,
+        kind: summary.scope,
+        confidence: 0.6,
+        importance: 0.6,
+        createdAt: summary.createdAt,
+        lexical: 0,
+        semantic,
+        recency: computeRecencyScore(summary.createdAt),
+        finalScore: 0,
+      });
+    } else {
+      const segment = db.select().from(memorySegments).where(eq(memorySegments.id, targetId)).get();
+      if (!segment) continue;
+      candidates.push({
+        key: `segment:${targetId}`,
+        type: 'segment',
+        id: targetId,
+        text: segment.text,
+        kind: segment.role,
+        confidence: 0.55,
+        importance: 0.5,
+        createdAt: segment.createdAt,
+        lexical: 0,
+        semantic,
+        recency: computeRecencyScore(segment.createdAt),
+        finalScore: 0,
+      });
+    }
+    if (candidates.length >= limit) break;
+  }
+  return candidates;
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let magA = 0;
+  let magB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    magA += a[i] * a[i];
+    magB += b[i] * b[i];
+  }
+  const denom = Math.sqrt(magA) * Math.sqrt(magB);
+  return denom === 0 ? 0 : dot / denom;
 }
 
 function recencySearch(conversationId: string, limit: number, excludedMessageIds: string[] = []): Candidate[] {
