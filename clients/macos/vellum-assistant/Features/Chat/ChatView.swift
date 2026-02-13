@@ -836,6 +836,7 @@ private struct ComposerTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ container: ComposerContainerView, context: Context) {
+        context.coordinator.parent = self
         let textView = container.textView
         textView.onReturnAction = onReturn
         textView.onTabAction = onTab
@@ -951,12 +952,10 @@ private class ComposerNSTextView: NSTextView {
             }
             return
         }
-
-    }
-
-    override func paste(_ sender: Any?) {
-        onPasteAction?()
-        super.paste(sender)
+        if event.keyCode == 9 && event.modifierFlags.contains(.command) {
+            onPasteAction?()
+        }
+        super.keyDown(with: event)
     }
 
     override func draw(_ dirtyRect: NSRect) {
