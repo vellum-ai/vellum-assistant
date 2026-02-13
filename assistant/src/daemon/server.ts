@@ -164,10 +164,11 @@ export class DaemonServer {
       },
     };
 
-    // Prompt files (SOUL.md, IDENTITY.md) affect the system prompt.
+    // Prompt files (SOUL.md, IDENTITY.md, USER.md) affect the system prompt.
     // When they change, evict idle sessions so they pick up the new prompt.
     handlers['SOUL.md'] = () => this.evictSessionsForReload();
     handlers['IDENTITY.md'] = () => this.evictSessionsForReload();
+    handlers['USER.md'] = () => this.evictSessionsForReload();
 
     try {
       const watcher = watch(dataDir, (_eventType, filename) => {
