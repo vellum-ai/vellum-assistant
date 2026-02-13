@@ -56,13 +56,22 @@ export function buildSystemPrompt(): string {
   const parts: string[] = [];
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
-  let basePrompt = parts.join('\n\n');
+  if (user) parts.push(user);
+  parts.push(buildConfigSection(baseDir));
 
-  if (user) {
-    basePrompt = basePrompt ? `${basePrompt}\n\n${user}` : user;
-  }
+  return appendSkillsCatalog(parts.join('\n\n'));
+}
 
-  return appendSkillsCatalog(basePrompt);
+function buildConfigSection(configDir: string): string {
+  return [
+    '## Configuration',
+    `Your configuration directory is \`${configDir}/\`. Key files you may read or edit:`,
+    '',
+    '- `IDENTITY.md` — Your name, role, and tone. Edit to change your persona.',
+    '- `SOUL.md` — Core principles and behavioral boundaries.',
+    '- `USER.md` — Profile of the user. Update as you learn about them over time.',
+    '- `skills/` — Directory of installed skills (loaded automatically at startup).',
+  ].join('\n');
 }
 
 function readPromptFile(path: string): string | null {
