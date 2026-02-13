@@ -96,6 +96,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindowObserver: Any?
     private weak var recordingViewModel: ChatViewModel?
     private var statusIconCancellable: AnyCancellable?
+    private var cachedSkills: [SkillInfo] = []
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -162,6 +163,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {
                 setupAmbientAgent()
+                refreshSkillsCache()
             }
         }
     }
@@ -418,6 +420,45 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        // Skills submenu
+        let skillsItem = NSMenuItem(title: "Skills", action: nil, keyEquivalent: "")
+        skillsItem.image = NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil)
+        let skillsSubmenu = NSMenu(title: "Skills")
+
+        let enabledSkills = cachedSkills.filter { $0.state == "enabled" }
+        let disabledSkills = cachedSkills.filter { $0.state != "enabled" }
+
+        for skill in enabledSkills {
+            let emoji = skill.emoji ?? "\u{1F527}"
+            let item = NSMenuItem(title: "\(emoji) \(skill.name)", action: #selector(toggleSkill(_:)), keyEquivalent: "")
+            item.target = self
+            item.state = .on
+            item.representedObject = skill.name
+            skillsSubmenu.addItem(item)
+        }
+
+        for skill in disabledSkills {
+            let emoji = skill.emoji ?? "\u{1F527}"
+            let item = NSMenuItem(title: "\(emoji) \(skill.name)", action: #selector(toggleSkill(_:)), keyEquivalent: "")
+            item.target = self
+            item.state = .off
+            item.representedObject = skill.name
+            skillsSubmenu.addItem(item)
+        }
+
+        if !cachedSkills.isEmpty {
+            skillsSubmenu.addItem(NSMenuItem.separator())
+        }
+
+        let manageItem = NSMenuItem(title: "Manage Skills...", action: #selector(showSettingsWindow(_:)), keyEquivalent: "")
+        manageItem.target = self
+        skillsSubmenu.addItem(manageItem)
+
+        skillsItem.submenu = skillsSubmenu
+        menu.addItem(skillsItem)
+
+        menu.addItem(NSMenuItem.separator())
+
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
         settingsItem.target = self
         settingsItem.image = NSImage(systemSymbolName: "gear", accessibilityDescription: nil)
@@ -473,6 +514,31 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleAmbientAgent() {
         ambientAgent.isEnabled = !ambientAgent.isEnabled
         updateMenuBarIcon()
+    }
+
+    @objc private func toggleSkill(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        if sender.state == .on {
+            try? daemonClient.disableSkill(name)
+        } else {
+            try? daemonClient.enableSkill(name)
+        }
+        refreshSkillsCache()
+    }
+
+    private func refreshSkillsCache() {
+        Task {
+            let stream = daemonClient.subscribe()
+            do {
+                try daemonClient.send(SkillsListRequestMessage())
+            } catch { return }
+            for await message in stream {
+                if case .skillsListResponse(let response) = message {
+                    self.cachedSkills = response.skills
+                    return
+                }
+            }
+        }
     }
 
     #if DEBUG
