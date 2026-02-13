@@ -459,7 +459,12 @@ trust
       console.error(`No rule found matching "${id}"`);
       process.exit(1);
     }
-    removeRule(match.id);
+    try {
+      removeRule(match.id);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
     console.log(`Removed rule ${match.id.slice(0, 8)} (${match.tool}: ${match.pattern})`);
   });
 

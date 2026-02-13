@@ -631,10 +631,11 @@ describe('Trust Store', () => {
     test('removed default rule is re-backfilled on next load', () => {
       // First load backfills defaults
       getAllRules();
-      // Remove one default rule
-      const defaultRule = getAllRules().find((r) => r.id === 'default:deny-file_read-protected');
-      expect(defaultRule).toBeDefined();
-      removeRule(defaultRule!.id);
+      // Remove one default rule by editing trust.json directly on disk
+      // (removeRule() throws for default rules, so we simulate external editing)
+      const raw = JSON.parse(readFileSync(trustPath, 'utf-8'));
+      raw.rules = raw.rules.filter((r: { id: string }) => r.id !== 'default:deny-file_read-protected');
+      writeFileSync(trustPath, JSON.stringify(raw, null, 2));
       // After reload, the rule is re-backfilled (defaults are always present)
       clearCache();
       const rules = getAllRules();
