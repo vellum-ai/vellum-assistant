@@ -15,7 +15,8 @@ const log = getLogger('system-prompt');
  *   1. Base prompt: SOUL.md and/or IDENTITY.md when present
  *   2. Base prompt fallback: config.systemPrompt
  *   3. Base prompt fallback: DEFAULT_SYSTEM_PROMPT
- *   4. Append skills catalog from ~/.vellum/skills
+ *   4. Append USER.md (user profile) if present
+ *   5. Append skills catalog from ~/.vellum/skills
  *
  * When both IDENTITY.md and SOUL.md exist, the base prompt is composed as:
  *   IDENTITY.md content + "\n\n" + SOUL.md content
@@ -24,9 +25,11 @@ export function buildSystemPrompt(configSystemPrompt?: string): string {
   const baseDir = getDataDir();
   const soulPath = join(baseDir, 'SOUL.md');
   const identityPath = join(baseDir, 'IDENTITY.md');
+  const userPath = join(baseDir, 'USER.md');
 
   const soul = readPromptFile(soulPath);
   const identity = readPromptFile(identityPath);
+  const user = readPromptFile(userPath);
 
   let basePrompt = configSystemPrompt ?? DEFAULT_SYSTEM_PROMPT;
 
@@ -35,6 +38,10 @@ export function buildSystemPrompt(configSystemPrompt?: string): string {
     if (identity) parts.push(identity);
     if (soul) parts.push(soul);
     basePrompt = parts.join('\n\n');
+  }
+
+  if (user) {
+    basePrompt = `${basePrompt}\n\n${user}`;
   }
 
   return appendSkillsCatalog(basePrompt);

@@ -145,4 +145,24 @@ describe('buildSystemPrompt', () => {
     expect(result).not.toContain('release-checklist');
     expect(result).not.toContain('incident-response');
   });
+
+  test('appends USER.md after base prompt', () => {
+    writeFileSync(join(TEST_DIR, 'USER.md'), '# User\n\nName: Alice');
+    const result = buildSystemPrompt('Base prompt');
+    expect(basePrompt(result)).toBe('Base prompt\n\n# User\n\nName: Alice');
+  });
+
+  test('appends USER.md after IDENTITY + SOUL', () => {
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'Identity');
+    writeFileSync(join(TEST_DIR, 'SOUL.md'), 'Soul');
+    writeFileSync(join(TEST_DIR, 'USER.md'), 'User info');
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe('Identity\n\nSoul\n\nUser info');
+  });
+
+  test('ignores empty USER.md', () => {
+    writeFileSync(join(TEST_DIR, 'USER.md'), '  \n  ');
+    const result = buildSystemPrompt('Fallback');
+    expect(basePrompt(result)).toBe('Fallback');
+  });
 });

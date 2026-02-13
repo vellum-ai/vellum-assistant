@@ -101,7 +101,7 @@ export function ensureDataDir(): void {
   }
 
   const templatesDir = join(dirname(import.meta.dirname ?? __dirname), 'config', 'templates');
-  for (const file of ['IDENTITY.md', 'SOUL.md']) {
+  for (const file of ['IDENTITY.md', 'SOUL.md', 'USER.md']) {
     const dest = join(base, file);
     if (!existsSync(dest)) {
       const src = join(templatesDir, file);
