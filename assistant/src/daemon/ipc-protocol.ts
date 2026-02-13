@@ -235,6 +235,19 @@ export interface BundleAppRequest {
   appId: string;
 }
 
+export interface SignBundlePayloadResponse {
+  type: 'sign_bundle_payload_response';
+  signature: string;
+  keyId: string;
+  publicKey: string;
+}
+
+export interface GetSigningIdentityResponse {
+  type: 'get_signing_identity_response';
+  keyId: string;
+  publicKey: string;
+}
+
 // === Surface types ===
 
 export type SurfaceType = 'card' | 'form' | 'list' | 'table' | 'confirmation' | 'dynamic_page' | 'file_upload';
@@ -376,7 +389,9 @@ export type ClientMessage =
   | TrustRulesList
   | RemoveTrustRule
   | UpdateTrustRule
-  | BundleAppRequest;
+  | BundleAppRequest
+  | SignBundlePayloadResponse
+  | GetSigningIdentityResponse;
 
 // === Server → Client messages ===
 
@@ -706,6 +721,15 @@ export interface BundleAppResponse {
   };
 }
 
+export interface SignBundlePayloadRequest {
+  type: 'sign_bundle_payload';
+  payload: string;
+}
+
+export interface GetSigningIdentityRequest {
+  type: 'get_signing_identity';
+}
+
 export interface TimerCompleted {
   type: 'timer_completed';
   sessionId: string;
@@ -836,7 +860,9 @@ export type ServerMessage =
   | MessageDequeued
   | TimerCompleted
   | TrustRulesListResponse
-  | BundleAppResponse;
+  | BundleAppResponse
+  | SignBundlePayloadRequest
+  | GetSigningIdentityRequest;
 
 // === Serialization ===
 

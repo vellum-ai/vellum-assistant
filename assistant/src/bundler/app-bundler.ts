@@ -6,14 +6,20 @@
  */
 
 import { createWriteStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { readFile, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import archiver from 'archiver';
+import JSZip from 'jszip';
 import { getApp } from '../memory/app-store.js';
 import type { AppManifest } from './manifest.js';
 import { serializeManifest } from './manifest.js';
+import { signBundle } from './bundle-signer.js';
+import type { SigningCallback } from './bundle-signer.js';
+import { getLogger } from '../util/logger.js';
+
+const bundlerLog = getLogger('app-bundler');
 
 /** Read the package version at import time. */
 import { createRequire } from 'node:module';
@@ -91,10 +97,15 @@ function rewriteAssetReferences(html: string, refs: Map<string, string>): string
  * Package an app into a .vellumapp zip archive.
  *
  * @param appId - The ID of the app to package (from the app-store).
+ * @param requestSignature - Optional callback to request an Ed25519 signature from the Swift client.
+ *                           If provided, the bundle will be signed and include a signature.json.
  * @returns The path to the created .vellumapp file and the manifest.
  * @throws If the app is not found, or the bundle exceeds the size limit.
  */
-export async function packageApp(appId: string): Promise<BundleResult> {
+export async function packageApp(
+  appId: string,
+  requestSignature?: SigningCallback,
+): Promise<BundleResult> {
   const app = getApp(appId);
   if (!app) {
     throw new Error(`App not found: ${appId}`);
@@ -147,6 +158,28 @@ export async function packageApp(appId: string): Promise<BundleResult> {
 
     archive.finalize();
   });
+
+  // Sign the bundle if a signing callback is provided
+  if (requestSignature) {
+    try {
+      const signatureJson = await signBundle(bundlePath, requestSignature);
+
+      // Re-open the zip and add signature.json
+      const zipBuffer = await readFile(bundlePath);
+      const zip = await JSZip.loadAsync(zipBuffer);
+      zip.file('signature.json', JSON.stringify(signatureJson, null, 2));
+      const signedBuffer = await zip.generateAsync({
+        type: 'nodebuffer',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 9 },
+      });
+      await writeFile(bundlePath, signedBuffer);
+
+      bundlerLog.info({ appId }, 'Bundle signed successfully');
+    } catch (err) {
+      bundlerLog.warn({ err, appId }, 'Failed to sign bundle, proceeding unsigned');
+    }
+  }
 
   // Enforce size limit
   const stats = await stat(bundlePath);

@@ -196,6 +196,17 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'bundle_app',
     appId: 'app-001',
   },
+  sign_bundle_payload_response: {
+    type: 'sign_bundle_payload_response',
+    signature: 'dGVzdC1zaWduYXR1cmU=',
+    keyId: 'abc123',
+    publicKey: 'dGVzdA==', // eslint-disable-line -- test fixture, not a real key
+  },
+  get_signing_identity_response: {
+    type: 'get_signing_identity_response',
+    keyId: 'abc123',
+    publicKey: 'dGVzdA==', // eslint-disable-line -- test fixture, not a real key
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -512,6 +523,13 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       entry: 'index.html',
       capabilities: [],
     },
+  },
+  sign_bundle_payload: {
+    type: 'sign_bundle_payload',
+    payload: '{"content_hashes":{},"manifest":{}}',
+  },
+  get_signing_identity: {
+    type: 'get_signing_identity',
   },
 };
 

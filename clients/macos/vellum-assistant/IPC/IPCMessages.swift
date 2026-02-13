@@ -277,6 +277,23 @@ struct SkillsInspectMessage: Encodable, Sendable {
     let slug: String
 }
 
+/// Response to a sign_bundle_payload request from the daemon.
+/// Wire type: `"sign_bundle_payload_response"`
+struct SignBundlePayloadResponseMessage: Encodable, Sendable {
+    let type: String = "sign_bundle_payload_response"
+    let signature: String
+    let keyId: String
+    let publicKey: String
+}
+
+/// Response to a get_signing_identity request from the daemon.
+/// Wire type: `"get_signing_identity_response"`
+struct GetSigningIdentityResponseMessage: Encodable, Sendable {
+    let type: String = "get_signing_identity_response"
+    let keyId: String
+    let publicKey: String
+}
+
 // MARK: - Server → Client Messages (Decodable)
 
 /// Action to execute from the inference server.
@@ -631,6 +648,12 @@ struct TrustRulesListResponseMessage: Decodable, Sendable {
     let rules: [TrustRuleItem]
 }
 
+/// Request from daemon to sign a bundle payload.
+/// Wire type: `"sign_bundle_payload"`
+struct SignBundlePayloadMessage: Decodable, Sendable {
+    let payload: String
+}
+
 /// Timer completed notification from daemon.
 /// Wire type: `"timer_completed"`
 struct TimerCompletedMessage: Decodable, Sendable {
@@ -790,6 +813,8 @@ enum ServerMessage: Decodable, Sendable {
     case toolResult(ToolResultMessage)
     case timerCompleted(TimerCompletedMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
+    case signBundlePayload(SignBundlePayloadMessage)
+    case getSigningIdentity
     case pong
     case unknown(String)
 
@@ -895,6 +920,11 @@ enum ServerMessage: Decodable, Sendable {
         case "trust_rules_list_response":
             let message = try TrustRulesListResponseMessage(from: decoder)
             self = .trustRulesListResponse(message)
+        case "sign_bundle_payload":
+            let message = try SignBundlePayloadMessage(from: decoder)
+            self = .signBundlePayload(message)
+        case "get_signing_identity":
+            self = .getSigningIdentity
         case "pong":
             self = .pong
         default:
