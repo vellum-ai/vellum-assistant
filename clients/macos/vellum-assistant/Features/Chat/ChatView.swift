@@ -67,7 +67,11 @@ struct ChatView: View {
 
     private func shouldShowTimestamp(at index: Int) -> Bool {
         if index == 0 { return true }
-        let gap = messages[index].timestamp.timeIntervalSince(messages[index - 1].timestamp)
+        let current = messages[index].timestamp
+        let previous = messages[index - 1].timestamp
+        // Always show a divider when crossing a calendar-day boundary
+        if !Calendar.current.isDate(current, inSameDayAs: previous) { return true }
+        let gap = current.timeIntervalSince(previous)
         return gap > 300
     }
 
