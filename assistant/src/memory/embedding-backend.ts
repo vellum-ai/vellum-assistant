@@ -125,19 +125,63 @@ export async function embedWithBackend(
   if (!selection.backend) {
     throw new Error(selection.reason ?? 'No memory embedding backend configured');
   }
-  const vectors = await selection.backend.embed(texts, options);
-  if (vectors.length !== texts.length) {
-    throw new Error(`Embedding backend returned ${vectors.length} vectors for ${texts.length} texts`);
+
+  // In auto mode, build a fallback list of backends to try
+  const backends: EmbeddingBackend[] = [selection.backend];
+  if (config.memory.embeddings.provider === 'auto' && selection.backend.provider === 'local') {
+    for (const fallback of selectFallbackBackends(config, 'local')) {
+      backends.push(fallback);
+    }
   }
-  return {
-    provider: selection.backend.provider,
-    model: selection.backend.model,
-    vectors,
-  };
+
+  let lastErr: unknown;
+  for (const backend of backends) {
+    try {
+      const vectors = await backend.embed(texts, options);
+      if (vectors.length !== texts.length) {
+        throw new Error(`Embedding backend returned ${vectors.length} vectors for ${texts.length} texts`);
+      }
+      return { provider: backend.provider, model: backend.model, vectors };
+    } catch (err) {
+      lastErr = err;
+      if (backends.length > 1) {
+        log.warn({ err, provider: backend.provider }, 'Embedding backend failed, trying next');
+      }
+    }
+  }
+  throw lastErr;
 }
 
 export function logMemoryEmbeddingWarning(err: unknown, context: string): void {
   log.warn({ err }, `Memory embeddings failed (${context})`);
+}
+
+function selectFallbackBackends(config: AssistantConfig, exclude: EmbeddingProviderName): EmbeddingBackend[] {
+  const backends: EmbeddingBackend[] = [];
+  const order: EmbeddingProviderName[] = ['openai', 'gemini', 'ollama'];
+  for (const provider of order) {
+    if (provider === exclude) continue;
+    switch (provider) {
+      case 'openai':
+        if (config.apiKeys.openai) {
+          backends.push(new OpenAIEmbeddingBackend(config.apiKeys.openai, config.memory.embeddings.openaiModel));
+        }
+        break;
+      case 'gemini':
+        if (config.apiKeys.gemini) {
+          backends.push(new GeminiEmbeddingBackend(config.apiKeys.gemini, config.memory.embeddings.geminiModel));
+        }
+        break;
+      case 'ollama':
+        if (isOllamaConfigured(config)) {
+          backends.push(new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
+            apiKey: config.apiKeys.ollama,
+          }));
+        }
+        break;
+    }
+  }
+  return backends;
 }
 
 function isOllamaConfigured(config: AssistantConfig): boolean {
