@@ -43,8 +43,17 @@ final class ChatViewModel: ObservableObject {
     /// Tracks the current in-flight suggestion request so stale responses are ignored.
     private var pendingSuggestionRequestId: String?
 
+    /// Timestamp of the most recent `toolUseStart` event received by this view model.
+    /// Used by ThreadManager to route `confirmationRequest` messages to the correct
+    /// ChatViewModel when multiple threads have active sessions.
+    var lastToolUseReceivedAt: Date?
+
     /// Called when an inline confirmation is responded to, so the floating panel can be dismissed.
     var onInlineConfirmationResponse: ((String) -> Void)?
+
+    /// Called to determine whether this ChatViewModel should accept a `confirmationRequest`.
+    /// Set by ThreadManager to coordinate routing when multiple ChatViewModels are active.
+    var shouldAcceptConfirmation: (() -> Bool)?
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -578,11 +587,15 @@ final class ChatViewModel: ObservableObject {
 
         case .confirmationRequest(let msg):
             // ConfirmationRequestMessage doesn't include a sessionId, so we
-            // can't use belongsToSession. Instead, only accept the request
-            // when this ChatViewModel is actively sending (has an active
-            // session and is mid-generation). This ensures only the thread
-            // that triggered the tool call displays the confirmation.
-            guard isSending, sessionId != nil else { return }
+            // can't use belongsToSession. Delegate routing to ThreadManager
+            // via the shouldAcceptConfirmation closure, which picks the
+            // ChatViewModel that most recently received a toolUseStart event.
+            // This avoids false negatives from gating on isSending (which
+            // isn't set for flows like handleSurfaceAction) and false
+            // positives when multiple threads are sending simultaneously.
+            guard sessionId != nil,
+                  lastToolUseReceivedAt != nil,
+                  shouldAcceptConfirmation?() ?? false else { return }
             let confirmation = ToolConfirmationData(
                 requestId: msg.requestId,
                 toolName: msg.toolName,
@@ -606,6 +619,7 @@ final class ChatViewModel: ObservableObject {
         case .toolUseStart(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             guard !isCancelling else { return }
+            lastToolUseReceivedAt = Date()
             isThinking = false
             let toolCall = ToolCallData(
                 toolName: toolDisplayName(msg.toolName),
@@ -736,6 +750,14 @@ final class ChatViewModel: ObservableObject {
 
     /// Respond to a tool confirmation request displayed inline in the chat.
     func respondToConfirmation(requestId: String, decision: String) {
+        // DaemonClient.send silently returns when connection is nil (it does
+        // not throw), so we must check connectivity explicitly before calling
+        // sendConfirmationResponse. Without this guard the UI would show the
+        // decision as finalized even though the daemon never received it.
+        guard daemonClient.isConnected else {
+            errorText = "Failed to send confirmation response."
+            return
+        }
         // Send the response to the daemon first, then update UI state only on success.
         // This prevents the UI from showing a finalized decision when the IPC
         // message was never delivered (e.g. daemon disconnected).
