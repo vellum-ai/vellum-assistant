@@ -71,13 +71,18 @@ SWIFT_FLAGS=""
 if [ "$CMD" = "release" ]; then
     CONFIG="release"
     SWIFT_FLAGS="-c release"
+    # Force clean for release builds to prevent stale artifacts in production
+    echo "Release build: forcing clean to ensure no stale artifacts..."
+    rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/.build"
 fi
 
 # 1. Build with SPM
 echo "Building ($CONFIG)..."
-swift build $SWIFT_FLAGS
-
+# Get bin path first (fast, doesn't rebuild)
 BIN_PATH=$(swift build $SWIFT_FLAGS --show-bin-path)
+
+# Then build (or use cached if nothing changed)
+swift build $SWIFT_FLAGS
 
 
 EXECUTABLE="$BIN_PATH/$APP_NAME"
@@ -88,35 +93,85 @@ if [ ! -f "$EXECUTABLE" ]; then
 fi
 
 # 2. Create .app bundle structure
-echo "Packaging $BUNDLE_DISPLAY_NAME.app..."
-rm -rf "$APP_DIR"
+# Check if we need to rebuild the bundle
+#
+# INCREMENTAL BUILD TRADEOFF:
+# We only repackage when source binaries change (executable, daemon, frameworks, bundles).
+# This makes rebuilds fast (~4s) but means removed artifacts persist in the .app until 'clean'.
+# If you delete a resource bundle, framework, or daemon binary from the source, the old copy
+# stays in Contents/ until you run './build.sh clean'. This is intentional — the speed gain
+# is worth the occasional manual clean. Always use 'clean' before release builds.
+NEEDS_REBUILD=false
+if [ ! -f "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ] || [ "$EXECUTABLE" -nt "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ]; then
+    NEEDS_REBUILD=true
+fi
+
+# Also rebuild if daemon binary changed or newly added
+if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
+    if [ ! -f "$MACOS_DIR/vellum-daemon" ] || [ "$SCRIPT_DIR/daemon-bin/vellum-daemon" -nt "$MACOS_DIR/vellum-daemon" ]; then
+        NEEDS_REBUILD=true
+    fi
+fi
+
+# Ensure .app bundle structure exists
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 
-# Copy executable (renamed to match display name) and add Frameworks rpath
-cp "$EXECUTABLE" "$MACOS_DIR/$BUNDLE_DISPLAY_NAME"
-install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
+if [ "$NEEDS_REBUILD" = true ]; then
+    echo "Packaging $BUNDLE_DISPLAY_NAME.app..."
 
+    # Copy executable (renamed to match display name) and add Frameworks rpath
+    cp "$EXECUTABLE" "$MACOS_DIR/$BUNDLE_DISPLAY_NAME"
+    install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
+
+    # Copy bundled daemon binary (if available — built by CI or locally)
+    DAEMON_BIN="$SCRIPT_DIR/daemon-bin/vellum-daemon"
+    if [ -f "$DAEMON_BIN" ]; then
+        echo "Bundling daemon binary..."
+        cp "$DAEMON_BIN" "$MACOS_DIR/vellum-daemon"
+        chmod +x "$MACOS_DIR/vellum-daemon"
+    else
+        echo "No daemon binary at $DAEMON_BIN — skipping (dev mode)"
+    fi
+else
+    echo "Binaries unchanged, skipping binary repackaging"
+fi
+
+# Always check frameworks (they change independently via dependency updates)
 # Copy Sparkle.framework into bundle (required — it's a dynamic framework)
+# Only copy if missing or changed (has its own timestamp check)
+# Note: Directory timestamp (-nt) only updates when direct entries are added/removed,
+# not when files inside subdirectories change. This is reliable for SPM-built artifacts
+# since SPM recreates directories entirely, but manual edits inside .framework bundles
+# won't be detected. Use './build.sh clean' if you manually modify frameworks.
 SPARKLE_FW="$BIN_PATH/Sparkle.framework"
 if [ -d "$SPARKLE_FW" ]; then
-    echo "Bundling Sparkle.framework..."
-    cp -R "$SPARKLE_FW" "$FRAMEWORKS_DIR/"
+    if [ ! -d "$FRAMEWORKS_DIR/Sparkle.framework" ] || [ "$SPARKLE_FW" -nt "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
+        echo "Bundling Sparkle.framework..."
+        rm -rf "$FRAMEWORKS_DIR/Sparkle.framework"
+        cp -R "$SPARKLE_FW" "$FRAMEWORKS_DIR/"
+    fi
 else
     echo "WARNING: Sparkle.framework not found at $SPARKLE_FW"
 fi
 
-# Copy bundled daemon binary (if available — built by CI or locally)
-DAEMON_BIN="$SCRIPT_DIR/daemon-bin/vellum-daemon"
-if [ -f "$DAEMON_BIN" ]; then
-    echo "Bundling daemon binary..."
-    cp "$DAEMON_BIN" "$MACOS_DIR/vellum-daemon"
-    chmod +x "$MACOS_DIR/vellum-daemon"
-else
-    echo "No daemon binary at $DAEMON_BIN — skipping (dev mode)"
-fi
+# Always check resource bundles (they change independently of binaries)
+# Copy SPM resource bundles into Contents/Resources/
+# ResourceBundle.swift checks Bundle.main.resourceURL (Contents/Resources/) first,
+# then falls back to Bundle.main.bundleURL (for direct `swift run`).
+# Only copy if missing or changed (has its own timestamp check)
+for SPM_BUNDLE in "$BIN_PATH"/*.bundle; do
+    if [ -d "$SPM_BUNDLE" ]; then
+        BUNDLE_NAME=$(basename "$SPM_BUNDLE")
+        if [ ! -d "$RESOURCES_DIR/$BUNDLE_NAME" ] || [ "$SPM_BUNDLE" -nt "$RESOURCES_DIR/$BUNDLE_NAME" ]; then
+            echo "Bundling $BUNDLE_NAME"
+            rm -rf "$RESOURCES_DIR/$BUNDLE_NAME"
+            cp -R "$SPM_BUNDLE" "$RESOURCES_DIR/"
+        fi
+    fi
+done
 
-# 3. Generate Info.plist with resolved values
+# Always regenerate Info.plist (fast, depends on env vars like DISPLAY_VERSION)
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -164,17 +219,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# 4. Copy SPM resource bundles into Contents/Resources/
-# ResourceBundle.swift checks Bundle.main.resourceURL (Contents/Resources/) first,
-# then falls back to Bundle.main.bundleURL (for direct `swift run`).
-for SPM_BUNDLE in "$BIN_PATH"/*.bundle; do
-    if [ -d "$SPM_BUNDLE" ]; then
-        echo "Bundling $(basename "$SPM_BUNDLE")"
-        cp -R "$SPM_BUNDLE" "$RESOURCES_DIR/"
-    fi
-done
-
-# 5. Compile asset catalog (if actool is available)
+# Always compile asset catalog (fast, ensures AppIcon changes are picked up)
 XCASSETS="$SCRIPT_DIR/vellum-assistant/Resources/Assets.xcassets"
 if [ -d "$XCASSETS" ]; then
     xcrun actool "$XCASSETS" \
@@ -189,30 +234,50 @@ fi
 # 6. Code sign
 echo "Signing with: $SIGN_IDENTITY"
 
-# Sign daemon binary separately with its own entitlements (JIT, network)
+# Sign components explicitly (Apple's recommended approach instead of --deep)
+# This ensures nested binaries with specific entitlements aren't overwritten
+
+# Sign Sparkle.framework first
+if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
+    FW_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        FW_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    codesign "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework"
+    echo "Sparkle.framework signed"
+fi
+
+# Sign daemon binary with its own entitlements (JIT, network)
 if [ -f "$MACOS_DIR/vellum-daemon" ]; then
     DAEMON_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/daemon-entitlements.plist")
     if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
         DAEMON_SIGN_FLAGS+=(--timestamp --options runtime)
     fi
     codesign "${DAEMON_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-daemon"
-    echo "Daemon binary signed"
+    echo "Daemon binary signed with entitlements"
 fi
 
-CODESIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --deep)
+# Sign the outer app bundle (without --deep to preserve nested signatures)
+APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
 if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-    CODESIGN_FLAGS+=(--timestamp --options runtime)
+    APP_SIGN_FLAGS+=(--timestamp --options runtime)
 fi
-codesign "${CODESIGN_FLAGS[@]}" "$APP_DIR"
+codesign "${APP_SIGN_FLAGS[@]}" "$APP_DIR"
 
 echo "Built: $APP_DIR"
 
 # 7. Run if requested
 if [ "$CMD" = "run" ]; then
     echo "Launching..."
-    # Kill existing instance if running
-    pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
-    # Also kill legacy pre-rename process name if still running
+    # Kill existing instance if running (SIGTERM for clean shutdown)
+    if pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null; then
+        pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
+        # Wait for clean exit (max 1 second)
+        for i in {1..10}; do
+            pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null || break
+            sleep 0.1
+        done
+    fi
     pkill -x "vellum-assistant" 2>/dev/null || true
     sleep 0.3
     # Launch via `open` so Launch Services registers the bundle —
