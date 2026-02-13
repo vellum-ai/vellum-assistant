@@ -12,7 +12,6 @@ import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import { getConversationByKey, getOrCreateConversation } from '../../memory/conversation-key-store.js';
 import { renderHistoryContent, mergeToolResults } from '../../daemon/handlers.js';
-import type { ParsedHistoryMessage } from '../../daemon/handlers.js';
 import type { MessageProcessor } from '../http-server.js';
 
 /**
@@ -489,7 +488,7 @@ export async function handleChannelInbound(
           break;
         }
       }
-    } catch (err) {
+    } catch (_err) {
       // Log error but still return accepted response
     }
   }
@@ -569,7 +568,7 @@ export interface SuggestionResponse {
 export function handleGetSuggestion(
   req: GetSuggestionRequest,
   suggestionCache: Map<string, string>,
-  generateSuggestion: (messageId: string, text: string) => Promise<string | null>,
+  _generateSuggestion: (messageId: string, text: string) => Promise<string | null>,
 ): HandlerResponse<SuggestionResponse> {
   const mapping = getConversationByKey(req.assistantId, req.conversationKey);
   if (!mapping) {
