@@ -115,38 +115,38 @@ ctx.addLine(to: CGPoint(x: arrowStartX, y: arrowY + shaftHalf))       // bottom-
 ctx.closePath()
 ctx.fillPath()
 
+// --- Helper to draw centered text ---
+func drawCenteredText(_ text: String, centerX: CGFloat, y: CGFloat, font: CTFont, color: CGColor) {
+    let attrs: [CFString: Any] = [
+        kCTFontAttributeName: font,
+        kCTForegroundColorAttributeName: color,
+    ]
+    let attrStr = CFAttributedStringCreate(kCFAllocatorDefault, text as CFString, attrs as CFDictionary)!
+    let ctLine = CTLineCreateWithAttributedString(attrStr)
+    let bounds = CTLineGetBoundsWithOptions(ctLine, .useOpticalBounds)
+
+    ctx.saveGState()
+    ctx.translateBy(x: 0, y: CGFloat(height))
+    ctx.scaleBy(x: 1, y: -1)
+    ctx.textPosition = CGPoint(x: centerX - bounds.width / 2, y: CGFloat(height) - y)
+    CTLineDraw(ctLine, ctx)
+    ctx.restoreGState()
+}
+
+// --- Icon labels (white, baked into background for legibility on dark bg) ---
+let labelY = CGFloat(iconCenterY + 180)  // Below icons, matching Finder label position
+let labelFont = CTFontCreateWithName("Helvetica Neue" as CFString, 26.0, nil)
+let labelColor = CGColor(colorSpace: colorSpace, components: rgb(255, 255, 255, 0.9))!
+
+drawCenteredText("Vellum", centerX: CGFloat(leftIconX), y: labelY, font: labelFont, color: labelColor)
+drawCenteredText("Applications", centerX: CGFloat(rightIconX), y: labelY, font: labelFont, color: labelColor)
+
 // --- "Drag to install" text ---
 let textY = CGFloat(iconCenterY + 150)  // Below the icons
-let textCenterX = CGFloat(width) / 2.0
+let dragFont = CTFontCreateWithName("Helvetica Neue" as CFString, 28.0, nil)
+let dragColor = CGColor(colorSpace: colorSpace, components: rgb(255, 255, 255, 0.5))!
 
-let textString = "Drag to Applications to install"
-let fontSize: CGFloat = 28.0
-let font = CTFontCreateWithName("Helvetica Neue" as CFString, fontSize, nil)
-let textColor = CGColor(colorSpace: colorSpace, components: rgb(168, 140, 210, 0.5))!
-
-let ctAttributes: [CFString: Any] = [
-    kCTFontAttributeName: font,
-    kCTForegroundColorAttributeName: textColor,
-]
-let attributedString = CFAttributedStringCreate(
-    kCFAllocatorDefault,
-    textString as CFString,
-    ctAttributes as CFDictionary
-)!
-let line = CTLineCreateWithAttributedString(attributedString)
-let textBounds = CTLineGetBoundsWithOptions(line, .useOpticalBounds)
-
-// Position text centered horizontally
-// Core Text draws in bottom-left origin, so undo our flip for text
-ctx.saveGState()
-ctx.translateBy(x: 0, y: CGFloat(height))
-ctx.scaleBy(x: 1, y: -1)
-// Now (0,0) is bottom-left, y increases upward
-let textDrawY = CGFloat(height) - textY
-let textDrawX = textCenterX - textBounds.width / 2
-ctx.textPosition = CGPoint(x: textDrawX, y: textDrawY)
-CTLineDraw(line, ctx)
-ctx.restoreGState()
+drawCenteredText("Drag to Applications to install", centerX: CGFloat(width) / 2.0, y: textY, font: dragFont, color: dragColor)
 
 // --- Generate output ---
 guard let image = ctx.makeImage() else {

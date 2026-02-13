@@ -142,6 +142,7 @@ jobs:
             --window-pos 200 120 \
             --window-size 660 400 \
             --icon-size 128 \
+            --text-size 10 \
             --icon "Vellum.app" 175 190 \
             --app-drop-link 485 190 \
             --hide-extension "Vellum.app" \
