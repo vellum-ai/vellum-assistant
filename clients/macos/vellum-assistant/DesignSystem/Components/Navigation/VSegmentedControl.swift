@@ -12,20 +12,23 @@ struct VSegmentedControl: View {
                         Text(items[index])
                             .font(VFont.captionMedium)
                             .foregroundColor(selection == index ? VColor.textPrimary : VColor.textMuted)
-                            .padding(.vertical, VSpacing.md)
+                            .padding(.horizontal, VSpacing.xl)
+                            .padding(.vertical, VSpacing.xs)
 
                         Rectangle()
                             .fill(selection == index ? VColor.accent : .clear)
                             .frame(height: 2)
                     }
-                    .frame(maxWidth: .infinity)
+                    .fixedSize(horizontal: true, vertical: false)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(items[index])
                 .accessibilityAddTraits(selection == index ? .isSelected : [])
             }
+            Spacer()
         }
+        .padding(.horizontal, VSpacing.sm)
     }
 }
 
