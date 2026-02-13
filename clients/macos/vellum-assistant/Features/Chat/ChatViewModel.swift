@@ -768,6 +768,7 @@ final class ChatViewModel: ObservableObject {
         } else if inputText.isEmpty {
             inputText = suggestion
         }
+        self.suggestion = nil
     }
 
     deinit {
