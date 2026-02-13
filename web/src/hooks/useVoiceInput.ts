@@ -87,7 +87,7 @@ export function useVoiceInput({ onTranscript }: UseVoiceInputOptions) {
 
     recognition.onend = () => {
       // Browser sometimes stops recognition early — restart if still listening
-      if (isListeningRef.current) {
+      if (isListeningRef.current && recognitionRef.current === recognition) {
         try {
           recognition.start();
         } catch {
