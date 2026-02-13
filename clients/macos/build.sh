@@ -234,27 +234,35 @@ fi
 # 6. Code sign
 echo "Signing with: $SIGN_IDENTITY"
 
-# Sign daemon binary separately with its own entitlements (JIT, network)
+# Sign components explicitly (Apple's recommended approach instead of --deep)
+# This ensures nested binaries with specific entitlements aren't overwritten
+
+# Sign Sparkle.framework first
+if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
+    FW_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        FW_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    codesign "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework"
+    echo "Sparkle.framework signed"
+fi
+
+# Sign daemon binary with its own entitlements (JIT, network)
 if [ -f "$MACOS_DIR/vellum-daemon" ]; then
     DAEMON_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/daemon-entitlements.plist")
     if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
         DAEMON_SIGN_FLAGS+=(--timestamp --options runtime)
     fi
     codesign "${DAEMON_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-daemon"
-    echo "Daemon binary signed"
+    echo "Daemon binary signed with entitlements"
 fi
 
-# Always use --deep to properly sign nested frameworks
-# NOTE: --deep will re-sign all nested code including the daemon binary. The daemon's
-# entitlements (JIT, network) from the previous codesign step may not persist through
-# the --deep pass. This is a known limitation. For production apps with nested binaries
-# requiring specific entitlements, Apple recommends signing each component explicitly
-# instead of using --deep. This is inherited behavior from the original build system.
-CODESIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --deep)
+# Sign the outer app bundle (without --deep to preserve nested signatures)
+APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
 if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-    CODESIGN_FLAGS+=(--timestamp --options runtime)
+    APP_SIGN_FLAGS+=(--timestamp --options runtime)
 fi
-codesign "${CODESIGN_FLAGS[@]}" "$APP_DIR"
+codesign "${APP_SIGN_FLAGS[@]}" "$APP_DIR"
 
 echo "Built: $APP_DIR"
 

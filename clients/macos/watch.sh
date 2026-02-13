@@ -60,10 +60,11 @@ while read -r _; do
 
     # Drain any events that accumulated during the build (debounce)
     # This prevents N rapid saves from triggering N sequential rebuilds
-    # Note: read -r -t 0.1 returns exit code 1 on timeout, but bash exempts
+    # Note: Use integer timeout (bash 3.2 on macOS doesn't support fractional seconds)
+    # read -r -t 1 returns exit code 1 on timeout, but bash exempts
     # commands in while conditions from set -e, so this is safe
     DRAINED=0
-    while read -r -t 0.1 _; do
+    while read -r -t 1 _; do
         DRAINED=$((DRAINED + 1))
     done
     if [ "$DRAINED" -gt 0 ]; then
@@ -84,7 +85,7 @@ done < <(fswatch -o \
     --include='\.json$' \
     --include='\.ttf$' \
     --include='\.otf$' \
-    --include='\.xcassets/' \
+    --include='\.xcassets' \
     --include='Package\.resolved$' \
     --exclude='.*' \
     --event Created \
