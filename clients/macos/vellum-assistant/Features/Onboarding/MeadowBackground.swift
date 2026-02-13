@@ -14,7 +14,6 @@ struct MeadowBackground: View {
                     .aspectRatio(contentMode: .fill)
             }
         }
-        .ignoresSafeArea()
     }
 }
 

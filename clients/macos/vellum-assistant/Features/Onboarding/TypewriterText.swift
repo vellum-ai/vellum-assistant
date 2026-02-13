@@ -11,15 +11,25 @@ struct TypewriterText: View {
     @State private var charIndex = 0
 
     var body: some View {
-        Text(displayedText)
-            .font(font)
-            .foregroundColor(VColor.textPrimary)
-            .onAppear {
-                startTyping()
-            }
-            .onDisappear {
-                timer?.invalidate()
-            }
+        ZStack {
+            // Invisible full text reserves the final height
+            Text(fullText)
+                .font(font)
+                .foregroundColor(.clear)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityHidden(true)
+
+            Text(displayedText)
+                .font(font)
+                .foregroundColor(VColor.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear {
+            startTyping()
+        }
+        .onDisappear {
+            timer?.invalidate()
+        }
     }
 
     private func startTyping() {

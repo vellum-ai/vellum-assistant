@@ -74,7 +74,6 @@ struct OnboardingStageImage: View {
             Rectangle()
                 .fill(.white)
                 .opacity(flashOpacity)
-                .ignoresSafeArea()
         }
         .onAppear {
             displayedStage = stageNumber
