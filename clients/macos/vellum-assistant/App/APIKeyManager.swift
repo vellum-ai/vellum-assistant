@@ -1,6 +1,10 @@
 import Foundation
 import Security
 
+extension Notification.Name {
+    static let apiKeyManagerDidChange = Notification.Name("APIKeyManager.didChange")
+}
+
 /// Manages the Anthropic API key in the macOS login keychain.
 ///
 /// Uses the `security` CLI tool for writes so entries are created without
@@ -22,10 +26,12 @@ enum APIKeyManager {
 
     static func setKey(_ key: String) {
         cliSetKey(service: service, account: account, value: key)
+        notifyKeyDidChange()
     }
 
     static func deleteKey() {
         cliDeleteKey(service: service, account: account)
+        notifyKeyDidChange()
     }
 
     // MARK: - CLI Helpers
@@ -101,5 +107,9 @@ enum APIKeyManager {
             kSecAttrAccount as String: legacyAccount
         ]
         SecItemDelete(deleteQuery as CFDictionary)
+    }
+
+    private static func notifyKeyDidChange() {
+        NotificationCenter.default.post(name: .apiKeyManagerDidChange, object: nil)
     }
 }

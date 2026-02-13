@@ -46,6 +46,9 @@ export class DaemonServer {
   private watchers: FSWatcher[] = [];
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private suppressConfigReload = false;
+  private lastConfigFingerprint = '';
+  private lastConfigRefreshTime = 0;
+  private static readonly CONFIG_REFRESH_INTERVAL_MS = 30_000;
 
   constructor() {
     this.socketPath = getSocketPath();
@@ -60,6 +63,7 @@ export class DaemonServer {
     // registry is empty until a config file change triggers a reload.
     const config = getConfig();
     initializeProviders(config);
+    this.lastConfigFingerprint = this.configFingerprint(config);
 
     this.startFileWatchers();
 
@@ -139,32 +143,18 @@ export class DaemonServer {
   private startFileWatchers(): void {
     const dataDir = getDataDir();
 
-    // Prompt/config changes should invalidate existing session prompts.
-    const evictSessions = () => {
-      for (const [id, session] of this.sessions) {
-        if (!session.isProcessing()) {
-          this.sessions.delete(id);
-        } else {
-          session.markStale();
-        }
-      }
-    };
-
     // Watch the data directory instead of individual files so we detect:
     // - Files that don't exist yet at startup (new config/trust creation)
     // - Atomic rename writes (trust-store uses renameSync)
     const handlers: Record<string, () => void> = {
       'config.json': () => {
         if (this.suppressConfigReload) return;
-        invalidateConfigCache();
         try {
-          const config = getConfig();
-          initializeProviders(config);
+          this.refreshConfigFromSources();
         } catch (err) {
           log.error({ err, configPath: join(getDataDir(), 'config.json') }, 'Failed to reload config after file change. Previous config remains active.');
           return;
         }
-        evictSessions();
       },
       'trust.json': () => {
         clearTrustCache();
@@ -176,8 +166,8 @@ export class DaemonServer {
 
     // Prompt files (SOUL.md, IDENTITY.md) affect the system prompt.
     // When they change, evict idle sessions so they pick up the new prompt.
-    handlers['SOUL.md'] = evictSessions;
-    handlers['IDENTITY.md'] = evictSessions;
+    handlers['SOUL.md'] = () => this.evictSessionsForReload();
+    handlers['IDENTITY.md'] = () => this.evictSessionsForReload();
 
     try {
       const watcher = watch(dataDir, (_eventType, filename) => {
@@ -200,7 +190,47 @@ export class DaemonServer {
       log.warn({ err, dir: dataDir }, 'Failed to watch data directory for config changes. Config/trust/prompt hot-reload will be unavailable.');
     }
 
-    this.startSkillsWatchers(evictSessions);
+    this.startSkillsWatchers(() => this.evictSessionsForReload());
+  }
+
+  private configFingerprint(config: ReturnType<typeof getConfig>): string {
+    return JSON.stringify({
+      provider: config.provider,
+      model: config.model,
+      maxTokens: config.maxTokens,
+      rateLimit: config.rateLimit,
+      thinking: config.thinking,
+      contextWindow: config.contextWindow,
+      systemPrompt: config.systemPrompt,
+      apiKeys: config.apiKeys,
+    });
+  }
+
+  private evictSessionsForReload(): void {
+    for (const [id, session] of this.sessions) {
+      if (!session.isProcessing()) {
+        this.sessions.delete(id);
+      } else {
+        session.markStale();
+      }
+    }
+  }
+
+  /**
+   * Reload config from disk + secure storage, and refresh providers only
+   * when effective config values (including API keys) have changed.
+   */
+  private refreshConfigFromSources(): boolean {
+    invalidateConfigCache();
+    const config = getConfig();
+    const fingerprint = this.configFingerprint(config);
+    if (fingerprint === this.lastConfigFingerprint) {
+      return false;
+    }
+    initializeProviders(config);
+    this.lastConfigFingerprint = fingerprint;
+    this.evictSessionsForReload();
+    return true;
   }
 
   private stopFileWatchers(): void {
@@ -477,6 +507,10 @@ export class DaemonServer {
       debounceTimers: this.debounceTimers,
       suppressConfigReload: this.suppressConfigReload,
       setSuppressConfigReload: (value: boolean) => { this.suppressConfigReload = value; },
+      updateConfigFingerprint: () => {
+        this.lastConfigFingerprint = this.configFingerprint(getConfig());
+        this.lastConfigRefreshTime = Date.now();
+      },
       send: (socket, msg) => this.send(socket, msg),
       getOrCreateSession: (id, socket?, rebind?, options?) =>
         this.getOrCreateSession(id, socket, rebind, options),
@@ -484,6 +518,17 @@ export class DaemonServer {
   }
 
   private dispatchMessage(msg: ClientMessage, socket: net.Socket): void {
+    if (msg.type !== 'ping') {
+      const now = Date.now();
+      if (now - this.lastConfigRefreshTime >= DaemonServer.CONFIG_REFRESH_INTERVAL_MS) {
+        try {
+          this.refreshConfigFromSources();
+          this.lastConfigRefreshTime = now;
+        } catch (err) {
+          log.warn({ err }, 'Failed to refresh config from secure sources before handling IPC message');
+        }
+      }
+    }
     handleMessage(msg, socket, this.handlerContext());
   }
 

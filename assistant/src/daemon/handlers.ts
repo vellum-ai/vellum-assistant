@@ -248,6 +248,7 @@ export interface HandlerContext {
   debounceTimers: Map<string, ReturnType<typeof setTimeout>>;
   suppressConfigReload: boolean;
   setSuppressConfigReload(value: boolean): void;
+  updateConfigFingerprint(): void;
   send(socket: net.Socket, msg: ServerMessage): void;
   getOrCreateSession(
     conversationId: string,
@@ -496,6 +497,8 @@ function handleModelSet(
         session.markStale();
       }
     }
+
+    ctx.updateConfigFingerprint();
 
     ctx.send(socket, {
       type: 'model_info',

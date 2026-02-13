@@ -60,7 +60,10 @@ struct ControlPanel: View {
             }
         }
         .onAppear {
-            hasKey = APIKeyManager.getKey() != nil
+            refreshAPIKeyState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
+            refreshAPIKeyState()
         }
     }
 
@@ -281,6 +284,10 @@ struct ControlPanel: View {
                 .font(.system(size: 16))
                 .foregroundColor(granted ? VColor.success : VColor.error)
         }
+    }
+
+    private func refreshAPIKeyState() {
+        hasKey = APIKeyManager.getKey() != nil
     }
 
 }
