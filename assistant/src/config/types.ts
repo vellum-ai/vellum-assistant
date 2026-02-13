@@ -13,4 +13,5 @@ export type {
   MemoryJobsConfig,
   MemoryRetentionConfig,
   MemoryConfig,
+  ModelPricingOverride,
 } from './schema.js';

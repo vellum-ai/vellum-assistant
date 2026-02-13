@@ -233,3 +233,24 @@ export const cronRuns = sqliteTable('cron_runs', {
   conversationId: text('conversation_id'),
   createdAt: integer('created_at').notNull(),
 });
+
+// ── LLM Usage Events (cost tracking ledger) ─────────────────────────
+
+export const llmUsageEvents = sqliteTable('llm_usage_events', {
+  id: text('id').primaryKey(),
+  createdAt: integer('created_at').notNull(),
+  assistantId: text('assistant_id'),
+  conversationId: text('conversation_id'),
+  runId: text('run_id'),
+  requestId: text('request_id'),
+  actor: text('actor').notNull(),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  inputTokens: integer('input_tokens').notNull(),
+  outputTokens: integer('output_tokens').notNull(),
+  cacheCreationInputTokens: integer('cache_creation_input_tokens'),
+  cacheReadInputTokens: integer('cache_read_input_tokens'),
+  estimatedCostUsd: real('estimated_cost_usd'),
+  pricingStatus: text('pricing_status').notNull(),
+  metadataJson: text('metadata_json'),
+});

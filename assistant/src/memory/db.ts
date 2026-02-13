@@ -262,6 +262,27 @@ export function initializeDb(): void {
     )
   `);
 
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS llm_usage_events (
+      id TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL,
+      assistant_id TEXT,
+      conversation_id TEXT,
+      run_id TEXT,
+      request_id TEXT,
+      actor TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL,
+      output_tokens INTEGER NOT NULL,
+      cache_creation_input_tokens INTEGER,
+      cache_read_input_tokens INTEGER,
+      estimated_cost_usd REAL,
+      pricing_status TEXT NOT NULL,
+      metadata_json TEXT
+    )
+  `);
+
   // FTS table for lexical retrieval over memory_segments.text.
   database.run(/*sql*/ `
     CREATE VIRTUAL TABLE IF NOT EXISTS memory_segment_fts USING fts5(
@@ -343,6 +364,13 @@ export function initializeDb(): void {
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_accounts_service ON accounts(service)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status)`);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_created_at ON llm_usage_events(created_at)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_assistant_id ON llm_usage_events(assistant_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_provider ON llm_usage_events(provider)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_model ON llm_usage_events(model)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_actor ON llm_usage_events(actor)`);
+
   migrateMemoryFtsBackfill(database);
 }
 

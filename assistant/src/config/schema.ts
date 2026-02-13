@@ -207,6 +207,17 @@ export const MemoryConfigSchema = z.object({
   }),
 });
 
+export const ModelPricingOverrideSchema = z.object({
+  provider: z.string({ error: 'pricingOverrides[].provider must be a string' }),
+  modelPattern: z.string({ error: 'pricingOverrides[].modelPattern must be a string' }),
+  inputPer1M: z
+    .number({ error: 'pricingOverrides[].inputPer1M must be a number' })
+    .nonnegative('pricingOverrides[].inputPer1M must be a non-negative number'),
+  outputPer1M: z
+    .number({ error: 'pricingOverrides[].outputPer1M must be a number' })
+    .nonnegative('pricingOverrides[].outputPer1M must be a non-negative number'),
+});
+
 export const AssistantConfigSchema = z.object({
   provider: z
     .enum(VALID_PROVIDERS, {
@@ -288,6 +299,9 @@ export const AssistantConfigSchema = z.object({
   auditLog: AuditLogConfigSchema.default({
     retentionDays: 0,
   }),
+  pricingOverrides: z
+    .array(ModelPricingOverrideSchema)
+    .default([]),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
     ctx.addIssue({
@@ -319,3 +333,4 @@ export type MemorySegmentationConfig = z.infer<typeof MemorySegmentationConfigSc
 export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
 export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
+export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;

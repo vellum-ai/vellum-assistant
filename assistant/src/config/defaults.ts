@@ -65,6 +65,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   auditLog: {
     retentionDays: 0,
   },
+  pricingOverrides: [],
 };
 
 export const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant running locally on the user's machine. You have access to tools that let you interact with the computer, filesystem, and terminal. Be concise and helpful.
