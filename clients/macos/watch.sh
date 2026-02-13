@@ -43,47 +43,25 @@ echo ""
 
 # Watch for changes (Swift files and resources)
 # Use process substitution instead of pipe to avoid orphaning fswatch on Ctrl+C
-BUILD_PID=""
-PENDING_REBUILD=false
-
-# Trap Ctrl+C and SIGTERM to clean up background build
-trap 'if [ -n "$BUILD_PID" ]; then kill "$BUILD_PID" 2>/dev/null || true; fi; exit' INT TERM
-
 while read -r _; do
-    # If a build is already running, mark that we need another rebuild
-    if [ -n "$BUILD_PID" ] && kill -0 "$BUILD_PID" 2>/dev/null; then
-        PENDING_REBUILD=true
-        echo -e "${YELLOW}⏭️  Change detected during build - will rebuild after completion${NC}"
-        continue
-    fi
-
     echo ""
     echo -e "${YELLOW}📝 Change detected - rebuilding...${NC}"
 
-    # Run build in background to enable debouncing
-    ./build.sh run &
-    BUILD_PID=$!
-
-    # Wait for build to complete
-    if wait "$BUILD_PID"; then
+    # Run build synchronously
+    if ./build.sh run; then
         echo -e "${GREEN}✅ Build successful${NC}"
     else
         echo -e "${RED}❌ Build failed${NC}"
     fi
-    BUILD_PID=""
 
-    # If changes came in during build, trigger one more rebuild
-    if [ "$PENDING_REBUILD" = true ]; then
-        PENDING_REBUILD=false
-        echo -e "${YELLOW}🔄 Rebuilding for changes made during previous build...${NC}"
-        ./build.sh run &
-        BUILD_PID=$!
-        if wait "$BUILD_PID"; then
-            echo -e "${GREEN}✅ Build successful${NC}"
-        else
-            echo -e "${RED}❌ Build failed${NC}"
-        fi
-        BUILD_PID=""
+    # Drain any events that accumulated during the build (debounce)
+    # This prevents N rapid saves from triggering N sequential rebuilds
+    DRAINED=0
+    while read -r -t 0.1 _; do
+        DRAINED=$((DRAINED + 1))
+    done
+    if [ "$DRAINED" -gt 0 ]; then
+        echo -e "${YELLOW}⏭️  Skipped $DRAINED buffered change(s) (coalesced)${NC}"
     fi
 
     echo -e "${BLUE}👀 Watching...${NC}"
