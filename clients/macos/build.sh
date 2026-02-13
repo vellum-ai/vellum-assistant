@@ -90,10 +90,17 @@ if [ ! -f "$EXECUTABLE" ]; then
 fi
 
 # 2. Create .app bundle structure
-# Check if we need to rebuild the bundle (compare timestamps)
+# Check if we need to rebuild the bundle
 NEEDS_REBUILD=false
 if [ ! -f "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ] || [ "$EXECUTABLE" -nt "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ]; then
     NEEDS_REBUILD=true
+fi
+
+# Also rebuild if daemon binary changed
+if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ] && [ -f "$MACOS_DIR/vellum-daemon" ]; then
+    if [ "$SCRIPT_DIR/daemon-bin/vellum-daemon" -nt "$MACOS_DIR/vellum-daemon" ]; then
+        NEEDS_REBUILD=true
+    fi
 fi
 
 if [ "$NEEDS_REBUILD" = true ]; then
@@ -105,7 +112,7 @@ if [ "$NEEDS_REBUILD" = true ]; then
     fi
 else
     echo "Binary unchanged, skipping repackaging (use 'clean' to force rebuild)"
-    # Skip to code signing
+    # Skip repackaging and launch if requested
     if [ "$CMD" = "run" ]; then
         echo "Launching..."
         pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
@@ -234,15 +241,10 @@ if [ -f "$MACOS_DIR/vellum-daemon" ]; then
     echo "Daemon binary signed"
 fi
 
-# Use --deep only for release (faster in debug)
-if [ "$CONFIG" = "release" ]; then
-    CODESIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --deep)
-    if [ "$SIGN_IDENTITY" != "-" ]; then
-        CODESIGN_FLAGS+=(--timestamp --options runtime)
-    fi
-else
-    # Debug: ad-hoc sign without --deep (faster)
-    CODESIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+# Always use --deep to properly sign nested frameworks
+CODESIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --deep)
+if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+    CODESIGN_FLAGS+=(--timestamp --options runtime)
 fi
 codesign "${CODESIGN_FLAGS[@]}" "$APP_DIR"
 
@@ -253,7 +255,7 @@ if [ "$CMD" = "run" ]; then
     echo "Launching..."
     # Kill existing instance if running (SIGTERM for clean shutdown)
     if pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null; then
-        pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null
+        pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
         # Wait for clean exit (max 1 second)
         for i in {1..10}; do
             pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null || break
