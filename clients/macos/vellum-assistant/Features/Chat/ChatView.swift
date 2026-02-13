@@ -187,7 +187,7 @@ struct ChatView: View {
             HStack(spacing: VSpacing.sm) {
                 // Text field with ghost suffix overlay
                 ZStack(alignment: .leading) {
-                    TextField("Message...", text: $inputText, axis: .vertical)
+                    TextField("", text: $inputText, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)

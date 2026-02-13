@@ -26,9 +26,12 @@ function proxyExecute(): Promise<ToolExecutionResult> {
 export const uiShowTool: Tool = {
   name: 'ui_show',
   description:
-    'Show a UI surface to the user. Supported surface types:\n' +
+    'Show a UI surface to the user. Use display: "inline" (default) to embed in chat, or "panel" for a floating window.\n\n' +
+    'Supported surface types:\n' +
     '- card: Informational card with title, subtitle, body text, and optional metadata key-value pairs. ' +
     'data shape: { title: string, subtitle?: string, body: string, metadata?: Array<{ label: string, value: string }> }\n' +
+    '- table: Data table with columns, selectable rows, and action buttons. ' +
+    'data shape: { columns: Array<{ id: string, label: string }>, rows: Array<{ id: string, cells: Record<string, string>, selectable?: boolean, selected?: boolean }>, selectionMode?: "none"|"single"|"multiple", caption?: string }\n' +
     '- form: Input form with typed fields. ' +
     'data shape: { description?: string, fields: Array<{ id: string, type: "text"|"textarea"|"select"|"toggle"|"number", label: string, placeholder?: string, required?: boolean, defaultValue?: string|number|boolean, options?: Array<{ label: string, value: string }> }>, submitLabel?: string }\n' +
     '- list: Selectable list of items. ' +
@@ -52,7 +55,7 @@ export const uiShowTool: Tool = {
         properties: {
           surface_type: {
             type: 'string',
-            enum: ['card', 'form', 'list', 'confirmation', 'dynamic_page', 'file_upload'],
+            enum: ['card', 'form', 'list', 'table', 'confirmation', 'dynamic_page', 'file_upload'],
             description: 'The type of surface to display',
           },
           title: {
@@ -79,6 +82,11 @@ export const uiShowTool: Tool = {
               required: ['id', 'label'],
             },
             description: 'Optional action buttons to display on the surface',
+          },
+          display: {
+            type: 'string',
+            enum: ['inline', 'panel'],
+            description: 'Where to render the surface. "inline" embeds it in the chat message. "panel" shows a floating window. Defaults to "inline".',
           },
           await_action: {
             type: 'boolean',

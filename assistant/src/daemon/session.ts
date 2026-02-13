@@ -878,6 +878,8 @@ export class Session {
       // Track surface state for ui_update merging
       this.surfaceState.set(surfaceId, { surfaceType, data });
 
+      const display = (input.display as string) === 'panel' ? 'panel' : 'inline';
+
       this.sendToClient({
         type: 'ui_surface_show',
         sessionId: this.conversationId,
@@ -886,6 +888,7 @@ export class Session {
         title,
         data,
         actions: actions?.map(a => ({ id: a.id, label: a.label, style: (a.style ?? 'secondary') as 'primary' | 'secondary' | 'destructive' })),
+        display,
       } as unknown as UiSurfaceShow);
 
       if (awaitAction) {

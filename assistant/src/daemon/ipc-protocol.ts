@@ -157,7 +157,7 @@ export interface SuggestionRequest {
 
 // === Surface types ===
 
-export type SurfaceType = 'card' | 'form' | 'list' | 'confirmation' | 'dynamic_page' | 'file_upload';
+export type SurfaceType = 'card' | 'form' | 'list' | 'table' | 'confirmation' | 'dynamic_page' | 'file_upload';
 
 export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = ['form', 'confirmation', 'dynamic_page', 'file_upload'];
 
@@ -225,7 +225,27 @@ export interface FileUploadSurfaceData {
   maxSizeBytes?: number;
 }
 
-export type SurfaceData = CardSurfaceData | FormSurfaceData | ListSurfaceData | ConfirmationSurfaceData | DynamicPageSurfaceData | FileUploadSurfaceData;
+export interface TableColumn {
+  id: string;
+  label: string;
+  width?: number;
+}
+
+export interface TableRow {
+  id: string;
+  cells: Record<string, string>;
+  selectable?: boolean;
+  selected?: boolean;
+}
+
+export interface TableSurfaceData {
+  columns: TableColumn[];
+  rows: TableRow[];
+  selectionMode?: 'none' | 'single' | 'multiple';
+  caption?: string;
+}
+
+export type SurfaceData = CardSurfaceData | FormSurfaceData | ListSurfaceData | TableSurfaceData | ConfirmationSurfaceData | DynamicPageSurfaceData | FileUploadSurfaceData;
 
 export interface UiSurfaceAction {
   type: 'ui_surface_action';
@@ -534,6 +554,7 @@ interface UiSurfaceShowBase {
   surfaceId: string;
   title?: string;
   actions?: SurfaceAction[];
+  display?: 'inline' | 'panel';
 }
 
 export interface UiSurfaceShowCard extends UiSurfaceShowBase {
@@ -561,6 +582,11 @@ export interface UiSurfaceShowDynamicPage extends UiSurfaceShowBase {
   data: DynamicPageSurfaceData;
 }
 
+export interface UiSurfaceShowTable extends UiSurfaceShowBase {
+  surfaceType: 'table';
+  data: TableSurfaceData;
+}
+
 export interface UiSurfaceShowFileUpload extends UiSurfaceShowBase {
   surfaceType: 'file_upload';
   data: FileUploadSurfaceData;
@@ -570,6 +596,7 @@ export type UiSurfaceShow =
   | UiSurfaceShowCard
   | UiSurfaceShowForm
   | UiSurfaceShowList
+  | UiSurfaceShowTable
   | UiSurfaceShowConfirmation
   | UiSurfaceShowDynamicPage
   | UiSurfaceShowFileUpload;
