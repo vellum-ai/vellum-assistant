@@ -617,7 +617,9 @@ final class ChatViewModel: ObservableObject {
                 requestId: msg.requestId,
                 toolName: msg.toolName,
                 riskLevel: msg.riskLevel,
-                diff: msg.diff
+                diff: msg.diff,
+                allowlistOptions: msg.allowlistOptions,
+                scopeOptions: msg.scopeOptions
             )
             let confirmMsg = ChatMessage(
                 role: .assistant,
@@ -905,6 +907,24 @@ final class ChatViewModel: ObservableObject {
             default:
                 break
             }
+        }
+    }
+
+    /// Send an add_trust_rule message to persist a trust rule (fire-and-forget).
+    func addTrustRule(toolName: String, pattern: String, scope: String, decision: String) {
+        guard daemonClient.isConnected else {
+            log.warning("Cannot send add_trust_rule: daemon not connected")
+            return
+        }
+        do {
+            try daemonClient.sendAddTrustRule(
+                toolName: toolName,
+                pattern: pattern,
+                scope: scope,
+                decision: decision
+            )
+        } catch {
+            log.error("Failed to send add_trust_rule: \(error.localizedDescription)")
         }
     }
 

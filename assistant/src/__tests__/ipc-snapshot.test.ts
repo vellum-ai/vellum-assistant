@@ -130,6 +130,13 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     sessionId: 'sess-001',
     requestId: 'req-suggest-001',
   },
+  add_trust_rule: {
+    type: 'add_trust_rule',
+    toolName: 'bash',
+    pattern: 'git *',
+    scope: '/projects/my-app',
+    decision: 'allow',
+  },
 };
 
 // ---------------------------------------------------------------------------

@@ -18,26 +18,43 @@ final class ToolConfirmationManager {
 
     /// Called when the user responds to a floating confirmation panel.
     /// Returns `true` if the IPC send succeeded, `false` otherwise.
-    /// The panel is only dismissed on success.
     var onResponse: ((String, String) -> Bool)?
+
+    /// Called when the user saves a trust rule from the floating panel.
+    var onAddTrustRule: ((String, String, String, String) -> Void)?
 
     func showConfirmation(_ message: ConfirmationRequestMessage) {
         // Dismiss existing panel for same request, if any
         dismissConfirmation(requestId: message.requestId)
 
+        let hasRuleOptions = !message.allowlistOptions.isEmpty && !message.scopeOptions.isEmpty
+
         let view = ToolConfirmationView(
             toolName: message.toolName,
             riskLevel: message.riskLevel,
             diff: message.diff,
+            allowlistOptions: message.allowlistOptions,
+            scopeOptions: message.scopeOptions,
             onAllow: { [weak self] in
                 self?.respond(requestId: message.requestId, decision: "allow")
             },
             onDeny: { [weak self] in
                 self?.respond(requestId: message.requestId, decision: "deny")
+            },
+            onDismiss: { [weak self] in
+                self?.dismissConfirmation(requestId: message.requestId)
+            },
+            onAddTrustRule: { [weak self] toolName, pattern, scope, decision in
+                self?.onAddTrustRule?(toolName, pattern, scope, decision)
+                // Auto-dismiss after saving rule
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    self?.dismissConfirmation(requestId: message.requestId)
+                }
             }
         )
 
         let hostingController = NSHostingController(rootView: view)
+        hostingController.sizingOptions = .preferredContentSize
 
         let panelHeight: CGFloat = message.diff != nil ? 340 : 160
         let panel = NSPanel(
@@ -84,12 +101,9 @@ final class ToolConfirmationManager {
     }
 
     private func respond(requestId: String, decision: String) {
-        // Only dismiss the panel if the IPC send succeeds. If it fails,
-        // the panel stays visible so the user can retry.
-        let success = onResponse?(requestId, decision) ?? true
-        if success {
-            dismissConfirmation(requestId: requestId)
-        }
+        // Send the IPC response. If it fails, the panel stays visible
+        // (the ToolConfirmationView handles its own state transition).
+        _ = onResponse?(requestId, decision)
     }
 }
 
@@ -99,10 +113,29 @@ struct ToolConfirmationView: View {
     let toolName: String
     let riskLevel: String
     let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
+    let allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption]
+    let scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption]
     let onAllow: () -> Void
     let onDeny: () -> Void
+    let onDismiss: () -> Void
+    let onAddTrustRule: (String, String, String, String) -> Void
+
+    enum Phase: Equatable {
+        case pending
+        case decided(String)
+        case pickingRule(String)
+        case ruleSaved
+    }
+
+    @State private var phase: Phase = .pending
+    @State private var selectedPattern: String = ""
+    @State private var selectedScope: String = ""
 
     private var isHighRisk: Bool { riskLevel.lowercased() == "high" }
+
+    private var hasRuleOptions: Bool {
+        !allowlistOptions.isEmpty && !scopeOptions.isEmpty
+    }
 
     private var toolDisplayName: String {
         switch toolName {
@@ -162,21 +195,155 @@ struct ToolConfirmationView: View {
                 }
             }
 
-            // Action buttons
-            HStack(spacing: VSpacing.lg) {
-                Spacer()
-
-                VButton(label: "Deny", style: .ghost) {
-                    onDeny()
+            // Phase-dependent content
+            switch phase {
+            case .pending:
+                HStack(spacing: VSpacing.lg) {
+                    Spacer()
+                    VButton(label: "Deny", style: .ghost) {
+                        onDeny()
+                        if hasRuleOptions {
+                            withAnimation(VAnimation.standard) { phase = .decided("deny") }
+                        } else {
+                            onDismiss()
+                        }
+                    }
+                    VButton(label: "Allow", style: isHighRisk ? .danger : .primary) {
+                        onAllow()
+                        if hasRuleOptions {
+                            withAnimation(VAnimation.standard) { phase = .decided("allow") }
+                        } else {
+                            onDismiss()
+                        }
+                    }
                 }
 
-                VButton(label: "Allow", style: isHighRisk ? .danger : .primary) {
-                    onAllow()
+            case .decided(let decision):
+                decisionLabel(for: decision)
+
+                HStack(spacing: VSpacing.md) {
+                    Spacer()
+                    VButton(label: "Done", style: .ghost) {
+                        onDismiss()
+                    }
+                    VButton(
+                        label: decision == "allow" ? "Add to Allowlist" : "Add to Denylist",
+                        style: .ghost
+                    ) {
+                        if selectedPattern.isEmpty, let first = allowlistOptions.first {
+                            selectedPattern = first.pattern
+                        }
+                        if selectedScope.isEmpty, let first = scopeOptions.first {
+                            selectedScope = first.scope
+                        }
+                        withAnimation(VAnimation.standard) { phase = .pickingRule(decision) }
+                    }
+                }
+
+            case .pickingRule(let decision):
+                decisionLabel(for: decision)
+                rulePickerView(decision: decision)
+
+            case .ruleSaved:
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                    Text("Rule saved")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.success)
                 }
             }
         }
         .padding(VSpacing.xl)
         .frame(width: 420)
         .vPanelBackground()
+    }
+
+    @ViewBuilder
+    private func decisionLabel(for decision: String) -> some View {
+        if decision == "allow" {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(VColor.success)
+                Text("Allowed")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.success)
+            }
+        } else {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(VColor.error)
+                Text("Denied")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rulePickerView(decision: String) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            if allowlistOptions.count > 1 {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Pattern")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    Picker("", selection: $selectedPattern) {
+                        ForEach(allowlistOptions, id: \.pattern) { option in
+                            Text(option.label).tag(option.pattern)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+            } else if let single = allowlistOptions.first {
+                HStack(spacing: VSpacing.xs) {
+                    Text("Pattern:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    Text(single.label)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(VColor.textPrimary)
+                }
+            }
+
+            if scopeOptions.count > 1 {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Scope")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    Picker("", selection: $selectedScope) {
+                        ForEach(scopeOptions, id: \.scope) { option in
+                            Text(option.label).tag(option.scope)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+            } else if let single = scopeOptions.first {
+                HStack(spacing: VSpacing.xs) {
+                    Text("Scope:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    Text(single.label)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(VColor.textPrimary)
+                }
+            }
+
+            HStack(spacing: VSpacing.md) {
+                Spacer()
+                VButton(label: "Cancel", style: .ghost) {
+                    onDismiss()
+                }
+                VButton(label: "Save Rule", style: .primary) {
+                    onAddTrustRule(toolName, selectedPattern, selectedScope, decision)
+                    withAnimation(VAnimation.standard) { phase = .ruleSaved }
+                }
+            }
+        }
+        .padding(VSpacing.md)
+        .background(VColor.surface)
+        .cornerRadius(VRadius.md)
     }
 }

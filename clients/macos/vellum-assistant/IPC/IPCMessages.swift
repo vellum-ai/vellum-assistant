@@ -491,6 +491,16 @@ struct ConfirmationResponseMessage: Encodable, Sendable {
     let selectedScope: String?
 }
 
+/// Sent to add a trust rule (allowlist/denylist) independently of a confirmation response.
+/// Wire type: `"add_trust_rule"`
+struct AddTrustRuleMessage: Encodable, Sendable {
+    let type: String = "add_trust_rule"
+    let toolName: String
+    let pattern: String
+    let scope: String
+    let decision: String
+}
+
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 enum ServerMessage: Decodable, Sendable {

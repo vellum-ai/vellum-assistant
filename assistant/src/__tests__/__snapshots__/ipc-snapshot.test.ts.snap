@@ -607,3 +607,13 @@ exports[`IPC message snapshots ServerMessage types timer_completed serializes to
   "type": "timer_completed",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types add_trust_rule serializes to expected JSON 1`] = `
+{
+  "decision": "allow",
+  "pattern": "git *",
+  "scope": "/projects/my-app",
+  "toolName": "bash",
+  "type": "add_trust_rule",
+}
+`;

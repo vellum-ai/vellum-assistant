@@ -4,8 +4,18 @@ struct ToolConfirmationBubble: View {
     let confirmation: ToolConfirmationData
     let onAllow: () -> Void
     let onDeny: () -> Void
+    let onAddTrustRule: (String, String, String, String) -> Void
+
+    @State private var showRulePicker = false
+    @State private var selectedPattern: String = ""
+    @State private var selectedScope: String = ""
+    @State private var ruleSaved = false
 
     private var isHighRisk: Bool { confirmation.riskLevel.lowercased() == "high" }
+
+    private var hasRuleOptions: Bool {
+        !confirmation.allowlistOptions.isEmpty && !confirmation.scopeOptions.isEmpty
+    }
 
     private var toolDisplayName: String {
         switch confirmation.toolName {
@@ -83,22 +93,42 @@ struct ToolConfirmationBubble: View {
                     }
                 }
 
-            case .approved:
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                    Text("Allowed")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.success)
+            case .approved, .denied:
+                decisionLabel
+
+                if hasRuleOptions && !ruleSaved {
+                    if showRulePicker {
+                        rulePickerView
+                    } else {
+                        HStack {
+                            Spacer()
+                            VButton(
+                                label: confirmation.state == .approved ? "Add to Allowlist" : "Add to Denylist",
+                                style: .ghost
+                            ) {
+                                if selectedPattern.isEmpty, let first = confirmation.allowlistOptions.first {
+                                    selectedPattern = first.pattern
+                                }
+                                if selectedScope.isEmpty, let first = confirmation.scopeOptions.first {
+                                    selectedScope = first.scope
+                                }
+                                withAnimation(VAnimation.standard) {
+                                    showRulePicker = true
+                                }
+                            }
+                        }
+                    }
                 }
 
-            case .denied:
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(VColor.error)
-                    Text("Denied")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.error)
+                if ruleSaved {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                        Text("Rule saved")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.success)
+                    }
+                    .transition(.opacity)
                 }
 
             case .timedOut:
@@ -122,6 +152,104 @@ struct ToolConfirmationBubble: View {
         )
         .frame(maxWidth: 520)
     }
+
+    @ViewBuilder
+    private var decisionLabel: some View {
+        if confirmation.state == .approved {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(VColor.success)
+                Text("Allowed")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.success)
+            }
+        } else {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(VColor.error)
+                Text("Denied")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var rulePickerView: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            // Pattern picker
+            if confirmation.allowlistOptions.count > 1 {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Pattern")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    Picker("", selection: $selectedPattern) {
+                        ForEach(confirmation.allowlistOptions, id: \.pattern) { option in
+                            Text(option.label).tag(option.pattern)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+            } else if let single = confirmation.allowlistOptions.first {
+                HStack(spacing: VSpacing.xs) {
+                    Text("Pattern:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    Text(single.label)
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.textPrimary)
+                }
+            }
+
+            // Scope picker
+            if confirmation.scopeOptions.count > 1 {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Scope")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    Picker("", selection: $selectedScope) {
+                        ForEach(confirmation.scopeOptions, id: \.scope) { option in
+                            Text(option.label).tag(option.scope)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+            } else if let single = confirmation.scopeOptions.first {
+                HStack(spacing: VSpacing.xs) {
+                    Text("Scope:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    Text(single.label)
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.textPrimary)
+                }
+            }
+
+            // Save / Cancel
+            HStack(spacing: VSpacing.md) {
+                Spacer()
+                VButton(label: "Cancel", style: .ghost) {
+                    withAnimation(VAnimation.standard) {
+                        showRulePicker = false
+                    }
+                }
+                VButton(label: "Save Rule", style: .primary) {
+                    let ruleDecision = confirmation.state == .approved ? "allow" : "deny"
+                    onAddTrustRule(confirmation.toolName, selectedPattern, selectedScope, ruleDecision)
+                    withAnimation(VAnimation.standard) {
+                        showRulePicker = false
+                        ruleSaved = true
+                    }
+                }
+            }
+        }
+        .padding(VSpacing.md)
+        .background(VColor.backgroundSubtle)
+        .cornerRadius(VRadius.md)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
 }
 
 #if DEBUG
@@ -132,10 +260,19 @@ struct ToolConfirmationBubble: View {
                 requestId: "test-1",
                 toolName: "bash",
                 riskLevel: "medium",
-                diff: nil
+                diff: nil,
+                allowlistOptions: [
+                    .init(label: "git push", pattern: "git push"),
+                    .init(label: "All git commands", pattern: "git *"),
+                ],
+                scopeOptions: [
+                    .init(label: "This project", scope: "/Users/test/project"),
+                    .init(label: "Everywhere", scope: "everywhere"),
+                ]
             ),
             onAllow: {},
-            onDeny: {}
+            onDeny: {},
+            onAddTrustRule: { _, _, _, _ in }
         )
         ToolConfirmationBubble(
             confirmation: ToolConfirmationData(
@@ -150,7 +287,8 @@ struct ToolConfirmationBubble: View {
                 )
             ),
             onAllow: {},
-            onDeny: {}
+            onDeny: {},
+            onAddTrustRule: { _, _, _, _ in }
         )
         ToolConfirmationBubble(
             confirmation: ToolConfirmationData(
@@ -158,10 +296,17 @@ struct ToolConfirmationBubble: View {
                 toolName: "bash",
                 riskLevel: "medium",
                 diff: nil,
+                allowlistOptions: [
+                    .init(label: "npm install", pattern: "npm install"),
+                ],
+                scopeOptions: [
+                    .init(label: "Everywhere", scope: "everywhere"),
+                ],
                 state: .approved
             ),
             onAllow: {},
-            onDeny: {}
+            onDeny: {},
+            onAddTrustRule: { _, _, _, _ in }
         )
     }
     .padding(VSpacing.xl)

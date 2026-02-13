@@ -28,7 +28,9 @@ import type {
   AppDataRequest,
   SkillDetailRequest,
   SuggestionRequest,
+  AddTrustRule,
 } from './ipc-protocol.js';
+import { addRule } from '../permissions/trust-store.js';
 import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon, readCachedSkillIcon } from '../config/skills.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
@@ -291,6 +293,7 @@ const handlers: DispatchMap = {
   skills_list: (_msg, socket, ctx) => handleSkillsList(socket, ctx),
   skill_detail: handleSkillDetail,
   suggestion_request: handleSuggestionRequest,
+  add_trust_rule: handleAddTrustRule,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
@@ -794,6 +797,21 @@ async function handleTaskSubmit(
     const message = err instanceof Error ? err.message : String(err);
     rlog.error({ err }, 'Error handling task_submit');
     ctx.send(socket, { type: 'error', message: `Failed to route task: ${message}` });
+  }
+}
+
+// ─── Trust rule handler ─────────────────────────────────────────────────────
+
+function handleAddTrustRule(
+  msg: AddTrustRule,
+  _socket: net.Socket,
+  _ctx: HandlerContext,
+): void {
+  try {
+    addRule(msg.toolName, msg.pattern, msg.scope, msg.decision);
+    log.info({ tool: msg.toolName, pattern: msg.pattern, scope: msg.scope, decision: msg.decision }, 'Trust rule added via client');
+  } catch (err) {
+    log.error({ err }, 'Failed to add trust rule');
   }
 }
 

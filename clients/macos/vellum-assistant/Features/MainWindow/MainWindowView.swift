@@ -64,6 +64,7 @@ struct MainWindowView: View {
                             onMicrophoneToggle: onMicrophoneToggle,
                             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
                             onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
+                            onAddTrustRule: { toolName, pattern, scope, decision in viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
                             onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) }
                         )
                     }

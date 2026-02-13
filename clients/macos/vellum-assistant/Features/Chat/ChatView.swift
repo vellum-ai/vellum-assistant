@@ -24,6 +24,7 @@ struct ChatView: View {
     let onMicrophoneToggle: () -> Void
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
+    let onAddTrustRule: (String, String, String, String) -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
 
     /// The portion of the suggestion that extends beyond the current input.
@@ -88,7 +89,8 @@ struct ChatView: View {
                             ToolConfirmationBubble(
                                 confirmation: confirmation,
                                 onAllow: { onConfirmationAllow(confirmation.requestId) },
-                                onDeny: { onConfirmationDeny(confirmation.requestId) }
+                                onDeny: { onConfirmationDeny(confirmation.requestId) },
+                                onAddTrustRule: onAddTrustRule
                             )
                             .id(message.id)
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -862,6 +864,7 @@ private struct MicrophoneButton: View {
             onMicrophoneToggle: {},
             onConfirmationAllow: { _ in },
             onConfirmationDeny: { _ in },
+            onAddTrustRule: { _, _, _, _ in },
             onSurfaceAction: { _, _, _ in }
         )
     }
