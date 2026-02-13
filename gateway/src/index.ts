@@ -1,5 +1,6 @@
 import pino from "pino";
 import { loadConfig } from "./config.js";
+import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
 import { sendTelegramReply } from "./telegram/send.js";
 
@@ -24,6 +25,10 @@ function main() {
     },
   );
 
+  const handleRuntimeProxy = config.runtimeProxyEnabled
+    ? createRuntimeProxyHandler(config)
+    : null;
+
   const server = Bun.serve({
     port: config.port,
     async fetch(req) {
@@ -31,6 +36,10 @@ function main() {
 
       if (url.pathname === "/webhooks/telegram") {
         return handleTelegramWebhook(req);
+      }
+
+      if (handleRuntimeProxy) {
+        return handleRuntimeProxy(req);
       }
 
       return Response.json({ error: "Not found" }, { status: 404 });
