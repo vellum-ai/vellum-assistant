@@ -40,7 +40,7 @@ struct ToolConfirmationData: Equatable {
         case "file_write":
             return "write \((input["path"]?.value as? String) ?? "")"
         case "file_edit":
-            return "edit \((input["file_path"]?.value as? String) ?? "")"
+            return "edit \((input["path"]?.value as? String) ?? "")"
         case "web_fetch":
             return "fetch \((input["url"]?.value as? String) ?? "")"
         case "browser_navigate":
@@ -50,7 +50,7 @@ struct ToolConfirmationData: Equatable {
             if let firstString = input.values.compactMap({ $0.value as? String }).first {
                 return firstString
             }
-            return toolName
+            return ""
         }
     }
 
