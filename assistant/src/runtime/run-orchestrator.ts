@@ -85,6 +85,9 @@ export class RunOrchestrator {
     // When the prompter sends a confirmation_request, we record it in the
     // run store so the web UI can poll and submit a decision.
     let lastError: string | null = null;
+    let runInputTokens = 0;
+    let runOutputTokens = 0;
+    let runEstimatedCost = 0;
     session.updateClient((msg: ServerMessage) => {
       if (msg.type === 'confirmation_request') {
         runsStore.setRunConfirmation(run.id, {
@@ -113,13 +116,21 @@ export class RunOrchestrator {
     session.runAgentLoop(content, messageId, (msg: ServerMessage) => {
       if (msg.type === 'error') {
         lastError = msg.message;
+      } else if (msg.type === 'usage_update') {
+        runInputTokens += msg.inputTokens;
+        runOutputTokens += msg.outputTokens;
+        runEstimatedCost += msg.estimatedCost;
       }
     }).then(() => {
       if (lastError) {
         log.error({ runId: run.id, error: lastError }, 'Run failed (error event from agent loop)');
         runsStore.failRun(run.id, lastError);
       } else {
-        runsStore.completeRun(run.id);
+        runsStore.completeRun(run.id, {
+          inputTokens: runInputTokens,
+          outputTokens: runOutputTokens,
+          estimatedCost: runEstimatedCost,
+        });
       }
       cleanup();
     }).catch((err) => {
