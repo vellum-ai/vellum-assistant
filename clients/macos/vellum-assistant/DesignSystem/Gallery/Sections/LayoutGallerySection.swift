@@ -57,7 +57,7 @@ struct LayoutGallerySection: View {
             VCard(padding: 0) {
                 VSidePanel(title: "Control", onClose: {}, pinnedContent: {
                     VSegmentedControl(
-                        items: ["Profile", "Settings", "Channels"],
+                        items: ["Profile", "Settings", "Channels", "Overview"],
                         selection: $pinnedTabSelection
                     )
                     .padding(.horizontal, VSpacing.sm)
@@ -104,7 +104,7 @@ struct LayoutGallerySection: View {
                     ) {
                         VStack {
                             Text("Main Content")
-                                .font(VFont.title)
+                                .font(VFont.panelTitle)
                                 .foregroundColor(VColor.textPrimary)
                             Text("This is the primary area")
                                 .font(VFont.caption)

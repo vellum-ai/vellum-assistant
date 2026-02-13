@@ -55,7 +55,7 @@ extension VSidePanel where PinnedContent == EmptyView {
     ZStack {
         VColor.background.ignoresSafeArea()
         VSidePanel(title: "Inspector", onClose: {}) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("Panel content here")
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
@@ -66,4 +66,28 @@ extension VSidePanel where PinnedContent == EmptyView {
         }
     }
     .frame(width: 300, height: 300)
+}
+
+#Preview("VSidePanel with Pinned Content") {
+    @Previewable @State var tab = 1
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VSidePanel(title: "Control", onClose: {}, pinnedContent: {
+            VSegmentedControl(
+                items: ["Profile", "Settings", "Channels", "Overview"],
+                selection: $tab
+            )
+            Divider().background(VColor.surfaceBorder)
+        }) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Tab content here")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Text("The tab bar above stays pinned while this scrolls.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+            }
+        }
+    }
+    .frame(width: 400, height: 350)
 }
