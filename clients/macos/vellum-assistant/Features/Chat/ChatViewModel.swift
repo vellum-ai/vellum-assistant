@@ -605,6 +605,7 @@ final class ChatViewModel: ObservableObject {
                       lastToolUseReceivedAt != nil,
                       shouldAcceptConfirmation?() ?? false else { return }
             }
+            isThinking = false
             let confirmation = ToolConfirmationData(
                 requestId: msg.requestId,
                 toolName: msg.toolName,
