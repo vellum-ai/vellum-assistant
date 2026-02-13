@@ -47,9 +47,7 @@ struct FirstMeetingFlowView: View {
                                 .font(VFont.headline)
                                 .foregroundColor(VColor.textPrimary)
                         case 3:
-                            Text("Capabilities briefing — coming soon")
-                                .font(VFont.headline)
-                                .foregroundColor(VColor.textPrimary)
+                            CapabilitiesBriefingView(state: state, onComplete: { state.advance() })
                         case 4:
                             Text("Observation mode — coming soon")
                                 .font(VFont.headline)
