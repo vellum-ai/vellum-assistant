@@ -604,6 +604,7 @@ export interface AppDataResponse {
 export interface SkillsListResponse {
   type: 'skills_list_response';
   skills: Array<{
+    id: string;
     name: string;
     description: string;
     emoji?: string;

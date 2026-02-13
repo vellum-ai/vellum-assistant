@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
 import Anthropic from '@anthropic-ai/sdk';
-import { getConfig, loadRawConfig, saveRawConfig, setNestedValue, invalidateConfigCache } from '../config/loader.js';
+import { getConfig, loadRawConfig, saveRawConfig, invalidateConfigCache } from '../config/loader.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
 import * as conversationStore from '../memory/conversation-store.js';
@@ -679,6 +679,7 @@ function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
   const resolved = resolveSkillStates(catalog, config);
 
   const skills = resolved.map((r) => ({
+    id: r.summary.id,
     name: r.summary.name,
     description: r.summary.description,
     emoji: r.summary.emoji,
@@ -694,6 +695,15 @@ function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
   ctx.send(socket, { type: 'skills_list_response', skills });
 }
 
+/** Get or create the skill entry object for a given skill name, creating intermediate objects as needed. */
+function ensureSkillEntry(raw: Record<string, unknown>, name: string): Record<string, unknown> {
+  if (!raw.skills) raw.skills = {};
+  const skills = raw.skills as Record<string, unknown>;
+  if (!skills.entries) skills.entries = {};
+  const entries = skills.entries as Record<string, unknown>;
+  if (!entries[name]) entries[name] = {};
+  return entries[name] as Record<string, unknown>;
+}
 function handleSkillsEnable(
   msg: SkillsEnableRequest,
   socket: net.Socket,
@@ -701,7 +711,7 @@ function handleSkillsEnable(
 ): void {
   try {
     const raw = loadRawConfig();
-    setNestedValue(raw, `skills.entries.${msg.name}.enabled`, true);
+    ensureSkillEntry(raw, msg.name).enabled = true;
 
     ctx.setSuppressConfigReload(true);
     try {
@@ -748,7 +758,7 @@ function handleSkillsDisable(
 ): void {
   try {
     const raw = loadRawConfig();
-    setNestedValue(raw, `skills.entries.${msg.name}.enabled`, false);
+    ensureSkillEntry(raw, msg.name).enabled = false;
 
     ctx.setSuppressConfigReload(true);
     try {
@@ -796,14 +806,15 @@ function handleSkillsConfigure(
   try {
     const raw = loadRawConfig();
 
+    const entry = ensureSkillEntry(raw, msg.name);
     if (msg.env) {
-      setNestedValue(raw, `skills.entries.${msg.name}.env`, msg.env);
+      entry.env = msg.env;
     }
     if (msg.apiKey !== undefined) {
-      setNestedValue(raw, `skills.entries.${msg.name}.apiKey`, msg.apiKey);
+      entry.apiKey = msg.apiKey;
     }
     if (msg.config) {
-      setNestedValue(raw, `skills.entries.${msg.name}.config`, msg.config);
+      entry.config = msg.config;
     }
 
     ctx.setSuppressConfigReload(true);

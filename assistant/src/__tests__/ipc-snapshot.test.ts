@@ -413,6 +413,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'skills_list_response',
     skills: [
       {
+        id: 'my-skill',
         name: 'My Skill',
         description: 'A test skill',
         emoji: '🔧',
