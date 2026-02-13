@@ -239,6 +239,34 @@ export const cronRuns = sqliteTable('cron_runs', {
 
 // ── LLM Usage Events (cost tracking ledger) ─────────────────────────
 
+// ── Entity Graph ─────────────────────────────────────────────────────
+
+export const memoryEntities = sqliteTable('memory_entities', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  type: text('type').notNull(),
+  aliases: text('aliases'),
+  description: text('description'),
+  firstSeenAt: integer('first_seen_at').notNull(),
+  lastSeenAt: integer('last_seen_at').notNull(),
+  mentionCount: integer('mention_count').notNull().default(1),
+});
+
+export const memoryEntityRelations = sqliteTable('memory_entity_relations', {
+  id: text('id').primaryKey(),
+  sourceEntityId: text('source_entity_id').notNull(),
+  targetEntityId: text('target_entity_id').notNull(),
+  relation: text('relation').notNull(),
+  evidence: text('evidence'),
+  firstSeenAt: integer('first_seen_at').notNull(),
+  lastSeenAt: integer('last_seen_at').notNull(),
+});
+
+export const memoryItemEntities = sqliteTable('memory_item_entities', {
+  memoryItemId: text('memory_item_id').notNull(),
+  entityId: text('entity_id').notNull(),
+});
+
 export const llmUsageEvents = sqliteTable('llm_usage_events', {
   id: text('id').primaryKey(),
   createdAt: integer('created_at').notNull(),

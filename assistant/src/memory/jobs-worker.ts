@@ -16,10 +16,20 @@ import {
   type MemoryJob,
   resetRunningJobsToPending,
 } from './jobs-store.js';
+import { extractEntitiesWithLLM, upsertEntity, linkMemoryItemToEntity } from './entity-extractor.js';
 import { indexMessageNow } from './indexer.js';
 import { extractAndUpsertMemoryItemsForMessage } from './items-extractor.js';
+import { extractTextFromStoredMessageContent } from './message-content.js';
 import { getQdrantClient } from './qdrant-client.js';
-import { memoryEmbeddings, memoryItems, memorySegments, memorySummaries, messages } from './schema.js';
+import {
+  memoryEmbeddings,
+  memoryItemEntities,
+  memoryItems,
+  memoryItemSources,
+  memorySegments,
+  memorySummaries,
+  messages,
+} from './schema.js';
 
 const log = getLogger('memory-jobs-worker');
 const BACKFILL_CHECKPOINT_KEY = 'memory:backfill:last_created_at';
@@ -129,6 +139,9 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
     case 'extract_items':
       await extractItemsJob(job);
       return;
+    case 'extract_entities':
+      await extractEntitiesJob(job, config);
+      return;
     case 'build_conversation_summary':
       await buildConversationSummaryJob(job, config);
       return;
@@ -208,6 +221,51 @@ async function extractItemsJob(job: MemoryJob): Promise<void> {
   const messageId = asString(job.payload.messageId);
   if (!messageId) return;
   await extractAndUpsertMemoryItemsForMessage(messageId);
+  // Queue entity extraction for this message after items are extracted
+  const config = getConfig();
+  if (config.memory.entity.enabled) {
+    enqueueMemoryJob('extract_entities', { messageId });
+  }
+}
+
+async function extractEntitiesJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
+  const messageId = asString(job.payload.messageId);
+  if (!messageId) return;
+
+  const db = getDb();
+  const message = db
+    .select({
+      id: messages.id,
+      content: messages.content,
+    })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  if (!message) return;
+
+  const text = extractTextFromStoredMessageContent(message.content);
+  if (text.trim().length < 15) return;
+
+  const entities = await extractEntitiesWithLLM(text, config.memory.entity);
+  if (entities.length === 0) return;
+
+  // Find all memory items linked to this message via memory_item_sources
+  const linkedItems = db
+    .select({ memoryItemId: memoryItemSources.memoryItemId })
+    .from(memoryItemSources)
+    .where(eq(memoryItemSources.messageId, messageId))
+    .all();
+  const itemIds = linkedItems.map((row) => row.memoryItemId);
+
+  for (const entity of entities) {
+    const entityId = upsertEntity(entity);
+    // Link all memory items from this message to the entity
+    for (const itemId of itemIds) {
+      linkMemoryItemToEntity(itemId, entityId);
+    }
+  }
+
+  log.debug({ messageId, entityCount: entities.length, linkedItems: itemIds.length }, 'Extracted entities from message');
 }
 
 async function buildConversationSummaryJob(job: MemoryJob, config: AssistantConfig): Promise<void> {

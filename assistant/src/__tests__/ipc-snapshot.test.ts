@@ -282,6 +282,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     lexicalHits: 12,
     semanticHits: 8,
     recencyHits: 6,
+    entityHits: 3,
     injectedTokens: 480,
     latencyMs: 55,
   },

@@ -237,6 +237,15 @@ export const MemoryExtractionConfigSchema = z.object({
     .default(true),
 });
 
+export const MemoryEntityConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.entity.enabled must be a boolean' })
+    .default(true),
+  model: z
+    .string({ error: 'memory.entity.model must be a string' })
+    .default('claude-haiku-4-5-20251001'),
+});
+
 export const MemorySummarizationConfigSchema = z.object({
   useLLM: z
     .boolean({ error: 'memory.summarization.useLLM must be a boolean' })
@@ -292,6 +301,10 @@ export const MemoryConfigSchema = z.object({
   }),
   summarization: MemorySummarizationConfigSchema.default({
     useLLM: true,
+    model: 'claude-haiku-4-5-20251001',
+  }),
+  entity: MemoryEntityConfigSchema.default({
+    enabled: true,
     model: 'claude-haiku-4-5-20251001',
   }),
 });
@@ -386,6 +399,10 @@ export const AssistantConfigSchema = z.object({
       useLLM: true,
       model: 'claude-haiku-4-5-20251001',
     },
+    entity: {
+      enabled: true,
+      model: 'claude-haiku-4-5-20251001',
+    },
   }),
   dataDir: z
     .string({ error: 'dataDir must be a string' })
@@ -446,6 +463,7 @@ export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
 export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
 export type MemoryExtractionConfig = z.infer<typeof MemoryExtractionConfigSchema>;
 export type MemorySummarizationConfig = z.infer<typeof MemorySummarizationConfigSchema>;
+export type MemoryEntityConfig = z.infer<typeof MemoryEntityConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
 export type QdrantConfig = z.infer<typeof QdrantConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;

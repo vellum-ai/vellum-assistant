@@ -438,6 +438,7 @@ export interface MemoryRecalled {
   lexicalHits: number;
   semanticHits: number;
   recencyHits: number;
+  entityHits: number;
   injectedTokens: number;
   latencyMs: number;
 }

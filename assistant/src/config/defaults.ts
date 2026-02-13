@@ -65,6 +65,10 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       useLLM: true,
       model: 'claude-haiku-4-5-20251001',
     },
+    entity: {
+      enabled: true,
+      model: 'claude-haiku-4-5-20251001',
+    },
   },
   dataDir: getDataDir(),
   timeouts: {
