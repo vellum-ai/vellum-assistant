@@ -302,6 +302,11 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string): 
     }).onConflictDoNothing().run();
 
     enqueueMemoryJob('embed_item', { itemId: memoryItemId });
+
+    // Queue contradiction check for newly inserted items
+    if (!existing) {
+      enqueueMemoryJob('check_contradictions', { itemId: memoryItemId });
+    }
   }
 
   log.debug({ messageId, extracted: extracted.length, upserted }, 'Extracted memory items from message');

@@ -9,6 +9,7 @@ export type MemoryJobType =
   | 'embed_summary'
   | 'extract_items'
   | 'extract_entities'
+  | 'check_contradictions'
   | 'refresh_weekly_summary'
   | 'refresh_monthly_summary'
   | 'build_conversation_summary'
