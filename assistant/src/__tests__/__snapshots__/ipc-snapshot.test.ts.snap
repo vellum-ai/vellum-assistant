@@ -262,6 +262,7 @@ exports[`IPC message snapshots ServerMessage types confirmation_request serializ
       "scope": "/tmp",
     },
   ],
+  "sessionId": "sess-001",
   "toolName": "bash",
   "type": "confirmation_request",
 }

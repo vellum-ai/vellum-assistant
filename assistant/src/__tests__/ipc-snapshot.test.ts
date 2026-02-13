@@ -188,6 +188,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       isNewFile: false,
     },
     sandboxed: false,
+    sessionId: 'sess-001',
   },
   message_complete: {
     type: 'message_complete',

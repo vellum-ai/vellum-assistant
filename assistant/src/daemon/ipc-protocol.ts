@@ -305,6 +305,7 @@ export interface ConfirmationRequest {
   scopeOptions: Array<{ label: string; scope: string }>;
   diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
   sandboxed?: boolean;
+  sessionId?: string;
 }
 
 export interface MessageComplete {

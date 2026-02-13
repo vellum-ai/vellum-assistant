@@ -444,6 +444,7 @@ struct ConfirmationRequestMessage: Decodable, Sendable {
     let scopeOptions: [ConfirmationScopeOption]
     let diff: ConfirmationDiffInfo?
     let sandboxed: Bool?
+    let sessionId: String?
 
     struct ConfirmationAllowlistOption: Decodable, Sendable, Equatable {
         let label: String

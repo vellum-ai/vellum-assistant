@@ -33,6 +33,7 @@ export class PermissionPrompter {
     scopeOptions: ScopeOption[],
     diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean },
     sandboxed?: boolean,
+    sessionId?: string,
   ): Promise<{ decision: UserDecision; selectedPattern?: string; selectedScope?: string }> {
     const requestId = uuid();
 
@@ -56,6 +57,7 @@ export class PermissionPrompter {
         scopeOptions: scopeOptions.map((o) => ({ label: o.label, scope: o.scope })),
         diff,
         sandboxed,
+        sessionId,
       });
     });
   }

@@ -130,6 +130,7 @@ export class ToolExecutor {
           scopeOptions,
           previewDiff,
           sandboxed,
+          context.conversationId,
         );
 
         decision = response.decision;

@@ -594,16 +594,16 @@ final class ChatViewModel: ObservableObject {
             }
 
         case .confirmationRequest(let msg):
-            // ConfirmationRequestMessage doesn't include a sessionId, so we
-            // can't use belongsToSession. Delegate routing to ThreadManager
-            // via the shouldAcceptConfirmation closure, which picks the
-            // ChatViewModel that most recently received a toolUseStart event.
-            // This avoids false negatives from gating on isSending (which
-            // isn't set for flows like handleSurfaceAction) and false
-            // positives when multiple threads are sending simultaneously.
-            guard sessionId != nil,
-                  lastToolUseReceivedAt != nil,
-                  shouldAcceptConfirmation?() ?? false else { return }
+            // Route using sessionId when available (daemon >= v1.x includes
+            // the conversationId). Fall back to the timestamp-based heuristic
+            // via shouldAcceptConfirmation for older daemons that omit sessionId.
+            if let msgSessionId = msg.sessionId {
+                guard belongsToSession(msgSessionId) else { return }
+            } else {
+                guard sessionId != nil,
+                      lastToolUseReceivedAt != nil,
+                      shouldAcceptConfirmation?() ?? false else { return }
+            }
             let confirmation = ToolConfirmationData(
                 requestId: msg.requestId,
                 toolName: msg.toolName,
