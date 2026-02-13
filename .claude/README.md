@@ -42,7 +42,7 @@ Slash commands for Claude Code that automate development workflows. They live in
 
 ### 1. Run `vel setup`
 
-Run `vel setup` (or `./setup.sh`) to create the required `.private/` tracking files. The `.private/` directory is gitignored, so every developer needs to run this locally.
+Create the required `.private/` tracking files manually. The `.private/` directory is gitignored, so every developer needs to set this up locally.
 
 The slash commands themselves are committed at `.claude/commands/` and available automatically — no setup needed.
 

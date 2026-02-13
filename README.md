@@ -23,14 +23,6 @@ The platform has three main components:
 └── .github/           # GitHub Actions workflows
 ```
 
-## Setup
-
-```bash
-./setup.sh
-```
-
-This installs bun (if needed), installs web dependencies, and installs git hooks.
-
 ## Local Development
 
 ```bash
@@ -44,7 +36,7 @@ bun run dev
 
 ## Git Hooks
 
-This repository includes git hooks to help maintain code quality and security. The hooks are automatically installed when you run `./setup.sh`.
+This repository includes git hooks to help maintain code quality and security. The hooks are installed by running the install script directly.
 
 To manually install or update hooks:
 ```bash
