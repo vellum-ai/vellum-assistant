@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, cpSync, chmodSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, cpSync, chmodSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Dirent } from 'node:fs';
 import { getHooksDir } from '../util/platform.js';
@@ -44,6 +44,8 @@ export function installTemplates(): void {
 
       log.info({ hook: entry.name }, 'Installed hook template (disabled by default)');
     } catch (err) {
+      // Clean up partially-copied directory so the next restart can retry
+      try { rmSync(targetDir, { recursive: true, force: true }); } catch {}
       log.warn({ err, hook: entry.name }, 'Failed to install hook template');
     }
   }
