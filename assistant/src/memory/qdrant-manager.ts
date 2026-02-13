@@ -1,11 +1,13 @@
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, chmodSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { arch, platform } from 'node:os';
 import type { Subprocess } from 'bun';
 import { getLogger } from '../util/logger.js';
 import { getDataDir } from '../util/platform.js';
 
 const log = getLogger('qdrant-manager');
 
+const QDRANT_VERSION = '1.13.2';
 const READYZ_POLL_INTERVAL_MS = 200;
 const READYZ_TIMEOUT_MS = 30_000;
 const SHUTDOWN_GRACE_MS = 5_000;
@@ -61,10 +63,7 @@ export class QdrantManager {
 
     const binaryPath = this.getBinaryPath();
     if (!existsSync(binaryPath)) {
-      throw new Error(
-        `Qdrant binary not found at ${binaryPath}. ` +
-        'Install it or set QDRANT_URL to use an external Qdrant instance.',
-      );
+      await this.installBinary(binaryPath);
     }
 
     log.info({ binaryPath, storagePath: this.storagePath, port: this.port }, 'Starting Qdrant');
@@ -126,6 +125,64 @@ export class QdrantManager {
 
   getUrl(): string {
     return this.url;
+  }
+
+  private async installBinary(binaryPath: string): Promise<void> {
+    const os = platform();
+    const cpu = arch();
+
+    let target: string;
+    if (os === 'darwin' && cpu === 'arm64') {
+      target = 'aarch64-apple-darwin';
+    } else if (os === 'darwin' && cpu === 'x64') {
+      target = 'x86_64-apple-darwin';
+    } else if (os === 'linux' && cpu === 'x64') {
+      target = 'x86_64-unknown-linux-musl';
+    } else if (os === 'linux' && cpu === 'arm64') {
+      target = 'aarch64-unknown-linux-musl';
+    } else {
+      throw new Error(
+        `Unsupported platform: ${os}/${cpu}. ` +
+        'Set QDRANT_URL to use an external Qdrant instance.',
+      );
+    }
+
+    const filename = `qdrant-${target}.tar.gz`;
+    const url = `https://github.com/qdrant/qdrant/releases/download/v${QDRANT_VERSION}/${filename}`;
+    log.info({ url, binaryPath }, 'Downloading Qdrant binary');
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to download Qdrant: ${response.status} ${response.statusText} from ${url}`);
+    }
+
+    const tarball = await response.arrayBuffer();
+
+    // Extract the qdrant binary from the tarball
+    const binDir = dirname(binaryPath);
+    mkdirSync(binDir, { recursive: true });
+
+    // Write tarball to temp file, extract with tar
+    const tmpTar = join(binDir, `qdrant-download-${Date.now()}.tar.gz`);
+    writeFileSync(tmpTar, Buffer.from(tarball));
+
+    try {
+      const proc = Bun.spawn({
+        cmd: ['tar', 'xzf', tmpTar, '-C', binDir, 'qdrant'],
+        stdout: 'ignore',
+        stderr: 'pipe',
+      });
+      await proc.exited;
+      if (proc.exitCode !== 0) {
+        const stderr = await new Response(proc.stderr).text();
+        throw new Error(`Failed to extract Qdrant binary: ${stderr}`);
+      }
+    } finally {
+      try { unlinkSync(tmpTar); } catch { /* ignore */ }
+    }
+
+    chmodSync(binaryPath, 0o755);
+    log.info({ binaryPath, version: QDRANT_VERSION }, 'Qdrant binary installed');
   }
 
   private async waitForReady(): Promise<void> {

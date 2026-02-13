@@ -190,19 +190,15 @@ export async function runDaemon(): Promise<void> {
   const qdrantManager = new QdrantManager({
     url: qdrantUrl,
   });
-  try {
-    await qdrantManager.start();
-    initQdrantClient({
-      url: qdrantUrl,
-      collection: config.memory.qdrant.collection,
-      vectorSize: config.memory.qdrant.vectorSize,
-      onDisk: config.memory.qdrant.onDisk,
-      quantization: config.memory.qdrant.quantization,
-    });
-    log.info('Qdrant vector store initialized');
-  } catch (err) {
-    log.warn({ err }, 'Failed to initialize Qdrant vector store, memory semantic search will be degraded');
-  }
+  await qdrantManager.start();
+  initQdrantClient({
+    url: qdrantUrl,
+    collection: config.memory.qdrant.collection,
+    vectorSize: config.memory.qdrant.vectorSize,
+    onDisk: config.memory.qdrant.onDisk,
+    quantization: config.memory.qdrant.quantization,
+  });
+  log.info('Qdrant vector store initialized');
 
   const server = new DaemonServer();
   await server.start();
