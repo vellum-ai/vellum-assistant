@@ -402,6 +402,23 @@ struct SkillDetailResponseMessage: Decodable, Sendable {
     let error: String?
 }
 
+/// A single trust rule item returned from the daemon.
+struct TrustRuleItem: Decodable, Sendable, Identifiable {
+    let id: String
+    let tool: String
+    let pattern: String
+    let scope: String
+    let decision: String
+    let priority: Int
+    let createdAt: Double
+}
+
+/// Response containing all trust rules.
+/// Wire type: `"trust_rules_list_response"`
+struct TrustRulesListResponseMessage: Decodable, Sendable {
+    let rules: [TrustRuleItem]
+}
+
 /// Timer completed notification from daemon.
 /// Wire type: `"timer_completed"`
 struct TimerCompletedMessage: Decodable, Sendable {
@@ -502,6 +519,31 @@ struct AddTrustRuleMessage: Encodable, Sendable {
     let decision: String
 }
 
+/// Request all trust rules from the daemon.
+/// Wire type: `"trust_rules_list"`
+struct TrustRulesListMessage: Encodable, Sendable {
+    let type: String = "trust_rules_list"
+}
+
+/// Remove a trust rule by its ID.
+/// Wire type: `"remove_trust_rule"`
+struct RemoveTrustRuleMessage: Encodable, Sendable {
+    let type: String = "remove_trust_rule"
+    let id: String
+}
+
+/// Update fields on an existing trust rule.
+/// Wire type: `"update_trust_rule"`
+struct UpdateTrustRuleMessage: Encodable, Sendable {
+    let type: String = "update_trust_rule"
+    let id: String
+    let tool: String?
+    let pattern: String?
+    let scope: String?
+    let decision: String?
+    let priority: Int?
+}
+
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 enum ServerMessage: Decodable, Sendable {
@@ -531,6 +573,7 @@ enum ServerMessage: Decodable, Sendable {
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
     case timerCompleted(TimerCompletedMessage)
+    case trustRulesListResponse(TrustRulesListResponseMessage)
     case pong
     case unknown(String)
 
@@ -621,6 +664,9 @@ enum ServerMessage: Decodable, Sendable {
         case "timer_completed":
             let message = try TimerCompletedMessage(from: decoder)
             self = .timerCompleted(message)
+        case "trust_rules_list_response":
+            let message = try TrustRulesListResponseMessage(from: decoder)
+            self = .trustRulesListResponse(message)
         case "pong":
             self = .pong
         default:

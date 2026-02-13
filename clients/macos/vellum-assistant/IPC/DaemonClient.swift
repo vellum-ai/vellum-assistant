@@ -59,6 +59,9 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a pomodoro timer completes.
     var onTimerCompleted: ((TimerCompletedMessage) -> Void)?
 
+    /// Called when the daemon sends a `trust_rules_list_response` message.
+    var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -325,6 +328,37 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
         ))
     }
 
+    // MARK: - Trust Rule Management
+
+    /// Request the list of all trust rules from the daemon.
+    func sendListTrustRules() throws {
+        try send(TrustRulesListMessage())
+    }
+
+    /// Remove a trust rule by its ID.
+    func sendRemoveTrustRule(id: String) throws {
+        try send(RemoveTrustRuleMessage(id: id))
+    }
+
+    /// Update fields on an existing trust rule.
+    func sendUpdateTrustRule(
+        id: String,
+        tool: String? = nil,
+        pattern: String? = nil,
+        scope: String? = nil,
+        decision: String? = nil,
+        priority: Int? = nil
+    ) throws {
+        try send(UpdateTrustRuleMessage(
+            id: id,
+            tool: tool,
+            pattern: pattern,
+            scope: scope,
+            decision: decision,
+            priority: priority
+        ))
+    }
+
     // MARK: - Disconnect
 
     /// Disconnect from the daemon. Stops reconnect and ping timers.
@@ -453,6 +487,8 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onTaskRouted?(msg)
         case .timerCompleted(let msg):
             onTimerCompleted?(msg)
+        case .trustRulesListResponse(let msg):
+            onTrustRulesListResponse?(msg.rules)
         default:
             break
         }
