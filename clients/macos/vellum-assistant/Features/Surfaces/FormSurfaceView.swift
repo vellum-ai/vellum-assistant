@@ -58,6 +58,21 @@ struct FormSurfaceView: View {
                 )
             case .select:
                 selectField(for: field)
+            case .password:
+                SecureField(
+                    field.placeholder ?? "",
+                    text: textBinding(for: field.id)
+                )
+                .textFieldStyle(.plain)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .padding(VSpacing.md)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                )
             case .toggle:
                 Toggle(isOn: toggleBinding(for: field.id)) {
                     EmptyView()
@@ -127,7 +142,7 @@ struct FormSurfaceView: View {
         for field in data.fields {
             guard let defaultValue = field.defaultValue else { continue }
             switch field.type {
-            case .text, .textarea, .number:
+            case .text, .textarea, .number, .password:
                 textValues[field.id] = defaultValue.stringValue
             case .toggle:
                 if case .boolean(let b) = defaultValue {
@@ -145,7 +160,7 @@ struct FormSurfaceView: View {
         var values: [String: Any] = [:]
         for field in data.fields {
             switch field.type {
-            case .text, .textarea, .number:
+            case .text, .textarea, .number, .password:
                 values[field.id] = textValues[field.id] ?? ""
             case .toggle:
                 values[field.id] = toggleValues[field.id] ?? false

@@ -44,6 +44,7 @@ enum FormFieldType: String, Sendable {
     case select
     case toggle
     case number
+    case password
 }
 
 /// A form field default value that can be a string, number, or boolean,
