@@ -1,11 +1,50 @@
 import AppKit
 import CoreText
-import SwiftUI
 import HotKey
+import SwiftUI
 import UserNotifications
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
+
+enum AssistantStatus {
+    case idle
+    case thinking
+    case error(String)
+
+    var menuTitle: String {
+        switch self {
+        case .idle: return "Assistant is idle"
+        case .thinking: return "Assistant is thinking..."
+        case .error(let msg): return "Error: \(msg)"
+        }
+    }
+
+    var statusIcon: NSImage? {
+        let symbolName: String
+        let tintColor: NSColor
+        switch self {
+        case .idle:
+            symbolName = "circle.fill"
+            tintColor = .systemGreen
+        case .thinking:
+            symbolName = "circle.fill"
+            tintColor = .systemOrange
+        case .error:
+            symbolName = "circle.fill"
+            tintColor = .systemRed
+        }
+        let config = NSImage.SymbolConfiguration(pointSize: 8, weight: .regular)
+        guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config) else { return nil }
+        let tinted = image.copy() as! NSImage
+        tinted.lockFocus()
+        tintColor.set()
+        NSRect(origin: .zero, size: tinted.size).fill(using: .sourceAtop)
+        tinted.unlockFocus()
+        return tinted
+    }
+}
 
 enum InteractionType {
     case computerUse
@@ -15,7 +54,6 @@ enum InteractionType {
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
-    private var popover: NSPopover!
     private var hotKey: HotKey?
     private var escapeMonitor: Any?
     private var overlayWindow: SessionOverlayWindow?
@@ -287,44 +325,85 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Vellum")
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            configureMenuBarIcon(button)
             button.action = #selector(statusBarButtonClicked(_:))
             button.target = self
         }
+    }
 
-        let contentView = TaskInputView(onSubmit: { [weak self] submission in
-            self?.startSession(submission: submission)
-        }, daemonClient: daemonClient)
+    private func configureMenuBarIcon(_ button: NSStatusBarButton) {
+        let iconSize: CGFloat = 18
+        guard let appIcon = NSImage(named: "AppIcon") else {
+            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Vellum")
+            return
+        }
+        let resized = NSImage(size: NSSize(width: iconSize, height: iconSize))
+        resized.lockFocus()
+        appIcon.draw(
+            in: NSRect(x: 0, y: 0, width: iconSize, height: iconSize),
+            from: NSRect(origin: .zero, size: appIcon.size),
+            operation: .copy,
+            fraction: 1.0
+        )
+        resized.unlockFocus()
+        resized.isTemplate = false
+        button.image = resized
+    }
 
-        popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 200)
-        popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: contentView)
+    private var currentAssistantStatus: AssistantStatus {
+        guard let viewModel = mainWindow?.threadManager.activeViewModel else { return .idle }
+        if let error = viewModel.errorText { return .error(error) }
+        if viewModel.isThinking { return .thinking }
+        return .idle
     }
 
     @objc private func statusBarButtonClicked(_ sender: NSStatusBarButton) {
-        guard let event = NSApp.currentEvent else { return }
-        if event.type == .rightMouseUp {
-            showContextMenu()
-        } else {
-            togglePopover()
-        }
+        showStatusMenu()
     }
 
-    private func showContextMenu() {
+    private func showStatusMenu() {
         guard let button = statusItem.button else { return }
         let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        let status = currentAssistantStatus
+        let statusItem = NSMenuItem(title: status.menuTitle, action: nil, keyEquivalent: "")
+        statusItem.isEnabled = false
+        statusItem.image = status.statusIcon
+        menu.addItem(statusItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let currentThreadItem = NSMenuItem(title: "Current Thread", action: #selector(openCurrentThread), keyEquivalent: "")
+        currentThreadItem.target = self
+        currentThreadItem.image = NSImage(systemSymbolName: "message", accessibilityDescription: nil)
+        menu.addItem(currentThreadItem)
+
+        let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
+        newChatItem.target = self
+        newChatItem.image = NSImage(systemSymbolName: "plus.message", accessibilityDescription: nil)
+        menu.addItem(newChatItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
+        settingsItem.target = self
+        settingsItem.image = NSImage(systemSymbolName: "gear", accessibilityDescription: nil)
+        menu.addItem(settingsItem)
+
+        menu.addItem(NSMenuItem.separator())
 
         let ambientEnabled = ambientAgent.isEnabled
         let ambientTitle = ambientEnabled ? "Disable Ambient Agent" : "Enable Ambient Agent"
         let ambientItem = NSMenuItem(title: ambientTitle, action: #selector(toggleAmbientAgent), keyEquivalent: "")
         ambientItem.target = self
+        ambientItem.image = NSImage(systemSymbolName: ambientEnabled ? "eye.slash" : "eye", accessibilityDescription: nil)
         menu.addItem(ambientItem)
 
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
         updateItem.isEnabled = updateManager.canCheckForUpdates
+        updateItem.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
         menu.addItem(updateItem)
 
         let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
@@ -339,8 +418,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
 
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: 0), in: button)
+        let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quitItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
+        menu.addItem(quitItem)
+
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 2), in: button)
+    }
+
+    @objc private func openCurrentThread() {
+        showMainWindow()
+    }
+
+    @objc private func openNewChat() {
+        showMainWindow()
+        mainWindow?.threadManager.createThread()
     }
 
     @objc private func checkForUpdates() {
@@ -364,7 +455,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupHotKey() {
         hotKey = HotKey(key: .g, modifiers: [.command, .shift])
         hotKey?.keyDownHandler = { [weak self] in
-            self?.togglePopover()
+            self?.showMainWindow()
         }
     }
 
@@ -477,18 +568,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func updateMenuBarIcon() {
-        guard statusItem != nil else { return }
-        let isAmbientActive = ambientAgent.state == .watching || ambientAgent.state == .analyzing
-        let iconName = isAmbientActive ? "eye" : "sparkles"
-        statusItem.button?.image = NSImage(
-            systemSymbolName: iconName,
-            accessibilityDescription: "Vellum"
-        )
+        guard statusItem != nil, let button = statusItem.button else { return }
+        configureMenuBarIcon(button)
     }
 
     @objc private func replayOnboarding() {
         guard onboardingWindow == nil else { return }
-        popover.performClose(nil)
 
         // Ensure daemon connectivity for the interview step
         if !daemonClient.isConnected {
@@ -608,18 +693,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    // MARK: - Popover
-
-    private func togglePopover() {
-        guard let button = statusItem.button else { return }
-        if popover.isShown {
-            popover.performClose(nil)
-        } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            NSApp.activate(ignoringOtherApps: true)
-        }
-    }
-
     // MARK: - Session
 
     func startSession(task: String, source: String? = nil) {
@@ -629,7 +702,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     func startSession(submission: TaskSubmission) {
         guard currentSession == nil && currentTextSession == nil && !isStartingSession else { return }
         isStartingSession = true
-        popover.performClose(nil)
 
         let sessionTask = submission.task.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveTask = !sessionTask.isEmpty ? sessionTask : "Use the attached files as context."
