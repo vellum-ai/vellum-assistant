@@ -116,18 +116,6 @@ struct OnboardingFlowView: View {
 
     private var mockToolbar: some View {
         HStack {
-            HStack(spacing: 6) {
-                Image(systemName: "bubble.left")
-                    .font(.system(size: 11))
-                Text("Chat")
-                    .font(VFont.bodyMedium)
-            }
-            .foregroundColor(VColor.textPrimary)
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .background(VColor.surface.opacity(0.5))
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-
             Spacer()
 
             HStack(spacing: VSpacing.sm) {

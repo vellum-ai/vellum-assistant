@@ -19,19 +19,17 @@ struct MainWindowView: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                // Row 1 — thread tab bar
+                // Row 1 — thread tab bar + panel buttons
                 ThreadTabBar(
                     threads: threadManager.threads,
                     activeThreadId: threadManager.activeThreadId,
                     onSelect: { threadManager.selectThread(id: $0) },
                     onClose: { threadManager.closeThread(id: $0) },
-                    onCreate: { threadManager.createThread() }
+                    onCreate: { threadManager.createThread() },
+                    activePanel: $activePanel
                 )
 
-                // Row 2 — navigation toolbar
-                NavigationToolbar(activePanel: $activePanel)
-
-                // Row 3 — chat content with optional side panel
+                // Row 2 — chat content with optional side panel
                 VSplitView(panelWidth: geometry.size.width * 0.5, showPanel: activePanel != nil, main: {
                     if let viewModel = threadManager.activeViewModel {
                         ChatView(
