@@ -14,6 +14,7 @@ struct ObservationSessionView: View {
     @State private var timer: Timer?
     @State private var narrationMessages: [InterviewMessage] = []
     @State private var narrationIndex: Int = 0
+    @State private var stopped = false
 
     /// Stub narration messages that simulate the assistant describing what it sees.
     private static let stubNarrations: [String] = [
@@ -167,7 +168,8 @@ struct ObservationSessionView: View {
         startPulse()
 
         // Add initial narration after a short delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [self] in
+            guard !stopped else { return }
             addNextNarration()
         }
 
@@ -184,7 +186,8 @@ struct ObservationSessionView: View {
         // Schedule narration messages at intervals
         let narrationInterval = max(Double(totalSeconds) / Double(Self.stubNarrations.count), 15.0)
         for i in 1..<Self.stubNarrations.count {
-            DispatchQueue.main.asyncAfter(deadline: .now() + narrationInterval * Double(i) + 2.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + narrationInterval * Double(i) + 2.0) { [self] in
+                guard !stopped else { return }
                 addNextNarration()
             }
         }
@@ -206,6 +209,7 @@ struct ObservationSessionView: View {
     }
 
     private func stopObservation() {
+        stopped = true
         timer?.invalidate()
         timer = nil
     }

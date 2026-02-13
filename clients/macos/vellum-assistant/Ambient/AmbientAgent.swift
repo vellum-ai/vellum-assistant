@@ -140,6 +140,8 @@ public final class AmbientAgent: ObservableObject {
         knowledgeCron = nil
         syncClient = nil
         knowledgeStore.onEntryAdded = nil
+        knowledgeCancellable?.cancel()
+        knowledgeCancellable = nil
         state = .disabled
         log.info("Ambient agent stopped")
     }

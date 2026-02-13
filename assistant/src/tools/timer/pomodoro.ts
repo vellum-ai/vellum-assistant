@@ -18,6 +18,21 @@ export function unregisterTimerCompletionNotifier(sessionId: string): void {
   completionNotifiers.delete(sessionId);
 }
 
+/** Remove completed/cancelled timers for a session to prevent unbounded map growth. */
+export function pruneSessionTimers(sessionId: string): void {
+  const session = timers.get(sessionId);
+  if (!session) return;
+  for (const [id, timer] of session) {
+    if (timer.status === 'completed' || timer.status === 'cancelled') {
+      if (timer.timeoutHandle) clearTimeout(timer.timeoutHandle);
+      session.delete(id);
+    }
+  }
+  if (session.size === 0) {
+    timers.delete(sessionId);
+  }
+}
+
 export interface PomodoroTimer {
   id: string;
   label: string;

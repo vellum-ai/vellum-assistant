@@ -23,7 +23,7 @@ import { estimateCost, resolvePricing } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
-import { registerTimerCompletionNotifier, unregisterTimerCompletionNotifier } from '../tools/timer/pomodoro.js';
+import { registerTimerCompletionNotifier, unregisterTimerCompletionNotifier, pruneSessionTimers } from '../tools/timer/pomodoro.js';
 import { createToolDomainEventPublisher } from '../events/tool-domain-event-publisher.js';
 import { registerToolMetricsLoggingListener } from '../events/tool-metrics-listener.js';
 import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
@@ -244,6 +244,7 @@ export class Session {
       this.pendingSurfaceActions.clear();
       this.surfaceState.clear();
       unregisterTimerCompletionNotifier(this.conversationId);
+      pruneSessionTimers(this.conversationId);
 
       // Clear queued messages and notify each caller
       for (const queued of this.messageQueue) {
@@ -251,6 +252,9 @@ export class Session {
       }
       this.messageQueue = [];
     }
+
+    // Dispose event bus listeners to prevent accumulation on session recreation
+    this.eventBus.dispose();
   }
 
   /**
@@ -671,6 +675,9 @@ export class Session {
       this.abortController = null;
       this.processing = false;
       this.currentRequestId = undefined;
+
+      // Clean up completed/cancelled timers to prevent unbounded map growth
+      pruneSessionTimers(this.conversationId);
 
       // Drain the next queued message, if any
       this.drainQueue(yieldedForHandoff ? 'checkpoint_handoff' : 'loop_complete');

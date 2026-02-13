@@ -784,6 +784,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)
         }
+        if let observer = windowObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = settingsWindowObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         voiceInput?.stop()
         ambientAgent.stop()
         surfaceManager.dismissAll()
