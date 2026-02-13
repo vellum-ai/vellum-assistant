@@ -23,7 +23,7 @@ struct ThreadTab: View {
                 Text(label)
                     .font(VFont.tabLabel)
                     .lineLimit(1)
-                if isCloseable {
+                if isCloseable, onClose != nil {
                     Spacer().frame(width: 16)
                 }
             }
