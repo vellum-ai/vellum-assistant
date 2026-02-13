@@ -1,7 +1,7 @@
-import { eq, desc, asc, and, count, sql } from 'drizzle-orm';
+import { eq, desc, asc, and, count, sql, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
-import { conversations, messages, messageRuns, channelInboundEvents } from './schema.js';
+import { conversations, messages, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities } from './schema.js';
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
 import { getLogger } from '../util/logger.js';
@@ -250,13 +250,24 @@ export function deleteLastExchange(conversationId: string): number {
  * NULL before the message row is removed, so associated run and event
  * records survive.
  *
- * Other tables with NOT NULL FK references (memory_segments,
- * memory_item_sources, message_attachments) cascade-delete normally,
- * which is fine — for a freshly blocked message they will be empty.
+ * Also cleans up derived memory_items: if the memory worker has already
+ * processed an extract_items job for this message, deleting the message
+ * cascades memory_item_sources but leaves the memory_items active.
+ * Without cleanup, those items would leak into summaries and recall.
+ * We delete any memory_items that become orphaned (no remaining sources)
+ * after this message is removed.
  */
 export function deleteMessageById(messageId: string): void {
   const db = getDb();
   db.transaction((tx) => {
+    // Collect memory item IDs linked to this message before cascade.
+    const linkedItems = tx
+      .select({ memoryItemId: memoryItemSources.memoryItemId })
+      .from(memoryItemSources)
+      .where(eq(memoryItemSources.messageId, messageId))
+      .all();
+    const candidateItemIds = linkedItems.map((r) => r.memoryItemId);
+
     // Detach nullable FK references so the cascade doesn't destroy them.
     tx.update(messageRuns)
       .set({ messageId: null })
@@ -267,7 +278,38 @@ export function deleteMessageById(messageId: string): void {
       .where(eq(channelInboundEvents.messageId, messageId))
       .run();
 
-    // Now safe to delete — only NOT NULL cascades remain.
+    // Now safe to delete — NOT NULL cascades remove memory_item_sources,
+    // memory_segments, and message_attachments.
     tx.delete(messages).where(eq(messages.id, messageId)).run();
+
+    // Clean up orphaned memory items whose only source was this message.
+    if (candidateItemIds.length > 0) {
+      // Find which items still have at least one remaining source.
+      const surviving = tx
+        .select({ memoryItemId: memoryItemSources.memoryItemId })
+        .from(memoryItemSources)
+        .where(inArray(memoryItemSources.memoryItemId, candidateItemIds))
+        .all();
+      const survivingIds = new Set(surviving.map((r) => r.memoryItemId));
+      const orphanedIds = candidateItemIds.filter((id) => !survivingIds.has(id));
+
+      if (orphanedIds.length > 0) {
+        // Delete memory_item_entities (no FK cascade on this table).
+        tx.delete(memoryItemEntities)
+          .where(inArray(memoryItemEntities.memoryItemId, orphanedIds))
+          .run();
+        // Delete embeddings referencing these items.
+        tx.delete(memoryEmbeddings)
+          .where(and(
+            eq(memoryEmbeddings.targetType, 'item'),
+            inArray(memoryEmbeddings.targetId, orphanedIds),
+          ))
+          .run();
+        // Delete the orphaned memory items themselves.
+        tx.delete(memoryItems)
+          .where(inArray(memoryItems.id, orphanedIds))
+          .run();
+      }
+    }
   });
 }
