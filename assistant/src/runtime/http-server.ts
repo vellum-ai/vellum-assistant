@@ -102,6 +102,9 @@ export class RuntimeHttpServer {
     // Match /v1/assistants/:assistantId/<endpoint>
     const match = path.match(/^\/v1\/assistants\/([^/]+)\/(.+)$/);
     if (!match) {
+      if (path === '/healthz' && req.method === 'GET') {
+        return this.handleHealth();
+      }
       return Response.json({ error: 'Not found' }, { status: 404 });
     }
 
