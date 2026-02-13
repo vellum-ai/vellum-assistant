@@ -22,4 +22,6 @@ enum VSpacing {
     static let section: CGFloat = xl
     /// Standard window/page-level margin
     static let page: CGFloat = xxl
+    /// Compact vertical padding for buttons
+    static let buttonV: CGFloat = 5.5
 }

@@ -9,6 +9,8 @@ struct VCircleButton: View {
     var iconSize: CGFloat = 14
     let action: () -> Void
 
+    @State private var isHovered = false
+
     var body: some View {
         Button(action: action) {
             Circle()
@@ -20,12 +22,27 @@ struct VCircleButton: View {
                         .font(.system(size: iconSize))
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(VCircleButtonStyle(isHovered: isHovered))
         .onHover { hovering in
-            NSCursor.pointingHand.set()
-            if !hovering { NSCursor.arrow.set() }
+            isHovered = hovering
+            if hovering {
+                NSCursor.pointingHand.set()
+            } else {
+                NSCursor.arrow.set()
+            }
         }
         .accessibilityLabel(label)
+    }
+}
+
+private struct VCircleButtonStyle: ButtonStyle {
+    let isHovered: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .brightness(configuration.isPressed ? 0.2 : isHovered ? 0.1 : 0)
+            .animation(VAnimation.fast, value: configuration.isPressed)
+            .animation(VAnimation.fast, value: isHovered)
     }
 }
 
