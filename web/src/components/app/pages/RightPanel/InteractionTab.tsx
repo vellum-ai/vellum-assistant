@@ -8,6 +8,8 @@ import {
   FileImage,
   FileText,
   Loader2,
+  Mic,
+  MicOff,
   Paperclip,
   Pause,
   Play,
@@ -31,6 +33,7 @@ import {
 } from "react";
 
 import { Button } from "@/components/app/core/Button";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
 
 type AssistantStatus = "healthy" | "unhealthy" | "stopped" | "unreachable" | "unknown" | "checking" | "getting_set_up" | "setting_up" | "provisioning_failed";
 
@@ -174,6 +177,14 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingRunConfirmation | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+
+  const handleVoiceTranscript = useCallback((text: string) => {
+    setInput((prev) => (prev ? `${prev} ${text}` : text));
+  }, []);
+
+  const { isListening, isSupported: isVoiceSupported, toggleListening } = useVoiceInput({
+    onTranscript: handleVoiceTranscript,
+  });
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -1078,6 +1089,22 @@ export function InteractionTab({ assistantId, assistantName, assistantCreatedAt 
               >
                 {hasUploadingAttachments ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
               </button>
+              {isVoiceSupported && (
+                <button
+                  type="button"
+                  onClick={toggleListening}
+                  className={`flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border transition-colors disabled:opacity-50 ${
+                    isListening
+                      ? "animate-pulse border-red-400 bg-red-500 text-white dark:border-red-600 dark:bg-red-600"
+                      : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                  disabled={isLoading}
+                  aria-label={isListening ? "Stop recording" : "Start voice input"}
+                  title={isListening ? "Stop recording" : "Voice input"}
+                >
+                  {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                </button>
+              )}
               <div className="relative flex-1">
                 <textarea
                   value={input}
