@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, existsSync, type Dirent } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, relative } from 'node:path';
 import { getHooksDir } from '../util/platform.js';
 import { loadHooksConfig } from './config.js';
 import { getLogger } from '../util/logger.js';
@@ -69,7 +69,8 @@ export function discoverHooks(hooksDir?: string): DiscoveredHook[] {
     }
 
     const scriptPath = resolve(hookDir, manifest.script);
-    if (!scriptPath.startsWith(hookDir + '/')) {
+    const rel = relative(hookDir, scriptPath);
+    if (rel.startsWith('..') || resolve(hookDir, rel) !== scriptPath) {
       log.warn({ hookDir, script: manifest.script }, 'Hook script path traversal detected, skipping');
       continue;
     }
