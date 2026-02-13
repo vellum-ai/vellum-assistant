@@ -21,13 +21,12 @@ final class ToolConfirmationManager {
     var onResponse: ((String, String) -> Bool)?
 
     /// Called when the user saves a trust rule from the floating panel.
-    var onAddTrustRule: ((String, String, String, String) -> Void)?
+    /// Returns `true` if the IPC send succeeded, `false` otherwise.
+    var onAddTrustRule: ((String, String, String, String) -> Bool)?
 
     func showConfirmation(_ message: ConfirmationRequestMessage) {
         // Dismiss existing panel for same request, if any
         dismissConfirmation(requestId: message.requestId)
-
-        let hasRuleOptions = !message.allowlistOptions.isEmpty && !message.scopeOptions.isEmpty
 
         let view = ToolConfirmationView(
             toolName: message.toolName,
@@ -36,20 +35,23 @@ final class ToolConfirmationManager {
             allowlistOptions: message.allowlistOptions,
             scopeOptions: message.scopeOptions,
             onAllow: { [weak self] in
-                self?.respond(requestId: message.requestId, decision: "allow")
+                self?.respond(requestId: message.requestId, decision: "allow") ?? false
             },
             onDeny: { [weak self] in
-                self?.respond(requestId: message.requestId, decision: "deny")
+                self?.respond(requestId: message.requestId, decision: "deny") ?? false
             },
             onDismiss: { [weak self] in
                 self?.dismissConfirmation(requestId: message.requestId)
             },
             onAddTrustRule: { [weak self] toolName, pattern, scope, decision in
-                self?.onAddTrustRule?(toolName, pattern, scope, decision)
-                // Auto-dismiss after saving rule
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    self?.dismissConfirmation(requestId: message.requestId)
+                let success = self?.onAddTrustRule?(toolName, pattern, scope, decision) ?? false
+                if success {
+                    // Auto-dismiss after saving rule
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        self?.dismissConfirmation(requestId: message.requestId)
+                    }
                 }
+                return success
             }
         )
 
@@ -100,10 +102,12 @@ final class ToolConfirmationManager {
         panels.removeAll()
     }
 
-    private func respond(requestId: String, decision: String) {
-        // Send the IPC response. If it fails, the panel stays visible
-        // (the ToolConfirmationView handles its own state transition).
-        _ = onResponse?(requestId, decision)
+    private func respond(requestId: String, decision: String) -> Bool {
+        let success = onResponse?(requestId, decision) ?? true
+        if success {
+            dismissConfirmation(requestId: requestId)
+        }
+        return success
     }
 }
 
@@ -115,10 +119,10 @@ struct ToolConfirmationView: View {
     let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
     let allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption]
     let scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption]
-    let onAllow: () -> Void
-    let onDeny: () -> Void
+    let onAllow: () -> Bool
+    let onDeny: () -> Bool
     let onDismiss: () -> Void
-    let onAddTrustRule: (String, String, String, String) -> Void
+    let onAddTrustRule: (String, String, String, String) -> Bool
 
     enum Phase: Equatable {
         case pending
@@ -201,19 +205,15 @@ struct ToolConfirmationView: View {
                 HStack(spacing: VSpacing.lg) {
                     Spacer()
                     VButton(label: "Deny", style: .ghost) {
-                        onDeny()
+                        guard onDeny() else { return }
                         if hasRuleOptions {
                             withAnimation(VAnimation.standard) { phase = .decided("deny") }
-                        } else {
-                            onDismiss()
                         }
                     }
                     VButton(label: "Allow", style: isHighRisk ? .danger : .primary) {
-                        onAllow()
+                        guard onAllow() else { return }
                         if hasRuleOptions {
                             withAnimation(VAnimation.standard) { phase = .decided("allow") }
-                        } else {
-                            onDismiss()
                         }
                     }
                 }
@@ -337,7 +337,7 @@ struct ToolConfirmationView: View {
                     onDismiss()
                 }
                 VButton(label: "Save Rule", style: .primary) {
-                    onAddTrustRule(toolName, selectedPattern, selectedScope, decision)
+                    guard onAddTrustRule(toolName, selectedPattern, selectedScope, decision) else { return }
                     withAnimation(VAnimation.standard) { phase = .ruleSaved }
                 }
             }

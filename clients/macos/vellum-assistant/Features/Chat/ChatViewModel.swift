@@ -910,11 +910,12 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
-    /// Send an add_trust_rule message to persist a trust rule (fire-and-forget).
-    func addTrustRule(toolName: String, pattern: String, scope: String, decision: String) {
+    /// Send an add_trust_rule message to persist a trust rule.
+    /// Returns `true` if the IPC send succeeded, `false` otherwise.
+    func addTrustRule(toolName: String, pattern: String, scope: String, decision: String) -> Bool {
         guard daemonClient.isConnected else {
             log.warning("Cannot send add_trust_rule: daemon not connected")
-            return
+            return false
         }
         do {
             try daemonClient.sendAddTrustRule(
@@ -923,8 +924,10 @@ final class ChatViewModel: ObservableObject {
                 scope: scope,
                 decision: decision
             )
+            return true
         } catch {
             log.error("Failed to send add_trust_rule: \(error.localizedDescription)")
+            return false
         }
     }
 

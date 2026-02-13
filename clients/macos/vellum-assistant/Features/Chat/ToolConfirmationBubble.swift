@@ -4,7 +4,7 @@ struct ToolConfirmationBubble: View {
     let confirmation: ToolConfirmationData
     let onAllow: () -> Void
     let onDeny: () -> Void
-    let onAddTrustRule: (String, String, String, String) -> Void
+    let onAddTrustRule: (String, String, String, String) -> Bool
 
     @State private var showRulePicker = false
     @State private var selectedPattern: String = ""
@@ -237,7 +237,7 @@ struct ToolConfirmationBubble: View {
                 }
                 VButton(label: "Save Rule", style: .primary) {
                     let ruleDecision = confirmation.state == .approved ? "allow" : "deny"
-                    onAddTrustRule(confirmation.toolName, selectedPattern, selectedScope, ruleDecision)
+                    guard onAddTrustRule(confirmation.toolName, selectedPattern, selectedScope, ruleDecision) else { return }
                     withAnimation(VAnimation.standard) {
                         showRulePicker = false
                         ruleSaved = true
@@ -272,7 +272,7 @@ struct ToolConfirmationBubble: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in }
+            onAddTrustRule: { _, _, _, _ in true }
         )
         ToolConfirmationBubble(
             confirmation: ToolConfirmationData(
@@ -288,7 +288,7 @@ struct ToolConfirmationBubble: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in }
+            onAddTrustRule: { _, _, _, _ in true }
         )
         ToolConfirmationBubble(
             confirmation: ToolConfirmationData(
@@ -306,7 +306,7 @@ struct ToolConfirmationBubble: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in }
+            onAddTrustRule: { _, _, _, _ in true }
         )
     }
     .padding(VSpacing.xl)

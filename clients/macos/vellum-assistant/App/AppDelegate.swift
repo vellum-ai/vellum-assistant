@@ -236,8 +236,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     scope: scope,
                     decision: decision
                 )
+                return true
             } catch {
                 log.error("Failed to send add_trust_rule: \(error.localizedDescription)")
+                return false
             }
         }
     }
