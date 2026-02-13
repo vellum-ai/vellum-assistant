@@ -427,7 +427,7 @@ async function semanticSearch(
         key: `segment:${payload.target_id}`,
         type: 'segment',
         id: payload.target_id,
-        text: payload.text.replace(/^\[[^\]]+\]\s*/, ''),
+        text: payload.text,
         kind: 'segment',
         confidence: 0.55,
         importance: 0.5,
