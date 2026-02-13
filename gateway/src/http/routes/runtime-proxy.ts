@@ -24,7 +24,11 @@ function stripHopByHop(headers: Headers): Headers {
     for (const name of connectionValue.split(",")) {
       const trimmed = name.trim().toLowerCase();
       if (trimmed) {
-        cleaned.delete(trimmed);
+        try {
+          cleaned.delete(trimmed);
+        } catch {
+          // Ignore invalid header names (e.g., malformed Connection tokens like "@@@")
+        }
       }
     }
   }
