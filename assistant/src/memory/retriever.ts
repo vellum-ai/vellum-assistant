@@ -7,7 +7,7 @@ import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
 import { getDb } from './db.js';
 import { getQdrantClient } from './qdrant-client.js';
-import { memoryEmbeddings, memoryEntities, memoryItemEntities, memoryItems, memoryItemSources, memorySegments, memorySummaries, messages } from './schema.js';
+import { memoryEmbeddings, memoryItems, memoryItemSources, memorySegments, memorySummaries, messages } from './schema.js';
 
 const log = getLogger('memory-retriever');
 const MEMORY_RECALL_MARKER = '[Memory Recall v2]';
