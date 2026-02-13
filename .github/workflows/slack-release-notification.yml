@@ -30,9 +30,9 @@ jobs:
           slack_body=$(echo "$body" | sed 's/^## \(.*\)/*\1*/g')
 
           # Count items per section
-          features=$(echo "$body" | awk '/^## Features/,/^## /' | grep -c '^- ' || true)
-          fixes=$(echo "$body" | awk '/^## Fixes/,/^## /' | grep -c '^- ' || true)
-          infra=$(echo "$body" | awk '/^## Infrastructure/,/^## /' | grep -c '^- ' || true)
+          features=$(echo "$body" | awk '/^## Features/{f=1; next} /^## /{f=0} f' | grep -c '^- ' || true)
+          fixes=$(echo "$body" | awk '/^## Fixes/{f=1; next} /^## /{f=0} f' | grep -c '^- ' || true)
+          infra=$(echo "$body" | awk '/^## Infrastructure/{f=1; next} /^## /{f=0} f' | grep -c '^- ' || true)
 
           # Build summary line
           summary=""
