@@ -32,7 +32,33 @@ This builds a debug `.app` bundle, codesigns it, and launches it immediately.
 
 # Run all tests
 ./build.sh test
+
+# Clean build artifacts
+./build.sh clean
 ```
+
+### Build Performance
+
+The build script includes several optimizations:
+
+- **Incremental packaging**: Only repackages .app when binary changes (~0.1s when unchanged)
+- **Smart caching**: Frameworks and resources are only copied when modified
+- **Fast rebuilds**: ~4 seconds for small code changes
+- **Full rebuild**: Use `./build.sh clean` to force a complete rebuild (~8s)
+
+## Auto-Rebuild on Save (Watch Mode)
+
+For faster development iteration, use the watch script to automatically rebuild and relaunch when you save Swift files:
+
+```bash
+./watch.sh
+```
+
+**Workflow:**
+1. Start `./watch.sh` in a terminal
+2. Edit Swift files in your editor
+3. Save (Cmd+S)
+4. App automatically rebuilds and relaunches in ~4 seconds!
 
 The raw SwiftPM commands also work if you prefer:
 

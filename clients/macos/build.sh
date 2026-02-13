@@ -75,9 +75,11 @@ fi
 
 # 1. Build with SPM
 echo "Building ($CONFIG)..."
-swift build $SWIFT_FLAGS
-
+# Get bin path first (fast, doesn't rebuild)
 BIN_PATH=$(swift build $SWIFT_FLAGS --show-bin-path)
+
+# Then build (or use cached if nothing changed)
+swift build $SWIFT_FLAGS
 
 
 EXECUTABLE="$BIN_PATH/$APP_NAME"
@@ -88,8 +90,32 @@ if [ ! -f "$EXECUTABLE" ]; then
 fi
 
 # 2. Create .app bundle structure
-echo "Packaging $BUNDLE_DISPLAY_NAME.app..."
-rm -rf "$APP_DIR"
+# Check if we need to rebuild the bundle (compare timestamps)
+NEEDS_REBUILD=false
+if [ ! -f "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ] || [ "$EXECUTABLE" -nt "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ]; then
+    NEEDS_REBUILD=true
+fi
+
+if [ "$NEEDS_REBUILD" = true ]; then
+    echo "Packaging $BUNDLE_DISPLAY_NAME.app..."
+    # Don't delete entire .app - just update changed files (faster!)
+    # Only delete if structure is broken
+    if [ ! -d "$APP_DIR/Contents" ]; then
+        rm -rf "$APP_DIR"
+    fi
+else
+    echo "Binary unchanged, skipping repackaging (use 'clean' to force rebuild)"
+    # Skip to code signing
+    if [ "$CMD" = "run" ]; then
+        echo "Launching..."
+        pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
+        pkill -x "vellum-assistant" 2>/dev/null || true
+        sleep 0.3
+        open "$APP_DIR"
+    fi
+    exit 0
+fi
+
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 
@@ -98,10 +124,14 @@ cp "$EXECUTABLE" "$MACOS_DIR/$BUNDLE_DISPLAY_NAME"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
 
 # Copy Sparkle.framework into bundle (required — it's a dynamic framework)
+# Only copy if missing or changed (it rarely changes)
 SPARKLE_FW="$BIN_PATH/Sparkle.framework"
 if [ -d "$SPARKLE_FW" ]; then
-    echo "Bundling Sparkle.framework..."
-    cp -R "$SPARKLE_FW" "$FRAMEWORKS_DIR/"
+    if [ ! -d "$FRAMEWORKS_DIR/Sparkle.framework" ] || [ "$SPARKLE_FW" -nt "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
+        echo "Bundling Sparkle.framework..."
+        rm -rf "$FRAMEWORKS_DIR/Sparkle.framework"
+        cp -R "$SPARKLE_FW" "$FRAMEWORKS_DIR/"
+    fi
 else
     echo "WARNING: Sparkle.framework not found at $SPARKLE_FW"
 fi
@@ -167,10 +197,15 @@ PLIST
 # 4. Copy SPM resource bundles into Contents/Resources/
 # ResourceBundle.swift checks Bundle.main.resourceURL (Contents/Resources/) first,
 # then falls back to Bundle.main.bundleURL (for direct `swift run`).
+# Only copy if missing or changed
 for SPM_BUNDLE in "$BIN_PATH"/*.bundle; do
     if [ -d "$SPM_BUNDLE" ]; then
-        echo "Bundling $(basename "$SPM_BUNDLE")"
-        cp -R "$SPM_BUNDLE" "$RESOURCES_DIR/"
+        BUNDLE_NAME=$(basename "$SPM_BUNDLE")
+        if [ ! -d "$RESOURCES_DIR/$BUNDLE_NAME" ] || [ "$SPM_BUNDLE" -nt "$RESOURCES_DIR/$BUNDLE_NAME" ]; then
+            echo "Bundling $BUNDLE_NAME"
+            rm -rf "$RESOURCES_DIR/$BUNDLE_NAME"
+            cp -R "$SPM_BUNDLE" "$RESOURCES_DIR/"
+        fi
     fi
 done
 
@@ -199,9 +234,15 @@ if [ -f "$MACOS_DIR/vellum-daemon" ]; then
     echo "Daemon binary signed"
 fi
 
-CODESIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --deep)
-if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-    CODESIGN_FLAGS+=(--timestamp --options runtime)
+# Use --deep only for release (faster in debug)
+if [ "$CONFIG" = "release" ]; then
+    CODESIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --deep)
+    if [ "$SIGN_IDENTITY" != "-" ]; then
+        CODESIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+else
+    # Debug: ad-hoc sign without --deep (faster)
+    CODESIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
 fi
 codesign "${CODESIGN_FLAGS[@]}" "$APP_DIR"
 
@@ -210,11 +251,16 @@ echo "Built: $APP_DIR"
 # 7. Run if requested
 if [ "$CMD" = "run" ]; then
     echo "Launching..."
-    # Kill existing instance if running
-    pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
-    # Also kill legacy pre-rename process name if still running
+    # Kill existing instance if running (SIGTERM for clean shutdown)
+    if pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null; then
+        pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null
+        # Wait for clean exit (max 1 second)
+        for i in {1..10}; do
+            pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null || break
+            sleep 0.1
+        done
+    fi
     pkill -x "vellum-assistant" 2>/dev/null || true
-    sleep 0.3
     # Launch via `open` so Launch Services registers the bundle —
     # this is required for macOS TCC to associate the app with its
     # bundle ID and show it in System Settings > Privacy & Security.
