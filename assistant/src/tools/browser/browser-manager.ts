@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { getDataDir } from '../../util/platform.js';
 import { getLogger } from '../../util/logger.js';
 import { checkBrowserRuntime } from './runtime-check.js';
+import { authSessionCache } from './auth-cache.js';
 
 const log = getLogger('browser-manager');
 
@@ -74,6 +75,9 @@ class BrowserManager {
     this.contextCreating = (async () => {
       const profileDir = getProfileDir();
       mkdirSync(profileDir, { recursive: true });
+
+      // Initialize auth session cache alongside browser context
+      await authSessionCache.load();
 
       // Auto-install Chromium if missing
       if (!launchPersistentContext) {
@@ -203,3 +207,7 @@ class BrowserManager {
 }
 
 export const browserManager = new BrowserManager();
+
+export function isAuthenticatedForDomain(domain: string): boolean {
+  return authSessionCache.isAuthenticated(domain);
+}
