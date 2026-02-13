@@ -1214,7 +1214,14 @@ function buildMemoryQuery(content: string, messages: Message[]): string {
   const summaryText = messages
     .map((message) => getSummaryFromContextMessage(message))
     .find((summary): summary is string => summary !== null) ?? '';
-  const compactSummary = summaryText.slice(0, 1200);
+  const maxLen = 1200;
+  let compactSummary: string;
+  if (summaryText.length <= maxLen) {
+    compactSummary = summaryText;
+  } else {
+    const half = Math.floor((maxLen - 5) / 2); // 5 chars for "[...]"
+    compactSummary = summaryText.slice(0, half) + '[...]' + summaryText.slice(-half);
+  }
   return compactSummary.length > 0
     ? `${content}\n\nContext summary:\n${compactSummary}`
     : content;
