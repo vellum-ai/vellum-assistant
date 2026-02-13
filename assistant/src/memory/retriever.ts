@@ -873,17 +873,23 @@ async function rerankWithLLM(
     }
   }
 
-  // Re-sort candidates by LLM score (desc), falling back to original finalScore
+  // Re-sort candidates by LLM score (desc); unscored candidates keep original order after scored ones
   const reranked = candidates.map((c, i) => ({
     candidate: c,
-    llmScore: scoreMap.get(i) ?? 0,
+    llmScore: scoreMap.has(i) ? scoreMap.get(i)! : null,
     originalIndex: i,
   }));
 
   reranked.sort((a, b) => {
-    const scoreDelta = b.llmScore - a.llmScore;
-    if (scoreDelta !== 0) return scoreDelta;
-    // Tie-break by original RRF order
+    // Scored items come before unscored items
+    if (a.llmScore !== null && b.llmScore === null) return -1;
+    if (a.llmScore === null && b.llmScore !== null) return 1;
+    // Both scored: sort by score descending
+    if (a.llmScore !== null && b.llmScore !== null) {
+      const scoreDelta = b.llmScore - a.llmScore;
+      if (scoreDelta !== 0) return scoreDelta;
+    }
+    // Both unscored or tie: preserve original RRF order
     return a.originalIndex - b.originalIndex;
   });
 
