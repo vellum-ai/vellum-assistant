@@ -31,7 +31,8 @@ mock.module('../util/logger.js', () => ({
 }));
 
 mock.module('../util/platform.js', () => ({
-  getDataDir: () => TEST_DIR,
+  getRootDir: () => TEST_DIR,
+  getDataDir: () => join(TEST_DIR, 'data'),
   getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
   ensureDataDir: () => ensureTestDir(),
   isMacOS: () => false,

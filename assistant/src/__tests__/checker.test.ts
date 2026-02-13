@@ -7,7 +7,8 @@ import { join } from 'node:path';
 const checkerTestDir = mkdtempSync(join(tmpdir(), 'checker-test-'));
 
 mock.module('../util/platform.js', () => ({
-  getDataDir: () => checkerTestDir,
+  getRootDir: () => checkerTestDir,
+  getDataDir: () => join(checkerTestDir, 'data'),
   isMacOS: () => process.platform === 'darwin',
   isLinux: () => process.platform === 'linux',
   isWindows: () => process.platform === 'win32',
@@ -46,7 +47,7 @@ describe('Permission Checker', () => {
   beforeEach(() => {
     // Reset trust-store state between tests
     clearCache();
-    try { rmSync(join(checkerTestDir, 'trust.json')); } catch { /* may not exist */ }
+    try { rmSync(join(checkerTestDir, 'protected', 'trust.json')); } catch { /* may not exist */ }
     try { rmSync(join(checkerTestDir, 'skills'), { recursive: true, force: true }); } catch { /* may not exist */ }
   });
 
