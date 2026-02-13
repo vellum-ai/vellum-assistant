@@ -495,8 +495,8 @@ private struct ChatBubble: View {
     /// exist (the thinking indicator already signals progress).
     private var shouldShowBubble: Bool {
         if isUser { return true }
-        if !message.inlineSurfaces.isEmpty { return false }
         if hasText || !message.attachments.isEmpty { return true }
+        if !message.inlineSurfaces.isEmpty { return false }
         // During streaming, hide tool-call-only bubbles so the thinking
         // indicator stays visible instead of showing raw tool progress.
         if message.isStreaming { return false }
