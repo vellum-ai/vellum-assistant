@@ -230,6 +230,11 @@ export interface UpdateTrustRule {
   priority?: number;
 }
 
+export interface BundleAppRequest {
+  type: 'bundle_app';
+  appId: string;
+}
+
 // === Surface types ===
 
 export type SurfaceType = 'card' | 'form' | 'list' | 'table' | 'confirmation' | 'dynamic_page' | 'file_upload';
@@ -370,7 +375,8 @@ export type ClientMessage =
   | AddTrustRule
   | TrustRulesList
   | RemoveTrustRule
-  | UpdateTrustRule;
+  | UpdateTrustRule
+  | BundleAppRequest;
 
 // === Server → Client messages ===
 
@@ -685,6 +691,21 @@ export interface TrustRulesListResponse {
   }>;
 }
 
+export interface BundleAppResponse {
+  type: 'bundle_app_response';
+  bundlePath: string;
+  manifest: {
+    format_version: number;
+    name: string;
+    description?: string;
+    icon?: string;
+    created_at: string;
+    created_by: string;
+    entry: string;
+    capabilities: string[];
+  };
+}
+
 export interface TimerCompleted {
   type: 'timer_completed';
   sessionId: string;
@@ -814,7 +835,8 @@ export type ServerMessage =
   | MessageQueued
   | MessageDequeued
   | TimerCompleted
-  | TrustRulesListResponse;
+  | TrustRulesListResponse
+  | BundleAppResponse;
 
 // === Serialization ===
 

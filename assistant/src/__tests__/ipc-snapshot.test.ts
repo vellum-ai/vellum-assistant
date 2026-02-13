@@ -192,6 +192,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     decision: 'allow',
     priority: 50,
   },
+  bundle_app: {
+    type: 'bundle_app',
+    appId: 'app-001',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -495,6 +499,19 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         createdAt: 1700000000,
       },
     ],
+  },
+  bundle_app_response: {
+    type: 'bundle_app_response',
+    bundlePath: '/tmp/My_App-abc12345.vellumapp',
+    manifest: {
+      format_version: 1,
+      name: 'My App',
+      description: 'A test app',
+      created_at: '2026-01-01T00:00:00.000Z',
+      created_by: 'vellum-assistant/0.1.6',
+      entry: 'index.html',
+      capabilities: [],
+    },
   },
 };
 

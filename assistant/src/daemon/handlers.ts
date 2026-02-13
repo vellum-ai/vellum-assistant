@@ -40,6 +40,7 @@ import type {
   AddTrustRule,
   RemoveTrustRule,
   UpdateTrustRule,
+  BundleAppRequest,
 } from './ipc-protocol.js';
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -51,6 +52,7 @@ import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } from '../memory/app-store.js';
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
+import { packageApp } from '../bundler/app-bundler.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -323,6 +325,7 @@ const handlers: DispatchMap = {
   trust_rules_list: (_msg, socket, ctx) => handleTrustRulesList(socket, ctx),
   remove_trust_rule: handleRemoveTrustRule,
   update_trust_rule: handleUpdateTrustRule,
+  bundle_app: handleBundleApp,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
@@ -1384,6 +1387,27 @@ async function generateSuggestion(apiKey: string, assistantText: string): Promis
 
   const firstLine = raw.split('\n')[0].trim();
   return firstLine || null;
+}
+
+// ─── Bundle app handler ─────────────────────────────────────────────────────
+
+async function handleBundleApp(
+  msg: BundleAppRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const result = await packageApp(msg.appId);
+    ctx.send(socket, {
+      type: 'bundle_app_response',
+      bundlePath: result.bundlePath,
+      manifest: result.manifest,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, appId: msg.appId }, 'Failed to bundle app');
+    ctx.send(socket, { type: 'error', message: `Failed to bundle app: ${message}` });
+  }
 }
 
 // ─── Computer-use handlers ──────────────────────────────────────────────────

@@ -19,6 +19,7 @@
     "@huggingface/transformers": "^3.8.1",
     "@qdrant/js-client-rest": "^1.16.2",
     "@sentry/node": "^10.38.0",
+    "archiver": "^7.0.1",
     "commander": "^13.1.0",
     "croner": "^10.0.1",
     "drizzle-orm": "^0.38.4",
@@ -35,6 +36,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/archiver": "^7.0.0",
     "@types/bun": "^1.2.4",
     "@types/node": "^25.2.2",
     "@types/uuid": "^10.0.0",
