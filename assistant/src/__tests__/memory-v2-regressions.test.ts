@@ -25,6 +25,25 @@ mock.module('../util/logger.js', () => ({
 
 import { and, eq } from 'drizzle-orm';
 import { DEFAULT_CONFIG } from '../config/defaults.js';
+
+// Disable LLM extraction in tests to avoid real API calls and ensure
+// deterministic pattern-based extraction.
+const TEST_CONFIG = {
+  ...DEFAULT_CONFIG,
+  memory: {
+    ...DEFAULT_CONFIG.memory,
+    extraction: {
+      ...DEFAULT_CONFIG.memory.extraction,
+      useLLM: false,
+    },
+  },
+};
+
+mock.module('../config/loader.js', () => ({
+  loadConfig: () => TEST_CONFIG,
+  getConfig: () => TEST_CONFIG,
+  invalidateConfigCache: () => {},
+}));
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { requestMemoryBackfill } from '../memory/admin.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
@@ -618,7 +637,7 @@ describe('Memory V2 regressions', () => {
     }
   });
 
-  test('memory item lastSeenAt follows message.createdAt and does not move backwards', () => {
+  test('memory item lastSeenAt follows message.createdAt and does not move backwards', async () => {
     const db = getDb();
     db.insert(conversations).values({
       id: 'conv-2',
@@ -648,8 +667,8 @@ describe('Memory V2 regressions', () => {
       createdAt: 500,
     }).run();
 
-    extractAndUpsertMemoryItemsForMessage('msg-newer');
-    extractAndUpsertMemoryItemsForMessage('msg-older');
+    await extractAndUpsertMemoryItemsForMessage('msg-newer');
+    await extractAndUpsertMemoryItemsForMessage('msg-older');
 
     const row = db
       .select()
@@ -701,7 +720,7 @@ describe('Memory V2 regressions', () => {
     expect(embedSegmentJobs).toHaveLength(0);
   });
 
-  test('indexing skips durable item extraction for non-user messages', () => {
+  test('indexing skips durable item extraction for assistant messages when extractFromAssistant is false', () => {
     const db = getDb();
     const createdAt = 2_100;
     db.insert(conversations).values({
@@ -724,13 +743,21 @@ describe('Memory V2 regressions', () => {
       createdAt,
     }).run();
 
+    const memoryConfig = {
+      ...DEFAULT_CONFIG.memory,
+      extraction: {
+        ...DEFAULT_CONFIG.memory.extraction,
+        extractFromAssistant: false,
+      },
+    };
+
     const result = indexMessageNow({
       messageId: 'msg-assistant-index',
       conversationId: 'conv-assistant-index',
       role: 'assistant',
       content: JSON.stringify([{ type: 'text', text: 'I think your timezone is PST.' }]),
       createdAt,
-    }, DEFAULT_CONFIG.memory);
+    }, memoryConfig);
     expect(result.enqueuedJobs).toBe(1);
 
     const extractionJobs = db

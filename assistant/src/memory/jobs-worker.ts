@@ -99,7 +99,7 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
       await embedSummaryJob(job, config);
       return;
     case 'extract_items':
-      extractItemsJob(job);
+      await extractItemsJob(job);
       return;
     case 'build_conversation_summary':
       buildConversationSummaryJob(job);
@@ -176,10 +176,10 @@ async function embedSummaryJob(job: MemoryJob, config: AssistantConfig): Promise
   });
 }
 
-function extractItemsJob(job: MemoryJob): void {
+async function extractItemsJob(job: MemoryJob): Promise<void> {
   const messageId = asString(job.payload.messageId);
   if (!messageId) return;
-  extractAndUpsertMemoryItemsForMessage(messageId);
+  await extractAndUpsertMemoryItemsForMessage(messageId);
 }
 
 function buildConversationSummaryJob(job: MemoryJob): void {
