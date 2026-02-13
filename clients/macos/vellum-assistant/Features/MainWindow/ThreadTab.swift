@@ -14,22 +14,26 @@ struct ThreadTab: View {
     @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            Button(action: onSelect) {
-                HStack(spacing: VSpacing.xs) {
-                    if let icon = icon {
-                        Image(systemName: icon)
-                            .font(.system(size: 12))
-                    }
-                    Text(label)
-                        .font(VFont.tabLabel)
-                        .lineLimit(1)
+        Button(action: onSelect) {
+            HStack(spacing: VSpacing.xs) {
+                if let icon = icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 12))
                 }
-                .foregroundColor(isSelected ? Color(hex: 0xFFFFFF) : VColor.textSecondary)
-                .contentShape(Rectangle())
+                Text(label)
+                    .font(VFont.tabLabel)
+                    .lineLimit(1)
+                if isCloseable {
+                    Spacer().frame(width: 16)
+                }
             }
-            .buttonStyle(.plain)
-
+            .foregroundColor(isSelected ? Color(hex: 0xFFFFFF) : VColor.textSecondary)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .trailing) {
             if isCloseable, let onClose = onClose {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
@@ -38,11 +42,9 @@ struct ThreadTab: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close \(label)")
+                .padding(.trailing, VSpacing.sm)
             }
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
-        .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
         .background(isHovered && !isSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .onHover { hovering in isHovered = hovering }
