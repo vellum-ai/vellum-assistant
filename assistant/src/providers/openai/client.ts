@@ -8,6 +8,7 @@ import type {
   ContentBlock,
 } from '../types.js';
 import { ProviderError } from '../../util/errors.js';
+import { escapeXmlAttr } from '../../util/xml.js';
 
 export interface OpenAICompatibleProviderOptions {
   baseURL?: string;
@@ -267,7 +268,7 @@ export class OpenAIProvider implements Provider {
   }
 
   private fileBlockToText(block: Extract<ContentBlock, { type: 'file' }>): string {
-    const header = `<attached_file name="${block.source.filename}" type="${block.source.media_type}" />`;
+    const header = `<attached_file name="${escapeXmlAttr(block.source.filename)}" type="${escapeXmlAttr(block.source.media_type)}" />`;
     if (block.extracted_text && block.extracted_text.trim().length > 0) {
       return `${header}\n${block.extracted_text}`;
     }

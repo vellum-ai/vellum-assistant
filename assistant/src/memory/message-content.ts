@@ -1,4 +1,5 @@
 import type { ContentBlock } from '../providers/types.js';
+import { escapeXmlAttr } from '../util/xml.js';
 
 export function extractTextFromStoredMessageContent(raw: string): string {
   try {
@@ -25,13 +26,13 @@ export function extractTextFromStoredMessageContent(raw: string): string {
           lines.push('<redacted_thinking />');
           break;
         case 'image':
-          lines.push(`<image type="${block.source.media_type}" />`);
+          lines.push(`<image type="${escapeXmlAttr(block.source.media_type)}" />`);
           break;
         case 'file':
           if (block.extracted_text) {
             lines.push(`File (${block.source.filename}): ${block.extracted_text}`);
           } else {
-            lines.push(`<file name="${block.source.filename}" type="${block.source.media_type}" />`);
+            lines.push(`<file name="${escapeXmlAttr(block.source.filename)}" type="${escapeXmlAttr(block.source.media_type)}" />`);
           }
           break;
         default:
