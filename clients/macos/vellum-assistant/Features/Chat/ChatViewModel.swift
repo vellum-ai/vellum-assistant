@@ -61,17 +61,26 @@ final class ChatViewModel: ObservableObject {
             return
         }
 
+        // Check file size via metadata before reading into memory to avoid
+        // loading very large files synchronously (which could freeze the UI).
+        do {
+            let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey])
+            if let fileSize = resourceValues.fileSize, fileSize > Self.maxFileSize {
+                errorText = "File exceeds 20 MB limit."
+                return
+            }
+        } catch {
+            log.error("Failed to read file attributes: \(error.localizedDescription)")
+            errorText = "Could not read file."
+            return
+        }
+
         let data: Data
         do {
             data = try Data(contentsOf: url)
         } catch {
             log.error("Failed to read attachment: \(error.localizedDescription)")
             errorText = "Could not read file."
-            return
-        }
-
-        guard data.count <= Self.maxFileSize else {
-            errorText = "File exceeds 20 MB limit."
             return
         }
 
