@@ -34,6 +34,7 @@ final class OnboardingState {
     var onboardingVariant: OnboardingVariant = .default
 
     // First-meeting-specific state
+    var firstMeetingCrackProgress: CGFloat = 0.0
     var conversationCompleted: Bool = false
     var capabilitiesBriefingShown: Bool = false
     var observationCompleted: Bool = false
@@ -44,7 +45,11 @@ final class OnboardingState {
     }
 
     /// Continuous crack progress (0.0–1.0) derived from step and permission state.
+    /// For the first meeting variant, uses a timer-driven stored property instead.
     var crackProgress: CGFloat {
+        if onboardingVariant == .firstMeeting {
+            return firstMeetingCrackProgress
+        }
         switch currentStep {
         case 0: return hasHatched ? 0.15 : 0.0
         case 1: return 0.25
