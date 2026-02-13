@@ -81,6 +81,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowObserver: Any?
     private var settingsWindowObserver: Any?
     private weak var recordingViewModel: ChatViewModel?
+    private var statusIconCancellable: AnyCancellable?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -663,6 +664,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         main.show()
         mainWindow = main
+        observeAssistantStatus()
+    }
+
+    private func observeAssistantStatus() {
+        statusIconCancellable = mainWindow?.threadManager.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateMenuBarIcon()
+            }
     }
 
     // MARK: - Settings
@@ -916,6 +926,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let observer = settingsWindowObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        statusIconCancellable?.cancel()
         voiceInput?.stop()
         ambientAgent.stop()
         surfaceManager.dismissAll()
