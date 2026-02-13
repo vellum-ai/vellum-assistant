@@ -420,14 +420,18 @@ trust
     const toolW = 12;
     const patternW = 30;
     const scopeW = 20;
+    const decW = 6;
+    const priW = 4;
     console.log(
       'ID'.padEnd(idW) +
       'Tool'.padEnd(toolW) +
       'Pattern'.padEnd(patternW) +
       'Scope'.padEnd(scopeW) +
+      'Dcn'.padEnd(decW) +
+      'Pri'.padEnd(priW) +
       'Created',
     );
-    console.log('-'.repeat(idW + toolW + patternW + scopeW + 20));
+    console.log('-'.repeat(idW + toolW + patternW + scopeW + decW + priW + 20));
     for (const r of rules) {
       const id = r.id.slice(0, 8);
       const created = new Date(r.createdAt).toISOString().slice(0, 10);
@@ -436,6 +440,8 @@ trust
         r.tool.padEnd(toolW) +
         r.pattern.slice(0, patternW - 2).padEnd(patternW) +
         r.scope.slice(0, scopeW - 2).padEnd(scopeW) +
+        r.decision.slice(0, decW - 1).padEnd(decW) +
+        String(r.priority).padEnd(priW) +
         created,
       );
     }

@@ -1,5 +1,5 @@
 import { RiskLevel, type PermissionCheckResult, type AllowlistOption, type ScopeOption } from './types.js';
-import { findMatchingRule, findDenyRule } from './trust-store.js';
+import { findHighestPriorityRule } from './trust-store.js';
 import { parse } from '../tools/terminal/parser.js';
 import { resolveSkillSelector } from '../config/skills.js';
 import { getTool } from '../tools/registry.js';
@@ -263,30 +263,29 @@ export async function check(
   // Build command string candidates for rule matching
   const commandCandidates = buildCommandCandidates(toolName, input);
 
-  // Deny rules take precedence at ALL risk levels
-  for (const command of commandCandidates) {
-    const denyRule = findDenyRule(toolName, command, workingDir);
-    if (denyRule) {
-      return { decision: 'deny', reason: `Blocked by deny rule: ${denyRule.pattern}`, matchedRule: denyRule };
+  // Find the highest-priority matching rule across all candidates
+  const matchedRule = findHighestPriorityRule(toolName, commandCandidates, workingDir);
+
+  if (matchedRule) {
+    if (matchedRule.decision === 'deny') {
+      // Deny rules apply at ALL risk levels
+      return { decision: 'deny', reason: `Blocked by deny rule: ${matchedRule.pattern}`, matchedRule };
     }
+
+    // Allow rule: auto-allow for non-High risk
+    if (risk !== RiskLevel.High) {
+      return { decision: 'allow', reason: `Matched trust rule: ${matchedRule.pattern}`, matchedRule };
+    }
+    // High risk with allow rule → fall through to prompt
   }
 
-  // High risk → always prompt, allow rules ignored
+  // No matching rule (or High risk with allow rule) → risk-based fallback
   if (risk === RiskLevel.High) {
     return { decision: 'prompt', reason: `High risk: always requires approval` };
   }
 
-  // Low risk → auto-allow
   if (risk === RiskLevel.Low) {
     return { decision: 'allow', reason: 'Low risk: auto-allowed' };
-  }
-
-  // Medium risk → check allow rules
-  for (const command of commandCandidates) {
-    const matchedRule = findMatchingRule(toolName, command, workingDir);
-    if (matchedRule) {
-      return { decision: 'allow', reason: `Matched trust rule: ${matchedRule.pattern}`, matchedRule };
-    }
   }
 
   return { decision: 'prompt', reason: `${risk} risk: requires approval` };

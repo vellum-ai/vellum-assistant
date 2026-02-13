@@ -1,13 +1,14 @@
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 
 // Create a temp directory for the trust file
 const testDir = mkdtempSync(join(tmpdir(), 'trust-store-test-'));
 
 // Mock platform module so trust-store writes to temp dir instead of ~/.vellum
 mock.module('../util/platform.js', () => ({
+  getRootDir: () => testDir,
   getDataDir: () => testDir,
   isMacOS: () => process.platform === 'darwin',
   isLinux: () => process.platform === 'linux',
@@ -37,13 +38,14 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { addRule, removeRule, findMatchingRule, findDenyRule, getAllRules, clearCache } from '../permissions/trust-store.js';
+import { addRule, removeRule, findMatchingRule, findDenyRule, findHighestPriorityRule, getAllRules, clearCache } from '../permissions/trust-store.js';
+
+const trustPath = join(testDir, 'protected', 'trust.json');
 
 describe('Trust Store', () => {
   beforeEach(() => {
     // Clear cached rules and remove the trust file between tests
     clearCache();
-    const trustPath = join(testDir, 'trust.json');
     try { rmSync(trustPath); } catch { /* may not exist */ }
   });
 
@@ -60,6 +62,7 @@ describe('Trust Store', () => {
       expect(rule.pattern).toBe('git *');
       expect(rule.scope).toBe('/home/user/project');
       expect(rule.decision).toBe('allow');
+      expect(rule.priority).toBe(100);
       expect(rule.createdAt).toBeGreaterThan(0);
     });
 
@@ -71,12 +74,12 @@ describe('Trust Store', () => {
 
     test('persists rule to disk', () => {
       addRule('bash', 'git push', '/home/user');
-      const trustPath = join(testDir, 'trust.json');
       const raw = readFileSync(trustPath, 'utf-8');
       const data = JSON.parse(raw);
-      expect(data.version).toBe(1);
+      expect(data.version).toBe(2);
       expect(data.rules).toHaveLength(1);
       expect(data.rules[0].pattern).toBe('git push');
+      expect(data.rules[0].priority).toBe(100);
     });
 
     test('multiple rules accumulate', () => {
@@ -84,6 +87,34 @@ describe('Trust Store', () => {
       addRule('file_write', '/tmp/*', '/tmp');
       addRule('bash', 'npm *', '/tmp');
       expect(getAllRules()).toHaveLength(3);
+    });
+
+    test('default priority is 100', () => {
+      const rule = addRule('bash', 'git *', '/tmp');
+      expect(rule.priority).toBe(100);
+    });
+
+    test('custom priority is respected', () => {
+      const rule = addRule('bash', 'git *', '/tmp', 'allow', 5);
+      expect(rule.priority).toBe(5);
+    });
+
+    test('rules are sorted by priority descending in getAllRules', () => {
+      addRule('bash', 'low *', '/tmp', 'allow', 0);
+      addRule('bash', 'high *', '/tmp', 'allow', 2);
+      addRule('bash', 'med *', '/tmp', 'allow', 1);
+      const rules = getAllRules();
+      expect(rules[0].priority).toBe(2);
+      expect(rules[1].priority).toBe(1);
+      expect(rules[2].priority).toBe(0);
+    });
+
+    test('at same priority deny rules sort before allow rules', () => {
+      addRule('bash', 'allow *', '/tmp', 'allow', 100);
+      addRule('bash', 'deny *', '/tmp', 'deny', 100);
+      const rules = getAllRules();
+      expect(rules[0].decision).toBe('deny');
+      expect(rules[1].decision).toBe('allow');
     });
   });
 
@@ -212,6 +243,63 @@ describe('Trust Store', () => {
     });
   });
 
+  // ── findHighestPriorityRule ──────────────────────────────────────
+
+  describe('findHighestPriorityRule', () => {
+    test('returns highest priority matching rule', () => {
+      addRule('bash', 'rm *', '/tmp', 'allow', 0);
+      addRule('bash', 'rm *', '/tmp', 'deny', 100);
+      const match = findHighestPriorityRule('bash', ['rm file.txt'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.decision).toBe('deny');
+      expect(match!.priority).toBe(100);
+    });
+
+    test('higher priority allow beats lower priority deny', () => {
+      addRule('bash', 'rm *', '/tmp', 'deny', 0);
+      addRule('bash', 'rm *', '/tmp', 'allow', 100);
+      const match = findHighestPriorityRule('bash', ['rm file.txt'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.decision).toBe('allow');
+    });
+
+    test('same priority: deny beats allow', () => {
+      addRule('bash', 'rm *', '/tmp', 'allow', 100);
+      addRule('bash', 'rm *', '/tmp', 'deny', 100);
+      const match = findHighestPriorityRule('bash', ['rm file.txt'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.decision).toBe('deny');
+    });
+
+    test('checks multiple command candidates', () => {
+      addRule('web_fetch', 'web_fetch:https://example.com/*', '/tmp', 'allow');
+      const match = findHighestPriorityRule(
+        'web_fetch',
+        ['web_fetch:https://example.com/page', 'web_fetch:https://example.com/*'],
+        '/tmp',
+      );
+      expect(match).not.toBeNull();
+    });
+
+    test('returns null when no rule matches', () => {
+      addRule('bash', 'git *', '/tmp', 'allow');
+      const match = findHighestPriorityRule('bash', ['npm install'], '/tmp');
+      expect(match).toBeNull();
+    });
+
+    test('respects scope matching', () => {
+      addRule('bash', 'rm *', '/home/user/project', 'deny');
+      expect(findHighestPriorityRule('bash', ['rm file.txt'], '/home/user/project/sub')).not.toBeNull();
+      expect(findHighestPriorityRule('bash', ['rm file.txt'], '/home/other')).toBeNull();
+    });
+
+    test('everywhere scope matches any directory', () => {
+      addRule('bash', 'git *', 'everywhere', 'allow');
+      const match = findHighestPriorityRule('bash', ['git status'], '/any/random/path');
+      expect(match).not.toBeNull();
+    });
+  });
+
   // ── getAllRules ─────────────────────────────────────────────────
 
   describe('getAllRules', () => {
@@ -253,11 +341,11 @@ describe('Trust Store', () => {
 
     test('trust file has correct structure', () => {
       addRule('bash', 'git *', '/tmp');
-      const trustPath = join(testDir, 'trust.json');
       const data = JSON.parse(readFileSync(trustPath, 'utf-8'));
-      expect(data).toHaveProperty('version', 1);
+      expect(data).toHaveProperty('version', 2);
       expect(data).toHaveProperty('rules');
       expect(Array.isArray(data.rules)).toBe(true);
+      expect(data.rules[0]).toHaveProperty('priority', 100);
     });
   });
 
@@ -320,6 +408,50 @@ describe('Trust Store', () => {
       const rule = addRule('bash', 'rm *', '/tmp', 'deny');
       expect(removeRule(rule.id)).toBe(true);
       expect(findDenyRule('bash', 'rm file.txt', '/tmp')).toBeNull();
+    });
+  });
+
+  // ── v1 migration ───────────────────────────────────────────────
+
+  describe('v1 migration', () => {
+    test('v1 rules get priority 100 on load', () => {
+      mkdirSync(dirname(trustPath), { recursive: true });
+      writeFileSync(trustPath, JSON.stringify({
+        version: 1,
+        rules: [{
+          id: 'test-v1-id',
+          tool: 'bash',
+          pattern: 'git *',
+          scope: '/tmp',
+          decision: 'allow',
+          createdAt: 1000,
+        }],
+      }));
+      clearCache();
+      const rules = getAllRules();
+      expect(rules).toHaveLength(1);
+      expect(rules[0].priority).toBe(100);
+      expect(rules[0].id).toBe('test-v1-id');
+    });
+
+    test('v1 file is upgraded to v2 on disk', () => {
+      mkdirSync(dirname(trustPath), { recursive: true });
+      writeFileSync(trustPath, JSON.stringify({
+        version: 1,
+        rules: [{
+          id: 'migrate-me',
+          tool: 'bash',
+          pattern: 'npm *',
+          scope: 'everywhere',
+          decision: 'allow',
+          createdAt: 2000,
+        }],
+      }));
+      clearCache();
+      getAllRules(); // triggers load + migration
+      const data = JSON.parse(readFileSync(trustPath, 'utf-8'));
+      expect(data.version).toBe(2);
+      expect(data.rules[0].priority).toBe(100);
     });
   });
 });

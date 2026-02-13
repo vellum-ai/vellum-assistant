@@ -4,11 +4,12 @@ import { v4 as uuid } from 'uuid';
 import { minimatch } from 'minimatch';
 import { getRootDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
+import { DEFAULT_RULE_TEMPLATES } from './defaults.js';
 import type { TrustRule } from './types.js';
 
 const log = getLogger('trust-store');
 
-const TRUST_FILE_VERSION = 1;
+const TRUST_FILE_VERSION = 2;
 
 interface TrustFile {
   version: number;
@@ -21,23 +22,71 @@ function getTrustPath(): string {
   return join(getRootDir(), 'protected', 'trust.json');
 }
 
+/**
+ * Sort comparator: highest priority first. At the same priority, deny rules
+ * come before allow rules for safety (deny wins ties).
+ */
+function ruleOrder(a: TrustRule, b: TrustRule): number {
+  if (b.priority !== a.priority) return b.priority - a.priority;
+  if (a.decision !== b.decision) return a.decision === 'deny' ? -1 : 1;
+  return 0;
+}
+
 function loadFromDisk(): TrustRule[] {
   const path = getTrustPath();
-  if (!existsSync(path)) {
-    return [];
-  }
-  try {
-    const raw = readFileSync(path, 'utf-8');
-    const data = JSON.parse(raw) as TrustFile;
-    if (data.version !== TRUST_FILE_VERSION) {
-      log.warn({ version: data.version }, 'Unknown trust file version, ignoring');
+  let rules: TrustRule[] = [];
+  let needsSave = false;
+
+  if (existsSync(path)) {
+    try {
+      const raw = readFileSync(path, 'utf-8');
+      const data = JSON.parse(raw) as TrustFile;
+
+      if (data.version === 1) {
+        // Migration: v1 → v2. All existing rules are user-created → priority 100.
+        rules = (data.rules ?? []).map((r) => ({
+          ...r,
+          priority: 100,
+        }));
+        needsSave = true;
+        log.info({ ruleCount: rules.length }, 'Migrated v1 trust rules to v2 (priority=100)');
+      } else if (data.version === TRUST_FILE_VERSION) {
+        rules = data.rules ?? [];
+      } else {
+        log.warn({ version: data.version }, 'Unknown trust file version, ignoring');
+        return [];
+      }
+    } catch (err) {
+      log.error({ err }, 'Failed to load trust file');
       return [];
     }
-    return data.rules ?? [];
-  } catch (err) {
-    log.error({ err }, 'Failed to load trust file');
-    return [];
   }
+
+  // Backfill default rules (priority 0)
+  const existingIds = new Set(rules.map((r) => r.id));
+  for (const template of DEFAULT_RULE_TEMPLATES) {
+    if (!existingIds.has(template.id)) {
+      rules.push({
+        id: template.id,
+        tool: template.tool,
+        pattern: template.pattern,
+        scope: template.scope,
+        decision: template.decision,
+        priority: 0,
+        createdAt: Date.now(),
+      });
+      needsSave = true;
+      log.info({ ruleId: template.id }, 'Backfilled default trust rule');
+    }
+  }
+
+  rules.sort(ruleOrder);
+
+  if (needsSave) {
+    saveToDisk(rules);
+  }
+
+  return rules;
 }
 
 function saveToDisk(rules: TrustRule[]): void {
@@ -59,7 +108,13 @@ function getRules(): TrustRule[] {
   return cachedRules;
 }
 
-export function addRule(tool: string, pattern: string, scope: string, decision: 'allow' | 'deny' = 'allow'): TrustRule {
+export function addRule(
+  tool: string,
+  pattern: string,
+  scope: string,
+  decision: 'allow' | 'deny' = 'allow',
+  priority: number = 100,
+): TrustRule {
   // Re-read from disk to avoid lost updates if another call modified rules
   // between our last read and now (e.g. two rapid trust rule additions).
   cachedRules = null;
@@ -70,9 +125,11 @@ export function addRule(tool: string, pattern: string, scope: string, decision: 
     pattern,
     scope,
     decision,
+    priority,
     createdAt: Date.now(),
   };
   rules.push(rule);
+  rules.sort(ruleOrder);
   cachedRules = rules;
   saveToDisk(rules);
   log.info({ rule }, 'Added trust rule');
@@ -92,15 +149,37 @@ export function removeRule(id: string): boolean {
   return true;
 }
 
+function matchesScope(ruleScope: string, workingDir: string): boolean {
+  if (ruleScope === 'everywhere') return true;
+  return workingDir.startsWith(ruleScope.replace(/\*$/, ''));
+}
+
 function findRuleByDecision(tool: string, command: string, scope: string, decision: 'allow' | 'deny'): TrustRule | null {
   const rules = getRules();
   for (const rule of rules) {
     if (rule.tool !== tool) continue;
     if (rule.decision !== decision) continue;
     if (!minimatch(command, rule.pattern)) continue;
-    // Scope check: rule scope must be a prefix of the working dir, or 'everywhere'
-    if (rule.scope !== 'everywhere' && !scope.startsWith(rule.scope.replace(/\*$/, ''))) continue;
+    if (!matchesScope(rule.scope, scope)) continue;
     return rule;
+  }
+  return null;
+}
+
+/**
+ * Find the highest-priority rule that matches any of the command candidates.
+ * Rules are pre-sorted by priority descending, so the first match wins.
+ */
+export function findHighestPriorityRule(tool: string, commands: string[], scope: string): TrustRule | null {
+  const rules = getRules();
+  for (const rule of rules) {
+    if (rule.tool !== tool) continue;
+    if (!matchesScope(rule.scope, scope)) continue;
+    for (const command of commands) {
+      if (minimatch(command, rule.pattern)) {
+        return rule;
+      }
+    }
   }
   return null;
 }
