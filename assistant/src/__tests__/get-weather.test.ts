@@ -41,6 +41,7 @@ function createMockFetch(options?: {
 
   const defaultForecastData = {
     current: {
+      time: '2025-01-15T08:00',
       temperature_2m: 15.0,
       relative_humidity_2m: 72,
       apparent_temperature: 13.5,

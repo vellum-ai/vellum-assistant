@@ -55,6 +55,7 @@ interface GeocodingResult {
 }
 
 interface CurrentWeather {
+  time: string;
   temperature_2m: number;
   relative_humidity_2m: number;
   apparent_temperature: number;
@@ -168,7 +169,7 @@ export async function executeGetWeather(
   // Step 2: Fetch the weather forecast
   let forecast: ForecastResponse;
   try {
-    const weatherUrl = `${FORECAST_API}?latitude=${geo.latitude}&longitude=${geo.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&hourly=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=${forecastDays}`;
+    const weatherUrl = `${FORECAST_API}?latitude=${geo.latitude}&longitude=${geo.longitude}&current=time,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&hourly=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=${forecastDays}`;
     log.debug({ url: weatherUrl }, 'Fetching weather forecast');
 
     const weatherResponse = await fetchFn(weatherUrl, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
@@ -249,17 +250,14 @@ export async function executeGetWeather(
     forecastItems.push({ day: dayLabel, icon, low, high, precip: precip > 0 ? precip : null, condition: desc });
   }
 
-  // Process hourly data: next 24 hours from the current hour
+  // Process hourly data: next 24 hours from the current hour.
+  // Use the current time from the API response (which is in the location's local
+  // timezone, thanks to timezone=auto) to find the correct starting index.
   const hourlyItems: Array<{ time: string; icon: string; temp: number }> = [];
   if (forecast.hourly?.time) {
-    const now = new Date();
-    const currentHourISO = now.toISOString().slice(0, 13); // "2026-02-13T00"
-    // Find the index of the current hour in the hourly data
-    let startIndex = forecast.hourly.time.findIndex((t) => t.startsWith(currentHourISO));
-    if (startIndex < 0) {
-      // Fallback: find the first hour that's >= now
-      startIndex = forecast.hourly.time.findIndex((t) => new Date(t) >= now);
-    }
+    const currentTimeLocal = forecast.current.time; // e.g. "2026-02-12T22:00"
+    const currentHourPrefix = currentTimeLocal.slice(0, 13); // e.g. "2026-02-12T22"
+    let startIndex = forecast.hourly.time.findIndex((t) => t.startsWith(currentHourPrefix));
     if (startIndex < 0) startIndex = 0;
 
     const count = Math.min(24, forecast.hourly.time.length - startIndex);
@@ -275,8 +273,9 @@ export async function executeGetWeather(
       if (i === 0) {
         timeLabel = 'Now';
       } else {
-        const d = new Date(forecast.hourly.time[idx]);
-        const hour = d.getHours();
+        // Parse the hour directly from the time string (already in location-local
+        // timezone) instead of relying on Date parsing which is runtime-dependent.
+        const hour = parseInt(forecast.hourly.time[idx].slice(11, 13), 10);
         const suffix = hour >= 12 ? 'PM' : 'AM';
         const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
         timeLabel = `${displayHour}${suffix}`;
