@@ -15,14 +15,17 @@ public struct SettingsView: View {
         return val == 0 ? 30 : val
     }()
     @State private var showingPrivacy = false
+    @State private var showingTrustRules = false
     @State private var activationKey: ActivationKey = {
         let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
         return ActivationKey(rawValue: stored) ?? .fn
     }()
     var ambientAgent: AmbientAgent
+    var daemonClient: DaemonClient?
 
-    public init(ambientAgent: AmbientAgent) {
+    public init(ambientAgent: AmbientAgent, daemonClient: DaemonClient? = nil) {
         self.ambientAgent = ambientAgent
+        self.daemonClient = daemonClient
     }
 
     // Re-check permissions every 2 seconds while the window is open
@@ -145,6 +148,26 @@ public struct SettingsView: View {
                             let status = PermissionManager.screenRecordingStatus()
                             screenRecordingGranted = status == .granted
                         }
+                    }
+                }
+            }
+
+            if let daemonClient {
+                Section("Trust Rules") {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Manage Trust Rules")
+                            Text("Control which tool actions are automatically allowed or denied")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Manage Trust Rules...") {
+                            showingTrustRules = true
+                        }
+                    }
+                    .sheet(isPresented: $showingTrustRules) {
+                        TrustRulesView(daemonClient: daemonClient)
                     }
                 }
             }
