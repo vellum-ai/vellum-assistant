@@ -4,10 +4,21 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag name for testing"
+        default: "v0.0.0-test"
+      body:
+        description: "Release body for testing"
+        default: "Test release notification"
 
 jobs:
   notify:
     runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ github.event.release.tag_name || inputs.tag_name }}
+      RELEASE_BODY: ${{ github.event.release.body || inputs.body }}
+      RELEASE_URL: ${{ github.event.release.html_url || format('https://github.com/{0}/releases', github.repository) }}
     steps:
       - name: Post to Slack #releases channel
         uses: slackapi/slack-github-action@v2.1.0
@@ -21,14 +32,14 @@ jobs:
                   "type": "header",
                   "text": {
                     "type": "plain_text",
-                    "text": "🚀 Vellum Assistant ${{ github.event.release.tag_name }} Released"
+                    "text": "🚀 Vellum Assistant ${{ env.TAG_NAME }} Released"
                   }
                 },
                 {
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": ${{ toJSON(github.event.release.body) }}
+                    "text": ${{ toJSON(env.RELEASE_BODY) }}
                   }
                 },
                 {
@@ -40,7 +51,7 @@ jobs:
                         "type": "plain_text",
                         "text": "View Release"
                       },
-                      "url": "${{ github.event.release.html_url }}"
+                      "url": "${{ env.RELEASE_URL }}"
                     }
                   ]
                 }
