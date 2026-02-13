@@ -120,7 +120,7 @@ describe('recordUsageEvent', () => {
       cacheCreationInputTokens: null,
       cacheReadInputTokens: null,
     });
-    const event = recordUsageEvent(input, unpricedResult);
+    const _event = recordUsageEvent(input, unpricedResult);
 
     const events = listUsageEvents();
     expect(events).toHaveLength(1);
@@ -141,7 +141,7 @@ describe('recordUsageEvent', () => {
       cacheCreationInputTokens: 200,
       cacheReadInputTokens: 300,
     });
-    const event = recordUsageEvent(input, pricedResult);
+    const _event = recordUsageEvent(input, pricedResult);
 
     const events = listUsageEvents();
     expect(events).toHaveLength(1);

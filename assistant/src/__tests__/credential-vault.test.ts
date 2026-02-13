@@ -57,7 +57,7 @@ import {
 } from '../security/secure-keys.js';
 
 // Create a minimal context for tool execution
-const ctx: ToolContext = {
+const _ctx: ToolContext = {
   workingDir: '/tmp',
   sessionId: 'test-session',
   conversationId: 'test-conv',
@@ -66,10 +66,10 @@ const ctx: ToolContext = {
 // We'll manually instantiate the tool for testing
 // by reimporting the class behavior through the tool's execute method.
 // Since the tool registers itself, let's capture it.
-let capturedTool: { execute(input: Record<string, unknown>, context: ToolContext): Promise<{ content: string; isError: boolean }> };
+let _capturedTool: { execute(input: Record<string, unknown>, context: ToolContext): Promise<{ content: string; isError: boolean }> };
 
 // Re-mock registry to capture the tool
-const { registerTool: _unused, ...registryRest } = await import('../tools/registry.js');
+const { registerTool: _unused, ..._registryRest } = await import('../tools/registry.js');
 
 // We need to access the actual tool - let's create it directly
 // by re-using the module. Since vault.ts calls registerTool as a side-effect,

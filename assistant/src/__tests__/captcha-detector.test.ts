@@ -56,7 +56,7 @@ mock.module('../tools/network/url-safety.js', () => ({
   sanitizeUrlForOutput: (url: URL) => url.href,
 }));
 
-import { detectCaptcha, CAPTCHA_SELECTORS, CAPTCHA_TEXT_PATTERNS } from '../tools/browser/captcha-detector.js';
+import { detectCaptcha } from '../tools/browser/captcha-detector.js';
 import { executeBrowserDetectCaptcha } from '../tools/browser/headless-browser.js';
 import type { ToolContext } from '../tools/types.js';
 
@@ -92,7 +92,7 @@ describe('detectCaptcha', () => {
 
   test('detects reCAPTCHA elements', async () => {
     let callCount = 0;
-    mockPage.evaluate = mock(async (fn: unknown, ...args: unknown[]) => {
+    mockPage.evaluate = mock(async (_fn: unknown, ..._args: unknown[]) => {
       callCount++;
       if (callCount === 1) {
         // Simulate selector check: return the matching selector
@@ -101,7 +101,7 @@ describe('detectCaptcha', () => {
       return '';
     });
 
-    const result = await detectCaptcha(mockPage as any);
+    const result = await detectCaptcha(mockPage as unknown as Parameters<typeof detectCaptcha>[0]);
     expect(result.detected).toBe(true);
     expect(result.type).toBe('recaptcha');
     expect(result.hint).toContain('recaptcha');
@@ -109,7 +109,7 @@ describe('detectCaptcha', () => {
 
   test('detects hCaptcha elements', async () => {
     let callCount = 0;
-    mockPage.evaluate = mock(async (fn: unknown, ...args: unknown[]) => {
+    mockPage.evaluate = mock(async (_fn: unknown, ..._args: unknown[]) => {
       callCount++;
       if (callCount === 1) {
         return '.h-captcha';
@@ -117,7 +117,7 @@ describe('detectCaptcha', () => {
       return '';
     });
 
-    const result = await detectCaptcha(mockPage as any);
+    const result = await detectCaptcha(mockPage as unknown as Parameters<typeof detectCaptcha>[0]);
     expect(result.detected).toBe(true);
     expect(result.type).toBe('hcaptcha');
     expect(result.hint).toContain('h-captcha');
@@ -125,7 +125,7 @@ describe('detectCaptcha', () => {
 
   test('detects Cloudflare Turnstile', async () => {
     let callCount = 0;
-    mockPage.evaluate = mock(async (fn: unknown, ...args: unknown[]) => {
+    mockPage.evaluate = mock(async (_fn: unknown, ..._args: unknown[]) => {
       callCount++;
       if (callCount === 1) {
         return 'iframe[src*="challenges.cloudflare.com"]';
@@ -133,7 +133,7 @@ describe('detectCaptcha', () => {
       return '';
     });
 
-    const result = await detectCaptcha(mockPage as any);
+    const result = await detectCaptcha(mockPage as unknown as Parameters<typeof detectCaptcha>[0]);
     expect(result.detected).toBe(true);
     expect(result.type).toBe('turnstile');
     expect(result.hint).toContain('cloudflare');
@@ -141,7 +141,7 @@ describe('detectCaptcha', () => {
 
   test('detects CAPTCHA text patterns', async () => {
     let callCount = 0;
-    mockPage.evaluate = mock(async (fn: unknown, ...args: unknown[]) => {
+    mockPage.evaluate = mock(async (_fn: unknown, ..._args: unknown[]) => {
       callCount++;
       if (callCount === 1) {
         // No selector matched
@@ -151,7 +151,7 @@ describe('detectCaptcha', () => {
       return 'Please verify you are human to continue';
     });
 
-    const result = await detectCaptcha(mockPage as any);
+    const result = await detectCaptcha(mockPage as unknown as Parameters<typeof detectCaptcha>[0]);
     expect(result.detected).toBe(true);
     expect(result.type).toBe('unknown');
     expect(result.hint).toContain('pattern');
@@ -159,7 +159,7 @@ describe('detectCaptcha', () => {
 
   test('returns detected: false when no CAPTCHA present', async () => {
     let callCount = 0;
-    mockPage.evaluate = mock(async (fn: unknown, ...args: unknown[]) => {
+    mockPage.evaluate = mock(async (_fn: unknown, ..._args: unknown[]) => {
       callCount++;
       if (callCount === 1) {
         return null;
@@ -167,7 +167,7 @@ describe('detectCaptcha', () => {
       return 'Just a normal page with no captcha indicators';
     });
 
-    const result = await detectCaptcha(mockPage as any);
+    const result = await detectCaptcha(mockPage as unknown as Parameters<typeof detectCaptcha>[0]);
     expect(result.detected).toBe(false);
     expect(result.type).toBeUndefined();
     expect(result.hint).toBeUndefined();
@@ -178,7 +178,7 @@ describe('detectCaptcha', () => {
       throw new Error('Page is closed');
     });
 
-    const result = await detectCaptcha(mockPage as any);
+    const result = await detectCaptcha(mockPage as unknown as Parameters<typeof detectCaptcha>[0]);
     expect(result.detected).toBe(false);
   });
 });
@@ -192,7 +192,7 @@ describe('executeBrowserDetectCaptcha', () => {
 
   test('returns JSON with detected: true when CAPTCHA found', async () => {
     let callCount = 0;
-    mockPage.evaluate = mock(async (fn: unknown, ...args: unknown[]) => {
+    mockPage.evaluate = mock(async (_fn: unknown, ..._args: unknown[]) => {
       callCount++;
       if (callCount === 1) {
         return '.g-recaptcha';
@@ -209,7 +209,7 @@ describe('executeBrowserDetectCaptcha', () => {
 
   test('returns JSON with detected: false when no CAPTCHA', async () => {
     let callCount = 0;
-    mockPage.evaluate = mock(async (fn: unknown, ...args: unknown[]) => {
+    mockPage.evaluate = mock(async (_fn: unknown, ..._args: unknown[]) => {
       callCount++;
       if (callCount === 1) {
         return null;
@@ -225,7 +225,7 @@ describe('executeBrowserDetectCaptcha', () => {
 
   test('includes hint in response when CAPTCHA detected', async () => {
     let callCount = 0;
-    mockPage.evaluate = mock(async (fn: unknown, ...args: unknown[]) => {
+    mockPage.evaluate = mock(async (_fn: unknown, ..._args: unknown[]) => {
       callCount++;
       if (callCount === 1) {
         return 'iframe[src*="hcaptcha"]';

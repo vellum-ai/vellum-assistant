@@ -40,7 +40,7 @@ import type { ToolContext } from '../tools/types.js';
 // Initialize db once
 initializeDb();
 
-const ctx: ToolContext = {
+const _ctx: ToolContext = {
   workingDir: '/tmp',
   sessionId: 'test-session',
   conversationId: 'test-conv',
@@ -227,7 +227,7 @@ describe('account_manage tool', () => {
 
     test('create without service returns error message', async () => {
       // Import the tool module to test its execute method
-      const mod = await import('../tools/credentials/account-registry.js');
+      const _mod = await import('../tools/credentials/account-registry.js');
       // The tool was registered via side-effect; we test the store functions directly
       // and verify the tool's error-handling logic matches.
       // Since we mocked registerTool, let's just verify the store logic.

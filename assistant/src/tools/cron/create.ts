@@ -2,7 +2,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { createCronJob, isValidCronExpression, computeNextRunAt, formatLocalDate } from '../../cron/cron-store.js';
+import { createCronJob, isValidCronExpression, formatLocalDate } from '../../cron/cron-store.js';
 
 class CronCreateTool implements Tool {
   name = 'cron_create';
