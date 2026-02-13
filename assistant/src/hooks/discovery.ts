@@ -85,7 +85,10 @@ export function discoverHooks(hooksDir?: string): DiscoveredHook[] {
 
     const scriptPath = resolve(hookDir, manifest.script);
     const rel = relative(hookDir, scriptPath);
-    if (rel.startsWith('../') || rel === '..' || resolve(hookDir, rel) !== scriptPath) {
+    // Normalize backslashes so Windows-style traversal (e.g. `..\\..\\evil.js`) is
+    // also caught. This project targets macOS, but we check for defense in depth.
+    const normalizedRel = rel.replaceAll('\\', '/');
+    if (normalizedRel.startsWith('../') || normalizedRel === '..' || resolve(hookDir, rel) !== scriptPath) {
       log.warn({ hookDir, script: manifest.script }, 'Hook script path traversal detected, skipping');
       continue;
     }
