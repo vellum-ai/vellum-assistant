@@ -43,6 +43,10 @@ export function getQdrantClient(): VellumQdrantClient {
   return _instance;
 }
 
+export function isQdrantClientInitialized(): boolean {
+  return _instance !== null;
+}
+
 export function initQdrantClient(config: QdrantClientConfig): VellumQdrantClient {
   _instance = new VellumQdrantClient(config);
   return _instance;

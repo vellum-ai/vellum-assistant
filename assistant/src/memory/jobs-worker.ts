@@ -21,7 +21,7 @@ import { indexMessageNow } from './indexer.js';
 import { checkContradictions } from './contradiction-checker.js';
 import { extractAndUpsertMemoryItemsForMessage } from './items-extractor.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
-import { getQdrantClient } from './qdrant-client.js';
+import { getQdrantClient, isQdrantClientInitialized } from './qdrant-client.js';
 import {
   memoryEmbeddings,
   memoryItems,
@@ -595,6 +595,14 @@ async function embedAndUpsert(
     log.debug(
       { targetType, targetId, reason: status.reason ?? 'backend unavailable' },
       'Skipping embedding job because no backend is configured',
+    );
+    return;
+  }
+
+  if (!isQdrantClientInitialized()) {
+    log.debug(
+      { targetType, targetId },
+      'Skipping embedding upsert because Qdrant client is not initialized',
     );
     return;
   }
