@@ -28,6 +28,7 @@ struct ControlPanel: View {
                 selection: $selectedTabIndex
             )
             .padding(.horizontal, VSpacing.sm)
+            .padding(.top, VSpacing.sm)
 
             Divider().background(VColor.surfaceBorder)
         }) {

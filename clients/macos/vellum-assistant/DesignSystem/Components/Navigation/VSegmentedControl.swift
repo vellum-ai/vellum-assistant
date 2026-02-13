@@ -12,13 +12,13 @@ struct VSegmentedControl: View {
                         Text(items[index])
                             .font(VFont.captionMedium)
                             .foregroundColor(selection == index ? VColor.textPrimary : VColor.textMuted)
-                            .padding(.horizontal, VSpacing.xl)
-                            .padding(.vertical, VSpacing.sm)
+                            .padding(.vertical, VSpacing.md)
 
                         Rectangle()
                             .fill(selection == index ? VColor.accent : .clear)
                             .frame(height: 2)
                     }
+                    .frame(maxWidth: .infinity)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -31,12 +31,11 @@ struct VSegmentedControl: View {
 
 #if DEBUG
 #Preview("VSegmentedControl") {
-    @Previewable @State var selection = 0
+    @Previewable @State var selection = 1
     ZStack {
         VColor.background.ignoresSafeArea()
-        VSegmentedControl(items: ["All", "Active", "Archived"], selection: $selection)
-            .padding()
+        VSegmentedControl(items: ["Profile", "Settings", "Channels", "Overview"], selection: $selection)
     }
-    .frame(width: 400, height: 80)
+    .frame(width: 500, height: 60)
 }
 #endif
