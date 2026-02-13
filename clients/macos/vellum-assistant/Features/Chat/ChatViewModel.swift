@@ -598,7 +598,7 @@ final class ChatViewModel: ObservableObject {
             // the conversationId). Fall back to the timestamp-based heuristic
             // via shouldAcceptConfirmation for older daemons that omit sessionId.
             if let msgSessionId = msg.sessionId {
-                guard belongsToSession(msgSessionId) else { return }
+                guard sessionId != nil, belongsToSession(msgSessionId) else { return }
             } else {
                 guard sessionId != nil,
                       lastToolUseReceivedAt != nil,
