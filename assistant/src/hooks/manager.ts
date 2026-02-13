@@ -78,6 +78,8 @@ export class HookManager {
     const hooksDir = getHooksDir();
     if (!existsSync(hooksDir)) return;
 
+    this.stopWatching();
+
     try {
       this.watcher = watch(hooksDir, { recursive: true }, (_eventType, filename) => {
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
@@ -121,5 +123,6 @@ export function getHookManager(): HookManager {
 
 /** Reset the singleton (for testing) */
 export function resetHookManager(): void {
+  instance?.stopWatching();
   instance = null;
 }
