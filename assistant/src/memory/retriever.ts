@@ -1,5 +1,7 @@
 import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
-import type { AssistantConfig } from '../config/types.js';
+import Anthropic from '@anthropic-ai/sdk';
+import type { AssistantConfig, MemoryRerankingConfig } from '../config/types.js';
+import { getConfig } from '../config/loader.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
@@ -145,7 +147,33 @@ export async function buildMemoryRecall(
     });
   }
 
-  const merged = mergeCandidates(lexicalCandidates, semanticCandidates, recencyCandidates);
+  let merged = mergeCandidates(lexicalCandidates, semanticCandidates, recencyCandidates);
+
+  // LLM re-ranking: send top candidates to Haiku for relevance scoring
+  const rerankingConfig = config.memory.retrieval.reranking;
+  if (rerankingConfig.enabled && merged.length >= 5) {
+    const rerankStart = Date.now();
+    const topCandidates = merged.slice(0, rerankingConfig.topK);
+    try {
+      const reranked = await rerankWithLLM(query, topCandidates, rerankingConfig);
+      // Replace the top portion with re-ranked results, keep any overflow untouched
+      merged = [...reranked, ...merged.slice(rerankingConfig.topK)];
+      log.debug({ rerankLatencyMs: Date.now() - rerankStart, rerankedCount: reranked.length }, 'LLM re-ranking completed');
+    } catch (err) {
+      if (signal?.aborted || isAbortError(err)) {
+        return emptyResult({
+          enabled: true,
+          degraded: false,
+          reason: 'memory.aborted',
+          provider,
+          model,
+          latencyMs: Date.now() - start,
+        });
+      }
+      log.warn({ err, rerankLatencyMs: Date.now() - rerankStart }, 'LLM re-ranking failed, using RRF order');
+    }
+  }
+
   const selected = trimToTokenBudget(merged, config.memory.retrieval.maxInjectTokens, MEMORY_RECALL_MARKER);
   markItemUsage(selected);
 
@@ -535,6 +563,86 @@ function lookupAccessCounts(itemIds: string[]): Map<string, number> {
   return counts;
 }
 
+/**
+ * LLM re-ranking: send candidate memories to Haiku for relevance scoring.
+ * Returns candidates re-sorted by LLM-assigned relevance score.
+ */
+async function rerankWithLLM(
+  query: string,
+  candidates: Candidate[],
+  rerankingConfig: MemoryRerankingConfig,
+): Promise<Candidate[]> {
+  const config = getConfig();
+  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    log.debug('No Anthropic API key available for LLM re-ranking, skipping');
+    return candidates;
+  }
+
+  const candidateList = candidates.map((c, i) => ({
+    index: i,
+    id: c.key,
+    text: truncate(c.text, 200),
+  }));
+
+  const client = new Anthropic({ apiKey });
+  const response = await client.messages.create({
+    model: rerankingConfig.model,
+    max_tokens: 1024,
+    system: 'You are a relevance scoring assistant. Given a query and a list of memory candidates, rate each candidate\'s relevance to the query on a scale of 0-10. Return ONLY a JSON array of objects with "index" (the candidate index) and "score" (0-10 integer). No explanation.',
+    messages: [{
+      role: 'user',
+      content: `Query: ${truncate(query, 200)}\n\nCandidates:\n${candidateList.map((c) => `[${c.index}] ${c.text}`).join('\n')}`,
+    }],
+  });
+
+  // Extract text from the response
+  const textBlock = response.content.find((block) => block.type === 'text');
+  if (!textBlock || textBlock.type !== 'text') {
+    log.warn('LLM re-ranking returned no text block, skipping');
+    return candidates;
+  }
+
+  // Parse the JSON array from the response
+  const jsonMatch = textBlock.text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) {
+    log.warn('LLM re-ranking response did not contain JSON array, skipping');
+    return candidates;
+  }
+
+  let scores: Array<{ index: number; score: number }>;
+  try {
+    scores = JSON.parse(jsonMatch[0]) as Array<{ index: number; score: number }>;
+  } catch {
+    log.warn('Failed to parse LLM re-ranking JSON response, skipping');
+    return candidates;
+  }
+
+  // Build a score map from LLM results
+  const scoreMap = new Map<number, number>();
+  for (const entry of scores) {
+    if (typeof entry.index === 'number' && typeof entry.score === 'number') {
+      scoreMap.set(entry.index, Math.max(0, Math.min(10, entry.score)));
+    }
+  }
+
+  // Re-sort candidates by LLM score (desc), falling back to original finalScore
+  const reranked = candidates.map((c, i) => ({
+    candidate: c,
+    llmScore: scoreMap.get(i) ?? 0,
+    originalIndex: i,
+  }));
+
+  reranked.sort((a, b) => {
+    const scoreDelta = b.llmScore - a.llmScore;
+    if (scoreDelta !== 0) return scoreDelta;
+    // Tie-break by original RRF order
+    return a.originalIndex - b.originalIndex;
+  });
+
+  return reranked.map((r) => r.candidate);
+}
+
 function trimToTokenBudget(candidates: Candidate[], maxTokens: number, marker: string): Candidate[] {
   if (maxTokens <= 0) return [];
   const selected: Candidate[] = [];
@@ -548,9 +656,46 @@ function trimToTokenBudget(candidates: Candidate[], maxTokens: number, marker: s
   return selected;
 }
 
+/**
+ * Build injected text with attention-aware ordering.
+ *
+ * Based on "Lost in the Middle" (Liu et al., Stanford 2023): LLMs exhibit
+ * U-shaped attention — beginning and end of context receive 20-40% more
+ * attention than the middle. We place the top-ranked candidates at the
+ * beginning and end to maximize signal.
+ *
+ * Layout: [#1, #2, ...middle ranked low-to-high..., #4, #3]
+ * - Positions 0,1 (beginning): highest ranked
+ * - Last positions (end): 3rd and 4th highest
+ * - Middle: remaining items ordered from lowest to highest rank
+ */
 function buildInjectedText(candidates: Candidate[], marker: string): string {
   if (candidates.length === 0) return '';
-  return `${marker}\n${candidates.map(formatCandidateLine).join('\n')}`;
+  const ordered = applyAttentionOrdering(candidates);
+  return `${marker}\n${ordered.map(formatCandidateLine).join('\n')}`;
+}
+
+function applyAttentionOrdering(candidates: Candidate[]): Candidate[] {
+  // With <= 3 candidates, ordering tricks don't help
+  if (candidates.length <= 3) return candidates;
+
+  // Place #1 and #2 at the beginning, #3 and #4 at the end,
+  // and fill the middle with remaining items from lowest to highest rank.
+  const result: Candidate[] = [];
+
+  // Beginning: top 2
+  result.push(candidates[0], candidates[1]);
+
+  // Middle: items ranked 5+ (indices 4..N-1), ordered low-to-high rank
+  // so the least relevant are buried deepest in the middle
+  const middle = candidates.slice(4).reverse();
+  result.push(...middle);
+
+  // End: #4 then #3 (so #3, the higher ranked, is at the very end)
+  if (candidates.length > 3) result.push(candidates[3]);
+  result.push(candidates[2]);
+
+  return result;
 }
 
 function formatCandidateLine(candidate: Candidate): string {

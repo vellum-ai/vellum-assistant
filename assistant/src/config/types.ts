@@ -8,6 +8,7 @@ export type {
   ThinkingConfig,
   ContextWindowConfig,
   MemoryEmbeddingsConfig,
+  MemoryRerankingConfig,
   MemoryRetrievalConfig,
   MemorySegmentationConfig,
   MemoryJobsConfig,
