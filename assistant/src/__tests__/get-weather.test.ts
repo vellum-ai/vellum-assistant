@@ -176,12 +176,12 @@ describe('weather output formatting', () => {
     expect(result.content).toContain('Humidity: 72%');
   });
 
-  test('includes 5-day forecast', async () => {
+  test('includes 10-day forecast by default', async () => {
     const mockFetch = createMockFetch();
     const result = await executeGetWeather({ location: 'San Francisco' }, mockFetch);
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('5-Day Forecast');
+    expect(result.content).toContain('10-Day Forecast');
     expect(result.content).toContain('2025-01-15');
     expect(result.content).toContain('2025-01-19');
     expect(result.content).toContain('Precip');

@@ -128,6 +128,10 @@ export async function executeGetWeather(
 
   const useFahrenheit = units === 'fahrenheit';
 
+  // Forecast days: default 10, clamp to 1-16 (Open-Meteo max)
+  const rawDays = typeof input.days === 'number' ? input.days : 10;
+  const forecastDays = Math.max(1, Math.min(16, Math.round(rawDays)));
+
   // Step 1: Geocode the location
   let geo: GeocodingResult;
   try {
@@ -154,7 +158,7 @@ export async function executeGetWeather(
   // Step 2: Fetch the weather forecast
   let forecast: ForecastResponse;
   try {
-    const weatherUrl = `${FORECAST_API}?latitude=${geo.latitude}&longitude=${geo.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=10`;
+    const weatherUrl = `${FORECAST_API}?latitude=${geo.latitude}&longitude=${geo.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=${forecastDays}`;
     log.debug({ url: weatherUrl }, 'Fetching weather forecast');
 
     const weatherResponse = await fetchFn(weatherUrl, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
@@ -196,7 +200,7 @@ export async function executeGetWeather(
     `Wind: ${currentWind} ${speedUnit} ${windDir}`,
     `Conditions: ${currentDescription}`,
     '',
-    '--- 5-Day Forecast ---',
+    `--- ${forecastDays}-Day Forecast ---`,
   ];
 
   const daily = forecast.daily;
@@ -274,6 +278,10 @@ class GetWeatherTool implements Tool {
             type: 'string',
             enum: ['celsius', 'fahrenheit'],
             description: 'Temperature units to use (default: fahrenheit)',
+          },
+          days: {
+            type: 'number',
+            description: 'Number of forecast days to return (1-16, default: 10)',
           },
         },
         required: ['location'],
