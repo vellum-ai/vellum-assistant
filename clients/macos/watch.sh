@@ -41,6 +41,10 @@ echo -e "${BLUE}🔨 Initial build...${NC}"
 ./build.sh run
 echo ""
 
+# Trap to clean up fswatch process on exit
+# Kill all background jobs (the fswatch process from process substitution)
+trap 'kill $(jobs -p) 2>/dev/null; exit' INT TERM
+
 # Watch for changes (Swift files and resources)
 # Use process substitution instead of pipe to avoid orphaning fswatch on Ctrl+C
 while read -r _; do
@@ -56,6 +60,8 @@ while read -r _; do
 
     # Drain any events that accumulated during the build (debounce)
     # This prevents N rapid saves from triggering N sequential rebuilds
+    # Note: read -r -t 0.1 returns exit code 1 on timeout, but bash exempts
+    # commands in while conditions from set -e, so this is safe
     DRAINED=0
     while read -r -t 0.1 _; do
         DRAINED=$((DRAINED + 1))
@@ -87,5 +93,6 @@ done < <(fswatch -o \
     --latency 0.5 \
     vellum-assistant \
     vellum-assistant-app \
+    daemon-bin \
     Package.swift \
     Package.resolved)

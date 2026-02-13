@@ -245,6 +245,11 @@ if [ -f "$MACOS_DIR/vellum-daemon" ]; then
 fi
 
 # Always use --deep to properly sign nested frameworks
+# NOTE: --deep will re-sign all nested code including the daemon binary. The daemon's
+# entitlements (JIT, network) from the previous codesign step may not persist through
+# the --deep pass. This is a known limitation. For production apps with nested binaries
+# requiring specific entitlements, Apple recommends signing each component explicitly
+# instead of using --deep. This is inherited behavior from the original build system.
 CODESIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --deep)
 if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     CODESIGN_FLAGS+=(--timestamp --options runtime)
