@@ -175,6 +175,19 @@ export async function handleMemoryUpdate(
     const normalized = `${existing.kind}|${existing.subject.toLowerCase()}|${trimmedStatement.toLowerCase()}`;
     const fingerprint = createHash('sha256').update(normalized).digest('hex');
 
+    // Check if another item already has this fingerprint
+    const collision = db
+      .select({ id: memoryItems.id })
+      .from(memoryItems)
+      .where(eq(memoryItems.fingerprint, fingerprint))
+      .get();
+    if (collision && collision.id !== existing.id) {
+      return {
+        content: `Error: Another memory item (ID: ${collision.id}) already contains this statement. Use memory_search to find it.`,
+        isError: true,
+      };
+    }
+
     db.update(memoryItems)
       .set({
         statement: trimmedStatement,
