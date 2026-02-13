@@ -32,7 +32,7 @@ if ! command -v fswatch &> /dev/null; then
     fi
 fi
 
-echo -e "${BLUE}👀 Watching for Swift file changes...${NC}"
+echo -e "${BLUE}👀 Watching for file changes (Swift, resources, dependencies)...${NC}"
 echo -e "${YELLOW}Press Ctrl+C to stop${NC}"
 echo ""
 
@@ -44,10 +44,16 @@ echo ""
 # Watch for changes (Swift files and resources)
 # Use process substitution instead of pipe to avoid orphaning fswatch on Ctrl+C
 BUILD_PID=""
+PENDING_REBUILD=false
+
+# Trap Ctrl+C and SIGTERM to clean up background build
+trap 'if [ -n "$BUILD_PID" ]; then kill "$BUILD_PID" 2>/dev/null || true; fi; exit' INT TERM
+
 while read -r _; do
-    # Debounce: skip if a build is already running
+    # If a build is already running, mark that we need another rebuild
     if [ -n "$BUILD_PID" ] && kill -0 "$BUILD_PID" 2>/dev/null; then
-        echo -e "${YELLOW}⏭️  Change detected but build already in progress, skipping...${NC}"
+        PENDING_REBUILD=true
+        echo -e "${YELLOW}⏭️  Change detected during build - will rebuild after completion${NC}"
         continue
     fi
 
@@ -66,6 +72,20 @@ while read -r _; do
     fi
     BUILD_PID=""
 
+    # If changes came in during build, trigger one more rebuild
+    if [ "$PENDING_REBUILD" = true ]; then
+        PENDING_REBUILD=false
+        echo -e "${YELLOW}🔄 Rebuilding for changes made during previous build...${NC}"
+        ./build.sh run &
+        BUILD_PID=$!
+        if wait "$BUILD_PID"; then
+            echo -e "${GREEN}✅ Build successful${NC}"
+        else
+            echo -e "${RED}❌ Build failed${NC}"
+        fi
+        BUILD_PID=""
+    fi
+
     echo -e "${BLUE}👀 Watching...${NC}"
 done < <(fswatch -o \
     --exclude='\.build/' \
@@ -81,6 +101,7 @@ done < <(fswatch -o \
     --include='\.ttf$' \
     --include='\.otf$' \
     --include='\.xcassets/' \
+    --include='Package\.resolved$' \
     --exclude='.*' \
     --event Created \
     --event Updated \
@@ -88,4 +109,5 @@ done < <(fswatch -o \
     --latency 0.5 \
     vellum-assistant \
     vellum-assistant-app \
-    Package.swift)
+    Package.swift \
+    Package.resolved)
