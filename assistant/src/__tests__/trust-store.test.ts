@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 
@@ -465,6 +465,43 @@ describe('Trust Store', () => {
       expect(data.version).toBe(2);
       const migratedRule = data.rules.find((r: { id: string }) => r.id === 'migrate-me');
       expect(migratedRule.priority).toBe(100);
+    });
+  });
+
+  // ── loadFromDisk resilience ─────────────────────────────────────
+
+  describe('loadFromDisk resilience', () => {
+    test('returns in-memory rules when saveToDisk fails during migration', () => {
+      // Write a v1 trust file that triggers needsSave on load
+      mkdirSync(dirname(trustPath), { recursive: true });
+      writeFileSync(trustPath, JSON.stringify({
+        version: 1,
+        rules: [{
+          id: 'v1-readonly',
+          tool: 'bash',
+          pattern: 'git *',
+          scope: '/tmp',
+          decision: 'allow' as const,
+          createdAt: 1000,
+        }],
+      }));
+
+      // Make the directory read-only so saveToDisk will fail
+      const protectedDir = dirname(trustPath);
+      chmodSync(protectedDir, 0o555);
+
+      try {
+        clearCache();
+        const rules = getAllRules();
+        // Should still return the migrated rules + defaults in-memory
+        expect(rules).toHaveLength(1 + NUM_DEFAULTS);
+        const migratedRule = rules.find((r) => r.id === 'v1-readonly');
+        expect(migratedRule).toBeDefined();
+        expect(migratedRule!.priority).toBe(100);
+      } finally {
+        // Restore directory permissions for cleanup
+        chmodSync(protectedDir, 0o755);
+      }
     });
   });
 

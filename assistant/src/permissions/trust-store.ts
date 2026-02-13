@@ -83,7 +83,11 @@ function loadFromDisk(): TrustRule[] {
   rules.sort(ruleOrder);
 
   if (needsSave) {
-    saveToDisk(rules);
+    try {
+      saveToDisk(rules);
+    } catch (err) {
+      log.warn({ err }, 'Failed to persist migrated trust rules (continuing with in-memory rules)');
+    }
   }
 
   return rules;
