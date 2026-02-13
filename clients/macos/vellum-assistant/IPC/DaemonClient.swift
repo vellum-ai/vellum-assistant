@@ -398,7 +398,10 @@ final class DaemonClient: ObservableObject, DaemonClientProtocol {
         // Forward surface messages to registered callbacks.
         switch message {
         case .uiSurfaceShow(let msg):
-            onSurfaceShow?(msg)
+            // Inline surfaces are rendered in-chat by ChatViewModel; skip the floating panel.
+            if msg.display != "inline" {
+                onSurfaceShow?(msg)
+            }
         case .uiSurfaceUpdate(let msg):
             onSurfaceUpdate?(msg)
         case .uiSurfaceDismiss(let msg):

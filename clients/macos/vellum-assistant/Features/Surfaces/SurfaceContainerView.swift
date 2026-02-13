@@ -90,6 +90,9 @@ struct SurfaceContainerView: View {
                         viewModel.onAction("cancel", ["files": [Any]()])
                     }
                 )
+            case .table:
+                // Table surfaces are rendered inline in chat, not in floating panels.
+                EmptyView()
             }
 
             // Action buttons for card/list surfaces
@@ -106,7 +109,7 @@ struct SurfaceContainerView: View {
         switch surface.data {
         case .form, .confirmation, .dynamicPage, .fileUpload:
             return true
-        case .card, .list:
+        case .card, .list, .table:
             return false
         }
     }
