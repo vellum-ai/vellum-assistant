@@ -22,7 +22,7 @@ struct ThreadTab: View {
                             .font(.system(size: 12))
                     }
                     Text(label)
-                        .font(VFont.caption)
+                        .font(VFont.tabLabel)
                         .lineLimit(1)
                 }
                 .foregroundColor(isSelected ? Color(hex: 0xFFFFFF) : VColor.textSecondary)
