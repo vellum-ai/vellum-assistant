@@ -39,7 +39,7 @@ This builds a debug `.app` bundle, codesigns it, and launches it immediately.
 
 The build script uses incremental compilation and caching:
 
-- Running `./build.sh` again without code changes is nearly instant
+- Running `./build.sh` again without code changes takes ~1-2s (skips binary copying, still updates Info.plist/assets/codesigning)
 - Small code changes rebuild in ~4 seconds
 - Use `./build.sh clean` if you encounter build issues, need to force a complete rebuild, or after removing resources/frameworks (incremental builds don't detect deletions)
 

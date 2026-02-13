@@ -121,23 +121,6 @@ if [ "$NEEDS_REBUILD" = true ]; then
     cp "$EXECUTABLE" "$MACOS_DIR/$BUNDLE_DISPLAY_NAME"
     install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
 
-    # Copy Sparkle.framework into bundle (required — it's a dynamic framework)
-    # Only copy if missing or changed (it rarely changes)
-    # Note: Directory timestamp (-nt) only updates when direct entries are added/removed,
-    # not when files inside subdirectories change. This is reliable for SPM-built artifacts
-    # since SPM recreates directories entirely, but manual edits inside .framework bundles
-    # won't be detected. Use './build.sh clean' if you manually modify frameworks/bundles.
-    SPARKLE_FW="$BIN_PATH/Sparkle.framework"
-    if [ -d "$SPARKLE_FW" ]; then
-        if [ ! -d "$FRAMEWORKS_DIR/Sparkle.framework" ] || [ "$SPARKLE_FW" -nt "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
-            echo "Bundling Sparkle.framework..."
-            rm -rf "$FRAMEWORKS_DIR/Sparkle.framework"
-            cp -R "$SPARKLE_FW" "$FRAMEWORKS_DIR/"
-        fi
-    else
-        echo "WARNING: Sparkle.framework not found at $SPARKLE_FW"
-    fi
-
     # Copy bundled daemon binary (if available — built by CI or locally)
     DAEMON_BIN="$SCRIPT_DIR/daemon-bin/vellum-daemon"
     if [ -f "$DAEMON_BIN" ]; then
@@ -148,7 +131,25 @@ if [ "$NEEDS_REBUILD" = true ]; then
         echo "No daemon binary at $DAEMON_BIN — skipping (dev mode)"
     fi
 else
-    echo "Binaries unchanged, skipping binary/framework repackaging"
+    echo "Binaries unchanged, skipping binary repackaging"
+fi
+
+# Always check frameworks (they change independently via dependency updates)
+# Copy Sparkle.framework into bundle (required — it's a dynamic framework)
+# Only copy if missing or changed (has its own timestamp check)
+# Note: Directory timestamp (-nt) only updates when direct entries are added/removed,
+# not when files inside subdirectories change. This is reliable for SPM-built artifacts
+# since SPM recreates directories entirely, but manual edits inside .framework bundles
+# won't be detected. Use './build.sh clean' if you manually modify frameworks.
+SPARKLE_FW="$BIN_PATH/Sparkle.framework"
+if [ -d "$SPARKLE_FW" ]; then
+    if [ ! -d "$FRAMEWORKS_DIR/Sparkle.framework" ] || [ "$SPARKLE_FW" -nt "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
+        echo "Bundling Sparkle.framework..."
+        rm -rf "$FRAMEWORKS_DIR/Sparkle.framework"
+        cp -R "$SPARKLE_FW" "$FRAMEWORKS_DIR/"
+    fi
+else
+    echo "WARNING: Sparkle.framework not found at $SPARKLE_FW"
 fi
 
 # Always check resource bundles (they change independently of binaries)

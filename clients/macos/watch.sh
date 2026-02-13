@@ -42,20 +42,8 @@ echo -e "${BLUE}🔨 Initial build...${NC}"
 echo ""
 
 # Watch for changes (watch directories, filter for .swift files)
-fswatch -o \
-    --exclude='\.build/' \
-    --exclude='dist/' \
-    --exclude='\.swiftpm/' \
-    --exclude='\.git/' \
-    --exclude='Package.resolved' \
-    --include='\.swift$' \
-    --exclude='.*' \
-    --event Created \
-    --event Updated \
-    --latency 0.5 \
-    vellum-assistant \
-    vellum-assistant-app | while read -r _; do
-
+# Use process substitution instead of pipe to avoid orphaning fswatch on Ctrl+C
+while read -r _; do
     echo ""
     echo -e "${YELLOW}📝 Change detected - rebuilding...${NC}"
 
@@ -66,4 +54,18 @@ fswatch -o \
     fi
 
     echo -e "${BLUE}👀 Watching...${NC}"
-done
+done < <(fswatch -o \
+    --exclude='\.build/' \
+    --exclude='dist/' \
+    --exclude='\.swiftpm/' \
+    --exclude='\.git/' \
+    --exclude='Package.resolved' \
+    --include='\.swift$' \
+    --exclude='.*' \
+    --event Created \
+    --event Updated \
+    --event Removed \
+    --latency 0.5 \
+    vellum-assistant \
+    vellum-assistant-app \
+    Package.swift)
