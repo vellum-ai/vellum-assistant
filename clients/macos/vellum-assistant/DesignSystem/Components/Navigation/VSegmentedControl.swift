@@ -19,7 +19,6 @@ struct VSegmentedControl: View {
                             .fill(selection == index ? VColor.accent : .clear)
                             .frame(height: 2)
                     }
-                    .fixedSize(horizontal: true, vertical: false)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

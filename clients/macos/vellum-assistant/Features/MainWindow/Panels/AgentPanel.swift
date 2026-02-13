@@ -107,7 +107,6 @@ struct AgentPanel: View {
                 items: ["Skills", "Available Skills", "Nodes", "Personality"],
                 selection: $selectedTab
             )
-            .padding(.horizontal, VSpacing.sm)
 
             Divider()
                 .background(VColor.surfaceBorder)

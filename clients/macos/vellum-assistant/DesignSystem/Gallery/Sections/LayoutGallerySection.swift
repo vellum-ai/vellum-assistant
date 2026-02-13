@@ -60,7 +60,6 @@ struct LayoutGallerySection: View {
                         items: ["Profile", "Settings", "Channels", "Overview"],
                         selection: $pinnedTabSelection
                     )
-                    .padding(.horizontal, VSpacing.sm)
                     Divider().background(VColor.surfaceBorder)
                 }) {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
