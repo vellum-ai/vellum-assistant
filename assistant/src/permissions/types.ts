@@ -24,6 +24,7 @@ export interface PermissionCheckResult {
 
 export interface AllowlistOption {
   label: string;
+  description: string;
   pattern: string;
 }
 

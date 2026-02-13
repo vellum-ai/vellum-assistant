@@ -183,7 +183,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     input: { command: 'rm -rf /tmp/test' },
     riskLevel: 'high',
     allowlistOptions: [
-      { label: 'Allow rm commands', pattern: 'bash:rm *' },
+      { label: 'Allow rm commands', description: 'Allow rm commands', pattern: 'bash:rm *' },
     ],
     scopeOptions: [
       { label: 'In /tmp', scope: '/tmp' },

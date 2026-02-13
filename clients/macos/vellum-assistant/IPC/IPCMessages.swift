@@ -459,6 +459,7 @@ struct ConfirmationRequestMessage: Decodable, Sendable {
 
     struct ConfirmationAllowlistOption: Decodable, Sendable, Equatable {
         let label: String
+        let description: String?
         let pattern: String
     }
     struct ConfirmationScopeOption: Decodable, Sendable, Equatable {

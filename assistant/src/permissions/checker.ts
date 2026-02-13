@@ -298,26 +298,46 @@ export async function check(
   return { decision: 'prompt', reason: `${risk} risk: requires approval` };
 }
 
+const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  file_read: 'file reads',
+  file_write: 'file writes',
+  file_edit: 'file edits',
+  web_fetch: 'URL fetches',
+  browser_navigate: 'browser navigations',
+};
+
+function friendlyBasename(filePath: string): string {
+  const parts = filePath.split('/');
+  return parts[parts.length - 1] || filePath;
+}
+
+function friendlyHostname(url: URL): string {
+  return url.hostname.replace(/^www\./, '');
+}
+
 export function generateAllowlistOptions(toolName: string, input: Record<string, unknown>): AllowlistOption[] {
   if (toolName === 'bash') {
     const command = ((input.command as string) ?? '').trim();
     const parts = command.split(/\s+/);
+    const program = parts[0] ?? command;
     const options: AllowlistOption[] = [];
 
     // Exact match
-    options.push({ label: command, pattern: command });
+    options.push({ label: command, description: 'This exact command', pattern: command });
 
     if (parts.length >= 2) {
       // Subcommand wildcard: "npm install *"
+      const sub = parts.slice(0, -1).join(' ');
       options.push({
-        label: `${parts.slice(0, -1).join(' ')} *`,
-        pattern: `${parts.slice(0, -1).join(' ')} *`,
+        label: `${sub} *`,
+        description: `Any "${sub}" command`,
+        pattern: `${sub} *`,
       });
     }
 
     if (parts.length >= 1) {
       // Program wildcard: "npm *"
-      options.push({ label: `${parts[0]} *`, pattern: `${parts[0]} *` });
+      options.push({ label: `${program} *`, description: `Any ${program} command`, pattern: `${program} *` });
     }
 
     // Deduplicate
@@ -331,18 +351,20 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
 
   if (toolName === 'file_write' || toolName === 'file_read' || toolName === 'file_edit') {
     const filePath = (input.path as string) ?? (input.file_path as string) ?? '';
+    const toolLabel = TOOL_DISPLAY_NAMES[toolName] ?? toolName;
     const options: AllowlistOption[] = [];
 
     // Patterns must match the "tool:path" format used by check()
     // Exact file
-    options.push({ label: filePath, pattern: `${toolName}:${filePath}` });
+    options.push({ label: filePath, description: `This file only`, pattern: `${toolName}:${filePath}` });
 
     // Directory wildcard
     const dir = dirname(filePath);
-    options.push({ label: `${dir}/*`, pattern: `${toolName}:${dir}/*` });
+    const dirName = friendlyBasename(dir);
+    options.push({ label: `${dir}/*`, description: `Any file in ${dirName}/`, pattern: `${toolName}:${dir}/*` });
 
     // Tool wildcard
-    options.push({ label: `${toolName}:*`, pattern: `${toolName}:*` });
+    options.push({ label: `${toolName}:*`, description: `All ${toolLabel}`, pattern: `${toolName}:*` });
 
     return options;
   }
@@ -354,15 +376,18 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
 
     const options: AllowlistOption[] = [];
     if (exact) {
-      options.push({ label: exact, pattern: `${toolName}:${escapeMinimatchLiteral(exact)}` });
+      options.push({ label: exact, description: 'This exact URL', pattern: `${toolName}:${escapeMinimatchLiteral(exact)}` });
     }
     if (normalized) {
+      const host = friendlyHostname(normalized);
       options.push({
         label: `${normalized.origin}/*`,
+        description: `Any page on ${host}`,
         pattern: `${toolName}:${escapeMinimatchLiteral(normalized.origin)}/*`,
       });
     }
-    options.push({ label: `${toolName}:*`, pattern: `${toolName}:*` });
+    const toolLabel = TOOL_DISPLAY_NAMES[toolName] ?? toolName;
+    options.push({ label: `${toolName}:*`, description: `All ${toolLabel}`, pattern: `${toolName}:*` });
 
     const seen = new Set<string>();
     return options.filter((o) => {
@@ -372,7 +397,7 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     });
   }
 
-  return [{ label: '*', pattern: '*' }];
+  return [{ label: '*', description: 'Everything', pattern: '*' }];
 }
 
 export function generateScopeOptions(workingDir: string): ScopeOption[] {

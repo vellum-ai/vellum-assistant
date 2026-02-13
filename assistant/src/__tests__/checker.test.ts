@@ -530,9 +530,9 @@ describe('Permission Checker', () => {
     test('shell: generates exact, subcommand wildcard, and program wildcard', () => {
       const options = generateAllowlistOptions('bash', { command: 'npm install express' });
       expect(options).toHaveLength(3);
-      expect(options[0]).toEqual({ label: 'npm install express', pattern: 'npm install express' });
-      expect(options[1]).toEqual({ label: 'npm install *', pattern: 'npm install *' });
-      expect(options[2]).toEqual({ label: 'npm *', pattern: 'npm *' });
+      expect(options[0]).toEqual({ label: 'npm install express', description: 'This exact command', pattern: 'npm install express' });
+      expect(options[1]).toEqual({ label: 'npm install *', description: 'Any "npm install" command', pattern: 'npm install *' });
+      expect(options[2]).toEqual({ label: 'npm *', description: 'Any npm command', pattern: 'npm *' });
     });
 
     test('shell: single-word command deduplicates', () => {

@@ -53,7 +53,7 @@ export class PermissionPrompter {
         toolName,
         input,
         riskLevel,
-        allowlistOptions: allowlistOptions.map((o) => ({ label: o.label, pattern: o.pattern })),
+        allowlistOptions: allowlistOptions.map((o) => ({ label: o.label, description: o.description, pattern: o.pattern })),
         scopeOptions: scopeOptions.map((o) => ({ label: o.label, scope: o.scope })),
         diff,
         sandboxed,
