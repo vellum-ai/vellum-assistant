@@ -5,16 +5,7 @@ struct ToolCallChip: View {
     @State private var isExpanded = false
 
     private var toolDisplayName: String {
-        switch toolCall.toolName {
-        case "file_write": return "Write File"
-        case "file_edit": return "Edit File"
-        case "bash": return "Run Command"
-        case "web_fetch": return "Fetch URL"
-        case "file_read": return "Read File"
-        case "glob": return "Find Files"
-        case "grep": return "Search Files"
-        default: return toolCall.toolName.replacingOccurrences(of: "_", with: " ").capitalized
-        }
+        toolCall.toolName
     }
 
     var body: some View {
