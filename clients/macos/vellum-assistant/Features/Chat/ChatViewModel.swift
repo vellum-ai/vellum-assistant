@@ -323,17 +323,31 @@ final class ChatViewModel: ObservableObject {
         return messageSessionId == sessionId
     }
 
-    /// Summarize tool input for display, showing the first value truncated to 80 chars.
+    /// Priority list of input keys whose values are most useful as a tool call summary.
+    private static let toolInputPriorityKeys = [
+        "command", "file_path", "path", "query", "url", "pattern", "glob"
+    ]
+
+    /// Summarize tool input for display, picking the most relevant value truncated to 80 chars.
     private func summarizeToolInput(_ input: [String: AnyCodable]) -> String {
-        guard let firstValue = input.values.first else { return "" }
+        // Pick the first matching priority key, falling back to the first sorted key.
+        let value: AnyCodable
+        if let match = Self.toolInputPriorityKeys.first(where: { input[$0] != nil }),
+           let v = input[match] {
+            value = v
+        } else if let firstKey = input.keys.sorted().first, let v = input[firstKey] {
+            value = v
+        } else {
+            return ""
+        }
         let str: String
-        if let s = firstValue.value as? String {
+        if let s = value.value as? String {
             str = s
-        } else if let encoder = try? JSONEncoder().encode(firstValue),
+        } else if let encoder = try? JSONEncoder().encode(value),
                   let json = String(data: encoder, encoding: .utf8) {
             str = json
         } else {
-            str = String(describing: firstValue.value ?? "")
+            str = String(describing: value.value ?? "")
         }
         return str.count > 80 ? String(str.prefix(77)) + "..." : str
     }
@@ -576,6 +590,8 @@ final class ChatViewModel: ObservableObject {
             }
 
         case .toolUseStart(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            guard !isCancelling else { return }
             isThinking = false
             let toolCall = ToolCallData(
                 toolName: toolDisplayName(msg.toolName),
@@ -596,6 +612,8 @@ final class ChatViewModel: ObservableObject {
             break
 
         case .toolResult(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            guard !isCancelling else { return }
             // Find the most recent pending (incomplete) tool call and mark it complete
             if let existingId = currentAssistantMessageId,
                let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
