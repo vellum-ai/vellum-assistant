@@ -41,13 +41,16 @@ echo -e "${BLUE}🔨 Initial build...${NC}"
 ./build.sh run
 echo ""
 
-# Trap to clean up fswatch process on exit
-# Kill all background jobs (the fswatch process from process substitution)
-trap 'kill $(jobs -p) 2>/dev/null; exit' INT TERM
+# Set up FIFO for fswatch communication (allows capturing PID for cleanup)
+FIFO=$(mktemp -u)
+mkfifo "$FIFO"
+FSWATCH_PID=""
 
-# Watch for changes (Swift files and resources)
-# Use process substitution instead of pipe to avoid orphaning fswatch on Ctrl+C
-while read -r _; do
+# Trap to clean up fswatch process and FIFO on exit
+trap 'if [ -n "$FSWATCH_PID" ]; then kill $FSWATCH_PID 2>/dev/null; fi; rm -f "$FIFO"; exit' INT TERM
+
+# Start fswatch as background process writing to FIFO
+# This allows us to capture its PID for proper cleanup
     echo ""
     echo -e "${YELLOW}📝 Change detected - rebuilding...${NC}"
 
@@ -72,7 +75,10 @@ while read -r _; do
     fi
 
     echo -e "${BLUE}👀 Watching...${NC}"
-done < <(fswatch -o \
+done < "$FIFO" &
+
+# Start fswatch in background, writing to FIFO, and capture its PID
+fswatch -o \
     --exclude='\.build/' \
     --exclude='dist/' \
     --exclude='\.swiftpm/' \
@@ -96,4 +102,8 @@ done < <(fswatch -o \
     vellum-assistant-app \
     daemon-bin \
     Package.swift \
-    Package.resolved)
+    Package.resolved > "$FIFO" &
+FSWATCH_PID=$!
+
+# Wait for the read loop to finish (it runs in background via &)
+wait
