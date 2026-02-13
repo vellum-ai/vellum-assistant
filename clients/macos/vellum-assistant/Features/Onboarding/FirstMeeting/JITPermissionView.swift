@@ -178,6 +178,7 @@ struct JITPermissionView: View {
 
 // MARK: - Preview
 
+#if DEBUG
 #Preview("Microphone") {
     @Previewable @State var manager: JITPermissionManager = {
         let m = JITPermissionManager()
@@ -222,3 +223,4 @@ struct JITPermissionView: View {
     }
     .frame(width: 640, height: 560)
 }
+#endif
