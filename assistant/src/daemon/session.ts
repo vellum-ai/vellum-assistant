@@ -252,8 +252,11 @@ export class Session {
       }
       this.messageQueue = [];
     }
+  }
 
-    // Dispose event bus listeners to prevent accumulation on session recreation
+  /** Abort and permanently tear down this session. Call when removing from the sessions map. */
+  dispose(): void {
+    this.abort();
     this.eventBus.dispose();
   }
 

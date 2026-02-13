@@ -492,6 +492,7 @@ function handleModelSet(
     // get recreated with the new provider once they finish processing.
     for (const [id, session] of ctx.sessions) {
       if (!session.isProcessing()) {
+        session.dispose();
         ctx.sessions.delete(id);
       } else {
         session.markStale();

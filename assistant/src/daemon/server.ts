@@ -116,10 +116,10 @@ export class DaemonServer {
       }
     });
 
-    // 2. Now abort sessions and destroy sockets. This lets server.close()
+    // 2. Now dispose sessions and destroy sockets. This lets server.close()
     //    finish promptly since all connections will be ended.
     for (const session of this.sessions.values()) {
-      session.abort();
+      session.dispose();
     }
     this.sessions.clear();
 
@@ -209,6 +209,7 @@ export class DaemonServer {
   private evictSessionsForReload(): void {
     for (const [id, session] of this.sessions) {
       if (!session.isProcessing()) {
+        session.dispose();
         this.sessions.delete(id);
       } else {
         session.markStale();
@@ -444,6 +445,11 @@ export class DaemonServer {
     }
 
     if (!session || (session.isStale() && !session.isProcessing())) {
+      // Dispose the outgoing stale session before replacing it.
+      if (session) {
+        session.dispose();
+      }
+
       // Check if another caller is already creating this session.
       // Without this guard, two concurrent getOrCreateSession calls for the
       // same conversationId would both pass the null/stale check, both create
