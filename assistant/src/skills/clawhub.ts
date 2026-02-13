@@ -29,6 +29,7 @@ export interface ClawhubSearchResultItem {
   stars: number;
   installs: number;
   version: string;
+  createdAt: number;
 }
 
 export interface ClawhubSearchResult {
@@ -129,11 +130,11 @@ export async function clawhubSearch(query: string): Promise<ClawhubSearchResult>
   }
 
   try {
-    const result = await runClawhub(['search', query]);
+    const result = await runClawhub(['search', query, '--limit', '25']);
     if (result.exitCode !== 0) {
       return { skills: [] };
     }
-    // Try to parse JSON output; fall back to empty
+    // Try JSON first
     try {
       const parsed = JSON.parse(result.stdout);
       if (Array.isArray(parsed)) {
@@ -143,9 +144,27 @@ export async function clawhubSearch(query: string): Promise<ClawhubSearchResult>
         return parsed as ClawhubSearchResult;
       }
     } catch {
-      // CLI may not output JSON -- parse text output
+      // CLI outputs text: "slug vVersion  DisplayName  (score)"
     }
-    return { skills: [] };
+
+    // Parse text output lines: "slug vVersion  Display Name  (score)"
+    const skills: ClawhubSearchResultItem[] = [];
+    for (const line of result.stdout.split('\n')) {
+      const match = line.match(/^(\S+)\s+v(\S+)\s+(.+?)\s+\([\d.]+\)\s*$/);
+      if (match) {
+        skills.push({
+          slug: match[1],
+          version: match[2],
+          name: match[3].trim(),
+          description: '',
+          author: '',
+          stars: 0,
+          installs: 0,
+          createdAt: 0,
+        });
+      }
+    }
+    return { skills };
   } catch (err) {
     log.warn({ err }, 'clawhub search failed');
     return { skills: [] };
@@ -154,7 +173,7 @@ export async function clawhubSearch(query: string): Promise<ClawhubSearchResult>
 
 export async function clawhubExplore(opts?: { limit?: number; sort?: string }): Promise<ClawhubSearchResult> {
   const limit = String(opts?.limit ?? 25);
-  const sort = opts?.sort ?? 'trending';
+  const sort = opts?.sort ?? 'installsAllTime';
 
   try {
     const result = await runClawhub(['explore', '--json', '--limit', limit, '--sort', sort]);
@@ -175,6 +194,7 @@ export async function clawhubExplore(opts?: { limit?: number; sort?: string }): 
         stars: (item.stats as Record<string, number>)?.stars ?? 0,
         installs: (item.stats as Record<string, number>)?.installsAllTime ?? 0,
         version: (item.tags as Record<string, string>)?.latest ?? '',
+        createdAt: (item.createdAt as number) ?? 0,
       }));
       return { skills };
     } catch {
