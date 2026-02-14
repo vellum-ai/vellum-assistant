@@ -6,6 +6,8 @@ public struct SettingsView: View {
     @State private var apiKeyText = ""
     @State private var hasKey = APIKeyManager.getKey() != nil
     @State private var isTrustRulesSheetOpen = false
+    /// Tracks whether trust rules are open from any surface (synced from DaemonClient).
+    @State private var trustRulesOpenElsewhere = false
     @State private var braveKeyText = ""
     @State private var hasBraveKey = APIKeyManager.getKey(for: "brave") != nil
     @State private var maxSteps: Double = {
@@ -220,7 +222,7 @@ public struct SettingsView: View {
                         Button("Manage Trust Rules...") {
                             isTrustRulesSheetOpen = true
                         }
-                        .disabled(isTrustRulesSheetOpen)
+                        .disabled(isTrustRulesSheetOpen || trustRulesOpenElsewhere)
                     }
                 }
             }
@@ -260,6 +262,9 @@ public struct SettingsView: View {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
             }
+        }
+        .onReceive(daemonClient?.$isTrustRulesSheetOpen.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { isOpen in
+            trustRulesOpenElsewhere = isOpen && !isTrustRulesSheetOpen
         }
         .sheet(isPresented: $showingPrivacy) {
             PrivacyDetailView()

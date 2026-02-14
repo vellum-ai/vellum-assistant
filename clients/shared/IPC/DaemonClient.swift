@@ -28,6 +28,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     @Published public var isConnected: Bool = false
 
+    /// Whether a TrustRulesView sheet is currently open from any settings surface.
+    /// Used to prevent multiple trust rules sheets from racing on the shared callback.
+    @Published public var isTrustRulesSheetOpen: Bool = false
+
     // MARK: - Surface Event Callbacks
 
     /// Called when the daemon sends a `ui_surface_show` message.
