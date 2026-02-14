@@ -730,7 +730,7 @@ export class Session {
       // (beyond the repaired prefix) are carried forward.
       const newMessages = updatedHistory.slice(preRunHistoryLength);
       const restoredHistory = [...preRepairMessages, ...newMessages];
-      this.messages = stripMemoryRecallMessages(restoredHistory, recall.injectedText);
+      this.messages = stripMemoryRecallMessages(restoredHistory, recall.injectedText, runtimeConfig.memory.retrieval.injectionStrategy);
 
       this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent');
 

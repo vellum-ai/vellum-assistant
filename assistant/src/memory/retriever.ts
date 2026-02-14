@@ -348,6 +348,7 @@ const MEMORY_CONTEXT_ACK = '[Memory context loaded.]';
 export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'; content: Array<{ type: string; text?: string }> }>(
   messages: T[],
   memoryRecallText?: string,
+  injectionStrategy?: 'prepend_user_block' | 'separate_context_message',
 ): T[] {
   const recallText = memoryRecallText ?? '';
   if (recallText.trim().length === 0) return messages;
@@ -401,8 +402,11 @@ export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'
   // Check if the message after targetIndex is the assistant ack from a
   // merged separate-context injection (deepRepairHistory can merge the
   // standalone recall user message into an adjacent user message, leaving
-  // the ack orphaned).
+  // the ack orphaned). Only check when the injection strategy is
+  // separate_context_message — prepend_user_block never injects a
+  // synthetic ack, so stripping here would delete a real assistant reply.
   const ackIndex =
+    injectionStrategy !== 'prepend_user_block' &&
     targetIndex + 1 < messages.length &&
     messages[targetIndex + 1].role === 'assistant' &&
     messages[targetIndex + 1].content.length === 1 &&
