@@ -370,6 +370,7 @@ struct ChatView: View {
                         .foregroundColor(.clear)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 8)
+                        .accessibilityHidden(true)
                         .background(
                             GeometryReader { geo in
                                 Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
