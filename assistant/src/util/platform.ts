@@ -52,6 +52,22 @@ export function getDataDir(): string {
   return join(getRootDir(), 'data');
 }
 
+/**
+ * Returns the sandbox root directory (~/.vellum/data/sandbox).
+ * Global sandbox state lives under this directory.
+ */
+export function getSandboxRootDir(): string {
+  return join(getDataDir(), 'sandbox');
+}
+
+/**
+ * Returns the default sandbox working directory (~/.vellum/data/sandbox/fs).
+ * Tool working directories should use this path unless explicitly overridden.
+ */
+export function getSandboxWorkingDir(): string {
+  return join(getSandboxRootDir(), 'fs');
+}
+
 export function getSocketPath(): string {
   const override = process.env.VELLUM_DAEMON_SOCKET?.trim();
   if (override) {
@@ -117,6 +133,8 @@ export function ensureDataDir(): void {
     join(data, 'memory'),
     join(data, 'memory', 'knowledge'),
     join(data, 'apps'),
+    join(data, 'sandbox'),
+    join(data, 'sandbox', 'fs'),
   ];
   for (const dir of dirs) {
     if (!existsSync(dir)) {
