@@ -12,7 +12,7 @@ export type GatewayConfig = {
   telegramBotToken: string | undefined;
   telegramWebhookSecret: string | undefined;
   telegramApiBaseUrl: string;
-  assistantRuntimeBaseUrl: string | undefined;
+  assistantRuntimeBaseUrl: string;
   routingEntries: RoutingEntry[];
   defaultAssistantId: string | undefined;
   unmappedPolicy: "reject" | "default";
@@ -72,10 +72,8 @@ export function loadConfig(): GatewayConfig {
   const telegramApiBaseUrl =
     process.env.TELEGRAM_API_BASE_URL || "https://api.telegram.org";
 
-  const assistantRuntimeBaseUrl = process.env.ASSISTANT_RUNTIME_BASE_URL || undefined;
-  if (!assistantRuntimeBaseUrl) {
-    log.warn("ASSISTANT_RUNTIME_BASE_URL not set — runtime forwarding and proxy will fail if used");
-  }
+  const assistantRuntimeBaseUrl =
+    process.env.ASSISTANT_RUNTIME_BASE_URL || "http://localhost:7821";
 
   const routingJson = process.env.GATEWAY_ASSISTANT_ROUTING_JSON || "{}";
   const routingEntries = parseRoutingJson(routingJson);
