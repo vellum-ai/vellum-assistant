@@ -352,6 +352,7 @@ struct GeneratedPanel: View {
                 if self.pendingResponses <= 0 {
                     self.buildDisplayItems()
                     self.isLoading = false
+                    self.loadError = nil
                 } else if !self.isLoading {
                     // Response arrived after timeout — rebuild with whatever data we have
                     self.buildDisplayItems()
@@ -364,6 +365,7 @@ struct GeneratedPanel: View {
                 if self.pendingResponses <= 0 {
                     self.buildDisplayItems()
                     self.isLoading = false
+                    self.loadError = nil
                 } else if !self.isLoading {
                     // Response arrived after timeout — rebuild with whatever data we have
                     self.buildDisplayItems()
