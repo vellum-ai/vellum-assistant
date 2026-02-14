@@ -253,7 +253,7 @@ export async function buildMemoryRecall(
   const selected = trimToTokenBudget(merged, config.memory.retrieval.maxInjectTokens);
   markItemUsage(selected);
 
-  const injectedText = buildInjectedText(selected);
+  const injectedText = buildInjectedText(selected, config.memory.retrieval.injectionFormat);
   const topCandidates: MemoryRecallCandiateDebug[] = selected.slice(0, 10).map((c) => ({
     key: c.key,
     type: c.type,
@@ -938,8 +938,12 @@ const SECTION_ORDER = [
  * Layout per section uses "Lost in the Middle" (Liu et al., Stanford 2023)
  * ordering — see applyAttentionOrdering().
  */
-function buildInjectedText(candidates: Candidate[]): string {
+function buildInjectedText(candidates: Candidate[], format: string = 'markdown'): string {
   if (candidates.length === 0) return '';
+
+  if (format === 'structured_v1') {
+    return buildStructuredInjectedText(candidates);
+  }
 
   // Group candidates by section
   const groups = new Map<string, Candidate[]>();
@@ -967,6 +971,34 @@ function buildInjectedText(candidates: Candidate[]): string {
   }
   parts.push(MEMORY_RECALL_CLOSE_TAG);
   return parts.join('\n');
+}
+
+/**
+ * Structured injection format (structured_v1): each memory item is
+ * rendered as a structured XML entry with explicit fields for kind,
+ * text, time, and confidence. This is less prone to prompt injection
+ * than the markdown format since the model can parse fields explicitly.
+ */
+function buildStructuredInjectedText(candidates: Candidate[]): string {
+  const parts: string[] = [MEMORY_RECALL_OPEN_TAG, MEMORY_RECALL_DISCLAIMER];
+  parts.push('<entries>');
+  const ordered = applyAttentionOrdering(candidates);
+  for (const candidate of ordered) {
+    const absolute = formatAbsoluteTime(candidate.createdAt);
+    const relative = formatRelativeTime(candidate.createdAt);
+    parts.push(
+      `<entry kind="${escapeXmlAttr(candidate.kind)}" type="${candidate.type}" confidence="${candidate.confidence.toFixed(2)}" time="${absolute} (${relative})">` +
+      escapeXmlTags(truncate(candidate.text, 320)) +
+      '</entry>',
+    );
+  }
+  parts.push('</entries>');
+  parts.push(MEMORY_RECALL_CLOSE_TAG);
+  return parts.join('\n');
+}
+
+function escapeXmlAttr(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function applyAttentionOrdering(candidates: Candidate[]): Candidate[] {
