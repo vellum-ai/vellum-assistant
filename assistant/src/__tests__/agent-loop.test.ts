@@ -314,12 +314,13 @@ describe('AgentLoop', () => {
 
     const usageEvents = events.filter((e) => e.type === 'usage');
     expect(usageEvents).toHaveLength(1);
-    expect(usageEvents[0]).toEqual({
-      type: 'usage',
-      inputTokens: 10,
-      outputTokens: 5,
-      model: 'mock-model',
-    });
+    const usage = usageEvents[0] as Extract<AgentEvent, { type: 'usage' }>;
+    expect(usage.type).toBe('usage');
+    expect(usage.inputTokens).toBe(10);
+    expect(usage.outputTokens).toBe(5);
+    expect(usage.model).toBe('mock-model');
+    expect(typeof usage.providerDurationMs).toBe('number');
+    expect(usage.providerDurationMs).toBeGreaterThanOrEqual(0);
   });
 
   test('emits message_complete events', async () => {

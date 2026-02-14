@@ -147,7 +147,7 @@ mock.module('../agent/loop.js', () => ({
         role: 'assistant',
         content: [{ type: 'text', text: 'reply' }],
       };
-      onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock' });
+      onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
       onEvent({ type: 'message_complete', message: assistantMsg });
       return [...messages, assistantMsg];
     }
