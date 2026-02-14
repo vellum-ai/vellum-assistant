@@ -555,7 +555,7 @@ struct SkillsUpdatesAvailableMessage: Decodable, Sendable {
 }
 
 /// A ClaWHub skill returned from a search or explore query.
-struct ClawhubSkillItem: Decodable, Sendable, Identifiable {
+struct ClawhubSkillItem: Decodable, Sendable, Identifiable, Equatable {
     var id: String { slug }
     let name: String
     let slug: String

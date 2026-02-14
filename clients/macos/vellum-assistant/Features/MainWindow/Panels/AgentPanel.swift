@@ -190,6 +190,13 @@ struct AgentPanel: View {
                 }
             }
         }
+        .onChange(of: skillsManager.searchResults) {
+            if let slug = selectedSkillSlug,
+               !skillsManager.searchResults.contains(where: { $0.slug == slug }) {
+                selectedSkillSlug = nil
+                skillsManager.clearInspection()
+            }
+        }
     }
 
     @ViewBuilder
