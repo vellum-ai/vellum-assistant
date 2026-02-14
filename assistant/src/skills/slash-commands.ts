@@ -80,3 +80,72 @@ export function buildInvocableSlashCatalog(
   }
   return result;
 }
+
+// ─── Slash command resolution ────────────────────────────────────────────────
+
+export type SlashResolution =
+  | { kind: 'none' }
+  | { kind: 'known'; skillId: string; trailingArgs: string }
+  | { kind: 'unknown'; requestedId: string; message: string };
+
+/**
+ * Resolve user input against the invocable slash catalog.
+ *
+ * Returns:
+ * - `none` if input is not a slash candidate (normal text, path, etc.)
+ * - `known` if the slash ID matches an invocable skill (case-insensitive)
+ * - `unknown` if it's a valid slash candidate but no matching skill exists
+ */
+export function resolveSlashSkillCommand(
+  input: string,
+  catalog: Map<string, InvocableSlashSkill>,
+): SlashResolution {
+  const candidate = parseSlashCandidate(input);
+  if (candidate.kind === 'none') {
+    return { kind: 'none' };
+  }
+
+  const token = candidate.token!;
+  const requestedId = token.slice(1);
+  const lookupKey = requestedId.toLowerCase();
+
+  // Extract trailing args: everything after the first token
+  const trimmed = input.trimStart();
+  const firstSpaceIdx = trimmed.search(/\s/);
+  const trailingArgs = firstSpaceIdx === -1 ? '' : trimmed.slice(firstSpaceIdx).trim();
+
+  const match = catalog.get(lookupKey);
+  if (match) {
+    return { kind: 'known', skillId: match.canonicalId, trailingArgs };
+  }
+
+  const availableIds = Array.from(catalog.values())
+    .map((s) => s.canonicalId)
+    .sort();
+  return {
+    kind: 'unknown',
+    requestedId,
+    message: formatUnknownSlashSkillMessage(requestedId, availableIds),
+  };
+}
+
+/**
+ * Build a deterministic error message for an unknown slash command.
+ */
+export function formatUnknownSlashSkillMessage(
+  requestedId: string,
+  availableSkillIds: string[],
+): string {
+  const lines = [`Unknown command \`/${requestedId}\`.`];
+  if (availableSkillIds.length > 0) {
+    lines.push('');
+    lines.push('Available slash commands:');
+    for (const id of availableSkillIds) {
+      lines.push(`- \`/${id}\``);
+    }
+  } else {
+    lines.push('');
+    lines.push('No slash commands are currently available.');
+  }
+  return lines.join('\n');
+}
