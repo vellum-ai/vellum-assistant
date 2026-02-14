@@ -49,7 +49,7 @@ struct GeneratedPanel: View {
                     Image(systemName: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(VColor.textMuted)
-                        .frame(width: 28, height: 28)
+                        .frame(width: 16, height: 28, alignment: .leading)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
