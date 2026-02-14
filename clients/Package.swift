@@ -29,7 +29,7 @@ let package = Package(
         .target(
             name: "VellumAssistantShared",
             dependencies: [],
-            path: "vellum-assistant-shared",
+            path: "shared",
             resources: [.process("Resources")],
             swiftSettings: [
                 .enableUpcomingFeature("BareSlashRegexLiterals")
@@ -38,7 +38,7 @@ let package = Package(
         .target(
             name: "VellumAssistantLib",
             dependencies: ["VellumAssistantShared", "HotKey", "Sparkle"],
-            path: "vellum-assistant",
+            path: "macos/vellum-assistant",
             exclude: ["Resources/Info.plist"],
             resources: [
                 .process("Resources/Assets.xcassets"),
@@ -63,12 +63,12 @@ let package = Package(
         .executableTarget(
             name: "vellum-assistant",
             dependencies: ["VellumAssistantLib"],
-            path: "vellum-assistant-app"
+            path: "macos/vellum-assistant-app"
         ),
         .testTarget(
             name: "vellum-assistantTests",
             dependencies: ["VellumAssistantLib"],
-            path: "vellum-assistantTests"
+            path: "macos/vellum-assistantTests"
         )
     ]
 )
