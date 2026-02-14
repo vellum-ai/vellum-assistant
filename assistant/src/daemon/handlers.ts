@@ -452,6 +452,12 @@ async function handleUserMessage(
 
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
 
+    session.traceEmitter.emit('request_received', 'User message received', {
+      requestId,
+      status: 'info',
+      attributes: { source: 'user_message' },
+    });
+
     const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId);
     if (result.rejected) {
       rlog.warn('Message rejected — queue is full');
@@ -465,12 +471,18 @@ async function handleUserMessage(
       return;
     }
     if (result.queued) {
-      rlog.info({ position: session.getQueueDepth() }, 'Message queued (session busy)');
+      const position = session.getQueueDepth();
+      rlog.info({ position }, 'Message queued (session busy)');
+      session.traceEmitter.emit('request_queued', `Message queued at position ${position}`, {
+        requestId,
+        status: 'info',
+        attributes: { position },
+      });
       ctx.send(socket, {
         type: 'message_queued',
         sessionId: msg.sessionId,
         requestId,
-        position: session.getQueueDepth(),
+        position,
       });
       return; // Don't await — message will be processed when current one finishes
     }
@@ -782,6 +794,10 @@ async function handleRegenerate(
   }
 
   const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+  session.traceEmitter.emit('request_received', 'Regenerate requested', {
+    status: 'info',
+    attributes: { source: 'regenerate' },
+  });
   try {
     await session.regenerate(sendEvent);
   } catch (err) {

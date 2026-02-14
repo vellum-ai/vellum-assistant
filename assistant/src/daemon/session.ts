@@ -775,6 +775,11 @@ export class Session {
       });
 
       if (yieldedForHandoff) {
+        this.traceEmitter.emit('generation_handoff', 'Handing off to next queued message', {
+          requestId: reqId,
+          status: 'info',
+          attributes: { queuedCount: this.getQueueDepth() },
+        });
         onEvent({
           type: 'generation_handoff',
           sessionId: this.conversationId,
@@ -782,8 +787,16 @@ export class Session {
           queuedCount: this.getQueueDepth(),
         });
       } else if (abortController.signal.aborted) {
+        this.traceEmitter.emit('generation_cancelled', 'Generation cancelled by user', {
+          requestId: reqId,
+          status: 'warning',
+        });
         onEvent({ type: 'generation_cancelled' });
       } else {
+        this.traceEmitter.emit('message_complete', 'Message processing complete', {
+          requestId: reqId,
+          status: 'success',
+        });
         onEvent({ type: 'message_complete', sessionId: this.conversationId });
       }
 
@@ -798,10 +811,20 @@ export class Session {
       // AbortError is expected when user cancels — don't treat as an error
       if (isUserCancellation(err, errorCtx)) {
         rlog.info('Generation cancelled by user');
+        this.traceEmitter.emit('generation_cancelled', 'Generation cancelled by user', {
+          requestId: reqId,
+          status: 'warning',
+        });
         onEvent({ type: 'generation_cancelled' });
       } else {
         const message = err instanceof Error ? err.message : String(err);
+        const errorClass = err instanceof Error ? err.constructor.name : 'Error';
         rlog.error({ err }, 'Session processing error');
+        this.traceEmitter.emit('request_error', message.slice(0, 200), {
+          requestId: reqId,
+          status: 'error',
+          attributes: { errorClass, message: message.slice(0, 500) },
+        });
         onEvent({ type: 'error', message: `Failed to process message: ${message}` });
         const classified = classifySessionError(err, errorCtx);
         onEvent(buildSessionErrorMessage(this.conversationId, classified));
@@ -840,6 +863,11 @@ export class Session {
     if (!next) return;
 
     log.info({ conversationId: this.conversationId, requestId: next.requestId, reason }, 'Dequeuing message');
+    this.traceEmitter.emit('request_dequeued', `Message dequeued (${reason})`, {
+      requestId: next.requestId,
+      status: 'info',
+      attributes: { reason },
+    });
     next.onEvent({
       type: 'message_dequeued',
       sessionId: this.conversationId,
@@ -1018,15 +1046,27 @@ export class Session {
     const requestId = uuid();
     const onEvent = (msg: ServerMessage) => this.sendToClient(msg);
 
+    this.traceEmitter.emit('request_received', 'Surface action received', {
+      requestId,
+      status: 'info',
+      attributes: { source: 'surface_action', surfaceId, actionId },
+    });
+
     const result = this.enqueueMessage(content, [], onEvent, requestId);
     if (result.queued) {
+      const position = this.getQueueDepth();
       this.pendingSurfaceActions.delete(surfaceId);
       log.info({ surfaceId, actionId, requestId }, 'Surface action queued (session busy)');
+      this.traceEmitter.emit('request_queued', `Surface action queued at position ${position}`, {
+        requestId,
+        status: 'info',
+        attributes: { position },
+      });
       onEvent({
         type: 'message_queued',
         sessionId: this.conversationId,
         requestId,
-        position: this.getQueueDepth(),
+        position,
       });
       return;
     }
