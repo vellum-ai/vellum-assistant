@@ -75,14 +75,17 @@ struct ToolCallData: Identifiable, Equatable {
     var result: String?
     var isError: Bool
     var isComplete: Bool
+    /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
+    var imageData: String?
 
-    init(id: UUID = UUID(), toolName: String, inputSummary: String, result: String? = nil, isError: Bool = false, isComplete: Bool = false) {
+    init(id: UUID = UUID(), toolName: String, inputSummary: String, result: String? = nil, isError: Bool = false, isComplete: Bool = false, imageData: String? = nil) {
         self.id = id
         self.toolName = toolName
         self.inputSummary = inputSummary
         self.result = result
         self.isError = isError
         self.isComplete = isComplete
+        self.imageData = imageData
     }
 }
 

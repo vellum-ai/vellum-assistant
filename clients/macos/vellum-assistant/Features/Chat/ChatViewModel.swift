@@ -683,6 +683,7 @@ final class ChatViewModel: ObservableObject {
                 messages[msgIndex].toolCalls[tcIndex].result = truncatedResult
                 messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
                 messages[msgIndex].toolCalls[tcIndex].isComplete = true
+                messages[msgIndex].toolCalls[tcIndex].imageData = msg.imageData
             }
 
         case .uiSurfaceShow(let msg):

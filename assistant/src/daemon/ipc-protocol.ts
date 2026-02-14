@@ -455,6 +455,8 @@ export interface ToolResult {
   diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
   status?: string;
   sessionId?: string;
+  /** Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot). */
+  imageData?: string;
 }
 
 export interface ConfirmationRequest {

@@ -8,11 +8,15 @@ struct ToolCallChip: View {
         toolCall.toolName
     }
 
+    private var hasExpandableContent: Bool {
+        toolCall.result != nil || toolCall.imageData != nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Chip header (always visible)
             Button {
-                if toolCall.isComplete {
+                if toolCall.isComplete && hasExpandableContent {
                     withAnimation(VAnimation.fast) { isExpanded.toggle() }
                 }
             } label: {
@@ -42,7 +46,7 @@ struct ToolCallChip: View {
                         ProgressView()
                             .scaleEffect(0.6)
                             .frame(width: 14, height: 14)
-                    } else if toolCall.result != nil {
+                    } else if hasExpandableContent {
                         // Chevron for expandable result
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                             .font(.system(size: 9, weight: .semibold))
@@ -55,15 +59,31 @@ struct ToolCallChip: View {
             .buttonStyle(.plain)
 
             // Expanded result
-            if isExpanded, let result = toolCall.result {
-                ScrollView {
-                    Text(result)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
+            if isExpanded, hasExpandableContent {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    // Image preview (for browser_screenshot etc.)
+                    if let imageData = toolCall.imageData,
+                       let data = Data(base64Encoded: imageData),
+                       let nsImage = NSImage(data: data) {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    }
+
+                    // Text result
+                    if let result = toolCall.result {
+                        ScrollView {
+                            Text(result)
+                                .font(VFont.monoSmall)
+                                .foregroundColor(VColor.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                        .frame(maxHeight: 200)
+                    }
                 }
-                .frame(maxHeight: 200)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.bottom, VSpacing.sm)
             }
