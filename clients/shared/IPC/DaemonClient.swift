@@ -127,6 +127,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `history_response` message.
     public var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `session_error` message with typed error information.
+    public var onSessionError: ((SessionErrorMessagePayload) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -761,6 +764,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onHistoryResponse?(msg)
         case .traceEvent(let msg):
             onTraceEvent?(msg)
+        case .sessionError(let msg):
+            onSessionError?(msg)
         case .error(let msg):
             onError?(msg)
         #if os(macOS)
