@@ -714,13 +714,15 @@ function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
   ctx.send(socket, { type: 'skills_list_response', skills });
 }
 
-/** Get or create the skill entry object for a given skill name, creating intermediate objects as needed. */
+/** Get or create the skill entry object for a given skill name, creating intermediate objects as needed.
+ *  Guards against malformed config (e.g. skills or entries being a string, array, or null)
+ *  by resetting non-object intermediates to {}, restoring self-healing behavior. */
 function ensureSkillEntry(raw: Record<string, unknown>, name: string): Record<string, unknown> {
-  if (!raw.skills) raw.skills = {};
+  if (!isRecord(raw.skills)) raw.skills = {};
   const skills = raw.skills as Record<string, unknown>;
-  if (!skills.entries) skills.entries = {};
+  if (!isRecord(skills.entries)) skills.entries = {};
   const entries = skills.entries as Record<string, unknown>;
-  if (!entries[name]) entries[name] = {};
+  if (!isRecord(entries[name])) entries[name] = {};
   return entries[name] as Record<string, unknown>;
 }
 function handleSkillsEnable(
