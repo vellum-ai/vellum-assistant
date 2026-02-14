@@ -36,6 +36,9 @@ public enum VFont {
             ]]
         ])
         return Font(UIFont(descriptor: descriptor, size: size))
+        #else
+        // Fallback for unsupported platforms (visionOS, tvOS, watchOS)
+        return Font.custom(name, size: size)
         #endif
     }
     // MARK: - Onboarding (Silkscreen pixel font)
