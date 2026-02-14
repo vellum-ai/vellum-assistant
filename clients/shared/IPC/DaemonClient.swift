@@ -168,20 +168,27 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     deinit {
         // Swift 5.9+: deinit on @MainActor class is NOT guaranteed to run on main actor.
-        // Use assumeIsolated to safely access main-actor-isolated state during cleanup.
-        // This will trap if deinit somehow runs on wrong thread (better than silent data race).
-        MainActor.assumeIsolated {
-            // Cancel everything without triggering reconnect.
-            shouldReconnect = false
-            reconnectTask?.cancel()
-            pingTask?.cancel()
-            pongTimeoutTask?.cancel()
-            connection?.cancel()
-            for continuation in subscribers.values {
-                continuation.finish()
-            }
-            subscribers.removeAll()
+        // Cannot use MainActor.assumeIsolated here as it would crash if deinit runs on
+        // a background thread (e.g., if last reference is released from a background context).
+        //
+        // Instead, we access the properties directly. While this is technically a data race,
+        // the cleanup operations are all thread-safe:
+        // - Task.cancel() is thread-safe
+        // - NWConnection.cancel() is thread-safe
+        // - AsyncStream.Continuation.finish() is thread-safe
+        //
+        // Setting shouldReconnect and accessing subscribers are data races, but they're
+        // benign in deinit since the object is being destroyed and no other code can
+        // access these properties.
+        shouldReconnect = false
+        reconnectTask?.cancel()
+        pingTask?.cancel()
+        pongTimeoutTask?.cancel()
+        connection?.cancel()
+        for continuation in subscribers.values {
+            continuation.finish()
         }
+        subscribers.removeAll()
     }
 
     // MARK: - Socket Path
