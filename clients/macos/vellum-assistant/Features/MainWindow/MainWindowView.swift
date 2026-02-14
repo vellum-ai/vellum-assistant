@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
     @State private var activePanel: SidePanelType?
+    @State private var isDynamicExpanded = false
     @State private var hasAPIKey = APIKeyManager.hasAnyKey()
     let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
@@ -31,57 +32,65 @@ struct MainWindowView: View {
                 )
 
                 // Row 2 — chat content with optional side panel
-                VSplitView(panelWidth: geometry.size.width * 0.5, showPanel: activePanel != nil, main: {
-                    if let viewModel = threadManager.activeViewModel {
-                        ChatView(
-                            messages: viewModel.messages,
-                            inputText: Binding(
-                                get: { viewModel.inputText },
-                                set: { viewModel.inputText = $0 }
-                            ),
-                            hasAPIKey: hasAPIKey,
-                            isThinking: viewModel.isThinking,
-                            isSending: viewModel.isSending,
-                            errorText: viewModel.errorText,
-                            pendingQueuedCount: viewModel.pendingQueuedCount,
-                            suggestion: viewModel.suggestion,
-                            pendingAttachments: viewModel.pendingAttachments,
-                            isRecording: viewModel.isRecording,
-                            onOpenSettings: {
-                                // Always provide an immediate, visible fallback.
-                                activePanel = .settings
-                                Self.openSettings()
-                            },
-                            onSend: viewModel.sendMessage,
-                            onStop: viewModel.stopGenerating,
-                            onDismissError: viewModel.dismissError,
-                            onAcceptSuggestion: viewModel.acceptSuggestion,
-                            onAttach: { Self.openFilePicker(viewModel: viewModel) },
-                            onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                            onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
-                            onDropImageData: { data, name in
-                                let filename: String
-                                if let name {
-                                    let basename = (name as NSString).lastPathComponent
-                                    let base = (basename as NSString).deletingPathExtension
-                                    filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
-                                } else {
-                                    filename = "Dropped Image.png"
-                                }
-                                viewModel.addAttachment(imageData: data, filename: filename)
-                            },
-                            onPaste: { viewModel.addAttachmentFromPasteboard() },
-                            onMicrophoneToggle: onMicrophoneToggle,
-                            onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
-                            onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
-                            onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
-                            onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
-                            onRegenerate: { viewModel.regenerateLastMessage() }
-                        )
-                    }
-                }, panel: {
-                    panelContent
-                })
+                if isDynamicExpanded && activePanel == .generated {
+                    GeneratedPanel(
+                        onClose: { activePanel = nil; isDynamicExpanded = false },
+                        isExpanded: $isDynamicExpanded,
+                        daemonClient: daemonClient
+                    )
+                } else {
+                    VSplitView(panelWidth: geometry.size.width * 0.5, showPanel: activePanel != nil, main: {
+                        if let viewModel = threadManager.activeViewModel {
+                            ChatView(
+                                messages: viewModel.messages,
+                                inputText: Binding(
+                                    get: { viewModel.inputText },
+                                    set: { viewModel.inputText = $0 }
+                                ),
+                                hasAPIKey: hasAPIKey,
+                                isThinking: viewModel.isThinking,
+                                isSending: viewModel.isSending,
+                                errorText: viewModel.errorText,
+                                pendingQueuedCount: viewModel.pendingQueuedCount,
+                                suggestion: viewModel.suggestion,
+                                pendingAttachments: viewModel.pendingAttachments,
+                                isRecording: viewModel.isRecording,
+                                onOpenSettings: {
+                                    // Always provide an immediate, visible fallback.
+                                    activePanel = .settings
+                                    Self.openSettings()
+                                },
+                                onSend: viewModel.sendMessage,
+                                onStop: viewModel.stopGenerating,
+                                onDismissError: viewModel.dismissError,
+                                onAcceptSuggestion: viewModel.acceptSuggestion,
+                                onAttach: { Self.openFilePicker(viewModel: viewModel) },
+                                onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                                onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
+                                onDropImageData: { data, name in
+                                    let filename: String
+                                    if let name {
+                                        let basename = (name as NSString).lastPathComponent
+                                        let base = (basename as NSString).deletingPathExtension
+                                        filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
+                                    } else {
+                                        filename = "Dropped Image.png"
+                                    }
+                                    viewModel.addAttachment(imageData: data, filename: filename)
+                                },
+                                onPaste: { viewModel.addAttachmentFromPasteboard() },
+                                onMicrophoneToggle: onMicrophoneToggle,
+                                onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
+                                onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
+                                onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
+                                onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
+                                onRegenerate: { viewModel.regenerateLastMessage() }
+                            )
+                        }
+                    }, panel: {
+                        panelContent
+                    })
+                }
             }
             .ignoresSafeArea(edges: .top)
             .background(VColor.background.ignoresSafeArea())
@@ -138,7 +147,7 @@ struct MainWindowView: View {
         if let panel = activePanel {
             switch panel {
             case .generated:
-                GeneratedPanel(onClose: { activePanel = nil }, daemonClient: daemonClient)
+                GeneratedPanel(onClose: { activePanel = nil; isDynamicExpanded = false }, isExpanded: $isDynamicExpanded, daemonClient: daemonClient)
             case .agent:
                 AgentPanel(onClose: { activePanel = nil }, onInvokeSkill: { skill in
                     if threadManager.activeViewModel == nil {
