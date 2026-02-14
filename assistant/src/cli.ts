@@ -95,6 +95,28 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
   }
 
+  const SLASH_COMMANDS = [
+    '/new',
+    '/sessions',
+    '/clear',
+    '/model',
+    '/history',
+    '/undo',
+    '/usage',
+    '/copy',
+    '/copy-code',
+    '/copy-session',
+    '/help',
+  ];
+
+  function completer(line: string): [string[], string] {
+    if (line.startsWith('/')) {
+      const hits = SLASH_COMMANDS.filter((cmd) => cmd.startsWith(line));
+      return [hits.length ? hits : SLASH_COMMANDS, line];
+    }
+    return [[], line];
+  }
+
   const historyPath = getHistoryPath();
   const MAX_HISTORY = 1000;
   let savedHistory: string[] = [];
@@ -113,6 +135,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     output: process.stdout,
     history: savedHistory,
     historySize: MAX_HISTORY,
+    completer,
   });
 
   function prompt(): void {
