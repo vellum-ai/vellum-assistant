@@ -363,27 +363,12 @@ struct ChatView: View {
             HStack(alignment: .bottom, spacing: VSpacing.sm) {
                 // Text editor with ghost text / placeholder overlay
                 ZStack(alignment: .topLeading) {
-                    // Invisible sizing text — measures content height
-                    Text(inputText.isEmpty ? " " : inputText)
-                        .font(VFont.body)
-                        .lineSpacing(4)
-                        .foregroundColor(.clear)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 8)
-                        .accessibilityHidden(true)
-                        .background(
-                            GeometryReader { geo in
-                                Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
-                            }
-                        )
-
                     TextEditor(text: $inputText)
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
                         .lineSpacing(4)
                         .scrollContentBackground(.hidden)
                         .scrollDisabled(editorContentHeight <= 200)
-                        .frame(height: min(max(editorContentHeight, 36), 200))
                         .disabled(!hasAPIKey)
                         .accessibilityLabel("Message")
 
@@ -425,6 +410,21 @@ struct ChatView: View {
                             .accessibilityHidden(true)
                     }
                 }
+                .frame(height: min(max(editorContentHeight, 36), 200))
+                .background(
+                    Text(inputText.isEmpty ? " " : inputText)
+                        .font(VFont.body)
+                        .lineSpacing(4)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 8)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .hidden()
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
+                            }
+                        )
+                )
                 .onPreferenceChange(ContentHeightKey.self) { height in
                     withAnimation(VAnimation.spring) {
                         editorContentHeight = height
@@ -512,7 +512,7 @@ struct ChatView: View {
             .animation(VAnimation.spring, value: canSend)
         }
         .padding(.horizontal, VSpacing.xl)
-        .padding(.vertical, VSpacing.sm)
+        .padding(.vertical, VSpacing.md)
         .background(VColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xxl))
         .overlay(
