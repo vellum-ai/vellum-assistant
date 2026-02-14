@@ -1046,14 +1046,3 @@ exports[`IPC message snapshots ServerMessage types trace_event serializes to exp
   "type": "trace_event",
 }
 `;
-
-exports[`IPC message snapshots ServerMessage types session_error serializes to expected JSON 1`] = `
-{
-  "code": "PROVIDER_NETWORK",
-  "debugDetails": "ETIMEDOUT: connect to api.anthropic.com:443",
-  "retryable": true,
-  "sessionId": "sess-001",
-  "type": "session_error",
-  "userMessage": "Unable to reach the AI provider. Please check your connection and try again.",
-}
-`;
