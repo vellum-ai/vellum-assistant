@@ -115,17 +115,3 @@ describe('checkContentSize', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Re-export shim backward compatibility
-// ---------------------------------------------------------------------------
-
-describe('backward-compatible re-export shim', () => {
-  test('old import path re-exports the same functions', async () => {
-    const shim = await import('../tools/filesystem/size-guard.js');
-    const shared = await import('../tools/shared/filesystem/size-guard.js');
-
-    expect(shim.MAX_FILE_SIZE_BYTES).toBe(shared.MAX_FILE_SIZE_BYTES);
-    expect(shim.checkFileSizeOnDisk).toBe(shared.checkFileSizeOnDisk);
-    expect(shim.checkContentSize).toBe(shared.checkContentSize);
-  });
-});

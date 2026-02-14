@@ -7,8 +7,8 @@ import { addRule } from '../permissions/trust-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { ToolError, PermissionDeniedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
-import { validateFilePath } from './filesystem/path-guard.js';
-import { MAX_FILE_SIZE_BYTES } from './filesystem/size-guard.js';
+import { sandboxPolicy } from './shared/filesystem/path-policy.js';
+import { MAX_FILE_SIZE_BYTES } from './shared/filesystem/size-guard.js';
 import { applyEdit } from './shared/filesystem/edit-engine.js';
 import { wrapCommand } from './terminal/sandbox.js';
 import { getConfig } from '../config/loader.js';
@@ -469,7 +469,7 @@ function computePreviewDiff(
       const rawPath = input.path as string;
       const content = input.content as string;
       if (!rawPath || typeof content !== 'string') return undefined;
-      const pathCheck = validateFilePath(rawPath, workingDir, { mustExist: false });
+      const pathCheck = sandboxPolicy(rawPath, workingDir, { mustExist: false });
       if (!pathCheck.ok) return undefined;
       const filePath = pathCheck.resolved;
       const isNewFile = !existsSync(filePath);
@@ -486,7 +486,7 @@ function computePreviewDiff(
       const oldString = input.old_string as string;
       const newString = input.new_string as string;
       if (!rawPath || typeof oldString !== 'string' || typeof newString !== 'string' || oldString.length === 0) return undefined;
-      const pathCheck = validateFilePath(rawPath, workingDir);
+      const pathCheck = sandboxPolicy(rawPath, workingDir);
       if (!pathCheck.ok) return undefined;
       const filePath = pathCheck.resolved;
       if (!existsSync(filePath)) return undefined;
