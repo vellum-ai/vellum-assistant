@@ -4,6 +4,26 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DaemonClient")
 
+#if os(macOS)
+/// Resolve the Unix domain socket path for the daemon connection.
+/// Returns the path in priority order:
+/// 1. `VELLUM_DAEMON_SOCKET` environment variable (trimmed, with ~/ expansion)
+/// 2. `~/.vellum/vellum.sock`
+///
+/// Accepts an optional environment dictionary for testability.
+func resolveSocketPath(environment: [String: String]? = nil) -> String {
+    let env = environment ?? ProcessInfo.processInfo.environment
+    if let envPath = env["VELLUM_DAEMON_SOCKET"], !envPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let trimmed = envPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("~/") {
+            return NSHomeDirectory() + "/" + String(trimmed.dropFirst(2))
+        }
+        return trimmed
+    }
+    return NSHomeDirectory() + "/.vellum/vellum.sock"
+}
+#endif
+
 /// Protocol for daemon client communication, enabling dependency injection and testing.
 @MainActor
 public protocol DaemonClientProtocol {
@@ -196,22 +216,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Socket Path
 
-    /// Resolves the daemon socket path (macOS only):
-    /// 1. `VELLUM_DAEMON_SOCKET` environment variable (or override dictionary)
-    /// 2. `~/.vellum/vellum.sock`
-    ///
-    /// Accepts an optional environment dictionary for testability.
+    /// Resolves the daemon socket path (macOS only).
+    /// Delegates to the standalone `resolveSocketPath()` function for DRY.
     #if os(macOS)
     public static func resolveSocketPath(environment: [String: String]? = nil) -> String {
-        let env = environment ?? ProcessInfo.processInfo.environment
-        if let envPath = env["VELLUM_DAEMON_SOCKET"], !envPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let trimmed = envPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.hasPrefix("~/") {
-                return NSHomeDirectory() + "/" + String(trimmed.dropFirst(2))
-            }
-            return trimmed
-        }
-        return NSHomeDirectory() + "/.vellum/vellum.sock"
+        return VellumAssistantShared.resolveSocketPath(environment: environment)
     }
     #endif
 

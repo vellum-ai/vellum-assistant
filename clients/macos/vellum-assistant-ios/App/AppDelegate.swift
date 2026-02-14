@@ -1,6 +1,7 @@
 import UIKit
 import VellumAssistantShared
 
+@MainActor
 class AppDelegate: NSObject, UIApplicationDelegate {
     let daemonClient: DaemonClient
 
