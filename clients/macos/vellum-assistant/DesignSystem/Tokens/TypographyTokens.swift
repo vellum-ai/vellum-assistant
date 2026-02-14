@@ -7,15 +7,16 @@ import SwiftUI
 /// **DM Mono** — monospaced font for body/UI text.
 enum VFont {
 
-    /// DM Mono with ligatures disabled so "fi", "fl", "ff" render as separate glyphs.
+    /// DM Mono's default "f" has an exaggerated italic-style hook.
+    /// Stylistic Set 5 (ss05) provides a conventional "f" glyph.
     private static func dmMono(_ name: String, size: CGFloat) -> Font {
         guard let nsFont = NSFont(name: name, size: size) else {
             return Font.custom(name, size: size)
         }
         let descriptor = nsFont.fontDescriptor.addingAttributes([
             .featureSettings: [[
-                NSFontDescriptor.FeatureKey.typeIdentifier: kLigaturesType,
-                NSFontDescriptor.FeatureKey.selectorIdentifier: kCommonLigaturesOffSelector,
+                NSFontDescriptor.FeatureKey.typeIdentifier: kStylisticAlternativesType,
+                NSFontDescriptor.FeatureKey.selectorIdentifier: kStylisticAltFiveOnSelector,
             ]]
         ])
         return Font(NSFont(descriptor: descriptor, size: size) ?? nsFont)
