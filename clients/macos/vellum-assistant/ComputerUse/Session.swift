@@ -179,6 +179,11 @@ final class ComputerUseSession: ObservableObject {
                     self.logger.finishSession(result: "failed: \(error.message)")
                     return
 
+                case .sessionError(let error) where error.sessionId == self.id:
+                    self.state = .failed(reason: error.userMessage)
+                    self.logger.finishSession(result: "failed: \(error.userMessage)")
+                    return
+
                 default:
                     break // ignore messages for other sessions
                 }

@@ -154,6 +154,10 @@ final class ProfileExtractor {
                 log.error("Extraction session error: \(error.message)")
                 return
 
+            case .sessionError(let error) where error.sessionId == sessionId:
+                log.error("Extraction session error (session_error): \(error.userMessage)")
+                return
+
             default:
                 break
             }
