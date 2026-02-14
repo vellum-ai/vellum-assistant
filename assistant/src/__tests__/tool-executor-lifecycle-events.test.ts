@@ -8,7 +8,7 @@ const mockConfig = {
   maxTokens: 4096,
   dataDir: '/tmp',
   timeouts: { shellDefaultTimeoutSec: 120, shellMaxTimeoutSec: 600, permissionTimeoutSec: 300 },
-  sandbox: { enabled: false },
+  sandbox: { enabled: false, backend: 'native' as const, docker: { image: 'node:20-slim', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' as const } },
   rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
   secretDetection: { enabled: false, action: 'warn' as const, entropyThreshold: 4.0 },
 };

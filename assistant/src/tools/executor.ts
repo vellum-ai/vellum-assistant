@@ -105,8 +105,11 @@ export class ToolExecutor {
 
         let sandboxed: boolean | undefined;
         if (name === 'bash' && typeof input.command === 'string') {
-          const sandboxEnabled = context.sandboxOverride ?? getConfig().sandbox.enabled;
-          const wrapped = wrapCommand(input.command, context.workingDir, sandboxEnabled);
+          const cfg = getConfig();
+          const sandboxConfig = context.sandboxOverride != null
+            ? { ...cfg.sandbox, enabled: context.sandboxOverride }
+            : cfg.sandbox;
+          const wrapped = wrapCommand(input.command, context.workingDir, sandboxConfig);
           sandboxed = wrapped.sandboxed;
         }
 

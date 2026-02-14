@@ -99,8 +99,10 @@ class ShellTool implements Tool {
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
 
-      const sandboxEnabled = context.sandboxOverride ?? config.sandbox.enabled;
-      const wrapped = wrapCommand(command, context.workingDir, sandboxEnabled);
+      const sandboxConfig = context.sandboxOverride != null
+        ? { ...config.sandbox, enabled: context.sandboxOverride }
+        : config.sandbox;
+      const wrapped = wrapCommand(command, context.workingDir, sandboxConfig);
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,
         env: buildSanitizedEnv(),
