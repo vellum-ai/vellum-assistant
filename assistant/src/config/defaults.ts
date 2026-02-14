@@ -53,6 +53,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
         staleDecay: 0.5,
         reinforcementShieldDays: 7,
       },
+      scopePolicy: 'allow_global_fallback' as const,
     },
     segmentation: {
       targetTokens: 450,

@@ -66,6 +66,7 @@ export interface MemoryRecallResult {
 interface MemoryRecallOptions {
   excludeMessageIds?: string[];
   signal?: AbortSignal;
+  scopeId?: string;
 }
 
 interface CollectedCandidates {
@@ -91,36 +92,65 @@ async function collectAndMergeCandidates(
     model?: string;
     conversationId?: string;
     excludeMessageIds?: string[];
+    scopeId?: string;
   },
 ): Promise<CollectedCandidates> {
   const queryVector = opts?.queryVector ?? null;
   const excludeMessageIds = opts?.excludeMessageIds ?? [];
+  const scopeId = opts?.scopeId;
+  const scopePolicy = config.memory.retrieval.scopePolicy;
+  // Build the list of scope IDs to include in queries
+  const scopeIds = buildScopeFilter(scopeId, scopePolicy);
 
-  const lexical = lexicalSearch(query, config.memory.retrieval.lexicalTopK, excludeMessageIds);
+  const lexical = lexicalSearch(query, config.memory.retrieval.lexicalTopK, excludeMessageIds, scopeIds);
 
   const recency = opts?.conversationId
     ? recencySearch(
         opts.conversationId,
         Math.max(10, Math.floor(config.memory.retrieval.semanticTopK / 2)),
         excludeMessageIds,
+        scopeIds,
       )
     : [];
 
-  const semantic = queryVector
-    ? await semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds)
-    : [];
+  let semantic: Candidate[] = [];
+  if (queryVector) {
+    try {
+      semantic = await semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds);
+    } catch (err) {
+      log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
+    }
+  }
 
   let entity: Candidate[] = [];
   if (config.memory.entity.enabled) {
-    entity = entitySearch(query);
+    entity = entitySearch(query, scopeIds);
   }
 
   // Direct item search supplements FTS with LIKE-based matching
-  const directItems = directItemSearch(query, Math.max(10, config.memory.retrieval.lexicalTopK));
+  const directItems = directItemSearch(query, Math.max(10, config.memory.retrieval.lexicalTopK), scopeIds);
 
   const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems], config.memory.retrieval.freshness);
 
   return { lexical, recency, semantic, entity, merged };
+}
+
+/**
+ * Build the list of scope IDs to include in queries.
+ * - If no scopeId is provided, returns undefined (no filtering).
+ * - If scopePolicy is 'allow_global_fallback', includes both the
+ *   requested scope and the 'default' scope.
+ * - If scopePolicy is 'strict', only includes the requested scope.
+ */
+function buildScopeFilter(
+  scopeId: string | undefined,
+  scopePolicy: string,
+): string[] | undefined {
+  if (!scopeId) return undefined;
+  if (scopePolicy === 'allow_global_fallback') {
+    return scopeId === 'default' ? ['default'] : [scopeId, 'default'];
+  }
+  return [scopeId];
 }
 
 export async function buildMemoryRecall(
@@ -196,6 +226,7 @@ export async function buildMemoryRecall(
       model,
       conversationId,
       excludeMessageIds,
+      scopeId: options?.scopeId,
     });
   } catch (err) {
     if (signal?.aborted || isAbortError(err)) {
@@ -419,7 +450,7 @@ export function queryMemoryForCli(
   return buildMemoryRecall(query, conversationId, config);
 }
 
-function lexicalSearch(query: string, limit: number, excludedMessageIds: string[] = []): Candidate[] {
+function lexicalSearch(query: string, limit: number, excludedMessageIds: string[] = [], scopeIds?: string[]): Candidate[] {
   const trimmed = query.trim();
   if (trimmed.length === 0 || limit <= 0) return [];
   const matchQuery = buildFtsMatchQuery(trimmed);
@@ -437,6 +468,10 @@ function lexicalSearch(query: string, limit: number, excludedMessageIds: string[
   const queryLimit = excluded.size > 0
     ? Math.max(limit + 24, limit * 2)
     : limit;
+  const scopeClause = scopeIds
+    ? ` AND s.scope_id IN (${scopeIds.map(() => '?').join(',')})`
+    : '';
+  const params: unknown[] = [matchQuery, ...(scopeIds ?? []), queryLimit];
   try {
     rows = raw.query(`
       SELECT
@@ -447,10 +482,10 @@ function lexicalSearch(query: string, limit: number, excludedMessageIds: string[
         bm25(memory_segment_fts) AS rank
       FROM memory_segment_fts f
       JOIN memory_segments s ON s.id = f.segment_id
-      WHERE memory_segment_fts MATCH ?
+      WHERE memory_segment_fts MATCH ?${scopeClause}
       ORDER BY rank
       LIMIT ?
-    `).all(matchQuery, queryLimit) as Array<{
+    `).all(...params) as Array<{
       segment_id: string;
       message_id: string;
       text: string;
@@ -497,6 +532,7 @@ async function semanticSearch(
   _model: string,
   limit: number,
   excludedMessageIds: string[] = [],
+  scopeIds?: string[],
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
 
@@ -522,6 +558,7 @@ async function semanticSearch(
       // Validate the backing memory item is still active and has non-excluded evidence
       const item = db.select().from(memoryItems).where(eq(memoryItems.id, payload.target_id)).get();
       if (!item || item.status !== 'active' || item.invalidAt !== null) continue;
+      if (scopeIds && !scopeIds.includes(item.scopeId)) continue;
       const sources = db.select().from(memoryItemSources)
         .where(eq(memoryItemSources.memoryItemId, payload.target_id)).all();
       if (sources.length === 0) continue;
@@ -579,15 +616,17 @@ async function semanticSearch(
   return candidates;
 }
 
-function recencySearch(conversationId: string, limit: number, excludedMessageIds: string[] = []): Candidate[] {
+function recencySearch(conversationId: string, limit: number, excludedMessageIds: string[] = [], scopeIds?: string[]): Candidate[] {
   if (!conversationId || limit <= 0) return [];
   const db = getDb();
-  const whereClause = excludedMessageIds.length > 0
-    ? and(
-      eq(memorySegments.conversationId, conversationId),
-      notInArray(memorySegments.messageId, excludedMessageIds),
-    )
-    : eq(memorySegments.conversationId, conversationId);
+  const conditions = [eq(memorySegments.conversationId, conversationId)];
+  if (excludedMessageIds.length > 0) {
+    conditions.push(notInArray(memorySegments.messageId, excludedMessageIds));
+  }
+  if (scopeIds && scopeIds.length > 0) {
+    conditions.push(inArray(memorySegments.scopeId, scopeIds));
+  }
+  const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
   const rows = db
     .select()
     .from(memorySegments)
@@ -616,7 +655,7 @@ function recencySearch(conversationId: string, limit: number, excludedMessageIds
  * fuzzy match against known entities (name + aliases), and return
  * all memory items linked to those entities.
  */
-function entitySearch(query: string): Candidate[] {
+function entitySearch(query: string, scopeIds?: string[]): Candidate[] {
   const trimmed = query.trim();
   if (trimmed.length === 0) return [];
 
@@ -711,14 +750,18 @@ function entitySearch(query: string): Candidate[] {
 
   // Fetch the actual memory items
   const itemIds = [...new Set(linkedRows.map((r) => r.memory_item_id))];
+  const itemConditions = [
+    inArray(memoryItems.id, itemIds),
+    eq(memoryItems.status, 'active'),
+    isNull(memoryItems.invalidAt),
+  ];
+  if (scopeIds && scopeIds.length > 0) {
+    itemConditions.push(inArray(memoryItems.scopeId, scopeIds));
+  }
   const items = db
     .select()
     .from(memoryItems)
-    .where(and(
-      inArray(memoryItems.id, itemIds),
-      eq(memoryItems.status, 'active'),
-      isNull(memoryItems.invalidAt),
-    ))
+    .where(and(...itemConditions))
     .all();
 
   return items.map((item) => ({
@@ -1335,6 +1378,7 @@ export async function searchMemoryItems(
   query: string,
   limit: number,
   config: AssistantConfig,
+  scopeId?: string,
 ): Promise<MemorySearchResult[]> {
   const trimmed = query.trim();
   if (trimmed.length === 0 || limit <= 0) return [];
@@ -1359,6 +1403,7 @@ export async function searchMemoryItems(
     queryVector,
     provider,
     model,
+    scopeId,
   });
 
   return merged.slice(0, limit).map((c) => ({
@@ -1382,7 +1427,7 @@ export async function searchMemoryItems(
  * Direct search over memory_items table by subject and statement text.
  * Supplements FTS-based lexical search with LIKE-based matching on items.
  */
-function directItemSearch(query: string, limit: number): Candidate[] {
+function directItemSearch(query: string, limit: number, scopeIds?: string[]): Candidate[] {
   const db = getDb();
   const tokens = query
     .toLowerCase()
@@ -1394,13 +1439,17 @@ function directItemSearch(query: string, limit: number): Candidate[] {
   const likeClauses = tokens.map(
     (t) => `(LOWER(subject) LIKE '%${escapeSqlLike(t)}%' OR LOWER(statement) LIKE '%${escapeSqlLike(t)}%')`,
   );
+  const scopeClause = scopeIds
+    ? ` AND scope_id IN (${scopeIds.map(() => '?').join(',')})`
+    : '';
   const sqlQuery = `
     SELECT id, kind, subject, statement, status, confidence, importance, first_seen_at, last_seen_at
     FROM memory_items
-    WHERE status = 'active' AND invalid_at IS NULL AND (${likeClauses.join(' OR ')})
+    WHERE status = 'active' AND invalid_at IS NULL AND (${likeClauses.join(' OR ')})${scopeClause}
     ORDER BY last_seen_at DESC
     LIMIT ?
   `;
+  const params: unknown[] = [...(scopeIds ?? []), limit];
 
   let rows: Array<{
     id: string;
@@ -1413,7 +1462,7 @@ function directItemSearch(query: string, limit: number): Candidate[] {
     last_seen_at: number;
   }> = [];
   try {
-    rows = raw.query(sqlQuery).all(limit) as typeof rows;
+    rows = raw.query(sqlQuery).all(...params) as typeof rows;
   } catch {
     return [];
   }

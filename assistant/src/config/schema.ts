@@ -264,6 +264,11 @@ export const MemoryRetrievalConfigSchema = z.object({
     staleDecay: 0.5,
     reinforcementShieldDays: 7,
   }),
+  scopePolicy: z
+    .enum(['allow_global_fallback', 'strict'], {
+      error: 'memory.retrieval.scopePolicy must be "allow_global_fallback" or "strict"',
+    })
+    .default('allow_global_fallback'),
 });
 
 export const MemorySegmentationConfigSchema = z.object({
@@ -359,6 +364,7 @@ export const MemoryConfigSchema = z.object({
       staleDecay: 0.5,
       reinforcementShieldDays: 7,
     },
+    scopePolicy: 'allow_global_fallback',
   }),
   segmentation: MemorySegmentationConfigSchema.default({
     targetTokens: 450,
@@ -486,6 +492,7 @@ export const AssistantConfigSchema = z.object({
         staleDecay: 0.5,
         reinforcementShieldDays: 7,
       },
+      scopePolicy: 'allow_global_fallback',
     },
     segmentation: {
       targetTokens: 450,
