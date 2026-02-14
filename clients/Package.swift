@@ -30,7 +30,6 @@ let package = Package(
             name: "VellumAssistantShared",
             dependencies: [],
             path: "shared",
-            resources: [.process("Resources")],
             swiftSettings: [
                 .enableUpcomingFeature("BareSlashRegexLiterals")
             ]

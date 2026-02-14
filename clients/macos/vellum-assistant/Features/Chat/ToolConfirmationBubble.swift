@@ -312,7 +312,7 @@ struct ToolConfirmationBubble: View {
                 riskLevel: "medium",
                 diff: nil,
                 allowlistOptions: [
-                    .init(label: "npm install", description: "This exact command", pattern: "npm install"),
+                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "npm install", description: "This exact command", pattern: "npm install"),
                 ],
                 scopeOptions: [
                     ConfirmationRequestMessage.ConfirmationScopeOption(label: "Everywhere", scope: "everywhere"),

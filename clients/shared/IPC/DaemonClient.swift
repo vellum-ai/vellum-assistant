@@ -718,6 +718,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             log.error("Received sign_bundle_payload request on iOS - signing operations are not supported on iOS due to sandboxing restrictions")
         case .getSigningIdentity:
             log.error("Received get_signing_identity request on iOS - signing operations are not supported on iOS due to sandboxing restrictions")
+        #else
+        case .signBundlePayload, .getSigningIdentity:
+            log.error("Signing operations are not supported on this platform")
         #endif
         default:
             break
