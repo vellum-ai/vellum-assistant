@@ -202,7 +202,7 @@ struct SettingsPanel: View {
                 .vCard(background: Slate._900)
 
                 // TRUST RULES section
-                if let daemonClient {
+                if daemonClient != nil {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("TRUST RULES")
                             .font(VFont.sectionTitle)
@@ -226,9 +226,6 @@ struct SettingsPanel: View {
                     }
                     .padding(VSpacing.lg)
                     .vCard(background: Slate._900)
-                    .sheet(isPresented: $showTrustRulesSheet) {
-                        TrustRulesView(daemonClient: daemonClient)
-                    }
                 }
 
                 // PRIVACY & SECURITY section
@@ -256,6 +253,11 @@ struct SettingsPanel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             refreshAPIKeyState()
+        }
+        .sheet(isPresented: $showTrustRulesSheet) {
+            if let daemonClient {
+                TrustRulesView(daemonClient: daemonClient)
+            }
         }
     }
 

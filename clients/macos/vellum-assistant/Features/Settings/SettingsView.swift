@@ -204,13 +204,6 @@ public struct SettingsView: View {
                             showingSkills = true
                         }
                     }
-                    .sheet(isPresented: $showingSkills, onDismiss: {
-                        skillsViewModel = nil
-                    }) {
-                        if let vm = skillsViewModel {
-                            SkillsSettingsView(viewModel: vm)
-                        }
-                    }
                 }
 
                 Section("Trust Rules") {
@@ -226,9 +219,6 @@ public struct SettingsView: View {
                             showingTrustRules = true
                         }
                         .disabled(showingTrustRules)
-                    }
-                    .sheet(isPresented: $showingTrustRules) {
-                        TrustRulesView(daemonClient: daemonClient)
                     }
                 }
             }
@@ -259,6 +249,18 @@ public struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             refreshAPIKeyState()
+        }
+        .sheet(isPresented: $showingSkills, onDismiss: {
+            skillsViewModel = nil
+        }) {
+            if let vm = skillsViewModel {
+                SkillsSettingsView(viewModel: vm)
+            }
+        }
+        .sheet(isPresented: $showingTrustRules) {
+            if let daemonClient {
+                TrustRulesView(daemonClient: daemonClient)
+            }
         }
     }
 
