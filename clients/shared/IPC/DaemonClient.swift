@@ -103,6 +103,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `skills_inspect_response` message.
     public var onSkillsInspectResponse: ((SkillsInspectResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `trace_event` message.
+    public var onTraceEvent: ((TraceEventMessage) -> Void)?
+
     /// Called when the daemon sends an `apps_list_response` message.
     public var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
 
@@ -756,6 +759,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSessionListResponse?(msg)
         case .historyResponse(let msg):
             onHistoryResponse?(msg)
+        case .traceEvent(let msg):
+            onTraceEvent?(msg)
         case .error(let msg):
             onError?(msg)
         #if os(macOS)
