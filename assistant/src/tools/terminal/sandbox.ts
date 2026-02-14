@@ -152,8 +152,8 @@ export interface SandboxResult {
  *
  * On macOS, wraps with sandbox-exec using an SBPL profile.
  * On Linux, wraps with bwrap (bubblewrap) if available.
- * On unsupported platforms or when bwrap is missing, returns the
- * command unchanged with a warning.
+ * If sandboxing is enabled and the backend cannot be applied, fails closed
+ * by throwing ToolError instead of executing unsandboxed.
  */
 export function wrapCommand(
   command: string,
@@ -186,12 +186,9 @@ export function wrapCommand(
 
   if (isLinux()) {
     if (!isBwrapAvailable()) {
-      log.warn('Sandbox is enabled but bwrap is not available or cannot create namespaces. Running unsandboxed. Install bubblewrap: apt install bubblewrap');
-      return {
-        command: 'bash',
-        args: ['-c', '--', command],
-        sandboxed: false,
-      };
+      const msg = 'Sandbox is enabled but bwrap is not available or cannot create namespaces. Refusing to execute unsandboxed. Install bubblewrap (for example: apt install bubblewrap), or disable sandboxing.';
+      log.error(msg);
+      throw new ToolError(msg, 'bash');
     }
     return {
       command: 'bwrap',
@@ -200,10 +197,7 @@ export function wrapCommand(
     };
   }
 
-  log.warn('Sandbox is enabled but not supported on this platform. Running unsandboxed.');
-  return {
-    command: 'bash',
-    args: ['-c', '--', command],
-    sandboxed: false,
-  };
+  const msg = `Sandbox is enabled but not supported on this platform (${process.platform}). Refusing to execute unsandboxed. Disable sandboxing to run shell commands.`;
+  log.error(msg);
+  throw new ToolError(msg, 'bash');
 }
