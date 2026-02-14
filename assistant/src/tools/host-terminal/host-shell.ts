@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute } from 'node:path';
 import { RiskLevel } from '../../permissions/types.js';
@@ -86,6 +87,9 @@ class HostShellTool implements Tool {
     if (rawWorkingDir != null && typeof rawWorkingDir !== 'string') {
       return { content: 'Error: working_dir must be a string when provided', isError: true };
     }
+    if (typeof rawWorkingDir === 'string' && rawWorkingDir.includes('\0')) {
+      return { content: 'Error: working_dir contains null bytes', isError: true };
+    }
     if (typeof rawWorkingDir === 'string' && !isAbsolute(rawWorkingDir)) {
       return { content: `Error: working_dir must be absolute for host command execution: ${rawWorkingDir}`, isError: true };
     }
@@ -165,8 +169,14 @@ class HostShellTool implements Tool {
 
       child.on('error', (err) => {
         clearTimeout(timer);
+        let hint = '';
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          hint = !existsSync(workingDir)
+            ? `. The working directory does not exist: ${workingDir}`
+            : '. The command was not found — check that it is installed and in PATH.';
+        }
         resolve({
-          content: `Error spawning command: ${err.message}${(err as NodeJS.ErrnoException).code === 'ENOENT' ? '. The command was not found — check that it is installed and in PATH.' : ''}`,
+          content: `Error spawning command: ${err.message}${hint}`,
           isError: true,
         });
       });
