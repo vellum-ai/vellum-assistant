@@ -37,6 +37,7 @@ final class ToolConfirmationManager {
             diff: message.diff,
             allowlistOptions: message.allowlistOptions,
             scopeOptions: message.scopeOptions,
+            executionTarget: message.executionTarget,
             onAllow: { [weak self] in
                 self?.respond(requestId: message.requestId, decision: "allow", hasRuleOptions: hasRuleOptions) ?? false
             },
@@ -123,6 +124,7 @@ struct ToolConfirmationView: View {
     let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
     let allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption]
     let scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption]
+    let executionTarget: String?
     let onAllow: () -> Bool
     let onDeny: () -> Bool
     let onDismiss: () -> Void
@@ -140,6 +142,17 @@ struct ToolConfirmationView: View {
     @State private var selectedScope: String = ""
 
     private var isHighRisk: Bool { riskLevel.lowercased() == "high" }
+
+    private var normalizedExecutionTarget: String? {
+        guard let executionTarget else { return nil }
+        let normalized = executionTarget.lowercased()
+        guard normalized == "host" || normalized == "sandbox" else { return nil }
+        return normalized
+    }
+
+    private var isHostTarget: Bool {
+        normalizedExecutionTarget == "host"
+    }
 
     private var hasRuleOptions: Bool {
         !allowlistOptions.isEmpty && !scopeOptions.isEmpty
@@ -192,6 +205,11 @@ struct ToolConfirmationView: View {
                     Text("\(toolDisplayName) — \(riskLevel) risk")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
+                    if let normalizedExecutionTarget {
+                        Text("Target: \(normalizedExecutionTarget)")
+                            .font(VFont.caption)
+                            .foregroundColor(isHostTarget ? VColor.error : VColor.textSecondary)
+                    }
                 }
 
                 Spacer()

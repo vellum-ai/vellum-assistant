@@ -1078,6 +1078,36 @@ final class SessionTests: XCTestCase {
             XCTFail("Expected taskRouted, got \(message)")
         }
     }
+
+    @MainActor
+    func testConfirmationRequestDecodingWithExecutionTarget() async {
+        let json = """
+        {"type":"confirmation_request","requestId":"req-123","toolName":"host_bash","input":{"command":"ls"},"riskLevel":"medium","allowlistOptions":[],"scopeOptions":[],"executionTarget":"host"}
+        """
+        let data = json.data(using: .utf8)!
+        let message = try! JSONDecoder().decode(ServerMessage.self, from: data)
+        if case .confirmationRequest(let request) = message {
+            XCTAssertEqual(request.requestId, "req-123")
+            XCTAssertEqual(request.executionTarget, "host")
+        } else {
+            XCTFail("Expected confirmationRequest, got \(message)")
+        }
+    }
+
+    @MainActor
+    func testConfirmationRequestDecodingWithoutExecutionTarget() async {
+        let json = """
+        {"type":"confirmation_request","requestId":"req-456","toolName":"bash","input":{"command":"pwd"},"riskLevel":"low","allowlistOptions":[],"scopeOptions":[]}
+        """
+        let data = json.data(using: .utf8)!
+        let message = try! JSONDecoder().decode(ServerMessage.self, from: data)
+        if case .confirmationRequest(let request) = message {
+            XCTAssertEqual(request.requestId, "req-456")
+            XCTAssertNil(request.executionTarget)
+        } else {
+            XCTFail("Expected confirmationRequest, got \(message)")
+        }
+    }
 }
 
 /// Test elements with 3+ interactive elements (enough for screenshot skip)

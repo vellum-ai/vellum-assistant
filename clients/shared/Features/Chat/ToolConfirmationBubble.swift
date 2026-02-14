@@ -24,6 +24,14 @@ public struct ToolConfirmationBubble: View {
         !confirmation.allowlistOptions.isEmpty && !confirmation.scopeOptions.isEmpty
     }
 
+    private var executionTarget: String? {
+        confirmation.normalizedExecutionTarget
+    }
+
+    private var isHostTarget: Bool {
+        executionTarget == "host"
+    }
+
     private var toolDisplayName: String {
         switch confirmation.toolName {
         case "file_write": return "Write File"
@@ -55,6 +63,18 @@ public struct ToolConfirmationBubble: View {
                         RoundedRectangle(cornerRadius: VRadius.sm)
                             .fill((isHighRisk ? VColor.error : VColor.warning).opacity(0.15))
                     )
+
+                if let executionTarget {
+                    Text(executionTarget)
+                        .font(VFont.caption)
+                        .foregroundColor(isHostTarget ? VColor.error : VColor.textSecondary)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xxs)
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .fill((isHostTarget ? VColor.error : VColor.surfaceBorder).opacity(0.15))
+                        )
+                }
 
                 Spacer()
             }
