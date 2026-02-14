@@ -836,6 +836,123 @@ describe('Memory V2 regressions', () => {
     expect(extractionJobs).toHaveLength(0);
   });
 
+  test('memory_save sets verificationState to user_confirmed', () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-verify-save',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+
+    // Insert a memory item via the explicit save path
+    const id = 'item-verify-save';
+    const fingerprint = 'fp-verify-save';
+    db.insert(memoryItems).values({
+      id,
+      kind: 'preference',
+      subject: 'Test verification',
+      statement: 'User explicitly saved this',
+      status: 'active',
+      confidence: 0.95,
+      importance: 0.8,
+      fingerprint,
+      verificationState: 'user_confirmed',
+      firstSeenAt: now,
+      lastSeenAt: now,
+      lastUsedAt: null,
+    }).run();
+
+    const item = db.select().from(memoryItems).where(eq(memoryItems.id, id)).get();
+    expect(item).toBeDefined();
+    expect(item!.verificationState).toBe('user_confirmed');
+  });
+
+  test('extracted items from user messages get user_reported verification state', async () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-verify-extract',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-verify-user',
+      conversationId: 'conv-verify-extract',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'I prefer dark mode for all my editors and terminals.' }]),
+      createdAt: now,
+    }).run();
+
+    const upserted = await extractAndUpsertMemoryItemsForMessage('msg-verify-user');
+    expect(upserted).toBeGreaterThan(0);
+
+    const items = db.select().from(memoryItems).all();
+    const userItems = items.filter(i => i.verificationState === 'user_reported');
+    expect(userItems.length).toBeGreaterThan(0);
+  });
+
+  test('extracted items from assistant messages get assistant_inferred verification state', async () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-verify-assistant',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-verify-assistant',
+      conversationId: 'conv-verify-assistant',
+      role: 'assistant',
+      content: JSON.stringify([{ type: 'text', text: 'I noted that you prefer using TypeScript for all your projects.' }]),
+      createdAt: now,
+    }).run();
+
+    const upserted = await extractAndUpsertMemoryItemsForMessage('msg-verify-assistant');
+    expect(upserted).toBeGreaterThan(0);
+
+    const items = db.select().from(memoryItems).all();
+    const assistantItems = items.filter(i => i.verificationState === 'assistant_inferred');
+    expect(assistantItems.length).toBeGreaterThan(0);
+  });
+
+  test('verification state defaults to assistant_inferred for legacy rows', () => {
+    const db = getDb();
+    const raw = (db as unknown as { $client: { query: (q: string) => { get: (...params: unknown[]) => unknown } } }).$client;
+    // Simulate a legacy row without explicit verification_state
+    raw.query(`
+      INSERT INTO memory_items (id, kind, subject, statement, status, confidence, fingerprint, first_seen_at, last_seen_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).get(
+      'item-legacy-verify', 'fact', 'Legacy item', 'This is a legacy item', 'active', 0.5, 'fp-legacy-verify', Date.now(), Date.now(),
+    );
+
+    const item = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-legacy-verify')).get();
+    expect(item).toBeDefined();
+    expect(item!.verificationState).toBe('assistant_inferred');
+  });
+
   test('recent segment helper returns newest segments first', () => {
     const db = getDb();
     db.insert(conversations).values({
