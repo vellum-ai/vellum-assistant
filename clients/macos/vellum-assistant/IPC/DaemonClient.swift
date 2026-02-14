@@ -77,6 +77,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `apps_list_response` message.
     var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `shared_apps_list_response` message.
+    var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `shared_app_delete_response` message.
+    var onSharedAppDeleteResponse: ((SharedAppDeleteResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `bundle_app_response` message.
     var onBundleAppResponse: ((BundleAppResponseMessage) -> Void)?
 
@@ -444,6 +450,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(OpenBundleMessage(filePath: filePath))
     }
 
+    /// Request the list of shared/received apps.
+    func sendSharedAppsList() throws {
+        try send(SharedAppsListRequestMessage())
+    }
+
+    /// Delete a shared app by UUID.
+    func sendSharedAppDelete(uuid: String) throws {
+        try send(SharedAppDeleteRequestMessage(uuid: uuid))
+    }
+
     // MARK: - Signing Identity
 
     /// Handle a sign_bundle_payload request from the daemon.
@@ -619,6 +635,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSkillsInspectResponse?(msg)
         case .appsListResponse(let msg):
             onAppsListResponse?(msg)
+        case .sharedAppsListResponse(let msg):
+            onSharedAppsListResponse?(msg)
+        case .sharedAppDeleteResponse(let msg):
+            onSharedAppDeleteResponse?(msg)
         case .bundleAppResponse(let msg):
             onBundleAppResponse?(msg)
         case .openBundleResponse(let msg):

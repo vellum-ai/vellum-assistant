@@ -1096,6 +1096,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let filePath = pendingBundleFilePath ?? ""
         pendingBundleFilePath = nil
 
+        // Check format version compatibility
+        if response.manifest.formatVersion > 1 {
+            let alert = NSAlert()
+            alert.messageText = "Incompatible App"
+            alert.informativeText = "This app requires a newer version of vellum-assistant."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
         // If scan blocked, show error alert
         if !response.scanResult.passed {
             let reason = response.scanResult.blocked.first ?? "Unknown security issue"

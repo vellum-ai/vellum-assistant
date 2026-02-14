@@ -234,6 +234,15 @@ export interface AppsListRequest {
   type: 'apps_list';
 }
 
+export interface SharedAppsListRequest {
+  type: 'shared_apps_list';
+}
+
+export interface SharedAppDeleteRequest {
+  type: 'shared_app_delete';
+  uuid: string;
+}
+
 export interface BundleAppRequest {
   type: 'bundle_app';
   appId: string;
@@ -400,6 +409,8 @@ export type ClientMessage =
   | UpdateTrustRule
   | BundleAppRequest
   | AppsListRequest
+  | SharedAppsListRequest
+  | SharedAppDeleteRequest
   | OpenBundleRequest
   | SignBundlePayloadResponse
   | GetSigningIdentityResponse;
@@ -728,6 +739,26 @@ export interface AppsListResponse {
   }>;
 }
 
+export interface SharedAppsListResponse {
+  type: 'shared_apps_list_response';
+  apps: Array<{
+    uuid: string;
+    name: string;
+    description?: string;
+    icon?: string;
+    entry: string;
+    trustTier: string;
+    signerDisplayName?: string;
+    bundleSizeBytes: number;
+    installedAt: string;
+  }>;
+}
+
+export interface SharedAppDeleteResponse {
+  type: 'shared_app_delete_response';
+  success: boolean;
+}
+
 export interface BundleAppResponse {
   type: 'bundle_app_response';
   bundlePath: string;
@@ -910,6 +941,8 @@ export type ServerMessage =
   | TrustRulesListResponse
   | BundleAppResponse
   | AppsListResponse
+  | SharedAppsListResponse
+  | SharedAppDeleteResponse
   | OpenBundleResponse
   | SignBundlePayloadRequest
   | GetSigningIdentityRequest;

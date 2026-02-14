@@ -213,6 +213,19 @@ struct AppsListRequestMessage: Encodable, Sendable {
     let type: String = "apps_list"
 }
 
+/// Sent to request the list of shared/received apps.
+/// Wire type: `"shared_apps_list"`
+struct SharedAppsListRequestMessage: Encodable, Sendable {
+    let type: String = "shared_apps_list"
+}
+
+/// Sent to delete a shared app by UUID.
+/// Wire type: `"shared_app_delete"`
+struct SharedAppDeleteRequestMessage: Encodable, Sendable {
+    let type: String = "shared_app_delete"
+    let uuid: String
+}
+
 /// Sent to request bundling an app for sharing.
 /// Wire type: `"bundle_app"`
 struct BundleAppRequestMessage: Encodable, Sendable {
@@ -683,6 +696,32 @@ struct AppsListResponseMessage: Decodable, Sendable {
     let apps: [AppItem]
 }
 
+/// A single shared app item returned from the daemon.
+struct SharedAppItem: Decodable, Sendable, Identifiable {
+    var id: String { uuid }
+    let uuid: String
+    let name: String
+    let description: String?
+    let icon: String?
+    let entry: String
+    let trustTier: String
+    let signerDisplayName: String?
+    let bundleSizeBytes: Int
+    let installedAt: String
+}
+
+/// Response containing the list of shared apps.
+/// Wire type: `"shared_apps_list_response"`
+struct SharedAppsListResponseMessage: Decodable, Sendable {
+    let apps: [SharedAppItem]
+}
+
+/// Response from deleting a shared app.
+/// Wire type: `"shared_app_delete_response"`
+struct SharedAppDeleteResponseMessage: Decodable, Sendable {
+    let success: Bool
+}
+
 /// Response from bundling an app.
 /// Wire type: `"bundle_app_response"`
 struct BundleAppResponseMessage: Decodable, Sendable {
@@ -893,6 +932,8 @@ enum ServerMessage: Decodable, Sendable {
     case timerCompleted(TimerCompletedMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
     case appsListResponse(AppsListResponseMessage)
+    case sharedAppsListResponse(SharedAppsListResponseMessage)
+    case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
     case bundleAppResponse(BundleAppResponseMessage)
     case openBundleResponse(OpenBundleResponseMessage)
     case signBundlePayload(SignBundlePayloadMessage)
@@ -1005,6 +1046,12 @@ enum ServerMessage: Decodable, Sendable {
         case "apps_list_response":
             let message = try AppsListResponseMessage(from: decoder)
             self = .appsListResponse(message)
+        case "shared_apps_list_response":
+            let message = try SharedAppsListResponseMessage(from: decoder)
+            self = .sharedAppsListResponse(message)
+        case "shared_app_delete_response":
+            let message = try SharedAppDeleteResponseMessage(from: decoder)
+            self = .sharedAppDeleteResponse(message)
         case "bundle_app_response":
             let message = try BundleAppResponseMessage(from: decoder)
             self = .bundleAppResponse(message)

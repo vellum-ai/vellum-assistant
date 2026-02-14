@@ -10,23 +10,27 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     let appId: String?
     let onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
     let onCoordinatorReady: ((Coordinator) -> Void)?
+    /// When true, blocks all network requests to external origins and restricts navigation.
+    let sandboxMode: Bool
 
     init(
         data: DynamicPageSurfaceData,
         onAction: @escaping (String, Any?) -> Void,
         appId: String? = nil,
         onDataRequest: ((String, String, String?, [String: Any]?) -> Void)? = nil,
-        onCoordinatorReady: ((Coordinator) -> Void)? = nil
+        onCoordinatorReady: ((Coordinator) -> Void)? = nil,
+        sandboxMode: Bool = false
     ) {
         self.data = data
         self.onAction = onAction
         self.appId = appId
         self.onDataRequest = onDataRequest
         self.onCoordinatorReady = onCoordinatorReady
+        self.sandboxMode = sandboxMode
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onAction: onAction, onDataRequest: onDataRequest, currentHTML: data.html)
+        Coordinator(onAction: onAction, onDataRequest: onDataRequest, currentHTML: data.html, sandboxMode: sandboxMode)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -154,7 +158,39 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
 
-        log.info("Creating DynamicPageSurfaceView: appId=\(self.appId ?? "nil", privacy: .public), dataBridge=\(self.appId != nil ? "injected" : "skipped", privacy: .public)")
+        log.info("Creating DynamicPageSurfaceView: appId=\(self.appId ?? "nil", privacy: .public), dataBridge=\(self.appId != nil ? "injected" : "skipped", privacy: .public), sandboxMode=\(self.sandboxMode)")
+
+        // When sandbox mode is enabled, compile a content rule list that blocks
+        // all network requests except those to the vellumapp:// scheme.
+        if sandboxMode {
+            let ruleJSON = """
+            [
+                {
+                    "trigger": { "url-filter": ".*" },
+                    "action": { "type": "block" }
+                },
+                {
+                    "trigger": { "url-filter": "^vellumapp://.*" },
+                    "action": { "type": "ignore-previous-rules" }
+                },
+                {
+                    "trigger": { "url-filter": "^about:blank$" },
+                    "action": { "type": "ignore-previous-rules" }
+                }
+            ]
+            """
+            WKContentRuleListStore.default().compileContentRuleList(
+                forIdentifier: "sandbox-block-external",
+                encodedContentRuleList: ruleJSON
+            ) { ruleList, error in
+                if let ruleList {
+                    webView.configuration.userContentController.add(ruleList)
+                    log.info("Sandbox content rule list installed")
+                } else if let error {
+                    log.error("Failed to compile sandbox content rule list: \(error.localizedDescription)")
+                }
+            }
+        }
 
         onCoordinatorReady?(context.coordinator)
         // Use a per-app origin so localStorage/sessionStorage work natively,
@@ -187,16 +223,19 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var onAction: (String, Any?) -> Void
         var onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
         var currentHTML: String
+        let sandboxMode: Bool
         weak var webView: WKWebView?
 
         init(
             onAction: @escaping (String, Any?) -> Void,
             onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?,
-            currentHTML: String
+            currentHTML: String,
+            sandboxMode: Bool = false
         ) {
             self.onAction = onAction
             self.onDataRequest = onDataRequest
             self.currentHTML = currentHTML
+            self.sandboxMode = sandboxMode
         }
 
         func userContentController(
@@ -299,10 +338,28 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
-            if navigationAction.navigationType == .other {
-                decisionHandler(.allow)
-            } else {
+            if sandboxMode {
+                // In sandbox mode, only allow vellumapp:// and about:blank URLs
+                if let url = navigationAction.request.url {
+                    let scheme = url.scheme?.lowercased() ?? ""
+                    if scheme == VellumAppSchemeHandler.scheme || url.absoluteString == "about:blank" {
+                        decisionHandler(.allow)
+                        return
+                    }
+                    // Allow initial HTML load via https://*.vellum.local/
+                    if scheme == "https" && (url.host?.hasSuffix(".vellum.local") == true) && navigationAction.navigationType == .other {
+                        decisionHandler(.allow)
+                        return
+                    }
+                }
+                log.info("Sandbox mode: blocking navigation to \(navigationAction.request.url?.absoluteString ?? "nil", privacy: .public)")
                 decisionHandler(.cancel)
+            } else {
+                if navigationAction.navigationType == .other {
+                    decisionHandler(.allow)
+                } else {
+                    decisionHandler(.cancel)
+                }
             }
         }
     }

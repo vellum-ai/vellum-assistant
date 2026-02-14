@@ -302,6 +302,19 @@ exports[`IPC message snapshots ClientMessage types apps_list serializes to expec
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types shared_apps_list serializes to expected JSON 1`] = `
+{
+  "type": "shared_apps_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types shared_app_delete serializes to expected JSON 1`] = `
+{
+  "type": "shared_app_delete",
+  "uuid": "abc-123-def",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types open_bundle serializes to expected JSON 1`] = `
 {
   "filePath": "/tmp/My_App.vellumapp",
@@ -858,6 +871,32 @@ exports[`IPC message snapshots ServerMessage types apps_list_response serializes
     },
   ],
   "type": "apps_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types shared_apps_list_response serializes to expected JSON 1`] = `
+{
+  "apps": [
+    {
+      "bundleSizeBytes": 4096,
+      "description": "A shared app",
+      "entry": "index.html",
+      "icon": "📱",
+      "installedAt": "2026-01-15T00:00:00Z",
+      "name": "Shared App",
+      "signerDisplayName": "Test User",
+      "trustTier": "signed",
+      "uuid": "abc-123-def",
+    },
+  ],
+  "type": "shared_apps_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types shared_app_delete_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "shared_app_delete_response",
 }
 `;
 

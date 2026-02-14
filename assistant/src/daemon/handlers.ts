@@ -42,8 +42,11 @@ import type {
   UpdateTrustRule,
   BundleAppRequest,
   OpenBundleRequest,
+  SharedAppsListRequest,
+  SharedAppDeleteRequest,
 } from './ipc-protocol.js';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { addRule, removeRule, updateRule, getAllRules } from '../permissions/trust-store.js';
 import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../config/skills.js';
@@ -330,6 +333,8 @@ const handlers: DispatchMap = {
   bundle_app: handleBundleApp,
   open_bundle: handleOpenBundle,
   apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
+  shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
+  shared_app_delete: handleSharedAppDelete,
   sign_bundle_payload_response: (_msg, _socket, _ctx) => {
     // Handled by pending promise resolution in signing flow — no-op in dispatch
   },
@@ -1417,6 +1422,93 @@ function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Failed to list apps');
     ctx.send(socket, { type: 'error', message: `Failed to list apps: ${message}` });
+  }
+}
+
+// ─── Shared apps handlers ────────────────────────────────────────────────────
+
+function getSharedAppsDir(): string {
+  return join(homedir(), 'Library', 'Application Support', 'vellum-assistant', 'shared-apps');
+}
+
+function handleSharedAppsList(socket: net.Socket, ctx: HandlerContext): void {
+  try {
+    const dir = getSharedAppsDir();
+    if (!existsSync(dir)) {
+      ctx.send(socket, { type: 'shared_apps_list_response', apps: [] });
+      return;
+    }
+
+    const files = readdirSync(dir).filter((f) => f.endsWith('-meta.json'));
+    const apps: Array<{
+      uuid: string;
+      name: string;
+      description?: string;
+      icon?: string;
+      entry: string;
+      trustTier: string;
+      signerDisplayName?: string;
+      bundleSizeBytes: number;
+      installedAt: string;
+    }> = [];
+
+    for (const file of files) {
+      try {
+        const raw = readFileSync(join(dir, file), 'utf-8');
+        const meta = JSON.parse(raw);
+        apps.push({
+          uuid: meta.uuid,
+          name: meta.name,
+          description: meta.description,
+          icon: meta.icon,
+          entry: meta.entry,
+          trustTier: meta.trustTier,
+          signerDisplayName: meta.signerDisplayName,
+          bundleSizeBytes: meta.bundleSizeBytes ?? 0,
+          installedAt: meta.installedAt,
+        });
+      } catch {
+        log.warn({ file }, 'Failed to read shared app metadata file');
+      }
+    }
+
+    ctx.send(socket, { type: 'shared_apps_list_response', apps });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to list shared apps');
+    ctx.send(socket, { type: 'error', message: `Failed to list shared apps: ${message}` });
+  }
+}
+
+function handleSharedAppDelete(
+  msg: SharedAppDeleteRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const uuid = msg.uuid;
+    // Validate UUID to prevent path traversal
+    if (uuid.includes('/') || uuid.includes('\\') || uuid.includes('..')) {
+      ctx.send(socket, { type: 'shared_app_delete_response', success: false });
+      return;
+    }
+
+    const dir = getSharedAppsDir();
+    const appDir = join(dir, uuid);
+    const metaFile = join(dir, `${uuid}-meta.json`);
+
+    if (existsSync(appDir)) {
+      rmSync(appDir, { recursive: true });
+    }
+    if (existsSync(metaFile)) {
+      rmSync(metaFile);
+    }
+
+    ctx.send(socket, { type: 'shared_app_delete_response', success: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to delete shared app');
+    ctx.send(socket, { type: 'shared_app_delete_response', success: false });
   }
 }
 

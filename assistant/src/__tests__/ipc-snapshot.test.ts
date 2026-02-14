@@ -199,6 +199,13 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   apps_list: {
     type: 'apps_list',
   },
+  shared_apps_list: {
+    type: 'shared_apps_list',
+  },
+  shared_app_delete: {
+    type: 'shared_app_delete',
+    uuid: 'abc-123-def',
+  },
   open_bundle: {
     type: 'open_bundle',
     filePath: '/tmp/My_App.vellumapp',
@@ -541,6 +548,26 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         createdAt: 1700000000,
       },
     ],
+  },
+  shared_apps_list_response: {
+    type: 'shared_apps_list_response',
+    apps: [
+      {
+        uuid: 'abc-123-def',
+        name: 'Shared App',
+        description: 'A shared app',
+        icon: '\u{1F4F1}',
+        entry: 'index.html',
+        trustTier: 'signed',
+        signerDisplayName: 'Test User',
+        bundleSizeBytes: 4096,
+        installedAt: '2026-01-15T00:00:00Z',
+      },
+    ],
+  },
+  shared_app_delete_response: {
+    type: 'shared_app_delete_response',
+    success: true,
   },
   open_bundle_response: {
     type: 'open_bundle_response',
