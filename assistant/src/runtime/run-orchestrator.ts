@@ -92,6 +92,7 @@ export class RunOrchestrator {
           toolUseId: msg.requestId,
           input: msg.input,
           riskLevel: msg.riskLevel,
+          executionTarget: msg.executionTarget,
           allowlistOptions: msg.allowlistOptions,
           scopeOptions: msg.scopeOptions,
         });
