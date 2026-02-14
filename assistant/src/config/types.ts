@@ -2,6 +2,7 @@ export type {
   AssistantConfig,
   TimeoutConfig,
   SandboxConfig,
+  DockerConfig,
   RateLimitConfig,
   SecretDetectionConfig,
   AuditLogConfig,
