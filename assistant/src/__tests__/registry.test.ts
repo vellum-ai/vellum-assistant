@@ -5,7 +5,7 @@ import type { ToolDefinition } from '../providers/types.js';
 
 // We cannot import the private LazyTool class directly, so we test through
 // registerLazyTool + getTool which exercise the same code path.
-import { registerLazyTool, getTool } from '../tools/registry.js';
+import { registerLazyTool, getTool, getAllToolDefinitions, initializeTools } from '../tools/registry.js';
 
 function makeFakeTool(name: string): Tool {
   return {
@@ -63,5 +63,24 @@ describe('LazyTool', () => {
     expect(result.content).toBe('ok');
     expect(result.isError).toBe(false);
     expect(callCount).toBe(2);
+  });
+});
+
+describe('tool registry host tools', () => {
+  test('registers host tools and exposes them in tool definitions', async () => {
+    await initializeTools();
+
+    const hostToolNames = ['host_file_read', 'host_file_write', 'host_file_edit', 'host_bash'] as const;
+
+    for (const toolName of hostToolNames) {
+      const tool = getTool(toolName);
+      expect(tool).toBeDefined();
+      expect(tool?.defaultRiskLevel).toBe(RiskLevel.Medium);
+    }
+
+    const definitionNames = getAllToolDefinitions().map((def) => def.name);
+    for (const toolName of hostToolNames) {
+      expect(definitionNames).toContain(toolName);
+    }
   });
 });
