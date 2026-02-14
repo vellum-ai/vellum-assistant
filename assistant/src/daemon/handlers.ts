@@ -916,8 +916,10 @@ async function handleSkillsUninstall(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  // Validate skill name to prevent path traversal
-  if (msg.name.includes('/') || msg.name.includes('\\') || msg.name.includes('..')) {
+  // Validate skill name to prevent path traversal while allowing namespaced slugs (org/name)
+  const validNamespacedSlug = /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/;
+  const validSimpleName = /^[a-zA-Z0-9_-]+$/;
+  if (msg.name.includes('..') || msg.name.includes('\\') || !(validSimpleName.test(msg.name) || validNamespacedSlug.test(msg.name))) {
     ctx.send(socket, {
       type: 'skills_operation_response',
       operation: 'uninstall',
