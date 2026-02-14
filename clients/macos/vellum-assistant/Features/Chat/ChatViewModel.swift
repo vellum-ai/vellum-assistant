@@ -192,10 +192,14 @@ final class ChatViewModel: ObservableObject {
     func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachments = !pendingAttachments.isEmpty
-        guard !text.isEmpty || hasAttachments else { return }
+        let hasSkillInvocation = pendingSkillInvocation != nil
+        guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
         // Block rapid-fire only when bootstrapping (no session yet)
-        if isSending && sessionId == nil { return }
+        if isSending && sessionId == nil {
+            pendingSkillInvocation = nil
+            return
+        }
 
         // Snapshot and clear pending attachments
         let attachments = pendingAttachments
