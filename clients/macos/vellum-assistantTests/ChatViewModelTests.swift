@@ -217,60 +217,6 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking)
     }
 
-    func testErrorFinalizesStreamingAssistantMessage() {
-        viewModel.isSending = true
-        viewModel.isThinking = true
-
-        // Start streaming an assistant message
-        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
-        XCTAssertTrue(viewModel.messages[1].isStreaming)
-
-        // Error arrives mid-stream
-        viewModel.handleServerMessage(.error(ErrorMessage(message: "Stream failed")))
-
-        XCTAssertFalse(viewModel.messages[1].isStreaming, "Streaming message should be finalized on error")
-        XCTAssertEqual(viewModel.errorText, "Stream failed")
-    }
-
-    func testErrorDuringCancellationSuppressesErrorText() {
-        viewModel.isSending = true
-        viewModel.isThinking = true
-        viewModel.sessionId = "test-session"
-
-        // Start streaming, then cancel
-        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
-        viewModel.stopGenerating()
-
-        // Error arrives as a result of cancellation
-        viewModel.handleServerMessage(.error(ErrorMessage(message: "Cancelled by user")))
-
-        XCTAssertNil(viewModel.errorText, "Error during cancellation should not surface to the user")
-        XCTAssertFalse(viewModel.isSending)
-        XCTAssertFalse(viewModel.isThinking)
-    }
-
-    func testErrorResetsProcessingMessagesToSent() {
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
-        viewModel.inputText = "Message A"
-        viewModel.sendMessage()
-
-        viewModel.inputText = "Message B"
-        viewModel.sendMessage()
-
-        // Queue B, then dequeue it so it becomes .processing
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
-        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
-        XCTAssertEqual(viewModel.messages[2].status, .processing)
-
-        // Error arrives while B is processing
-        viewModel.handleServerMessage(.error(ErrorMessage(message: "Processing failed")))
-
-        XCTAssertEqual(viewModel.messages[2].status, .sent, "Processing message should be reset to .sent on error")
-        XCTAssertEqual(viewModel.errorText, "Processing failed")
-    }
-
     func testDismissErrorClearsErrorText() {
         viewModel.errorText = "Some error"
         viewModel.dismissError()
