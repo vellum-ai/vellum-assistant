@@ -331,6 +331,15 @@ sessions
       console.log('Qdrant collection not found or not reachable (skipped)');
     }
 
+    // Restart the daemon so its in-memory Qdrant client drops the stale
+    // collectionReady flag and will re-create the collection on next use.
+    const status = getDaemonStatus();
+    if (status.running) {
+      await stopDaemon();
+      await startDaemon();
+      console.log('Daemon restarted');
+    }
+
     console.log('Done.');
   });
 
