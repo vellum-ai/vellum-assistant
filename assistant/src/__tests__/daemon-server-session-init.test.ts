@@ -15,6 +15,7 @@ let lastCreatedWorkingDir: string | undefined;
 class MockSession {
   public readonly conversationId: string;
   public updateClientCalls = 0;
+  public setSandboxOverrideCalls = 0;
   private stale = false;
   private processing = false;
 
@@ -36,7 +37,9 @@ class MockSession {
     this.updateClientCalls += 1;
   }
 
-  setSandboxOverride(): void {}
+  setSandboxOverride(): void {
+    this.setSandboxOverrideCalls += 1;
+  }
 
   isProcessing(): boolean {
     return this.processing;
@@ -208,5 +211,20 @@ describe('DaemonServer initial session hydration', () => {
     await internal.sendInitialSession(socket);
 
     expect(lastCreatedWorkingDir).toBe('/tmp/sandbox/fs');
+  });
+
+  test('ignores deprecated sandbox_set runtime override messages', async () => {
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+    const { socket } = createFakeSocket();
+
+    await internal.sendInitialSession(socket);
+    const session = internal.sessions.get(conversation.id);
+    expect(session).toBeDefined();
+    expect(session!.setSandboxOverrideCalls).toBe(0);
+
+    internal.dispatchMessage({ type: 'sandbox_set', enabled: false }, socket);
+
+    expect(session!.setSandboxOverrideCalls).toBe(0);
   });
 });
