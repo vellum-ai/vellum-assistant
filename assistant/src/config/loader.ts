@@ -11,7 +11,7 @@ import type { AssistantConfig } from './types.js';
 const log = getLogger('config');
 
 // Providers that store API keys in secure storage (superset of VALID_PROVIDERS)
-const API_KEY_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'brave'] as const;
+const API_KEY_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'brave'] as const;
 
 let cached: AssistantConfig | null = null;
 let loading = false;
@@ -183,6 +183,9 @@ export function loadConfig(): AssistantConfig {
     }
     if (process.env.OLLAMA_API_KEY) {
       config.apiKeys.ollama = process.env.OLLAMA_API_KEY;
+    }
+    if (process.env.FIREWORKS_API_KEY) {
+      config.apiKeys.fireworks = process.env.FIREWORKS_API_KEY;
     }
     if (process.env.BRAVE_API_KEY) {
       config.apiKeys.brave = process.env.BRAVE_API_KEY;
