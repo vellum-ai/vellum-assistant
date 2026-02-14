@@ -6,10 +6,12 @@ struct ContentView: View {
 
     var body: some View {
         TabView {
-            Text("Chat")
-                .tabItem {
-                    Label("Chat", systemImage: "message")
-                }
+            NavigationView {
+                ChatTabView(daemonClient: daemonClient)
+            }
+            .tabItem {
+                Label("Chat", systemImage: "message")
+            }
 
             Text("Settings")
                 .tabItem {
