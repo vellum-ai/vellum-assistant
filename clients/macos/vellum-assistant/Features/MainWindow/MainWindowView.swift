@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
     @State private var activePanel: SidePanelType?
-    @State private var hasAPIKey = APIKeyManager.getKey() != nil
+    @State private var hasAPIKey = APIKeyManager.hasAnyKey()
     let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
     let onMicrophoneToggle: () -> Void
@@ -117,7 +117,7 @@ struct MainWindowView: View {
     }
 
     private func refreshAPIKeyState() {
-        hasAPIKey = APIKeyManager.getKey() != nil || daemonClient.isConnected
+        hasAPIKey = APIKeyManager.hasAnyKey() || daemonClient.isConnected
     }
 
     @ViewBuilder

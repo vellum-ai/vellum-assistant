@@ -428,7 +428,7 @@ struct ChatView: View {
             HStack(spacing: VSpacing.sm) {
                 Image(systemName: "key.fill")
                     .font(VFont.caption)
-                Text("Anthropic API key not set. Add one in Settings to start chatting.")
+                Text("API key not set. Add one in Settings to start chatting.")
                     .font(VFont.caption)
                     .lineLimit(2)
                 Spacer()
