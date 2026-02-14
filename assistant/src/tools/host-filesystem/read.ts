@@ -52,8 +52,8 @@ class HostFileReadTool implements Tool {
     }
 
     const stat = statSync(filePath);
-    if (stat.isDirectory()) {
-      return { content: `Error: ${filePath} is a directory, not a file`, isError: true };
+    if (!stat.isFile()) {
+      return { content: `Error: ${filePath} is not a regular file`, isError: true };
     }
 
     const sizeError = checkFileSizeOnDisk(filePath);
