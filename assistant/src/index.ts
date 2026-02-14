@@ -898,6 +898,24 @@ program
     } else {
       fail('Browser runtime', browserStatus.error ?? 'Chromium not installed');
     }
+
+    // 13. Sandbox backend diagnostics
+    const { runSandboxDiagnostics } = await import('./tools/terminal/sandbox-diagnostics.js');
+    const sandbox = runSandboxDiagnostics();
+    console.log(`\n  Sandbox:   ${sandbox.config.enabled ? 'enabled' : 'disabled'}`);
+    console.log(`  Backend:   ${sandbox.config.backend}`);
+    console.log(`  Reason:    ${sandbox.activeBackendReason}`);
+    if (sandbox.config.backend === 'docker') {
+      console.log(`  Image:     ${sandbox.config.dockerImage}`);
+    }
+    console.log('');
+    for (const check of sandbox.checks) {
+      if (check.ok) {
+        pass(check.label);
+      } else {
+        fail(check.label, check.detail);
+      }
+    }
   });
 
 // --- Hooks commands ---
