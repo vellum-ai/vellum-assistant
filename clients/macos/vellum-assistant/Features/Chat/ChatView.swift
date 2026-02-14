@@ -438,18 +438,18 @@ struct ChatView: View {
                     return .ignored
                 }
                 .onKeyPress(.return, phases: .down) { keyPress in
-                    // Shift+Return inserts a newline (handled by TextEditor); bare Return sends.
-                    guard !keyPress.modifiers.contains(.shift) else { return .ignored }
+                    // Only intercept bare Return (no modifiers); any modifier
+                    // (Shift, Cmd, Option, Ctrl) falls through to TextEditor.
+                    guard keyPress.modifiers.isEmpty else { return .ignored }
+                    // TextEditor inserts a newline before onKeyPress fires,
+                    // so always strip the trailing newline that was just added.
+                    inputText = inputText.replacingOccurrences(
+                        of: "\\n$", with: "", options: .regularExpression
+                    )
                     if canSend {
-                        // TextEditor inserts a newline before onKeyPress fires,
-                        // so strip the trailing newline that was just added.
-                        inputText = inputText.replacingOccurrences(
-                            of: "\\n$", with: "", options: .regularExpression
-                        )
                         onSend()
-                        return .handled
                     }
-                    return .ignored
+                    return .handled
                 }
                 .onKeyPress(characters: CharacterSet(charactersIn: "v"), phases: .down) { keyPress in
                     if keyPress.modifiers.contains(.command) {
