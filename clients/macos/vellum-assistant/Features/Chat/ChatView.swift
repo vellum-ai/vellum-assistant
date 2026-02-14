@@ -103,8 +103,10 @@ struct ChatView: View {
     private var composerReservedHeight: CGFloat {
         let editorClamped = min(max(editorContentHeight, 14), 200)
         let contentHeight = max(editorClamped, 28)
-        // text area + button row (28pt) + button top padding (xs) + outer padding
-        let base: CGFloat = VSpacing.md * 2 + VSpacing.sm * 2 + contentHeight + 28 + VSpacing.xs
+        let expanded = contentHeight > 28
+        let topPad: CGFloat = expanded ? VSpacing.lg : VSpacing.sm
+        let buttonRow: CGFloat = expanded ? 28 + VSpacing.xs : 0
+        let base: CGFloat = VSpacing.md + 18 + topPad + VSpacing.sm + contentHeight + buttonRow
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 44
         let error: CGFloat = sessionError != nil ? 60 : (errorText != nil ? 36 : 0)
         let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
@@ -471,147 +473,39 @@ struct ChatView: View {
                 attachmentStrip
             }
 
-            // Scrollable text input area
-            ZStack(alignment: .bottom) {
-                ScrollView(.vertical, showsIndicators: false) {
-                    ZStack(alignment: .leading) {
-                        TextField(
-                            ghostSuffix != nil ? "" : "What would you like to do?",
-                            text: $inputText,
-                            axis: .vertical
+            if isComposerExpanded {
+                // Expanded: text area on top, buttons on bottom row
+                ZStack(alignment: .bottom) {
+                    composerTextField
+                        .frame(height: min(max(editorContentHeight, 28), 200))
+
+                    if editorContentHeight > 60 {
+                        LinearGradient(
+                            colors: [VColor.surface.opacity(0), VColor.surface],
+                            startPoint: .top,
+                            endPoint: .bottom
                         )
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineSpacing(4)
-                        .textFieldStyle(.plain)
-                        .lineLimit(1...)
-                        .disabled(!hasAPIKey)
-                        .accessibilityLabel("Message")
-                        .background(
-                            GeometryReader { geo in
-                                Color.clear
-                                    .onAppear { editorContentHeight = geo.size.height }
-                                    .onChange(of: geo.size.height) { _, h in
-                                        withAnimation(VAnimation.spring) {
-                                            editorContentHeight = h
-                                        }
-                                    }
-                            }
-                        )
-
-                        if let ghostSuffix {
-                            (Text(inputText)
-                                .font(VFont.body)
-                                .foregroundColor(.clear)
-                            + Text(ghostSuffix)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textMuted.opacity(0.5)))
-                                .lineSpacing(4)
-                                .lineLimit(1...)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxHeight: min(max(editorContentHeight, 28), 200), alignment: .topLeading)
-                                .clipped()
-                                .allowsHitTesting(false)
-                                .accessibilityHidden(true)
-                        }
+                        .frame(height: 20)
+                        .allowsHitTesting(false)
                     }
-                    .frame(minHeight: 28)
                 }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(height: min(max(editorContentHeight, 28), 200))
 
-                // Fade at bottom of text area when content is scrollable
-                if editorContentHeight > 60 {
-                    LinearGradient(
-                        colors: [VColor.surface.opacity(0), VColor.surface],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 20)
-                    .allowsHitTesting(false)
+                HStack(spacing: VSpacing.sm) {
+                    Spacer()
+                    composerActionButtons
+                }
+                .padding(.top, VSpacing.xs)
+            } else {
+                // Compact: text and buttons on the same row
+                HStack(alignment: .center, spacing: VSpacing.sm) {
+                    composerTextField
+                        .frame(height: min(max(editorContentHeight, 28), 200))
+                    composerActionButtons
                 }
             }
-            .onKeyPress(.tab, phases: .down) { keyPress in
-                if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
-                    onAcceptSuggestion()
-                    return .handled
-                }
-                return .ignored
-            }
-            .onKeyPress(.return, phases: .down) { keyPress in
-                guard keyPress.modifiers.isEmpty else { return .ignored }
-                inputText = inputText.replacingOccurrences(
-                    of: "\\n$", with: "", options: .regularExpression
-                )
-                if canSend {
-                    onSend()
-                }
-                return .handled
-            }
-            .onKeyPress(characters: CharacterSet(charactersIn: "v"), phases: .down) { keyPress in
-                if keyPress.modifiers.contains(.command) {
-                    onPaste()
-                    return .ignored
-                }
-                return .ignored
-            }
-
-            // Bottom action row — pinned below text area like ChatGPT
-            HStack(spacing: VSpacing.sm) {
-                Spacer()
-
-                if isSending {
-                    Button(action: onStop) {
-                        ZStack {
-                            Circle()
-                                .fill(VColor.textPrimary)
-                                .frame(width: 28, height: 28)
-                            RoundedRectangle(cornerRadius: VRadius.xs)
-                                .fill(VColor.surface)
-                                .frame(width: 10, height: 10)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .frame(height: 28)
-                    .accessibilityLabel("Stop generation")
-                } else {
-                    if canSend {
-                        Button(action: onSend) {
-                            ZStack {
-                                Circle()
-                                    .fill(VColor.accent)
-                                    .frame(width: 28, height: 28)
-                                Image(systemName: "arrow.up")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(.white)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .frame(height: 28)
-                        .accessibilityLabel("Send message")
-                        .transition(.scale.combined(with: .opacity))
-                    } else {
-                        MicrophoneButton(isRecording: isRecording, action: onMicrophoneToggle)
-                            .disabled(!hasAPIKey)
-                            .frame(height: 28)
-                            .transition(.scale.combined(with: .opacity))
-                    }
-
-                    Button(action: onAttach) {
-                        Image(systemName: "paperclip")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Attach file")
-                    .disabled(!hasAPIKey)
-                }
-            }
-            .animation(VAnimation.spring, value: canSend)
-            .padding(.top, VSpacing.xs)
         }
-        .padding(.vertical, VSpacing.sm)
+        .padding(.top, isComposerExpanded ? VSpacing.lg : VSpacing.sm)
+        .padding(.bottom, VSpacing.sm)
         .padding(.leading, VSpacing.xl)
         .padding(.trailing, VSpacing.lg)
         .background(VColor.surface)
@@ -621,9 +515,140 @@ struct ChatView: View {
                 .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
         )
         .padding(.horizontal, VSpacing.xl)
-        .padding(.vertical, VSpacing.md)
+        .padding(.top, VSpacing.md)
+        .padding(.bottom, 18)
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
+    }
+
+    private var isComposerExpanded: Bool {
+        editorContentHeight > 28
+    }
+
+    private var composerTextField: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            ZStack(alignment: .leading) {
+                TextField(
+                    ghostSuffix != nil ? "" : "What would you like to do?",
+                    text: $inputText,
+                    axis: .vertical
+                )
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .lineSpacing(4)
+                .textFieldStyle(.plain)
+                .lineLimit(1...)
+                .disabled(!hasAPIKey)
+                .accessibilityLabel("Message")
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .onAppear { editorContentHeight = geo.size.height }
+                            .onChange(of: geo.size.height) { _, h in
+                                withAnimation(VAnimation.spring) {
+                                    editorContentHeight = h
+                                }
+                            }
+                    }
+                )
+
+                if let ghostSuffix {
+                    (Text(inputText)
+                        .font(VFont.body)
+                        .foregroundColor(.clear)
+                    + Text(ghostSuffix)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted.opacity(0.5)))
+                        .lineSpacing(4)
+                        .lineLimit(1...)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxHeight: min(max(editorContentHeight, 28), 200), alignment: .topLeading)
+                        .clipped()
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(minHeight: 28)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .onKeyPress(.tab, phases: .down) { keyPress in
+            if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
+                onAcceptSuggestion()
+                return .handled
+            }
+            return .ignored
+        }
+        .onKeyPress(.return, phases: .down) { keyPress in
+            guard keyPress.modifiers.isEmpty else { return .ignored }
+            inputText = inputText.replacingOccurrences(
+                of: "\\n$", with: "", options: .regularExpression
+            )
+            if canSend {
+                onSend()
+            }
+            return .handled
+        }
+        .onKeyPress(characters: CharacterSet(charactersIn: "v"), phases: .down) { keyPress in
+            if keyPress.modifiers.contains(.command) {
+                onPaste()
+                return .ignored
+            }
+            return .ignored
+        }
+    }
+
+    @ViewBuilder
+    private var composerActionButtons: some View {
+        Group {
+            if isSending {
+                Button(action: onStop) {
+                    ZStack {
+                        Circle()
+                            .fill(VColor.textPrimary)
+                            .frame(width: 28, height: 28)
+                        RoundedRectangle(cornerRadius: VRadius.xs)
+                            .fill(VColor.surface)
+                            .frame(width: 10, height: 10)
+                    }
+                }
+                .buttonStyle(.plain)
+                .frame(height: 28)
+                .accessibilityLabel("Stop generation")
+            } else {
+                if canSend {
+                    Button(action: onSend) {
+                        ZStack {
+                            Circle()
+                                .fill(VColor.accent)
+                                .frame(width: 28, height: 28)
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .frame(height: 28)
+                    .accessibilityLabel("Send message")
+                    .transition(.scale.combined(with: .opacity))
+                } else {
+                    MicrophoneButton(isRecording: isRecording, action: onMicrophoneToggle)
+                        .disabled(!hasAPIKey)
+                        .frame(height: 28)
+                        .transition(.scale.combined(with: .opacity))
+                }
+
+                Button(action: onAttach) {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Attach file")
+                .disabled(!hasAPIKey)
+            }
+        }
+        .animation(VAnimation.spring, value: canSend)
     }
 
     // MARK: - Attachment Preview Strip
