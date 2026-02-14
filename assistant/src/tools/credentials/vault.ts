@@ -20,7 +20,7 @@ export function getCredentialValue(service: string, field: string): string | und
 
 class CredentialStoreTool implements Tool {
   name = 'credential_store';
-  description = 'Store, list, or delete credentials in the secure vault';
+  description = 'Store, list, delete, or prompt for credentials in the secure vault';
   category = 'credentials';
   defaultRiskLevel = RiskLevel.Medium;
 
@@ -33,8 +33,8 @@ class CredentialStoreTool implements Tool {
         properties: {
           action: {
             type: 'string',
-            enum: ['store', 'list', 'delete'],
-            description: 'The operation to perform',
+            enum: ['store', 'list', 'delete', 'prompt'],
+            description: 'The operation to perform. Use "prompt" to ask the user for a secret via secure UI — the value never enters the conversation.',
           },
           service: {
             type: 'string',
@@ -48,13 +48,25 @@ class CredentialStoreTool implements Tool {
             type: 'string',
             description: 'The credential value (only for store action)',
           },
+          label: {
+            type: 'string',
+            description: 'Display label for the prompt UI (only for prompt action), e.g. "GitHub Personal Access Token"',
+          },
+          description: {
+            type: 'string',
+            description: 'Optional context shown in the prompt UI (only for prompt action), e.g. "Needed to push changes"',
+          },
+          placeholder: {
+            type: 'string',
+            description: 'Placeholder text for the input field (only for prompt action), e.g. "ghp_xxxxxxxxxxxx"',
+          },
         },
         required: ['action'],
       },
     };
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     const action = input.action as string;
 
     switch (action) {
@@ -120,6 +132,38 @@ class CredentialStoreTool implements Tool {
           return { content: `Error: credential ${service}/${field} not found`, isError: true };
         }
         return { content: `Deleted credential for ${service}/${field}.`, isError: false };
+      }
+
+      case 'prompt': {
+        const service = input.service as string | undefined;
+        const field = input.field as string | undefined;
+
+        if (!service || typeof service !== 'string') {
+          return { content: 'Error: service is required for prompt action', isError: true };
+        }
+        if (!field || typeof field !== 'string') {
+          return { content: 'Error: field is required for prompt action', isError: true };
+        }
+
+        if (!context.requestSecret) {
+          return { content: 'Error: secret prompting not available in this context', isError: true };
+        }
+
+        const label = (input.label as string) || `${service} ${field}`;
+        const description = input.description as string | undefined;
+        const placeholder = input.placeholder as string | undefined;
+
+        const value = await context.requestSecret({ service, field, label, description, placeholder });
+        if (!value) {
+          return { content: 'User cancelled the credential prompt.', isError: false };
+        }
+
+        const key = `credential:${service}:${field}`;
+        const ok = setSecureKey(key, value);
+        if (!ok) {
+          return { content: 'Error: failed to store credential', isError: true };
+        }
+        return { content: `Credential stored for ${service}/${field}.`, isError: false };
       }
 
       default:

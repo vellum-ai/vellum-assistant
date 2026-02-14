@@ -31,6 +31,12 @@ export interface ConfirmationResponse {
   selectedScope?: string;
 }
 
+export interface SecretResponse {
+  type: 'secret_response';
+  requestId: string;
+  value?: string;    // undefined = user cancelled
+}
+
 export interface SessionListRequest {
   type: 'session_list';
 }
@@ -373,6 +379,7 @@ export interface UiSurfaceAction {
 export type ClientMessage =
   | UserMessage
   | ConfirmationResponse
+  | SecretResponse
   | SessionListRequest
   | SessionCreateRequest
   | SessionSwitchRequest
@@ -460,6 +467,17 @@ export interface ConfirmationRequest {
   scopeOptions: Array<{ label: string; scope: string }>;
   diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
   sandboxed?: boolean;
+  sessionId?: string;
+}
+
+export interface SecretRequest {
+  type: 'secret_request';
+  requestId: string;
+  service: string;
+  field: string;
+  label: string;
+  description?: string;
+  placeholder?: string;
   sessionId?: string;
 }
 
@@ -918,6 +936,7 @@ export type ServerMessage =
   | ToolOutputChunk
   | ToolResult
   | ConfirmationRequest
+  | SecretRequest
   | MessageComplete
   | SessionInfo
   | SessionListResponse

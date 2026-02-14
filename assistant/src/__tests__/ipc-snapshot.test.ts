@@ -221,6 +221,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     keyId: 'abc123',
     publicKey: 'dGVzdA==', // eslint-disable-line -- test fixture, not a real key
   },
+  secret_response: {
+    type: 'secret_response',
+    requestId: 'req-secret-001',
+    value: 'ghp_test_token_value',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -259,6 +264,16 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       isNewFile: false,
     },
     status: 'success',
+  },
+  secret_request: {
+    type: 'secret_request',
+    requestId: 'req-secret-001',
+    service: 'github',
+    field: 'token',
+    label: 'GitHub Personal Access Token',
+    description: 'Needed to push changes',
+    placeholder: 'ghp_xxxxxxxxxxxx',
+    sessionId: 'sess-001',
   },
   confirmation_request: {
     type: 'confirmation_request',

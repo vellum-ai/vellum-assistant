@@ -94,6 +94,14 @@ export interface ToolContext {
     input: Record<string, unknown>;
     riskLevel: string;
   }) => Promise<{ decision: 'allow' | 'deny' }>;
+  /** Prompt the user for a secret value via native SecureField UI. */
+  requestSecret?: (params: {
+    service: string;
+    field: string;
+    label: string;
+    description?: string;
+    placeholder?: string;
+  }) => Promise<string | null>;
 }
 
 export interface DiffInfo {
