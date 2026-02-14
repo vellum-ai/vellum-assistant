@@ -683,4 +683,39 @@ describe('IPC message snapshots', () => {
       expect(parsed).toEqual(msg);
     }
   });
+
+  // Baseline assertions for error-related message contracts.
+  // These document the current shape before error handling modernization.
+  describe('error message baselines', () => {
+    test('error message has exactly type and message fields', () => {
+      const keys = Object.keys(serverMessages.error).sort();
+      expect(keys).toEqual(['message', 'type']);
+    });
+
+    test('cu_error message has exactly type, sessionId, and message fields', () => {
+      const keys = Object.keys(serverMessages.cu_error).sort();
+      expect(keys).toEqual(['message', 'sessionId', 'type']);
+    });
+
+    test('tool_result isError field is optional boolean', () => {
+      const withError = { ...serverMessages.tool_result, isError: true };
+      const withoutError = { ...serverMessages.tool_result };
+      delete (withoutError as Record<string, unknown>).isError;
+
+      // Both shapes must round-trip cleanly
+      expect(JSON.parse(serialize(withError).trimEnd()).isError).toBe(true);
+      const parsed = JSON.parse(serialize(withoutError).trimEnd());
+      expect(parsed.isError).toBeUndefined();
+    });
+
+    test('generation_cancelled has type field and optional sessionId', () => {
+      const cancelled = serverMessages.generation_cancelled;
+      expect(cancelled.type).toBe('generation_cancelled');
+    });
+
+    test('message_complete has type field and optional sessionId', () => {
+      const complete = serverMessages.message_complete;
+      expect(complete.type).toBe('message_complete');
+    });
+  });
 });

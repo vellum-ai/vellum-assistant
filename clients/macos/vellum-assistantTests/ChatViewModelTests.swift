@@ -223,6 +223,234 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.errorText)
     }
 
+    func testErrorFinalizesStreamingAssistantMessage() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Start streaming an assistant message
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial response")))
+        XCTAssertTrue(viewModel.messages[1].isStreaming)
+
+        // Error arrives
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Provider error")))
+
+        // Streaming message should be finalized (not left hanging)
+        XCTAssertFalse(viewModel.messages[1].isStreaming, "Error should finalize the streaming assistant message")
+        XCTAssertEqual(viewModel.messages[1].text, "Partial response", "Partial text should be preserved")
+    }
+
+    func testErrorResetsProcessingMessagesToSent() {
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+
+        // Send message A (direct)
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+
+        // Send message B (queued)
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+
+        // Daemon confirms B is queued, then dequeued (processing)
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response A")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        XCTAssertEqual(viewModel.messages[2].status, .processing)
+
+        // Error arrives while B is processing
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Provider failed")))
+
+        // Processing message should be reset to .sent
+        XCTAssertEqual(viewModel.messages[2].status, .sent, "Error should reset processing messages to .sent")
+    }
+
+    func testErrorDuringCancellationClearsQueueState() {
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+
+        // Send message A, then B and C while busy
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+        viewModel.inputText = "Message C"
+        viewModel.sendMessage()
+
+        // Daemon confirms B and C are queued
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-C", position: 2)))
+        XCTAssertEqual(viewModel.pendingQueuedCount, 2)
+
+        // User cancels
+        viewModel.stopGenerating()
+
+        // Daemon sends error events for queued messages (abort drops queue
+        // without sending message_dequeued events)
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Cancelled")))
+
+        // Queue state should be fully cleared
+        XCTAssertFalse(viewModel.isSending, "Error during cancellation should clear isSending")
+        XCTAssertEqual(viewModel.pendingQueuedCount, 0, "Error during cancellation should reset pendingQueuedCount")
+        // Queued messages should be reset to .sent
+        if case .sent = viewModel.messages[2].status {
+            // expected
+        } else {
+            XCTFail("Queued message B should be reset to .sent after cancellation error, got \(viewModel.messages[2].status)")
+        }
+        if case .sent = viewModel.messages[3].status {
+            // expected
+        } else {
+            XCTFail("Queued message C should be reset to .sent after cancellation error, got \(viewModel.messages[3].status)")
+        }
+    }
+
+    func testErrorWithPendingQueuePreservesQueueBookkeeping() {
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+
+        // Send message A, then B while busy
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+
+        // Daemon confirms B is queued
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        XCTAssertEqual(viewModel.pendingQueuedCount, 1)
+
+        // Non-cancellation error while B is still queued
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Provider error for A")))
+
+        // Queue should be preserved so daemon can still drain it
+        XCTAssertEqual(viewModel.pendingQueuedCount, 1, "Non-cancellation error should preserve queue when messages are pending")
+        XCTAssertTrue(viewModel.isSending, "isSending should stay true when messages are still queued")
+    }
+
+    func testErrorWithEmptyQueueClearsAllBookkeeping() {
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+
+        // Send a single message
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+
+        // Error with no queued messages
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Network error")))
+
+        XCTAssertFalse(viewModel.isSending, "Error with empty queue should clear isSending")
+        XCTAssertFalse(viewModel.isThinking, "Error should clear isThinking")
+        XCTAssertEqual(viewModel.errorText, "Network error")
+    }
+
+    func testErrorDuringCancellationSuppressesErrorText() {
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+
+        // Start streaming
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response")))
+
+        // User cancels
+        viewModel.stopGenerating()
+
+        // Daemon sends error as part of cancellation cleanup
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Request cancelled")))
+
+        // Error text should NOT be shown when the user intentionally cancelled
+        XCTAssertNil(viewModel.errorText, "Error during cancellation should not display error text to user")
+    }
+
+    func testSendMessageClearsExistingErrorBeforeSend() {
+        // This verifies that sending a new message clears any previous error
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.errorText = "Previous network error"
+        viewModel.inputText = "Retry"
+        viewModel.sendMessage()
+        XCTAssertNil(viewModel.errorText, "Sending a new message should clear previous error")
+    }
+
+    func testSendUserMessageWhenDisconnectedShowsErrorAndClearsState() {
+        // Baseline: existing behavior when daemon disconnects between turns
+        viewModel.sessionId = "test-session"
+        daemonClient.isConnected = false
+
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+
+        // User message should appear in the list
+        XCTAssertEqual(viewModel.messages.count, 2)
+        XCTAssertEqual(viewModel.messages[1].role, .user)
+
+        // But sending state should NOT be set
+        XCTAssertFalse(viewModel.isSending, "Disconnected send should not set isSending")
+        XCTAssertFalse(viewModel.isThinking, "Disconnected send should not set isThinking")
+
+        // Error should mention the daemon
+        XCTAssertNotNil(viewModel.errorText)
+        XCTAssertTrue(viewModel.errorText?.contains("daemon") == true,
+                       "Disconnected error should mention daemon")
+    }
+
+    func testRegenerateWhenDisconnectedShowsError() {
+        viewModel.sessionId = "test-session"
+        daemonClient.isConnected = false
+
+        viewModel.regenerateLastMessage()
+
+        XCTAssertNotNil(viewModel.errorText, "Regenerate when disconnected should show error")
+        XCTAssertTrue(viewModel.errorText?.contains("daemon") == true)
+        XCTAssertFalse(viewModel.isSending, "Regenerate should not set isSending when disconnected")
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    func testRegenerateWhileSendingIsBlocked() {
+        viewModel.sessionId = "test-session"
+        viewModel.isSending = true
+
+        viewModel.regenerateLastMessage()
+
+        // Should do nothing — guard blocks it
+        XCTAssertNil(viewModel.errorText, "Regenerate while sending should silently do nothing")
+    }
+
+    func testStopGeneratingWhenDisconnectedResetsAllState() {
+        viewModel.sessionId = "test-session"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+        daemonClient.isConnected = false
+
+        // Start streaming
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
+
+        // Send a queued message to verify queue cleanup
+        viewModel.inputText = "Queued msg"
+        viewModel.sendMessage()
+
+        // Now disconnect and stop
+        daemonClient.isConnected = false
+        viewModel.stopGenerating()
+
+        // Everything should be reset since cancel can't reach daemon
+        XCTAssertFalse(viewModel.isSending, "Stop when disconnected should clear isSending")
+        XCTAssertFalse(viewModel.isThinking, "Stop when disconnected should clear isThinking")
+        XCTAssertEqual(viewModel.pendingQueuedCount, 0, "Stop when disconnected should clear queue count")
+        XCTAssertFalse(viewModel.messages[1].isStreaming, "Stop when disconnected should finalize streaming")
+    }
+
+    func testMultipleSequentialErrorsUpdateErrorText() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "First error")))
+        XCTAssertEqual(viewModel.errorText, "First error")
+
+        // Another send attempt
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.inputText = "Retry"
+        viewModel.sendMessage()
+
+        // Second error replaces the first
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Second error")))
+        XCTAssertEqual(viewModel.errorText, "Second error", "Latest error should replace previous error text")
+    }
+
     // MARK: - Stop Generating
 
     func testStopGeneratingKeepsSendingUntilAcknowledged() {
