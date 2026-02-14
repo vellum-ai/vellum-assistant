@@ -1,4 +1,4 @@
-// Backward-compatible re-export shim — canonical module lives in shared/filesystem/
+// Backward-compatible re-export — canonical module is shared/filesystem/size-guard.ts
 export {
   MAX_FILE_SIZE_BYTES,
   checkFileSizeOnDisk,
