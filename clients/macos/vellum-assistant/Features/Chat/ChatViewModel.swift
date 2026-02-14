@@ -1049,9 +1049,19 @@ final class ChatViewModel: ObservableObject {
         let hasUserSentMessages = messages.contains { $0.role == .user }
         if hasUserSentMessages {
             // History arrived after the user already sent messages.
-            // Prepend history before existing messages so the user sees
-            // the full conversation context.
-            self.messages = chatMessages + self.messages
+            // The history payload includes ALL persisted messages — including
+            // ones the user sent (and any assistant replies) before the
+            // history_response arrived. Deduplicate by only prepending
+            // history messages whose timestamps precede the earliest
+            // existing message.
+            let earliestExisting = self.messages.map(\.timestamp).min()
+            let uniqueHistory: [ChatMessage]
+            if let earliest = earliestExisting {
+                uniqueHistory = chatMessages.filter { $0.timestamp < earliest }
+            } else {
+                uniqueHistory = chatMessages
+            }
+            self.messages = uniqueHistory + self.messages
         } else {
             self.messages = chatMessages
         }
