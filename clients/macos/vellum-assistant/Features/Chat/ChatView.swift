@@ -27,6 +27,7 @@ struct ChatView: View {
     let onConfirmationDeny: (String) -> Void
     let onAddTrustRule: (String, String, String, String) -> Bool
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
+    let onRegenerate: () -> Void
 
     /// The portion of the suggestion that extends beyond the current input.
     private var ghostSuffix: String? {
@@ -106,6 +107,25 @@ struct ChatView: View {
                             ChatBubble(message: message, onSurfaceAction: onSurfaceAction)
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
+
+                        // Regenerate button on the last assistant message
+                        if message.role == .assistant
+                            && !message.isStreaming
+                            && index == messages.count - 1
+                            && !isSending {
+                            HStack {
+                                Button(action: onRegenerate) {
+                                    Image(systemName: "arrow.trianglehead.counterclockwise")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(VColor.textMuted)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Regenerate response")
+                                .help("Regenerate response")
+                                Spacer()
+                            }
+                            .padding(.top, -VSpacing.sm)
                         }
                     }
 
@@ -885,7 +905,8 @@ private struct ChatViewPreviewWrapper: View {
                 onConfirmationAllow: { _ in },
                 onConfirmationDeny: { _ in },
                 onAddTrustRule: { _, _, _, _ in true },
-                onSurfaceAction: { _, _, _ in }
+                onSurfaceAction: { _, _, _ in },
+                onRegenerate: {}
             )
         }
     }

@@ -1,7 +1,7 @@
 import { eq, desc, asc, and, count, sql, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
-import { conversations, messages, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities } from './schema.js';
+import { conversations, messages, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments } from './schema.js';
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
 import { getLogger } from '../util/logger.js';
@@ -244,6 +244,16 @@ export function deleteLastExchange(conversationId: string): number {
 }
 
 /**
+ * IDs collected during message deletion for Qdrant vector cleanup.
+ * Callers must delete these from the Qdrant collection after the
+ * SQLite transaction commits.
+ */
+export interface DeletedMemoryIds {
+  segmentIds: string[];
+  orphanedItemIds: string[];
+}
+
+/**
  * Delete a single message by ID without cascading to message_runs or
  * channel_inbound_events. Nullable FK columns in those tables are set to
  * NULL before the message row is removed, so associated run and event
@@ -255,10 +265,23 @@ export function deleteLastExchange(conversationId: string): number {
  * Without cleanup, those items would leak into summaries and recall.
  * We delete any memory_items that become orphaned (no remaining sources)
  * after this message is removed.
+ *
+ * Returns segment and orphaned item IDs so the caller can clean up the
+ * corresponding Qdrant vector entries.
  */
-export function deleteMessageById(messageId: string): void {
+export function deleteMessageById(messageId: string): DeletedMemoryIds {
   const db = getDb();
+  const result: DeletedMemoryIds = { segmentIds: [], orphanedItemIds: [] };
+
   db.transaction((tx) => {
+    // Collect memory segment IDs linked to this message before cascade.
+    const linkedSegments = tx
+      .select({ id: memorySegments.id })
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, messageId))
+      .all();
+    result.segmentIds = linkedSegments.map((r) => r.id);
+
     // Collect memory item IDs linked to this message before cascade.
     const linkedItems = tx
       .select({ memoryItemId: memoryItemSources.memoryItemId })
@@ -281,6 +304,16 @@ export function deleteMessageById(messageId: string): void {
     // memory_segments, and message_attachments.
     tx.delete(messages).where(eq(messages.id, messageId)).run();
 
+    // Clean up segment embeddings from SQLite (Qdrant cleanup is the caller's job).
+    if (result.segmentIds.length > 0) {
+      tx.delete(memoryEmbeddings)
+        .where(and(
+          eq(memoryEmbeddings.targetType, 'segment'),
+          inArray(memoryEmbeddings.targetId, result.segmentIds),
+        ))
+        .run();
+    }
+
     // Clean up orphaned memory items whose only source was this message.
     if (candidateItemIds.length > 0) {
       // Find which items still have at least one remaining source.
@@ -291,6 +324,7 @@ export function deleteMessageById(messageId: string): void {
         .all();
       const survivingIds = new Set(surviving.map((r) => r.memoryItemId));
       const orphanedIds = candidateItemIds.filter((id) => !survivingIds.has(id));
+      result.orphanedItemIds = orphanedIds;
 
       if (orphanedIds.length > 0) {
         // Delete memory_item_entities (no FK cascade on this table).
@@ -311,4 +345,6 @@ export function deleteMessageById(messageId: string): void {
       }
     }
   });
+
+  return result;
 }

@@ -338,6 +338,17 @@ public struct SessionListRequestMessage: Encodable, Sendable {
     public init() {}
 }
 
+/// Sent to regenerate the last assistant response.
+/// Wire type: `"regenerate"`
+public struct RegenerateMessage: Encodable, Sendable {
+    public let type: String = "regenerate"
+    public let sessionId: String
+
+    public init(sessionId: String) {
+        self.sessionId = sessionId
+    }
+}
+
 /// Sent to request message history for a specific session.
 /// Wire type: `"history_request"`
 public struct HistoryRequestMessage: Encodable, Sendable {
@@ -640,6 +651,11 @@ public struct UiSurfaceUpdateMessage: Decodable, Sendable {
 public struct UiSurfaceDismissMessage: Decodable, Sendable {
     public let sessionId: String
     public let surfaceId: String
+}
+
+/// Confirms undo/regenerate removed messages.
+public struct UndoCompleteMessage: Decodable, Sendable {
+    public let removedCount: Int
 }
 
 /// Confirms generation was cancelled.
@@ -1263,6 +1279,7 @@ public enum ServerMessage: Decodable, Sendable {
     case uiSurfaceShow(UiSurfaceShowMessage)
     case uiSurfaceUpdate(UiSurfaceUpdateMessage)
     case uiSurfaceDismiss(UiSurfaceDismissMessage)
+    case undoComplete(UndoCompleteMessage)
     case generationCancelled(GenerationCancelledMessage)
     case generationHandoff(GenerationHandoffMessage)
     case confirmationRequest(ConfirmationRequestMessage)
@@ -1346,6 +1363,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "ui_surface_dismiss":
             let message = try UiSurfaceDismissMessage(from: decoder)
             self = .uiSurfaceDismiss(message)
+        case "undo_complete":
+            let message = try UndoCompleteMessage(from: decoder)
+            self = .undoComplete(message)
         case "generation_cancelled":
             let message = try GenerationCancelledMessage(from: decoder)
             self = .generationCancelled(message)

@@ -62,6 +62,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'undo',
     sessionId: 'sess-001',
   },
+  regenerate: {
+    type: 'regenerate',
+    sessionId: 'sess-001',
+  },
   usage_request: {
     type: 'usage_request',
     sessionId: 'sess-001',

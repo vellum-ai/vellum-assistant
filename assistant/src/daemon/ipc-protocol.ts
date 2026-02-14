@@ -82,6 +82,11 @@ export interface UndoRequest {
   sessionId: string;
 }
 
+export interface RegenerateRequest {
+  type: 'regenerate';
+  sessionId: string;
+}
+
 export interface UsageRequest {
   type: 'usage_request';
   sessionId: string;
@@ -389,6 +394,7 @@ export type ClientMessage =
   | ModelSetRequest
   | HistoryRequest
   | UndoRequest
+  | RegenerateRequest
   | UsageRequest
   | SandboxSetRequest
   | CuSessionCreate

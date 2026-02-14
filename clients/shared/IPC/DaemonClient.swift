@@ -488,6 +488,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(SkillsConfigureMessage(name: name, env: env, apiKey: apiKey, config: config))
     }
 
+    // MARK: - Regenerate
+
+    /// Regenerate the last assistant response for a session.
+    func sendRegenerate(sessionId: String) throws {
+        try send(RegenerateMessage(sessionId: sessionId))
+    }
+
     // MARK: - Sessions
 
     /// Request the list of past sessions from the daemon.

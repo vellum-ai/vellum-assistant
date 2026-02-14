@@ -19,6 +19,7 @@ import type {
   ModelSetRequest,
   HistoryRequest,
   UndoRequest,
+  RegenerateRequest,
   UsageRequest,
   SandboxSetRequest,
   UserMessage,
@@ -337,6 +338,7 @@ const handlers: DispatchMap = {
   model_set: handleModelSet,
   history_request: handleHistoryRequest,
   undo: handleUndo,
+  regenerate: handleRegenerate,
   usage_request: handleUsageRequest,
   sandbox_set: handleSandboxSet,
   cu_session_create: handleCuSessionCreate,
@@ -725,6 +727,27 @@ function handleUndo(
   }
   const removedCount = session.undo();
   ctx.send(socket, { type: 'undo_complete', removedCount });
+}
+
+async function handleRegenerate(
+  msg: RegenerateRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const session = ctx.sessions.get(msg.sessionId);
+  if (!session) {
+    ctx.send(socket, { type: 'error', message: 'No active session' });
+    return;
+  }
+
+  const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+  try {
+    await session.regenerate(sendEvent);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, sessionId: msg.sessionId }, 'Error regenerating message');
+    ctx.send(socket, { type: 'error', message: `Failed to regenerate: ${message}` });
+  }
 }
 
 function handleUsageRequest(
