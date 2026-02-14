@@ -18,7 +18,6 @@ struct InputBarView: View {
                 .background(VColor.surface)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .focused(isInputFocused)
-                .disabled(isGenerating)
 
             // Send button
             Button(action: onSend) {
