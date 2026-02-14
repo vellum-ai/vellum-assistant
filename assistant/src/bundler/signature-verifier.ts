@@ -139,13 +139,19 @@ export async function verifyBundleSignature(
 
   if (publicKeyBase64) {
     try {
-      const publicKeyBuffer = Buffer.from(publicKeyBase64, 'base64');
+      const rawKey = Buffer.from(publicKeyBase64, 'base64');
       const signatureBuffer = Buffer.from(signatureData.signature, 'base64');
+
+      // Ed25519 SPKI DER header (12 bytes) for wrapping raw 32-byte public key.
+      // The Swift client sends the key as rawRepresentation (32 bytes), but
+      // Node.js crypto.verify expects DER-encoded SPKI format (44 bytes).
+      const ed25519SpkiPrefix = Buffer.from('302a300506032b6570032100', 'hex');
+      const derKey = Buffer.concat([ed25519SpkiPrefix, rawKey]);
 
       const isValid = verify(
         null, // Ed25519 doesn't use a separate hash algorithm
         Buffer.from(canonicalPayload),
-        { key: publicKeyBuffer, format: 'der', type: 'spki' },
+        { key: derKey, format: 'der', type: 'spki' },
         signatureBuffer,
       );
 
@@ -158,7 +164,12 @@ export async function verifyBundleSignature(
         };
       }
     } catch {
-      // If verification throws (e.g. wrong key format), fall through to 'signed'
+      return {
+        trustTier: 'tampered',
+        signerKeyId: keyId,
+        signerDisplayName: signatureData.signer.display_name,
+        message: 'Ed25519 signature verification failed (crypto error)',
+      };
     }
   }
 
