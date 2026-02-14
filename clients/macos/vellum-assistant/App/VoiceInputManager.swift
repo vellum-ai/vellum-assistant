@@ -15,6 +15,8 @@ final class VoiceInputManager {
     private var isRecording = false
     private var globalMonitor: Any?
     private var localMonitor: Any?
+    private var globalKeyDownMonitor: Any?
+    private var localKeyDownMonitor: Any?
     private var holdTask: Task<Void, Never>?
     private static let holdDelay: UInt64 = 300_000_000 // 300ms in nanoseconds
 
@@ -45,6 +47,14 @@ final class VoiceInputManager {
             NSEvent.removeMonitor(monitor)
             localMonitor = nil
         }
+        if let monitor = globalKeyDownMonitor {
+            NSEvent.removeMonitor(monitor)
+            globalKeyDownMonitor = nil
+        }
+        if let monitor = localKeyDownMonitor {
+            NSEvent.removeMonitor(monitor)
+            localKeyDownMonitor = nil
+        }
         stopRecording()
     }
 
@@ -71,6 +81,20 @@ final class VoiceInputManager {
             }
             return event
         }
+
+        // Monitor keyDown events to detect when user types while holding activation key
+        // (e.g., Control+C, Control+Z) and cancel voice activation in those cases.
+        globalKeyDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleKeyDown()
+            }
+        }
+        localKeyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            Task { @MainActor in
+                self?.handleKeyDown()
+            }
+            return event
+        }
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
@@ -82,6 +106,7 @@ final class VoiceInputManager {
 
         if keyPressed && !hasOtherModifiers && !isRecording {
             // Start a delayed hold — cancelled if key is released quickly (e.g. Fn+arrow combo)
+            // or if a regular key is pressed (e.g. Control+C, handled by handleKeyDown)
             holdTask?.cancel()
             holdTask = Task {
                 try? await Task.sleep(nanoseconds: Self.holdDelay)
@@ -99,6 +124,14 @@ final class VoiceInputManager {
                 stopRecording()
             }
         }
+    }
+
+    private func handleKeyDown() {
+        // If user types any key while holding the activation modifier (e.g. Control+C),
+        // they're using a keyboard shortcut, not trying to activate voice input.
+        // Cancel the pending voice activation timer.
+        holdTask?.cancel()
+        holdTask = nil
     }
 
     // MARK: - Recording
