@@ -203,6 +203,14 @@ public struct TaskSubmitMessage: Encodable, Sendable {
     public let screenHeight: Int
     public let attachments: [IPCAttachment]?
     public let source: String?
+
+    public init(task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, source: String?) {
+        self.task = task
+        self.screenWidth = screenWidth
+        self.screenHeight = screenHeight
+        self.attachments = attachments
+        self.source = source
+    }
 }
 
 /// Sent to cancel the active generation.
@@ -777,9 +785,9 @@ public struct SkillsInspectResponseMessage: Decodable, Sendable {
 /// Wire type: `"session_list_response"`
 public struct SessionListResponseMessage: Decodable, Sendable {
     public struct SessionItem: Decodable, Sendable {
-        let id: String
-        let title: String
-        let updatedAt: Int
+        public let id: String
+        public let title: String
+        public let updatedAt: Int
     }
     public let sessions: [SessionItem]
 }
@@ -788,16 +796,16 @@ public struct SessionListResponseMessage: Decodable, Sendable {
 /// Wire type: `"history_response"`
 public struct HistoryResponseMessage: Decodable, Sendable {
     public struct HistoryToolCallItem: Decodable, Sendable {
-        let name: String
-        let input: [String: AnyCodable]
-        let result: String?
-        let isError: Bool?
+        public let name: String
+        public let input: [String: AnyCodable]
+        public let result: String?
+        public let isError: Bool?
     }
     public struct HistoryMessageItem: Decodable, Sendable {
-        let role: String
-        let text: String
-        let timestamp: Int
-        let toolCalls: [HistoryToolCallItem]?
+        public let role: String
+        public let text: String
+        public let timestamp: Int
+        public let toolCalls: [HistoryToolCallItem]?
     }
     public let messages: [HistoryMessageItem]
 }
