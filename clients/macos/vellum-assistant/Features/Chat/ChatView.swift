@@ -567,7 +567,7 @@ struct ChatView: View {
                         .lineSpacing(4)
                         .lineLimit(1...)
                         .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxHeight: min(max(editorContentHeight, 28), 200), alignment: isComposerExpanded ? .topLeading : .leading)
+                        .frame(maxHeight: min(max(editorContentHeight, 28), 200), alignment: .topLeading)
                         .clipped()
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
