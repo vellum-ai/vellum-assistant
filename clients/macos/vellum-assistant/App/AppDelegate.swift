@@ -88,6 +88,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public let daemonClient = DaemonClient()
     let surfaceManager = SurfaceManager()
     let toolConfirmationManager = ToolConfirmationManager()
+    let secretPromptManager = SecretPromptManager()
     private let daemonLauncher = DaemonLauncher()
     private let updateManager = UpdateManager()
 
@@ -132,6 +133,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupAmbientAgent()
         setupSurfaceManager()
         setupToolConfirmationManager()
+        setupSecretPromptManager()
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
@@ -318,6 +320,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 return true
             } catch {
                 log.error("Failed to send add_trust_rule: \(error.localizedDescription)")
+                return false
+            }
+        }
+    }
+
+    private func setupSecretPromptManager() {
+        daemonClient.onSecretRequest = { [weak self] msg in
+            self?.secretPromptManager.showPrompt(msg)
+        }
+        secretPromptManager.onResponse = { [weak self] requestId, value in
+            guard let self else { return false }
+            do {
+                try self.daemonClient.sendSecretResponse(requestId: requestId, value: value)
+                return true
+            } catch {
+                log.error("Failed to send secret response: \(error.localizedDescription)")
                 return false
             }
         }
@@ -595,6 +613,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.currentTextSession?.cancel()
                     self?.surfaceManager.dismissAll()
                     self?.toolConfirmationManager.dismissAll()
+                    self?.secretPromptManager.dismissAll()
                 }
             }
         }
@@ -747,6 +766,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.setupAmbientAgent()
             self?.setupSurfaceManager()
             self?.setupToolConfirmationManager()
+            self?.setupSecretPromptManager()
             self?.setupWindowObserver()
             self?.setupNotifications()
             self?.setupAutoUpdate()
@@ -1251,6 +1271,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         ambientAgent.stop()
         surfaceManager.dismissAll()
         toolConfirmationManager.dismissAll()
+        secretPromptManager.dismissAll()
         daemonLauncher.stop()
     }
 }

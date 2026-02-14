@@ -11,6 +11,7 @@ import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { getApp } from '../memory/app-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
+import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { ToolLifecycleEventHandler, ToolExecutionResult } from '../tools/types.js';
@@ -80,6 +81,7 @@ export class Session {
   private stale = false;
   private abortController: AbortController | null = null;
   private prompter: PermissionPrompter;
+  private secretPrompter: SecretPrompter;
   private executor: ToolExecutor;
   private sendToClient: (msg: ServerMessage) => void;
   private eventBus = new EventBus<AssistantDomainEvents>();
@@ -109,6 +111,7 @@ export class Session {
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
     this.prompter = new PermissionPrompter(sendToClient);
+    this.secretPrompter = new SecretPrompter(sendToClient);
 
     registerTimerCompletionNotifier(conversationId, (timer) => {
       this.sendToClient({
@@ -146,6 +149,13 @@ export class Session {
         sandboxOverride: this.sandboxOverride,
         onToolLifecycleEvent: handleToolLifecycleEvent,
         proxyToolResolver: this.surfaceProxyResolver.bind(this),
+        requestSecret: async (params) => {
+          return this.secretPrompter.prompt(
+            params.service, params.field, params.label,
+            params.description, params.placeholder,
+            this.conversationId,
+          );
+        },
         requestConfirmation: async (req) => {
           // Check trust store before prompting
           const existingRule = findHighestPriorityRule(
@@ -254,6 +264,7 @@ export class Session {
   updateClient(sendToClient: (msg: ServerMessage) => void): void {
     this.sendToClient = sendToClient;
     this.prompter.updateSender(sendToClient);
+    this.secretPrompter.updateSender(sendToClient);
   }
 
   setSandboxOverride(enabled: boolean | undefined): void {
@@ -285,6 +296,7 @@ export class Session {
       log.info({ conversationId: this.conversationId }, 'Aborting in-flight processing');
       this.abortController?.abort();
       this.prompter.dispose();
+      this.secretPrompter.dispose();
       this.pendingSurfaceActions.clear();
       this.surfaceState.clear();
       unregisterTimerCompletionNotifier(this.conversationId);
@@ -359,6 +371,10 @@ export class Session {
     selectedScope?: string,
   ): void {
     this.prompter.resolveConfirmation(requestId, decision, selectedPattern, selectedScope);
+  }
+
+  handleSecretResponse(requestId: string, value?: string): void {
+    this.secretPrompter.resolveSecret(requestId, value);
   }
 
   /**

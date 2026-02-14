@@ -53,6 +53,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `confirmation_request` message for tool permission approval.
     var onConfirmationRequest: ((ConfirmationRequestMessage) -> Void)?
 
+    /// Called when the daemon sends a `secret_request` message for secure credential input.
+    var onSecretRequest: ((SecretRequestMessage) -> Void)?
+
     /// Called when the daemon sends a `task_routed` message (e.g. escalation from text_qa to CU).
     var onTaskRouted: ((TaskRoutedMessage) -> Void)?
 
@@ -341,6 +344,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         ))
     }
 
+    // MARK: - Secret Response
+
+    /// Send a secret response for a credential prompt request.
+    func sendSecretResponse(requestId: String, value: String?) throws {
+        try send(SecretResponseMessage(requestId: requestId, value: value))
+    }
+
     // MARK: - Trust Rule Addition
 
     /// Send an add_trust_rule message to persist a trust rule on the daemon.
@@ -622,6 +632,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onGenerationHandoff?(msg)
         case .confirmationRequest(let msg):
             onConfirmationRequest?(msg)
+        case .secretRequest(let msg):
+            onSecretRequest?(msg)
         case .taskRouted(let msg):
             onTaskRouted?(msg)
         case .timerCompleted(let msg):

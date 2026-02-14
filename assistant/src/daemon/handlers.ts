@@ -12,6 +12,7 @@ import type {
   ClientMessage,
   ServerMessage,
   ConfirmationResponse,
+  SecretResponse,
   SessionCreateRequest,
   SessionSwitchRequest,
   CancelRequest,
@@ -298,6 +299,7 @@ type DispatchMap = { [T in MessageType]: MessageHandler<T> };
 const handlers: DispatchMap = {
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
+  secret_response: handleSecretResponse,
   session_list: (_msg, socket, ctx) => handleSessionList(socket, ctx),
   session_create: handleSessionCreate,
   session_switch: handleSessionSwitch,
@@ -439,6 +441,20 @@ function handleConfirmationResponse(
         msg.selectedPattern,
         msg.selectedScope,
       );
+    }
+  }
+}
+
+function handleSecretResponse(
+  msg: SecretResponse,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const sessionId = ctx.socketToSession.get(socket);
+  if (sessionId) {
+    const session = ctx.sessions.get(sessionId);
+    if (session) {
+      session.handleSecretResponse(msg.requestId, msg.value);
     }
   }
 }

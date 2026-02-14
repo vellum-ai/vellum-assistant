@@ -776,6 +776,18 @@ struct SuggestionResponseMessage: Decodable, Sendable {
     let source: String
 }
 
+/// Secret input request from daemon.
+/// Wire type: `"secret_request"`
+struct SecretRequestMessage: Decodable, Sendable {
+    let requestId: String
+    let service: String
+    let field: String
+    let label: String
+    let description: String?
+    let placeholder: String?
+    let sessionId: String?
+}
+
 /// Permission confirmation request from daemon.
 /// Wire type: `"confirmation_request"`
 struct ConfirmationRequestMessage: Decodable, Sendable {
@@ -822,6 +834,14 @@ struct ConfirmationResponseMessage: Encodable, Sendable {
     let decision: String
     let selectedPattern: String?
     let selectedScope: String?
+}
+
+/// Client response to a secret input request.
+/// Wire type: `"secret_response"`
+struct SecretResponseMessage: Encodable, Sendable {
+    let type: String = "secret_response"
+    let requestId: String
+    let value: String?
 }
 
 /// Sent to add a trust rule (allowlist/denylist) independently of a confirmation response.
@@ -916,6 +936,7 @@ enum ServerMessage: Decodable, Sendable {
     case generationCancelled(GenerationCancelledMessage)
     case generationHandoff(GenerationHandoffMessage)
     case confirmationRequest(ConfirmationRequestMessage)
+    case secretRequest(SecretRequestMessage)
     case appDataResponse(AppDataResponseMessage)
     case messageQueued(MessageQueuedMessage)
     case messageDequeued(MessageDequeuedMessage)
@@ -998,6 +1019,9 @@ enum ServerMessage: Decodable, Sendable {
         case "confirmation_request":
             let message = try ConfirmationRequestMessage(from: decoder)
             self = .confirmationRequest(message)
+        case "secret_request":
+            let message = try SecretRequestMessage(from: decoder)
+            self = .secretRequest(message)
         case "app_data_response":
             let message = try AppDataResponseMessage(from: decoder)
             self = .appDataResponse(message)

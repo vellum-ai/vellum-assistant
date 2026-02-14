@@ -339,6 +339,14 @@ exports[`IPC message snapshots ClientMessage types get_signing_identity_response
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types secret_response serializes to expected JSON 1`] = `
+{
+  "requestId": "req-secret-001",
+  "type": "secret_response",
+  "value": "ghp_test_token_value",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
 {
   "sessionId": "sess-001",
@@ -388,6 +396,19 @@ exports[`IPC message snapshots ServerMessage types tool_result serializes to exp
   "status": "success",
   "toolName": "bash",
   "type": "tool_result",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types secret_request serializes to expected JSON 1`] = `
+{
+  "description": "Needed to push changes",
+  "field": "token",
+  "label": "GitHub Personal Access Token",
+  "placeholder": "ghp_xxxxxxxxxxxx",
+  "requestId": "req-secret-001",
+  "service": "github",
+  "sessionId": "sess-001",
+  "type": "secret_request",
 }
 `;
 

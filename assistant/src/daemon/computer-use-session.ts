@@ -14,6 +14,7 @@ import type { ToolExecutionResult } from '../tools/types.js';
 import { AgentLoop } from '../agent/loop.js';
 import { ToolExecutor } from '../tools/executor.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
+import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { allComputerUseTools } from '../tools/computer-use/definitions.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
@@ -222,6 +223,7 @@ export class ComputerUseSession {
     ];
 
     const prompter = new PermissionPrompter(this.sendToClient);
+    const secretPrompter = new SecretPrompter(this.sendToClient);
     const executor = new ToolExecutor(prompter);
 
     const proxyResolver = async (
@@ -406,6 +408,13 @@ export class ComputerUseSession {
         sessionId: this.sessionId,
         conversationId: this.sessionId,
         proxyToolResolver: proxyResolver,
+        requestSecret: async (params) => {
+          return secretPrompter.prompt(
+            params.service, params.field, params.label,
+            params.description, params.placeholder,
+            this.sessionId,
+          );
+        },
       });
     };
 
