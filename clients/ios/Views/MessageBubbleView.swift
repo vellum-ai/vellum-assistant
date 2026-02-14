@@ -11,24 +11,57 @@ struct MessageBubbleView: View {
             }
 
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: VSpacing.xs) {
-                // Message text
-                if !message.text.isEmpty {
-                    Text(message.text)
-                        .font(VFont.body)
-                        .foregroundColor(message.role == .user ? VColor.background : VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(
-                            message.role == .user
-                                ? VColor.accent
-                                : VColor.surface
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                }
+                // Tool confirmation request (replaces message bubble for approval prompts)
+                if let confirmation = message.confirmation {
+                    ToolConfirmationBubble(
+                        confirmation: confirmation,
+                        onAllow: {
+                            // TODO: Implement confirmation handling in ChatViewModel/ThreadManager
+                            // For now, this at least shows the prompt to users
+                            print("iOS: Tool confirmation allow requested for \(confirmation.requestId)")
+                        },
+                        onDeny: {
+                            print("iOS: Tool confirmation deny requested for \(confirmation.requestId)")
+                        },
+                        onAddTrustRule: { _, _, _, _ in
+                            print("iOS: Add trust rule not yet implemented")
+                            return false
+                        }
+                    )
+                } else {
+                    // Message text (only shown for non-confirmation messages)
+                    if !message.text.isEmpty {
+                        Text(message.text)
+                            .font(VFont.body)
+                            .foregroundColor(message.role == .user ? VColor.background : VColor.textPrimary)
+                            .padding(VSpacing.md)
+                            .background(
+                                message.role == .user
+                                    ? VColor.accent
+                                    : VColor.surface
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    }
 
-                // Tool call chips
-                if !message.toolCalls.isEmpty {
-                    ForEach(message.toolCalls) { toolCall in
-                        ToolCallChip(toolCall: toolCall)
+                    // Tool call chips
+                    if !message.toolCalls.isEmpty {
+                        ForEach(message.toolCalls) { toolCall in
+                            ToolCallChip(toolCall: toolCall)
+                        }
+                    }
+
+                    // Inline surfaces (cards, tables, interactive widgets)
+                    if !message.inlineSurfaces.isEmpty {
+                        ForEach(message.inlineSurfaces) { surface in
+                            InlineSurfaceRouter(
+                                surface: surface,
+                                onAction: { surfaceId, actionId, data in
+                                    // TODO: Get viewModel reference to call sendSurfaceAction
+                                    // For now, surface UI renders but actions don't work
+                                    print("iOS: Surface action \(actionId) on \(surfaceId)")
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -90,6 +123,24 @@ struct MessageBubbleView: View {
             role: .assistant,
             text: "I'm thinking about",
             isStreaming: true
+        ))
+    }
+    .padding()
+    .background(VColor.background)
+}
+
+#Preview("Tool Confirmation") {
+    VStack(spacing: VSpacing.md) {
+        MessageBubbleView(message: ChatMessage(
+            role: .assistant,
+            text: "",
+            confirmation: ToolConfirmationData(
+                requestId: "test-123",
+                toolName: "bash",
+                input: ["command": AnyCodable("rm -rf /important/data")],
+                riskLevel: "high"
+            ),
+            toolCalls: []
         ))
     }
     .padding()
