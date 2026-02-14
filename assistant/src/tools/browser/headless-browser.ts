@@ -357,7 +357,7 @@ async function executeBrowserScreenshot(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const fullPage = !!input.fullPage;
+  const fullPage = input.full_page === true;
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
@@ -398,7 +398,7 @@ class BrowserScreenshotTool implements Tool {
       input_schema: {
         type: 'object',
         properties: {
-          fullPage: {
+          full_page: {
             type: 'boolean',
             description: 'Capture the full scrollable page instead of just the viewport.',
           },
