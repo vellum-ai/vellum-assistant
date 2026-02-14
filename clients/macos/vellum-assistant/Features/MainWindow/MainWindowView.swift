@@ -41,7 +41,7 @@ struct MainWindowView: View {
                         daemonClient: daemonClient
                     )
                 } else {
-                    VSplitView(panelWidth: geometry.size.width * 0.5, showPanel: activePanel != nil, main: {
+                    VSplitView(panelWidth: geometry.size.width / zoomManager.zoomLevel * 0.5, showPanel: activePanel != nil, main: {
                         if let viewModel = threadManager.activeViewModel {
                             ChatView(
                                 messages: viewModel.messages,
