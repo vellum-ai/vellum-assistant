@@ -255,8 +255,10 @@ public struct SettingsView: View {
                 SkillsSettingsView(viewModel: vm)
             }
         }
-        .onReceive(daemonClient?.objectWillChange.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
-            isTrustRulesSheetOpen = daemonClient?.isTrustRulesSheetOpen ?? false
+        .onReceive(
+            daemonClient.map { $0.$isTrustRulesSheetOpen.eraseToAnyPublisher() } ?? Empty().eraseToAnyPublisher()
+        ) { newValue in
+            isTrustRulesSheetOpen = newValue
         }
         .sheet(isPresented: $isTrustRulesSheetOpen, onDismiss: {
             daemonClient?.isTrustRulesSheetOpen = false
