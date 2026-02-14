@@ -214,7 +214,7 @@ export interface AddTrustRule {
   toolName: string;
   pattern: string;
   scope: string;
-  decision: 'allow' | 'deny';
+  decision: 'allow' | 'deny' | 'ask';
 }
 
 export interface TrustRulesList {
@@ -232,7 +232,7 @@ export interface UpdateTrustRule {
   tool?: string;
   pattern?: string;
   scope?: string;
-  decision?: 'allow' | 'deny';
+  decision?: 'allow' | 'deny' | 'ask';
   priority?: number;
 }
 
@@ -754,7 +754,7 @@ export interface TrustRulesListResponse {
     tool: string;
     pattern: string;
     scope: string;
-    decision: 'allow' | 'deny';
+    decision: 'allow' | 'deny' | 'ask';
     priority: number;
     createdAt: number;
   }>;

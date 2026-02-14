@@ -570,12 +570,12 @@ describe('Trust Store', () => {
   // ── default rules ─────────────────────────────────────────────
 
   describe('default rules', () => {
-    test('backfills default deny rules for protected directory on first load', () => {
+    test('backfills default ask rules for protected directory on first load', () => {
       const rules = getAllRules();
       const defaults = rules.filter((r) => r.id.startsWith('default:'));
       expect(defaults).toHaveLength(NUM_DEFAULTS);
       for (const rule of defaults) {
-        expect(rule.decision).toBe('deny');
+        expect(rule.decision).toBe('ask');
         expect(rule.priority).toBe(1000);
         expect(rule.scope).toBe('everywhere');
         expect(rule.pattern).toContain(`${testDir}/protected/`);
@@ -634,44 +634,44 @@ describe('Trust Store', () => {
       // Remove one default rule by editing trust.json directly on disk
       // (removeRule() throws for default rules, so we simulate external editing)
       const raw = JSON.parse(readFileSync(trustPath, 'utf-8'));
-      raw.rules = raw.rules.filter((r: { id: string }) => r.id !== 'default:deny-file_read-protected');
+      raw.rules = raw.rules.filter((r: { id: string }) => r.id !== 'default:ask-file_read-protected');
       writeFileSync(trustPath, JSON.stringify(raw, null, 2));
       // After reload, the rule is re-backfilled (defaults are always present)
       clearCache();
       const rules = getAllRules();
-      expect(rules.find((r) => r.id === 'default:deny-file_read-protected')).toBeDefined();
+      expect(rules.find((r) => r.id === 'default:ask-file_read-protected')).toBeDefined();
     });
 
-    test('findHighestPriorityRule matches default deny for protected file_read', () => {
+    test('findHighestPriorityRule matches default ask for protected file_read', () => {
       const protectedPath = join(testDir, 'protected', 'trust.json');
       const match = findHighestPriorityRule('file_read', [`file_read:${protectedPath}`], '/tmp');
       expect(match).not.toBeNull();
-      expect(match!.decision).toBe('deny');
+      expect(match!.decision).toBe('ask');
       expect(match!.priority).toBe(1000);
     });
 
-    test('findHighestPriorityRule matches default deny for protected file_write', () => {
+    test('findHighestPriorityRule matches default ask for protected file_write', () => {
       const protectedPath = join(testDir, 'protected', 'keys.enc');
       const match = findHighestPriorityRule('file_write', [`file_write:${protectedPath}`], '/tmp');
       expect(match).not.toBeNull();
-      expect(match!.decision).toBe('deny');
+      expect(match!.decision).toBe('ask');
     });
 
-    test('findHighestPriorityRule matches default deny for protected file_edit', () => {
+    test('findHighestPriorityRule matches default ask for protected file_edit', () => {
       const protectedPath = join(testDir, 'protected', 'secret-allowlist.json');
       const match = findHighestPriorityRule('file_edit', [`file_edit:${protectedPath}`], '/tmp');
       expect(match).not.toBeNull();
-      expect(match!.decision).toBe('deny');
+      expect(match!.decision).toBe('ask');
     });
 
-    test('default deny does not block files outside protected directory', () => {
+    test('default ask does not affect files outside protected directory', () => {
       const safePath = join(testDir, 'data', 'assistant.db');
       const match = findHighestPriorityRule('file_read', [`file_read:${safePath}`], '/tmp');
       // Should not match a default deny rule
       expect(match === null || !match.id.startsWith('default:')).toBe(true);
     });
 
-    test('default deny rules are backfilled after malformed JSON in trust file', () => {
+    test('default rules are backfilled after malformed JSON in trust file', () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       writeFileSync(trustPath, 'NOT VALID JSON {{{');
       clearCache();
@@ -680,7 +680,7 @@ describe('Trust Store', () => {
       expect(defaults).toHaveLength(NUM_DEFAULTS);
     });
 
-    test('default deny rules are backfilled in-memory after unknown file version without overwriting disk', () => {
+    test('default rules are backfilled in-memory after unknown file version without overwriting disk', () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       const originalContent = JSON.stringify({ version: 9999, rules: [{ id: 'future-rule', tool: 'bash', pattern: 'future *', scope: 'everywhere', decision: 'allow', priority: 50, createdAt: 1000 }] });
       writeFileSync(trustPath, originalContent);
@@ -694,7 +694,7 @@ describe('Trust Store', () => {
       expect(diskContent).toBe(originalContent);
     });
 
-    test('clearAllRules preserves default deny rules', () => {
+    test('clearAllRules preserves default rules', () => {
       addRule('bash', 'git *', '/tmp');
       clearAllRules();
       const rules = getAllRules();

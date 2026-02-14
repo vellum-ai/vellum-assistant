@@ -6,7 +6,7 @@ export interface DefaultRuleTemplate {
   tool: string;
   pattern: string;
   scope: string;
-  decision: 'allow' | 'deny';
+  decision: 'allow' | 'deny' | 'ask';
   priority: number;
 }
 
@@ -23,11 +23,11 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   const protectedDir = join(getRootDir(), 'protected').replaceAll('\\', '/');
 
   return FILE_TOOLS.map((tool) => ({
-    id: `default:deny-${tool}-protected`,
+    id: `default:ask-${tool}-protected`,
     tool,
     pattern: `${tool}:${protectedDir}/**`,
     scope: 'everywhere',
-    decision: 'deny' as const,
+    decision: 'ask' as const,
     priority: 1000,
   }));
 }

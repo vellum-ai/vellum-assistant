@@ -9,7 +9,7 @@ export interface TrustRule {
   tool: string;
   pattern: string;
   scope: string;
-  decision: 'allow' | 'deny';
+  decision: 'allow' | 'deny' | 'ask';
   priority: number;
   createdAt: number;
 }

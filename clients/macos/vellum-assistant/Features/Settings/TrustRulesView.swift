@@ -117,6 +117,14 @@ private struct TrustRuleRow: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
 
+    private func decisionColor(_ decision: String) -> Color {
+        switch decision {
+        case "allow": return .green
+        case "ask": return .orange
+        default: return .red
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
@@ -127,8 +135,8 @@ private struct TrustRuleRow: View {
                         .font(.caption)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(rule.decision == "allow" ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
-                        .foregroundStyle(rule.decision == "allow" ? .green : .red)
+                        .background(decisionColor(rule.decision).opacity(0.15))
+                        .foregroundStyle(decisionColor(rule.decision))
                         .clipShape(Capsule())
                 }
                 Text(rule.pattern)
@@ -231,6 +239,7 @@ private struct TrustRuleFormView: View {
 
                 Picker("Decision", selection: $decision) {
                     Text("Allow").tag("allow")
+                    Text("Ask").tag("ask")
                     Text("Deny").tag("deny")
                 }
             }

@@ -279,6 +279,11 @@ export async function check(
       return { decision: 'deny', reason: `Blocked by deny rule: ${matchedRule.pattern}`, matchedRule };
     }
 
+    if (matchedRule.decision === 'ask') {
+      // Ask rules always prompt — never auto-allow or auto-deny
+      return { decision: 'prompt', reason: `Matched ask rule: ${matchedRule.pattern}`, matchedRule };
+    }
+
     // Allow rule: auto-allow for non-High risk
     if (risk !== RiskLevel.High) {
       return { decision: 'allow', reason: `Matched trust rule: ${matchedRule.pattern}`, matchedRule };
