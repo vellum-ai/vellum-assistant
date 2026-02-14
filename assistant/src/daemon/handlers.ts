@@ -58,6 +58,7 @@ import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp } from '../memory/app-store.js';
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
+import { parseSlashCandidate } from '../skills/slash-commands.js';
 import { packageApp } from '../bundler/app-bundler.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
 
@@ -1297,8 +1298,12 @@ async function handleTaskSubmit(
   const rlog = log.child({ requestId });
 
   try {
-    const interactionType = await classifyInteraction(msg.task, msg.source);
-    rlog.info({ interactionType, task: msg.task }, 'Task classified');
+    // Slash candidates always route to text_qa — bypass classifier
+    const slashCandidate = parseSlashCandidate(msg.task);
+    const interactionType = slashCandidate.kind === 'candidate'
+      ? 'text_qa' as const
+      : await classifyInteraction(msg.task, msg.source);
+    rlog.info({ interactionType, slashBypass: slashCandidate.kind === 'candidate', task: msg.task }, 'Task classified');
 
     if (interactionType === 'computer_use') {
       // Create CU session (reuse handleCuSessionCreate logic)
