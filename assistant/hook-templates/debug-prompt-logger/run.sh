@@ -17,7 +17,7 @@ MAX_OUTPUT=200000
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "(jq not found — install jq for formatted output)" >&2
-  printf '%s' "$data" | cut -c1-"$MAX_OUTPUT" >&2
+  printf '%s' "$data" | head -c "$MAX_OUTPUT" >&2
   echo "" >&2
   echo "════════════════════════════════════════════════════════════════" >&2
   echo "" >&2
