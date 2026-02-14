@@ -55,7 +55,7 @@ graph TB
         subgraph "Memory System"
             CONV_STORE["ConversationStore<br/>Drizzle ORM CRUD"]
             INDEXER["Memory Indexer<br/>segment + extract"]
-            RECALL["Memory Recall<br/>FTS5 + cosine similarity"]
+            RECALL["Memory Recall<br/>FTS5 + Qdrant + Entity + RRF<br/>Trust + Freshness + Scope"]
             JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s"]
         end
 
@@ -242,7 +242,7 @@ graph LR
         TOOL["tool_invocations<br/>───────────────<br/>tool_name, input, result<br/>decision, risk_level<br/>duration_ms"]
         SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]
         FTS["memory_segment_fts<br/>───────────────<br/>FTS5 virtual table<br/>Auto-synced via triggers<br/>Powers lexical search"]
-        ITEMS["memory_items<br/>───────────────<br/>Extracted facts/entities<br/>kind, subject, statement<br/>confidence, fingerprint (dedup)<br/>first/last seen timestamps"]
+        ITEMS["memory_items<br/>───────────────<br/>Extracted facts/entities<br/>kind, subject, statement<br/>confidence, fingerprint (dedup)<br/>verification_state, scope_id<br/>first/last seen timestamps"]
         SUM["memory_summaries<br/>───────────────<br/>scope: conversation | weekly<br/>Compressed history for context<br/>window management"]
         EMB["memory_embeddings<br/>───────────────<br/>target: segment | item | summary<br/>provider + model metadata<br/>vector_json (float array)<br/>Powers semantic search"]
         JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill<br/>Status: pending → running →<br/>completed | failed"]
@@ -464,17 +464,22 @@ graph TB
     end
 
     subgraph "Embedding Providers"
+        LOCAL_EMB["Local (ONNX)<br/>bge-small-en-v1.5"]
         OAI_EMB["OpenAI<br/>text-embedding-3-small"]
-        GEM_EMB["Gemini<br/>text-embedding-004"]
-        OLL_EMB["Ollama<br/>local models"]
+        GEM_EMB["Gemini<br/>gemini-embedding-001"]
+        OLL_EMB["Ollama<br/>nomic-embed-text"]
     end
 
     subgraph "Read Path (Memory Recall)"
         QUERY["Recall Query"]
         LEX["Lexical Search<br/>FTS5 on memory_segment_fts"]
-        SEM["Semantic Search<br/>Cosine similarity on<br/>memory_embeddings"]
-        MERGE["Merge + Rank<br/>recency boost"]
-        INJECT["Inject into<br/>system prompt"]
+        SEM["Semantic Search<br/>Qdrant cosine similarity"]
+        ENTITY_SEARCH["Entity Search<br/>Name/alias matching"]
+        DIRECT["Direct Item Search<br/>LIKE on subject/statement"]
+        SCOPE["Scope Filter<br/>scope_id filtering<br/>(strict | global_fallback)"]
+        MERGE["RRF Merge<br/>+ Trust Weighting<br/>+ Freshness Decay"]
+        RERANK["LLM Re-ranking<br/>(Haiku, optional)"]
+        INJECT["Attention-ordered<br/>Injection into prompt"]
     end
 
     subgraph "Context Window Management"
@@ -503,9 +508,15 @@ graph TB
 
     QUERY --> LEX
     QUERY --> SEM
-    LEX --> MERGE
-    SEM --> MERGE
-    MERGE --> INJECT
+    QUERY --> ENTITY_SEARCH
+    QUERY --> DIRECT
+    LEX --> SCOPE
+    SEM --> SCOPE
+    ENTITY_SEARCH --> SCOPE
+    DIRECT --> SCOPE
+    SCOPE --> MERGE
+    MERGE --> RERANK
+    RERANK --> INJECT
 
     CTX --> COMPACT
     COMPACT --> SUMMARIZE
