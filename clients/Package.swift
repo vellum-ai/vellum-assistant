@@ -50,7 +50,8 @@ let package = Package(
                 .process("Resources/background.png"),
                 .process("Resources/Fonts"),
                 .copy("Resources/Recipes"),
-                .process("Resources/Onboarding")
+                .process("Resources/Onboarding"),
+                .process("Resources/vellum-design-system.css")
             ],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),
