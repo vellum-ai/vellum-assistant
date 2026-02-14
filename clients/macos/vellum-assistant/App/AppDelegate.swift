@@ -374,9 +374,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag {
-            mainWindow?.show()
-        }
+        // Always show the main window on reopen (e.g. Spotlight, Dock click).
+        // Even when hasVisibleWindows is true, the window may be behind other apps
+        // and the user expects it to come to the front.
+        showMainWindow()
         return true
     }
 

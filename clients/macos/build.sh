@@ -50,12 +50,12 @@ CMD="${1:-build}"
 case "$CMD" in
     test)
         echo "Running tests..."
-        swift test
+        swift test --filter vellum-assistantTests
         exit 0
         ;;
     lint)
         echo "Linting (strict concurrency)..."
-        swift build -Xswiftc -strict-concurrency=complete
+        swift build --product "$APP_NAME" -Xswiftc -strict-concurrency=complete
         echo "Lint passed."
         exit 0
         ;;
@@ -85,6 +85,9 @@ fi
 
 # 1. Build with SPM
 echo "Building ($CONFIG)..."
+# Only build the macOS product — the shared Package.swift also contains an iOS
+# target that cannot compile on macOS (UIKit), so we must scope the build.
+SWIFT_FLAGS="$SWIFT_FLAGS --product $APP_NAME"
 # Get bin path first (fast, doesn't rebuild)
 BIN_PATH=$(swift build $SWIFT_FLAGS --show-bin-path)
 
