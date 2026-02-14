@@ -94,8 +94,21 @@ struct GeneratedPanel: View {
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     }
 
-                    ForEach(displayItems) { item in
-                        appRow(item)
+                    let localItems = displayItems.filter { !$0.isShared }
+                    let sharedItems = displayItems.filter { $0.isShared }
+
+                    if !localItems.isEmpty {
+                        sectionHeader("My Apps", count: localItems.count)
+                        ForEach(localItems) { item in
+                            appRow(item)
+                        }
+                    }
+
+                    if !sharedItems.isEmpty {
+                        sectionHeader("Shared with Me", count: sharedItems.count)
+                        ForEach(sharedItems) { item in
+                            appRow(item)
+                        }
                     }
                 }
             }
