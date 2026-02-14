@@ -92,6 +92,7 @@
     "ToolOutputChunk",
     "ToolResult",
     "ToolUseStart",
+    "TraceEvent",
     "TrustRulesListResponse",
     "UiSurfaceDismiss",
     "UiSurfaceShow",

@@ -878,6 +878,37 @@ export interface TimerCompleted {
   durationMinutes: number;
 }
 
+export type TraceEventKind =
+  | 'request_received'
+  | 'request_queued'
+  | 'request_dequeued'
+  | 'llm_call_started'
+  | 'llm_call_finished'
+  | 'assistant_message'
+  | 'tool_started'
+  | 'tool_permission_requested'
+  | 'tool_permission_decided'
+  | 'tool_finished'
+  | 'tool_failed'
+  | 'secret_detected'
+  | 'generation_handoff'
+  | 'message_complete'
+  | 'generation_cancelled'
+  | 'request_error';
+
+export interface TraceEvent {
+  type: 'trace_event';
+  eventId: string;
+  sessionId: string;
+  requestId?: string;
+  timestampMs: number;
+  sequence: number;
+  kind: TraceEventKind;
+  status?: 'info' | 'success' | 'warning' | 'error';
+  summary: string;
+  attributes?: Record<string, string | number | boolean | null>;
+}
+
 /** Common fields shared by all UiSurfaceShow variants. */
 interface UiSurfaceShowBase {
   type: 'ui_surface_show';
@@ -995,7 +1026,8 @@ export type ServerMessage =
   | SharedAppDeleteResponse
   | OpenBundleResponse
   | SignBundlePayloadRequest
-  | GetSigningIdentityRequest;
+  | GetSigningIdentityRequest
+  | TraceEvent;
 
 // === Contract schema ===
 

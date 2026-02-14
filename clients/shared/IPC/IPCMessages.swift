@@ -1033,6 +1033,20 @@ public struct SignBundlePayloadMessage: Decodable, Sendable {
     public let payload: String
 }
 
+/// Real-time execution trace event from the daemon.
+/// Wire type: `"trace_event"`
+public struct TraceEventMessage: Decodable, Sendable {
+    public let eventId: String
+    public let sessionId: String
+    public let requestId: String?
+    public let timestampMs: Double
+    public let sequence: Int
+    public let kind: String
+    public let status: String?
+    public let summary: String
+    public let attributes: [String: AnyCodable]?
+}
+
 /// Timer completed notification from daemon.
 /// Wire type: `"timer_completed"`
 public struct TimerCompletedMessage: Decodable, Sendable {
@@ -1314,6 +1328,7 @@ public enum ServerMessage: Decodable, Sendable {
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
     case timerCompleted(TimerCompletedMessage)
+    case traceEvent(TraceEventMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
     case appsListResponse(AppsListResponseMessage)
     case sharedAppsListResponse(SharedAppsListResponseMessage)
@@ -1454,6 +1469,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "open_bundle_response":
             let message = try OpenBundleResponseMessage(from: decoder)
             self = .openBundleResponse(message)
+        case "trace_event":
+            let message = try TraceEventMessage(from: decoder)
+            self = .traceEvent(message)
         case "sign_bundle_payload":
             let message = try SignBundlePayloadMessage(from: decoder)
             self = .signBundlePayload(message)

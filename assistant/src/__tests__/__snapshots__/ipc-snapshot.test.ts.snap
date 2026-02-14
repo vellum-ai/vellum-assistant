@@ -1015,3 +1015,23 @@ exports[`IPC message snapshots ServerMessage types get_signing_identity serializ
   "type": "get_signing_identity",
 }
 `;
+
+exports[`IPC message snapshots ServerMessage types trace_event serializes to expected JSON 1`] = `
+{
+  "attributes": {
+    "command": "ls -la",
+    "riskLevel": "low",
+    "sandboxed": true,
+    "toolName": "bash",
+  },
+  "eventId": "evt-001",
+  "kind": "tool_started",
+  "requestId": "req-001",
+  "sequence": 1,
+  "sessionId": "sess-001",
+  "status": "info",
+  "summary": "Running bash: ls -la",
+  "timestampMs": 1700000000000,
+  "type": "trace_event",
+}
+`;

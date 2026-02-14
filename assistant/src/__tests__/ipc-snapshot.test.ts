@@ -640,6 +640,18 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   get_signing_identity: {
     type: 'get_signing_identity',
   },
+  trace_event: {
+    type: 'trace_event',
+    eventId: 'evt-001',
+    sessionId: 'sess-001',
+    requestId: 'req-001',
+    timestampMs: 1700000000000,
+    sequence: 1,
+    kind: 'tool_started',
+    status: 'info',
+    summary: 'Running bash: ls -la',
+    attributes: { toolName: 'bash', command: 'ls -la', riskLevel: 'low', sandboxed: true },
+  },
 };
 
 // ---------------------------------------------------------------------------
