@@ -898,6 +898,7 @@ struct AgentPanel: View {
         if let emoji, !emoji.isEmpty {
             Text(emoji)
                 .font(.system(size: 20))
+                .frame(width: 24, height: 24)
         } else {
             Image(systemName: "bolt.fill")
                 .font(.system(size: 13))
