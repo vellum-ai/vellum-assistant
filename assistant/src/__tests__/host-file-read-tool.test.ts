@@ -56,6 +56,6 @@ describe('host_file_read tool', () => {
 
     const result = await hostFileReadTool.execute({ path: nestedDir }, makeContext());
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('is a directory, not a file');
+    expect(result.content).toContain('is not a regular file');
   });
 });

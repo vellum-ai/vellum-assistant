@@ -43,7 +43,9 @@ import { addRule, removeRule, updateRule, findMatchingRule, findDenyRule, findHi
 import { getDefaultRuleTemplates } from '../permissions/defaults.js';
 
 const trustPath = join(testDir, 'protected', 'trust.json');
-const NUM_DEFAULTS = getDefaultRuleTemplates().length;
+const DEFAULT_TEMPLATES = getDefaultRuleTemplates();
+const NUM_DEFAULTS = DEFAULT_TEMPLATES.length;
+const DEFAULT_PRIORITY_BY_ID = new Map(DEFAULT_TEMPLATES.map((t) => [t.id, t.priority]));
 
 describe('Trust Store', () => {
   beforeEach(() => {
@@ -108,7 +110,7 @@ describe('Trust Store', () => {
       addRule('bash', 'high *', '/tmp', 'allow', 2);
       addRule('bash', 'med *', '/tmp', 'allow', 1);
       const rules = getAllRules();
-      // Default deny rules are at priority 1000, then user rules
+      // Default ask rules have higher priority than user rules
       expect(rules[0].priority).toBe(1000);
       const userRules = rules.filter((r) => !r.id.startsWith('default:'));
       expect(userRules[0].priority).toBe(2);
@@ -576,7 +578,7 @@ describe('Trust Store', () => {
       expect(defaults).toHaveLength(NUM_DEFAULTS);
       for (const rule of defaults) {
         expect(rule.decision).toBe('ask');
-        expect(rule.priority).toBe(1000);
+        expect(rule.priority).toBe(DEFAULT_PRIORITY_BY_ID.get(rule.id)!);
         expect(rule.scope).toBe('everywhere');
       }
 
@@ -651,7 +653,7 @@ describe('Trust Store', () => {
       expect(rules.find((r) => r.id === 'v1-user-rule')!.priority).toBe(100);
       const defaults = rules.filter((r) => r.id.startsWith('default:'));
       expect(defaults).toHaveLength(NUM_DEFAULTS);
-      expect(defaults.every((r) => r.priority === 1000)).toBe(true);
+      expect(defaults.every((r) => r.priority === DEFAULT_PRIORITY_BY_ID.get(r.id))).toBe(true);
     });
 
     test('removed default rule is re-backfilled on next load', () => {
@@ -695,7 +697,7 @@ describe('Trust Store', () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe('default:ask-host_file_read-global');
       expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(1000);
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-host_file_read-global')!);
     });
 
     test('findHighestPriorityRule matches default ask for host_file_write', () => {
@@ -703,7 +705,7 @@ describe('Trust Store', () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe('default:ask-host_file_write-global');
       expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(1000);
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-host_file_write-global')!);
     });
 
     test('findHighestPriorityRule matches default ask for host_file_edit', () => {
@@ -711,7 +713,7 @@ describe('Trust Store', () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe('default:ask-host_file_edit-global');
       expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(1000);
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-host_file_edit-global')!);
     });
 
     test('findHighestPriorityRule matches default ask for host_bash', () => {
@@ -719,7 +721,7 @@ describe('Trust Store', () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe('default:ask-host_bash-global');
       expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(1000);
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-host_bash-global')!);
     });
 
     test('findHighestPriorityRule matches default ask for cu_click', () => {
