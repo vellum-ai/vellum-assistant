@@ -151,7 +151,7 @@ describe('provider ordering error retry', () => {
     expect(agentLoopRunCount).toBe(2);
   });
 
-  test('retry succeeds with repaired history and no spurious error event', async () => {
+  test('[experimental] retry succeeds with repaired history and no spurious error event', async () => {
     agentLoopRunCount = 0;
     shouldEmitOrderingError = true;
 

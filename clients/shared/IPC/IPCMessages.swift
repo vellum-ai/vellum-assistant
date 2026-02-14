@@ -795,6 +795,7 @@ public struct SessionListResponseMessage: Decodable, Sendable {
 /// Response containing message history for a session.
 /// Wire type: `"history_response"`
 public struct HistoryResponseMessage: Decodable, Sendable {
+    public let sessionId: String
     public struct HistoryToolCallItem: Decodable, Sendable {
         public let name: String
         public let input: [String: AnyCodable]

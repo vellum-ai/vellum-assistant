@@ -46,6 +46,8 @@ export interface ToolResultContent {
   tool_use_id: string;
   content: string;
   is_error?: boolean;
+  /** Rich content blocks (e.g. images) to include alongside text in the tool result. */
+  contentBlocks?: ContentBlock[];
 }
 
 export type ContentBlock =

@@ -238,7 +238,7 @@ describe('Session message queue', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  test('queued messages are processed in FIFO order', async () => {
+  test('[experimental] queued messages are processed in FIFO order', async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -381,7 +381,7 @@ describe('Session message queue', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  test('drain continues after a queued message fails to persist', async () => {
+  test('[experimental] drain continues after a queued message fails to persist', async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -559,7 +559,7 @@ describe('Session checkpoint handoff', () => {
     pendingRuns = [];
   });
 
-  test('onCheckpoint yields when there is a queued message', async () => {
+  test('[experimental] onCheckpoint yields when there is a queued message', async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -633,7 +633,7 @@ describe('Session checkpoint handoff', () => {
     await p1;
   });
 
-  test('FIFO ordering is preserved through checkpoint handoff', async () => {
+  test('[experimental] FIFO ordering is preserved through checkpoint handoff', async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -706,7 +706,7 @@ describe('Session checkpoint handoff', () => {
     expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
   });
 
-  test('active run with repeated tool turns + queued message triggers checkpoint handoff', async () => {
+  test('[experimental] active run with repeated tool turns + queued message triggers checkpoint handoff', async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -819,7 +819,7 @@ describe('Session checkpoint handoff', () => {
     expect(dequeueOrder).toEqual(['B', 'C', 'D']);
   });
 
-  test('queued persistence failure does not strand later messages', async () => {
+  test('[experimental] queued persistence failure does not strand later messages', async () => {
     const session = makeSession();
     await session.loadFromDb();
 

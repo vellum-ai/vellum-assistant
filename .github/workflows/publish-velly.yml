@@ -17,6 +17,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -26,5 +33,37 @@ jobs:
         id: run-script
         run: bun run scripts/publish-velly.ts
         env:
-          GH_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+  notify-failure:
+    if: failure()
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack of publish failure
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_RELEASES_CHANNEL_ID }}
+            unfurl_links: false
+            unfurl_media: false
+            blocks:
+              - type: header
+                text:
+                  type: plain_text
+                  text: "\u274c Publish Velly Failed"
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: "*Workflow:* Publish velly\n*Branch:* `${{ github.ref_name }}`\n*Commit:* `${{ github.sha }}`\n*Triggered by:* ${{ github.actor }}"
+              - type: actions
+                elements:
+                  - type: button
+                    text:
+                      type: plain_text
+                      text: "View Run"
+                    url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    style: danger

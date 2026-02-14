@@ -14,7 +14,6 @@ struct VSegmentedControl: View {
                             .foregroundColor(selection == index ? VColor.textPrimary : VColor.textMuted)
                             .padding(.horizontal, VSpacing.xl)
                             .padding(.vertical, VSpacing.xs)
-                            .fixedSize(horizontal: true, vertical: false)
 
                         Rectangle()
                             .fill(selection == index ? VColor.accent : .clear)

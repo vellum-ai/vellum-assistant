@@ -20,8 +20,9 @@ final class ThreadManager: ObservableObject {
     private var viewModelCancellable: AnyCancellable?
     private var connectionCancellable: AnyCancellable?
 
-    /// Tracks which thread is currently awaiting a history_response from the daemon.
-    private var pendingHistoryThreadId: UUID?
+    /// Maps session IDs to thread IDs for in-flight history_request messages,
+    /// so rapid tab switches don't cause history from one thread to land in another.
+    private var pendingHistoryBySessionId: [String: UUID] = [:]
 
     /// Called when an inline confirmation response should dismiss the floating panel.
     var confirmationDismissHandler: ((String) -> Void)?
@@ -176,23 +177,22 @@ final class ThreadManager: ObservableObject {
     private func loadHistoryForActiveThreadIfNeeded() {
         guard let activeThreadId else { return }
         guard let thread = threads.first(where: { $0.id == activeThreadId }) else { return }
-        guard thread.sessionId != nil else { return }
+        guard let sessionId = thread.sessionId else { return }
         guard let viewModel = chatViewModels[activeThreadId] else { return }
         guard !viewModel.isHistoryLoaded else { return }
 
-        pendingHistoryThreadId = activeThreadId
+        pendingHistoryBySessionId[sessionId] = activeThreadId
 
         do {
-            try daemonClient.sendHistoryRequest(sessionId: thread.sessionId!)
+            try daemonClient.sendHistoryRequest(sessionId: sessionId)
         } catch {
             log.error("Failed to send history_request: \(error.localizedDescription)")
-            pendingHistoryThreadId = nil
+            pendingHistoryBySessionId.removeValue(forKey: sessionId)
         }
     }
 
     private func handleHistoryResponse(_ response: HistoryResponseMessage) {
-        guard let threadId = pendingHistoryThreadId else { return }
-        pendingHistoryThreadId = nil
+        guard let threadId = pendingHistoryBySessionId.removeValue(forKey: response.sessionId) else { return }
 
         guard let viewModel = chatViewModels[threadId] else { return }
         viewModel.populateFromHistory(response.messages)

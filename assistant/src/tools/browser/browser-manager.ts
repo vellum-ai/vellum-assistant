@@ -42,6 +42,7 @@ export type Page = {
   waitForFunction(expression: string, options?: { timeout?: number }): Promise<unknown>;
   route(pattern: string, handler: RouteHandler): Promise<void>;
   unroute(pattern: string, handler?: RouteHandler): Promise<void>;
+  screenshot(options?: { type?: string; quality?: number; fullPage?: boolean }): Promise<Buffer>;
   keyboard: { press(key: string): Promise<void> };
 };
 

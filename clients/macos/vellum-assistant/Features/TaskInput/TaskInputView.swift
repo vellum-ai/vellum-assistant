@@ -9,7 +9,7 @@ struct TaskInputView: View {
     let onSubmit: (TaskSubmission) -> Void
     @ObservedObject var daemonClient: DaemonClient
     @State private var taskText = ""
-    @State private var hasAPIKey = APIKeyManager.getKey() != nil
+    @State private var hasAPIKey = APIKeyManager.hasAnyKey()
     @State private var attachments: [TaskAttachment] = []
     @State private var attachmentError: String?
     @State private var isDropTargeted = false
@@ -161,7 +161,7 @@ struct TaskInputView: View {
     }
 
     private func refreshAPIKeyState() {
-        hasAPIKey = APIKeyManager.getKey() != nil || daemonClient.isConnected
+        hasAPIKey = APIKeyManager.hasAnyKey() || daemonClient.isConnected
     }
 
     private func pickerTypes() -> [UTType] {

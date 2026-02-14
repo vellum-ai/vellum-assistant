@@ -92,3 +92,31 @@ jobs:
                 text:
                   type: mrkdwn
                   text: ${{ toJSON(steps.format.outputs.slack_body) }}
+
+      - name: Notify Slack of notification failure
+        if: failure()
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_RELEASES_CHANNEL_ID }}
+            unfurl_links: false
+            unfurl_media: false
+            blocks:
+              - type: header
+                text:
+                  type: plain_text
+                  text: "\u274c Slack Release Notification Failed"
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: "*Workflow:* Slack Release Notification\n*Release:* `${{ env.TAG_NAME }}`\n*Triggered by:* ${{ github.actor }}"
+              - type: actions
+                elements:
+                  - type: button
+                    text:
+                      type: plain_text
+                      text: "View Run"
+                    url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    style: danger

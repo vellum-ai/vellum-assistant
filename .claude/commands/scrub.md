@@ -6,10 +6,11 @@ Kill the running Vellum app, delete all persistent data so the next launch behav
 
 ## Steps
 
-1. Kill any running Vellum processes (including the legacy process name):
+1. Kill any running Vellum and daemon processes (including the legacy process name):
    ```bash
    pkill -x "Vellum" || true
    pkill -x "vellum-assistant" || true
+   vellum daemon stop || true
    ```
 
 2. Remove session logs and knowledge store:
@@ -18,29 +19,29 @@ Kill the running Vellum app, delete all persistent data so the next launch behav
    rm -f ~/Library/Application\ Support/vellum-assistant/knowledge.json
    ```
 
-3. Remove caches:
+3. Remove the daemon database (conversations, messages, etc.):
+   ```bash
+   rm -f ~/.vellum/data/db/assistant.db ~/.vellum/data/db/assistant.db-shm ~/.vellum/data/db/assistant.db-wal
+   ```
+
+4. Remove caches:
    ```bash
    rm -rf ~/Library/Caches/vellum-assistant/
    ```
 
-4. Reset UserDefaults:
+5. Reset UserDefaults:
    ```bash
    defaults delete com.vellum.vellum-assistant
    ```
 
-5. Confirm everything is clean by listing what remains (if anything) in `~/Library/Application Support/vellum-assistant/`.
+6. Confirm everything is clean by listing what remains (if anything) in `~/Library/Application Support/vellum-assistant/`.
 
-6. Check if the daemon is already running:
-   ```bash
-   pgrep -f "src/index.ts daemon"
-   ```
-   If it's NOT running, start it in the background from the repo root:
+7. Start the daemon fresh from the repo root:
    ```bash
    cd assistant && bun run src/index.ts daemon start && cd ..
    ```
-   If it IS already running, skip this step and report that the daemon is already up.
 
-7. Build and launch the macOS app (from the repo root):
+8. Build and launch the macOS app (from the repo root):
    ```bash
    cd clients/macos && ./build.sh run
    ```

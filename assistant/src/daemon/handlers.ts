@@ -44,6 +44,7 @@ import type {
   BundleAppRequest,
   SharedAppDeleteRequest,
 } from './ipc-protocol.js';
+import { execSync } from 'node:child_process';
 import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -60,6 +61,31 @@ import { handleOpenBundle } from './handlers/open-bundle-handler.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
+
+const FALLBACK_SCREEN = { width: 1920, height: 1080 };
+let cachedScreenDims: { width: number; height: number } | null = null;
+
+/**
+ * Query the main display dimensions via CoreGraphics.
+ * Cached after the first successful call; falls back to 1920x1080.
+ */
+function getScreenDimensions(): { width: number; height: number } {
+  if (cachedScreenDims) return cachedScreenDims;
+  try {
+    const out = execSync(
+      `swift -e 'import CoreGraphics; let b = CGDisplayBounds(CGMainDisplayID()); print("\\(Int(b.width))x\\(Int(b.height))")'`,
+      { timeout: 10_000, encoding: 'utf-8' },
+    ).trim();
+    const [w, h] = out.split('x').map(Number);
+    if (w > 0 && h > 0) {
+      cachedScreenDims = { width: w, height: h };
+      return cachedScreenDims;
+    }
+  } catch (err) {
+    log.debug({ err }, 'Failed to query screen dimensions, using fallback');
+  }
+  return FALLBACK_SCREEN;
+}
 
 /**
  * Find the current socket bound to a given session by reversing the
@@ -88,9 +114,14 @@ function wireEscalationHandler(
   session: Session,
   _socket: net.Socket,
   ctx: HandlerContext,
-  screenWidth: number,
-  screenHeight: number,
+  explicitWidth?: number,
+  explicitHeight?: number,
 ): void {
+  const dims = (explicitWidth && explicitHeight)
+    ? { width: explicitWidth, height: explicitHeight }
+    : getScreenDimensions();
+  const screenWidth = dims.width;
+  const screenHeight = dims.height;
   session.setEscalationHandler((task: string, sourceSessionId: string): boolean => {
     const currentSocket = findSocketForSession(sourceSessionId, ctx);
     if (!currentSocket) {
@@ -388,6 +419,12 @@ async function handleUserMessage(
   try {
     ctx.socketToSession.set(socket, msg.sessionId);
     const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
+    // Only wire the escalation handler if one isn't already set — handleTaskSubmit
+    // sets a handler with the client's actual screen dimensions, and overwriting it
+    // here would replace those dimensions with the daemon's defaults.
+    if (!session.hasEscalationHandler()) {
+      wireEscalationHandler(session, socket, ctx);
+    }
 
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
 
@@ -477,10 +514,11 @@ async function handleSessionCreate(
   const conversation = conversationStore.createConversation(
     msg.title ?? 'New Conversation',
   );
-  await ctx.getOrCreateSession(conversation.id, socket, true, {
+  const session = await ctx.getOrCreateSession(conversation.id, socket, true, {
     systemPromptOverride: msg.systemPromptOverride,
     maxResponseTokens: msg.maxResponseTokens,
   });
+  wireEscalationHandler(session, socket, ctx);
   ctx.send(socket, {
     type: 'session_info',
     sessionId: conversation.id,
@@ -500,7 +538,8 @@ async function handleSessionSwitch(
     return;
   }
   ctx.socketToSession.set(socket, msg.sessionId);
-  await ctx.getOrCreateSession(msg.sessionId, socket, true);
+  const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
+  wireEscalationHandler(session, socket, ctx);
   ctx.send(socket, {
     type: 'session_info',
     sessionId: conversation.id,
@@ -638,7 +677,7 @@ function handleHistoryRequest(
     timestamp: m.timestamp,
     ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
   }));
-  ctx.send(socket, { type: 'history_response', messages: historyMessages });
+  ctx.send(socket, { type: 'history_response', sessionId: msg.sessionId, messages: historyMessages });
 }
 
 export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistoryMessage[] {

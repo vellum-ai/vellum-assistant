@@ -20,6 +20,15 @@ jobs:
       KEYCHAIN_NAME: build.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+          owner: vellum-ai
+          repositories: velly
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -208,8 +217,8 @@ jobs:
       - name: Staple notarization ticket
         run: |
           # Apple's CDN can take several minutes to propagate the ticket after notarization
-          MAX_ATTEMPTS=10
-          WAIT_SECS=30
+          MAX_ATTEMPTS=15
+          WAIT_SECS=60
           for i in $(seq 1 $MAX_ATTEMPTS); do
             if xcrun stapler staple "$DMG_PATH" 2>&1; then
               echo "Stapling succeeded on attempt $i"
@@ -221,7 +230,7 @@ jobs:
             fi
             echo "Stapling attempt $i failed, waiting ${WAIT_SECS}s for CDN propagation..."
             sleep $WAIT_SECS
-            # Increase wait time for subsequent attempts (30, 45, 60, 75, ...)
+            # Increase wait time for subsequent attempts (60, 75, 90, 105, ...)
             WAIT_SECS=$((WAIT_SECS + 15))
           done
 
@@ -276,9 +285,9 @@ jobs:
           echo "Signature obtained: ${SIGNATURE:0:20}..."
           SIZE=$(stat -f%z dist/vellum-assistant.zip)
 
-          for REPO in "alex-nork/vellum-assistant-macos-updates" "vellum-ai/velly"; do
-            FILENAME="appcast-${REPO//\//-}.xml"
-            cat > "dist/$FILENAME" << EOF
+          REPO="vellum-ai/velly"
+          FILENAME="appcast-${REPO//\//-}.xml"
+          cat > "dist/$FILENAME" << EOF
           <?xml version="1.0" encoding="utf-8"?>
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
             <channel>
@@ -296,13 +305,12 @@ jobs:
             </channel>
           </rss>
           EOF
-            echo "Appcast generated for $REPO"
-          done
+          echo "Appcast generated for $REPO"
 
       - name: Create GitHub Release on public repos
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         env:
-          GH_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           VERSION="${{ steps.version.outputs.display_version }}"
           SHORT_SHA=$(git rev-parse --short HEAD)
@@ -318,28 +326,59 @@ jobs:
           Download the DMG, open it, and drag Vellum to your Applications folder.
           Existing installations will auto-update via Sparkle."
 
-          for REPO in "alex-nork/vellum-assistant-macos-updates" "vellum-ai/velly"; do
-            APPCAST="dist/appcast-${REPO//\//-}.xml"
+          REPO="vellum-ai/velly"
+          APPCAST="dist/appcast-${REPO//\//-}.xml"
 
-            # Delete existing 'latest' release and tag if they exist
-            gh release delete latest --repo "$REPO" --yes 2>/dev/null || true
-            gh api "repos/$REPO/git/refs/tags/latest" -X DELETE 2>/dev/null || true
+          # Delete existing 'latest' release and tag if they exist
+          gh release delete latest --repo "$REPO" --yes 2>/dev/null || true
+          gh api "repos/$REPO/git/refs/tags/latest" -X DELETE 2>/dev/null || true
 
-            # Create new release with DMG + ZIP + appcast
-            gh release create latest \
-              "$DMG_PATH" \
-              dist/vellum-assistant.zip \
-              "$APPCAST#appcast.xml" \
-              --repo "$REPO" \
-              --title "Vellum $VERSION" \
-              --notes "$RELEASE_NOTES" \
-              --latest
+          # Create new release with DMG + ZIP + appcast
+          gh release create latest \
+            "$DMG_PATH" \
+            dist/vellum-assistant.zip \
+            "$APPCAST#appcast.xml" \
+            --repo "$REPO" \
+            --title "Vellum $VERSION" \
+            --notes "$RELEASE_NOTES" \
+            --latest
 
-            echo "Release created at https://github.com/$REPO/releases/tag/latest"
-          done
+          echo "Release created at https://github.com/$REPO/releases/tag/latest"
 
       - name: Cleanup keychain
         if: always()
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+
+  notify-failure:
+    if: failure()
+    needs: [build-sign-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack of build failure
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_RELEASES_CHANNEL_ID }}
+            unfurl_links: false
+            unfurl_media: false
+            blocks:
+              - type: header
+                text:
+                  type: plain_text
+                  text: "\u274c Build and Release macOS App Failed"
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: "*Workflow:* Build and Release macOS App\n*Branch:* `${{ github.ref_name }}`\n*Triggered by:* ${{ github.actor }}"
+              - type: actions
+                elements:
+                  - type: button
+                    text:
+                      type: plain_text
+                      text: "View Run"
+                    url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    style: danger

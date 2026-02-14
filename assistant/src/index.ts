@@ -30,6 +30,7 @@ import {
   saveRawConfig,
   getNestedValue,
   setNestedValue,
+  API_KEY_PROVIDERS,
 } from './config/loader.js';
 import {
   getAllRules,
@@ -367,7 +368,7 @@ keys
   .description('List all stored API key names')
   .action(() => {
     const stored: string[] = [];
-    for (const provider of ['anthropic', 'openai', 'gemini', 'ollama']) {
+    for (const provider of API_KEY_PROVIDERS) {
       const value = getSecureKey(provider);
       if (value) stored.push(provider);
     }
@@ -655,6 +656,7 @@ program
       openai: 'OPENAI_API_KEY',
       gemini: 'GEMINI_API_KEY',
       ollama: 'OLLAMA_API_KEY',
+      fireworks: 'FIREWORKS_API_KEY',
     };
     const configKey = (raw.apiKeys as Record<string, string> | undefined)?.[provider];
     const envVar = providerEnvVar[provider];

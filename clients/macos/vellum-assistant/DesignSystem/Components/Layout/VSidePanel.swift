@@ -19,6 +19,8 @@ struct VSidePanel<PinnedContent: View, Content: View>: View {
                         Image(systemName: "xmark")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(VColor.textMuted)
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Close \(title)")

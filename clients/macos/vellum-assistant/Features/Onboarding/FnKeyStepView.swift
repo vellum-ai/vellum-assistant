@@ -49,6 +49,12 @@ struct FnKeyStepView: View {
                 }
                 .transition(.opacity)
             }
+
+            OnboardingButton(title: "Skip", style: .ghost) {
+                state.chosenKey = .none
+                state.advance()
+            }
+            .transition(.opacity)
         }
         .animation(.easeOut(duration: 0.3), value: wrongKeyHint)
         .animation(.easeOut(duration: 0.3), value: highlightedKey)

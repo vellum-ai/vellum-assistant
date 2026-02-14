@@ -24,6 +24,14 @@ enum APIKeyManager {
     static func setKey(_ key: String) { setKey(key, for: "anthropic") }
     static func deleteKey() { deleteKey(for: "anthropic") }
 
+    /// Returns true if any known provider has a key configured.
+    static func hasAnyKey() -> Bool {
+        for provider in ["anthropic", "openai", "gemini", "fireworks"] {
+            if getKey(for: provider) != nil { return true }
+        }
+        return false
+    }
+
     // MARK: - Generic provider access
 
     static func getKey(for provider: String) -> String? {

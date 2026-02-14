@@ -529,6 +529,7 @@ exports[`IPC message snapshots ServerMessage types history_response serializes t
       "timestamp": 1700000001,
     },
   ],
+  "sessionId": "sess-history-001",
   "type": "history_response",
 }
 `;

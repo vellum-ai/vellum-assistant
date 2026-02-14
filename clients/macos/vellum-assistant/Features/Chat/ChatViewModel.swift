@@ -121,7 +121,9 @@ final class ChatViewModel: ObservableObject {
             filename: filename,
             mimeType: mimeType,
             data: base64,
-            thumbnailData: thumbnail
+            thumbnailData: thumbnail,
+            dataLength: base64.count,
+            thumbnailImage: thumbnail.flatMap { NSImage(data: $0) }
         )
         pendingAttachments.append(attachment)
     }
@@ -167,7 +169,9 @@ final class ChatViewModel: ObservableObject {
             filename: "Pasted Image.png",
             mimeType: "image/png",
             data: base64,
-            thumbnailData: thumbnail
+            thumbnailData: thumbnail,
+            dataLength: base64.count,
+            thumbnailImage: thumbnail.flatMap { NSImage(data: $0) }
         )
         pendingAttachments.append(attachment)
     }
@@ -969,7 +973,15 @@ final class ChatViewModel: ObservableObject {
     }
 
     /// Populate messages from history data returned by the daemon.
+    /// Only replaces messages if the user hasn't sent any new messages yet,
+    /// preventing a late history_response from overwriting live conversation.
     func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
+        let hasUserSentMessages = messages.contains { $0.role == .user }
+        if hasUserSentMessages {
+            isHistoryLoaded = true
+            return
+        }
+
         var chatMessages: [ChatMessage] = []
         for item in historyMessages {
             let role: ChatRole = item.role == "assistant" ? .assistant : .user

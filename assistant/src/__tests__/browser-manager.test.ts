@@ -30,6 +30,7 @@ function createMockPage(closed = false) {
     waitForFunction: async () => null,
     route: async () => {},
     unroute: async () => {},
+    screenshot: async () => Buffer.from(''),
     keyboard: { press: async () => {} },
   };
 }

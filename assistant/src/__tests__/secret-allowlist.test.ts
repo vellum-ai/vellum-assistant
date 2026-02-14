@@ -43,7 +43,7 @@ describe('secret-allowlist', () => {
   // -----------------------------------------------------------------------
   // Exact values
   // -----------------------------------------------------------------------
-  test('suppresses exact values', () => {
+  test('[experimental] suppresses exact values', () => {
     writeFileSync(
       join(testDir, 'secret-allowlist.json'),
       JSON.stringify({ values: ['my-test-api-key-12345'] }),
@@ -52,7 +52,7 @@ describe('secret-allowlist', () => {
     expect(isAllowlisted('my-test-api-key-99999')).toBe(false);
   });
 
-  test('exact values are case-sensitive', () => {
+  test('[experimental] exact values are case-sensitive', () => {
     writeFileSync(
       join(testDir, 'secret-allowlist.json'),
       JSON.stringify({ values: ['MyTestKey'] }),
@@ -64,7 +64,7 @@ describe('secret-allowlist', () => {
   // -----------------------------------------------------------------------
   // Prefix matching
   // -----------------------------------------------------------------------
-  test('suppresses values matching a prefix', () => {
+  test('[experimental] suppresses values matching a prefix', () => {
     writeFileSync(
       join(testDir, 'secret-allowlist.json'),
       JSON.stringify({ prefixes: ['my-internal-'] }),
@@ -76,7 +76,7 @@ describe('secret-allowlist', () => {
   // -----------------------------------------------------------------------
   // Regex patterns
   // -----------------------------------------------------------------------
-  test('suppresses values matching a regex pattern', () => {
+  test('[experimental] suppresses values matching a regex pattern', () => {
     writeFileSync(
       join(testDir, 'secret-allowlist.json'),
       JSON.stringify({ patterns: ['^ci-test-[a-z0-9]+$'] }),
@@ -85,7 +85,7 @@ describe('secret-allowlist', () => {
     expect(isAllowlisted('ci-prod-abc123')).toBe(false);
   });
 
-  test('invalid regex is skipped without crashing', () => {
+  test('[experimental] invalid regex is skipped without crashing', () => {
     writeFileSync(
       join(testDir, 'secret-allowlist.json'),
       JSON.stringify({ patterns: ['[invalid', '^valid$'] }),
@@ -100,7 +100,7 @@ describe('secret-allowlist', () => {
   // -----------------------------------------------------------------------
   // Combined rules
   // -----------------------------------------------------------------------
-  test('combines values, prefixes, and patterns', () => {
+  test('[experimental] combines values, prefixes, and patterns', () => {
     writeFileSync(
       join(testDir, 'secret-allowlist.json'),
       JSON.stringify({
@@ -137,7 +137,7 @@ describe('secret-allowlist', () => {
   // -----------------------------------------------------------------------
   // Integration with scanText
   // -----------------------------------------------------------------------
-  test('allowlisted values are suppressed by scanText', () => {
+  test('[experimental] allowlisted values are suppressed by scanText', () => {
     const awsKey = 'AKIAIOSFODNN7REALKEY';
     writeFileSync(
       join(testDir, 'secret-allowlist.json'),
@@ -162,7 +162,7 @@ describe('secret-allowlist', () => {
     expect(aws).toHaveLength(1);
   });
 
-  test('prefix allowlist suppresses pattern matches', () => {
+  test('[experimental] prefix allowlist suppresses pattern matches', () => {
     writeFileSync(
       join(testDir, 'secret-allowlist.json'),
       JSON.stringify({ prefixes: ['ghp_AAAA'] }),
@@ -178,7 +178,7 @@ describe('secret-allowlist', () => {
   // -----------------------------------------------------------------------
   // Retry on missing/malformed file
   // -----------------------------------------------------------------------
-  test('caches missing file check to avoid repeated existsSync', () => {
+  test('[experimental] caches missing file check to avoid repeated existsSync', () => {
     // First call — no file exists, caches fileChecked = true
     expect(isAllowlisted('test-key')).toBe(false);
 
@@ -194,7 +194,7 @@ describe('secret-allowlist', () => {
     expect(isAllowlisted('test-key')).toBe(true);
   });
 
-  test('retries loading when file was malformed on first call', () => {
+  test('[experimental] retries loading when file was malformed on first call', () => {
     // First call with malformed JSON
     writeFileSync(join(testDir, 'secret-allowlist.json'), 'not json{{{');
     loadAllowlist();
@@ -213,7 +213,7 @@ describe('secret-allowlist', () => {
   // -----------------------------------------------------------------------
   // resetAllowlist
   // -----------------------------------------------------------------------
-  test('resetAllowlist clears cached state', () => {
+  test('[experimental] resetAllowlist clears cached state', () => {
     writeFileSync(
       join(testDir, 'secret-allowlist.json'),
       JSON.stringify({ values: ['test-value'] }),

@@ -61,3 +61,35 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+
+  notify-failure:
+    if: failure()
+    needs: [push]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack of build failure
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_RELEASES_CHANNEL_ID }}
+            unfurl_links: false
+            unfurl_media: false
+            blocks:
+              - type: header
+                text:
+                  type: plain_text
+                  text: "\u274c Push Gateway Image to GCP Failed"
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: "*Workflow:* Push Gateway Image to GCP\n*Branch:* `${{ github.ref_name }}`\n*Commit:* `${{ github.sha }}`\n*Triggered by:* ${{ github.actor }}"
+              - type: actions
+                elements:
+                  - type: button
+                    text:
+                      type: plain_text
+                      text: "View Run"
+                    url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    style: danger
