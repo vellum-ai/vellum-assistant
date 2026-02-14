@@ -831,13 +831,26 @@ export class Session {
       requestId: next.requestId,
     });
 
+    // Resolve slash commands for queued messages
+    const slashResult = this.resolveSlash(next.content);
+
+    // Unknown slash — emit deterministic response and continue draining
+    if (slashResult.kind === 'unknown') {
+      next.onEvent({ type: 'assistant_text_delta', text: slashResult.message });
+      next.onEvent({ type: 'message_complete', sessionId: this.conversationId });
+      this.drainQueue();
+      return;
+    }
+
+    const resolvedContent = slashResult.content;
+
     // Try to persist and run the dequeued message. If persistUserMessage
     // succeeds, runAgentLoop is called and its finally block will drain
     // the next message. If persistUserMessage fails, processMessage
     // resolves early (no runAgentLoop call), so we must continue draining.
     let userMessageId: string;
     try {
-      userMessageId = this.persistUserMessage(next.content, next.attachments, next.requestId);
+      userMessageId = this.persistUserMessage(resolvedContent, next.attachments, next.requestId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Failed to persist queued message');
@@ -850,7 +863,7 @@ export class Session {
     // Fire-and-forget: persistUserMessage set this.processing = true
     // so subsequent messages will still be enqueued. runAgentLoop's
     // finally block will call drainQueue when this run completes.
-    this.runAgentLoop(next.content, userMessageId, next.onEvent).catch((err) => {
+    this.runAgentLoop(resolvedContent, userMessageId, next.onEvent).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Error processing queued message');
       next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
