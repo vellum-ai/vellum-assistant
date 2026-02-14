@@ -23,6 +23,7 @@ public final class ChatViewModel: ObservableObject {
     @Published public var pendingAttachments: [ChatAttachment] = []
     @Published public var isRecording: Bool = false
     @Published public var pendingSkillInvocation: SkillInvocationData?
+    @Published public var activeSessionError: SessionErrorMessage?
 
     /// Maximum file size per attachment (20 MB).
     private static let maxFileSize = 20 * 1024 * 1024
@@ -313,6 +314,7 @@ public final class ChatViewModel: ObservableObject {
         suggestion = nil
         pendingSuggestionRequestId = nil
         errorText = nil
+        activeSessionError = nil
 
         let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
@@ -838,6 +840,30 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
 
+        case .sessionError(let error):
+            guard belongsToSession(error.sessionId) else { return }
+            // Stop all in-flight UI state
+            isThinking = false
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].isStreaming = false
+            }
+            currentAssistantMessageId = nil
+            // Reset processing messages to sent
+            for i in messages.indices {
+                if messages[i].role == .user && messages[i].status == .processing {
+                    messages[i].status = .sent
+                }
+            }
+            if pendingQueuedCount == 0 {
+                isSending = false
+            }
+            // During active cancellation, treat as silent terminal cleanup
+            if !isCancelling {
+                activeSessionError = error
+            }
+            isCancelling = false
+
         default:
             break
         }
@@ -1007,6 +1033,30 @@ public final class ChatViewModel: ObservableObject {
 
     public func dismissError() {
         errorText = nil
+    }
+
+    /// Clear the typed session error without affecting local validation errors.
+    public func dismissActiveSessionError() {
+        activeSessionError = nil
+    }
+
+    /// Retry the last message if the active session error is retryable.
+    public func retryFromActiveError() {
+        guard let error = activeSessionError, error.retryable, !isSending else { return }
+        activeSessionError = nil
+        regenerateLastMessage()
+    }
+
+    /// Copy the debug details from the active session error to the system clipboard.
+    public func copyActiveErrorDebugDetails() {
+        guard let details = activeSessionError?.debugDetails else { return }
+        #if os(macOS)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(details, forType: .string)
+        #elseif os(iOS)
+        UIPasteboard.general.string = details
+        #endif
     }
 
     /// Respond to a tool confirmation request displayed inline in the chat.

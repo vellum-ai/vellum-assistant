@@ -1111,4 +1111,212 @@ final class ChatViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.sessionId, "test-session", "Should accept session_info when no correlationId was set")
     }
+
+    // MARK: - Session Error (Typed)
+
+    func testSessionErrorFromDifferentSessionIsIgnored() {
+        viewModel.sessionId = "my-session"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        let error = SessionErrorMessage(
+            sessionId: "other-session",
+            code: .providerNetwork,
+            userMessage: "Network error",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(error))
+
+        // Should be ignored — different session
+        XCTAssertNil(viewModel.activeSessionError, "Session error from different session should be ignored")
+        XCTAssertTrue(viewModel.isThinking)
+        XCTAssertTrue(viewModel.isSending)
+    }
+
+    func testSessionErrorMatchingSetsTypedErrorAndStopsStreaming() {
+        viewModel.sessionId = "my-session"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Start streaming an assistant message
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
+        XCTAssertTrue(viewModel.messages[1].isStreaming)
+
+        let error = SessionErrorMessage(
+            sessionId: "my-session",
+            code: .providerApi,
+            userMessage: "API error occurred",
+            retryable: false,
+            debugDetails: "trace-id: abc-123"
+        )
+        viewModel.handleServerMessage(.sessionError(error))
+
+        // Typed error should be set
+        XCTAssertNotNil(viewModel.activeSessionError)
+        XCTAssertEqual(viewModel.activeSessionError?.code, .providerApi)
+        XCTAssertEqual(viewModel.activeSessionError?.userMessage, "API error occurred")
+        XCTAssertEqual(viewModel.activeSessionError?.debugDetails, "trace-id: abc-123")
+        // Streaming should be stopped
+        XCTAssertFalse(viewModel.messages[1].isStreaming)
+        XCTAssertFalse(viewModel.isThinking)
+        XCTAssertFalse(viewModel.isSending)
+        // errorText should NOT be set — session errors use activeSessionError
+        XCTAssertNil(viewModel.errorText)
+    }
+
+    func testSessionErrorDuringCancellationSuppressesError() {
+        viewModel.sessionId = "my-session"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Start streaming
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response")))
+
+        // User cancels
+        viewModel.stopGenerating()
+
+        // Session error arrives during cancellation
+        let error = SessionErrorMessage(
+            sessionId: "my-session",
+            code: .sessionAborted,
+            userMessage: "Session was aborted",
+            retryable: false
+        )
+        viewModel.handleServerMessage(.sessionError(error))
+
+        // Should NOT show the error during cancellation
+        XCTAssertNil(viewModel.activeSessionError, "Session error during cancellation should be suppressed")
+    }
+
+    func testRetryFromActiveErrorCallsRegenerate() {
+        viewModel.sessionId = "my-session"
+
+        // Set a retryable session error
+        let error = SessionErrorMessage(
+            sessionId: "my-session",
+            code: .providerRateLimit,
+            userMessage: "Rate limited",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(error))
+        XCTAssertNotNil(viewModel.activeSessionError)
+
+        // Retry should clear the error and call regenerate
+        viewModel.retryFromActiveError()
+
+        XCTAssertNil(viewModel.activeSessionError, "Retry should clear active session error")
+        // regenerateLastMessage sets isSending and isThinking
+        XCTAssertTrue(viewModel.isSending)
+        XCTAssertTrue(viewModel.isThinking)
+    }
+
+    func testRetryFromActiveErrorNoOpWhenNotRetryable() {
+        viewModel.sessionId = "my-session"
+
+        let error = SessionErrorMessage(
+            sessionId: "my-session",
+            code: .providerApi,
+            userMessage: "Fatal error",
+            retryable: false
+        )
+        viewModel.handleServerMessage(.sessionError(error))
+
+        viewModel.retryFromActiveError()
+
+        // Error should still be present — retry was blocked
+        XCTAssertNotNil(viewModel.activeSessionError, "Non-retryable error should not be cleared by retry")
+        XCTAssertFalse(viewModel.isSending)
+    }
+
+    func testRetryFromActiveErrorNoOpWhenAlreadySending() {
+        viewModel.sessionId = "my-session"
+        viewModel.isSending = true
+
+        viewModel.activeSessionError = SessionErrorMessage(
+            sessionId: "my-session",
+            code: .providerRateLimit,
+            userMessage: "Rate limited",
+            retryable: true
+        )
+
+        viewModel.retryFromActiveError()
+
+        // Should be a no-op since isSending is true
+        XCTAssertNotNil(viewModel.activeSessionError, "Retry should no-op when already sending")
+    }
+
+    func testCopyActiveErrorDebugDetailsNoOpWhenNil() {
+        // Should not crash when no error or no debug details
+        viewModel.copyActiveErrorDebugDetails()
+
+        viewModel.activeSessionError = SessionErrorMessage(
+            sessionId: "my-session",
+            code: .providerApi,
+            userMessage: "Error",
+            retryable: false,
+            debugDetails: nil
+        )
+        viewModel.copyActiveErrorDebugDetails()
+        // No crash = success
+    }
+
+    func testDismissActiveSessionErrorClearsError() {
+        viewModel.activeSessionError = SessionErrorMessage(
+            sessionId: "my-session",
+            code: .providerNetwork,
+            userMessage: "Network error",
+            retryable: true
+        )
+        viewModel.errorText = "Some local error"
+
+        viewModel.dismissActiveSessionError()
+
+        XCTAssertNil(viewModel.activeSessionError, "Dismiss should clear active session error")
+        // errorText should be unaffected
+        XCTAssertEqual(viewModel.errorText, "Some local error", "Dismiss session error should not clear local errorText")
+    }
+
+    func testSendMessageClearsActiveSessionError() {
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+
+        viewModel.activeSessionError = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerApi,
+            userMessage: "Previous error",
+            retryable: false
+        )
+
+        viewModel.inputText = "New message"
+        viewModel.sendMessage()
+
+        XCTAssertNil(viewModel.activeSessionError, "Sending a new message should clear active session error")
+    }
+
+    func testSessionErrorResetsProcessingMessagesToSent() {
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+
+        // Queue and dequeue B so it's in .processing state
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response A")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        XCTAssertEqual(viewModel.messages[2].status, .processing)
+
+        // Session error arrives while B is processing
+        let error = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .sessionProcessingFailed,
+            userMessage: "Processing failed",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(error))
+
+        XCTAssertEqual(viewModel.messages[2].status, .sent, "Session error should reset processing messages to .sent")
+        XCTAssertNotNil(viewModel.activeSessionError)
+    }
 }
