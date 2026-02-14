@@ -59,7 +59,7 @@ export const SandboxConfigSchema = z.object({
     .enum(VALID_SANDBOX_BACKENDS, {
       error: `sandbox.backend must be one of: ${VALID_SANDBOX_BACKENDS.join(', ')}`,
     })
-    .default('native'),
+    .default('docker'),
   docker: DockerConfigSchema.default({
     image: 'node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9',
     cpus: 1,
@@ -568,7 +568,7 @@ export const AssistantConfigSchema = z.object({
   }),
   sandbox: SandboxConfigSchema.default({
     enabled: true,
-    backend: 'native',
+    backend: 'docker',
     docker: {
       image: 'node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9',
       cpus: 1,

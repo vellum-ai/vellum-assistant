@@ -20,6 +20,10 @@ The platform has two main components:
 └── .github/           # GitHub Actions workflows
 ```
 
+## Prerequisites
+
+- **Docker** is required. The sandbox uses Docker as its default backend for container-level isolation. Install [Docker Desktop](https://docs.docker.com/get-docker/) (macOS/Windows) or Docker Engine (Linux) and ensure the daemon is running before starting the assistant.
+
 ## Local Development
 
 ```bash
@@ -62,21 +66,21 @@ The `sandbox.backend` config option controls how the `bash` tool executes comman
 
 | Backend | Value | Description |
 |---------|-------|-------------|
-| **Native** | `"native"` (default) | Uses OS-level sandboxing: `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. No extra dependencies on macOS. |
-| **Docker** | `"docker"` | Runs each command in an ephemeral `docker run --rm` container with the sandbox filesystem bind-mounted to `/workspace`. |
+| **Docker** | `"docker"` (default) | Runs each command in an ephemeral `docker run --rm` container with the sandbox filesystem bind-mounted to `/workspace`. Requires Docker Desktop or Docker Engine. |
+| **Native** | `"native"` | Uses OS-level sandboxing: `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. No extra dependencies on macOS. |
 
-The **native** backend is the default because it works out of the box with no additional dependencies. The Docker backend is available as **opt-in hardening** for environments where stronger container-level isolation is needed (e.g., running untrusted code, shared servers, CI environments). Docker requires Docker Desktop or Docker Engine to be installed and running.
+The **Docker** backend is the default because it provides stronger container-level isolation with a hardened security posture (all capabilities dropped, read-only root filesystem, network disabled by default). Docker Desktop or Docker Engine must be installed and running. The native backend is available as a **fallback** for environments where Docker is not available.
 
-To switch to the Docker backend:
-
-```bash
-vellum config set sandbox.backend '"docker"'
-```
-
-To switch back to native:
+To switch to the native backend:
 
 ```bash
 vellum config set sandbox.backend '"native"'
+```
+
+To switch back to Docker:
+
+```bash
+vellum config set sandbox.backend '"docker"'
 ```
 
 ### Docker Backend
