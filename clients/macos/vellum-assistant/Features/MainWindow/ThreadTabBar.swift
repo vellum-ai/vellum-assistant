@@ -44,7 +44,7 @@ struct ThreadTabBar: View {
                     VIconButton(label: "Generated", icon: "wand.and.stars", isActive: activePanel == .generated) {
                         togglePanel(.generated)
                     }
-                    VIconButton(label: "Agent", icon: "exclamationmark.triangle", isActive: activePanel == .agent) {
+                    VIconButton(label: "Skills", icon: "exclamationmark.triangle", isActive: activePanel == .agent) {
                         togglePanel(.agent)
                     }
                     VIconButton(label: "Settings", icon: "gearshape", isActive: activePanel == .settings) {

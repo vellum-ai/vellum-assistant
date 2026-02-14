@@ -75,7 +75,6 @@ struct AgentPanel: View {
     let daemonClient: DaemonClient
 
     @StateObject private var skillsManager: SkillsManager
-    @State private var selectedTab = 0
     @State private var expandedSkillId: String?
     @State private var hoveredSkillButtonId: String?
     @State private var selectedSkillSlug: String?
@@ -89,41 +88,45 @@ struct AgentPanel: View {
     }
 
     var body: some View {
-        VSidePanel(title: "Agent", onClose: onClose, pinnedContent: {
-            VSegmentedControl(
-                items: ["Skills", "Available Skills", "Nodes", "Personality"],
-                selection: $selectedTab
-            )
-            .padding(.top, VSpacing.sm)
+        VSidePanel(title: "Skills", onClose: onClose) {
+            // Installed skills section
+            sectionHeader("Installed", count: userSkills.count)
 
-            Divider().background(VColor.surfaceBorder)
-        }) {
-            switch selectedTab {
-            case 0:
-                skillsContent
-            case 1:
-                availableSkillsContent
-            case 2:
-                VEmptyState(
-                    title: "No nodes",
-                    subtitle: "Agent nodes will appear here",
-                    icon: "point.3.connected.trianglepath.dotted"
-                )
-                .frame(height: 250)
-            case 3:
-                VEmptyState(
-                    title: "Personality",
-                    subtitle: "Configure agent personality here",
-                    icon: "person.text.rectangle"
-                )
-                .frame(height: 250)
-            default:
-                EmptyView()
-            }
+            skillsContent
+
+            // Available skills section
+            sectionHeader("Available")
+
+            availableSkillsContent
         }
         .onAppear {
             skillsManager.fetchSkills()
         }
+    }
+
+    @ViewBuilder
+    private func sectionHeader(_ title: String, count: Int? = nil) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            Text(title)
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.textMuted)
+
+            if let count {
+                Text("\(count)")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xxs)
+                    .background(Slate._800)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            }
+
+            Rectangle()
+                .fill(VColor.surfaceBorder)
+                .frame(height: 1)
+        }
+        .padding(.top, VSpacing.lg)
+        .padding(.bottom, VSpacing.sm)
     }
 
     // MARK: - Available Skills Tab
@@ -800,14 +803,13 @@ struct AgentPanel: View {
                     .controlSize(.small)
                 Spacer()
             }
-            .frame(height: 250)
+            .frame(height: 60)
         } else if userSkills.isEmpty {
-            VEmptyState(
-                title: "No skills",
-                subtitle: "Agent skills will appear here",
-                icon: "bolt.fill"
-            )
-            .frame(height: 250)
+            Text("No skills installed")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, VSpacing.sm)
         } else {
             VStack(spacing: VSpacing.md) {
                 ForEach(userSkills) { skill in
