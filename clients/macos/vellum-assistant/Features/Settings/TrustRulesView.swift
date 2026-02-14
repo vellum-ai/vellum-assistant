@@ -97,12 +97,12 @@ struct TrustRulesView: View {
         }
     }
 
-    private func loadRules() {
+    @MainActor private func loadRules() {
         isLoading = true
         try? daemonClient.sendListTrustRules()
     }
 
-    private func deleteRule(id: String) {
+    @MainActor private func deleteRule(id: String) {
         try? daemonClient.sendRemoveTrustRule(id: id)
         loadRules()
     }
@@ -261,7 +261,7 @@ private struct TrustRuleFormView: View {
         .frame(width: 420, height: 340)
     }
 
-    private func save() {
+    @MainActor private func save() {
         let trimmedPattern = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPattern.isEmpty else { return }
 
