@@ -59,7 +59,7 @@ graph TB
             JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s"]
         end
 
-        subgraph "SQLite Database (~/.vellum/vellum.db)"
+        subgraph "SQLite Database (~/.vellum/data/db/assistant.db)"
             DB_CONV["conversations"]
             DB_MSG["messages"]
             DB_TOOL["tool_invocations"]
@@ -235,7 +235,7 @@ graph LR
         SL["logs/session-*.json<br/>───────────────<br/>Per-session JSON log<br/>task, start/end times, result<br/>Per-turn: AX tree, screenshot,<br/>action, token usage"]
     end
 
-    subgraph "~/.vellum/vellum.db (SQLite + WAL)"
+    subgraph "~/.vellum/data/db/assistant.db (SQLite + WAL)"
         direction TB
         CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)"]
         MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
@@ -540,7 +540,7 @@ graph TB
         LOCAL_CLIENT["LocalDaemonClient"]
         LOCAL_SOCK["Unix Socket<br/>~/.vellum/vellum.sock"]
         LOCAL_DAEMON["Local Daemon<br/>(same machine)"]
-        LOCAL_DB["~/.vellum/vellum.db"]
+        LOCAL_DB["~/.vellum/data/db/assistant.db"]
     end
 
     subgraph "Cloud Mode"
@@ -581,7 +581,7 @@ graph LR
         C5["user_message<br/>text, attachments"]
         C6["confirmation_response<br/>decision"]
         C7["cancel / undo"]
-        C8["model_get / model_set"]
+        C8["model_get / model_set<br/>sandbox_set (deprecated no-op)"]
         C9["ping"]
     end
 
@@ -597,7 +597,7 @@ graph LR
         S5["assistant_thinking_delta<br/>streaming thinking"]
         S6["message_complete<br/>usage stats"]
         S7["ambient_result<br/>decision, summary/suggestion"]
-        S8["confirmation_request<br/>tool, risk_level"]
+        S8["confirmation_request<br/>tool, risk_level,<br/>executionTarget"]
         S9["memory_recalled<br/>context segments"]
         S10["usage_update / error"]
         S11["generation_cancelled"]
@@ -655,7 +655,7 @@ graph TB
     end
 
     subgraph "Text Q&A Session"
-        TEXT_TOOLS["Tools: bash, headless-browser,<br/>ui_show, web_search, ..."]
+        TEXT_TOOLS["Tools: sandbox file_* / bash,<br/>host_file_* / host_bash,<br/>headless-browser, ui_show, ..."]
         ESCALATE["request_computer_control<br/>(proxy tool)"]
     end
 
@@ -678,12 +678,36 @@ The text_qa system prompt includes an action execution hierarchy that guides too
 
 | Priority | Method | Tool | When to use |
 |----------|--------|------|-------------|
-| **BEST** | CLI / API calls | `bash` | File operations, git, brew, system commands, API calls |
-| **BETTER** | Headless browser | `headless-browser` | Web automation, form filling, scraping (background) |
-| **GOOD** | AppleScript / Shortcuts | `bash` (osascript) | App automation without visual interaction |
+| **BEST** | Sandboxed filesystem/shell | `file_*`, `bash` | Work that can stay isolated in sandbox filesystem |
+| **BETTER** | Explicit host filesystem/shell | `host_file_*`, `host_bash` | Host reads/writes/commands that must touch the real machine |
+| **GOOD** | Headless browser | `headless-browser` | Web automation, form filling, scraping (background) |
 | **LAST RESORT** | Foreground computer use | `request_computer_control` | Only on explicit user request ("go ahead", "take over") |
 
 The `request_computer_control` tool is a proxy tool available only to text_qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session and sends a `task_routed` message to the client, effectively escalating from text_qa to foreground computer use.
+
+### Sandbox Filesystem and Host Access
+
+```mermaid
+graph TB
+    CALL["Model tool call"] --> EXEC["ToolExecutor"]
+
+    EXEC -->|"file_read / file_write / file_edit / bash"| SB_TOOLS["Sandbox-scoped tools"]
+    SB_TOOLS --> SB_FS["Sandbox filesystem root<br/>~/.vellum/data/sandbox/fs"]
+
+    EXEC -->|"host_file_* / host_bash / cu_* / request_computer_control"| HOST_TOOLS["Host-target tools"]
+    HOST_TOOLS --> CHECK["Permission checker + trust-store"]
+    CHECK --> DEFAULTS["Default rules<br/>ask for host_* + cu_*"]
+    CHECK -->|"allow"| HOST_EXEC["Execute on host filesystem / shell / computer control"]
+    CHECK -->|"deny"| BLOCK["Blocked"]
+    CHECK -->|"prompt"| PROMPT["confirmation_request<br/>executionTarget='host'"]
+    PROMPT --> USER["User allow/deny<br/>optional allowlist/denylist save"]
+    USER --> CHECK
+```
+
+- Sandbox defaults: `file_*` and `bash` execute within `~/.vellum/data/sandbox/fs`.
+- Host access is explicit: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` are separate tools.
+- Prompt defaults: host tools, `request_computer_control`, and `cu_*` actions default to `ask` unless a trust rule allowlists/denylists them.
+- Confirmation payloads include `executionTarget` (`sandbox` or `host`) so clients can label where the action will run.
 
 ---
 
@@ -759,12 +783,13 @@ sequenceDiagram
 | Ambient observations | `~/Library/.../knowledge.json` | JSON array | Swift Codable | Max 500 entries, FIFO |
 | Ambient insights | `~/Library/.../insights.json` | JSON array | Swift Codable | Max 50 entries, FIFO |
 | Session logs | `~/Library/.../logs/session-*.json` | JSON per session | Swift Codable | Unbounded |
-| Conversations & messages | `~/.vellum/vellum.db` | SQLite + WAL | Drizzle ORM (Bun) | Permanent |
-| Memory segments & FTS | `~/.vellum/vellum.db` | SQLite FTS5 | Drizzle ORM | Permanent |
-| Extracted facts | `~/.vellum/vellum.db` | SQLite | Drizzle ORM | Permanent, deduped |
-| Embeddings | `~/.vellum/vellum.db` | JSON float arrays | Drizzle ORM | Permanent |
-| Async job queue | `~/.vellum/vellum.db` | SQLite | Drizzle ORM | Completed jobs persist |
-| Attachments | `~/.vellum/vellum.db` | Base64 in SQLite | Drizzle ORM | Permanent |
-| Tool permission rules | `~/.vellum/trust.json` | JSON | File I/O | Permanent |
+| Conversations & messages | `~/.vellum/data/db/assistant.db` | SQLite + WAL | Drizzle ORM (Bun) | Permanent |
+| Memory segments & FTS | `~/.vellum/data/db/assistant.db` | SQLite FTS5 | Drizzle ORM | Permanent |
+| Extracted facts | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, deduped |
+| Embeddings | `~/.vellum/data/db/assistant.db` | JSON float arrays | Drizzle ORM | Permanent |
+| Async job queue | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Completed jobs persist |
+| Attachments | `~/.vellum/data/db/assistant.db` | Base64 in SQLite | Drizzle ORM | Permanent |
+| Sandbox filesystem | `~/.vellum/data/sandbox/fs` | Real filesystem tree | Node FS APIs | Persistent across sessions |
+| Tool permission rules | `~/.vellum/protected/trust.json` | JSON | File I/O | Permanent |
 | Web users & assistants | PostgreSQL | Relational | Drizzle ORM (pg) | Permanent |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |
