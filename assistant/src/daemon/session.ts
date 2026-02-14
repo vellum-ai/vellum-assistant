@@ -836,24 +836,31 @@ export class Session {
 
     // Unknown slash — persist the exchange and continue draining
     if (slashResult.kind === 'unknown') {
-      const userMsg = createUserMessage(next.content, []);
-      this.messages.push(userMsg);
-      conversationStore.addMessage(
-        this.conversationId,
-        'user',
-        JSON.stringify(userMsg.content),
-      );
+      try {
+        const userMsg = createUserMessage(next.content, next.attachments);
+        this.messages.push(userMsg);
+        conversationStore.addMessage(
+          this.conversationId,
+          'user',
+          JSON.stringify(userMsg.content),
+        );
 
-      const assistantMsg = createAssistantMessage(slashResult.message);
-      this.messages.push(assistantMsg);
-      conversationStore.addMessage(
-        this.conversationId,
-        'assistant',
-        JSON.stringify(assistantMsg.content),
-      );
+        const assistantMsg = createAssistantMessage(slashResult.message);
+        this.messages.push(assistantMsg);
+        conversationStore.addMessage(
+          this.conversationId,
+          'assistant',
+          JSON.stringify(assistantMsg.content),
+        );
 
-      next.onEvent({ type: 'assistant_text_delta', text: slashResult.message });
-      next.onEvent({ type: 'message_complete', sessionId: this.conversationId });
+        next.onEvent({ type: 'assistant_text_delta', text: slashResult.message });
+        next.onEvent({ type: 'message_complete', sessionId: this.conversationId });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Failed to persist unknown-slash exchange');
+        next.onEvent({ type: 'error', message });
+      }
+      // Continue draining regardless of success/failure
       this.drainQueue();
       return;
     }
@@ -903,7 +910,7 @@ export class Session {
     // messageId is real.  Without persistence, callers like the channel inbound
     // path would see "success" but find a stale assistant reply in the DB.
     if (slashResult.kind === 'unknown') {
-      const userMsg = createUserMessage(content, []);
+      const userMsg = createUserMessage(content, attachments);
       this.messages.push(userMsg);
       const persisted = conversationStore.addMessage(
         this.conversationId,
