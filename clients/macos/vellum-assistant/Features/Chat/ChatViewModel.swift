@@ -138,26 +138,41 @@ final class ChatViewModel: ObservableObject {
             return
         }
 
+        addAttachment(imageData: imageData, filename: "Pasted Image.png")
+    }
+
+    /// Add an attachment from raw image data (e.g. drag-and-drop, pasteboard).
+    /// Converts TIFF to PNG if needed.
+    func addAttachment(imageData: Data, filename: String = "Dropped Image.png") {
         guard pendingAttachments.count < Self.maxAttachments else {
             errorText = "Maximum \(Self.maxAttachments) attachments per message."
             return
         }
 
-        // Convert to PNG if needed
+        // Convert to PNG if needed — raw image data may be TIFF
         let pngData: Data
-        if pasteboard.data(forType: .png) != nil {
-            pngData = imageData
-        } else if let bitmapRep = NSBitmapImageRep(data: imageData),
-                  let converted = bitmapRep.representation(using: .png, properties: [:]) {
-            pngData = converted
+        if let _ = NSImage(data: imageData) {
+            // Check if already PNG by looking at magic bytes
+            let pngMagic: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
+            let headerBytes = [UInt8](imageData.prefix(4))
+            if headerBytes == pngMagic {
+                pngData = imageData
+            } else if let bitmapRep = NSBitmapImageRep(data: imageData),
+                      let converted = bitmapRep.representation(using: .png, properties: [:]) {
+                pngData = converted
+            } else {
+                log.error("Failed to convert dropped image to PNG")
+                errorText = "Could not process image."
+                return
+            }
         } else {
-            log.error("Failed to convert pasted image to PNG")
-            errorText = "Could not process pasted image."
+            log.error("Dropped data is not a valid image")
+            errorText = "Could not process image."
             return
         }
 
         guard pngData.count <= Self.maxFileSize else {
-            errorText = "Pasted image exceeds 20 MB limit."
+            errorText = "Image exceeds 20 MB limit."
             return
         }
 
@@ -166,7 +181,7 @@ final class ChatViewModel: ObservableObject {
 
         let attachment = ChatAttachment(
             id: UUID().uuidString,
-            filename: "Pasted Image.png",
+            filename: filename,
             mimeType: "image/png",
             data: base64,
             thumbnailData: thumbnail,
