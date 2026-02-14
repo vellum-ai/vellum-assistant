@@ -491,7 +491,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Regenerate
 
     /// Regenerate the last assistant response for a session.
-    func sendRegenerate(sessionId: String) throws {
+    public func sendRegenerate(sessionId: String) throws {
         try send(RegenerateMessage(sessionId: sessionId))
     }
 
