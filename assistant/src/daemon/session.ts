@@ -3,6 +3,8 @@ import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock, ImageContent } from '../providers/types.js';
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
 import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, DynamicPageSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
+import { getQdrantClient } from '../memory/qdrant-client.js';
+import type { DeletedMemoryIds } from '../memory/conversation-store.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { CheckpointDecision } from '../agent/loop.js';
@@ -958,6 +960,118 @@ export class Session {
     }
 
     return removed;
+  }
+
+  /**
+   * Regenerate the last assistant response: remove the assistant's reply
+   * (and any intermediate tool_result messages) from memory, DB, and
+   * Qdrant, then re-run the agent loop with the same user message.
+   */
+  async regenerate(onEvent: (msg: ServerMessage) => void): Promise<void> {
+    if (this.processing) {
+      onEvent({ type: 'error', message: 'Cannot regenerate while processing' });
+      return;
+    }
+
+    // Find the last undoable user message — everything after it is the
+    // assistant's exchange that we want to regenerate.
+    const lastUserIdx = findLastUndoableUserMessageIndex(this.messages);
+    if (lastUserIdx === -1) {
+      onEvent({ type: 'error', message: 'No messages to regenerate' });
+      return;
+    }
+
+    // There must be at least one message after the user message (the assistant reply).
+    if (lastUserIdx >= this.messages.length - 1) {
+      onEvent({ type: 'error', message: 'No assistant response to regenerate' });
+      return;
+    }
+
+    // Remove the assistant's exchange from in-memory history (keep the user message).
+    this.messages = this.messages.slice(0, lastUserIdx + 1);
+
+    // Find DB message IDs to delete: get all messages from the DB, then
+    // identify the ones that come after the last user message.
+    const dbMessages = conversationStore.getMessages(this.conversationId);
+
+    // Walk backwards to find the last real (non-tool_result) user message in the DB.
+    let dbUserMsgIdx = -1;
+    for (let i = dbMessages.length - 1; i >= 0; i--) {
+      if (dbMessages[i].role !== 'user') continue;
+      try {
+        const parsed = JSON.parse(dbMessages[i].content);
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((b: Record<string, unknown>) => b.type === 'tool_result')) {
+          continue; // Skip tool_result-only user messages
+        }
+      } catch { /* plain text = real user message */ }
+      dbUserMsgIdx = i;
+      break;
+    }
+
+    if (dbUserMsgIdx === -1) {
+      onEvent({ type: 'error', message: 'No user message found in DB' });
+      return;
+    }
+
+    // Everything after the user message needs to be deleted.
+    const messagesToDelete = dbMessages.slice(dbUserMsgIdx + 1);
+
+    // Delete each message via deleteMessageById and collect IDs for Qdrant cleanup.
+    const allSegmentIds: string[] = [];
+    const allOrphanedItemIds: string[] = [];
+    for (const msg of messagesToDelete) {
+      const deleted = conversationStore.deleteMessageById(msg.id);
+      allSegmentIds.push(...deleted.segmentIds);
+      allOrphanedItemIds.push(...deleted.orphanedItemIds);
+    }
+
+    // Clean up Qdrant vectors (fire-and-forget).
+    this.cleanupQdrantVectors(allSegmentIds, allOrphanedItemIds).catch((err) => {
+      log.warn({ err, conversationId: this.conversationId }, 'Qdrant cleanup after regenerate failed (non-fatal)');
+    });
+
+    // Re-extract the user message content for the agent loop.
+    const userMessage = this.messages[lastUserIdx];
+    const textBlocks = userMessage.content.filter(
+      (b) => b.type === 'text',
+    );
+    const content = textBlocks
+      .map((b) => (b as { type: 'text'; text: string }).text)
+      .join('');
+
+    // Notify client that the old response has been removed.
+    onEvent({ type: 'undo_complete', removedCount: messagesToDelete.length });
+
+    // Re-run the agent loop with the same user message.
+    await this.processMessage(content, [], onEvent);
+  }
+
+  /**
+   * Delete Qdrant vector entries for the given segment and item IDs.
+   */
+  private async cleanupQdrantVectors(segmentIds: string[], orphanedItemIds: string[]): Promise<void> {
+    let qdrant: ReturnType<typeof getQdrantClient>;
+    try {
+      qdrant = getQdrantClient();
+    } catch {
+      return; // Qdrant not initialized — nothing to clean up.
+    }
+
+    const deletions: Promise<void>[] = [];
+    for (const segId of segmentIds) {
+      deletions.push(qdrant.deleteByTarget('segment', segId));
+    }
+    for (const itemId of orphanedItemIds) {
+      deletions.push(qdrant.deleteByTarget('item', itemId));
+    }
+
+    if (deletions.length > 0) {
+      await Promise.all(deletions);
+      log.info(
+        { conversationId: this.conversationId, segments: segmentIds.length, items: orphanedItemIds.length },
+        'Cleaned up Qdrant vectors after regenerate',
+      );
+    }
   }
 
   private async surfaceProxyResolver(

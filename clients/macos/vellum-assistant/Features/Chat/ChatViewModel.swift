@@ -499,6 +499,15 @@ final class ChatViewModel: ObservableObject {
                 fetchSuggestion()
             }
 
+        case .undoComplete:
+            // Remove all messages after the last user message (the assistant
+            // exchange that was regenerated). The daemon will immediately start
+            // streaming a new response.
+            if let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) {
+                messages.removeSubrange((lastUserIndex + 1)...)
+            }
+            currentAssistantMessageId = nil
+
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
             cancelTimeoutTask?.cancel()
@@ -873,6 +882,35 @@ final class ChatViewModel: ObservableObject {
                     self.messages[i].status = .sent
                 }
             }
+        }
+    }
+
+    /// Regenerate the last assistant response. Removes the old reply from
+    /// all memory systems (including Qdrant) and re-runs the agent loop.
+    func regenerateLastMessage() {
+        guard let sessionId, !isSending else { return }
+        guard daemonClient.isConnected else {
+            errorText = "Cannot connect to daemon. Please ensure it's running."
+            return
+        }
+
+        isSending = true
+        isThinking = true
+        suggestion = nil
+        pendingSuggestionRequestId = nil
+
+        // Make sure we're listening for the response
+        if messageLoopTask == nil {
+            startMessageLoop()
+        }
+
+        do {
+            try daemonClient.sendRegenerate(sessionId: sessionId)
+        } catch {
+            log.error("Failed to send regenerate: \(error.localizedDescription)")
+            isSending = false
+            isThinking = false
+            errorText = "Failed to regenerate message."
         }
     }
 

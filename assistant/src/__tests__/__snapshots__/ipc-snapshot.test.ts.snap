@@ -78,6 +78,13 @@ exports[`IPC message snapshots ClientMessage types undo serializes to expected J
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types regenerate serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "type": "regenerate",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types usage_request serializes to expected JSON 1`] = `
 {
   "sessionId": "sess-001",
