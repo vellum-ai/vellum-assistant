@@ -660,14 +660,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     summary: 'Running bash: ls -la',
     attributes: { toolName: 'bash', command: 'ls -la', riskLevel: 'low', sandboxed: true },
   },
-  session_error: {
-    type: 'session_error',
-    sessionId: 'sess-001',
-    code: 'PROVIDER_NETWORK',
-    userMessage: 'Unable to reach the AI provider. Please check your connection and try again.',
-    retryable: true,
-    debugDetails: 'ETIMEDOUT: connect to api.anthropic.com:443',
-  },
 };
 
 // ---------------------------------------------------------------------------

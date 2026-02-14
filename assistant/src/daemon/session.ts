@@ -26,6 +26,7 @@ import { getConfig } from '../config/loader.js';
 import { estimateCost, resolvePricing } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
 import { TraceEmitter } from './trace-emitter.js';
+import { classifySessionError, isUserCancellation, buildSessionErrorMessage } from './session-error.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
 import { registerTimerCompletionNotifier, unregisterTimerCompletionNotifier, pruneSessionTimers } from '../tools/timer/pomodoro.js';
@@ -323,6 +324,12 @@ export class Session {
       // Clear queued messages and notify each caller
       for (const queued of this.messageQueue) {
         queued.onEvent({ type: 'error', message: 'Session aborted — queued message discarded' });
+        queued.onEvent(buildSessionErrorMessage(this.conversationId, {
+          code: 'SESSION_ABORTED',
+          userMessage: 'The request was interrupted. You can try sending your message again.',
+          retryable: true,
+          debugDetails: 'Session aborted — queued message discarded',
+        }));
       }
       this.messageQueue = [];
     }
@@ -787,14 +794,17 @@ export class Session {
         });
       }
     } catch (err) {
+      const errorCtx = { phase: 'agent_loop' as const, aborted: abortController.signal.aborted };
       // AbortError is expected when user cancels — don't treat as an error
-      if (abortController.signal.aborted) {
+      if (isUserCancellation(err, errorCtx)) {
         rlog.info('Generation cancelled by user');
         onEvent({ type: 'generation_cancelled' });
       } else {
         const message = err instanceof Error ? err.message : String(err);
         rlog.error({ err }, 'Session processing error');
         onEvent({ type: 'error', message: `Failed to process message: ${message}` });
+        const classified = classifySessionError(err, errorCtx);
+        onEvent(buildSessionErrorMessage(this.conversationId, classified));
         void getHookManager().trigger('on-error', {
           error: err instanceof Error ? err.name : 'Error',
           message,
