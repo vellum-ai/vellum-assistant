@@ -40,7 +40,7 @@ public final class ComponentGalleryWindow {
         self.window = window
     }
 
-    func close() {
+    public func close() {
         window?.close()
         window = nil
     }
