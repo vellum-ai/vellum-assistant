@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Inline list widget for selectable items in chat.
 struct InlineListWidget: View {

@@ -1,3 +1,4 @@
+#if os(macOS)
 import CryptoKit
 import Foundation
 import Security
@@ -11,8 +12,8 @@ private let log = Logger(
 /// Manages the Ed25519 signing identity stored in the macOS Keychain.
 /// Key is generated on first access and persisted across launches.
 @MainActor
-final class SigningIdentityManager {
-    static let shared = SigningIdentityManager()
+public final class SigningIdentityManager {
+    public static let shared = SigningIdentityManager()
 
     private let service = "vellum-assistant"
     private let account = "signing-key"
@@ -21,7 +22,7 @@ final class SigningIdentityManager {
     private var cachedKey: Curve25519.Signing.PrivateKey?
 
     /// Get or create the Ed25519 signing private key.
-    func getPrivateKey() throws -> Curve25519.Signing.PrivateKey {
+    public func getPrivateKey() throws -> Curve25519.Signing.PrivateKey {
         if let cached = cachedKey {
             return cached
         }
@@ -41,19 +42,19 @@ final class SigningIdentityManager {
     }
 
     /// Get the public key.
-    func getPublicKey() throws -> Curve25519.Signing.PublicKey {
+    public func getPublicKey() throws -> Curve25519.Signing.PublicKey {
         return try getPrivateKey().publicKey
     }
 
     /// Key identifier (SHA-256 fingerprint of public key, hex-encoded).
-    func getKeyId() throws -> String {
+    public func getKeyId() throws -> String {
         let publicKey = try getPublicKey()
         let digest = SHA256.hash(data: publicKey.rawRepresentation)
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     /// Sign data with the signing key.
-    func sign(_ data: Data) throws -> Data {
+    public func sign(_ data: Data) throws -> Data {
         let signingKey = try getPrivateKey()
         return try signingKey.signature(for: data)
     }
@@ -137,3 +138,4 @@ final class SigningIdentityManager {
         }
     }
 }
+#endif

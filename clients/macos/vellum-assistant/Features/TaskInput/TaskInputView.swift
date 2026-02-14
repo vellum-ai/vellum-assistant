@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 import AppKit
 import UniformTypeIdentifiers
 

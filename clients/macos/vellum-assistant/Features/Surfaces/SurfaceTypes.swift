@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 
 // MARK: - Surface Enums
 

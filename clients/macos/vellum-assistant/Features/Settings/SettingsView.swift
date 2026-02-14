@@ -1,5 +1,6 @@
 import Combine
 import SwiftUI
+import VellumAssistantShared
 
 public struct SettingsView: View {
     @State private var apiKeyText = ""

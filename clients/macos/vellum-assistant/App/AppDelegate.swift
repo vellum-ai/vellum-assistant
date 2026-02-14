@@ -1,4 +1,5 @@
 import AppKit
+import VellumAssistantShared
 import Combine
 import CoreText
 import HotKey

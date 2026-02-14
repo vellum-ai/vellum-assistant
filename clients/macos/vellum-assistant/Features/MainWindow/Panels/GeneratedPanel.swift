@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Unified display item for both local and shared apps.
 private struct DisplayAppItem: Identifiable {

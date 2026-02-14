@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import VellumAssistantShared
 
 enum ChatRole: String {
     case user

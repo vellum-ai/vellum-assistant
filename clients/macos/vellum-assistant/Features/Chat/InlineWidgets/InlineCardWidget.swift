@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Inline card widget for displaying structured information in chat.
 /// Supports template-based rendering for specialized layouts (e.g. weather forecasts).

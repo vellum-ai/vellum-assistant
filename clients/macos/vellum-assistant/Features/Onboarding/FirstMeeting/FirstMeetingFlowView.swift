@@ -1,4 +1,5 @@
 import SpriteKit
+import VellumAssistantShared
 import SwiftUI
 
 @MainActor

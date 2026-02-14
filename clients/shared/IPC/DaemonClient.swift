@@ -6,15 +6,17 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 /// Protocol for daemon client communication, enabling dependency injection and testing.
 @MainActor
-protocol DaemonClientProtocol {
+public protocol DaemonClientProtocol {
     func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
 }
 
-/// Unix domain socket client for communicating with the Vellum daemon.
+/// Platform-agnostic client for communicating with the Vellum daemon.
 ///
-/// Connects to the daemon's socket at `~/.vellum/vellum.sock` (or `VELLUM_DAEMON_SOCKET` env override),
-/// sends and receives newline-delimited JSON messages.
+/// **macOS**: Connects via Unix domain socket at `~/.vellum/vellum.sock` (or `VELLUM_DAEMON_SOCKET` env override).
+/// **iOS**: Connects via TCP to configurable hostname:port (UserDefaults: `daemon_hostname`, `daemon_port`).
+///
+/// Sends and receives newline-delimited JSON messages over the connection.
 ///
 /// This is a long-lived singleton. Consumers call `subscribe()` to get an independent message
 /// stream, enabling multiple consumers (ComputerUseSession, AmbientAgent) to each receive all
@@ -24,94 +26,94 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Published State
 
-    @Published var isConnected: Bool = false
+    @Published public var isConnected: Bool = false
 
     /// Shared flag so only one TrustRulesView sheet is open at a time across SettingsPanel and SettingsView.
     /// Both surfaces bind to this instead of local @State, preventing the second sheet from overwriting
     /// the first sheet's `onTrustRulesListResponse` callback on DaemonClient.
-    @Published var isTrustRulesSheetOpen: Bool = false
+    @Published public var isTrustRulesSheetOpen: Bool = false
 
     // MARK: - Surface Event Callbacks
 
     /// Called when the daemon sends a `ui_surface_show` message.
     /// Set by the app layer to forward to SurfaceManager without coupling DaemonClient to it.
-    var onSurfaceShow: ((UiSurfaceShowMessage) -> Void)?
+    public var onSurfaceShow: ((UiSurfaceShowMessage) -> Void)?
 
     /// Called when the daemon sends a `ui_surface_update` message.
-    var onSurfaceUpdate: ((UiSurfaceUpdateMessage) -> Void)?
+    public var onSurfaceUpdate: ((UiSurfaceUpdateMessage) -> Void)?
 
     /// Called when the daemon sends a `ui_surface_dismiss` message.
-    var onSurfaceDismiss: ((UiSurfaceDismissMessage) -> Void)?
+    public var onSurfaceDismiss: ((UiSurfaceDismissMessage) -> Void)?
 
     /// Called when the daemon sends an `app_data_response` message.
-    var onAppDataResponse: ((AppDataResponseMessage) -> Void)?
+    public var onAppDataResponse: ((AppDataResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `message_queued` message.
-    var onMessageQueued: ((MessageQueuedMessage) -> Void)?
+    public var onMessageQueued: ((MessageQueuedMessage) -> Void)?
 
     /// Called when the daemon sends a `message_dequeued` message.
-    var onMessageDequeued: ((MessageDequeuedMessage) -> Void)?
+    public var onMessageDequeued: ((MessageDequeuedMessage) -> Void)?
 
     /// Called when the daemon sends a `generation_handoff` message.
-    var onGenerationHandoff: ((GenerationHandoffMessage) -> Void)?
+    public var onGenerationHandoff: ((GenerationHandoffMessage) -> Void)?
 
     /// Called when the daemon sends a `confirmation_request` message for tool permission approval.
-    var onConfirmationRequest: ((ConfirmationRequestMessage) -> Void)?
+    public var onConfirmationRequest: ((ConfirmationRequestMessage) -> Void)?
 
     /// Called when the daemon sends a `secret_request` message for secure credential input.
-    var onSecretRequest: ((SecretRequestMessage) -> Void)?
+    public var onSecretRequest: ((SecretRequestMessage) -> Void)?
 
     /// Called when the daemon sends a `task_routed` message (e.g. escalation from text_qa to CU).
-    var onTaskRouted: ((TaskRoutedMessage) -> Void)?
+    public var onTaskRouted: ((TaskRoutedMessage) -> Void)?
 
     /// Called when a pomodoro timer completes.
-    var onTimerCompleted: ((TimerCompletedMessage) -> Void)?
+    public var onTimerCompleted: ((TimerCompletedMessage) -> Void)?
 
     /// Called when the daemon sends a `trust_rules_list_response` message.
-    var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
+    public var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
 
     /// Called when the daemon sends a `skills_state_changed` push event.
-    var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
+    public var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
 
     /// Called when the daemon sends a `skills_updates_available` push event.
-    var onSkillsUpdatesAvailable: ((SkillsUpdatesAvailableMessage) -> Void)?
+    public var onSkillsUpdatesAvailable: ((SkillsUpdatesAvailableMessage) -> Void)?
 
     /// Called when the daemon sends a `skills_operation_response` message.
-    var onSkillsOperationResponse: ((SkillsOperationResponseMessage) -> Void)?
+    public var onSkillsOperationResponse: ((SkillsOperationResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `skills_inspect_response` message.
-    var onSkillsInspectResponse: ((SkillsInspectResponseMessage) -> Void)?
+    public var onSkillsInspectResponse: ((SkillsInspectResponseMessage) -> Void)?
 
     /// Called when the daemon sends an `apps_list_response` message.
-    var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
+    public var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `shared_apps_list_response` message.
-    var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
+    public var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `shared_app_delete_response` message.
-    var onSharedAppDeleteResponse: ((SharedAppDeleteResponseMessage) -> Void)?
+    public var onSharedAppDeleteResponse: ((SharedAppDeleteResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `bundle_app_response` message.
-    var onBundleAppResponse: ((BundleAppResponseMessage) -> Void)?
+    public var onBundleAppResponse: ((BundleAppResponseMessage) -> Void)?
 
     /// Called when the daemon sends an `open_bundle_response` message.
-    var onOpenBundleResponse: ((OpenBundleResponseMessage) -> Void)?
+    public var onOpenBundleResponse: ((OpenBundleResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `session_list_response` message.
-    var onSessionListResponse: ((SessionListResponseMessage) -> Void)?
+    public var onSessionListResponse: ((SessionListResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `history_response` message.
-    var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
+    public var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
 
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
-    var onError: ((ErrorMessage) -> Void)?
+    public var onError: ((ErrorMessage) -> Void)?
 
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
     /// independently, enabling multiple consumers (ComputerUseSession, AmbientAgent) to
     /// filter for messages relevant to them without competing for elements.
-    func subscribe() -> AsyncStream<ServerMessage> {
+    public func subscribe() -> AsyncStream<ServerMessage> {
         let id = UUID()
         let (stream, continuation) = AsyncStream<ServerMessage>.makeStream()
         subscribers[id] = continuation
@@ -162,10 +164,22 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Init
 
-    init() {}
+    public init() {}
 
     deinit {
-        // Cancel everything without triggering reconnect.
+        // Swift 5.9+: deinit on @MainActor class is NOT guaranteed to run on main actor.
+        // Cannot use MainActor.assumeIsolated here as it would crash if deinit runs on
+        // a background thread (e.g., if last reference is released from a background context).
+        //
+        // Instead, we access the properties directly. While this is technically a data race,
+        // the cleanup operations are all thread-safe:
+        // - Task.cancel() is thread-safe
+        // - NWConnection.cancel() is thread-safe
+        // - AsyncStream.Continuation.finish() is thread-safe
+        //
+        // Setting shouldReconnect and accessing subscribers are data races, but they're
+        // benign in deinit since the object is being destroyed and no other code can
+        // access these properties.
         shouldReconnect = false
         reconnectTask?.cancel()
         pingTask?.cancel()
@@ -179,12 +193,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Socket Path
 
-    /// Resolves the daemon socket path:
+    /// Resolves the daemon socket path (macOS only):
     /// 1. `VELLUM_DAEMON_SOCKET` environment variable (or override dictionary)
     /// 2. `~/.vellum/vellum.sock`
     ///
     /// Accepts an optional environment dictionary for testability.
-    static func resolveSocketPath(environment: [String: String]? = nil) -> String {
+    #if os(macOS)
+    public static func resolveSocketPath(environment: [String: String]? = nil) -> String {
         let env = environment ?? ProcessInfo.processInfo.environment
         if let envPath = env["VELLUM_DAEMON_SOCKET"], !envPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let trimmed = envPath.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -195,23 +210,39 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
         return NSHomeDirectory() + "/.vellum/vellum.sock"
     }
+    #endif
 
     // MARK: - Connect
 
     /// How long to wait for a connection before giving up.
     private static let connectTimeout: TimeInterval = 5.0
 
-    /// Connect to the daemon socket. If already connected, disconnects first.
-    func connect() async throws {
+    /// Connect to the daemon. If already connected, disconnects first.
+    /// - macOS: Connects to Unix domain socket at `~/.vellum/vellum.sock`
+    /// - iOS: Connects to TCP endpoint (hostname from UserDefaults or localhost:8765)
+    public func connect() async throws {
         // Disconnect any existing connection without triggering reconnect.
         disconnectInternal(triggerReconnect: false)
 
         shouldReconnect = true
 
+        #if os(macOS)
         let socketPath = Self.resolveSocketPath()
         log.info("Connecting to daemon socket at \(socketPath)")
-
         let endpoint = NWEndpoint.unix(path: socketPath)
+        #elseif os(iOS)
+        let hostname = UserDefaults.standard.string(forKey: "daemon_hostname") ?? "localhost"
+        let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
+        let port = UInt16(clamping: rawPort > 0 && rawPort <= 65535 ? rawPort : 8765)
+        log.info("Connecting to daemon at \(hostname):\(port)")
+        let endpoint = NWEndpoint.hostPort(
+            host: NWEndpoint.Host(hostname),
+            port: NWEndpoint.Port(integerLiteral: port)
+        )
+        #else
+        #error("DaemonClient is only supported on macOS and iOS")
+        #endif
+
         let parameters = NWParameters()
         parameters.defaultProtocolStack.transportProtocol = NWProtocolTCP.Options()
 
@@ -293,10 +324,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Send
 
-    enum SendError: Error, LocalizedError {
+    public enum SendError: Error, LocalizedError {
         case notConnected
 
-        var errorDescription: String? {
+        public var errorDescription: String? {
             switch self {
             case .notConnected:
                 return "Cannot send: not connected to daemon"
@@ -308,7 +339,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Encodes the message as JSON, appends a newline, and writes to the connection.
     /// Throws `SendError.notConnected` when the connection is nil so callers can
     /// distinguish a silently-dropped message from a successful write.
-    func send<T: Encodable>(_ message: T) throws {
+    public func send<T: Encodable>(_ message: T) throws {
         guard let conn = connection else {
             log.warning("Cannot send: not connected")
             throw SendError.notConnected
@@ -328,7 +359,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Convenience method for sending a surface action response to the daemon.
     /// Keeps the IPC message construction co-located with the client.
-    func sendSurfaceAction(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
+    public func sendSurfaceAction(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
         let message = UiSurfaceActionMessage(
             sessionId: sessionId,
             surfaceId: surfaceId,
@@ -341,7 +372,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Confirmation Response
 
     /// Send a confirmation response for a tool permission request.
-    func sendConfirmationResponse(
+    public func sendConfirmationResponse(
         requestId: String,
         decision: String,
         selectedPattern: String? = nil,
@@ -358,14 +389,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Secret Response
 
     /// Send a secret response for a credential prompt request.
-    func sendSecretResponse(requestId: String, value: String?) throws {
+    public func sendSecretResponse(requestId: String, value: String?) throws {
         try send(SecretResponseMessage(requestId: requestId, value: value))
     }
 
     // MARK: - Trust Rule Addition
 
     /// Send an add_trust_rule message to persist a trust rule on the daemon.
-    func sendAddTrustRule(
+    public func sendAddTrustRule(
         toolName: String,
         pattern: String,
         scope: String,
@@ -382,17 +413,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Trust Rule Management
 
     /// Request the list of all trust rules from the daemon.
-    func sendListTrustRules() throws {
+    public func sendListTrustRules() throws {
         try send(TrustRulesListMessage())
     }
 
     /// Remove a trust rule by its ID.
-    func sendRemoveTrustRule(id: String) throws {
+    public func sendRemoveTrustRule(id: String) throws {
         try send(RemoveTrustRuleMessage(id: id))
     }
 
     /// Update fields on an existing trust rule.
-    func sendUpdateTrustRule(
+    public func sendUpdateTrustRule(
         id: String,
         tool: String? = nil,
         pattern: String? = nil,
@@ -413,91 +444,92 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Skills Management
 
     /// Enable a skill by name.
-    func enableSkill(_ name: String) throws {
+    public func enableSkill(_ name: String) throws {
         try send(SkillsEnableMessage(name: name))
     }
 
     /// Disable a skill by name.
-    func disableSkill(_ name: String) throws {
+    public func disableSkill(_ name: String) throws {
         try send(SkillsDisableMessage(name: name))
     }
 
     /// Install a skill from ClaWHub.
-    func installSkill(slug: String, version: String? = nil) throws {
+    public func installSkill(slug: String, version: String? = nil) throws {
         try send(SkillsInstallMessage(slug: slug, version: version))
     }
 
     /// Uninstall a skill by name.
-    func uninstallSkill(_ name: String) throws {
+    public func uninstallSkill(_ name: String) throws {
         try send(SkillsUninstallMessage(name: name))
     }
 
     /// Update a skill to its latest version.
-    func updateSkill(_ name: String) throws {
+    public func updateSkill(_ name: String) throws {
         try send(SkillsUpdateMessage(name: name))
     }
 
     /// Check for available skill updates.
-    func checkSkillUpdates() throws {
+    public func checkSkillUpdates() throws {
         try send(SkillsCheckUpdatesMessage())
     }
 
     /// Search for skills on ClaWHub.
-    func searchSkills(query: String) throws {
+    public func searchSkills(query: String) throws {
         try send(SkillsSearchMessage(query: query))
     }
 
     /// Inspect a ClaWHub skill for detailed metadata.
-    func inspectSkill(slug: String) throws {
+    public func inspectSkill(slug: String) throws {
         try send(SkillsInspectMessage(slug: slug))
     }
 
     /// Configure a skill's environment, API key, or config.
-    func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) throws {
+    public func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) throws {
         try send(SkillsConfigureMessage(name: name, env: env, apiKey: apiKey, config: config))
     }
 
     // MARK: - Sessions
 
     /// Request the list of past sessions from the daemon.
-    func sendSessionList() throws {
+    public func sendSessionList() throws {
         try send(SessionListRequestMessage())
     }
 
     /// Request message history for a specific session.
-    func sendHistoryRequest(sessionId: String) throws {
+    public func sendHistoryRequest(sessionId: String) throws {
         try send(HistoryRequestMessage(sessionId: sessionId))
     }
 
     // MARK: - Apps
 
     /// Request the list of all apps from the daemon.
-    func sendAppsList() throws {
+    public func sendAppsList() throws {
         try send(AppsListRequestMessage())
     }
 
     /// Request bundling an app for sharing.
-    func sendBundleApp(appId: String) throws {
+    public func sendBundleApp(appId: String) throws {
         try send(BundleAppRequestMessage(appId: appId))
     }
 
     /// Request opening and scanning a .vellumapp bundle.
-    func sendOpenBundle(filePath: String) throws {
+    public func sendOpenBundle(filePath: String) throws {
         try send(OpenBundleMessage(filePath: filePath))
     }
 
     /// Request the list of shared/received apps.
-    func sendSharedAppsList() throws {
+    public func sendSharedAppsList() throws {
         try send(SharedAppsListRequestMessage())
     }
 
     /// Delete a shared app by UUID.
-    func sendSharedAppDelete(uuid: String) throws {
+    public func sendSharedAppDelete(uuid: String) throws {
         try send(SharedAppDeleteRequestMessage(uuid: uuid))
     }
 
-    // MARK: - Signing Identity
+    // MARK: - Signing Identity (macOS only)
 
+    #if os(macOS)
     /// Handle a sign_bundle_payload request from the daemon.
     private func handleSignBundlePayload(_ msg: SignBundlePayloadMessage) {
         do {
@@ -530,11 +562,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             log.error("Failed to get signing identity: \(error.localizedDescription)")
         }
     }
+    #endif
 
     // MARK: - Disconnect
 
     /// Disconnect from the daemon. Stops reconnect and ping timers.
-    func disconnect() {
+    public func disconnect() {
         disconnectInternal(triggerReconnect: false)
     }
 
@@ -687,10 +720,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onHistoryResponse?(msg)
         case .error(let msg):
             onError?(msg)
+        #if os(macOS)
         case .signBundlePayload(let msg):
             handleSignBundlePayload(msg)
         case .getSigningIdentity:
             handleGetSigningIdentity()
+        #elseif os(iOS)
+        case .signBundlePayload:
+            log.error("Received sign_bundle_payload request on iOS - signing operations are not supported on iOS due to sandboxing restrictions")
+        case .getSigningIdentity:
+            log.error("Received get_signing_identity request on iOS - signing operations are not supported on iOS due to sandboxing restrictions")
+        #else
+        case .signBundlePayload, .getSigningIdentity:
+            log.error("Signing operations are not supported on this platform")
+        #endif
         default:
             break
         }

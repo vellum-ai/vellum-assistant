@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 import os
 import UniformTypeIdentifiers
 import AppKit

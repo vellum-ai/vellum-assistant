@@ -4,12 +4,17 @@ import PackageDescription
 let package = Package(
     name: "vellum-assistant",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v14),
+        .iOS(.v17)
     ],
     products: [
         .library(
             name: "VellumAssistantLib",
             targets: ["VellumAssistantLib"]
+        ),
+        .library(
+            name: "VellumAssistantShared",
+            targets: ["VellumAssistantShared"]
         ),
         .executable(
             name: "vellum-assistant",
@@ -22,9 +27,22 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "VellumAssistantShared",
+            dependencies: [],
+            path: "shared",
+            swiftSettings: [
+                .enableUpcomingFeature("BareSlashRegexLiterals")
+            ],
+            linkerSettings: [
+                .linkedFramework("Network")  // Required for DaemonClient (NWConnection)
+            ]
+        ),
+        // VellumAssistantLib: macOS-only target (links AppKit, ScreenCaptureKit, etc.)
+        // iOS apps should depend only on VellumAssistantShared, not this target.
+        .target(
             name: "VellumAssistantLib",
-            dependencies: ["HotKey", "Sparkle"],
-            path: "vellum-assistant",
+            dependencies: ["VellumAssistantShared", "HotKey", "Sparkle"],
+            path: "macos/vellum-assistant",
             exclude: ["Resources/Info.plist"],
             resources: [
                 .process("Resources/Assets.xcassets"),
@@ -49,12 +67,12 @@ let package = Package(
         .executableTarget(
             name: "vellum-assistant",
             dependencies: ["VellumAssistantLib"],
-            path: "vellum-assistant-app"
+            path: "macos/vellum-assistant-app"
         ),
         .testTarget(
             name: "vellum-assistantTests",
             dependencies: ["VellumAssistantLib"],
-            path: "vellum-assistantTests"
+            path: "macos/vellum-assistantTests"
         )
     ]
 )

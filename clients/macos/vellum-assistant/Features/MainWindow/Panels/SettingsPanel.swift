@@ -1,5 +1,6 @@
 import Combine
 import SwiftUI
+import VellumAssistantShared
 
 @MainActor
 struct SettingsPanel: View {

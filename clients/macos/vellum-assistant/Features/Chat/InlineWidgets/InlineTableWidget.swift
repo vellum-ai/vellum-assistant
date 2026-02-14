@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Inline table widget with selectable rows and action support.
 struct InlineTableWidget: View {

@@ -1,5 +1,6 @@
 import XCTest
 @testable import VellumAssistantLib
+import VellumAssistantShared
 
 @MainActor
 final class DaemonClientSocketPathTests: XCTestCase {

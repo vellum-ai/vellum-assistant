@@ -1,4 +1,5 @@
 import Combine
+import VellumAssistantShared
 import Foundation
 import os
 
