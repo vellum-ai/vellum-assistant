@@ -1,8 +1,8 @@
 /**
  * Core packaging logic for .vellumapp zip archives.
  *
- * Reads an app from the app-store, generates a manifest, rewrites asset
- * references in the HTML, and produces a zip archive written to a temp file.
+ * Reads an app from the app-store, generates a manifest, and produces a
+ * zip archive written to a temp file.
  */
 
 import { createWriteStream } from 'node:fs';
@@ -35,65 +35,6 @@ export interface BundleResult {
 }
 
 /**
- * Scan HTML for `<img src="...">` references that use absolute or blob URLs.
- * Returns a map from original URL to relative asset path (e.g. `assets/0.png`).
- */
-function extractAssetReferences(html: string): Map<string, string> {
-  const refs = new Map<string, string>();
-  // Match src attributes in img tags — handles both single and double quotes
-  const imgSrcRegex = /<img\s[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi;
-  let match: RegExpExecArray | null;
-  let index = 0;
-
-  while ((match = imgSrcRegex.exec(html)) !== null) {
-    const url = match[1];
-    // Only rewrite absolute URLs (http/https) and blob URLs
-    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) {
-      if (!refs.has(url)) {
-        // Derive a simple extension from the URL if possible
-        const ext = guessExtension(url);
-        refs.set(url, `assets/${index}${ext}`);
-        index++;
-      }
-    }
-  }
-
-  return refs;
-}
-
-/**
- * Guess a file extension from a URL. Returns `.png` as a fallback.
- */
-function guessExtension(url: string): string {
-  try {
-    const pathname = new URL(url).pathname;
-    const dotIndex = pathname.lastIndexOf('.');
-    if (dotIndex !== -1) {
-      const ext = pathname.slice(dotIndex).toLowerCase();
-      // Only allow common image extensions
-      if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico'].includes(ext)) {
-        return ext;
-      }
-    }
-  } catch {
-    // blob: URLs or invalid URLs — fall through
-  }
-  return '.png';
-}
-
-/**
- * Rewrite asset references in HTML from absolute/blob URLs to relative paths.
- */
-function rewriteAssetReferences(html: string, refs: Map<string, string>): string {
-  let result = html;
-  for (const [originalUrl, relativePath] of refs) {
-    // Replace all occurrences of the original URL with the relative path
-    result = result.split(originalUrl).join(relativePath);
-  }
-  return result;
-}
-
-/**
  * Package an app into a .vellumapp zip archive.
  *
  * @param appId - The ID of the app to package (from the app-store).
@@ -122,9 +63,10 @@ export async function packageApp(
     capabilities: [],
   };
 
-  // Extract and rewrite asset references in the HTML
-  const assetRefs = extractAssetReferences(app.htmlDefinition);
-  const rewrittenHtml = rewriteAssetReferences(app.htmlDefinition, assetRefs);
+  // NOTE: Asset fetching is not yet implemented, so we keep the original HTML
+  // with absolute URLs intact. Rewriting to relative paths will be done once
+  // asset downloading is added.
+  const rewrittenHtml = app.htmlDefinition;
 
   // Create the zip archive
   const bundleFilename = `${app.name.replace(/[^a-zA-Z0-9_-]/g, '_')}-${randomUUID().slice(0, 8)}.vellumapp`;
@@ -135,6 +77,7 @@ export async function packageApp(
     const archive = archiver('zip', { zlib: { level: 9 } });
 
     output.on('close', () => resolve());
+    output.on('error', (err: Error) => reject(err));
     archive.on('error', (err: Error) => reject(err));
     archive.on('warning', (err: Error) => {
       // Only reject on fatal warnings
@@ -151,10 +94,8 @@ export async function packageApp(
     // Add index.html at root level
     archive.append(rewrittenHtml, { name: 'index.html' });
 
-    // For MVP, we don't fetch remote assets — we just rewrite the URLs.
-    // The assets/ directory entries are placeholders for future asset downloading.
-    // If there were local asset buffers, we'd add them here:
-    // archive.append(buffer, { name: relativePath });
+    // TODO: When asset downloading is implemented, fetch remote assets and
+    // add them here: archive.append(buffer, { name: relativePath });
 
     archive.finalize();
   });
