@@ -5,6 +5,10 @@ import { getLogger } from '../util/logger.js';
 import { registerComputerUseTools } from './computer-use/registry.js';
 import { registerUiSurfaceTools } from './ui-surface/registry.js';
 import { registerAppTools } from './apps/registry.js';
+import { hostFileReadTool } from './host-filesystem/read.js';
+import { hostFileWriteTool } from './host-filesystem/write.js';
+import { hostFileEditTool } from './host-filesystem/edit.js';
+import { hostShellTool } from './host-terminal/host-shell.js';
 
 const log = getLogger('tool-registry');
 
@@ -115,6 +119,13 @@ export async function initializeTools(): Promise<void> {
   await import('./schedule/list.js');
   await import('./schedule/update.js');
   await import('./schedule/delete.js');
+
+  // Host tools are registered explicitly so host access stays opt-in until
+  // this point in startup, rather than as module side effects.
+  registerTool(hostFileReadTool);
+  registerTool(hostFileWriteTool);
+  registerTool(hostFileEditTool);
+  registerTool(hostShellTool);
 
   // Computer-use proxy tools — registered so ToolExecutor can look them up
   // and forward execution to the connected macOS client.  They are excluded
