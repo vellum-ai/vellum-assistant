@@ -10,14 +10,24 @@ const conversation = {
   totalEstimatedCost: 0,
 };
 
+let lastCreatedWorkingDir: string | undefined;
+
 class MockSession {
   public readonly conversationId: string;
   public updateClientCalls = 0;
   private stale = false;
   private processing = false;
 
-  constructor(conversationId: string) {
+  constructor(
+    conversationId: string,
+    _provider?: unknown,
+    _systemPrompt?: string,
+    _maxResponseTokens?: number,
+    _sendToClient?: unknown,
+    workingDir?: string,
+  ) {
     this.conversationId = conversationId;
+    lastCreatedWorkingDir = workingDir;
   }
 
   async loadFromDb(): Promise<void> {}
@@ -60,6 +70,7 @@ mock.module('../util/logger.js', () => ({
 mock.module('../util/platform.js', () => ({
   getSocketPath: () => '/tmp/test.sock',
   getDataDir: () => '/tmp',
+  getSandboxWorkingDir: () => '/tmp/sandbox/fs',
 }));
 
 mock.module('../providers/registry.js', () => ({
@@ -155,6 +166,7 @@ function decodeMessages(writes: string[]): Array<Record<string, unknown>> {
 describe('DaemonServer initial session hydration', () => {
   beforeEach(() => {
     conversation.updatedAt = Date.now();
+    lastCreatedWorkingDir = undefined;
   });
 
   test('hydrates latest session before session_info so undo works after reconnect', async () => {
@@ -186,5 +198,15 @@ describe('DaemonServer initial session hydration', () => {
 
     expect(existingSession.updateClientCalls).toBe(0);
     expect(internal.socketToSession.size).toBe(0);
+  });
+
+  test('creates sessions with sandbox working dir by default', async () => {
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+    const { socket } = createFakeSocket();
+
+    await internal.sendInitialSession(socket);
+
+    expect(lastCreatedWorkingDir).toBe('/tmp/sandbox/fs');
   });
 });

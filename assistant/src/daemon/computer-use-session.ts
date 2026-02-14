@@ -18,6 +18,7 @@ import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { allComputerUseTools } from '../tools/computer-use/definitions.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
+import { getSandboxWorkingDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('computer-use-session');
@@ -404,7 +405,7 @@ export class ComputerUseSession {
       input: Record<string, unknown>,
     ): Promise<ToolExecutionResult> => {
       return executor.execute(name, input, {
-        workingDir: process.cwd(),
+        workingDir: getSandboxWorkingDir(),
         sessionId: this.sessionId,
         conversationId: this.sessionId,
         proxyToolResolver: proxyResolver,
