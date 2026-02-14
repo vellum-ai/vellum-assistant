@@ -9,6 +9,7 @@ final class MainWindow {
     private let zoomManager: ZoomManager
     private var window: NSWindow?
     let threadManager: ThreadManager
+    let traceStore = TraceStore()
     var onMicrophoneToggle: (() -> Void)?
 
     /// Whether the main window is currently visible on screen.
@@ -26,6 +27,11 @@ final class MainWindow {
         self.ambientAgent = ambientAgent
         self.zoomManager = zoomManager
         self.threadManager = ThreadManager(daemonClient: daemonClient)
+        daemonClient.onTraceEvent = { [weak self] msg in
+            Task { @MainActor in
+                self?.traceStore.ingest(msg)
+            }
+        }
     }
 
     func show() {
@@ -44,7 +50,7 @@ final class MainWindow {
             return
         }
 
-        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, zoomManager: zoomManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
+        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let windowWidth = min(1100.0, screenFrame.width * 0.75)

@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
     @ObservedObject var zoomManager: ZoomManager
+    @ObservedObject var traceStore: TraceStore
     @State private var activePanel: SidePanelType?
     @State private var isDynamicExpanded = false
     @State private var hasAPIKey = APIKeyManager.hasAnyKey()
@@ -12,9 +13,10 @@ struct MainWindowView: View {
     let ambientAgent: AmbientAgent
     let onMicrophoneToggle: () -> Void
 
-    init(threadManager: ThreadManager, zoomManager: ZoomManager, daemonClient: DaemonClient, ambientAgent: AmbientAgent, onMicrophoneToggle: @escaping () -> Void = {}) {
+    init(threadManager: ThreadManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, ambientAgent: AmbientAgent, onMicrophoneToggle: @escaping () -> Void = {}) {
         self.threadManager = threadManager
         self.zoomManager = zoomManager
+        self.traceStore = traceStore
         self.daemonClient = daemonClient
         self.ambientAgent = ambientAgent
         self.onMicrophoneToggle = onMicrophoneToggle
@@ -192,7 +194,11 @@ struct MainWindowView: View {
             case .directory:
                 DirectoryPanel(onClose: { activePanel = nil })
             case .debug:
-                DebugPanel(onClose: { activePanel = nil })
+                DebugPanel(
+                    traceStore: traceStore,
+                    activeSessionId: threadManager.activeViewModel?.sessionId,
+                    onClose: { activePanel = nil }
+                )
             case .doctor:
                 DoctorPanel(onClose: { activePanel = nil })
             }
@@ -220,7 +226,7 @@ private struct ZoomIndicatorView: View {
 
 #Preview {
     let dc = DaemonClient()
-    return MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), daemonClient: dc, ambientAgent: AmbientAgent())
+    return MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, ambientAgent: AmbientAgent())
         .frame(width: 900, height: 600)
         .padding(.top, 36)
 }
