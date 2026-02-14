@@ -7,15 +7,14 @@ import {
   serialize,
   createMessageParser,
   type ClientMessage,
-  type ServerMessage,
   type ConfirmationRequest,
+  type ServerMessage,
 } from './daemon/ipc-protocol.js';
-import { formatDiff, formatNewFileDiff } from './util/diff.js';
 import { Spinner } from './util/spinner.js';
 import { copyToClipboard, extractLastCodeBlock, formatSessionForExport } from './util/clipboard.js';
-import { timeAgo } from './util/time.js';
 import { ensureDaemonRunning } from './daemon/lifecycle.js';
 import { shouldAutoStartDaemon } from './daemon/connection-policy.js';
+import * as template from './lib/default-template.js';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
@@ -26,22 +25,7 @@ export interface CliOptions {
   noSandbox?: boolean;
 }
 
-export function sanitizeUrlForDisplay(rawUrl: unknown): string {
-  const value = typeof rawUrl === 'string' ? rawUrl : String(rawUrl ?? '');
-  if (!value) return '';
-
-  try {
-    const parsed = new URL(value);
-    if (!parsed.username && !parsed.password) {
-      return value;
-    }
-    parsed.username = '';
-    parsed.password = '';
-    return parsed.href;
-  } catch {
-    return value.replace(/\/\/([^/?#\s@]+)@/g, '//[REDACTED]@');
-  }
-}
+export { sanitizeUrlForDisplay } from './lib/default-template.js';
 
 export async function startCli(options: CliOptions = {}): Promise<void> {
   const socketPath = getSocketPath();
@@ -60,40 +44,6 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
   let heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
   const spinner = new Spinner();
 
-  function formatToolProgress(toolName: string, input: Record<string, unknown>): string {
-    switch (toolName) {
-      case 'bash':
-        return `Running \`${String(input.command ?? '').slice(0, 60)}\`...`;
-      case 'file_read':
-        return `Reading ${input.path ?? ''}...`;
-      case 'file_write':
-        return `Writing ${input.path ?? ''}...`;
-      case 'file_edit':
-        return `Editing ${input.path ?? ''}...`;
-      case 'web_fetch':
-        return `Fetching ${sanitizeUrlForDisplay(input.url).slice(0, 80)}...`;
-      case 'browser_navigate':
-        return `Navigating to ${sanitizeUrlForDisplay(input.url).slice(0, 80)}...`;
-      case 'browser_snapshot':
-        return 'Taking page snapshot...';
-      case 'browser_close':
-        return 'Closing browser...';
-      case 'browser_click':
-        return `Clicking ${String(input.element_id ?? input.selector ?? '').slice(0, 60)}...`;
-      case 'browser_type':
-        return `Typing into ${String(input.element_id ?? input.selector ?? '').slice(0, 60)}...`;
-      case 'browser_press_key':
-        return `Pressing "${String(input.key ?? '')}"...`;
-      case 'browser_wait_for':
-        if (input.selector) return `Waiting for ${String(input.selector).slice(0, 60)}...`;
-        if (input.text) return `Waiting for text "${String(input.text).slice(0, 40)}"...`;
-        return `Waiting ${input.duration ?? 0}ms...`;
-      case 'browser_extract':
-        return 'Extracting page content...';
-      default:
-        return `Running ${toolName}...`;
-    }
-  }
 
   const historyPath = getHistoryPath();
   const MAX_HISTORY = 1000;
@@ -116,7 +66,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
   });
 
   function prompt(): void {
-    rl.setPrompt('you> ');
+    rl.setPrompt(template.PROMPT_STRING);
     rl.prompt();
   }
 
@@ -128,78 +78,22 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     return false;
   }
 
-  function formatCommandPreview(req: ConfirmationRequest): string {
-    if (req.toolName === 'bash') {
-      return String(req.input.command ?? '');
-    }
-    if (req.toolName === 'file_read') {
-      return `read ${req.input.path ?? ''}`;
-    }
-    if (req.toolName === 'file_write') {
-      return `write ${req.input.path ?? ''}`;
-    }
-    if (req.toolName === 'web_fetch') {
-      return `fetch ${sanitizeUrlForDisplay(req.input.url ?? '')}`;
-    }
-    if (req.toolName === 'browser_navigate') {
-      return `navigate ${sanitizeUrlForDisplay(req.input.url ?? '')}`;
-    }
-    if (req.toolName === 'browser_close') {
-      return req.input.close_all_pages ? 'close all browser pages' : 'close browser page';
-    }
-    if (req.toolName === 'browser_click') {
-      return `click ${req.input.element_id ?? req.input.selector ?? ''}`;
-    }
-    if (req.toolName === 'browser_type') {
-      return `type into ${req.input.element_id ?? req.input.selector ?? ''}`;
-    }
-    if (req.toolName === 'browser_press_key') {
-      return `press "${req.input.key ?? ''}"`;
-    }
-    return `${req.toolName}: ${JSON.stringify(req.input).slice(0, 80)}`;
-  }
 
-  function renderConfirmationPrompt(req: ConfirmationRequest): void {
-    const preview = formatCommandPreview(req);
-    process.stdout.write('\n');
-    process.stdout.write(`\u250C ${req.toolName}: ${preview}\n`);
-    process.stdout.write(`\u2502 Risk: ${req.riskLevel}${req.sandboxed ? '  [sandboxed]' : ''}\n`);
-    if (req.diff) {
-      const diffOutput = req.diff.isNewFile
-        ? formatNewFileDiff(req.diff.newContent, req.diff.filePath)
-        : formatDiff(req.diff.oldContent, req.diff.newContent, req.diff.filePath);
-      if (diffOutput) {
-        process.stdout.write(`\u2502\n`);
-        for (const line of diffOutput.split('\n')) {
-          if (line) process.stdout.write(`\u2502 ${line}\n`);
-        }
-      }
-    }
-    process.stdout.write(`\u2502\n`);
-    process.stdout.write(`\u2502 [a] Allow once\n`);
-    process.stdout.write(`\u2502 [d] Deny once\n`);
-    if (req.allowlistOptions.length > 0) {
-      process.stdout.write(`\u2502 [A] Allowlist...\n`);
-      process.stdout.write(`\u2502 [D] Denylist...\n`);
-    }
-    process.stdout.write(`\u2514 > `);
+  function handleConfirmationPrompt(req: ConfirmationRequest): void {
+    template.renderConfirmationPrompt(req, process.stdout);
 
     pendingConfirmation = true;
     rl.once('line', (answer) => {
       const trimmed = answer.trim();
       const choice = trimmed.toLowerCase();
 
-      // Uppercase 'A' → allowlist pattern selection (check before lowercase 'a')
       if (trimmed === 'A' || choice === 'allowlist') {
-        // pendingConfirmation stays true through sub-prompts
-        renderPatternSelection(req, 'always_allow');
+        handlePatternSelection(req, 'always_allow');
         return;
       }
 
-      // Uppercase 'D' → denylist pattern selection (check before lowercase 'd')
       if (trimmed === 'D' || choice === 'denylist') {
-        // pendingConfirmation stays true through sub-prompts
-        renderPatternSelection(req, 'always_deny');
+        handlePatternSelection(req, 'always_deny');
         return;
       }
 
@@ -222,7 +116,6 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         return;
       }
 
-      // Default to deny for unrecognized input
       send({
         type: 'confirmation_response',
         requestId: req.requestId,
@@ -231,23 +124,15 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     });
   }
 
-  function renderPatternSelection(req: ConfirmationRequest, decision: 'always_allow' | 'always_deny'): void {
-    const label = decision === 'always_allow' ? 'Allowlist' : 'Denylist';
-    process.stdout.write('\n');
-    process.stdout.write(`\u250C ${label}: choose command pattern\n`);
-    for (let i = 0; i < req.allowlistOptions.length; i++) {
-      process.stdout.write(`\u2502 [${i + 1}] ${req.allowlistOptions[i].label}\n`);
-    }
-    process.stdout.write(`\u2514 > `);
+  function handlePatternSelection(req: ConfirmationRequest, decision: 'always_allow' | 'always_deny'): void {
+    template.renderPatternSelection(req.allowlistOptions, decision, process.stdout);
 
     rl.once('line', (answer) => {
       const idx = parseInt(answer.trim(), 10) - 1;
       if (idx >= 0 && idx < req.allowlistOptions.length) {
         const selectedPattern = req.allowlistOptions[idx].pattern;
-        // pendingConfirmation stays true through scope selection
-        renderScopeSelection(req, selectedPattern, decision);
+        handleScopeSelection(req, selectedPattern, decision);
       } else {
-        // Invalid selection → deny
         pendingConfirmation = false;
         send({
           type: 'confirmation_response',
@@ -258,14 +143,8 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     });
   }
 
-  function renderScopeSelection(req: ConfirmationRequest, selectedPattern: string, decision: 'always_allow' | 'always_deny'): void {
-    const label = decision === 'always_allow' ? 'Allowlist' : 'Denylist';
-    process.stdout.write('\n');
-    process.stdout.write(`\u250C ${label}: choose scope\n`);
-    for (let i = 0; i < req.scopeOptions.length; i++) {
-      process.stdout.write(`\u2502 [${i + 1}] ${req.scopeOptions[i].label}\n`);
-    }
-    process.stdout.write(`\u2514 > `);
+  function handleScopeSelection(req: ConfirmationRequest, selectedPattern: string, decision: 'always_allow' | 'always_deny'): void {
+    template.renderScopeSelection(req.scopeOptions, decision, process.stdout);
 
     rl.once('line', (answer) => {
       pendingConfirmation = false;
@@ -279,7 +158,6 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
           selectedScope: req.scopeOptions[idx].scope,
         });
       } else {
-        // Invalid selection → deny
         send({
           type: 'confirmation_response',
           requestId: req.requestId,
@@ -289,17 +167,8 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     });
   }
 
-  function renderSessionPicker(sessions: Array<{ id: string; title: string; updatedAt: number }>): void {
-    process.stdout.write('\n  Recent sessions:\n');
-    for (let i = 0; i < sessions.length; i++) {
-      const s = sessions[i];
-      const ago = timeAgo(s.updatedAt);
-      const title = s.title.length > 50 ? s.title.slice(0, 47) + '...' : s.title;
-      const padding = ' '.repeat(Math.max(1, 55 - title.length));
-      process.stdout.write(`  [${i + 1}] ${title}${padding}${ago}\n`);
-    }
-    process.stdout.write('  [n] New session\n\n');
-    process.stdout.write('  Pick a session> ');
+  function handleSessionPicker(sessions: Array<{ id: string; title: string; updatedAt: number }>): void {
+    template.renderSessionPicker(sessions, process.stdout);
 
     rl.once('line', (answer) => {
       const trimmed = answer.trim().toLowerCase();
@@ -310,18 +179,15 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
       const idx = parseInt(trimmed, 10) - 1;
       if (idx >= 0 && idx < sessions.length) {
         if (sessions[idx].id === sessionId) {
-          // Already on this session
           pendingSessionPick = false;
-          process.stdout.write(
-            `\n  Session: ${sessions[idx].title}\n  Type your message. Ctrl+D to detach.\n\n`,
-          );
+          template.renderSessionInfo(sessions[idx].title, process.stdout);
           prompt();
         } else {
           send({ type: 'session_switch', sessionId: sessions[idx].id });
         }
       } else {
         process.stdout.write('  Invalid selection.\n');
-        renderSessionPicker(sessions);
+        handleSessionPicker(sessions);
       }
     });
   }
@@ -331,106 +197,72 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
       case 'session_info':
         pendingSessionPick = false;
         sessionId = msg.sessionId;
-        process.stdout.write(
-          `\n  Session: ${msg.title}\n  Type your message. Ctrl+D to detach.\n\n`,
-        );
+        template.renderSessionInfo(msg.title, process.stdout);
         prompt();
         break;
 
       case 'assistant_text_delta':
         spinner.stop();
         lastResponse += msg.text;
-        process.stdout.write(msg.text);
+        template.renderAssistantText(msg.text, process.stdout);
         break;
 
       case 'assistant_thinking_delta':
         spinner.stop();
-        process.stdout.write(`\x1B[2m${msg.thinking}\x1B[0m`);
+        template.renderThinking(msg.thinking, process.stdout);
         break;
 
       case 'usage_update':
         lastUsage = msg;
         break;
 
-      case 'context_compacted': {
+      case 'context_compacted':
         spinner.stop();
-        const summaryOverhead = msg.summaryCalls > 0
-          ? ` | summary: ${msg.summaryCalls} call${msg.summaryCalls === 1 ? '' : 's'}`
-          : '';
-        process.stdout.write(
-          `\n\x1B[2m[Context compacted: ${msg.previousEstimatedInputTokens.toLocaleString()} -> ${msg.estimatedInputTokens.toLocaleString()} est input tokens, ${msg.compactedMessages} messages${summaryOverhead}]\x1B[0m\n`,
-        );
+        template.renderContextCompacted(msg, process.stdout);
         spinner.start('Thinking...');
         break;
-      }
 
       case 'memory_status':
         if (msg.degraded) {
           spinner.stop();
-          process.stdout.write(`\n\x1B[2m[Memory degraded: ${msg.reason ?? 'unknown'}]\x1B[0m\n`);
+          template.renderMemoryDegraded(msg.reason, process.stdout);
           spinner.start('Thinking...');
         }
         break;
 
       case 'memory_recalled':
         spinner.stop();
-        process.stdout.write(
-          `\n\x1B[2m[Memory recalled: ${msg.injectedTokens} tokens | lexical ${msg.lexicalHits} | semantic ${msg.semanticHits} | recency ${msg.recencyHits} | entity ${msg.entityHits} | merged ${msg.mergedCount} → selected ${msg.selectedCount}${msg.rerankApplied ? ' (reranked)' : ''} | ${msg.provider}/${msg.model} | ${msg.latencyMs}ms]\x1B[0m\n`,
-        );
+        template.renderMemoryRecalled(msg, process.stdout);
         spinner.start('Thinking...');
         break;
 
-      case 'message_complete': {
+      case 'message_complete':
         spinner.stop();
         generating = false;
-        if (lastUsage) {
-          const cost = lastUsage.estimatedCost > 0
-            ? ` ~$${lastUsage.estimatedCost.toFixed(4)}`
-            : '';
-          process.stdout.write(
-            `\n\n\x1B[2m[${lastUsage.inputTokens.toLocaleString()} in / ${lastUsage.outputTokens.toLocaleString()} out${cost}]\x1B[0m\n\n`,
-          );
-          lastUsage = null;
-        } else {
-          process.stdout.write('\n\n');
-        }
+        template.renderMessageComplete(lastUsage, process.stdout);
+        lastUsage = null;
         prompt();
         break;
-      }
 
-      case 'generation_handoff': {
-        // The current request's generation is done; show usage and re-prompt.
-        // Always clear `generating` — this CLI client's generation is finished
-        // when it receives a handoff. If other work is queued, those completions
-        // go to other request callbacks, not this CLI socket.
+      case 'generation_handoff':
         spinner.stop();
         generating = false;
-        if (lastUsage) {
-          const cost = lastUsage.estimatedCost > 0
-            ? ` ~$${lastUsage.estimatedCost.toFixed(4)}`
-            : '';
-          process.stdout.write(
-            `\n\n\x1B[2m[${lastUsage.inputTokens.toLocaleString()} in / ${lastUsage.outputTokens.toLocaleString()} out${cost}]\x1B[0m\n\n`,
-          );
-          lastUsage = null;
-        } else {
-          process.stdout.write('\n\n');
-        }
+        template.renderMessageComplete(lastUsage, process.stdout);
+        lastUsage = null;
         prompt();
         break;
-      }
 
       case 'generation_cancelled':
         spinner.stop();
         generating = false;
         lastUsage = null;
-        process.stdout.write('\n[Cancelled]\n\n');
+        template.renderGenerationCancelled(process.stdout);
         prompt();
         break;
 
       case 'tool_use_start':
         toolStreaming = false;
-        spinner.start(formatToolProgress(msg.toolName, msg.input));
+        spinner.start(template.formatToolProgress(msg.toolName, msg.input));
         break;
 
       case 'tool_output_chunk':
@@ -438,34 +270,19 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
           spinner.stop();
           toolStreaming = true;
         }
-        process.stdout.write(msg.chunk);
+        template.renderAssistantText(msg.chunk, process.stdout);
         break;
 
       case 'tool_result':
         if (!toolStreaming) spinner.stop();
-        if (toolStreaming) {
-          if (msg.status) {
-            process.stdout.write(`\n${msg.status}`);
-          }
-          process.stdout.write('\n');
-        } else {
-          process.stdout.write(`\n[Tool: ${msg.result.slice(0, 200)}]\n`);
-        }
+        template.renderToolResult(msg.result, toolStreaming, msg.diff, msg.status, process.stdout);
         toolStreaming = false;
-        if (msg.diff) {
-          const diffOutput = msg.diff.isNewFile
-            ? formatNewFileDiff(msg.diff.newContent, msg.diff.filePath)
-            : formatDiff(msg.diff.oldContent, msg.diff.newContent, msg.diff.filePath);
-          if (diffOutput) {
-            process.stdout.write(diffOutput);
-          }
-        }
         spinner.start('Thinking...');
         break;
 
       case 'confirmation_request':
         spinner.stop();
-        renderConfirmationPrompt(msg);
+        handleConfirmationPrompt(msg);
         break;
 
       case 'error':
@@ -478,27 +295,21 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
           rl.removeAllListeners('line');
           rl.on('line', handleLine);
         }
-        process.stdout.write(`\n[Error: ${msg.message}]\n`);
+        template.renderError(msg.message, process.stdout);
         prompt();
         break;
 
       case 'secret_detected': {
         const wasSpinning = spinner.isSpinning;
         spinner.stop();
-        const types = msg.matches.map((m) => m.type).join(', ');
-        const actionLabel = msg.action === 'redact' ? 'redacted' : msg.action === 'block' ? 'blocked' : 'detected';
-        process.stdout.write(`\n  ⚠ Secret ${actionLabel} in ${msg.toolName} output: ${types}\n`);
-        for (const match of msg.matches) {
-          process.stdout.write(`    • ${match.type}: ${match.redactedValue}\n`);
-        }
-        process.stdout.write('\n');
+        template.renderSecretDetected(msg, process.stdout);
         if (wasSpinning) spinner.start('Thinking...');
         break;
       }
 
       case 'session_list_response':
         if (pendingSessionPick) {
-          renderSessionPicker(msg.sessions);
+          handleSessionPicker(msg.sessions);
         } else {
           for (const session of msg.sessions) {
             process.stdout.write(`  ${session.id}  ${session.title}\n`);
@@ -508,7 +319,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
         break;
 
       case 'model_info':
-        process.stdout.write(`\n  Model: ${msg.model} (${msg.provider})\n\n`);
+        template.renderModelInfo(msg.model, msg.provider, process.stdout);
         prompt();
         break;
 
@@ -529,43 +340,22 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
           prompt();
           break;
         }
-        process.stdout.write('\n');
-        if (msg.messages.length === 0) {
-          process.stdout.write('  No messages in this session.\n');
-        } else {
-          for (const m of msg.messages) {
-            const label = m.role === 'user' ? 'you' : 'assistant';
-            const preview = m.text.length > 120 ? m.text.slice(0, 117) + '...' : m.text;
-            process.stdout.write(`  ${label}> ${preview.replace(/\n/g, ' ')}\n`);
-          }
-        }
-        process.stdout.write('\n');
+        template.renderHistoryMessages(msg.messages, process.stdout);
         prompt();
         break;
 
       case 'undo_complete':
-        if (msg.removedCount === 0) {
-          process.stdout.write('\n  Nothing to undo.\n\n');
-        } else {
+        if (msg.removedCount > 0) {
           lastResponse = '';
-          process.stdout.write(`\n  Removed last exchange (${msg.removedCount} messages).\n\n`);
         }
+        template.renderUndoComplete(msg.removedCount, process.stdout);
         prompt();
         break;
 
-      case 'usage_response': {
-        process.stdout.write('\n');
-        process.stdout.write(`  Model:          ${msg.model}\n`);
-        process.stdout.write(`  Input tokens:   ${msg.totalInputTokens.toLocaleString()}\n`);
-        process.stdout.write(`  Output tokens:  ${msg.totalOutputTokens.toLocaleString()}\n`);
-        const costStr = msg.estimatedCost > 0
-          ? `$${msg.estimatedCost.toFixed(4)}`
-          : 'N/A (unknown model pricing)';
-        process.stdout.write(`  Estimated cost: ${costStr}\n`);
-        process.stdout.write('\n');
+      case 'usage_response':
+        template.renderUsageResponse(msg, process.stdout);
         prompt();
         break;
-      }
 
       case 'pong':
         // Heartbeat response — clear the timeout
@@ -783,19 +573,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     }
 
     if (content === '/help') {
-      process.stdout.write('\n  Available commands:\n');
-      process.stdout.write('  /new              Start a new session\n');
-      process.stdout.write('  /sessions         Switch between sessions\n');
-      process.stdout.write('  /clear            Clear the screen\n');
-      process.stdout.write('  /model [name]     Show or change the model\n');
-      process.stdout.write('  /history          Show conversation history\n');
-      process.stdout.write('  /undo             Remove last message exchange\n');
-      process.stdout.write('  /usage            Show token usage and cost\n');
-      process.stdout.write('  /copy             Copy last response to clipboard\n');
-      process.stdout.write('  /copy-code        Copy last code block to clipboard\n');
-      process.stdout.write('  /copy-session     Copy entire session to clipboard\n');
-      process.stdout.write('  /help             Show this help\n');
-      process.stdout.write('\n');
+      template.renderSlashCommandHelp(process.stdout);
       prompt();
       return;
     }
