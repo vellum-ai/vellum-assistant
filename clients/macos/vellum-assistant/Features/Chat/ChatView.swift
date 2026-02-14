@@ -48,8 +48,7 @@ struct ChatView: View {
     }
 
     @State private var isDropTargeted = false
-    @State private var contentHeight: CGFloat = 22
-    @FocusState private var isComposerFocused: Bool
+    @State private var editorContentHeight: CGFloat = 36
 
     var body: some View {
         ZStack {
@@ -99,8 +98,8 @@ struct ChatView: View {
 
     /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
     private var composerReservedHeight: CGFloat {
-        // Composer vertical padding (lg top + lg bottom) + content + some extra for error/queue banners
-        let base: CGFloat = VSpacing.lg * 2 + VSpacing.sm * 2 + editorHeight + 8
+        let editorClamped = min(max(editorContentHeight, 36), 200)
+        let base: CGFloat = VSpacing.lg * 2 + VSpacing.sm * 2 + editorClamped + 8
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 44
         let error: CGFloat = errorText != nil ? 36 : 0
         let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
@@ -131,15 +130,6 @@ struct ChatView: View {
             }
             .background(VColor.chatBackground)
         }
-    }
-
-    // MARK: - Dynamic Editor Height
-
-    private let editorMinHeight: CGFloat = 22
-    private let editorMaxHeight: CGFloat = 200
-
-    private var editorHeight: CGFloat {
-        min(max(contentHeight, editorMinHeight), editorMaxHeight)
     }
 
     @ViewBuilder
@@ -373,11 +363,11 @@ struct ChatView: View {
             HStack(alignment: .bottom, spacing: VSpacing.sm) {
                 // Text editor with ghost text / placeholder overlay
                 ZStack(alignment: .topLeading) {
-                    // Hidden measurement text — drives dynamic height
+                    // Invisible sizing text — measures content height
                     Text(inputText.isEmpty ? " " : inputText)
                         .font(VFont.body)
                         .lineSpacing(4)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundColor(.clear)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 8)
                         .background(
@@ -385,16 +375,14 @@ struct ChatView: View {
                                 Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
                             }
                         )
-                        .hidden()
 
                     TextEditor(text: $inputText)
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
                         .lineSpacing(4)
                         .scrollContentBackground(.hidden)
-                        .scrollDisabled(contentHeight <= editorMaxHeight)
-                        .focused($isComposerFocused)
-                        .frame(height: editorHeight)
+                        .scrollDisabled(editorContentHeight <= 200)
+                        .frame(height: min(max(editorContentHeight, 36), 200))
                         .disabled(!hasAPIKey)
                         .accessibilityLabel("Message")
 
@@ -438,7 +426,7 @@ struct ChatView: View {
                 }
                 .onPreferenceChange(ContentHeightKey.self) { height in
                     withAnimation(VAnimation.spring) {
-                        contentHeight = height
+                        editorContentHeight = height
                     }
                 }
                 .onKeyPress(.tab, phases: .down) { keyPress in
@@ -461,7 +449,7 @@ struct ChatView: View {
                     return .ignored
                 }
 
-                // Action buttons — bottom-aligned
+                // Action buttons — bottom-aligned, consistent 28pt height
                 if isSending {
                     Button(action: onStop) {
                         ZStack {
@@ -474,6 +462,7 @@ struct ChatView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .frame(height: 28)
                     .accessibilityLabel("Stop generation")
                 } else {
                     // Send button (when text present) or Mic button
@@ -489,11 +478,13 @@ struct ChatView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .frame(height: 28)
                         .accessibilityLabel("Send message")
                         .transition(.scale.combined(with: .opacity))
                     } else {
                         MicrophoneButton(isRecording: isRecording, action: onMicrophoneToggle)
                             .disabled(!hasAPIKey)
+                            .frame(height: 28)
                             .transition(.scale.combined(with: .opacity))
                     }
 
@@ -501,7 +492,7 @@ struct ChatView: View {
                         Image(systemName: "paperclip")
                             .font(.system(size: 16, weight: .medium))
                             .foregroundColor(VColor.textSecondary)
-                            .padding(6)
+                            .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Attach file")
@@ -516,12 +507,8 @@ struct ChatView: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xxl))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.xxl)
-                .stroke(
-                    isComposerFocused ? VColor.accent.opacity(0.4) : VColor.surfaceBorder.opacity(0.5),
-                    lineWidth: isComposerFocused ? 1.5 : 1
-                )
+                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
         )
-        .animation(VAnimation.fast, value: isComposerFocused)
         .padding(.horizontal, VSpacing.xl)
         .padding(.vertical, VSpacing.lg)
         .frame(maxWidth: 700)
