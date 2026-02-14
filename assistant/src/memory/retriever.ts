@@ -804,10 +804,10 @@ function mergeCandidates(
     const accessCount = meta?.accessCount ?? 0;
     const effectiveImportance = Math.min(1, row.importance + 0.03 * accessCount);
 
-    // Trust-aware ranking: items with higher verification state rank higher
-    const trustWeight = meta
+    // Trust-aware ranking: only apply to item candidates (segments/summaries have no metadata)
+    const trustWeight = (row.type === 'item' && meta)
       ? (TRUST_WEIGHTS[meta.verificationState] ?? DEFAULT_TRUST_WEIGHT)
-      : DEFAULT_TRUST_WEIGHT;
+      : 1.0;
 
     row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight;
   }
