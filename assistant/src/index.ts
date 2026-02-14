@@ -30,6 +30,7 @@ import {
   saveRawConfig,
   getNestedValue,
   setNestedValue,
+  API_KEY_PROVIDERS,
 } from './config/loader.js';
 import {
   getAllRules,
@@ -367,7 +368,7 @@ keys
   .description('List all stored API key names')
   .action(() => {
     const stored: string[] = [];
-    for (const provider of ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks']) {
+    for (const provider of API_KEY_PROVIDERS) {
       const value = getSecureKey(provider);
       if (value) stored.push(provider);
     }

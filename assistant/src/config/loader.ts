@@ -11,7 +11,7 @@ import type { AssistantConfig } from './types.js';
 const log = getLogger('config');
 
 // Providers that store API keys in secure storage (superset of VALID_PROVIDERS)
-const API_KEY_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'brave'] as const;
+export const API_KEY_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'brave'] as const;
 
 let cached: AssistantConfig | null = null;
 let loading = false;
