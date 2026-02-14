@@ -53,18 +53,19 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     pattern: `${tool}:/**`,
     scope: 'everywhere',
     decision: 'ask' as const,
-    priority: 1000,
+    priority: 50,
   }));
 
   // host_bash command candidates are raw commands ("ls", "npm test"), so the
-  // global default ask rule uses "*" instead of a "tool:*" prefix.
+  // global default ask rule uses "**" (globstar) instead of a "tool:*" prefix
+  // because commands often contain "/" (e.g. "cat /etc/hosts").
   const hostShellRule: DefaultRuleTemplate = {
     id: 'default:ask-host_bash-global',
     tool: 'host_bash',
-    pattern: '*',
+    pattern: '**',
     scope: 'everywhere',
     decision: 'ask',
-    priority: 1000,
+    priority: 50,
   };
 
   const computerUseRules = COMPUTER_USE_TOOLS.map((tool) => ({
