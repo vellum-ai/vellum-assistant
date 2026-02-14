@@ -48,6 +48,14 @@ bun install
 bun run src/index.ts daemon start
 ```
 
+## Sandbox and Host Access Model
+
+- Default tool workspace: `~/.vellum/data/sandbox/fs` (persistent global sandbox filesystem).
+- Sandbox-scoped tools: `file_read`, `file_write`, `file_edit`, and `bash`.
+- Explicit host tools: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` (absolute host paths only for host file tools).
+- Host/computer-use prompts: `host_*`, `request_computer_control`, and `cu_*` default to `ask` unless allowlisted/denylisted in trust rules.
+- Runtime override removal: CLI `--no-sandbox` is removed; legacy `sandbox_set` IPC messages are accepted but ignored (deprecated no-op).
+
 ## Remote Access
 
 Access a remote assistant daemon from your local machine via SSH.
