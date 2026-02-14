@@ -119,6 +119,35 @@ struct FeedbackGallerySection: View {
                 VToast(message: "Please check your configuration.", style: .warning)
                 VToast(message: "Something went wrong.", style: .error)
             }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
+            // MARK: - VToast with Actions
+            GallerySectionHeader(
+                title: "VToast with Actions",
+                description: "Error toasts with retry, copy debug, and dismiss actions."
+            )
+
+            VStack(spacing: VSpacing.md) {
+                VToast(
+                    message: "Network error. Check your connection.",
+                    style: .error,
+                    primaryAction: VToastAction(label: "Retry") {},
+                    onDismiss: {}
+                )
+                VToast(
+                    message: "The AI provider returned an error.",
+                    style: .error,
+                    primaryAction: VToastAction(label: "Retry") {},
+                    secondaryAction: VToastAction(label: "Copy Debug Info") {},
+                    onDismiss: {}
+                )
+                VToast(
+                    message: "Session was interrupted.",
+                    style: .warning,
+                    onDismiss: {}
+                )
+            }
         }
     }
 }

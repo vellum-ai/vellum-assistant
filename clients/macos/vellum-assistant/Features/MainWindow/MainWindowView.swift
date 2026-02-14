@@ -45,51 +45,56 @@ struct MainWindowView: View {
                 } else {
                     VSplitView(panelWidth: geometry.size.width / zoomManager.zoomLevel * 0.5, showPanel: activePanel != nil, main: {
                         if let viewModel = threadManager.activeViewModel {
-                            ChatView(
-                                messages: viewModel.messages,
-                                inputText: Binding(
-                                    get: { viewModel.inputText },
-                                    set: { viewModel.inputText = $0 }
-                                ),
-                                hasAPIKey: hasAPIKey,
-                                isThinking: viewModel.isThinking,
-                                isSending: viewModel.isSending,
-                                errorText: viewModel.errorText,
-                                pendingQueuedCount: viewModel.pendingQueuedCount,
-                                suggestion: viewModel.suggestion,
-                                pendingAttachments: viewModel.pendingAttachments,
-                                isRecording: viewModel.isRecording,
-                                onOpenSettings: {
-                                    // Always provide an immediate, visible fallback.
-                                    activePanel = .settings
-                                    Self.openSettings()
-                                },
-                                onSend: viewModel.sendMessage,
-                                onStop: viewModel.stopGenerating,
-                                onDismissError: viewModel.dismissError,
-                                onAcceptSuggestion: viewModel.acceptSuggestion,
-                                onAttach: { Self.openFilePicker(viewModel: viewModel) },
-                                onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                                onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
-                                onDropImageData: { data, name in
-                                    let filename: String
-                                    if let name {
-                                        let basename = (name as NSString).lastPathComponent
-                                        let base = (basename as NSString).deletingPathExtension
-                                        filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
-                                    } else {
-                                        filename = "Dropped Image.png"
-                                    }
-                                    viewModel.addAttachment(imageData: data, filename: filename)
-                                },
-                                onPaste: { viewModel.addAttachmentFromPasteboard() },
-                                onMicrophoneToggle: onMicrophoneToggle,
-                                onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
-                                onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
-                                onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
-                                onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
-                                onRegenerate: { viewModel.regenerateLastMessage() }
-                            )
+                            ZStack(alignment: .bottom) {
+                                ChatView(
+                                    messages: viewModel.messages,
+                                    inputText: Binding(
+                                        get: { viewModel.inputText },
+                                        set: { viewModel.inputText = $0 }
+                                    ),
+                                    hasAPIKey: hasAPIKey,
+                                    isThinking: viewModel.isThinking,
+                                    isSending: viewModel.isSending,
+                                    errorText: viewModel.errorText,
+                                    pendingQueuedCount: viewModel.pendingQueuedCount,
+                                    suggestion: viewModel.suggestion,
+                                    pendingAttachments: viewModel.pendingAttachments,
+                                    isRecording: viewModel.isRecording,
+                                    onOpenSettings: {
+                                        // Always provide an immediate, visible fallback.
+                                        activePanel = .settings
+                                        Self.openSettings()
+                                    },
+                                    onSend: viewModel.sendMessage,
+                                    onStop: viewModel.stopGenerating,
+                                    onDismissError: viewModel.dismissError,
+                                    onAcceptSuggestion: viewModel.acceptSuggestion,
+                                    onAttach: { Self.openFilePicker(viewModel: viewModel) },
+                                    onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                                    onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
+                                    onDropImageData: { data, name in
+                                        let filename: String
+                                        if let name {
+                                            let basename = (name as NSString).lastPathComponent
+                                            let base = (basename as NSString).deletingPathExtension
+                                            filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
+                                        } else {
+                                            filename = "Dropped Image.png"
+                                        }
+                                        viewModel.addAttachment(imageData: data, filename: filename)
+                                    },
+                                    onPaste: { viewModel.addAttachmentFromPasteboard() },
+                                    onMicrophoneToggle: onMicrophoneToggle,
+                                    onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
+                                    onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
+                                    onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
+                                    onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
+                                    onRegenerate: { viewModel.regenerateLastMessage() }
+                                )
+
+                                sessionErrorToast(viewModel: viewModel)
+                            }
+                            .animation(VAnimation.standard, value: viewModel.sessionError != nil)
                         }
                     }, panel: {
                         panelContent
@@ -164,6 +169,29 @@ struct MainWindowView: View {
 
     private func refreshAPIKeyState() {
         hasAPIKey = APIKeyManager.hasAnyKey() || daemonClient.isConnected
+    }
+
+    @ViewBuilder
+    private func sessionErrorToast(viewModel: ChatViewModel) -> some View {
+        if let error = viewModel.sessionError {
+            VToast(
+                message: error.message,
+                style: .error,
+                primaryAction: error.isRetryable ? VToastAction(label: "Retry") {
+                    viewModel.retryAfterSessionError()
+                } : nil,
+                secondaryAction: VToastAction(label: "Copy Debug Info") {
+                    viewModel.copySessionErrorDebugDetails()
+                },
+                onDismiss: {
+                    viewModel.dismissSessionError()
+                }
+            )
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.bottom, 100)
+            .frame(maxWidth: 700)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 
     @ViewBuilder

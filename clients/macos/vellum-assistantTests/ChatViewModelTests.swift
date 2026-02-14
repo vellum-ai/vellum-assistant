@@ -1119,7 +1119,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isSending = true
         viewModel.isThinking = true
 
-        let errorMsg = SessionErrorMessagePayload(
+        let errorMsg = SessionErrorMessage(
             sessionId: "sess-1",
             code: .providerRateLimit,
             userMessage: "Rate limit exceeded",
@@ -1137,7 +1137,7 @@ final class ChatViewModelTests: XCTestCase {
     func testSessionErrorSetsRecoverySuggestion() {
         viewModel.sessionId = "sess-1"
 
-        let errorMsg = SessionErrorMessagePayload(
+        let errorMsg = SessionErrorMessage(
             sessionId: "sess-1",
             code: .providerNetwork,
             userMessage: "Connection failed",
@@ -1155,7 +1155,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isSending = true
         viewModel.isThinking = true
 
-        let errorMsg = SessionErrorMessagePayload(
+        let errorMsg = SessionErrorMessage(
             sessionId: "sess-1",
             code: .providerApi,
             userMessage: "API error",
@@ -1170,7 +1170,7 @@ final class ChatViewModelTests: XCTestCase {
     func testSessionErrorAlsoSetsErrorText() {
         viewModel.sessionId = "sess-1"
 
-        let errorMsg = SessionErrorMessagePayload(
+        let errorMsg = SessionErrorMessage(
             sessionId: "sess-1",
             code: .providerApi,
             userMessage: "Provider returned 500",
@@ -1185,7 +1185,7 @@ final class ChatViewModelTests: XCTestCase {
     func testSessionErrorFromDifferentSessionIsIgnored() {
         viewModel.sessionId = "sess-1"
 
-        let errorMsg = SessionErrorMessagePayload(
+        let errorMsg = SessionErrorMessage(
             sessionId: "sess-other",
             code: .providerNetwork,
             userMessage: "Connection failed",
@@ -1206,7 +1206,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
         XCTAssertTrue(viewModel.messages[1].isStreaming)
 
-        let errorMsg = SessionErrorMessagePayload(
+        let errorMsg = SessionErrorMessage(
             sessionId: "sess-1",
             code: .sessionProcessingFailed,
             userMessage: "Processing failed",
@@ -1234,7 +1234,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
         XCTAssertEqual(viewModel.messages[2].status, .processing)
 
-        let errorMsg = SessionErrorMessagePayload(
+        let errorMsg = SessionErrorMessage(
             sessionId: "sess-1",
             code: .sessionProcessingFailed,
             userMessage: "Processing failed",
@@ -1249,7 +1249,7 @@ final class ChatViewModelTests: XCTestCase {
     func testDismissSessionErrorClearsBothErrorStates() {
         viewModel.sessionId = "sess-1"
 
-        let errorMsg = SessionErrorMessagePayload(
+        let errorMsg = SessionErrorMessage(
             sessionId: "sess-1",
             code: .providerRateLimit,
             userMessage: "Rate limited",
@@ -1269,7 +1269,7 @@ final class ChatViewModelTests: XCTestCase {
     func testSendMessageClearsSessionError() {
         viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
 
-        let errorMsg = SessionErrorMessagePayload(
+        let errorMsg = SessionErrorMessage(
             sessionId: "sess-1",
             code: .providerApi,
             userMessage: "API error",
@@ -1302,7 +1302,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response")))
         viewModel.stopGenerating()
 
-        let errorMsg = SessionErrorMessagePayload(
+        let errorMsg = SessionErrorMessage(
             sessionId: "sess-1",
             code: .sessionAborted,
             userMessage: "Session aborted",
@@ -1320,7 +1320,7 @@ final class ChatViewModelTests: XCTestCase {
     func testSessionErrorNonRetryableFlag() {
         viewModel.sessionId = "sess-1"
 
-        let errorMsg = SessionErrorMessagePayload(
+        let errorMsg = SessionErrorMessage(
             sessionId: "sess-1",
             code: .queueFull,
             userMessage: "Queue is full",
@@ -1335,7 +1335,7 @@ final class ChatViewModelTests: XCTestCase {
     func testSessionErrorReplacedBySubsequentError() {
         viewModel.sessionId = "sess-1"
 
-        let firstError = SessionErrorMessagePayload(
+        let firstError = SessionErrorMessage(
             sessionId: "sess-1",
             code: .providerNetwork,
             userMessage: "Network error",
@@ -1344,7 +1344,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.sessionError(firstError))
         XCTAssertEqual(viewModel.sessionError?.category, .providerNetwork)
 
-        let secondError = SessionErrorMessagePayload(
+        let secondError = SessionErrorMessage(
             sessionId: "sess-1",
             code: .providerRateLimit,
             userMessage: "Rate limited",

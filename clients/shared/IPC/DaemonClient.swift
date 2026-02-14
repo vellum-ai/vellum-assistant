@@ -128,7 +128,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `session_error` message with typed error information.
-    public var onSessionError: ((SessionErrorMessagePayload) -> Void)?
+    public var onSessionError: ((SessionErrorMessage) -> Void)?
 
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
