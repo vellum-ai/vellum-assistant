@@ -120,7 +120,9 @@ final class ChatViewModel: ObservableObject {
             filename: filename,
             mimeType: mimeType,
             data: base64,
-            thumbnailData: thumbnail
+            thumbnailData: thumbnail,
+            dataLength: base64.count,
+            thumbnailImage: thumbnail.flatMap { NSImage(data: $0) }
         )
         pendingAttachments.append(attachment)
     }
@@ -166,7 +168,9 @@ final class ChatViewModel: ObservableObject {
             filename: "Pasted Image.png",
             mimeType: "image/png",
             data: base64,
-            thumbnailData: thumbnail
+            thumbnailData: thumbnail,
+            dataLength: base64.count,
+            thumbnailImage: thumbnail.flatMap { NSImage(data: $0) }
         )
         pendingAttachments.append(attachment)
     }

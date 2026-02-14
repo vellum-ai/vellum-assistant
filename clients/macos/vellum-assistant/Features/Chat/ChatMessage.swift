@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum ChatRole: String {
@@ -107,6 +108,13 @@ struct ChatAttachment: Identifiable {
     let data: String
     /// Pre-rendered thumbnail for image attachments (resized to 120px max dimension).
     let thumbnailData: Data?
+    /// Pre-computed length of `data` to avoid O(n) String.count during rendering.
+    /// Swift's String.count iterates the entire string to count grapheme clusters,
+    /// which is expensive for multi-MB base64 strings on every SwiftUI render pass.
+    let dataLength: Int
+    /// Pre-decoded thumbnail NSImage, cached to avoid decoding PNG data on every
+    /// SwiftUI render pass (each keystroke triggers a re-evaluation of the composer).
+    let thumbnailImage: NSImage?
 }
 
 struct SkillInvocationData: Equatable {

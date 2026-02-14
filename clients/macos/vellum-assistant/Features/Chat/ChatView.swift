@@ -323,13 +323,12 @@ struct ChatView: View {
     }
 
     private func attachmentChip(_ attachment: ChatAttachment) -> some View {
-        let fileSize = formattedFileSize(base64Length: attachment.data.count)
+        let fileSize = formattedFileSize(base64Length: attachment.dataLength)
         let isImage = attachment.mimeType.hasPrefix("image/")
 
         return VStack(spacing: VSpacing.xxs) {
             ZStack(alignment: .topTrailing) {
-                if isImage, let thumbnailData = attachment.thumbnailData,
-                   let nsImage = NSImage(data: thumbnailData) {
+                if isImage, let nsImage = attachment.thumbnailImage {
                     Image(nsImage: nsImage)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
@@ -644,7 +643,7 @@ private struct ChatBubble: View {
                 .foregroundColor(isUser ? .white : VColor.textPrimary)
                 .lineLimit(1)
 
-            Text(formattedFileSize(base64Length: attachment.data.count))
+            Text(formattedFileSize(base64Length: attachment.dataLength))
                 .font(VFont.small)
                 .foregroundColor(isUser ? .white.opacity(0.6) : VColor.textMuted)
         }
