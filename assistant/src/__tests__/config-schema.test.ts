@@ -79,7 +79,7 @@ describe('AssistantConfigSchema', () => {
       shellMaxTimeoutSec: 600,
       permissionTimeoutSec: 300,
     });
-    expect(result.sandbox).toEqual({ enabled: false });
+    expect(result.sandbox).toEqual({ enabled: true });
     expect(result.rateLimit).toEqual({ maxRequestsPerMinute: 0, maxTokensPerSession: 0 });
     expect(result.secretDetection).toEqual({ enabled: true, action: 'warn', entropyThreshold: 4.0 });
     expect(result.auditLog).toEqual({ retentionDays: 0 });
@@ -397,7 +397,7 @@ describe('loadConfig with schema validation', () => {
   test('falls back for invalid sandbox.enabled', () => {
     writeConfig({ sandbox: { enabled: 'yes' } });
     const config = loadConfig();
-    expect(config.sandbox.enabled).toBe(false);
+    expect(config.sandbox.enabled).toBe(true);
   });
 
   test('falls back for invalid contextWindow relationship', () => {

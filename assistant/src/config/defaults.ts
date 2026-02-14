@@ -86,7 +86,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     permissionTimeoutSec: 300,
   },
   sandbox: {
-    enabled: false,
+    enabled: true,
   },
   rateLimit: {
     maxRequestsPerMinute: 0,

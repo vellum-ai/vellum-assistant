@@ -26,7 +26,7 @@ export const TimeoutConfigSchema = z.object({
 export const SandboxConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'sandbox.enabled must be a boolean' })
-    .default(false),
+    .default(true),
 });
 
 export const RateLimitConfigSchema = z.object({
@@ -527,7 +527,7 @@ export const AssistantConfigSchema = z.object({
     permissionTimeoutSec: 300,
   }),
   sandbox: SandboxConfigSchema.default({
-    enabled: false,
+    enabled: true,
   }),
   rateLimit: RateLimitConfigSchema.default({
     maxRequestsPerMinute: 0,
