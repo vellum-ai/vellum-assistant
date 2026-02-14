@@ -359,26 +359,53 @@ struct ChatView: View {
             }
 
             HStack(alignment: .center, spacing: VSpacing.sm) {
-                // Text input with built-in placeholder and vertical centering
-                TextField("What would you like to do?", text: $inputText, axis: .vertical)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .lineSpacing(4)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...10)
-                    .disabled(!hasAPIKey)
-                    .accessibilityLabel("Message")
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear
-                                .onAppear { editorContentHeight = geo.size.height }
-                                .onChange(of: geo.size.height) { _, h in
-                                    withAnimation(VAnimation.spring) {
-                                        editorContentHeight = h
+                // Text input with ghost text overlay and vertical centering
+                ZStack(alignment: .leading) {
+                    TextField("What would you like to do?", text: $inputText, axis: .vertical)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .lineSpacing(4)
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...10)
+                        .disabled(!hasAPIKey)
+                        .accessibilityLabel("Message")
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear
+                                    .onAppear { editorContentHeight = geo.size.height }
+                                    .onChange(of: geo.size.height) { _, h in
+                                        withAnimation(VAnimation.spring) {
+                                            editorContentHeight = h
+                                        }
                                     }
+                            }
+                        )
+
+                    // Ghost text overlay — shows the suggested suffix so users
+                    // know what Tab will insert. Without this visual cue, Tab
+                    // must not silently mutate the draft.
+                    if let ghostSuffix {
+                        Text(inputText + ghostSuffix)
+                            .font(VFont.body)
+                            .lineSpacing(4)
+                            .foregroundColor(.clear)
+                            .lineLimit(1...10)
+                            .overlay(alignment: .leading) {
+                                HStack(spacing: 0) {
+                                    Text(inputText)
+                                        .font(VFont.body)
+                                        .lineSpacing(4)
+                                        .foregroundColor(.clear)
+                                    Text(ghostSuffix)
+                                        .font(VFont.body)
+                                        .lineSpacing(4)
+                                        .foregroundColor(VColor.textMuted.opacity(0.5))
                                 }
-                        }
-                    )
+                            }
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
                 .onKeyPress(.tab, phases: .down) { keyPress in
                     if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
                         onAcceptSuggestion()
