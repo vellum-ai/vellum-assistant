@@ -59,7 +59,17 @@ struct MainWindowView: View {
                             onAttach: { Self.openFilePicker(viewModel: viewModel) },
                             onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
                             onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
-                            onDropImageData: { data, name in viewModel.addAttachment(imageData: data, filename: name ?? "Dropped Image.png") },
+                            onDropImageData: { data, name in
+                                let filename: String
+                                if let name {
+                                    let basename = (name as NSString).lastPathComponent
+                                    let base = (basename as NSString).deletingPathExtension
+                                    filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
+                                } else {
+                                    filename = "Dropped Image.png"
+                                }
+                                viewModel.addAttachment(imageData: data, filename: filename)
+                            },
                             onPaste: { viewModel.addAttachmentFromPasteboard() },
                             onMicrophoneToggle: onMicrophoneToggle,
                             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
