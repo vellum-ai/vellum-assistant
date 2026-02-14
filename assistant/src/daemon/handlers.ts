@@ -42,8 +42,6 @@ import type {
   RemoveTrustRule,
   UpdateTrustRule,
   BundleAppRequest,
-  OpenBundleRequest,
-  SharedAppsListRequest,
   SharedAppDeleteRequest,
 } from './ipc-protocol.js';
 import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
@@ -1530,7 +1528,6 @@ function handleSharedAppDelete(
 
     ctx.send(socket, { type: 'shared_app_delete_response', success: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Failed to delete shared app');
     ctx.send(socket, { type: 'shared_app_delete_response', success: false });
   }
