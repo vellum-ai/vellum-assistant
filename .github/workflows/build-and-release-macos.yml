@@ -82,7 +82,7 @@ jobs:
       - name: Zip assistant directory
         run: |
           mkdir -p build
-          (cd ../.. && zip -r clients/macos/build/assistant.zip assistant/)
+          (cd ../../assistant && zip -r ../clients/macos/build/assistant.zip .)
           ls -lh build/assistant.zip
 
       - name: Install Bun
