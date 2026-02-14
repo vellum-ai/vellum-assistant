@@ -76,15 +76,27 @@ struct TraceTimelineView: View {
 
     @ViewBuilder
     private func requestGroup(_ requestId: String, events: [TraceStore.StoredEvent]) -> some View {
+        let groupStatus = traceStore.requestGroupStatus(sessionId: sessionId, requestId: requestId)
+
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "arrow.right.circle")
+                Image(systemName: groupStatusIcon(groupStatus))
                     .font(.system(size: 10))
-                    .foregroundColor(Emerald._400)
+                    .foregroundColor(groupStatusColor(groupStatus))
 
                 Text(requestId.isEmpty ? "System" : "Request \(requestId.prefix(8))")
                     .font(VFont.captionMedium)
                     .foregroundColor(VColor.textSecondary)
+
+                if groupStatus == .cancelled {
+                    Text("Cancelled")
+                        .font(VFont.small)
+                        .foregroundColor(Amber._500)
+                } else if groupStatus == .error {
+                    Text("Error")
+                        .font(VFont.small)
+                        .foregroundColor(Rose._500)
+                }
 
                 Rectangle()
                     .fill(VColor.surfaceBorder)
@@ -94,6 +106,24 @@ struct TraceTimelineView: View {
             ForEach(events) { event in
                 eventRow(event)
             }
+        }
+    }
+
+    private func groupStatusIcon(_ status: TraceStore.RequestGroupStatus) -> String {
+        switch status {
+        case .active: return "arrow.right.circle"
+        case .completed: return "checkmark.circle.fill"
+        case .cancelled: return "xmark.circle.fill"
+        case .error: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private func groupStatusColor(_ status: TraceStore.RequestGroupStatus) -> Color {
+        switch status {
+        case .active: return Emerald._400
+        case .completed: return Emerald._400
+        case .cancelled: return Amber._500
+        case .error: return Rose._500
         }
     }
 

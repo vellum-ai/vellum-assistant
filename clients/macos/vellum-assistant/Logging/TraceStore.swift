@@ -89,6 +89,47 @@ public final class TraceStore: ObservableObject {
         return Dictionary(grouping: events) { $0.requestId ?? "" }
     }
 
+    // MARK: - Request Group Status
+
+    /// Terminal status for a request group.
+    public enum RequestGroupStatus: Sendable {
+        case active
+        case completed
+        case cancelled
+        case error
+    }
+
+    /// Determines the terminal status of a request group by inspecting its events.
+    ///
+    /// A request is considered terminal when it contains a `request_finished`,
+    /// `request_cancelled`, or `request_failed` event. If none of those are present
+    /// but any event has `status == "error"`, the group is marked as error.
+    public func requestGroupStatus(sessionId: String, requestId: String) -> RequestGroupStatus {
+        let key = requestId.isEmpty ? "" : requestId
+        let grouped = eventsByRequest(sessionId: sessionId)
+        guard let events = grouped[key] else { return .active }
+
+        for event in events {
+            switch event.kind {
+            case "request_cancelled":
+                return .cancelled
+            case "request_failed":
+                return .error
+            case "request_finished":
+                return .completed
+            default:
+                break
+            }
+        }
+
+        // Fall back to checking individual event status fields.
+        if events.contains(where: { $0.status == "error" }) {
+            return .error
+        }
+
+        return .active
+    }
+
     // MARK: - Derived Metrics
 
     /// Number of unique requestIds in a session.
