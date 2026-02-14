@@ -87,7 +87,7 @@ mock.module('../agent/loop.js', () => ({
     async run(messages: Message[], onEvent: (event: Record<string, unknown>) => void): Promise<Message[]> {
       capturedRunMessages = messages;
       // Emit usage event so processMessage doesn't error
-      onEvent({ type: 'usage', inputTokens: 0, outputTokens: 0, model: 'mock' });
+      onEvent({ type: 'usage', inputTokens: 0, outputTokens: 0, model: 'mock', providerDurationMs: 0 });
       // Return messages with an assistant response appended
       return [
         ...messages,

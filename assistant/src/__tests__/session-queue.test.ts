@@ -202,7 +202,7 @@ function resolveRun(index: number) {
     role: 'assistant',
     content: [{ type: 'text', text: `reply-${index}` }],
   };
-  run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock' });
+  run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
   run.onEvent({ type: 'message_complete', message: assistantMsg });
   // Return updated history with the assistant message appended
   run.resolve([...run.messages, assistantMsg]);

@@ -603,13 +603,37 @@ export class Session {
       let deferredOrderingError: string | null = null;
       let preRunHistoryLength = runMessages.length;
 
+      // Track whether llm_call_started has been emitted for the current provider turn.
+      // Reset on each usage event (which marks the end of a provider call).
+      let llmCallStartedEmitted = false;
+
       const buildEventHandler = () => (event: import('../agent/loop.js').AgentEvent) => {
         switch (event.type) {
           case 'text_delta':
+            // Emit llm_call_started on the first streaming token of each provider call
+            if (!llmCallStartedEmitted) {
+              llmCallStartedEmitted = true;
+              this.traceEmitter.emit('llm_call_started', `LLM call to ${this.provider.name}`, {
+                requestId: reqId,
+                status: 'info',
+                attributes: { provider: this.provider.name, model: model || 'unknown' },
+              });
+            }
             onEvent({ type: 'assistant_text_delta', text: event.text, sessionId: this.conversationId });
             if (isFirstMessage) firstAssistantText += event.text;
             break;
           case 'thinking_delta':
+            // Emit llm_call_started on first thinking token if not already emitted.
+            // Thinking content itself is NOT included in traces to avoid leaking
+            // extended-thinking data.
+            if (!llmCallStartedEmitted) {
+              llmCallStartedEmitted = true;
+              this.traceEmitter.emit('llm_call_started', `LLM call to ${this.provider.name}`, {
+                requestId: reqId,
+                status: 'info',
+                attributes: { provider: this.provider.name, model: model || 'unknown' },
+              });
+            }
             onEvent({ type: 'assistant_thinking_delta', thinking: event.thinking });
             break;
           case 'tool_use':
@@ -662,12 +686,43 @@ export class Session {
               'assistant',
               JSON.stringify(event.message.content),
             );
+
+            // Emit assistant_message trace with content metrics.
+            // Char count only includes text blocks; thinking blocks are
+            // explicitly excluded from traces.
+            const charCount = event.message.content
+              .filter((b) => b.type === 'text')
+              .reduce((sum, b) => sum + ((b as { type: 'text'; text: string }).text?.length ?? 0), 0);
+            const toolUseCount = event.message.content
+              .filter((b) => b.type === 'tool_use')
+              .length;
+            this.traceEmitter.emit('assistant_message', 'Assistant message complete', {
+              requestId: reqId,
+              status: 'success',
+              attributes: { charCount, toolUseCount },
+            });
             break;
           }
           case 'usage':
             exchangeInputTokens += event.inputTokens;
             exchangeOutputTokens += event.outputTokens;
             model = event.model;
+
+            // Emit llm_call_finished trace with token and latency metrics
+            this.traceEmitter.emit('llm_call_finished', `LLM call to ${this.provider.name} finished`, {
+              requestId: reqId,
+              status: 'success',
+              attributes: {
+                provider: this.provider.name,
+                model: event.model,
+                inputTokens: event.inputTokens,
+                outputTokens: event.outputTokens,
+                latencyMs: event.providerDurationMs,
+              },
+            });
+            // Reset flag so the next provider call in this agent loop run
+            // gets its own llm_call_started trace
+            llmCallStartedEmitted = false;
             break;
         }
       };

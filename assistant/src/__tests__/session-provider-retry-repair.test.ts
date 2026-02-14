@@ -102,7 +102,7 @@ mock.module('../agent/loop.js', () => ({
 
       if (shouldEmitOrderingError && agentLoopRunCount === 1) {
         // First call: simulate provider ordering error (no messages appended)
-        onEvent({ type: 'usage', inputTokens: 0, outputTokens: 0, model: 'mock' });
+        onEvent({ type: 'usage', inputTokens: 0, outputTokens: 0, model: 'mock', providerDurationMs: 0 });
         onEvent({
           type: 'error',
           error: new Error('tool_result blocks that are not immediately after a tool_use block'),
@@ -111,7 +111,7 @@ mock.module('../agent/loop.js', () => ({
       }
 
       // Second call (retry) or non-error: succeed normally
-      onEvent({ type: 'usage', inputTokens: 10, outputTokens: 20, model: 'mock' });
+      onEvent({ type: 'usage', inputTokens: 10, outputTokens: 20, model: 'mock', providerDurationMs: 50 });
       const history = [...messages];
       const assistantMsg: Message = {
         role: 'assistant',

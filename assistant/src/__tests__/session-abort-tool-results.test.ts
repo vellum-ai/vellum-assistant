@@ -111,7 +111,7 @@ mock.module('../agent/loop.js', () => ({
         ],
       };
       history.push(assistantMessage);
-      onEvent({ type: 'usage', inputTokens: 10, outputTokens: 20, model: 'mock' });
+      onEvent({ type: 'usage', inputTokens: 10, outputTokens: 20, model: 'mock', providerDurationMs: 50 });
       onEvent({ type: 'message_complete', message: assistantMessage });
 
       // First tool completes — fires tool_result event
