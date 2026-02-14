@@ -50,7 +50,7 @@ CMD="${1:-build}"
 case "$CMD" in
     test)
         echo "Running tests..."
-        swift test --filter vellum-assistantTests
+        swift test --filter vellum_assistantTests
         exit 0
         ;;
     lint)
