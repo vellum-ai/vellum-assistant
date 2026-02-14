@@ -698,7 +698,7 @@ function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
     description: r.summary.description,
     emoji: r.summary.emoji,
     homepage: r.summary.homepage,
-    source: r.summary.source as 'bundled' | 'managed' | 'workspace' | 'clawhub',
+    source: r.summary.source as 'bundled' | 'managed' | 'workspace' | 'clawhub' | 'extra',
     state: (r.state === 'degraded' ? 'enabled' : r.state) as 'enabled' | 'disabled' | 'available',
     degraded: r.degraded,
     missingRequirements: r.missingRequirements,

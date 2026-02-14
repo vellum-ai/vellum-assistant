@@ -497,7 +497,7 @@ struct SkillInfo: Codable, Sendable, Identifiable {
     let description: String
     let emoji: String?
     let homepage: String?
-    let source: String  // "bundled" | "managed" | "workspace" | "clawhub"
+    let source: String  // "bundled" | "managed" | "workspace" | "clawhub" | "extra"
     let state: String   // "enabled" | "disabled" | "available"
     let degraded: Bool
     let missingRequirements: MissingRequirements?

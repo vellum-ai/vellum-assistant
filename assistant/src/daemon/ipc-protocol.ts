@@ -647,7 +647,7 @@ export interface SkillsListResponse {
     description: string;
     emoji?: string;
     homepage?: string;
-    source: 'bundled' | 'managed' | 'workspace' | 'clawhub';
+    source: 'bundled' | 'managed' | 'workspace' | 'clawhub' | 'extra';
     state: 'enabled' | 'disabled' | 'available';
     degraded: boolean;
     missingRequirements?: { bins?: string[]; env?: string[]; permissions?: string[] };
