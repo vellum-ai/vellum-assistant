@@ -111,7 +111,8 @@ describe('Trust Store', () => {
       addRule('bash', 'med *', '/tmp', 'allow', 1);
       const rules = getAllRules();
       // Default ask rules have higher priority than user rules
-      expect(rules[0].priority).toBe(1000);
+      const maxDefaultPriority = Math.max(...DEFAULT_TEMPLATES.map((t) => t.priority));
+      expect(rules[0].priority).toBe(maxDefaultPriority);
       const userRules = rules.filter((r) => !r.id.startsWith('default:'));
       expect(userRules[0].priority).toBe(2);
       expect(userRules[1].priority).toBe(1);
@@ -675,7 +676,7 @@ describe('Trust Store', () => {
       const match = findHighestPriorityRule('file_read', [`file_read:${protectedPath}`], '/tmp');
       expect(match).not.toBeNull();
       expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(1000);
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-file_read-protected')!);
     });
 
     test('findHighestPriorityRule matches default ask for protected file_write', () => {
@@ -729,7 +730,7 @@ describe('Trust Store', () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe('default:ask-cu_click-global');
       expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(1000);
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-cu_click-global')!);
     });
 
     test('findHighestPriorityRule matches default ask for request_computer_control', () => {
@@ -737,7 +738,7 @@ describe('Trust Store', () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe('default:ask-request_computer_control-global');
       expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(1000);
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-request_computer_control-global')!);
     });
 
     test('default ask does not affect files outside protected directory', () => {
