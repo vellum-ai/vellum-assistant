@@ -100,7 +100,7 @@ struct ChatView: View {
     /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
     private var composerReservedHeight: CGFloat {
         let editorClamped = min(max(editorContentHeight, 36), 200)
-        let base: CGFloat = VSpacing.lg * 2 + VSpacing.md * 2 + editorClamped + 8
+        let base: CGFloat = VSpacing.md * 2 + VSpacing.sm * 2 + editorClamped + 4
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 44
         let error: CGFloat = errorText != nil ? 36 : 0
         let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
@@ -142,13 +142,12 @@ struct ChatView: View {
             LinearGradient(
                 stops: [
                     .init(color: VColor.chatBackground.opacity(0), location: 0),
-                    .init(color: VColor.chatBackground.opacity(0.85), location: 0.5),
-                    .init(color: VColor.chatBackground, location: 1.0)
+                    .init(color: VColor.chatBackground.opacity(0.85), location: 1.0)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 32)
+            .frame(height: 16)
             .allowsHitTesting(false)
 
             VStack(spacing: 0) {
@@ -158,7 +157,7 @@ struct ChatView: View {
                 queueSummary
                 composerArea
             }
-            .background(VColor.chatBackground)
+            .background(VColor.chatBackground.opacity(0.85))
         }
     }
 
@@ -390,7 +389,7 @@ struct ChatView: View {
                 attachmentStrip
             }
 
-            HStack(alignment: .bottom, spacing: VSpacing.sm) {
+            HStack(alignment: .center, spacing: VSpacing.sm) {
                 // Text editor with ghost text / placeholder overlay
                 ZStack(alignment: .topLeading) {
                     TextEditor(text: $inputText)
@@ -532,8 +531,8 @@ struct ChatView: View {
             }
             .animation(VAnimation.spring, value: canSend)
         }
-        .padding(.horizontal, VSpacing.xl)
-        .padding(.vertical, VSpacing.md)
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
         .background(VColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xxl))
         .overlay(
@@ -541,7 +540,7 @@ struct ChatView: View {
                 .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
         )
         .padding(.horizontal, VSpacing.xl)
-        .padding(.vertical, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
     }
