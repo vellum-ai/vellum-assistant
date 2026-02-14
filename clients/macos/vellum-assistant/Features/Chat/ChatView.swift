@@ -128,6 +128,7 @@ struct ChatView: View {
         storage.addLayoutManager(layoutManager)
         layoutManager.ensureLayout(for: container)
         let textHeight = layoutManager.usedRect(for: container).height
+            + layoutManager.extraLineFragmentRect.height
         // Add vertical padding matching the TextEditor's internal insets
         let newHeight = textHeight + 16
         withAnimation(VAnimation.spring) {
