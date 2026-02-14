@@ -88,7 +88,10 @@ struct MainWindowView: View {
                                 onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
                                 onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
                                 onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
-                                onRegenerate: { viewModel.regenerateLastMessage() }
+                                onRegenerate: { viewModel.regenerateLastMessage() },
+                                sessionError: viewModel.sessionError,
+                                onRetry: { viewModel.regenerateLastMessage() },
+                                onDismissSessionError: { viewModel.dismissSessionError() }
                             )
                         }
                     }, panel: {

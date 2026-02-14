@@ -74,7 +74,7 @@ public struct SessionError: Equatable {
     public let recoverySuggestion: String
     public let sessionId: String
 
-    public init(from msg: SessionErrorMessagePayload) {
+    public init(from msg: SessionErrorMessage) {
         self.category = SessionErrorCategory(from: msg.code)
         self.message = msg.userMessage
         self.isRetryable = msg.retryable
