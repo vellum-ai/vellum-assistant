@@ -106,6 +106,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var recordingViewModel: ChatViewModel?
     private var statusIconCancellable: AnyCancellable?
     private var cachedSkills: [SkillInfo] = []
+    private var refreshSkillsTask: Task<Void, Never>?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -160,6 +161,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         daemonClient.onOpenBundleResponse = { [weak self] response in
             guard let self else { return }
             self.handleOpenBundleResponse(response)
+        }
+
+        // Refresh skills cache whenever skill state changes through any path
+        daemonClient.onSkillStateChanged = { [weak self] _ in
+            self?.refreshSkillsCache()
         }
 
         // Handle escalation: text_qa -> computer_use via request_computer_control
@@ -542,12 +548,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshSkillsCache() {
-        Task {
+        // Cancel any in-flight refresh so we don't consume a stale response.
+        // The new task will send its own request and wait for the next response,
+        // ensuring the cache always reflects the latest daemon state.
+        refreshSkillsTask?.cancel()
+        refreshSkillsTask = Task {
             let stream = daemonClient.subscribe()
             do {
                 try daemonClient.send(SkillsListRequestMessage())
             } catch { return }
             for await message in stream {
+                guard !Task.isCancelled else { return }
                 if case .skillsListResponse(let response) = message {
                     self.cachedSkills = response.skills
                     return
