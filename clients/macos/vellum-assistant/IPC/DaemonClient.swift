@@ -26,6 +26,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     @Published var isConnected: Bool = false
 
+    /// Shared flag so only one TrustRulesView sheet is open at a time across SettingsPanel and SettingsView.
+    /// Both surfaces bind to this instead of local @State, preventing the second sheet from overwriting
+    /// the first sheet's `onTrustRulesListResponse` callback on DaemonClient.
+    @Published var isTrustRulesSheetOpen: Bool = false
+
     // MARK: - Surface Event Callbacks
 
     /// Called when the daemon sends a `ui_surface_show` message.
