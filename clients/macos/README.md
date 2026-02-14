@@ -312,9 +312,15 @@ Features/Chat/        Main window chat interface
   ChatMessage         Message model (role, text, streaming state)
   ChatView            Presentational view (bubbles, composer, thinking, error banner)
   ChatViewModel       Session bootstrap, streaming, cancel via daemon IPC
+Features/MainWindow/Panels/
+  DebugPanel          Real-time trace viewer (metrics strip + timeline)
+  TraceTimelineView   Events grouped by requestId with status indicators
+  TraceRowView        Individual trace event display
 UI/                   SwiftUI views + overlay windows
   Onboarding/         First-launch setup flow (permissions, naming, Fn key)
-Logging/              Session recording to JSON
+Logging/
+  TraceStore          In-memory trace event store (per-session, dedup, retention cap)
+  Session recording   JSON logs to ~/Library/App Support/
 ```
 
 ## Remote Daemon

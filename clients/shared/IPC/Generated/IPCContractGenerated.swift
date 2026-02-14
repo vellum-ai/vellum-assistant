@@ -506,6 +506,15 @@ public struct IPCSessionCreateRequest: Codable, Sendable {
     public let correlationId: String?
 }
 
+public struct IPCSessionErrorMessage: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let code: String
+    public let userMessage: String
+    public let retryable: Bool
+    public let debugDetails: String?
+}
+
 public struct IPCSessionInfo: Codable, Sendable {
     public let type: String
     public let sessionId: String
@@ -843,6 +852,19 @@ public struct IPCToolUseStart: Codable, Sendable {
     public let toolName: String
     public let input: [String: AnyCodable]
     public let sessionId: String?
+}
+
+public struct IPCTraceEvent: Codable, Sendable {
+    public let type: String
+    public let eventId: String
+    public let sessionId: String
+    public let requestId: String?
+    public let timestampMs: Double
+    public let sequence: Double
+    public let kind: String
+    public let status: String?
+    public let summary: String
+    public let attributes: [String: AnyCodable]?
 }
 
 public struct IPCTrustRulesList: Codable, Sendable {

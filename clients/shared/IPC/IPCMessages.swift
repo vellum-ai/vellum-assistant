@@ -514,47 +514,36 @@ public struct GetSigningIdentityResponseMessage: Encodable, Sendable {
 }
 
 // MARK: - Server → Client Messages (Decodable)
+//
+// These typealiases point to the auto-generated IPC types in
+// IPCContractGenerated.swift. Convenience inits preserve backward
+// compatibility with existing call sites (the generated structs
+// include a `type` field that the old hand-maintained types omitted).
 
 /// Action to execute from the inference server.
-public struct CuActionMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let toolName: String
-    public let input: [String: AnyCodable]
-    public let reasoning: String?
-    public let stepNumber: Int
+public typealias CuActionMessage = IPCCuAction
 
+extension IPCCuAction {
     public init(sessionId: String, toolName: String, input: [String: AnyCodable], reasoning: String?, stepNumber: Int) {
-        self.sessionId = sessionId
-        self.toolName = toolName
-        self.input = input
-        self.reasoning = reasoning
-        self.stepNumber = stepNumber
+        self.init(type: "cu_action", sessionId: sessionId, toolName: toolName, input: input, reasoning: reasoning, stepNumber: stepNumber)
     }
 }
 
 /// Session completed successfully.
-public struct CuCompleteMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let summary: String
-    public let stepCount: Int
-    public let isResponse: Bool?
+public typealias CuCompleteMessage = IPCCuComplete
 
+extension IPCCuComplete {
     public init(sessionId: String, summary: String, stepCount: Int, isResponse: Bool?) {
-        self.sessionId = sessionId
-        self.summary = summary
-        self.stepCount = stepCount
-        self.isResponse = isResponse
+        self.init(type: "cu_complete", sessionId: sessionId, summary: summary, stepCount: stepCount, isResponse: isResponse)
     }
 }
 
 /// Session-level error from the server.
-public struct CuErrorMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let message: String
+public typealias CuErrorMessage = IPCCuError
 
+extension IPCCuError {
     public init(sessionId: String, message: String) {
-        self.sessionId = sessionId
-        self.message = message
+        self.init(type: "cu_error", sessionId: sessionId, message: message)
     }
 }
 
@@ -569,11 +558,11 @@ extension IPCAssistantTextDelta {
 }
 
 /// Streamed thinking delta from the assistant's reasoning.
-public struct AssistantThinkingDeltaMessage: Decodable, Sendable {
-    public let thinking: String
+public typealias AssistantThinkingDeltaMessage = IPCAssistantThinkingDelta
 
+extension IPCAssistantThinkingDelta {
     public init(thinking: String) {
-        self.thinking = thinking
+        self.init(type: "assistant_thinking_delta", thinking: thinking)
     }
 }
 
@@ -598,22 +587,10 @@ extension IPCSessionInfo {
 }
 
 /// Daemon response after classifying and routing a task_submit.
-public struct TaskRoutedMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let interactionType: String
-    /// The task text passed to the escalated session.
-    public let task: String?
-    /// Set when a text_qa session escalates to computer_use via request_computer_control.
-    public let escalatedFrom: String?
-}
+public typealias TaskRoutedMessage = IPCTaskRouted
 
 /// Result from ambient observation analysis.
-public struct AmbientResultMessage: Decodable, Sendable {
-    public let requestId: String
-    public let decision: String
-    public let summary: String?
-    public let suggestion: String?
-}
+public typealias AmbientResultMessage = IPCAmbientResult
 
 /// Surface show command from daemon.
 /// Wire type: `"ui_surface_show"`
@@ -660,12 +637,11 @@ public struct UiSurfaceDismissMessage: Decodable, Sendable {
 }
 
 /// Confirms undo/regenerate removed messages.
-public struct UndoCompleteMessage: Decodable, Sendable {
-    public let removedCount: Int
-    public let sessionId: String?
-}
+public typealias UndoCompleteMessage = IPCUndoComplete
 
 /// Confirms generation was cancelled.
+/// NOTE: Kept hand-maintained because the Swift type includes `sessionId`
+/// which the TS contract does not define for this message type.
 public struct GenerationCancelledMessage: Decodable, Sendable {
     public let sessionId: String?
 
@@ -675,42 +651,29 @@ public struct GenerationCancelledMessage: Decodable, Sendable {
 }
 
 /// Notifies client that active generation yielded to queued work at a checkpoint.
-/// Wire type: `"generation_handoff"`
-public struct GenerationHandoffMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let requestId: String?
-    public let queuedCount: Int
+public typealias GenerationHandoffMessage = IPCGenerationHandoff
 
+extension IPCGenerationHandoff {
     public init(sessionId: String, requestId: String?, queuedCount: Int) {
-        self.sessionId = sessionId
-        self.requestId = requestId
-        self.queuedCount = queuedCount
+        self.init(type: "generation_handoff", sessionId: sessionId, requestId: requestId, queuedCount: queuedCount)
     }
 }
 
 /// Notifies client that a message has been queued for processing.
-/// Wire type: `"message_queued"`
-public struct MessageQueuedMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let requestId: String
-    public let position: Int
+public typealias MessageQueuedMessage = IPCMessageQueued
 
+extension IPCMessageQueued {
     public init(sessionId: String, requestId: String, position: Int) {
-        self.sessionId = sessionId
-        self.requestId = requestId
-        self.position = position
+        self.init(type: "message_queued", sessionId: sessionId, requestId: requestId, position: position)
     }
 }
 
 /// Notifies client that a queued message has been dequeued and is now being processed.
-/// Wire type: `"message_dequeued"`
-public struct MessageDequeuedMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let requestId: String
+public typealias MessageDequeuedMessage = IPCMessageDequeued
 
+extension IPCMessageDequeued {
     public init(sessionId: String, requestId: String) {
-        self.sessionId = sessionId
-        self.requestId = requestId
+        self.init(type: "message_dequeued", sessionId: sessionId, requestId: requestId)
     }
 }
 

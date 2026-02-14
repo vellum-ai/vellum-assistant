@@ -29,6 +29,9 @@ struct ChatView: View {
     let onAddTrustRule: (String, String, String, String) -> Bool
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onRegenerate: () -> Void
+    let sessionError: SessionError?
+    let onRetry: () -> Void
+    let onDismissSessionError: () -> Void
 
     /// The portion of the suggestion that extends beyond the current input.
     private var ghostSuffix: String? {
@@ -103,14 +106,16 @@ struct ChatView: View {
         // text area + button row (28pt) + button top padding (xs) + outer padding
         let base: CGFloat = VSpacing.md * 2 + VSpacing.sm * 2 + contentHeight + 28 + VSpacing.xs
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 44
-        let error: CGFloat = errorText != nil ? 36 : 0
+        let error: CGFloat = sessionError != nil ? 60 : (errorText != nil ? 36 : 0)
         let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
         return base + attachments + error + queue
     }
 
     private var composerOverlay: some View {
         VStack(spacing: 0) {
-            if let errorText {
+            if let sessionError {
+                sessionErrorToast(sessionError)
+            } else if let errorText {
                 errorBanner(errorText)
             }
             queueSummary
@@ -331,6 +336,113 @@ struct ChatView: View {
         .background(VColor.error)
     }
 
+    // MARK: - Session Error Toast
+
+    private func sessionErrorToast(_ error: SessionError) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            Image(systemName: sessionErrorIcon(error.category))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(sessionErrorAccent(error.category))
+
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                Text(error.message)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(2)
+
+                Text(error.recoverySuggestion)
+                    .font(VFont.small)
+                    .foregroundColor(VColor.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if error.isRetryable {
+                Button(action: onRetry) {
+                    Text(sessionErrorActionLabel(error.category))
+                        .font(VFont.captionMedium)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(sessionErrorAccent(error.category))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(sessionErrorActionLabel(error.category))
+            }
+
+            Button {
+                onDismissSessionError()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss error")
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+        .background(sessionErrorAccent(error.category).opacity(0.1))
+        .overlay(
+            Rectangle()
+                .fill(sessionErrorAccent(error.category))
+                .frame(width: 3),
+            alignment: .leading
+        )
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// SF Symbol icon appropriate for each error category.
+    private func sessionErrorIcon(_ category: SessionErrorCategory) -> String {
+        switch category {
+        case .providerNetwork:
+            return "wifi.exclamationmark"
+        case .rateLimit:
+            return "clock.badge.exclamationmark"
+        case .providerApi:
+            return "exclamationmark.icloud.fill"
+        case .queueFull:
+            return "tray.full.fill"
+        case .sessionAborted:
+            return "stop.circle.fill"
+        case .processingFailed, .regenerateFailed:
+            return "arrow.triangle.2.circlepath"
+        case .unknown:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    /// Accent color for each error category -- warm for transient/retryable,
+    /// red for hard failures.
+    private func sessionErrorAccent(_ category: SessionErrorCategory) -> Color {
+        switch category {
+        case .rateLimit, .queueFull:
+            return VColor.warning
+        case .providerNetwork:
+            return Amber._500
+        case .sessionAborted:
+            return VColor.textSecondary
+        default:
+            return VColor.error
+        }
+    }
+
+    /// Action button label tailored to the error category.
+    private func sessionErrorActionLabel(_ category: SessionErrorCategory) -> String {
+        switch category {
+        case .rateLimit:
+            return "Retry"
+        case .regenerateFailed:
+            return "Retry"
+        case .providerNetwork:
+            return "Retry"
+        default:
+            return "Retry"
+        }
+    }
+
     // MARK: - Queue Summary
 
     @ViewBuilder
@@ -363,47 +475,29 @@ struct ChatView: View {
             ZStack(alignment: .bottom) {
                 ScrollView(.vertical, showsIndicators: false) {
                     ZStack(alignment: .leading) {
-                        if ghostSuffix != nil {
-                            TextField("", text: $inputText, axis: .vertical)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
-                                .lineSpacing(4)
-                                .textFieldStyle(.plain)
-                                .lineLimit(1...)
-                                .disabled(!hasAPIKey)
-                                .accessibilityLabel("Message")
-                                .background(
-                                    GeometryReader { geo in
-                                        Color.clear
-                                            .onAppear { editorContentHeight = geo.size.height }
-                                            .onChange(of: geo.size.height) { _, h in
-                                                withAnimation(VAnimation.spring) {
-                                                    editorContentHeight = h
-                                                }
-                                            }
+                        TextField(
+                            ghostSuffix != nil ? "" : "What would you like to do?",
+                            text: $inputText,
+                            axis: .vertical
+                        )
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .lineSpacing(4)
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...)
+                        .disabled(!hasAPIKey)
+                        .accessibilityLabel("Message")
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear
+                                    .onAppear { editorContentHeight = geo.size.height }
+                                    .onChange(of: geo.size.height) { _, h in
+                                        withAnimation(VAnimation.spring) {
+                                            editorContentHeight = h
+                                        }
                                     }
-                                )
-                        } else {
-                            TextField("What would you like to do?", text: $inputText, axis: .vertical)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
-                                .lineSpacing(4)
-                                .textFieldStyle(.plain)
-                                .lineLimit(1...)
-                                .disabled(!hasAPIKey)
-                                .accessibilityLabel("Message")
-                                .background(
-                                    GeometryReader { geo in
-                                        Color.clear
-                                            .onAppear { editorContentHeight = geo.size.height }
-                                            .onChange(of: geo.size.height) { _, h in
-                                                withAnimation(VAnimation.spring) {
-                                                    editorContentHeight = h
-                                                }
-                                            }
-                                    }
-                                )
-                        }
+                            }
+                        )
 
                         if let ghostSuffix {
                             (Text(inputText)
@@ -1112,7 +1206,10 @@ private struct ChatViewPreviewWrapper: View {
                 onConfirmationDeny: { _ in },
                 onAddTrustRule: { _, _, _, _ in true },
                 onSurfaceAction: { _, _, _ in },
-                onRegenerate: {}
+                onRegenerate: {},
+                sessionError: nil,
+                onRetry: {},
+                onDismissSessionError: {}
             )
         }
     }

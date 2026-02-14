@@ -35,6 +35,11 @@ graph TB
             CHAT_VIEW["ChatView<br/>bubbles + composer + stop"]
         end
 
+        subgraph "Debug Panel"
+            TRACE_STORE["TraceStore<br/>in-memory, per-session<br/>dedup + retention cap"]
+            DEBUG_PANEL["DebugPanel UI<br/>metrics strip + timeline"]
+        end
+
         VOICE["VoiceInputManager<br/>Fn hold → SFSpeechRecognizer"]
         ATTACH["Attachment System<br/>images, PDFs, text<br/>drag/drop, paste, picker"]
         PERM["PermissionManager<br/>Accessibility, Screen Recording,<br/>Microphone"]
@@ -73,6 +78,12 @@ graph TB
             DB_ATTACH["attachments"]
             DB_CHAN["channel_inbound_events"]
             DB_KEYS["conversation_keys"]
+        end
+
+        subgraph "Tracing"
+            TRACE_EMITTER["TraceEmitter<br/>per-session, monotonic seq"]
+            TOOL_TRACE["ToolTraceListener<br/>event bus subscriber"]
+            EVENT_BUS["EventBus<br/>domain events"]
         end
 
         HTTP_SERVER["RuntimeHttpServer<br/>(optional, RUNTIME_HTTP_PORT)"]
@@ -193,6 +204,14 @@ graph TB
     LOCAL_IPC -->|"Unix socket"| IPC_SERVER
     WEB_API -->|"cloud mode"| RUNTIME_CLIENT
     RUNTIME_CLIENT -->|"HTTP"| HTTP_SERVER
+
+    %% Tracing data flow
+    SESSION_MGR --> TRACE_EMITTER
+    EVENT_BUS --> TOOL_TRACE
+    TOOL_TRACE --> TRACE_EMITTER
+    TRACE_EMITTER -->|"trace_event"| IPC_SERVER
+    IPC_SERVER -->|"trace_event"| TRACE_STORE
+    TRACE_STORE --> DEBUG_PANEL
 
     %% Local storage
     KNOWLEDGE --> KNOWLEDGE_JSON
@@ -604,6 +623,7 @@ graph LR
         S12["message_queued<br/>position in queue"]
         S13["message_dequeued<br/>queue drained"]
         S14["generation_handoff<br/>sessionId, requestId?,<br/>queuedCount"]
+        S15["trace_event<br/>eventId, sessionId, requestId?,<br/>timestampMs, sequence, kind,<br/>status?, summary, attributes?"]
     end
 
     C0 --> SOCKET
@@ -632,6 +652,7 @@ graph LR
     SOCKET --> S12
     SOCKET --> S13
     SOCKET --> S14
+    SOCKET --> S15
 ```
 
 ---
@@ -774,6 +795,98 @@ sequenceDiagram
 
 ---
 
+## Trace System — Debug Panel Data Flow
+
+The trace system provides real-time observability of daemon session internals. Each session creates a `TraceEmitter` that emits structured `trace_event` IPC messages as the session processes requests, makes LLM calls, and executes tools.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Chat as ChatView
+    participant DC as DaemonClient
+    participant Daemon as Session (Daemon)
+    participant TE as TraceEmitter
+    participant EB as EventBus
+    participant TTL as ToolTraceListener
+    participant LLM as LLM Provider
+    participant TS as TraceStore (Swift)
+    participant DP as DebugPanel
+
+    User->>Chat: send message
+    Chat->>DC: user_message
+    DC->>Daemon: IPC
+
+    Daemon->>TE: emit(request_received)
+    TE-->>DC: trace_event (request_received)
+    DC-->>TS: onTraceEvent → ingest()
+
+    Daemon->>LLM: API call
+    Daemon->>TE: emit(llm_call_started)
+    TE-->>DC: trace_event (llm_call_started)
+    DC-->>TS: ingest()
+
+    LLM-->>Daemon: streaming response
+    Daemon->>TE: emit(llm_call_finished, tokens + latency)
+    TE-->>DC: trace_event (llm_call_finished)
+    DC-->>TS: ingest()
+
+    Note over Daemon,EB: Tool execution triggers domain events
+
+    Daemon->>EB: tool.execution.started
+    EB->>TTL: onAny(event)
+    TTL->>TE: emit(tool_started)
+    TE-->>DC: trace_event (tool_started)
+    DC-->>TS: ingest()
+
+    Daemon->>EB: tool.execution.finished
+    EB->>TTL: onAny(event)
+    TTL->>TE: emit(tool_finished, durationMs)
+    TE-->>DC: trace_event (tool_finished)
+    DC-->>TS: ingest()
+
+    Daemon->>TE: emit(message_complete)
+    TE-->>DC: trace_event (message_complete)
+    DC-->>TS: ingest()
+
+    Note over TS: Events deduplicated by eventId,<br/>ordered by sequence + timestampMs,<br/>grouped by session and requestId,<br/>capped at 5000 per session
+
+    TS-->>DP: @Published eventsBySession
+    Note over DP: Metrics strip: requests, LLM calls,<br/>tokens (in/out), avg latency, failures<br/>Timeline: events grouped by requestId
+```
+
+### Trace Event Kinds
+
+Events emitted during a session lifecycle:
+
+| Kind | Emitted by | When |
+|------|-----------|------|
+| `request_received` | Handlers / Session | User message or surface action arrives |
+| `request_queued` | Handlers / Session | Message queued while session is busy |
+| `request_dequeued` | Session | Queued message begins processing |
+| `llm_call_started` | Session | LLM API call initiated |
+| `llm_call_finished` | Session | LLM API call completed (carries `inputTokens`, `outputTokens`, `latencyMs`) |
+| `assistant_message` | Session | Assistant response assembled (carries `toolUseCount`) |
+| `tool_started` | ToolTraceListener | Tool execution begins |
+| `tool_permission_requested` | ToolTraceListener | Permission check needed (carries `riskLevel`) |
+| `tool_permission_decided` | ToolTraceListener | Permission granted or denied (carries `decision`) |
+| `tool_finished` | ToolTraceListener | Tool execution completed (carries `durationMs`) |
+| `tool_failed` | ToolTraceListener | Tool execution failed (carries `durationMs`) |
+| `secret_detected` | ToolTraceListener | Secret found in tool output |
+| `generation_handoff` | Session | Yielding to next queued message |
+| `message_complete` | Session | Full request processing finished |
+| `generation_cancelled` | Session | User cancelled the generation |
+| `request_error` | Session | Unrecoverable error during processing |
+
+### Architecture
+
+- **TraceEmitter** (daemon, per-session): Constructed with a `sessionId` and a `sendToClient` callback. Maintains a monotonic sequence counter for stable ordering. Truncates summaries to 200 chars and attribute values to 500 chars. Each call to `emit()` sends a `trace_event` IPC message to the connected client.
+- **ToolTraceListener** (daemon): Subscribes to the session's `EventBus` via `onAny()` and translates tool domain events (`tool.execution.started`, `tool.execution.finished`, `tool.execution.failed`, `tool.permission.requested`, `tool.permission.decided`, `tool.secret.detected`) into trace events through the `TraceEmitter`.
+- **DaemonClient** (Swift, shared): Decodes `trace_event` IPC messages into `TraceEventMessage` structs and invokes the `onTraceEvent` callback.
+- **TraceStore** (Swift, macOS): `@MainActor ObservableObject` that ingests `TraceEventMessage` structs. Deduplicates by `eventId`, maintains stable sort order (sequence, then timestampMs, then insertion order), groups events by session and requestId, and enforces a retention cap of 5,000 events per session.
+- **DebugPanel** (Swift, macOS): SwiftUI view that observes `TraceStore`. Displays a metrics strip (request count, LLM calls, total tokens, average latency, tool failures) and a `TraceTimelineView` showing events grouped by requestId with color-coded status indicators.
+
+---
+
 ## Storage Summary
 
 | What | Where | Format | ORM/Driver | Retention |
@@ -792,4 +905,5 @@ sequenceDiagram
 | Sandbox filesystem | `~/.vellum/data/sandbox/fs` | Real filesystem tree | Node FS APIs | Persistent across sessions |
 | Tool permission rules | `~/.vellum/protected/trust.json` | JSON | File I/O | Permanent |
 | Web users & assistants | PostgreSQL | Relational | Drizzle ORM (pg) | Permanent |
+| Trace events | In-memory (TraceStore) | Structured events | Swift ObservableObject | Max 5,000 per session, ephemeral |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |

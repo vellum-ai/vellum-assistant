@@ -184,7 +184,15 @@ function schemaToSwiftType(
 
     if (refName === 'Record<string,unknown>') return '[String: AnyCodable]';
     if (refName === 'Record<string,string>') return '[String: String]';
+    if (refName.startsWith('Record<')) return '[String: AnyCodable]';
     if (refName.startsWith('Partial<')) return '[String: AnyCodable]';
+
+    // String enum types (e.g. SessionErrorCode, TraceEventKind) don't produce
+    // generated structs — emit as plain String so the output compiles.
+    const refDef = allDefs[refName];
+    if (refDef && refDef.type === 'string' && refDef.enum) {
+      return 'String';
+    }
 
     return `IPC${refName}`;
   }
