@@ -34,6 +34,9 @@ struct GeneratedPanel: View {
     // Track how many list responses we're waiting for
     @State private var pendingResponses = 0
 
+    // Generation counter to invalidate stale timeouts when fetchApps() is re-invoked
+    @State private var fetchGeneration = 0
+
     init(onClose: @escaping () -> Void, daemonClient: DaemonClient) {
         self.onClose = onClose
         self.daemonClient = daemonClient
@@ -339,6 +342,8 @@ struct GeneratedPanel: View {
         loadError = nil
         isLoading = true
         pendingResponses = 2
+        fetchGeneration += 1
+        let currentGeneration = fetchGeneration
 
         Task { @MainActor in
             daemonClient.onAppsListResponse = { response in
@@ -347,6 +352,9 @@ struct GeneratedPanel: View {
                 if self.pendingResponses <= 0 {
                     self.buildDisplayItems()
                     self.isLoading = false
+                } else if !self.isLoading {
+                    // Response arrived after timeout — rebuild with whatever data we have
+                    self.buildDisplayItems()
                 }
             }
 
@@ -356,6 +364,9 @@ struct GeneratedPanel: View {
                 if self.pendingResponses <= 0 {
                     self.buildDisplayItems()
                     self.isLoading = false
+                } else if !self.isLoading {
+                    // Response arrived after timeout — rebuild with whatever data we have
+                    self.buildDisplayItems()
                 }
             }
 
@@ -393,9 +404,11 @@ struct GeneratedPanel: View {
                 isLoading = false
             }
 
-            // Timeout: if still loading after 10s, show partial results or error
+            // Timeout: if still loading after 10s, show partial results or error.
+            // Guard on fetchGeneration to prevent stale timeouts from a previous
+            // fetchApps() call from terminating a newer loading cycle.
             DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                guard self.isLoading else { return }
+                guard self.isLoading, self.fetchGeneration == currentGeneration else { return }
                 self.buildDisplayItems()
                 self.isLoading = false
                 if self.displayItems.isEmpty {
@@ -408,7 +421,6 @@ struct GeneratedPanel: View {
     }
 
     private func buildDisplayItems() {
-        loadError = nil
         var items: [DisplayAppItem] = []
 
         // Local apps
