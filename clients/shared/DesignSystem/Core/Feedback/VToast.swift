@@ -40,7 +40,10 @@ public struct VToast: View {
             NSAccessibility.post(
                 element: NSApp as Any,
                 notification: .announcementRequested,
-                userInfo: [.announcement: message as NSString]
+                userInfo: [
+                    .announcement: "\(style): \(message)" as NSString,
+                    .priority: NSAccessibilityPriorityLevel.high.rawValue
+                ]
             )
             #elseif os(iOS)
             UIAccessibility.post(notification: .announcement, argument: message)
