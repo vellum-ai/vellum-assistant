@@ -35,7 +35,16 @@ public struct ToolConfirmationData: Equatable {
     public let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
     public let allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption]
     public let scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption]
+    public let executionTarget: String?
     public var state: ToolConfirmationState = .pending
+
+    /// Normalized target label shown in confirmation UIs.
+    public var normalizedExecutionTarget: String? {
+        guard let executionTarget else { return nil }
+        let normalized = executionTarget.lowercased()
+        guard normalized == "host" || normalized == "sandbox" else { return nil }
+        return normalized
+    }
 
     /// Human-readable preview of the tool input (e.g. the bash command or file path).
     public var commandPreview: String {
@@ -61,7 +70,7 @@ public struct ToolConfirmationData: Equatable {
         }
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestMessage.ConfirmationDiffInfo? = nil, allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption] = [], scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption] = [], state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestMessage.ConfirmationDiffInfo? = nil, allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption] = [], scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption] = [], executionTarget: String? = nil, state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
@@ -69,6 +78,7 @@ public struct ToolConfirmationData: Equatable {
         self.diff = diff
         self.allowlistOptions = allowlistOptions
         self.scopeOptions = scopeOptions
+        self.executionTarget = executionTarget
         self.state = state
     }
 }

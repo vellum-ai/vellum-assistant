@@ -724,7 +724,8 @@ public final class ChatViewModel: ObservableObject {
                 riskLevel: msg.riskLevel,
                 diff: msg.diff,
                 allowlistOptions: msg.allowlistOptions,
-                scopeOptions: msg.scopeOptions
+                scopeOptions: msg.scopeOptions,
+                executionTarget: msg.executionTarget
             )
             let confirmMsg = ChatMessage(
                 role: .assistant,

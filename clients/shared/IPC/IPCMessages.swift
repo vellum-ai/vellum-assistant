@@ -1100,6 +1100,8 @@ public struct ConfirmationRequestMessage: Decodable, Sendable {
     public let scopeOptions: [ConfirmationScopeOption]
     public let diff: ConfirmationDiffInfo?
     public let sandboxed: Bool?
+    /// Optional execution surface for the tool invocation (`"sandbox"` or `"host"`).
+    public let executionTarget: String?
     public let sessionId: String?
 
     public struct ConfirmationAllowlistOption: Decodable, Sendable, Equatable {
