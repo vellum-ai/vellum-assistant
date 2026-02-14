@@ -26,5 +26,5 @@ jobs:
         id: run-script
         run: bun run scripts/publish-velly.ts
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
