@@ -359,16 +359,68 @@ struct ChatView: View {
             }
 
             HStack(alignment: .center, spacing: VSpacing.sm) {
-                // Text input with ghost text overlay and vertical centering
-                ZStack(alignment: .leading) {
-                    TextField("What would you like to do?", text: $inputText, axis: .vertical)
+                // Text editor with ghost text overlay and scrollable content
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $inputText)
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
                         .lineSpacing(4)
-                        .textFieldStyle(.plain)
-                        .lineLimit(1...10)
+                        .scrollContentBackground(.hidden)
                         .disabled(!hasAPIKey)
                         .accessibilityLabel("Message")
+
+                    // Placeholder
+                    if inputText.isEmpty && ghostSuffix == nil {
+                        Text("What would you like to do?")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textMuted)
+                            .lineSpacing(4)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+
+                    // Ghost text overlay — shows the suggested suffix so users
+                    // know what Tab will insert.
+                    if let ghostSuffix {
+                        Text(inputText + ghostSuffix)
+                            .font(VFont.body)
+                            .lineSpacing(4)
+                            .foregroundColor(.clear)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 8)
+                            .overlay(alignment: .topLeading) {
+                                HStack(spacing: 0) {
+                                    Text(inputText)
+                                        .font(VFont.body)
+                                        .lineSpacing(4)
+                                        .foregroundColor(.clear)
+                                    Text(ghostSuffix)
+                                        .font(VFont.body)
+                                        .lineSpacing(4)
+                                        .foregroundColor(VColor.textMuted.opacity(0.5))
+                                }
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 8)
+                            }
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .frame(height: min(max(editorContentHeight, 20), 200))
+                .clipped()
+                .background(alignment: .topLeading) {
+                    // Invisible text measurer — drives editorContentHeight independently
+                    // so the ZStack grows with content but caps at 200pt for scrolling.
+                    Text(inputText.isEmpty ? " " : inputText)
+                        .font(VFont.body)
+                        .lineSpacing(4)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 8)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .opacity(0)
+                        .accessibilityHidden(true)
                         .background(
                             GeometryReader { geo in
                                 Color.clear
@@ -380,31 +432,6 @@ struct ChatView: View {
                                     }
                             }
                         )
-
-                    // Ghost text overlay — shows the suggested suffix so users
-                    // know what Tab will insert. Without this visual cue, Tab
-                    // must not silently mutate the draft.
-                    if let ghostSuffix {
-                        Text(inputText + ghostSuffix)
-                            .font(VFont.body)
-                            .lineSpacing(4)
-                            .foregroundColor(.clear)
-                            .lineLimit(1...10)
-                            .overlay(alignment: .leading) {
-                                HStack(spacing: 0) {
-                                    Text(inputText)
-                                        .font(VFont.body)
-                                        .lineSpacing(4)
-                                        .foregroundColor(.clear)
-                                    Text(ghostSuffix)
-                                        .font(VFont.body)
-                                        .lineSpacing(4)
-                                        .foregroundColor(VColor.textMuted.opacity(0.5))
-                                }
-                            }
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
                 }
                 .onKeyPress(.tab, phases: .down) { keyPress in
                     if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
