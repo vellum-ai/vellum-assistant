@@ -298,6 +298,9 @@ export async function buildMemoryRecall(
   };
 }
 
+/** Marker text used in the assistant acknowledgment of a separate context message. */
+const MEMORY_CONTEXT_ACK = '[Memory context loaded.]';
+
 export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'; content: Array<{ type: string; text?: string }> }>(
   messages: T[],
   memoryRecallText?: string,
@@ -305,6 +308,31 @@ export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'
   const recallText = memoryRecallText ?? '';
   if (recallText.trim().length === 0) return messages;
 
+  // Try separate_context_message pattern first: look for the injected
+  // user+assistant pair (user message whose sole text block is the recall
+  // text, followed by an assistant ack message).
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.role !== 'user') continue;
+    if (message.content.length !== 1) continue;
+    const block = message.content[0];
+    if (block.type !== 'text' || block.text !== recallText) continue;
+    // Check if the next message is the assistant ack
+    const next = messages[index + 1];
+    if (
+      next &&
+      next.role === 'assistant' &&
+      next.content.length === 1 &&
+      next.content[0].type === 'text' &&
+      next.content[0].text === MEMORY_CONTEXT_ACK
+    ) {
+      // Remove both the user context message and the assistant ack
+      return [...messages.slice(0, index), ...messages.slice(index + 2)];
+    }
+  }
+
+  // Fall back to prepend_user_block pattern: the recall text is a block
+  // inside a user message that also has real user content.
   let targetIndex = -1;
   let blockIndex = -1;
   for (let index = messages.length - 1; index >= 0; index--) {
@@ -354,6 +382,33 @@ export function injectMemoryRecallIntoUserMessage<T extends { role: 'user' | 'as
     ...message,
     content: [memoryBlock, ...message.content] as T['content'],
   } as T;
+}
+
+/**
+ * Inject memory recall as a separate user+assistant message pair before the
+ * last user message. This separates memory context from the user's actual
+ * query, making it clearer to the model that the memory is background context.
+ */
+export function injectMemoryRecallAsSeparateMessage<T extends { role: 'user' | 'assistant'; content: Array<{ type: string; text?: string }> }>(
+  messages: T[],
+  memoryRecallText: string,
+): T[] {
+  if (memoryRecallText.trim().length === 0) return messages;
+  if (messages.length === 0) return messages;
+  const contextMessage = {
+    role: 'user' as const,
+    content: [{ type: 'text', text: memoryRecallText }],
+  } as unknown as T;
+  const ackMessage = {
+    role: 'assistant' as const,
+    content: [{ type: 'text', text: MEMORY_CONTEXT_ACK }],
+  } as unknown as T;
+  return [
+    ...messages.slice(0, -1),
+    contextMessage,
+    ackMessage,
+    messages[messages.length - 1],
+  ];
 }
 
 export function queryMemoryForCli(
