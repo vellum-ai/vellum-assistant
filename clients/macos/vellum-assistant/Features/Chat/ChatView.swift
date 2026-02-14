@@ -414,54 +414,49 @@ struct ChatView: View {
         let fileSize = formattedFileSize(base64Length: attachment.dataLength)
         let isImage = attachment.mimeType.hasPrefix("image/")
 
-        return VStack(spacing: VSpacing.xxs) {
-            ZStack(alignment: .topTrailing) {
-                if isImage, let nsImage = attachment.thumbnailImage {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 48, height: 48)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                } else {
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(VColor.surfaceBorder.opacity(0.5))
-                        .frame(width: 48, height: 48)
-                        .overlay {
-                            VStack(spacing: VSpacing.xxs) {
-                                Image(systemName: iconForMimeType(attachment.mimeType, filename: attachment.filename))
-                                    .font(.system(size: 16))
-                                    .foregroundColor(VColor.textSecondary)
-                                Text(fileExtension(attachment.filename))
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
-                                    .lineLimit(1)
-                            }
-                        }
-                }
-
-                Button {
-                    onRemoveAttachment(attachment.id)
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(VColor.textSecondary)
-                        .background(Circle().fill(VColor.surface))
-                }
-                .buttonStyle(.plain)
-                .offset(x: 4, y: -4)
-                .accessibilityLabel("Remove \(attachment.filename)")
+        return HStack(spacing: VSpacing.sm) {
+            if isImage, let nsImage = attachment.thumbnailImage {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 28, height: 28)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            } else {
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(VColor.surfaceBorder.opacity(0.5))
+                    .frame(width: 28, height: 28)
+                    .overlay {
+                        Image(systemName: iconForMimeType(attachment.mimeType, filename: attachment.filename))
+                            .font(.system(size: 14))
+                            .foregroundColor(VColor.textSecondary)
+                    }
             }
 
-            Text(truncatedFilename(attachment.filename))
+            Text(attachment.filename)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .lineLimit(1)
-                .frame(width: 56)
+                .truncationMode(.middle)
 
-            Text(fileSize)
+            Text("· \(fileSize)")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
+
+            Button {
+                onRemoveAttachment(attachment.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10))
+                    .foregroundColor(VColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(attachment.filename)")
         }
+        .padding(.vertical, VSpacing.xs)
+        .padding(.horizontal, VSpacing.sm)
+        .background(VColor.surfaceBorder.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .frame(maxWidth: 280)
     }
 
     // MARK: - Attachment Helpers
@@ -476,14 +471,6 @@ struct ChatView: View {
             let mb = Double(bytes) / (1024 * 1024)
             return String(format: "%.1f MB", mb)
         }
-    }
-
-    private func truncatedFilename(_ name: String) -> String {
-        if name.count <= 8 { return name }
-        let ext = fileExtension(name)
-        let base = String(name.prefix(name.count - ext.count - (ext.isEmpty ? 0 : 1)))
-        let truncBase = String(base.prefix(5))
-        return ext.isEmpty ? truncBase + "..." : truncBase + "..." + ext
     }
 
     private func fileExtension(_ filename: String) -> String {
@@ -591,8 +578,9 @@ private struct ChatBubble: View {
     /// exist (the thinking indicator already signals progress).
     private var shouldShowBubble: Bool {
         if isUser { return true }
-        if hasText || !message.attachments.isEmpty { return true }
+        // When an inline surface is present, it replaces the text bubble
         if !message.inlineSurfaces.isEmpty { return false }
+        if hasText || !message.attachments.isEmpty { return true }
         // During streaming, hide tool-call-only bubbles so the thinking
         // indicator stays visible instead of showing raw tool progress.
         if message.isStreaming { return false }
