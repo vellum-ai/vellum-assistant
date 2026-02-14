@@ -447,6 +447,7 @@ exports[`IPC message snapshots ServerMessage types confirmation_request serializ
     "newContent": "new",
     "oldContent": "old",
   },
+  "executionTarget": "sandbox",
   "input": {
     "command": "rm -rf /tmp/test",
   },

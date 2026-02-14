@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { getTool, getAllTools } from './registry.js';
-import type { ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
+import type { ExecutionTarget, ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
 import { RiskLevel } from '../permissions/types.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { addRule } from '../permissions/trust-store.js';
@@ -32,10 +32,12 @@ export class ToolExecutor {
     const startTime = Date.now();
     let decision = 'allow';
     let riskLevel: string = RiskLevel.Low;
+    const executionTarget = resolveExecutionTarget(name);
 
     emitLifecycleEvent(context, {
       type: 'start',
       toolName: name,
+      executionTarget,
       input,
       workingDir: context.workingDir,
       sessionId: context.sessionId,
@@ -52,6 +54,7 @@ export class ToolExecutor {
       emitLifecycleEvent(context, {
         type: 'error',
         toolName: name,
+        executionTarget,
         input,
         workingDir: context.workingDir,
         sessionId: context.sessionId,
@@ -78,6 +81,7 @@ export class ToolExecutor {
         emitLifecycleEvent(context, {
           type: 'permission_denied',
           toolName: name,
+          executionTarget,
           input,
           workingDir: context.workingDir,
           sessionId: context.sessionId,
@@ -109,6 +113,7 @@ export class ToolExecutor {
         emitLifecycleEvent(context, {
           type: 'permission_prompt',
           toolName: name,
+          executionTarget,
           input,
           workingDir: context.workingDir,
           sessionId: context.sessionId,
@@ -138,6 +143,7 @@ export class ToolExecutor {
           previewDiff,
           sandboxed,
           context.conversationId,
+          executionTarget,
         );
 
         decision = response.decision;
@@ -154,6 +160,7 @@ export class ToolExecutor {
           emitLifecycleEvent(context, {
             type: 'permission_denied',
             toolName: name,
+            executionTarget,
             input,
             workingDir: context.workingDir,
             sessionId: context.sessionId,
@@ -176,6 +183,7 @@ export class ToolExecutor {
           emitLifecycleEvent(context, {
             type: 'permission_denied',
             toolName: name,
+            executionTarget,
             input,
             workingDir: context.workingDir,
             sessionId: context.sessionId,
@@ -209,6 +217,7 @@ export class ToolExecutor {
         emitLifecycleEvent(context, {
           type: 'error',
           toolName: name,
+          executionTarget,
           input,
           workingDir: context.workingDir,
           sessionId: context.sessionId,
@@ -232,6 +241,7 @@ export class ToolExecutor {
           emitLifecycleEvent(context, {
             type: 'error',
             toolName: name,
+            executionTarget,
             input,
             workingDir: context.workingDir,
             sessionId: context.sessionId,
@@ -269,6 +279,7 @@ export class ToolExecutor {
           emitLifecycleEvent(context, {
             type: 'secret_detected',
             toolName: name,
+            executionTarget,
             input,
             workingDir: context.workingDir,
             sessionId: context.sessionId,
@@ -298,6 +309,7 @@ export class ToolExecutor {
             emitLifecycleEvent(context, {
               type: 'executed',
               toolName: name,
+              executionTarget,
               input,
               workingDir: context.workingDir,
               sessionId: context.sessionId,
@@ -327,6 +339,7 @@ export class ToolExecutor {
       emitLifecycleEvent(context, {
         type: 'executed',
         toolName: name,
+        executionTarget,
         input,
         workingDir: context.workingDir,
         sessionId: context.sessionId,
@@ -356,6 +369,7 @@ export class ToolExecutor {
       emitLifecycleEvent(context, {
         type: 'error',
         toolName: name,
+        executionTarget,
         input,
         workingDir: context.workingDir,
         sessionId: context.sessionId,
@@ -385,6 +399,13 @@ export class ToolExecutor {
       return { content: `Tool "${name}" encountered an unexpected error: ${msg}`, isError: true };
     }
   }
+}
+
+function resolveExecutionTarget(toolName: string): ExecutionTarget {
+  if (toolName.startsWith('host_') || toolName.startsWith('cu_') || toolName === 'request_computer_control') {
+    return 'host';
+  }
+  return 'sandbox';
 }
 
 /**

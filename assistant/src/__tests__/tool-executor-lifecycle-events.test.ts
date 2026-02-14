@@ -122,12 +122,14 @@ describe('ToolExecutor lifecycle events', () => {
     expect(events[0]).toMatchObject({
       type: 'start',
       toolName: 'file_read',
+      executionTarget: 'sandbox',
       conversationId: 'conversation-1',
       sessionId: 'session-1',
       workingDir: '/tmp/project',
     });
     const executed = events[1];
     if (executed.type !== 'executed') throw new Error('Expected executed event');
+    expect(executed.executionTarget).toBe('sandbox');
     expect(executed.riskLevel).toBe('low');
     expect(executed.result).toEqual({ content: 'ok', isError: false });
     expect(executed.durationMs).toBeGreaterThanOrEqual(0);
@@ -154,6 +156,7 @@ describe('ToolExecutor lifecycle events', () => {
 
     const promptEvent = events[1];
     if (promptEvent.type !== 'permission_prompt') throw new Error('Expected permission_prompt event');
+    expect(promptEvent.executionTarget).toBe('sandbox');
     expect(promptEvent.riskLevel).toBe('medium');
     expect(promptEvent.reason).toBe('medium risk: requires approval');
     expect(promptEvent.sandboxed).toBe(true);
@@ -162,8 +165,25 @@ describe('ToolExecutor lifecycle events', () => {
 
     const deniedEvent = events[2];
     if (deniedEvent.type !== 'permission_denied') throw new Error('Expected permission_denied event');
+    expect(deniedEvent.executionTarget).toBe('sandbox');
     expect(deniedEvent.decision).toBe('deny');
     expect(deniedEvent.reason).toBe('Permission denied by user');
+  });
+
+  test('emits host executionTarget for host tools', async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute('host_file_read', { path: '/tmp/file.txt' }, makeContext(events));
+
+    expect(result).toEqual({ content: 'ok', isError: false });
+    expect(events.map((event) => event.type)).toEqual(['start', 'executed']);
+    const startEvent = events[0];
+    if (startEvent.type !== 'start') throw new Error('Expected start event');
+    expect(startEvent.executionTarget).toBe('host');
+    const executed = events[1];
+    if (executed.type !== 'executed') throw new Error('Expected executed event');
+    expect(executed.executionTarget).toBe('host');
   });
 
   test('emits permission_denied when blocked by deny rule', async () => {

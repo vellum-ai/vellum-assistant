@@ -292,6 +292,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     toolName: 'bash',
     input: { command: 'rm -rf /tmp/test' },
     riskLevel: 'high',
+    executionTarget: 'sandbox',
     allowlistOptions: [
       { label: 'Allow rm commands', description: 'Allow rm commands', pattern: 'bash:rm *' },
     ],

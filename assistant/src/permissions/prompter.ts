@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { UserDecision, AllowlistOption, ScopeOption } from './types.js';
+import type { ExecutionTarget } from '../tools/types.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { AssistantError, ErrorCode } from '../util/errors.js';
@@ -34,6 +35,7 @@ export class PermissionPrompter {
     diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean },
     sandboxed?: boolean,
     sessionId?: string,
+    executionTarget?: ExecutionTarget,
   ): Promise<{ decision: UserDecision; selectedPattern?: string; selectedScope?: string }> {
     const requestId = uuid();
 
@@ -58,6 +60,7 @@ export class PermissionPrompter {
         diff,
         sandboxed,
         sessionId,
+        executionTarget,
       });
     });
   }

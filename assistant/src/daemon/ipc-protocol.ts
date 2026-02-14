@@ -482,6 +482,7 @@ export interface ConfirmationRequest {
   toolName: string;
   input: Record<string, unknown>;
   riskLevel: string;
+  executionTarget?: 'sandbox' | 'host';
   allowlistOptions: Array<{ label: string; description: string; pattern: string }>;
   scopeOptions: Array<{ label: string; scope: string }>;
   diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };

@@ -1,6 +1,8 @@
 import type { RiskLevel, AllowlistOption, ScopeOption } from '../permissions/types.js';
 import type { ToolDefinition, ContentBlock } from '../providers/types.js';
 
+export type ExecutionTarget = 'sandbox' | 'host';
+
 interface ToolLifecycleEventBase {
   toolName: string;
   input: Record<string, unknown>;
@@ -8,6 +10,7 @@ interface ToolLifecycleEventBase {
   sessionId: string;
   conversationId: string;
   requestId?: string;
+  executionTarget?: ExecutionTarget;
 }
 
 export interface ToolExecutionStartEvent extends ToolLifecycleEventBase {
@@ -93,6 +96,7 @@ export interface ToolContext {
     toolName: string;
     input: Record<string, unknown>;
     riskLevel: string;
+    executionTarget?: ExecutionTarget;
   }) => Promise<{ decision: 'allow' | 'deny' }>;
   /** Prompt the user for a secret value via native SecureField UI. */
   requestSecret?: (params: {
