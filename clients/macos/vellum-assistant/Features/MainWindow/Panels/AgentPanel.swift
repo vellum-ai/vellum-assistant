@@ -71,6 +71,7 @@ private struct PixelBorderShape: Shape {
 
 struct AgentPanel: View {
     var onClose: () -> Void
+    var onInvokeSkill: ((SkillInfo) -> Void)?
     let daemonClient: DaemonClient
 
     @StateObject private var skillsManager: SkillsManager
@@ -80,8 +81,9 @@ struct AgentPanel: View {
     @State private var selectedSkillSlug: String?
     @State private var hoveredDetailInstall = false
 
-    init(onClose: @escaping () -> Void, daemonClient: DaemonClient) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient) {
         self.onClose = onClose
+        self.onInvokeSkill = onInvokeSkill
         self.daemonClient = daemonClient
         _skillsManager = StateObject(wrappedValue: SkillsManager(daemonClient: daemonClient))
     }
@@ -809,7 +811,7 @@ struct AgentPanel: View {
             HStack(spacing: VSpacing.md) {
                 // Pixel-bordered button to use the skill
                 Button(action: {
-                    // TODO: implement skill usage
+                    onInvokeSkill?(skill)
                 }) {
                     HStack(spacing: VSpacing.md) {
                         skillIcon(skill.emoji)

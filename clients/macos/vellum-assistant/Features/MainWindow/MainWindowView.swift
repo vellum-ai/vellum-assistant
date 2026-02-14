@@ -127,7 +127,20 @@ struct MainWindowView: View {
             case .generated:
                 GeneratedPanel(onClose: { activePanel = nil }, daemonClient: daemonClient)
             case .agent:
-                AgentPanel(onClose: { activePanel = nil }, daemonClient: daemonClient)
+                AgentPanel(onClose: { activePanel = nil }, onInvokeSkill: { skill in
+                    if threadManager.activeViewModel == nil {
+                        threadManager.createThread()
+                    }
+                    if let viewModel = threadManager.activeViewModel {
+                        viewModel.pendingSkillInvocation = SkillInvocationData(
+                            name: skill.name,
+                            emoji: skill.emoji,
+                            description: skill.description
+                        )
+                        viewModel.inputText = "Use the \(skill.name) skill"
+                        viewModel.sendMessage()
+                    }
+                }, daemonClient: daemonClient)
             case .settings:
                 SettingsPanel(onClose: { activePanel = nil }, ambientAgent: ambientAgent, daemonClient: daemonClient)
             case .directory:
