@@ -84,8 +84,7 @@ function getScreenDimensions(): { width: number; height: number } {
   } catch (err) {
     log.debug({ err }, 'Failed to query screen dimensions, using fallback');
   }
-  cachedScreenDims = FALLBACK_SCREEN;
-  return cachedScreenDims;
+  return FALLBACK_SCREEN;
 }
 
 /**
