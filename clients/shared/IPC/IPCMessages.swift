@@ -285,12 +285,16 @@ public struct AppDataRequestMessage: Encodable, Sendable {
 /// Wire type: `"apps_list"`
 public struct AppsListRequestMessage: Encodable, Sendable {
     public let type: String = "apps_list"
+
+    public init() {}
 }
 
 /// Sent to request the list of shared/received apps.
 /// Wire type: `"shared_apps_list"`
 public struct SharedAppsListRequestMessage: Encodable, Sendable {
     public let type: String = "shared_apps_list"
+
+    public init() {}
 }
 
 /// Sent to delete a shared app by UUID.
@@ -298,6 +302,10 @@ public struct SharedAppsListRequestMessage: Encodable, Sendable {
 public struct SharedAppDeleteRequestMessage: Encodable, Sendable {
     public let type: String = "shared_app_delete"
     public let uuid: String
+
+    public init(uuid: String) {
+        self.uuid = uuid
+    }
 }
 
 /// Sent to request bundling an app for sharing.
@@ -305,6 +313,10 @@ public struct SharedAppDeleteRequestMessage: Encodable, Sendable {
 public struct BundleAppRequestMessage: Encodable, Sendable {
     public let type: String = "bundle_app"
     public let appId: String
+
+    public init(appId: String) {
+        self.appId = appId
+    }
 }
 
 /// Sent to open and scan a .vellumapp bundle.
@@ -312,12 +324,18 @@ public struct BundleAppRequestMessage: Encodable, Sendable {
 public struct OpenBundleMessage: Encodable, Sendable {
     public let type: String = "open_bundle"
     public let filePath: String
+
+    public init(filePath: String) {
+        self.filePath = filePath
+    }
 }
 
 /// Sent to request the list of all past sessions/conversations.
 /// Wire type: `"session_list"`
 public struct SessionListRequestMessage: Encodable, Sendable {
     public let type: String = "session_list"
+
+    public init() {}
 }
 
 /// Sent to request message history for a specific session.
@@ -325,6 +343,10 @@ public struct SessionListRequestMessage: Encodable, Sendable {
 public struct HistoryRequestMessage: Encodable, Sendable {
     public let type: String = "history_request"
     public let sessionId: String
+
+    public init(sessionId: String) {
+        self.sessionId = sessionId
+    }
 }
 
 /// Sent to request the list of available skills.
@@ -360,6 +382,10 @@ public struct SkillsEnableMessage: Encodable, Sendable {
 public struct SkillsDisableMessage: Encodable, Sendable {
     public let type: String = "skills_disable"
     public let name: String
+
+    public init(name: String) {
+        self.name = name
+    }
 }
 
 /// Configure a skill's env/apiKey/config. Wire type: "skills_configure"
@@ -369,6 +395,13 @@ public struct SkillsConfigureMessage: Encodable, Sendable {
     public let env: [String: String]?
     public let apiKey: String?
     public let config: [String: AnyCodable]?
+
+    public init(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) {
+        self.name = name
+        self.env = env
+        self.apiKey = apiKey
+        self.config = config
+    }
 }
 
 /// Install a skill from ClaWHub. Wire type: "skills_install"
@@ -376,35 +409,58 @@ public struct SkillsInstallMessage: Encodable, Sendable {
     public let type: String = "skills_install"
     public let slug: String
     public let version: String?
+
+    public init(slug: String, version: String? = nil) {
+        self.slug = slug
+        self.version = version
+    }
 }
 
 /// Uninstall a skill. Wire type: "skills_uninstall"
 public struct SkillsUninstallMessage: Encodable, Sendable {
     public let type: String = "skills_uninstall"
     public let name: String
+
+    public init(name: String) {
+        self.name = name
+    }
 }
 
 /// Update a skill. Wire type: "skills_update"
 public struct SkillsUpdateMessage: Encodable, Sendable {
     public let type: String = "skills_update"
     public let name: String
+
+    public init(name: String) {
+        self.name = name
+    }
 }
 
 /// Check for skill updates. Wire type: "skills_check_updates"
 public struct SkillsCheckUpdatesMessage: Encodable, Sendable {
     public let type: String = "skills_check_updates"
+
+    public init() {}
 }
 
 /// Search for skills on ClaWHub. Wire type: "skills_search"
 public struct SkillsSearchMessage: Encodable, Sendable {
     public let type: String = "skills_search"
     public let query: String
+
+    public init(query: String) {
+        self.query = query
+    }
 }
 
 /// Inspect a ClaWHub skill for detailed info. Wire type: "skills_inspect"
 public struct SkillsInspectMessage: Encodable, Sendable {
     public let type: String = "skills_inspect"
     public let slug: String
+
+    public init(slug: String) {
+        self.slug = slug
+    }
 }
 
 /// Response to a sign_bundle_payload request from the daemon.
@@ -414,6 +470,12 @@ public struct SignBundlePayloadResponseMessage: Encodable, Sendable {
     public let signature: String
     public let keyId: String
     public let publicKey: String
+
+    public init(signature: String, keyId: String, publicKey: String) {
+        self.signature = signature
+        self.keyId = keyId
+        self.publicKey = publicKey
+    }
 }
 
 /// Response to a get_signing_identity request from the daemon.
@@ -422,6 +484,11 @@ public struct GetSigningIdentityResponseMessage: Encodable, Sendable {
     public let type: String = "get_signing_identity_response"
     public let keyId: String
     public let publicKey: String
+
+    public init(keyId: String, publicKey: String) {
+        self.keyId = keyId
+        self.publicKey = publicKey
+    }
 }
 
 // MARK: - Server → Client Messages (Decodable)

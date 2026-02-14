@@ -11,10 +11,12 @@ public protocol DaemonClientProtocol {
     func send<T: Encodable>(_ message: T) throws
 }
 
-/// Unix domain socket client for communicating with the Vellum daemon.
+/// Platform-agnostic client for communicating with the Vellum daemon.
 ///
-/// Connects to the daemon's socket at `~/.vellum/vellum.sock` (or `VELLUM_DAEMON_SOCKET` env override),
-/// sends and receives newline-delimited JSON messages.
+/// **macOS**: Connects via Unix domain socket at `~/.vellum/vellum.sock` (or `VELLUM_DAEMON_SOCKET` env override).
+/// **iOS**: Connects via TCP to configurable hostname:port (UserDefaults: `daemon_hostname`, `daemon_port`).
+///
+/// Sends and receives newline-delimited JSON messages over the connection.
 ///
 /// This is a long-lived singleton. Consumers call `subscribe()` to get an independent message
 /// stream, enabling multiple consumers (ComputerUseSession, AmbientAgent) to each receive all
@@ -225,6 +227,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             host: NWEndpoint.Host(hostname),
             port: NWEndpoint.Port(integerLiteral: port)
         )
+        #else
+        #error("DaemonClient is only supported on macOS and iOS")
         #endif
 
         let parameters = NWParameters()
