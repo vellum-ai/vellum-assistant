@@ -87,6 +87,12 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   },
   sandbox: {
     enabled: true,
+    // Default to 'native' (macOS sandbox-exec). Docker backend is available as
+    // opt-in hardening for environments where stronger isolation is needed, but
+    // requires Docker Desktop/Engine — a dependency most developers won't have.
+    // See SANDBOX M11 decision: native remains the default until Docker
+    // integration is stable, startup UX is acceptable, and host tool workflows
+    // have no regressions.
     backend: 'native',
     docker: {
       image: 'node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9',

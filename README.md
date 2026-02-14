@@ -65,6 +65,8 @@ The `sandbox.backend` config option controls how the `bash` tool executes comman
 | **Native** | `"native"` (default) | Uses OS-level sandboxing: `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. No extra dependencies on macOS. |
 | **Docker** | `"docker"` | Runs each command in an ephemeral `docker run --rm` container with the sandbox filesystem bind-mounted to `/workspace`. |
 
+The **native** backend is the default because it works out of the box with no additional dependencies. The Docker backend is available as **opt-in hardening** for environments where stronger container-level isolation is needed (e.g., running untrusted code, shared servers, CI environments). Docker requires Docker Desktop or Docker Engine to be installed and running.
+
 To switch to the Docker backend:
 
 ```bash
