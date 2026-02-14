@@ -139,6 +139,8 @@ struct MainWindowView: View {
                         )
                         viewModel.inputText = "Use the \(skill.name) skill"
                         viewModel.sendMessage()
+                        // Clear leaked metadata if sendMessage() returned early
+                        viewModel.pendingSkillInvocation = nil
                     }
                 }, daemonClient: daemonClient)
             case .settings:
