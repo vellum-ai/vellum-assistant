@@ -1,72 +1,5 @@
 import SwiftUI
 
-// MARK: - Pixel Border Shape
-
-struct PixelBorderShape: Shape {
-    let pixelSize: CGFloat
-    let cornerSteps: Int
-
-    init(pixelSize: CGFloat = 3, cornerSteps: Int = 3) {
-        self.pixelSize = pixelSize
-        self.cornerSteps = cornerSteps
-    }
-
-    func path(in rect: CGRect) -> Path {
-        let s = pixelSize
-        let n = cornerSteps
-        let W = rect.width
-        let H = rect.height
-
-        var path = Path()
-
-        // Start at top edge after top-left corner
-        path.move(to: CGPoint(x: CGFloat(n) * s, y: 0))
-
-        // Top edge
-        path.addLine(to: CGPoint(x: W - CGFloat(n) * s, y: 0))
-
-        // Top-right corner (step right-down)
-        for i in 0..<n {
-            let fi = CGFloat(i)
-            path.addLine(to: CGPoint(x: W - CGFloat(n - 1 - i) * s, y: fi * s))
-            path.addLine(to: CGPoint(x: W - CGFloat(n - 1 - i) * s, y: (fi + 1) * s))
-        }
-
-        // Right edge
-        path.addLine(to: CGPoint(x: W, y: H - CGFloat(n) * s))
-
-        // Bottom-right corner (step down-left)
-        for i in 0..<n {
-            let fi = CGFloat(i)
-            path.addLine(to: CGPoint(x: W - fi * s, y: H - CGFloat(n - 1 - i) * s))
-            path.addLine(to: CGPoint(x: W - (fi + 1) * s, y: H - CGFloat(n - 1 - i) * s))
-        }
-
-        // Bottom edge
-        path.addLine(to: CGPoint(x: CGFloat(n) * s, y: H))
-
-        // Bottom-left corner (step left-up)
-        for i in 0..<n {
-            let fi = CGFloat(i)
-            path.addLine(to: CGPoint(x: CGFloat(n - 1 - i) * s, y: H - fi * s))
-            path.addLine(to: CGPoint(x: CGFloat(n - 1 - i) * s, y: H - (fi + 1) * s))
-        }
-
-        // Left edge
-        path.addLine(to: CGPoint(x: 0, y: CGFloat(n) * s))
-
-        // Top-left corner (step up-right)
-        for i in 0..<n {
-            let fi = CGFloat(i)
-            path.addLine(to: CGPoint(x: fi * s, y: CGFloat(n - 1 - i) * s))
-            path.addLine(to: CGPoint(x: (fi + 1) * s, y: CGFloat(n - 1 - i) * s))
-        }
-
-        path.closeSubpath()
-        return path
-    }
-}
-
 // MARK: - Agent Panel
 
 struct AgentPanel: View {
@@ -76,7 +9,8 @@ struct AgentPanel: View {
 
     @StateObject private var skillsManager: SkillsManager
     @State private var expandedSkillId: String?
-    @State private var hoveredSkillButtonId: String?
+    @State private var hoveredInstalledUseSkillId: String?
+    @State private var hoveredInstalledViewSkillId: String?
     @State private var selectedSkillSlug: String?
     @State private var hoveredDetailInstall = false
 
@@ -821,79 +755,175 @@ struct AgentPanel: View {
 
     private func skillCard(_ skill: SkillInfo) -> some View {
         let isExpanded = expandedSkillId == skill.id
-        let isHovered = hoveredSkillButtonId == skill.id
-        let borderColor = isHovered ? Amber._600.opacity(0.8) : Amber._700.opacity(0.6)
+        let useHovered = hoveredInstalledUseSkillId == skill.id
+        let viewHovered = hoveredInstalledViewSkillId == skill.id
+        let borderColor = skill.updateAvailable ? Amber._700.opacity(0.45) : Emerald._700.opacity(0.4)
 
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: VSpacing.md) {
-                // Pixel-bordered button to use the skill
-                Button(action: {
-                    onInvokeSkill?(skill)
-                }) {
-                    HStack(spacing: VSpacing.md) {
-                        skillIcon(skill.emoji)
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(alignment: .top, spacing: VSpacing.md) {
+                HStack(spacing: VSpacing.md) {
+                    skillIcon(skill.emoji)
 
-                        Text(skill.name)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                    }
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.vertical, VSpacing.md)
-                    .background(isHovered ? Slate._700 : Slate._900)
-                    .clipShape(PixelBorderShape())
-                    .overlay(
-                        PixelBorderShape()
-                            .stroke(borderColor, lineWidth: 2.5)
-                    )
-                    .contentShape(PixelBorderShape())
-                }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    withAnimation(VAnimation.fast) {
-                        hoveredSkillButtonId = hovering ? skill.id : nil
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: VSpacing.sm) {
+                            Text(skill.name)
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textPrimary)
+
+                            if skill.updateAvailable {
+                                Text("UPDATE")
+                                    .font(VFont.small)
+                                    .foregroundColor(Amber._500)
+                            }
+                        }
+
+                        Text(skill.description)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .lineLimit(2)
                     }
                 }
 
-                Spacer()
+                Spacer(minLength: VSpacing.lg)
 
-                // View button — expands skill details
-                VButton(label: isExpanded ? "Hide" : "View", style: .ghost) {
-                    withAnimation(VAnimation.standard) {
-                        if isExpanded {
-                            expandedSkillId = nil
-                        } else {
-                            expandedSkillId = skill.id
-                            skillsManager.fetchSkillBody(skillId: skill.id)
+                VStack(alignment: .trailing, spacing: VSpacing.sm) {
+                    Button(action: {
+                        onInvokeSkill?(skill)
+                    }) {
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 10))
+                            Text("Use")
+                                .font(VFont.mono)
+                        }
+                        .padding(.horizontal, VSpacing.lg)
+                        .padding(.vertical, VSpacing.sm)
+                        .foregroundColor(useHovered ? Slate._900 : Emerald._400)
+                        .background(useHovered ? Emerald._400 : Slate._800)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(Emerald._500.opacity(0.6), lineWidth: 1.5)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        withAnimation(VAnimation.fast) {
+                            hoveredInstalledUseSkillId = hovering ? skill.id : nil
+                        }
+                    }
+
+                    Button(action: {
+                        withAnimation(VAnimation.standard) {
+                            if isExpanded {
+                                expandedSkillId = nil
+                            } else {
+                                expandedSkillId = skill.id
+                                skillsManager.fetchSkillBody(skillId: skill.id)
+                            }
+                        }
+                    }) {
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                            Text(isExpanded ? "Hide" : "View")
+                                .font(VFont.captionMedium)
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.xs)
+                        .foregroundColor(viewHovered ? VColor.textPrimary : VColor.textMuted)
+                        .background(viewHovered ? Slate._700 : Slate._800)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(Slate._600.opacity(0.7), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        withAnimation(VAnimation.fast) {
+                            hoveredInstalledViewSkillId = hovering ? skill.id : nil
                         }
                     }
                 }
             }
 
-            // Expanded body
+            HStack(spacing: VSpacing.lg) {
+                skillMetaItem(icon: "checkmark.circle.fill", value: "Installed", color: Emerald._400)
+                skillMetaItem(icon: "shippingbox", value: sourceLabel(skill.source))
+
+                if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
+                    skillMetaItem(icon: "tag", value: "v\(installedVersion)")
+                }
+
+                if skill.updateAvailable {
+                    if let latestVersion = skill.latestVersion, !latestVersion.isEmpty {
+                        skillMetaItem(icon: "arrow.up.circle", value: "v\(latestVersion) available", color: Amber._500)
+                    } else {
+                        skillMetaItem(icon: "arrow.up.circle", value: "Update available", color: Amber._500)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 24 + VSpacing.md)
+
             if isExpanded {
                 ScrollView {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        // Summary (description)
                         Text(skill.description)
                             .font(VFont.bodyMedium)
                             .foregroundColor(VColor.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
 
-                        // Full body content
                         skillBody(for: skill.id)
                     }
                     .padding(VSpacing.lg)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxHeight: 300)
-                .background(Slate._900)
+                .background(Slate._800)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(VColor.surfaceBorder, lineWidth: 1)
                 )
-                .padding(.top, VSpacing.md)
             }
         }
+        .padding(VSpacing.lg)
+        .background(Slate._900)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(borderColor, lineWidth: 1)
+        )
+    }
+
+    private func sourceLabel(_ source: String) -> String {
+        switch source {
+        case "bundled":
+            return "Bundled"
+        case "managed":
+            return "Managed"
+        case "workspace":
+            return "Workspace"
+        case "clawhub":
+            return "ClawHub"
+        case "extra":
+            return "Extra"
+        default:
+            return source.replacingOccurrences(of: "-", with: " ").capitalized
+        }
+    }
+
+    private func skillMetaItem(icon: String, value: String, color: Color = VColor.textMuted) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+            Text(value)
+        }
+        .font(VFont.small)
+        .foregroundColor(color)
     }
 
     @ViewBuilder
