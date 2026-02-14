@@ -139,13 +139,40 @@ export class AnthropicProvider implements Provider {
           name: block.name,
           input: block.input,
         };
-      case "tool_result":
+      case "tool_result": {
+        if (block.contentBlocks && block.contentBlocks.length > 0) {
+          // Build rich content array: text + images for Anthropic's native multi-part tool results
+          const parts: Anthropic.ToolResultBlockParam['content'] = [
+            { type: "text" as const, text: block.content },
+          ];
+          for (const cb of block.contentBlocks) {
+            if (cb.type === 'image') {
+              parts.push({
+                type: "image" as const,
+                source: {
+                  type: "base64" as const,
+                  media_type: cb.source.media_type as Anthropic.Base64ImageSource["media_type"],
+                  data: cb.source.data,
+                },
+              });
+            } else if (cb.type === 'text') {
+              parts.push({ type: "text" as const, text: cb.text });
+            }
+          }
+          return {
+            type: "tool_result",
+            tool_use_id: block.tool_use_id,
+            content: parts,
+            is_error: block.is_error,
+          };
+        }
         return {
           type: "tool_result",
           tool_use_id: block.tool_use_id,
           content: block.content,
           is_error: block.is_error,
         };
+      }
       default: {
         const _exhaustive: never = block;
         throw new Error(`Unsupported content block type: ${(_exhaustive as ContentBlock).type}`);

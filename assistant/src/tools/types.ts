@@ -1,5 +1,5 @@
 import type { RiskLevel, AllowlistOption, ScopeOption } from '../permissions/types.js';
-import type { ToolDefinition } from '../providers/types.js';
+import type { ToolDefinition, ContentBlock } from '../providers/types.js';
 
 interface ToolLifecycleEventBase {
   toolName: string;
@@ -117,6 +117,8 @@ export interface ToolExecutionResult {
   diff?: DiffInfo;
   /** Optional status message for display (e.g. timeout, truncation). */
   status?: string;
+  /** Optional rich content blocks (e.g. images) to include alongside text in the tool result. */
+  contentBlocks?: ContentBlock[];
 }
 
 export interface Tool {
