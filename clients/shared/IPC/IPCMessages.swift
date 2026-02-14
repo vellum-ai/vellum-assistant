@@ -1321,18 +1321,6 @@ public struct OpenBundleResponseMessage: Decodable, Sendable {
     public let bundleSizeBytes: Int
 }
 
-/// Structured error code for session-level errors.
-public enum SessionErrorCode: String, Codable, Sendable {
-    case providerNetwork = "PROVIDER_NETWORK"
-    case providerRateLimit = "PROVIDER_RATE_LIMIT"
-    case providerApi = "PROVIDER_API"
-    case queueFull = "QUEUE_FULL"
-    case sessionAborted = "SESSION_ABORTED"
-    case sessionProcessingFailed = "SESSION_PROCESSING_FAILED"
-    case regenerateFailed = "REGENERATE_FAILED"
-    case unknown = "UNKNOWN"
-}
-
 /// Typed session-level error from the daemon.
 /// Wire type: `"session_error"`
 public struct SessionErrorMessagePayload: Decodable, Sendable {
