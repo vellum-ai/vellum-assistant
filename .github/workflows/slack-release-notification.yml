@@ -49,14 +49,12 @@ jobs:
             echo "SLACKEOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Post summary to Slack
-        id: summary
+      - name: Post release to Slack
         uses: slackapi/slack-github-action@v2.1.0
         with:
-          method: chat.postMessage
-          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
           payload: |
-            channel: ${{ secrets.SLACK_RELEASES_CHANNEL_ID }}
             unfurl_links: false
             unfurl_media: false
             blocks:
@@ -68,6 +66,11 @@ jobs:
                 text:
                   type: mrkdwn
                   text: "${{ steps.format.outputs.summary }}"
+              - type: divider
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: ${{ toJSON(steps.format.outputs.slack_body) }}
               - type: actions
                 elements:
                   - type: button
@@ -77,30 +80,13 @@ jobs:
                     url: "${{ env.RELEASE_URL }}"
                     style: primary
 
-      - name: Post changelog in thread
-        uses: slackapi/slack-github-action@v2.1.0
-        with:
-          method: chat.postMessage
-          token: ${{ secrets.SLACK_BOT_TOKEN }}
-          payload: |
-            channel: ${{ secrets.SLACK_RELEASES_CHANNEL_ID }}
-            thread_ts: "${{ fromJSON(steps.summary.outputs.response).ts }}"
-            unfurl_links: false
-            unfurl_media: false
-            blocks:
-              - type: section
-                text:
-                  type: mrkdwn
-                  text: ${{ toJSON(steps.format.outputs.slack_body) }}
-
       - name: Notify Slack of notification failure
         if: failure()
         uses: slackapi/slack-github-action@v2.1.0
         with:
-          method: chat.postMessage
-          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
           payload: |
-            channel: ${{ secrets.SLACK_RELEASES_CHANNEL_ID }}
             unfurl_links: false
             unfurl_media: false
             blocks:
