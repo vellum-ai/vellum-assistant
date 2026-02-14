@@ -566,6 +566,16 @@ export interface SecretDetected {
   action: 'redact' | 'warn' | 'block';
 }
 
+export interface MemoryRecalledCandidateDebug {
+  key: string;
+  type: string;
+  kind: string;
+  finalScore: number;
+  lexical: number;
+  semantic: number;
+  recency: number;
+}
+
 export interface MemoryRecalled {
   type: 'memory_recalled';
   provider: string;
@@ -574,8 +584,12 @@ export interface MemoryRecalled {
   semanticHits: number;
   recencyHits: number;
   entityHits: number;
+  mergedCount: number;
+  selectedCount: number;
+  rerankApplied: boolean;
   injectedTokens: number;
   latencyMs: number;
+  topCandidates: MemoryRecalledCandidateDebug[];
 }
 
 export interface MemoryStatus {

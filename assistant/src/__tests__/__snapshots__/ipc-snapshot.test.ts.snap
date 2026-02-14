@@ -576,10 +576,33 @@ exports[`IPC message snapshots ServerMessage types memory_recalled serializes to
   "injectedTokens": 480,
   "latencyMs": 55,
   "lexicalHits": 12,
+  "mergedCount": 18,
   "model": "text-embedding-3-small",
   "provider": "openai",
   "recencyHits": 6,
+  "rerankApplied": false,
+  "selectedCount": 10,
   "semanticHits": 8,
+  "topCandidates": [
+    {
+      "finalScore": 0.85,
+      "key": "segment:seg-1",
+      "kind": "fact",
+      "lexical": 0.9,
+      "recency": 0.3,
+      "semantic": 0.7,
+      "type": "segment",
+    },
+    {
+      "finalScore": 0.72,
+      "key": "item:item-1",
+      "kind": "preference",
+      "lexical": 0.6,
+      "recency": 0.1,
+      "semantic": 0.8,
+      "type": "item",
+    },
+  ],
   "type": "memory_recalled",
 }
 `;

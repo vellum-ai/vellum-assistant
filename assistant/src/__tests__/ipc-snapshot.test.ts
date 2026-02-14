@@ -374,8 +374,15 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     semanticHits: 8,
     recencyHits: 6,
     entityHits: 3,
+    mergedCount: 18,
+    selectedCount: 10,
+    rerankApplied: false,
     injectedTokens: 480,
     latencyMs: 55,
+    topCandidates: [
+      { key: 'segment:seg-1', type: 'segment', kind: 'fact', finalScore: 0.85, lexical: 0.9, semantic: 0.7, recency: 0.3 },
+      { key: 'item:item-1', type: 'item', kind: 'preference', finalScore: 0.72, lexical: 0.6, semantic: 0.8, recency: 0.1 },
+    ],
   },
   memory_status: {
     type: 'memory_status',
