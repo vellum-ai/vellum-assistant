@@ -218,12 +218,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'sign_bundle_payload_response',
     signature: 'dGVzdC1zaWduYXR1cmU=',
     keyId: 'abc123',
-    publicKey: 'dGVzdA==', // eslint-disable-line -- test fixture, not a real key
+    publicKey: 'dGVzdA==',
   },
   get_signing_identity_response: {
     type: 'get_signing_identity_response',
     keyId: 'abc123',
-    publicKey: 'dGVzdA==', // eslint-disable-line -- test fixture, not a real key
+    publicKey: 'dGVzdA==',
   },
   secret_response: {
     type: 'secret_response',

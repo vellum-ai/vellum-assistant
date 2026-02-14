@@ -4,7 +4,6 @@ import type { Message, ContentBlock, ImageContent } from '../providers/types.js'
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
 import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, DynamicPageSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import { getQdrantClient } from '../memory/qdrant-client.js';
-import type { DeletedMemoryIds } from '../memory/conversation-store.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { CheckpointDecision } from '../agent/loop.js';
