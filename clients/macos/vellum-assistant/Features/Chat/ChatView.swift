@@ -359,82 +359,85 @@ struct ChatView: View {
             }
 
             HStack(alignment: .center, spacing: VSpacing.sm) {
-                // Text editor with ghost text overlay and scrollable content
-                ZStack(alignment: .topLeading) {
-                    TextEditor(text: $inputText)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineSpacing(4)
-                        .scrollContentBackground(.hidden)
-                        .disabled(!hasAPIKey)
-                        .accessibilityLabel("Message")
-
-                    // Placeholder
-                    if inputText.isEmpty && ghostSuffix == nil {
-                        Text("What would you like to do?")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textMuted)
-                            .lineSpacing(4)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 8)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
-
-                    // Ghost text overlay — shows the suggested suffix so users
-                    // know what Tab will insert. Uses Text concatenation (`+`)
-                    // so the suffix renders at the end of the last line, not to
-                    // the right of the entire text block.
-                    if let ghostSuffix {
-                        // Text `+` concatenation requires each operand to be
-                        // a `Text` value (modifiers like `.font` and
-                        // `.foregroundColor` return `Text`, but `.lineSpacing`
-                        // returns `some View`), so `.lineSpacing` is applied
-                        // after the concatenation.
-                        (Text(inputText)
-                            .font(VFont.body)
-                            .foregroundColor(.clear)
-                        + Text(ghostSuffix)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textMuted.opacity(0.5)))
-                            .lineSpacing(4)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 8)
-                            // Prevent the ghost text from expanding the composer —
-                            // sizing is driven solely by the real inputText measurer
-                            // in the background modifier below.
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxHeight: min(max(editorContentHeight, 20), 200), alignment: .topLeading)
-                            .clipped()
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
-                }
-                .frame(height: min(max(editorContentHeight, 20), 200))
-                .clipped()
-                .background(alignment: .topLeading) {
-                    // Invisible text measurer — drives editorContentHeight independently
-                    // so the ZStack grows with content but caps at 200pt for scrolling.
-                    Text(inputText.isEmpty ? " " : inputText)
-                        .font(VFont.body)
-                        .lineSpacing(4)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 8)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .opacity(0)
-                        .accessibilityHidden(true)
-                        .background(
-                            GeometryReader { geo in
-                                Color.clear
-                                    .onAppear { editorContentHeight = geo.size.height }
-                                    .onChange(of: geo.size.height) { _, h in
-                                        withAnimation(VAnimation.spring) {
-                                            editorContentHeight = h
-                                        }
+                // Scrollable text input — TextField centers text natively;
+                // ScrollView adds scrolling when content exceeds 200pt.
+                ScrollView(.vertical, showsIndicators: false) {
+                    ZStack(alignment: .leading) {
+                        // Suppress the built-in prompt when a ghost suggestion is
+                        // visible so the placeholder and ghost text don't overlap.
+                        if ghostSuffix != nil {
+                            TextField("", text: $inputText, axis: .vertical)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
+                                .lineSpacing(4)
+                                .textFieldStyle(.plain)
+                                .lineLimit(1...)
+                                .disabled(!hasAPIKey)
+                                .accessibilityLabel("Message")
+                                .background(
+                                    GeometryReader { geo in
+                                        Color.clear
+                                            .onAppear { editorContentHeight = geo.size.height }
+                                            .onChange(of: geo.size.height) { _, h in
+                                                withAnimation(VAnimation.spring) {
+                                                    editorContentHeight = h
+                                                }
+                                            }
                                     }
-                            }
-                        )
+                                )
+                        } else {
+                            TextField("What would you like to do?", text: $inputText, axis: .vertical)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
+                                .lineSpacing(4)
+                                .textFieldStyle(.plain)
+                                .lineLimit(1...)
+                                .disabled(!hasAPIKey)
+                                .accessibilityLabel("Message")
+                                .background(
+                                    GeometryReader { geo in
+                                        Color.clear
+                                            .onAppear { editorContentHeight = geo.size.height }
+                                            .onChange(of: geo.size.height) { _, h in
+                                                withAnimation(VAnimation.spring) {
+                                                    editorContentHeight = h
+                                                }
+                                            }
+                                    }
+                                )
+                        }
+
+                        // Ghost text overlay — shows the suggested suffix so users
+                        // know what Tab will insert. Uses Text concatenation (`+`)
+                        // so the suffix renders at the end of the last line, not to
+                        // the right of the entire text block.
+                        if let ghostSuffix {
+                            // Text `+` concatenation requires each operand to be
+                            // a `Text` value (modifiers like `.font` and
+                            // `.foregroundColor` return `Text`, but `.lineSpacing`
+                            // returns `some View`), so `.lineSpacing` is applied
+                            // after the concatenation.
+                            (Text(inputText)
+                                .font(VFont.body)
+                                .foregroundColor(.clear)
+                            + Text(ghostSuffix)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textMuted.opacity(0.5)))
+                                .lineSpacing(4)
+                                .lineLimit(1...)
+                                // Prevent the ghost text from expanding the composer —
+                                // sizing is driven solely by the TextField's content.
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxHeight: min(max(editorContentHeight, 28), 200), alignment: .topLeading)
+                                .clipped()
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .frame(minHeight: 28)
                 }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(height: min(max(editorContentHeight, 28), 200))
                 .onKeyPress(.tab, phases: .down) { keyPress in
                     if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
                         onAcceptSuggestion()

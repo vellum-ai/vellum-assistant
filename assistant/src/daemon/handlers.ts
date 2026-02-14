@@ -61,6 +61,7 @@ import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, claw
 import { parseSlashCandidate } from '../skills/slash-commands.js';
 import { packageApp } from '../bundler/app-bundler.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
+import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -455,6 +456,12 @@ async function handleUserMessage(
     if (result.rejected) {
       rlog.warn('Message rejected — queue is full');
       ctx.send(socket, { type: 'error', message: 'Message rejected — session queue is full. Please wait and try again.' });
+      ctx.send(socket, buildSessionErrorMessage(msg.sessionId, {
+        code: 'QUEUE_FULL',
+        userMessage: 'The message queue is full. Please wait and try again.',
+        retryable: true,
+        debugDetails: 'Message rejected — session queue is full',
+      }));
       return;
     }
     if (result.queued) {
@@ -476,11 +483,15 @@ async function handleUserMessage(
       const message = err instanceof Error ? err.message : String(err);
       rlog.error({ err }, 'Error processing user message (session or provider failure)');
       ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+      const classified = classifySessionError(err, { phase: 'agent_loop' });
+      ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     rlog.error({ err }, 'Error setting up user message processing');
     ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+    const classified = classifySessionError(err, { phase: 'handler' });
+    ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
   }
 }
 
@@ -777,6 +788,8 @@ async function handleRegenerate(
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, sessionId: msg.sessionId }, 'Error regenerating message');
     ctx.send(socket, { type: 'error', message: `Failed to regenerate: ${message}` });
+    const classified = classifySessionError(err, { phase: 'regenerate' });
+    ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
   }
 }
 
@@ -1344,6 +1357,8 @@ async function handleTaskSubmit(
         const message = err instanceof Error ? err.message : String(err);
         rlog.error({ err }, 'Error processing task_submit text QA');
         ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+        const classified = classifySessionError(err, { phase: 'agent_loop' });
+        ctx.send(socket, buildSessionErrorMessage(conversation.id, classified));
       });
     }
   } catch (err) {

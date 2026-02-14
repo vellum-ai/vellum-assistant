@@ -889,25 +889,6 @@ export interface GetSigningIdentityRequest {
   type: 'get_signing_identity';
 }
 
-export type SessionErrorCode =
-  | 'PROVIDER_NETWORK'
-  | 'PROVIDER_RATE_LIMIT'
-  | 'PROVIDER_API'
-  | 'QUEUE_FULL'
-  | 'SESSION_ABORTED'
-  | 'SESSION_PROCESSING_FAILED'
-  | 'REGENERATE_FAILED'
-  | 'UNKNOWN';
-
-export interface SessionErrorMessage {
-  type: 'session_error';
-  sessionId: string;
-  code: SessionErrorCode;
-  userMessage: string;
-  retryable: boolean;
-  debugDetails?: string;
-}
-
 export interface TimerCompleted {
   type: 'timer_completed';
   sessionId: string;
@@ -1066,8 +1047,7 @@ export type ServerMessage =
   | OpenBundleResponse
   | SignBundlePayloadRequest
   | GetSigningIdentityRequest
-  | TraceEvent
-  | SessionErrorMessage;
+  | TraceEvent;
 
 // === Contract schema ===
 
