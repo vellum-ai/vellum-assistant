@@ -88,8 +88,8 @@ function wireEscalationHandler(
   session: Session,
   _socket: net.Socket,
   ctx: HandlerContext,
-  screenWidth: number,
-  screenHeight: number,
+  screenWidth = 1920,
+  screenHeight = 1080,
 ): void {
   session.setEscalationHandler((task: string, sourceSessionId: string): boolean => {
     const currentSocket = findSocketForSession(sourceSessionId, ctx);
@@ -388,6 +388,7 @@ async function handleUserMessage(
   try {
     ctx.socketToSession.set(socket, msg.sessionId);
     const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
+    wireEscalationHandler(session, socket, ctx);
 
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
 
@@ -477,10 +478,11 @@ async function handleSessionCreate(
   const conversation = conversationStore.createConversation(
     msg.title ?? 'New Conversation',
   );
-  await ctx.getOrCreateSession(conversation.id, socket, true, {
+  const session = await ctx.getOrCreateSession(conversation.id, socket, true, {
     systemPromptOverride: msg.systemPromptOverride,
     maxResponseTokens: msg.maxResponseTokens,
   });
+  wireEscalationHandler(session, socket, ctx);
   ctx.send(socket, {
     type: 'session_info',
     sessionId: conversation.id,
@@ -500,7 +502,8 @@ async function handleSessionSwitch(
     return;
   }
   ctx.socketToSession.set(socket, msg.sessionId);
-  await ctx.getOrCreateSession(msg.sessionId, socket, true);
+  const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
+  wireEscalationHandler(session, socket, ctx);
   ctx.send(socket, {
     type: 'session_info',
     sessionId: conversation.id,
