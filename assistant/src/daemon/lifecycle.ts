@@ -185,20 +185,24 @@ export async function runDaemon(): Promise<void> {
   initializeProviders(config);
   await initializeTools();
 
-  // Initialize Qdrant vector store
+  // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
   const qdrantUrl = process.env.QDRANT_URL?.trim() || config.memory.qdrant.url;
   const qdrantManager = new QdrantManager({
     url: qdrantUrl,
   });
-  await qdrantManager.start();
-  initQdrantClient({
-    url: qdrantUrl,
-    collection: config.memory.qdrant.collection,
-    vectorSize: config.memory.qdrant.vectorSize,
-    onDisk: config.memory.qdrant.onDisk,
-    quantization: config.memory.qdrant.quantization,
-  });
-  log.info('Qdrant vector store initialized');
+  try {
+    await qdrantManager.start();
+    initQdrantClient({
+      url: qdrantUrl,
+      collection: config.memory.qdrant.collection,
+      vectorSize: config.memory.qdrant.vectorSize,
+      onDisk: config.memory.qdrant.onDisk,
+      quantization: config.memory.qdrant.quantization,
+    });
+    log.info('Qdrant vector store initialized');
+  } catch (err) {
+    log.warn({ err }, 'Qdrant failed to start — memory features will be unavailable');
+  }
 
   const server = new DaemonServer();
   await server.start();
