@@ -94,7 +94,7 @@ export class ToolExecutor {
       if (result.decision === 'prompt') {
         // Need user approval
         const allowlistOptions = generateAllowlistOptions(name, input);
-        const scopeOptions = generateScopeOptions(context.workingDir);
+        const scopeOptions = generateScopeOptions(context.workingDir, name);
 
         // Compute preview diff for file tools so the user sees what will change
         const previewDiff = computePreviewDiff(name, input, context.workingDir);

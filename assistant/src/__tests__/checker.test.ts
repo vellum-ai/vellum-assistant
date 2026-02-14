@@ -301,6 +301,34 @@ describe('Permission Checker', () => {
       expect(result.matchedRule).toBeDefined();
     });
 
+    test('host_file_read with matching host rule → allow', async () => {
+      addRule('host_file_read', 'host_file_read:/etc/hosts', 'everywhere');
+      const result = await check('host_file_read', { path: '/etc/hosts' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe('host_file_read:/etc/hosts');
+    });
+
+    test('host_file_write with matching host rule → allow', async () => {
+      addRule('host_file_write', 'host_file_write:/Users/test/project/*', 'everywhere');
+      const result = await check('host_file_write', { path: '/Users/test/project/output.txt' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe('host_file_write:/Users/test/project/*');
+    });
+
+    test('host_file_edit with matching host rule → allow', async () => {
+      addRule('host_file_edit', 'host_file_edit:/opt/config/app.yml', 'everywhere');
+      const result = await check('host_file_edit', { path: '/opt/config/app.yml' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe('host_file_edit:/opt/config/app.yml');
+    });
+
+    test('host_bash reuses bash-style command matching', async () => {
+      addRule('host_bash', 'npm *', 'everywhere');
+      const result = await check('host_bash', { command: 'npm test' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe('npm *');
+    });
+
     test('deny rule for skill_load matches specific skill selectors', async () => {
       addRule('skill_load', 'skill_load:dangerous-skill', 'everywhere', 'deny');
       const result = await check('skill_load', { skill: 'dangerous-skill' }, '/tmp');
@@ -569,6 +597,29 @@ describe('Permission Checker', () => {
       expect(options[2].pattern).toBe('file_read:*');
     });
 
+    test('host_file_read: generates prefixed file, directory, and tool wildcard', () => {
+      const options = generateAllowlistOptions('host_file_read', { path: '/etc/hosts' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('host_file_read:/etc/hosts');
+      expect(options[1].pattern).toBe('host_file_read:/etc/*');
+      expect(options[2].pattern).toBe('host_file_read:*');
+    });
+
+    test('host_file_write with file_path key', () => {
+      const options = generateAllowlistOptions('host_file_write', { file_path: '/tmp/out.txt' });
+      expect(options[0].pattern).toBe('host_file_write:/tmp/out.txt');
+      expect(options[1].pattern).toBe('host_file_write:/tmp/*');
+      expect(options[2].pattern).toBe('host_file_write:*');
+    });
+
+    test('host_bash: generates exact, subcommand wildcard, and program wildcard', () => {
+      const options = generateAllowlistOptions('host_bash', { command: 'npm install express' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('npm install express');
+      expect(options[1].pattern).toBe('npm install *');
+      expect(options[2].pattern).toBe('npm *');
+    });
+
     test('file_write with file_path key', () => {
       const options = generateAllowlistOptions('file_write', { file_path: '/tmp/out.txt' });
       expect(options[0].pattern).toBe('file_write:/tmp/out.txt');
@@ -672,6 +723,13 @@ describe('Permission Checker', () => {
       const options = generateScopeOptions('/var/data/app');
       expect(options[0].label).toBe('/var/data/app');
       expect(options[1].label).toBe('/var/data/*');
+    });
+
+    test('host tools prioritize everywhere scope first', () => {
+      const options = generateScopeOptions('/var/data/app', 'host_file_read');
+      expect(options[0]).toEqual({ label: 'everywhere', scope: 'everywhere' });
+      expect(options[1].scope).toBe('/var/data/app');
+      expect(options[2].scope).toBe('/var/data');
     });
   });
 });

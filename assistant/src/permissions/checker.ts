@@ -124,7 +124,7 @@ function escapeMinimatchLiteral(value: string): string {
 }
 
 function buildCommandCandidates(toolName: string, input: Record<string, unknown>, workingDir: string): string[] {
-  if (toolName === 'bash') {
+  if (toolName === 'bash' || toolName === 'host_bash') {
     return [getStringField(input, 'command')];
   }
 
@@ -165,6 +165,10 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
   }
 
   const fileTarget = getStringField(input, 'path', 'file_path');
+  if (toolName === 'host_file_read' || toolName === 'host_file_write' || toolName === 'host_file_edit') {
+    return [`${toolName}:${fileTarget}`];
+  }
+
   const resolved = fileTarget ? resolve(workingDir, fileTarget) : fileTarget;
   const candidates = [`${toolName}:${resolved}`];
   // Also include the raw path if it differs, so user-created rules with
@@ -307,6 +311,9 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   file_read: 'file reads',
   file_write: 'file writes',
   file_edit: 'file edits',
+  host_file_read: 'host file reads',
+  host_file_write: 'host file writes',
+  host_file_edit: 'host file edits',
   web_fetch: 'URL fetches',
   browser_navigate: 'browser navigations',
 };
@@ -321,7 +328,7 @@ function friendlyHostname(url: URL): string {
 }
 
 export function generateAllowlistOptions(toolName: string, input: Record<string, unknown>): AllowlistOption[] {
-  if (toolName === 'bash') {
+  if (toolName === 'bash' || toolName === 'host_bash') {
     const command = ((input.command as string) ?? '').trim();
     const parts = command.split(/\s+/);
     const program = parts[0] ?? command;
@@ -354,7 +361,10 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     });
   }
 
-  if (toolName === 'file_write' || toolName === 'file_read' || toolName === 'file_edit') {
+  if (
+    toolName === 'file_write' || toolName === 'file_read' || toolName === 'file_edit'
+    || toolName === 'host_file_write' || toolName === 'host_file_read' || toolName === 'host_file_edit'
+  ) {
     const filePath = (input.path as string) ?? (input.file_path as string) ?? '';
     const toolLabel = TOOL_DISPLAY_NAMES[toolName] ?? toolName;
     const options: AllowlistOption[] = [];
@@ -405,7 +415,7 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
   return [{ label: '*', description: 'Everything', pattern: '*' }];
 }
 
-export function generateScopeOptions(workingDir: string): ScopeOption[] {
+export function generateScopeOptions(workingDir: string, toolName?: string): ScopeOption[] {
   const home = homedir();
   const options: ScopeOption[] = [];
 
@@ -427,5 +437,11 @@ export function generateScopeOptions(workingDir: string): ScopeOption[] {
   // Everywhere
   options.push({ label: 'everywhere', scope: 'everywhere' });
 
-  return options;
+  if (!toolName?.startsWith('host_')) {
+    return options;
+  }
+
+  const everywhere = options.find((option) => option.scope === 'everywhere');
+  const scoped = options.filter((option) => option.scope !== 'everywhere');
+  return everywhere ? [everywhere, ...scoped] : options;
 }
