@@ -909,21 +909,14 @@ extension IPCHistoryResponse {
 }
 
 /// A single trust rule item returned from the daemon.
-public struct TrustRuleItem: Decodable, Sendable, Identifiable {
-    public let id: String
-    public let tool: String
-    public let pattern: String
-    public let scope: String
-    public let decision: String
-    public let priority: Int
-    public let createdAt: Double
-}
+/// Backed by generated `IPCTrustRulesListResponseRule`.
+public typealias TrustRuleItem = IPCTrustRulesListResponseRule
+
+extension IPCTrustRulesListResponseRule: Identifiable {}
 
 /// Response containing all trust rules.
-/// Wire type: `"trust_rules_list_response"`
-public struct TrustRulesListResponseMessage: Decodable, Sendable {
-    public let rules: [TrustRuleItem]
-}
+/// Backed by generated `IPCTrustRulesListResponse`.
+public typealias TrustRulesListResponseMessage = IPCTrustRulesListResponse
 
 /// A single app item returned from the daemon.
 public struct AppItem: Decodable, Sendable, Identifiable {
@@ -1032,31 +1025,16 @@ public struct TimerCompletedMessage: Decodable, Sendable {
 }
 
 /// Tool execution started.
-/// Wire type: `"tool_use_start"`
-public struct ToolUseStartMessage: Decodable, Sendable {
-    public let toolName: String
-    public let input: [String: AnyCodable]
-    public let sessionId: String?
-}
+/// Backed by generated `IPCToolUseStart`.
+public typealias ToolUseStartMessage = IPCToolUseStart
 
 /// Streaming tool output chunk.
-/// Wire type: `"tool_output_chunk"`
-public struct ToolOutputChunkMessage: Decodable, Sendable {
-    public let chunk: String
-}
+/// Backed by generated `IPCToolOutputChunk`.
+public typealias ToolOutputChunkMessage = IPCToolOutputChunk
 
 /// Tool execution completed.
-/// Wire type: `"tool_result"`
-public struct ToolResultMessage: Decodable, Sendable {
-    public let toolName: String
-    public let result: String
-    public let isError: Bool?
-    public let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
-    public let status: String?
-    public let sessionId: String?
-    /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
-    public let imageData: String?
-}
+/// Backed by generated `IPCToolResult`.
+public typealias ToolResultMessage = IPCToolResult
 
 /// Follow-up suggestion response from daemon.
 /// Wire type: `"suggestion_response"`
@@ -1067,66 +1045,39 @@ public struct SuggestionResponseMessage: Decodable, Sendable {
 }
 
 /// Secret input request from daemon.
-/// Wire type: `"secret_request"`
-public struct SecretRequestMessage: Decodable, Sendable {
-    public let requestId: String
-    public let service: String
-    public let field: String
-    public let label: String
-    public let description: String?
-    public let placeholder: String?
-    public let sessionId: String?
-}
+/// Backed by generated `IPCSecretRequest`.
+public typealias SecretRequestMessage = IPCSecretRequest
 
 /// Permission confirmation request from daemon.
-/// Wire type: `"confirmation_request"`
-public struct ConfirmationRequestMessage: Decodable, Sendable {
-    public let requestId: String
-    public let toolName: String
-    public let input: [String: AnyCodable]
-    public let riskLevel: String
-    public let allowlistOptions: [ConfirmationAllowlistOption]
-    public let scopeOptions: [ConfirmationScopeOption]
-    public let diff: ConfirmationDiffInfo?
-    public let sandboxed: Bool?
-    /// Optional execution surface for the tool invocation (`"sandbox"` or `"host"`).
-    public let executionTarget: String?
-    public let sessionId: String?
+/// Backed by generated `IPCConfirmationRequest`.
+public typealias ConfirmationRequestMessage = IPCConfirmationRequest
 
-    public struct ConfirmationAllowlistOption: Decodable, Sendable, Equatable {
-        public let label: String
-        public let description: String?
-        public let pattern: String
+// Backward-compatible nested type aliases so call sites like
+// `ConfirmationRequestMessage.ConfirmationAllowlistOption` keep compiling.
+extension IPCConfirmationRequest {
+    public typealias ConfirmationAllowlistOption = IPCConfirmationRequestAllowlistOption
+    public typealias ConfirmationScopeOption = IPCConfirmationRequestScopeOption
+    public typealias ConfirmationDiffInfo = IPCConfirmationRequestDiff
+}
 
-        public init(label: String, description: String?, pattern: String) {
-            self.label = label
-            self.description = description
-            self.pattern = pattern
-        }
-    }
-    public struct ConfirmationScopeOption: Decodable, Sendable, Equatable {
-        public let label: String
-        public let scope: String
-
-        public init(label: String, scope: String) {
-            self.label = label
-            self.scope = scope
-        }
-    }
-    public struct ConfirmationDiffInfo: Decodable, Sendable, Equatable {
-        public let filePath: String
-        public let oldContent: String
-        public let newContent: String
-        public let isNewFile: Bool
-
-        public init(filePath: String, oldContent: String, newContent: String, isNewFile: Bool) {
-            self.filePath = filePath
-            self.oldContent = oldContent
-            self.newContent = newContent
-            self.isNewFile = isNewFile
-        }
+// Equatable conformance for generated types used in SwiftUI previews and tests.
+// Explicit `==` implementations because auto-synthesis requires conformance in the declaring file.
+extension IPCConfirmationRequestAllowlistOption: Equatable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.label == rhs.label && lhs.description == rhs.description && lhs.pattern == rhs.pattern
     }
 }
+extension IPCConfirmationRequestScopeOption: Equatable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.label == rhs.label && lhs.scope == rhs.scope
+    }
+}
+extension IPCConfirmationRequestDiff: Equatable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.filePath == rhs.filePath && lhs.oldContent == rhs.oldContent && lhs.newContent == rhs.newContent && lhs.isNewFile == rhs.isNewFile
+    }
+}
+
 
 /// Request a follow-up suggestion for the current session.
 /// Wire type: `"suggestion_request"`
@@ -1142,89 +1093,62 @@ public struct SuggestionRequestMessage: Encodable, Sendable {
 }
 
 /// Client response to a permission confirmation request.
-/// Wire type: `"confirmation_response"`
-public struct ConfirmationResponseMessage: Encodable, Sendable {
-    public let type: String = "confirmation_response"
-    public let requestId: String
-    public let decision: String
-    public let selectedPattern: String?
-    public let selectedScope: String?
+/// Backed by generated `IPCConfirmationResponse`.
+public typealias ConfirmationResponseMessage = IPCConfirmationResponse
 
+extension IPCConfirmationResponse {
     public init(requestId: String, decision: String, selectedPattern: String? = nil, selectedScope: String? = nil) {
-        self.requestId = requestId
-        self.decision = decision
-        self.selectedPattern = selectedPattern
-        self.selectedScope = selectedScope
+        self.init(type: "confirmation_response", requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope)
     }
 }
 
 /// Client response to a secret input request.
-/// Wire type: `"secret_response"`
-public struct SecretResponseMessage: Encodable, Sendable {
-    public let type: String = "secret_response"
-    public let requestId: String
-    public let value: String?
+/// Backed by generated `IPCSecretResponse`.
+public typealias SecretResponseMessage = IPCSecretResponse
 
+extension IPCSecretResponse {
     public init(requestId: String, value: String?) {
-        self.requestId = requestId
-        self.value = value
+        self.init(type: "secret_response", requestId: requestId, value: value)
     }
 }
 
 /// Sent to add a trust rule (allowlist/denylist) independently of a confirmation response.
-/// Wire type: `"add_trust_rule"`
-public struct AddTrustRuleMessage: Encodable, Sendable {
-    public let type: String = "add_trust_rule"
-    public let toolName: String
-    public let pattern: String
-    public let scope: String
-    public let decision: String
+/// Backed by generated `IPCAddTrustRule`.
+public typealias AddTrustRuleMessage = IPCAddTrustRule
 
+extension IPCAddTrustRule {
     public init(toolName: String, pattern: String, scope: String, decision: String) {
-        self.toolName = toolName
-        self.pattern = pattern
-        self.scope = scope
-        self.decision = decision
+        self.init(type: "add_trust_rule", toolName: toolName, pattern: pattern, scope: scope, decision: decision)
     }
 }
 
 /// Request all trust rules from the daemon.
-/// Wire type: `"trust_rules_list"`
-public struct TrustRulesListMessage: Encodable, Sendable {
-    public let type: String = "trust_rules_list"
+/// Backed by generated `IPCTrustRulesList`.
+public typealias TrustRulesListMessage = IPCTrustRulesList
 
-    public init() {}
+extension IPCTrustRulesList {
+    public init() {
+        self.init(type: "trust_rules_list")
+    }
 }
 
 /// Remove a trust rule by its ID.
-/// Wire type: `"remove_trust_rule"`
-public struct RemoveTrustRuleMessage: Encodable, Sendable {
-    public let type: String = "remove_trust_rule"
-    public let id: String
+/// Backed by generated `IPCRemoveTrustRule`.
+public typealias RemoveTrustRuleMessage = IPCRemoveTrustRule
 
+extension IPCRemoveTrustRule {
     public init(id: String) {
-        self.id = id
+        self.init(type: "remove_trust_rule", id: id)
     }
 }
 
 /// Update fields on an existing trust rule.
-/// Wire type: `"update_trust_rule"`
-public struct UpdateTrustRuleMessage: Encodable, Sendable {
-    public let type: String = "update_trust_rule"
-    public let id: String
-    public let tool: String?
-    public let pattern: String?
-    public let scope: String?
-    public let decision: String?
-    public let priority: Int?
+/// Backed by generated `IPCUpdateTrustRule`.
+public typealias UpdateTrustRuleMessage = IPCUpdateTrustRule
 
+extension IPCUpdateTrustRule {
     public init(id: String, tool: String? = nil, pattern: String? = nil, scope: String? = nil, decision: String? = nil, priority: Int? = nil) {
-        self.id = id
-        self.tool = tool
-        self.pattern = pattern
-        self.scope = scope
-        self.decision = decision
-        self.priority = priority
+        self.init(type: "update_trust_rule", id: id, tool: tool, pattern: pattern, scope: scope, decision: decision, priority: priority)
     }
 }
 
