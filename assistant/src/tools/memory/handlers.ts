@@ -192,6 +192,7 @@ export async function handleMemoryUpdate(
         fingerprint,
         lastSeenAt: now,
         importance: 0.8,
+        verificationState: 'user_confirmed',
       })
       .where(eq(memoryItems.id, existing.id))
       .run();

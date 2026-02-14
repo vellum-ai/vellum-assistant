@@ -837,43 +837,55 @@ describe('Memory V2 regressions', () => {
     expect(extractionJobs).toHaveLength(0);
   });
 
-  test('memory_save sets verificationState to user_confirmed', () => {
+  test('memory_save sets verificationState to user_confirmed', async () => {
+    const { handleMemorySave } = await import('../tools/memory/handlers.js');
+
+    const result = await handleMemorySave(
+      { statement: 'User explicitly saved this preference', kind: 'preference' },
+      DEFAULT_CONFIG,
+      'conv-verify-save',
+      'msg-verify-save',
+    );
+    expect(result.isError).toBe(false);
+
+    const db = getDb();
+    const items = db.select().from(memoryItems).all();
+    const saved = items.find((i) => i.statement === 'User explicitly saved this preference');
+    expect(saved).toBeDefined();
+    expect(saved!.verificationState).toBe('user_confirmed');
+  });
+
+  test('memory_update promotes verificationState to user_confirmed', async () => {
     const db = getDb();
     const now = Date.now();
-    db.insert(conversations).values({
-      id: 'conv-verify-save',
-      title: null,
-      createdAt: now,
-      updatedAt: now,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-      contextSummary: null,
-      contextCompactedMessageCount: 0,
-      contextCompactedAt: null,
-    }).run();
+    const { handleMemoryUpdate } = await import('../tools/memory/handlers.js');
 
-    // Insert a memory item via the explicit save path
-    const id = 'item-verify-save';
-    const fingerprint = 'fp-verify-save';
+    // Pre-seed an assistant-inferred item
     db.insert(memoryItems).values({
-      id,
-      kind: 'preference',
-      subject: 'Test verification',
-      statement: 'User explicitly saved this',
+      id: 'item-update-verify',
+      kind: 'fact',
+      subject: 'update test',
+      statement: 'Original assistant inferred statement',
       status: 'active',
-      confidence: 0.95,
-      importance: 0.8,
-      fingerprint,
-      verificationState: 'user_confirmed',
+      confidence: 0.6,
+      importance: 0.4,
+      fingerprint: 'fp-update-verify-original',
+      verificationState: 'assistant_inferred',
       firstSeenAt: now,
       lastSeenAt: now,
       lastUsedAt: null,
     }).run();
 
-    const item = db.select().from(memoryItems).where(eq(memoryItems.id, id)).get();
-    expect(item).toBeDefined();
-    expect(item!.verificationState).toBe('user_confirmed');
+    const result = await handleMemoryUpdate(
+      { memory_id: 'item-update-verify', statement: 'User corrected statement' },
+      DEFAULT_CONFIG,
+    );
+    expect(result.isError).toBe(false);
+
+    const updated = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-update-verify')).get();
+    expect(updated).toBeDefined();
+    expect(updated!.statement).toBe('User corrected statement');
+    expect(updated!.verificationState).toBe('user_confirmed');
   });
 
   test('extracted items from user messages get user_reported verification state', async () => {
