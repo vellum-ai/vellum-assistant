@@ -122,23 +122,29 @@ fi
 echo "✅ No plain text keys detected in $CHECKED_FILES files"
 
 # --- IPC contract generation check ---
-# When the IPC contract source or generator changes, verify the generated
-# Swift file stays in sync. Only runs when relevant files are staged.
+# When contract source files are staged, verify generated output is up to date.
 
-IPC_CONTRACT="assistant/src/daemon/ipc-contract.ts"
-IPC_GENERATOR="assistant/scripts/ipc/generate-swift.ts"
-IPC_GENERATED="clients/shared/IPC/Generated/IPCContractGenerated.swift"
+IPC_CONTRACT_FILES=(
+    "assistant/src/daemon/ipc-contract.ts"
+    "assistant/src/daemon/ipc-contract-inventory.ts"
+    "assistant/scripts/ipc/generate-swift.ts"
+    "assistant/scripts/ipc/check-contract-inventory.ts"
+    "assistant/src/daemon/ipc-contract-inventory.json"
+    "clients/shared/IPC/Generated/IPCContractGenerated.swift"
+)
 
 IPC_CHANGED=0
 while IFS= read -r -d '' FILE; do
-    if [ "$FILE" = "$IPC_CONTRACT" ] || [ "$FILE" = "$IPC_GENERATOR" ] || [ "$FILE" = "$IPC_GENERATED" ]; then
-        IPC_CHANGED=1
-        break
-    fi
+    for CONTRACT_FILE in "${IPC_CONTRACT_FILES[@]}"; do
+        if [ "$FILE" = "$CONTRACT_FILE" ]; then
+            IPC_CHANGED=1
+            break 2
+        fi
+    done
 done < <(git diff --cached --name-only -z)
 
 if [ $IPC_CHANGED -eq 1 ]; then
-    echo "🔍 IPC contract files changed — checking generated Swift is up to date..."
+    echo "🔍 IPC contract files changed — checking generated code is up to date..."
 
     # Detect bun location
     BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
@@ -146,9 +152,7 @@ if [ $IPC_CHANGED -eq 1 ]; then
         echo -e "${YELLOW}⚠️  bun not found — skipping IPC generation check${NC}"
         echo "  Install bun or run 'cd assistant && bun run generate:ipc' manually."
     else
-        if (cd assistant && "$BUN" run check:ipc-generated) 2>/dev/null; then
-            echo "✅ Generated IPC Swift models are up to date"
-        else
+        if ! (cd assistant && "$BUN" run check:ipc-generated) 2>/dev/null; then
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}Generated IPC Swift models are out of date!${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -157,6 +161,18 @@ if [ $IPC_CHANGED -eq 1 ]; then
             echo "Then stage the updated file and commit again."
             exit 1
         fi
+        echo "✅ Generated IPC Swift models are up to date"
+
+        if ! (cd assistant && "$BUN" run ipc:inventory) 2>/dev/null; then
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}IPC contract inventory snapshot is out of date!${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo "Run: cd assistant && bun run ipc:inventory:update"
+            echo "Then stage the updated file and commit again."
+            exit 1
+        fi
+        echo "✅ IPC contract inventory is up to date"
     fi
 fi
 
