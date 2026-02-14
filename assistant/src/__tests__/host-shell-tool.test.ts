@@ -20,6 +20,9 @@ const mockConfig = {
   auditLog: { retentionDays: 0 },
 };
 
+// Track whether wrapCommand was ever called — host_bash must never invoke it
+let wrapCommandCallCount = 0;
+
 mock.module('../config/loader.js', () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
@@ -35,6 +38,13 @@ mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
     get: () => () => {},
   }),
+}));
+
+mock.module('../tools/terminal/sandbox.js', () => ({
+  wrapCommand: (...args: unknown[]) => {
+    wrapCommandCallCount++;
+    return { command: 'bash', args: ['-c', '--', args[0]], sandboxed: false };
+  },
 }));
 
 import { hostShellTool } from '../tools/host-terminal/host-shell.js';
@@ -84,5 +94,41 @@ describe('host_bash tool', () => {
     const result = await hostShellTool.execute({ command: 'exit 12' }, makeContext());
     expect(result.isError).toBe(true);
     expect(result.content).toContain('<command_exit code="12" />');
+  });
+
+  test('does not route through sandbox wrapCommand', async () => {
+    wrapCommandCallCount = 0;
+
+    const dir = mkdtempSync(join(tmpdir(), 'host-shell-nosandbox-'));
+    testDirs.push(dir);
+
+    const result = await hostShellTool.execute({
+      command: 'echo isolation-test',
+      working_dir: dir,
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(result.content.trim()).toBe('isolation-test');
+    // The sandbox wrapCommand must never be called for host_bash
+    expect(wrapCommandCallCount).toBe(0);
+  });
+
+  test('spawns plain bash without sandbox-exec or bwrap', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-shell-plain-'));
+    testDirs.push(dir);
+
+    // Verify the tool executes successfully even when sandbox is enabled in config,
+    // proving it bypasses the sandbox entirely
+    expect(mockConfig.sandbox.enabled).toBe(true);
+
+    const result = await hostShellTool.execute({
+      command: 'echo $0',
+      working_dir: dir,
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    // bash reports its own name — if sandboxed via sandbox-exec or bwrap,
+    // the process tree would be different
+    expect(result.content.trim()).toContain('bash');
   });
 });

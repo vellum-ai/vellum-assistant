@@ -256,6 +256,32 @@ describe('ToolExecutor lifecycle events', () => {
     expect(errorEvent.isExpected).toBe(true);
   });
 
+  test('bash tool resolves to sandbox executionTarget', async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute('bash', { command: 'echo hello' }, makeContext(events));
+
+    const startEvent = events[0];
+    if (startEvent.type !== 'start') throw new Error('Expected start event');
+    expect(startEvent.executionTarget).toBe('sandbox');
+    const executedEvent = events.find((e) => e.type === 'executed' || e.type === 'error');
+    expect(executedEvent?.executionTarget).toBe('sandbox');
+  });
+
+  test('host_bash tool resolves to host executionTarget', async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute('host_bash', { command: 'echo hello' }, makeContext(events));
+
+    const startEvent = events[0];
+    if (startEvent.type !== 'start') throw new Error('Expected start event');
+    expect(startEvent.executionTarget).toBe('host');
+    const executedEvent = events.find((e) => e.type === 'executed' || e.type === 'error');
+    expect(executedEvent?.executionTarget).toBe('host');
+  });
+
   test('does not block tool execution on unresolved lifecycle callbacks', async () => {
     const executor = new ToolExecutor(makePrompter());
     const timeoutMs = 100;
