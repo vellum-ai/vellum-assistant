@@ -42,10 +42,11 @@ struct ChatTabView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: viewModel.messages.count) { oldValue, newValue in
-                    scrollToBottom(proxy: proxy)
+                    scrollToBottom(proxy: proxy, animated: true)
                 }
                 .onChange(of: viewModel.messages.last?.text) { oldValue, newValue in
-                    scrollToBottom(proxy: proxy)
+                    // Scroll without animation during streaming to avoid jank
+                    scrollToBottom(proxy: proxy, animated: false)
                 }
             }
 
@@ -62,9 +63,13 @@ struct ChatTabView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func scrollToBottom(proxy: ScrollViewProxy) {
+    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
         guard let lastMessage = viewModel.messages.last else { return }
-        withAnimation(.easeOut(duration: 0.3)) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.3)) {
+                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+            }
+        } else {
             proxy.scrollTo(lastMessage.id, anchor: .bottom)
         }
     }
