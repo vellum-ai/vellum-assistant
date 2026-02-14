@@ -111,7 +111,8 @@ struct GeneratedPanel: View {
             Spacer()
 
             // Action buttons — visible on hover
-            if isHovered || isBundlingThis {
+            let showingShareSheet = showShareSheet && sharingAppId == item.id
+            if isHovered || isBundlingThis || showingShareSheet {
                 HStack(spacing: VSpacing.xs) {
                     if isBundlingThis {
                         ProgressView()
@@ -264,6 +265,23 @@ struct GeneratedPanel: View {
             if self.pendingResponses <= 0 {
                 self.buildDisplayItems()
                 self.isLoading = false
+            }
+        }
+
+        // Handle daemon-side errors that arrive as generic `error` messages
+        // instead of typed responses — reset loading/bundling state so the UI
+        // never gets permanently stuck.
+        daemonClient.onError = { _ in
+            if self.isLoading {
+                self.pendingResponses -= 1
+                if self.pendingResponses <= 0 {
+                    self.buildDisplayItems()
+                    self.isLoading = false
+                }
+            }
+            if self.isBundling {
+                self.isBundling = false
+                self.sharingAppId = nil
             }
         }
 

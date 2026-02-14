@@ -89,6 +89,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `open_bundle_response` message.
     var onOpenBundleResponse: ((OpenBundleResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
+    var onError: ((ErrorMessage) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -643,6 +646,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onBundleAppResponse?(msg)
         case .openBundleResponse(let msg):
             onOpenBundleResponse?(msg)
+        case .error(let msg):
+            onError?(msg)
         case .signBundlePayload(let msg):
             handleSignBundlePayload(msg)
         case .getSigningIdentity:
