@@ -220,10 +220,18 @@ private struct TypingIndicator: View {
 // MARK: - Preview
 
 #if DEBUG
-#Preview("InterviewChatView") {
-    @Previewable @State var text = ""
+struct InterviewChatView_Preview: PreviewProvider {
+    static var previews: some View {
+        InterviewChatViewPreviewWrapper()
+            .frame(width: 600, height: 600)
+            .previewDisplayName("InterviewChatView")
+    }
+}
 
-    let sampleMessages: [InterviewMessage] = [
+private struct InterviewChatViewPreviewWrapper: View {
+    @State private var text = ""
+
+    private let sampleMessages: [InterviewMessage] = [
         InterviewMessage(role: .assistant, text: "Hi there! I just hatched and I am so excited to meet you."),
         InterviewMessage(role: .user, text: "Welcome! What can you do?"),
         InterviewMessage(
@@ -233,18 +241,19 @@ private struct TypingIndicator: View {
         InterviewMessage(role: .user, text: "That sounds great, tell me more."),
     ]
 
-    ZStack {
-        MeadowBackground()
-        OnboardingPanel {
-            InterviewChatView(
-                messages: sampleMessages,
-                inputText: text,
-                isThinking: true,
-                isStreaming: false
-            )
-            .frame(height: 400)
+    var body: some View {
+        ZStack {
+            MeadowBackground()
+            OnboardingPanel {
+                InterviewChatView(
+                    messages: sampleMessages,
+                    inputText: text,
+                    isThinking: true,
+                    isStreaming: false
+                )
+                .frame(height: 400)
+            }
         }
     }
-    .frame(width: 600, height: 600)
 }
 #endif

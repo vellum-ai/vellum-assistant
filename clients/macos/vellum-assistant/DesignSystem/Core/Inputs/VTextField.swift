@@ -45,18 +45,28 @@ struct VTextField: View {
 }
 
 #if DEBUG
-#Preview("VTextField") {
-    @Previewable @State var text = ""
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(spacing: 16) {
-            VTextField(placeholder: "Plain text field", text: $text)
-            VTextField(placeholder: "With leading icon", text: $text, leadingIcon: "magnifyingglass")
-            VTextField(placeholder: "With trailing icon", text: $text, trailingIcon: "envelope")
-            VTextField(placeholder: "Both icons", text: $text, leadingIcon: "magnifyingglass", trailingIcon: "xmark.circle")
-        }
-        .padding()
+struct VTextField_Preview: PreviewProvider {
+    static var previews: some View {
+        VTextFieldPreviewWrapper()
+            .frame(width: 350, height: 280)
+            .previewDisplayName("VTextField")
     }
-    .frame(width: 350, height: 280)
+}
+
+private struct VTextFieldPreviewWrapper: View {
+    @State private var text = ""
+
+    var body: some View {
+        ZStack {
+            VColor.background.ignoresSafeArea()
+            VStack(spacing: 16) {
+                VTextField(placeholder: "Plain text field", text: $text)
+                VTextField(placeholder: "With leading icon", text: $text, leadingIcon: "magnifyingglass")
+                VTextField(placeholder: "With trailing icon", text: $text, trailingIcon: "envelope")
+                VTextField(placeholder: "Both icons", text: $text, leadingIcon: "magnifyingglass", trailingIcon: "xmark.circle")
+            }
+            .padding()
+        }
+    }
 }
 #endif

@@ -46,9 +46,19 @@ struct NavigationToolbar: View {
 }
 
 #if DEBUG
-#Preview("NavigationToolbar") {
-    @Previewable @State var panel: SidePanelType? = .settings
-    NavigationToolbar(activePanel: $panel)
-        .frame(width: 700)
+struct NavigationToolbar_Preview: PreviewProvider {
+    static var previews: some View {
+        NavigationToolbarPreviewWrapper()
+            .frame(width: 700)
+            .previewDisplayName("NavigationToolbar")
+    }
+}
+
+private struct NavigationToolbarPreviewWrapper: View {
+    @State private var panel: SidePanelType? = .settings
+
+    var body: some View {
+        NavigationToolbar(activePanel: $panel)
+    }
 }
 #endif

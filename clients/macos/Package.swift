@@ -34,6 +34,9 @@ let package = Package(
                 .copy("Resources/Recipes"),
                 .process("Resources/Onboarding")
             ],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency")
+            ],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("CoreGraphics"),

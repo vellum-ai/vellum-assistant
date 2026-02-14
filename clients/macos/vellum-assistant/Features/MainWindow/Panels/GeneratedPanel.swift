@@ -246,7 +246,7 @@ struct GeneratedPanel: View {
     @State private var localApps: [AppItem] = []
     @State private var sharedApps: [SharedAppItem] = []
 
-    private func fetchApps() {
+    @MainActor private func fetchApps() {
         isLoading = true
         pendingResponses = 2
 
@@ -343,7 +343,7 @@ struct GeneratedPanel: View {
 
     // MARK: - Bundle & Share
 
-    private func bundleAndShare(appId: String, itemId: String) {
+    @MainActor private func bundleAndShare(appId: String, itemId: String) {
         guard !isBundling else { return }
         sharingAppId = itemId
         isBundling = true

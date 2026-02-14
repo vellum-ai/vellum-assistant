@@ -38,16 +38,26 @@ struct VTextEditor: View {
 }
 
 #if DEBUG
-#Preview("VTextEditor") {
-    @Previewable @State var text = ""
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(spacing: 16) {
-            VTextEditor(placeholder: "Write something...", text: $text)
-            VTextEditor(placeholder: "Short editor", text: $text, minHeight: 40, maxHeight: 80)
-        }
-        .padding()
+struct VTextEditor_Preview: PreviewProvider {
+    static var previews: some View {
+        VTextEditorPreviewWrapper()
+            .frame(width: 400, height: 350)
+            .previewDisplayName("VTextEditor")
     }
-    .frame(width: 400, height: 350)
+}
+
+private struct VTextEditorPreviewWrapper: View {
+    @State private var text = ""
+
+    var body: some View {
+        ZStack {
+            VColor.background.ignoresSafeArea()
+            VStack(spacing: 16) {
+                VTextEditor(placeholder: "Write something...", text: $text)
+                VTextEditor(placeholder: "Short editor", text: $text, minHeight: 40, maxHeight: 80)
+            }
+            .padding()
+        }
+    }
 }
 #endif

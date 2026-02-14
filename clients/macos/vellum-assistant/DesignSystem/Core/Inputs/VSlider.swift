@@ -137,37 +137,46 @@ struct VSlider: View {
 // MARK: - Preview
 
 #if DEBUG
-#Preview("VSlider") {
-    @Previewable @State var value1: Double = 50
-    @Previewable @State var value2: Double = 30
-    @Previewable @State var value3: Double = 5
-
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Default: \(Int(value1))")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-                VSlider(value: $value1)
-            }
-
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("With tick marks: \(Int(value2))")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-                VSlider(value: $value2, range: 0...100, step: 5, showTickMarks: true)
-            }
-
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Small range (1-10): \(Int(value3))")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-                VSlider(value: $value3, range: 1...10, step: 1, showTickMarks: true)
-            }
-        }
-        .padding(VSpacing.xl)
+struct VSlider_Preview: PreviewProvider {
+    static var previews: some View {
+        VSliderPreviewWrapper()
+            .frame(width: 400, height: 300)
+            .previewDisplayName("VSlider")
     }
-    .frame(width: 400, height: 300)
+}
+
+private struct VSliderPreviewWrapper: View {
+    @State private var value1: Double = 50
+    @State private var value2: Double = 30
+    @State private var value3: Double = 5
+
+    var body: some View {
+        ZStack {
+            VColor.background.ignoresSafeArea()
+            VStack(alignment: .leading, spacing: VSpacing.xl) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Default: \(Int(value1))")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    VSlider(value: $value1)
+                }
+
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("With tick marks: \(Int(value2))")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    VSlider(value: $value2, range: 0...100, step: 5, showTickMarks: true)
+                }
+
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Small range (1-10): \(Int(value3))")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    VSlider(value: $value3, range: 1...10, step: 1, showTickMarks: true)
+                }
+            }
+            .padding(VSpacing.xl)
+        }
+    }
 }
 #endif

@@ -56,18 +56,28 @@ struct VToggle: View {
 }
 
 #if DEBUG
-#Preview("VToggle") {
-    @Previewable @State var isOnA = true
-    @Previewable @State var isOnB = false
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(alignment: .leading, spacing: 16) {
-            VToggle(isOn: $isOnA, label: "Enabled toggle")
-            VToggle(isOn: $isOnB, label: "Disabled toggle")
-            VToggle(isOn: $isOnA)
-        }
-        .padding()
+struct VToggle_Preview: PreviewProvider {
+    static var previews: some View {
+        VTogglePreviewWrapper()
+            .frame(width: 300, height: 200)
+            .previewDisplayName("VToggle")
     }
-    .frame(width: 300, height: 200)
+}
+
+private struct VTogglePreviewWrapper: View {
+    @State private var isOnA = true
+    @State private var isOnB = false
+
+    var body: some View {
+        ZStack {
+            VColor.background.ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 16) {
+                VToggle(isOn: $isOnA, label: "Enabled toggle")
+                VToggle(isOn: $isOnB, label: "Disabled toggle")
+                VToggle(isOn: $isOnA)
+            }
+            .padding()
+        }
+    }
 }
 #endif
