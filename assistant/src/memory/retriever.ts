@@ -127,8 +127,14 @@ async function collectAndMergeCandidates(
     entity = entitySearch(query, scopeIds);
   }
 
-  // Direct item search supplements FTS with LIKE-based matching
-  let directItems = directItemSearch(query, Math.max(10, config.memory.retrieval.lexicalTopK), scopeIds);
+  // Direct item search supplements FTS with LIKE-based matching.
+  // Overfetch when exclusions are present so that filtering doesn't
+  // silently drop valid candidates just below the SQL LIMIT cutoff.
+  const directLimit = Math.max(10, config.memory.retrieval.lexicalTopK);
+  const directFetchLimit = excludeMessageIds.length > 0
+    ? Math.max(directLimit + 24, directLimit * 2)
+    : directLimit;
+  let directItems = directItemSearch(query, directFetchLimit, scopeIds);
 
   // Filter direct items by excluded message IDs — items whose only evidence
   // comes from excluded messages should not leak back into recall.
@@ -141,6 +147,7 @@ async function collectAndMergeCandidates(
       const nonExcluded = sources.filter((s) => !excludeMessageIds.includes(s.messageId));
       return nonExcluded.length > 0;
     });
+    directItems = directItems.slice(0, directLimit);
   }
 
   const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems], config.memory.retrieval.freshness);
@@ -1431,19 +1438,13 @@ export async function searchMemoryItems(
     }
   }
 
-  let merged: Candidate[];
-  try {
-    const result = await collectAndMergeCandidates(trimmed, config, {
-      queryVector,
-      provider,
-      model,
-      scopeId,
-    });
-    merged = result.merged;
-  } catch (err) {
-    log.warn({ err }, 'Memory search retrieval failed, returning empty results');
-    return [];
-  }
+  const result = await collectAndMergeCandidates(trimmed, config, {
+    queryVector,
+    provider,
+    model,
+    scopeId,
+  });
+  const merged = result.merged;
 
   return merged.slice(0, limit).map((c) => ({
     id: c.id,
