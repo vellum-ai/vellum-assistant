@@ -12,7 +12,6 @@ struct SettingsPanel: View {
     @State private var hasBraveKey: Bool = false
     @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
     @AppStorage("ambientAgentEnabled") private var ambientEnabled: Bool = false
-    @State private var showTrustRulesSheet: Bool = false
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -219,9 +218,9 @@ struct SettingsPanel: View {
                             }
                             Spacer()
                             VButton(label: "Manage...", style: .ghost) {
-                                showTrustRulesSheet = true
+                                daemonClient?.isTrustRulesSheetOpen = true
                             }
-                            .disabled(showTrustRulesSheet)
+                            .disabled(daemonClient?.isTrustRulesSheetOpen == true)
                         }
                     }
                     .padding(VSpacing.lg)
@@ -254,7 +253,10 @@ struct SettingsPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             refreshAPIKeyState()
         }
-        .sheet(isPresented: $showTrustRulesSheet) {
+        .sheet(isPresented: Binding(
+            get: { daemonClient?.isTrustRulesSheetOpen ?? false },
+            set: { daemonClient?.isTrustRulesSheetOpen = $0 }
+        )) {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
             }
