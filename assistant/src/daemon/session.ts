@@ -834,32 +834,30 @@ export class Session {
     // Resolve slash commands for queued messages
     const slashResult = this.resolveSlash(next.content);
 
-    // Unknown slash — persist the exchange and continue draining
+    // Unknown slash — persist the exchange and continue draining.
+    // Persist each message before pushing to this.messages so that a
+    // failed write never leaves an unpersisted message in memory.
     if (slashResult.kind === 'unknown') {
-      const msgCountBefore = this.messages.length;
       try {
         const userMsg = createUserMessage(next.content, next.attachments);
-        this.messages.push(userMsg);
         conversationStore.addMessage(
           this.conversationId,
           'user',
           JSON.stringify(userMsg.content),
         );
+        this.messages.push(userMsg);
 
         const assistantMsg = createAssistantMessage(slashResult.message);
-        this.messages.push(assistantMsg);
         conversationStore.addMessage(
           this.conversationId,
           'assistant',
           JSON.stringify(assistantMsg.content),
         );
+        this.messages.push(assistantMsg);
 
         next.onEvent({ type: 'assistant_text_delta', text: slashResult.message });
         next.onEvent({ type: 'message_complete', sessionId: this.conversationId });
       } catch (err) {
-        // Roll back any messages pushed before the error so in-memory
-        // history stays consistent with what was actually persisted.
-        while (this.messages.length > msgCountBefore) this.messages.pop();
         const message = err instanceof Error ? err.message : String(err);
         log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Failed to persist unknown-slash exchange');
         next.onEvent({ type: 'error', message });
@@ -911,24 +909,24 @@ export class Session {
     const slashResult = this.resolveSlash(content);
 
     // Unknown slash command — persist the exchange (user + assistant) so the
-    // messageId is real.  Without persistence, callers like the channel inbound
-    // path would see "success" but find a stale assistant reply in the DB.
+    // messageId is real.  Persist each message before pushing to this.messages
+    // so that a failed write never leaves an unpersisted message in memory.
     if (slashResult.kind === 'unknown') {
       const userMsg = createUserMessage(content, attachments);
-      this.messages.push(userMsg);
       const persisted = conversationStore.addMessage(
         this.conversationId,
         'user',
         JSON.stringify(userMsg.content),
       );
+      this.messages.push(userMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
-      this.messages.push(assistantMsg);
       conversationStore.addMessage(
         this.conversationId,
         'assistant',
         JSON.stringify(assistantMsg.content),
       );
+      this.messages.push(assistantMsg);
 
       onEvent({ type: 'assistant_text_delta', text: slashResult.message });
       onEvent({ type: 'message_complete', sessionId: this.conversationId });
