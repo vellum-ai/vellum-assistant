@@ -60,6 +60,9 @@ final class ChatViewModel: ObservableObject {
     /// Set by ThreadManager to coordinate routing when multiple ChatViewModels are active.
     var shouldAcceptConfirmation: (() -> Bool)?
 
+    /// Whether this view model has had its history loaded from the daemon.
+    var isHistoryLoaded: Bool = false
+
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
     }
@@ -962,6 +965,38 @@ final class ChatViewModel: ObservableObject {
             inputText = suggestion
         }
         self.suggestion = nil
+    }
+
+    /// Populate messages from history data returned by the daemon.
+    func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
+        var chatMessages: [ChatMessage] = []
+        for item in historyMessages {
+            let role: ChatRole = item.role == "assistant" ? .assistant : .user
+            var toolCalls: [ToolCallData] = []
+            if let historyToolCalls = item.toolCalls {
+                toolCalls = historyToolCalls.map { tc in
+                    ToolCallData(
+                        toolName: toolDisplayName(tc.name),
+                        inputSummary: summarizeToolInput(tc.input),
+                        result: tc.result,
+                        isError: tc.isError ?? false,
+                        isComplete: true
+                    )
+                }
+            }
+            // Skip empty messages (internal tool-result-only turns already filtered by daemon)
+            if item.text.isEmpty && toolCalls.isEmpty { continue }
+            let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
+            let chatMsg = ChatMessage(
+                role: role,
+                text: item.text,
+                timestamp: timestamp,
+                toolCalls: toolCalls
+            )
+            chatMessages.append(chatMsg)
+        }
+        self.messages = chatMessages
+        self.isHistoryLoaded = true
     }
 
     deinit {

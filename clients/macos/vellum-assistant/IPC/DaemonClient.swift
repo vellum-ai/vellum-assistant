@@ -97,6 +97,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `open_bundle_response` message.
     var onOpenBundleResponse: ((OpenBundleResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `session_list_response` message.
+    var onSessionListResponse: ((SessionListResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `history_response` message.
+    var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     var onError: ((ErrorMessage) -> Void)?
 
@@ -451,6 +457,18 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(SkillsConfigureMessage(name: name, env: env, apiKey: apiKey, config: config))
     }
 
+    // MARK: - Sessions
+
+    /// Request the list of past sessions from the daemon.
+    func sendSessionList() throws {
+        try send(SessionListRequestMessage())
+    }
+
+    /// Request message history for a specific session.
+    func sendHistoryRequest(sessionId: String) throws {
+        try send(HistoryRequestMessage(sessionId: sessionId))
+    }
+
     // MARK: - Apps
 
     /// Request the list of all apps from the daemon.
@@ -663,6 +681,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onBundleAppResponse?(msg)
         case .openBundleResponse(let msg):
             onOpenBundleResponse?(msg)
+        case .sessionListResponse(let msg):
+            onSessionListResponse?(msg)
+        case .historyResponse(let msg):
+            onHistoryResponse?(msg)
         case .error(let msg):
             onError?(msg)
         case .signBundlePayload(let msg):

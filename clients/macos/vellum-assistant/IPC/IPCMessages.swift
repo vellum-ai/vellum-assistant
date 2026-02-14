@@ -240,6 +240,19 @@ struct OpenBundleMessage: Encodable, Sendable {
     let filePath: String
 }
 
+/// Sent to request the list of all past sessions/conversations.
+/// Wire type: `"session_list"`
+struct SessionListRequestMessage: Encodable, Sendable {
+    let type: String = "session_list"
+}
+
+/// Sent to request message history for a specific session.
+/// Wire type: `"history_request"`
+struct HistoryRequestMessage: Encodable, Sendable {
+    let type: String = "history_request"
+    let sessionId: String
+}
+
 /// Sent to request the list of available skills.
 /// Wire type: `"skills_list"`
 struct SkillsListRequestMessage: Encodable, Sendable {
@@ -664,6 +677,35 @@ struct SkillsInspectResponseMessage: Decodable, Sendable {
     let error: String?
 }
 
+/// Response containing the list of past sessions.
+/// Wire type: `"session_list_response"`
+struct SessionListResponseMessage: Decodable, Sendable {
+    struct SessionItem: Decodable, Sendable {
+        let id: String
+        let title: String
+        let updatedAt: Int
+    }
+    let sessions: [SessionItem]
+}
+
+/// Response containing message history for a session.
+/// Wire type: `"history_response"`
+struct HistoryResponseMessage: Decodable, Sendable {
+    struct HistoryToolCallItem: Decodable, Sendable {
+        let name: String
+        let input: [String: AnyCodable]
+        let result: String?
+        let isError: Bool?
+    }
+    struct HistoryMessageItem: Decodable, Sendable {
+        let role: String
+        let text: String
+        let timestamp: Int
+        let toolCalls: [HistoryToolCallItem]?
+    }
+    let messages: [HistoryMessageItem]
+}
+
 /// A single trust rule item returned from the daemon.
 struct TrustRuleItem: Decodable, Sendable, Identifiable {
     let id: String
@@ -927,6 +969,8 @@ enum ServerMessage: Decodable, Sendable {
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
     case sessionInfo(SessionInfoMessage)
+    case sessionListResponse(SessionListResponseMessage)
+    case historyResponse(HistoryResponseMessage)
     case taskRouted(TaskRoutedMessage)
     case error(ErrorMessage)
     case ambientResult(AmbientResultMessage)
@@ -992,6 +1036,12 @@ enum ServerMessage: Decodable, Sendable {
         case "session_info":
             let message = try SessionInfoMessage(from: decoder)
             self = .sessionInfo(message)
+        case "session_list_response":
+            let message = try SessionListResponseMessage(from: decoder)
+            self = .sessionListResponse(message)
+        case "history_response":
+            let message = try HistoryResponseMessage(from: decoder)
+            self = .historyResponse(message)
         case "task_routed":
             let message = try TaskRoutedMessage(from: decoder)
             self = .taskRouted(message)
