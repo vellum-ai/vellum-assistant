@@ -1384,7 +1384,6 @@ public enum ServerMessage: Decodable, Sendable {
     case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
     case bundleAppResponse(BundleAppResponseMessage)
     case openBundleResponse(OpenBundleResponseMessage)
-    case sessionError(SessionErrorMessage)
     case signBundlePayload(SignBundlePayloadMessage)
     case getSigningIdentity
     case pong
@@ -1525,9 +1524,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "trace_event":
             let message = try TraceEventMessage(from: decoder)
             self = .traceEvent(message)
-        case "session_error":
-            let message = try SessionErrorMessage(from: decoder)
-            self = .sessionError(message)
         case "sign_bundle_payload":
             let message = try SignBundlePayloadMessage(from: decoder)
             self = .signBundlePayload(message)
