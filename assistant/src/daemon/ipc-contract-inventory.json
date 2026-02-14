@@ -75,6 +75,7 @@
     "PongMessage",
     "SecretDetected",
     "SecretRequest",
+    "SessionErrorMessage",
     "SessionInfo",
     "SessionListResponse",
     "SessionsClearResponse",
