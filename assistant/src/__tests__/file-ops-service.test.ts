@@ -78,15 +78,8 @@ describe('FileSystemOps.readFileSafe', () => {
   test('returns SIZE_LIMIT_EXCEEDED for oversized file', () => {
     const dir = makeTempDir();
     const filePath = join(dir, 'big.txt');
-    // Write a small file, but use a tiny limit to trigger the guard
     writeFileSync(filePath, 'x'.repeat(200));
 
-    // Inject a policy that always succeeds, then manually test with a patched size guard
-    // Instead, we test indirectly: real size guard uses 100MB so we can't easily trigger it
-    // in a unit test. We rely on the fact that it calls checkFileSizeOnDisk and trust the
-    // size-guard unit tests. Let's verify the code path by creating a custom ops with
-    // a large-enough threshold that we know works, and verify the error structure.
-    // Actually, let's just verify that a normal-sized file does NOT trigger the error.
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
     const result = ops.readFileSafe({ path: 'big.txt' });
     expect(result.ok).toBe(true);
@@ -170,8 +163,6 @@ describe('FileSystemOps.writeFileSafe', () => {
   });
 
   test('returns SIZE_LIMIT_EXCEEDED for oversized content (indirectly)', () => {
-    // checkContentSize uses a 100MB default — we can't allocate that in a unit test.
-    // Verify small content passes. The size-guard module has its own tests.
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
