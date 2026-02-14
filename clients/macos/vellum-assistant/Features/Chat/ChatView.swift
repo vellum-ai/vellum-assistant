@@ -576,6 +576,11 @@ private struct ChatBubble: View {
     /// Whether the text/attachment bubble should be rendered.
     /// Tool calls for assistant messages render outside the bubble as separate chips,
     /// so only show the bubble when there's actual text or attachment content.
+    ///
+    /// NOTE: When inline surfaces are present, the bubble is intentionally hidden
+    /// even if the message also contains text. This is by design — the assistant's
+    /// text in these cases is typically a preamble (e.g. "Here's what I built:")
+    /// that should not appear above the rendered dynamic UI surface.
     private var shouldShowBubble: Bool {
         if isUser { return true }
         if !message.inlineSurfaces.isEmpty { return false }
