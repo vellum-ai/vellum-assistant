@@ -245,6 +245,11 @@ export interface AppsListRequest {
   type: 'apps_list';
 }
 
+export interface AppOpenRequest {
+  type: 'app_open_request';
+  appId: string;
+}
+
 export interface SharedAppsListRequest {
   type: 'shared_apps_list';
 }
@@ -422,6 +427,7 @@ export type ClientMessage =
   | UpdateTrustRule
   | BundleAppRequest
   | AppsListRequest
+  | AppOpenRequest
   | SharedAppsListRequest
   | SharedAppDeleteRequest
   | OpenBundleRequest

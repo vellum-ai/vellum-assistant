@@ -143,9 +143,17 @@ struct GeneratedPanel: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(item.isShared ? Violet._700.opacity(0.4) : Emerald._700.opacity(0.4), lineWidth: 1)
         )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            openApp(item)
+        }
         .onHover { hovering in
             withAnimation(VAnimation.fast) {
-                hoveredAppId = hovering ? item.id : nil
+                if hovering {
+                    hoveredAppId = item.id
+                } else if !showShareSheet {
+                    hoveredAppId = nil
+                }
             }
         }
     }
@@ -349,6 +357,35 @@ struct GeneratedPanel: View {
         }
 
         displayItems = items
+    }
+
+    // MARK: - Open App
+
+    private func openApp(_ item: DisplayAppItem) {
+        if let localId = item.localAppId {
+            // Local apps: ask the daemon to open via ui_surface_show
+            try? daemonClient.sendAppOpen(appId: localId)
+        } else if let uuid = item.sharedUUID {
+            // Shared apps: construct surface from unpacked files on disk
+            let entryURL = "\(VellumAppSchemeHandler.scheme)://\(uuid)/index.html"
+            let html = """
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="utf-8"><title>\(item.name)</title></head>
+            <body><script>window.location.href = '\(entryURL)';</script></body>
+            </html>
+            """
+            let surfaceMsg = UiSurfaceShowMessage(
+                sessionId: "shared-app",
+                surfaceId: "shared-app-\(uuid)",
+                surfaceType: "dynamic_page",
+                title: item.name,
+                data: AnyCodable(["html": html]),
+                actions: nil,
+                display: "panel"
+            )
+            daemonClient.onSurfaceShow?(surfaceMsg)
+        }
     }
 
     // MARK: - Bundle & Share

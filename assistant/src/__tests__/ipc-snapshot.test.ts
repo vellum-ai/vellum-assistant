@@ -200,6 +200,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'bundle_app',
     appId: 'app-001',
   },
+  app_open_request: {
+    type: 'app_open_request',
+    appId: 'app-001',
+  },
   apps_list: {
     type: 'apps_list',
   },

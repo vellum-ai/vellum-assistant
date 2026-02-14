@@ -27,6 +27,7 @@ struct BundleConfirmationView: View {
             // Footer buttons
             footerSection
         }
+        .frame(minWidth: 420, maxWidth: 420, minHeight: 350)
         .background(VColor.background)
     }
 

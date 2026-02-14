@@ -281,6 +281,17 @@ public struct AppDataRequestMessage: Encodable, Sendable {
     }
 }
 
+/// Sent to request opening an app by ID.
+/// Wire type: `"app_open_request"`
+public struct AppOpenRequestMessage: Encodable, Sendable {
+    public let type: String = "app_open_request"
+    public let appId: String
+
+    public init(appId: String) {
+        self.appId = appId
+    }
+}
+
 /// Sent to request the list of all apps.
 /// Wire type: `"apps_list"`
 public struct AppsListRequestMessage: Encodable, Sendable {

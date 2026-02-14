@@ -509,6 +509,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Apps
 
+    /// Request opening an app by ID. The daemon responds with a `ui_surface_show` message.
+    public func sendAppOpen(appId: String) throws {
+        try send(AppOpenRequestMessage(appId: appId))
+    }
+
     /// Request the list of all apps from the daemon.
     public func sendAppsList() throws {
         try send(AppsListRequestMessage())

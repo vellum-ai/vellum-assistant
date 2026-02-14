@@ -44,6 +44,7 @@ import type {
   UpdateTrustRule,
   BundleAppRequest,
   SharedAppDeleteRequest,
+  UiSurfaceShow,
 } from './ipc-protocol.js';
 import { execSync } from 'node:child_process';
 import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
@@ -54,7 +55,7 @@ import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../confi
 import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
-import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps } from '../memory/app-store.js';
+import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp } from '../memory/app-store.js';
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
 import { packageApp } from '../bundler/app-bundler.js';
@@ -365,6 +366,7 @@ const handlers: DispatchMap = {
   update_trust_rule: handleUpdateTrustRule,
   bundle_app: handleBundleApp,
   open_bundle: handleOpenBundle,
+  app_open_request: (msg, socket, ctx) => handleAppOpenRequest(msg, socket, ctx),
   apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
   shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
   shared_app_delete: handleSharedAppDelete,
@@ -1486,6 +1488,33 @@ async function generateSuggestion(apiKey: string, assistantText: string): Promis
 
   const firstLine = raw.split('\n')[0].trim();
   return firstLine || null;
+}
+
+// ─── App open handler ───────────────────────────────────────────────────────
+
+function handleAppOpenRequest(msg: { appId: string }, socket: net.Socket, ctx: HandlerContext): void {
+  const appId = msg.appId;
+  if (!appId) {
+    ctx.send(socket, { type: 'error', message: 'app_open_request requires appId' });
+    return;
+  }
+
+  const app = getApp(appId);
+  if (!app) {
+    ctx.send(socket, { type: 'error', message: `App not found: ${appId}` });
+    return;
+  }
+
+  const surfaceId = `app-open-${uuid()}`;
+  ctx.send(socket, {
+    type: 'ui_surface_show',
+    sessionId: 'app-panel',
+    surfaceId,
+    surfaceType: 'dynamic_page',
+    title: app.name,
+    data: { html: app.htmlDefinition, appId: app.id },
+    display: 'panel',
+  } as UiSurfaceShow);
 }
 
 // ─── Apps list handler ──────────────────────────────────────────────────────

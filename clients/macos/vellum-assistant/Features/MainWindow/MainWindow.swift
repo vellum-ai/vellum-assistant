@@ -40,8 +40,18 @@ final class MainWindow {
 
         let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
 
+        let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let windowWidth = min(1100.0, screenFrame.width * 0.75)
+        let windowHeight = min(750.0, screenFrame.height * 0.75)
+        let windowRect = NSRect(
+            x: screenFrame.midX - windowWidth / 2,
+            y: screenFrame.midY - windowHeight / 2,
+            width: windowWidth,
+            height: windowHeight
+        )
+
         let window = NSWindow(
-            contentRect: NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900),
+            contentRect: windowRect,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -53,9 +63,6 @@ final class MainWindow {
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 800, height: 600)
-
-        let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        window.setFrame(screenFrame, display: true)
 
         // Keep regular activation policy — the main window should appear in Dock and Cmd+Tab
         NSApp.setActivationPolicy(.regular)
