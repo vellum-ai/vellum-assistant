@@ -68,10 +68,12 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 50,
   };
 
+  // Use "**" (globstar) so the pattern still matches when buildCommandCandidates
+  // appends a path containing "/" (e.g. "cu_click:/tmp/foo").
   const computerUseRules = COMPUTER_USE_TOOLS.map((tool) => ({
     id: `default:ask-${tool}-global`,
     tool,
-    pattern: `${tool}:*`,
+    pattern: `${tool}:**`,
     scope: 'everywhere',
     decision: 'ask' as const,
     priority: 1000,
