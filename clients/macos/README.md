@@ -2,6 +2,17 @@
 
 A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by Claude via the Anthropic Messages API with tool use.
 
+## iOS Target
+
+This repository also includes an iOS app target (`vellum-assistant-ios`) that shares ~45-50% of code with the macOS app through the `VellumAssistantShared` library. The iOS app is a chat-focused client that connects to a network-accessible daemon via TCP.
+
+**Status:** Basic structure in place (PR 4 of 13). The iOS target requires xcodebuild with iOS SDK to build - it cannot be built with `swift build` on macOS due to UIKit dependencies.
+
+**Shared code:**
+- `clients/shared/` — Shared library (IPC layer, chat models/ViewModels, design system)
+- `clients/macos/vellum-assistant/` — macOS-specific code (accessibility, CGEvent, computer-use)
+- `clients/macos/vellum-assistant-ios/` — iOS-specific code (UIKit app structure)
+
 ## Requirements
 
 - macOS 14.0 (Sonoma) or later
