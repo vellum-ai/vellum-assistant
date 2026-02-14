@@ -336,10 +336,14 @@ const handlers: DispatchMap = {
   shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
   shared_app_delete: handleSharedAppDelete,
   sign_bundle_payload_response: (_msg, _socket, _ctx) => {
-    // Handled by pending promise resolution in signing flow — no-op in dispatch
+    // TODO(signing): Route to pending promise resolution once the daemon-driven
+    // IPC signing orchestration is wired up. Currently a no-op placeholder to
+    // satisfy the exhaustive dispatch map; signing is invoked via SigningCallback.
   },
   get_signing_identity_response: (_msg, _socket, _ctx) => {
-    // Handled by pending promise resolution in signing flow — no-op in dispatch
+    // TODO(signing): Route to pending promise resolution once the daemon-driven
+    // IPC signing orchestration is wired up. Currently a no-op placeholder to
+    // satisfy the exhaustive dispatch map; signing is invoked via SigningCallback.
   },
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ui_surface_action: (msg, _socket, ctx) => {
