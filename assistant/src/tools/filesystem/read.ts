@@ -1,10 +1,9 @@
-import { readFileSync, existsSync, statSync } from 'node:fs';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { validateFilePath } from './path-guard.js';
-import { checkFileSizeOnDisk } from './size-guard.js';
+import { FileSystemOps } from '../shared/filesystem/file-ops-service.js';
+import { sandboxPolicy } from '../shared/filesystem/path-policy.js';
 
 class FileReadTool implements Tool {
   name = 'file_read';
@@ -43,48 +42,22 @@ class FileReadTool implements Tool {
       return { content: 'Error: path is required and must be a string', isError: true };
     }
 
-    const pathCheck = validateFilePath(rawPath, context.workingDir);
-    if (!pathCheck.ok) {
-      return { content: `Error: ${pathCheck.error}`, isError: true };
-    }
-    const filePath = pathCheck.resolved;
+    const ops = new FileSystemOps((path, opts) => sandboxPolicy(path, context.workingDir, opts));
+    const result = ops.readFileSafe({
+      path: rawPath,
+      offset: typeof input.offset === 'number' ? input.offset : undefined,
+      limit: typeof input.limit === 'number' ? input.limit : undefined,
+    });
 
-    if (!existsSync(filePath)) {
-      return { content: `Error: File not found: ${filePath}`, isError: true };
-    }
-
-    const stat = statSync(filePath);
-    if (stat.isDirectory()) {
-      return { content: `Error: ${filePath} is a directory, not a file`, isError: true };
-    }
-
-    const sizeError = checkFileSizeOnDisk(filePath);
-    if (sizeError) {
-      return { content: `Error: ${sizeError}`, isError: true };
+    if (!result.ok) {
+      const err = result.error;
+      if (err.code === 'NOT_A_FILE') {
+        return { content: `Error: ${err.path} is a directory, not a file`, isError: true };
+      }
+      return { content: `Error: ${err.message}`, isError: true };
     }
 
-    try {
-      const content = readFileSync(filePath, 'utf-8');
-      const lines = content.split('\n');
-
-      const offset = (typeof input.offset === 'number' ? input.offset : 1) - 1;
-      const limit = typeof input.limit === 'number' ? input.limit : lines.length;
-      const selectedLines = lines.slice(Math.max(0, offset), offset + limit);
-
-      const numbered = selectedLines.map((line, i) => {
-        const lineNum = offset + i + 1;
-        return `${String(lineNum).padStart(6)}  ${line}`;
-      }).join('\n');
-
-      return { content: numbered, isError: false };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const hint = msg.includes('ENOENT') ? ' (file does not exist)'
-        : msg.includes('EACCES') ? ' (permission denied)'
-        : msg.includes('EISDIR') ? ' (path is a directory, not a file)'
-        : '';
-      return { content: `Error reading file "${input.path}"${hint}: ${msg}`, isError: true };
-    }
+    return { content: result.value.content, isError: false };
   }
 }
 
