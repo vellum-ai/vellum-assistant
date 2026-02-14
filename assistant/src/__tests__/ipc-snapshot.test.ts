@@ -640,6 +640,14 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   get_signing_identity: {
     type: 'get_signing_identity',
   },
+  session_error: {
+    type: 'session_error',
+    sessionId: 'sess-001',
+    code: 'PROVIDER_NETWORK',
+    userMessage: 'Unable to reach the AI provider. Please try again.',
+    retryable: true,
+    debugDetails: 'ETIMEDOUT after 30000ms',
+  },
   trace_event: {
     type: 'trace_event',
     eventId: 'evt-001',

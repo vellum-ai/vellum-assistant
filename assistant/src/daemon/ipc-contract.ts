@@ -671,6 +671,25 @@ export interface CuError {
   message: string;
 }
 
+export type SessionErrorCode =
+  | 'PROVIDER_NETWORK'
+  | 'PROVIDER_RATE_LIMIT'
+  | 'PROVIDER_API'
+  | 'QUEUE_FULL'
+  | 'SESSION_ABORTED'
+  | 'SESSION_PROCESSING_FAILED'
+  | 'REGENERATE_FAILED'
+  | 'UNKNOWN';
+
+export interface SessionErrorMessage {
+  type: 'session_error';
+  sessionId: string;
+  code: SessionErrorCode;
+  userMessage: string;
+  retryable: boolean;
+  debugDetails?: string;
+}
+
 export interface TaskRouted {
   type: 'task_routed';
   sessionId: string;
@@ -1004,6 +1023,7 @@ export type ServerMessage =
   | CuAction
   | CuComplete
   | CuError
+  | SessionErrorMessage
   | TaskRouted
   | AmbientResult
   | UiSurfaceShow

@@ -1095,6 +1095,42 @@ final class SessionTests: XCTestCase {
     }
 
     @MainActor
+    func testSessionErrorDecoding() async {
+        let json = """
+        {"type":"session_error","sessionId":"sess-001","code":"PROVIDER_NETWORK","userMessage":"Unable to reach the AI provider.","retryable":true,"debugDetails":"ETIMEDOUT after 30000ms"}
+        """
+        let data = json.data(using: .utf8)!
+        let message = try! JSONDecoder().decode(ServerMessage.self, from: data)
+        if case .sessionError(let err) = message {
+            XCTAssertEqual(err.sessionId, "sess-001")
+            XCTAssertEqual(err.code, .providerNetwork)
+            XCTAssertEqual(err.userMessage, "Unable to reach the AI provider.")
+            XCTAssertTrue(err.retryable)
+            XCTAssertEqual(err.debugDetails, "ETIMEDOUT after 30000ms")
+        } else {
+            XCTFail("Expected sessionError, got \(message)")
+        }
+    }
+
+    @MainActor
+    func testSessionErrorDecoding_withoutOptionalFields() async {
+        let json = """
+        {"type":"session_error","sessionId":"sess-002","code":"UNKNOWN","userMessage":"Something went wrong.","retryable":false}
+        """
+        let data = json.data(using: .utf8)!
+        let message = try! JSONDecoder().decode(ServerMessage.self, from: data)
+        if case .sessionError(let err) = message {
+            XCTAssertEqual(err.sessionId, "sess-002")
+            XCTAssertEqual(err.code, .unknown)
+            XCTAssertEqual(err.userMessage, "Something went wrong.")
+            XCTAssertFalse(err.retryable)
+            XCTAssertNil(err.debugDetails)
+        } else {
+            XCTFail("Expected sessionError, got \(message)")
+        }
+    }
+
+    @MainActor
     func testConfirmationRequestDecodingWithoutExecutionTarget() async {
         let json = """
         {"type":"confirmation_request","requestId":"req-456","toolName":"bash","input":{"command":"pwd"},"riskLevel":"low","allowlistOptions":[],"scopeOptions":[]}

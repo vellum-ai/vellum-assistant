@@ -1016,6 +1016,17 @@ exports[`IPC message snapshots ServerMessage types get_signing_identity serializ
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types session_error serializes to expected JSON 1`] = `
+{
+  "code": "PROVIDER_NETWORK",
+  "debugDetails": "ETIMEDOUT after 30000ms",
+  "retryable": true,
+  "sessionId": "sess-001",
+  "type": "session_error",
+  "userMessage": "Unable to reach the AI provider. Please try again.",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types trace_event serializes to expected JSON 1`] = `
 {
   "attributes": {
