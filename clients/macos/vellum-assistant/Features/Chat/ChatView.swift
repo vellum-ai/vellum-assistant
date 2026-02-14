@@ -363,13 +363,16 @@ struct ChatView: View {
             HStack(alignment: .bottom, spacing: VSpacing.sm) {
                 // Text editor with ghost text / placeholder overlay
                 ZStack(alignment: .topLeading) {
-                    // Sizing text — measures content height via GeometryReader
+                    // Sizing text — measures content height via GeometryReader.
+                    // fixedSize lets this text grow beyond the clamped ZStack frame
+                    // so ContentHeightKey always reflects true multiline content height.
                     Text(inputText.isEmpty ? " " : inputText)
                         .font(VFont.body)
                         .lineSpacing(4)
                         .foregroundColor(.clear)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 8)
+                        .fixedSize(horizontal: false, vertical: true)
                         .accessibilityHidden(true)
                         .background(
                             GeometryReader { geo in
