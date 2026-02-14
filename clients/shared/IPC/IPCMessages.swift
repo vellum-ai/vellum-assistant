@@ -239,6 +239,8 @@ public struct CuSessionAbortMessage: Encodable, Sendable {
 /// Wire type: `"ping"`
 public struct PingMessage: Encodable, Sendable {
     public let type: String = "ping"
+
+    public init() {}
 }
 
 /// Sent when user interacts with a surface.
@@ -348,6 +350,10 @@ public struct SkillDetailRequestMessage: Encodable, Sendable {
 public struct SkillsEnableMessage: Encodable, Sendable {
     public let type: String = "skills_enable"
     public let name: String
+
+    public init(name: String) {
+        self.name = name
+    }
 }
 
 /// Disable a skill. Wire type: "skills_disable"
@@ -639,7 +645,7 @@ public struct SkillInfo: Codable, Sendable, Identifiable {
 }
 
 /// Backward-compatible alias for code referencing the old name.
-typealias SkillSummaryItem = SkillInfo
+public typealias SkillSummaryItem = SkillInfo
 
 /// Response containing the list of available skills.
 /// Wire type: `"skills_list_response"`
@@ -664,9 +670,9 @@ public struct SkillStateChangedMessage: Decodable, Sendable {
 /// Push event: updates available. Wire type: "skills_updates_available"
 public struct SkillsUpdatesAvailableMessage: Decodable, Sendable {
     public struct UpdateInfo: Decodable, Sendable {
-        let name: String
-        let installedVersion: String
-        let latestVersion: String
+        public let name: String
+        public let installedVersion: String
+        public let latestVersion: String
     }
     public let skills: [UpdateInfo]
 }
@@ -1004,6 +1010,13 @@ public struct ConfirmationResponseMessage: Encodable, Sendable {
     public let decision: String
     public let selectedPattern: String?
     public let selectedScope: String?
+
+    public init(requestId: String, decision: String, selectedPattern: String? = nil, selectedScope: String? = nil) {
+        self.requestId = requestId
+        self.decision = decision
+        self.selectedPattern = selectedPattern
+        self.selectedScope = selectedScope
+    }
 }
 
 /// Client response to a secret input request.
@@ -1012,6 +1025,11 @@ public struct SecretResponseMessage: Encodable, Sendable {
     public let type: String = "secret_response"
     public let requestId: String
     public let value: String?
+
+    public init(requestId: String, value: String?) {
+        self.requestId = requestId
+        self.value = value
+    }
 }
 
 /// Sent to add a trust rule (allowlist/denylist) independently of a confirmation response.
@@ -1022,12 +1040,21 @@ public struct AddTrustRuleMessage: Encodable, Sendable {
     public let pattern: String
     public let scope: String
     public let decision: String
+
+    public init(toolName: String, pattern: String, scope: String, decision: String) {
+        self.toolName = toolName
+        self.pattern = pattern
+        self.scope = scope
+        self.decision = decision
+    }
 }
 
 /// Request all trust rules from the daemon.
 /// Wire type: `"trust_rules_list"`
 public struct TrustRulesListMessage: Encodable, Sendable {
     public let type: String = "trust_rules_list"
+
+    public init() {}
 }
 
 /// Remove a trust rule by its ID.
@@ -1035,6 +1062,10 @@ public struct TrustRulesListMessage: Encodable, Sendable {
 public struct RemoveTrustRuleMessage: Encodable, Sendable {
     public let type: String = "remove_trust_rule"
     public let id: String
+
+    public init(id: String) {
+        self.id = id
+    }
 }
 
 /// Update fields on an existing trust rule.
@@ -1047,6 +1078,15 @@ public struct UpdateTrustRuleMessage: Encodable, Sendable {
     public let scope: String?
     public let decision: String?
     public let priority: Int?
+
+    public init(id: String, tool: String? = nil, pattern: String? = nil, scope: String? = nil, decision: String? = nil, priority: Int? = nil) {
+        self.id = id
+        self.tool = tool
+        self.pattern = pattern
+        self.scope = scope
+        self.decision = decision
+        self.priority = priority
+    }
 }
 
 /// Response from opening and scanning a .vellumapp bundle.
