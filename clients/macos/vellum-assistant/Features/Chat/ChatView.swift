@@ -100,7 +100,7 @@ struct ChatView: View {
     private var composerReservedHeight: CGFloat {
         let editorClamped = min(max(editorContentHeight, 14), 200)
         let contentHeight = max(editorClamped, 28)
-        let base: CGFloat = VSpacing.md * 2 + VSpacing.xs * 2 + contentHeight + 4
+        let base: CGFloat = VSpacing.md * 2 + VSpacing.sm * 2 + contentHeight + 4
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 44
         let error: CGFloat = errorText != nil ? 36 : 0
         let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
@@ -486,8 +486,9 @@ struct ChatView: View {
             }
             .animation(VAnimation.spring, value: canSend)
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.xs)
+        .padding(.vertical, VSpacing.sm)
+        .padding(.leading, VSpacing.xl)
+        .padding(.trailing, VSpacing.lg)
         .background(VColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xxl))
         .overlay(
