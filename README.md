@@ -56,6 +56,87 @@ bun run src/index.ts daemon start
 - Host/computer-use prompts: `host_*`, `request_computer_control`, and `cu_*` default to `ask` unless allowlisted/denylisted in trust rules.
 - Runtime override removal: CLI `--no-sandbox` is removed; legacy `sandbox_set` IPC messages are accepted but ignored (deprecated no-op).
 
+### Sandbox Backend Selection
+
+The `sandbox.backend` config option controls how the `bash` tool executes commands inside the sandbox. Two backends are available:
+
+| Backend | Value | Description |
+|---------|-------|-------------|
+| **Native** | `"native"` (default) | Uses OS-level sandboxing: `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. No extra dependencies on macOS. |
+| **Docker** | `"docker"` | Runs each command in an ephemeral `docker run --rm` container with the sandbox filesystem bind-mounted to `/workspace`. |
+
+To switch to the Docker backend:
+
+```bash
+vellum config set sandbox.backend '"docker"'
+```
+
+To switch back to native:
+
+```bash
+vellum config set sandbox.backend '"native"'
+```
+
+### Docker Backend
+
+When `sandbox.backend` is set to `"docker"`, the daemon wraps every sandbox `bash` invocation in an ephemeral Docker container. The container is created with `docker run --rm` and destroyed after each command.
+
+**Prerequisites:**
+
+- Docker installed and the `docker` CLI available in `PATH`.
+- Docker daemon running (Docker Desktop on macOS/Windows, or `systemd` service on Linux).
+- The configured image pulled locally. The default image is pinned with a `sha256` digest for reproducibility:
+  ```
+  node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9
+  ```
+  Pull it with: `docker pull node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9`
+
+**Docker configuration options** (all under `sandbox.docker`):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `image` | `node:20-slim@sha256:...` | Container image (pinned with sha256 digest) |
+| `cpus` | `1` | CPU limit per container |
+| `memoryMb` | `512` | Memory limit in MB |
+| `pidsLimit` | `256` | Maximum number of processes |
+| `network` | `"none"` | Network mode (`"none"` or `"bridge"`) |
+
+**Container security posture:**
+
+- All capabilities dropped (`--cap-drop=ALL`)
+- No new privileges (`--security-opt=no-new-privileges`)
+- Read-only container root filesystem (`--read-only`)
+- Writable tmpfs for `/tmp` only
+- Network disabled by default (`--network=none`)
+- Host UID:GID forwarded to prevent permission drift
+
+**Fail-closed behavior:**
+
+If Docker is unavailable, commands fail immediately with actionable error messages rather than falling back to unsandboxed execution. The preflight checks run in dependency order:
+
+1. Docker CLI installed
+2. Docker daemon reachable
+3. Configured image available locally
+4. Bind-mount probe succeeds
+
+Positive preflight results are cached for the lifetime of the daemon process. Negative results are never cached, so installing or starting Docker mid-session takes effect without a daemon restart.
+
+### Host Tools
+
+Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) are unchanged regardless of which sandbox backend is active. They always execute directly on the host and are subject to trust rules and permission prompts.
+
+### Troubleshooting (Sandbox)
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `Docker CLI is not installed or not in PATH` | Docker is not installed | Install Docker: https://docs.docker.com/get-docker/ |
+| `Docker daemon is not running` | Docker Desktop is not started or systemd service is stopped | Start Docker Desktop, or run `sudo systemctl start docker` on Linux |
+| `Docker image "..." is not available locally` | The configured image has not been pulled | Run `docker pull <image>` with the full image reference including the sha256 digest |
+| `Cannot bind-mount the sandbox root into a Docker container` | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `~/.vellum/data/sandbox/fs` path (or your custom `dataDir` path) |
+| `bwrap is not available or cannot create namespaces` (native backend, Linux) | bubblewrap is not installed or user namespaces are disabled | Install bubblewrap: `apt install bubblewrap` (Debian/Ubuntu) or `dnf install bubblewrap` (Fedora) |
+
+Run `vellum doctor` for a full diagnostic check including sandbox backend status.
+
 ## Remote Access
 
 Access a remote assistant daemon from your local machine via SSH.
