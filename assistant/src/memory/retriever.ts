@@ -118,7 +118,7 @@ async function collectAndMergeCandidates(
   // Direct item search supplements FTS with LIKE-based matching
   const directItems = directItemSearch(query, Math.max(10, config.memory.retrieval.lexicalTopK));
 
-  const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems]);
+  const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems], config.memory.retrieval.freshness);
 
   return { lexical, recency, semantic, entity, merged };
 }
@@ -758,6 +758,7 @@ function mergeCandidates(
   semantic: Candidate[],
   recency: Candidate[],
   entity: Candidate[] = [],
+  freshnessConfig?: { enabled: boolean; maxAgeDays: Record<string, number>; staleDecay: number; reinforcementShieldDays: number },
 ): Candidate[] {
   // Build merged candidate map (dedup by key, keep best metadata)
   const merged = new Map<string, Candidate>();
@@ -809,7 +810,10 @@ function mergeCandidates(
       ? (TRUST_WEIGHTS[meta.verificationState] ?? DEFAULT_TRUST_WEIGHT)
       : DEFAULT_TRUST_WEIGHT;
 
-    row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight;
+    // Freshness decay: down-rank stale items unless recently reinforced
+    const freshnessWeight = computeFreshnessWeight(row, accessCount, freshnessConfig);
+
+    row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight * freshnessWeight;
   }
 
   rows.sort((a, b) => {
@@ -885,6 +889,43 @@ const TRUST_WEIGHTS: Record<string, number> = {
   assistant_inferred: 0.7,
 };
 const DEFAULT_TRUST_WEIGHT = 0.85;
+
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * Compute a freshness weight for a candidate based on its kind and age.
+ * Returns 1.0 for fresh items and `staleDecay` for items past their window.
+ * Items with recent reinforcement (accessCount > 0 and within shield window)
+ * are shielded from decay.
+ */
+function computeFreshnessWeight(
+  candidate: { type: string; kind: string; createdAt: number },
+  accessCount: number,
+  config?: { enabled: boolean; maxAgeDays: Record<string, number>; staleDecay: number; reinforcementShieldDays: number },
+): number {
+  if (!config?.enabled) return 1.0;
+
+  // Only apply freshness to item-type candidates
+  if (candidate.type !== 'item') return 1.0;
+
+  const maxAgeDays = config.maxAgeDays[candidate.kind] ?? 0;
+  // maxAgeDays of 0 means no expiry for this kind
+  if (maxAgeDays <= 0) return 1.0;
+
+  const now = Date.now();
+  const ageMs = now - candidate.createdAt;
+  const ageDays = ageMs / MS_PER_DAY;
+
+  if (ageDays <= maxAgeDays) return 1.0;
+
+  // Check reinforcement shield: recently accessed items are protected
+  if (accessCount > 0 && config.reinforcementShieldDays > 0) {
+    const shieldMs = config.reinforcementShieldDays * MS_PER_DAY;
+    if (ageMs - maxAgeDays * MS_PER_DAY < shieldMs) return 1.0;
+  }
+
+  return config.staleDecay;
+}
 
 /**
  * LLM re-ranking: send candidate memories to Haiku for relevance scoring.

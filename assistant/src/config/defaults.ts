@@ -47,6 +47,12 @@ export const DEFAULT_CONFIG: AssistantConfig = {
         model: 'claude-haiku-4-5-20251001',
         topK: 20,
       },
+      freshness: {
+        enabled: true,
+        maxAgeDays: { fact: 0, preference: 0, behavior: 90, event: 30, opinion: 60 },
+        staleDecay: 0.5,
+        reinforcementShieldDays: 7,
+      },
     },
     segmentation: {
       targetTokens: 450,

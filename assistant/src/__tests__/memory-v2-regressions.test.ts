@@ -51,7 +51,7 @@ import { selectEmbeddingBackend } from '../memory/embedding-backend.js';
 import { getRecentSegmentsForConversation, indexMessageNow } from '../memory/indexer.js';
 import { extractAndUpsertMemoryItemsForMessage } from '../memory/items-extractor.js';
 import { claimMemoryJobs, enqueueMemoryJob } from '../memory/jobs-store.js';
-import { currentWeekWindow, runMemoryJobsOnce } from '../memory/jobs-worker.js';
+import { currentWeekWindow, runMemoryJobsOnce, sweepStaleItems } from '../memory/jobs-worker.js';
 import {
   buildMemoryRecall,
   escapeXmlTags,
@@ -1388,5 +1388,168 @@ describe('Memory V2 regressions', () => {
     expect(unknown).toBeDefined();
     // The finalScore should be > 0 (trust weight is bounded, not zero)
     expect(unknown!.finalScore).toBeGreaterThan(0);
+  });
+
+  test('freshness decay: stale event item scores lower than fresh one', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const MS_PER_DAY = 86_400_000;
+
+    // Fresh event item (5 days old — well within the 30-day default window)
+    db.insert(memoryItems).values({
+      id: 'item-fresh-event',
+      kind: 'event',
+      subject: 'freshness decay test',
+      statement: 'User attended a workshop on machine learning',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-fresh-event',
+      firstSeenAt: now - 5 * MS_PER_DAY,
+      lastSeenAt: now - 5 * MS_PER_DAY,
+      accessCount: 0,
+      verificationState: 'user_confirmed',
+    }).run();
+
+    // Stale event item (60 days old — past the 30-day event window)
+    db.insert(memoryItems).values({
+      id: 'item-stale-event',
+      kind: 'event',
+      subject: 'freshness decay test',
+      statement: 'User attended a workshop on machine learning basics',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-stale-event',
+      firstSeenAt: now - 60 * MS_PER_DAY,
+      lastSeenAt: now - 60 * MS_PER_DAY,
+      accessCount: 0,
+      verificationState: 'user_confirmed',
+    }).run();
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: { ...DEFAULT_CONFIG.memory.embeddings, required: false },
+      },
+    };
+
+    const recall = await buildMemoryRecall('machine learning workshop', 'conv-fresh-1', config);
+
+    const fresh = recall.topCandidates.find((c) => c.key === 'item:item-fresh-event');
+    const stale = recall.topCandidates.find((c) => c.key === 'item:item-stale-event');
+    expect(fresh).toBeDefined();
+    expect(stale).toBeDefined();
+
+    // Fresh item should score higher than stale item due to freshness decay
+    expect(fresh!.finalScore).toBeGreaterThan(stale!.finalScore);
+  });
+
+  test('freshness decay: fact items with maxAgeDays=0 are never decayed', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const MS_PER_DAY = 86_400_000;
+
+    // Very old fact item (365 days) — facts have maxAgeDays=0 (no expiry)
+    db.insert(memoryItems).values({
+      id: 'item-old-fact',
+      kind: 'fact',
+      subject: 'freshness no-decay test',
+      statement: 'The speed of light is 299792458 meters per second',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-old-fact',
+      firstSeenAt: now - 365 * MS_PER_DAY,
+      lastSeenAt: now - 365 * MS_PER_DAY,
+      accessCount: 0,
+      verificationState: 'user_confirmed',
+    }).run();
+
+    // Recent fact with same text similarity
+    db.insert(memoryItems).values({
+      id: 'item-new-fact',
+      kind: 'fact',
+      subject: 'freshness no-decay test',
+      statement: 'The speed of light is approximately 3e8 meters per second',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-new-fact',
+      firstSeenAt: now - 1 * MS_PER_DAY,
+      lastSeenAt: now - 1 * MS_PER_DAY,
+      accessCount: 0,
+      verificationState: 'user_confirmed',
+    }).run();
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: { ...DEFAULT_CONFIG.memory.embeddings, required: false },
+      },
+    };
+
+    const recall = await buildMemoryRecall('speed of light', 'conv-fresh-2', config);
+
+    const oldFact = recall.topCandidates.find((c) => c.key === 'item:item-old-fact');
+    const newFact = recall.topCandidates.find((c) => c.key === 'item:item-new-fact');
+    expect(oldFact).toBeDefined();
+    expect(newFact).toBeDefined();
+
+    // Both should have similar scores — old facts are NOT decayed
+    // The scores may differ slightly due to recency scores, but the ratio should be close to 1
+    const ratio = oldFact!.finalScore / newFact!.finalScore;
+    expect(ratio).toBeGreaterThan(0.8);
+  });
+
+  test('sweepStaleItems marks deeply stale items as invalid', () => {
+    const db = getDb();
+    const now = Date.now();
+    const MS_PER_DAY = 86_400_000;
+
+    // Item 100 days old with kind=event (default maxAgeDays=30, so 2x=60 — past the deep-stale threshold)
+    db.insert(memoryItems).values({
+      id: 'item-deeply-stale',
+      kind: 'event',
+      subject: 'sweep test',
+      statement: 'Old event that should be swept',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-sweep-stale',
+      firstSeenAt: now - 100 * MS_PER_DAY,
+      lastSeenAt: now - 100 * MS_PER_DAY,
+      accessCount: 0,
+      verificationState: 'assistant_inferred',
+    }).run();
+
+    // Fresh event item — should NOT be swept
+    db.insert(memoryItems).values({
+      id: 'item-sweep-fresh',
+      kind: 'event',
+      subject: 'sweep test',
+      statement: 'Recent event that should not be swept',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-sweep-fresh',
+      firstSeenAt: now - 5 * MS_PER_DAY,
+      lastSeenAt: now - 5 * MS_PER_DAY,
+      accessCount: 0,
+      verificationState: 'assistant_inferred',
+    }).run();
+
+    const marked = sweepStaleItems(DEFAULT_CONFIG);
+    expect(marked).toBeGreaterThanOrEqual(1);
+
+    const staleItem = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-deeply-stale')).get();
+    expect(staleItem).toBeDefined();
+    expect(staleItem!.invalidAt).not.toBeNull();
+
+    const freshItem = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-sweep-fresh')).get();
+    expect(freshItem).toBeDefined();
+    expect(freshItem!.invalidAt).toBeNull();
   });
 });
