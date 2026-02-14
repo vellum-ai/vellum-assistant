@@ -1017,7 +1017,10 @@ final class ChatViewModel: ObservableObject {
     func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
         let hasUserSentMessages = messages.contains { $0.role == .user }
         if hasUserSentMessages {
-            isHistoryLoaded = true
+            // Don't set isHistoryLoaded here — the user sent a message before
+            // history arrived, so we skipped populating. Leaving the flag false
+            // allows ThreadManager.loadHistoryForActiveThreadIfNeeded() to
+            // retry on the next tab switch.
             return
         }
 
