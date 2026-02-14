@@ -16,6 +16,7 @@ import { copyToClipboard, extractLastCodeBlock, formatSessionForExport } from '.
 import { timeAgo } from './util/time.js';
 import { ensureDaemonRunning } from './daemon/lifecycle.js';
 import { shouldAutoStartDaemon } from './daemon/connection-policy.js';
+import { runRemoteDoctor } from './util/remote-doctor.js';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
@@ -782,6 +783,20 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
       return;
     }
 
+    if (content === '/doctor') {
+      process.stdout.write('\n  Running remote diagnostics...\n');
+      const result = runRemoteDoctor();
+      if (result.error) {
+        process.stdout.write(`\n  Error: ${result.error}\n\n`);
+      } else {
+        process.stdout.write(`\n  Remote host: ${result.sshHost}\n\n`);
+        process.stdout.write(result.output);
+        process.stdout.write('\n');
+      }
+      prompt();
+      return;
+    }
+
     if (content === '/help') {
       process.stdout.write('\n  Available commands:\n');
       process.stdout.write('  /new              Start a new session\n');
@@ -794,6 +809,7 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
       process.stdout.write('  /copy             Copy last response to clipboard\n');
       process.stdout.write('  /copy-code        Copy last code block to clipboard\n');
       process.stdout.write('  /copy-session     Copy entire session to clipboard\n');
+      process.stdout.write('  /doctor           Run diagnostics on the remote instance via SSH\n');
       process.stdout.write('  /help             Show this help\n');
       process.stdout.write('\n');
       prompt();
