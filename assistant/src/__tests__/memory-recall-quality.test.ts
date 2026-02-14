@@ -313,13 +313,15 @@ describe('Memory Recall Quality', () => {
       expect(recall.injectedText).toContain('neovim');
       expect(recall.injectedText).toContain('LazyVim');
 
-      // Superseded preference should NOT appear as a memory item
-      // (it may appear as a raw segment, but the item-based recall should not include it)
+      // Superseded preference should NOT appear in recalled item lines.
+      // Assert against the actual statement text unique to the superseded item
+      // ("prefers vim for") rather than an internal candidate key, which is
+      // never emitted in the formatted recall output.
       const itemLines = recall.injectedText
         .split('\n')
         .filter((line) => line.includes('<kind>'));
       const hasSupersededItem = itemLines.some(
-        (line) => line.includes('item:item-old-pref'),
+        (line) => line.includes('prefers vim for'),
       );
       expect(hasSupersededItem).toBe(false);
     });
