@@ -324,6 +324,7 @@ export interface HandlerContext {
   updateConfigFingerprint(): void;
   send(socket: net.Socket, msg: ServerMessage): void;
   broadcast(msg: ServerMessage): void;
+  clearAllSessions(): number;
   getOrCreateSession(
     conversationId: string,
     socket?: net.Socket,
@@ -349,6 +350,7 @@ const handlers: DispatchMap = {
   secret_response: handleSecretResponse,
   session_list: (_msg, socket, ctx) => handleSessionList(socket, ctx),
   session_create: handleSessionCreate,
+  sessions_clear: (_msg, socket, ctx) => handleSessionsClear(socket, ctx),
   session_switch: handleSessionSwitch,
   cancel: handleCancel,
   model_get: (_msg, socket, ctx) => handleModelGet(socket, ctx),
@@ -524,6 +526,11 @@ function handleSessionList(socket: net.Socket, ctx: HandlerContext): void {
       updatedAt: c.updatedAt,
     })),
   });
+}
+
+function handleSessionsClear(socket: net.Socket, ctx: HandlerContext): void {
+  const cleared = ctx.clearAllSessions();
+  ctx.send(socket, { type: 'sessions_clear_response', cleared });
 }
 
 async function handleSessionCreate(

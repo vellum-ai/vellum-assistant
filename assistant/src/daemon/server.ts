@@ -212,6 +212,21 @@ export class DaemonServer {
     });
   }
 
+  /**
+   * Dispose and remove all in-memory sessions unconditionally.
+   * Called after `sessions clear` wipes the database so that stale
+   * sessions don't reference deleted conversation rows.
+   */
+  clearAllSessions(): number {
+    const count = this.sessions.size;
+    for (const session of this.sessions.values()) {
+      session.dispose();
+    }
+    this.sessions.clear();
+    this.sessionOptions.clear();
+    return count;
+  }
+
   private evictSessionsForReload(): void {
     for (const [id, session] of this.sessions) {
       if (!session.isProcessing()) {
@@ -534,6 +549,7 @@ export class DaemonServer {
       },
       send: (socket, msg) => this.send(socket, msg),
       broadcast: (msg) => this.broadcast(msg),
+      clearAllSessions: () => this.clearAllSessions(),
       getOrCreateSession: (id, socket?, rebind?, options?) =>
         this.getOrCreateSession(id, socket, rebind, options),
     };

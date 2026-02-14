@@ -234,6 +234,9 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     requestId: 'req-secret-001',
     value: 'ghp_test_token_value',
   },
+  sessions_clear: {
+    type: 'sessions_clear',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -320,6 +323,10 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       { id: 'sess-001', title: 'First session', updatedAt: 1700000000 },
       { id: 'sess-002', title: 'Second session', updatedAt: 1700001000 },
     ],
+  },
+  sessions_clear_response: {
+    type: 'sessions_clear_response',
+    cleared: 3,
   },
   error: {
     type: 'error',

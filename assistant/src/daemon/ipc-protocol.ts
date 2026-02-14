@@ -203,6 +203,10 @@ export interface SkillsSearchRequest {
   query: string;
 }
 
+export interface SessionsClearRequest {
+  type: 'sessions_clear';
+}
+
 export interface SkillsInspectRequest {
   type: 'skills_inspect';
   slug: string;
@@ -432,7 +436,8 @@ export type ClientMessage =
   | SharedAppDeleteRequest
   | OpenBundleRequest
   | SignBundlePayloadResponse
-  | GetSigningIdentityResponse;
+  | GetSigningIdentityResponse
+  | SessionsClearRequest;
 
 // === Server → Client messages ===
 
@@ -510,6 +515,11 @@ export interface SessionInfo {
 export interface SessionListResponse {
   type: 'session_list_response';
   sessions: Array<{ id: string; title: string; updatedAt: number }>;
+}
+
+export interface SessionsClearResponse {
+  type: 'sessions_clear_response';
+  cleared: number;
 }
 
 export interface ErrorMessage {
@@ -958,6 +968,7 @@ export type ServerMessage =
   | MessageComplete
   | SessionInfo
   | SessionListResponse
+  | SessionsClearResponse
   | ErrorMessage
   | PongMessage
   | GenerationCancelled

@@ -361,6 +361,12 @@ exports[`IPC message snapshots ClientMessage types secret_response serializes to
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types sessions_clear serializes to expected JSON 1`] = `
+{
+  "type": "sessions_clear",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
 {
   "sessionId": "sess-001",
@@ -490,6 +496,13 @@ exports[`IPC message snapshots ServerMessage types session_list_response seriali
     },
   ],
   "type": "session_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types sessions_clear_response serializes to expected JSON 1`] = `
+{
+  "cleared": 3,
+  "type": "sessions_clear_response",
 }
 `;
 

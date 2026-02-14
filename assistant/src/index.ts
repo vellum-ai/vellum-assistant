@@ -315,6 +315,14 @@ sessions
     const result = clearAllConversations();
     console.log(`Cleared ${result.conversations} conversations, ${result.messages} messages`);
 
+    // Notify a running daemon to drop its in-memory sessions so it
+    // doesn't keep serving stale history from deleted conversation rows.
+    try {
+      await sendOneMessage({ type: 'sessions_clear' });
+    } catch {
+      // Daemon may not be running — that's fine, no sessions to invalidate.
+    }
+
     const config = getConfig();
     const qdrantUrl = process.env.QDRANT_URL?.trim() || config.memory.qdrant.url;
     const qdrant = initQdrantClient({
