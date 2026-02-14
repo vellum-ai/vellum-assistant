@@ -372,7 +372,11 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE memory_summaries ADD COLUMN version INTEGER NOT NULL DEFAULT 1`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE memory_items ADD COLUMN valid_from INTEGER`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE memory_items ADD COLUMN invalid_at INTEGER`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE memory_items ADD COLUMN verification_state TEXT NOT NULL DEFAULT 'assistant_inferred'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE memory_jobs ADD COLUMN deferrals INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE memory_segments ADD COLUMN scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE memory_items ADD COLUMN scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE memory_summaries ADD COLUMN scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
 
   migrateJobDeferrals(database);
   migrateToolInvocationsFk(database);
@@ -389,6 +393,9 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_provider_model ON memory_embeddings(provider, model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_jobs_status_run_after ON memory_jobs(status, run_after)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_summaries_scope_time ON memory_summaries(scope, end_at DESC)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_segments_scope_id ON memory_segments(scope_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_scope_id ON memory_items(scope_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_summaries_scope_id ON memory_summaries(scope_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversation_keys_assistant_key ON conversation_keys(assistant_id, conversation_key)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_attachments_assistant_id ON attachments(assistant_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_message_id ON message_attachments(message_id)`);

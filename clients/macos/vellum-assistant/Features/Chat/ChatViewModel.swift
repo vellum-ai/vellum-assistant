@@ -17,6 +17,7 @@ final class ChatViewModel: ObservableObject {
     @Published var suggestion: String?
     @Published var pendingAttachments: [ChatAttachment] = []
     @Published var isRecording: Bool = false
+    @Published var pendingSkillInvocation: SkillInvocationData?
 
     /// Maximum file size per attachment (20 MB).
     private static let maxFileSize = 20 * 1024 * 1024
@@ -59,6 +60,9 @@ final class ChatViewModel: ObservableObject {
     /// Called to determine whether this ChatViewModel should accept a `confirmationRequest`.
     /// Set by ThreadManager to coordinate routing when multiple ChatViewModels are active.
     var shouldAcceptConfirmation: (() -> Bool)?
+
+    /// Whether this view model has had its history loaded from the daemon.
+    var isHistoryLoaded: Bool = false
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -192,10 +196,14 @@ final class ChatViewModel: ObservableObject {
     func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachments = !pendingAttachments.isEmpty
-        guard !text.isEmpty || hasAttachments else { return }
+        let hasSkillInvocation = pendingSkillInvocation != nil
+        guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
         // Block rapid-fire only when bootstrapping (no session yet)
-        if isSending && sessionId == nil { return }
+        if isSending && sessionId == nil {
+            pendingSkillInvocation = nil
+            return
+        }
 
         // Snapshot and clear pending attachments
         let attachments = pendingAttachments
@@ -204,7 +212,8 @@ final class ChatViewModel: ObservableObject {
         // Append user message immediately for responsive UX
         let willBeQueued = isSending && sessionId != nil
         let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
-        let userMessage = ChatMessage(role: .user, text: text, status: status, attachments: attachments)
+        let userMessage = ChatMessage(role: .user, text: text, status: status, skillInvocation: pendingSkillInvocation, attachments: attachments)
+        pendingSkillInvocation = nil
         messages.append(userMessage)
         // Only track in pendingMessageIds when the message will actually be
         // queued by the daemon (i.e. sent while another message is processing).
@@ -957,6 +966,38 @@ final class ChatViewModel: ObservableObject {
             inputText = suggestion
         }
         self.suggestion = nil
+    }
+
+    /// Populate messages from history data returned by the daemon.
+    func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
+        var chatMessages: [ChatMessage] = []
+        for item in historyMessages {
+            let role: ChatRole = item.role == "assistant" ? .assistant : .user
+            var toolCalls: [ToolCallData] = []
+            if let historyToolCalls = item.toolCalls {
+                toolCalls = historyToolCalls.map { tc in
+                    ToolCallData(
+                        toolName: toolDisplayName(tc.name),
+                        inputSummary: summarizeToolInput(tc.input),
+                        result: tc.result,
+                        isError: tc.isError ?? false,
+                        isComplete: true
+                    )
+                }
+            }
+            // Skip empty messages (internal tool-result-only turns already filtered by daemon)
+            if item.text.isEmpty && toolCalls.isEmpty { continue }
+            let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
+            let chatMsg = ChatMessage(
+                role: role,
+                text: item.text,
+                timestamp: timestamp,
+                toolCalls: toolCalls
+            )
+            chatMessages.append(chatMsg)
+        }
+        self.messages = chatMessages
+        self.isHistoryLoaded = true
     }
 
     deinit {

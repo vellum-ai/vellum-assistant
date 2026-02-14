@@ -7,7 +7,7 @@ import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
 import { getDb } from './db.js';
 import { getQdrantClient } from './qdrant-client.js';
-import { memoryItems, memoryItemSources, memorySegments } from './schema.js';
+import { memoryItems, memoryItemSources, memorySegments, memorySummaries } from './schema.js';
 
 const log = getLogger('memory-retriever');
 const MEMORY_RECALL_OPEN_TAG = '<memory source="long_term_memory" confidence="approximate">';
@@ -34,6 +34,16 @@ interface Candidate {
   finalScore: number;
 }
 
+export interface MemoryRecallCandiateDebug {
+  key: string;
+  type: CandidateType;
+  kind: string;
+  finalScore: number;
+  lexical: number;
+  semantic: number;
+  recency: number;
+}
+
 export interface MemoryRecallResult {
   enabled: boolean;
   degraded: boolean;
@@ -44,14 +54,123 @@ export interface MemoryRecallResult {
   semanticHits: number;
   recencyHits: number;
   entityHits: number;
+  mergedCount: number;
+  selectedCount: number;
+  rerankApplied: boolean;
   injectedTokens: number;
   injectedText: string;
   latencyMs: number;
+  topCandidates: MemoryRecallCandiateDebug[];
 }
 
 interface MemoryRecallOptions {
   excludeMessageIds?: string[];
   signal?: AbortSignal;
+  scopeId?: string;
+}
+
+interface CollectedCandidates {
+  lexical: Candidate[];
+  recency: Candidate[];
+  semantic: Candidate[];
+  entity: Candidate[];
+  merged: Candidate[];
+}
+
+/**
+ * Shared retrieval pipeline: collect candidates from all available sources
+ * (lexical, recency, semantic, entity, direct item search) and merge them
+ * using RRF. Used by both `buildMemoryRecall()` (auto recall) and
+ * `searchMemoryItems()` (memory_search tool) for consistent behavior.
+ */
+async function collectAndMergeCandidates(
+  query: string,
+  config: AssistantConfig,
+  opts?: {
+    queryVector?: number[] | null;
+    provider?: string;
+    model?: string;
+    conversationId?: string;
+    excludeMessageIds?: string[];
+    scopeId?: string;
+  },
+): Promise<CollectedCandidates> {
+  const queryVector = opts?.queryVector ?? null;
+  const excludeMessageIds = opts?.excludeMessageIds ?? [];
+  const scopeId = opts?.scopeId;
+  const scopePolicy = config.memory.retrieval.scopePolicy;
+  // Build the list of scope IDs to include in queries
+  const scopeIds = buildScopeFilter(scopeId, scopePolicy);
+
+  const lexical = lexicalSearch(query, config.memory.retrieval.lexicalTopK, excludeMessageIds, scopeIds);
+
+  const recency = opts?.conversationId
+    ? recencySearch(
+        opts.conversationId,
+        Math.max(10, Math.floor(config.memory.retrieval.semanticTopK / 2)),
+        excludeMessageIds,
+        scopeIds,
+      )
+    : [];
+
+  let semantic: Candidate[] = [];
+  if (queryVector) {
+    try {
+      semantic = await semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds);
+    } catch (err) {
+      log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
+    }
+  }
+
+  let entity: Candidate[] = [];
+  if (config.memory.entity.enabled) {
+    entity = entitySearch(query, scopeIds);
+  }
+
+  // Direct item search supplements FTS with LIKE-based matching.
+  // Overfetch when exclusions are present so that filtering doesn't
+  // silently drop valid candidates just below the SQL LIMIT cutoff.
+  const directLimit = Math.max(10, config.memory.retrieval.lexicalTopK);
+  const directFetchLimit = excludeMessageIds.length > 0
+    ? Math.max(directLimit + 24, directLimit * 2)
+    : directLimit;
+  let directItems = directItemSearch(query, directFetchLimit, scopeIds);
+
+  // Filter direct items by excluded message IDs — items whose only evidence
+  // comes from excluded messages should not leak back into recall.
+  if (excludeMessageIds.length > 0 && directItems.length > 0) {
+    const db = getDb();
+    directItems = directItems.filter((candidate) => {
+      const sources = db.select().from(memoryItemSources)
+        .where(eq(memoryItemSources.memoryItemId, candidate.id)).all();
+      if (sources.length === 0) return true;
+      const nonExcluded = sources.filter((s) => !excludeMessageIds.includes(s.messageId));
+      return nonExcluded.length > 0;
+    });
+    directItems = directItems.slice(0, directLimit);
+  }
+
+  const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems], config.memory.retrieval.freshness);
+
+  return { lexical, recency, semantic, entity, merged };
+}
+
+/**
+ * Build the list of scope IDs to include in queries.
+ * - If no scopeId is provided, returns undefined (no filtering).
+ * - If scopePolicy is 'allow_global_fallback', includes both the
+ *   requested scope and the 'default' scope.
+ * - If scopePolicy is 'strict', only includes the requested scope.
+ */
+function buildScopeFilter(
+  scopeId: string | undefined,
+  scopePolicy: string,
+): string[] | undefined {
+  if (!scopeId) return undefined;
+  if (scopePolicy === 'allow_global_fallback') {
+    return scopeId === 'default' ? ['default'] : [scopeId, 'default'];
+  }
+  return [scopeId];
 }
 
 export async function buildMemoryRecall(
@@ -119,23 +238,16 @@ export async function buildMemoryRecall(
     });
   }
 
-  let lexicalCandidates: Candidate[] = [];
-  let recencyCandidates: Candidate[] = [];
-  let semanticCandidates: Candidate[] = [];
-  let entityCandidates: Candidate[] = [];
+  let collected: CollectedCandidates;
   try {
-    lexicalCandidates = lexicalSearch(query, config.memory.retrieval.lexicalTopK, excludeMessageIds);
-    recencyCandidates = recencySearch(
+    collected = await collectAndMergeCandidates(query, config, {
+      queryVector,
+      provider,
+      model,
       conversationId,
-      Math.max(10, Math.floor(config.memory.retrieval.semanticTopK / 2)),
       excludeMessageIds,
-    );
-    semanticCandidates = queryVector
-      ? await semanticSearch(queryVector, provider!, model!, config.memory.retrieval.semanticTopK, excludeMessageIds)
-      : [];
-    if (config.memory.entity.enabled) {
-      entityCandidates = entitySearch(query);
-    }
+      scopeId: options?.scopeId,
+    });
   } catch (err) {
     if (signal?.aborted || isAbortError(err)) {
       return emptyResult({
@@ -158,10 +270,12 @@ export async function buildMemoryRecall(
     });
   }
 
-  let merged = mergeCandidates(lexicalCandidates, semanticCandidates, recencyCandidates, entityCandidates);
+  const { lexical: lexicalCandidates, recency: recencyCandidates, semantic: semanticCandidates, entity: entityCandidates } = collected;
+  let merged = collected.merged;
 
   // LLM re-ranking: send top candidates to Haiku for relevance scoring
   const rerankingConfig = config.memory.retrieval.reranking;
+  let rerankApplied = false;
   if (rerankingConfig.enabled && merged.length >= 5) {
     const rerankStart = Date.now();
     const topCandidates = merged.slice(0, rerankingConfig.topK);
@@ -169,6 +283,7 @@ export async function buildMemoryRecall(
       const reranked = await rerankWithLLM(query, topCandidates, rerankingConfig);
       // Replace the top portion with re-ranked results, keep any overflow untouched
       merged = [...reranked, ...merged.slice(rerankingConfig.topK)];
+      rerankApplied = true;
       log.debug({ rerankLatencyMs: Date.now() - rerankStart, rerankedCount: reranked.length }, 'LLM re-ranking completed');
     } catch (err) {
       if (signal?.aborted || isAbortError(err)) {
@@ -185,10 +300,20 @@ export async function buildMemoryRecall(
     }
   }
 
-  const selected = trimToTokenBudget(merged, config.memory.retrieval.maxInjectTokens);
+  const mergedCount = merged.length;
+  const selected = trimToTokenBudget(merged, config.memory.retrieval.maxInjectTokens, config.memory.retrieval.injectionFormat);
   markItemUsage(selected);
 
-  const injectedText = buildInjectedText(selected);
+  const injectedText = buildInjectedText(selected, config.memory.retrieval.injectionFormat);
+  const topCandidates: MemoryRecallCandiateDebug[] = selected.slice(0, 10).map((c) => ({
+    key: c.key,
+    type: c.type,
+    kind: c.kind,
+    finalScore: c.finalScore,
+    lexical: c.lexical,
+    semantic: c.semantic,
+    recency: c.recency,
+  }));
 
   const latencyMs = Date.now() - start;
   log.debug({
@@ -197,7 +322,9 @@ export async function buildMemoryRecall(
     semanticHits: semanticCandidates.length,
     recencyHits: recencyCandidates.length,
     entityHits: entityCandidates.length,
+    mergedCount,
     selected: selected.length,
+    rerankApplied,
     injectedTokens: estimateTextTokens(injectedText),
     latencyMs,
   }, 'Memory recall completed');
@@ -212,19 +339,52 @@ export async function buildMemoryRecall(
     semanticHits: semanticCandidates.length,
     recencyHits: recencyCandidates.length,
     entityHits: entityCandidates.length,
+    mergedCount,
+    selectedCount: selected.length,
+    rerankApplied,
     injectedTokens: estimateTextTokens(injectedText),
     injectedText,
     latencyMs,
+    topCandidates,
   };
 }
+
+/** Marker text used in the assistant acknowledgment of a separate context message. */
+const MEMORY_CONTEXT_ACK = '[Memory context loaded.]';
 
 export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'; content: Array<{ type: string; text?: string }> }>(
   messages: T[],
   memoryRecallText?: string,
+  injectionStrategy?: 'prepend_user_block' | 'separate_context_message',
 ): T[] {
   const recallText = memoryRecallText ?? '';
   if (recallText.trim().length === 0) return messages;
 
+  // Try separate_context_message pattern first: look for the injected
+  // user+assistant pair (user message whose sole text block is the recall
+  // text, followed by an assistant ack message).
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.role !== 'user') continue;
+    if (message.content.length !== 1) continue;
+    const block = message.content[0];
+    if (block.type !== 'text' || block.text !== recallText) continue;
+    // Check if the next message is the assistant ack
+    const next = messages[index + 1];
+    if (
+      next &&
+      next.role === 'assistant' &&
+      next.content.length === 1 &&
+      next.content[0].type === 'text' &&
+      next.content[0].text === MEMORY_CONTEXT_ACK
+    ) {
+      // Remove both the user context message and the assistant ack
+      return [...messages.slice(0, index), ...messages.slice(index + 2)];
+    }
+  }
+
+  // Fall back to prepend_user_block pattern: the recall text is a block
+  // inside a user message that also has real user content.
   let targetIndex = -1;
   let blockIndex = -1;
   for (let index = messages.length - 1; index >= 0; index--) {
@@ -246,8 +406,25 @@ export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'
   }
   if (targetIndex === -1) return messages;
 
+  // Check if the message after targetIndex is the assistant ack from a
+  // merged separate-context injection (deepRepairHistory can merge the
+  // standalone recall user message into an adjacent user message, leaving
+  // the ack orphaned). Only check when the injection strategy is
+  // separate_context_message — prepend_user_block never injects a
+  // synthetic ack, so stripping here would delete a real assistant reply.
+  const ackIndex =
+    injectionStrategy !== 'prepend_user_block' &&
+    targetIndex + 1 < messages.length &&
+    messages[targetIndex + 1].role === 'assistant' &&
+    messages[targetIndex + 1].content.length === 1 &&
+    messages[targetIndex + 1].content[0].type === 'text' &&
+    messages[targetIndex + 1].content[0].text === MEMORY_CONTEXT_ACK
+      ? targetIndex + 1
+      : -1;
+
   const cleaned: T[] = [];
   for (let index = 0; index < messages.length; index++) {
+    if (index === ackIndex) continue;
     const message = messages[index];
     if (index !== targetIndex) {
       cleaned.push(message);
@@ -276,6 +453,33 @@ export function injectMemoryRecallIntoUserMessage<T extends { role: 'user' | 'as
   } as T;
 }
 
+/**
+ * Inject memory recall as a separate user+assistant message pair before the
+ * last user message. This separates memory context from the user's actual
+ * query, making it clearer to the model that the memory is background context.
+ */
+export function injectMemoryRecallAsSeparateMessage<T extends { role: 'user' | 'assistant'; content: Array<{ type: string; text?: string }> }>(
+  messages: T[],
+  memoryRecallText: string,
+): T[] {
+  if (memoryRecallText.trim().length === 0) return messages;
+  if (messages.length === 0) return messages;
+  const contextMessage = {
+    role: 'user' as const,
+    content: [{ type: 'text', text: memoryRecallText }],
+  } as unknown as T;
+  const ackMessage = {
+    role: 'assistant' as const,
+    content: [{ type: 'text', text: MEMORY_CONTEXT_ACK }],
+  } as unknown as T;
+  return [
+    ...messages.slice(0, -1),
+    contextMessage,
+    ackMessage,
+    messages[messages.length - 1],
+  ];
+}
+
 export function queryMemoryForCli(
   query: string,
   conversationId: string,
@@ -284,7 +488,7 @@ export function queryMemoryForCli(
   return buildMemoryRecall(query, conversationId, config);
 }
 
-function lexicalSearch(query: string, limit: number, excludedMessageIds: string[] = []): Candidate[] {
+function lexicalSearch(query: string, limit: number, excludedMessageIds: string[] = [], scopeIds?: string[]): Candidate[] {
   const trimmed = query.trim();
   if (trimmed.length === 0 || limit <= 0) return [];
   const matchQuery = buildFtsMatchQuery(trimmed);
@@ -302,6 +506,10 @@ function lexicalSearch(query: string, limit: number, excludedMessageIds: string[
   const queryLimit = excluded.size > 0
     ? Math.max(limit + 24, limit * 2)
     : limit;
+  const scopeClause = scopeIds
+    ? ` AND s.scope_id IN (${scopeIds.map(() => '?').join(',')})`
+    : '';
+  const params: unknown[] = [matchQuery, ...(scopeIds ?? []), queryLimit];
   try {
     rows = raw.query(`
       SELECT
@@ -312,10 +520,10 @@ function lexicalSearch(query: string, limit: number, excludedMessageIds: string[
         bm25(memory_segment_fts) AS rank
       FROM memory_segment_fts f
       JOIN memory_segments s ON s.id = f.segment_id
-      WHERE memory_segment_fts MATCH ?
+      WHERE memory_segment_fts MATCH ?${scopeClause}
       ORDER BY rank
       LIMIT ?
-    `).all(matchQuery, queryLimit) as Array<{
+    `).all(...params) as Array<{
       segment_id: string;
       message_id: string;
       text: string;
@@ -362,6 +570,7 @@ async function semanticSearch(
   _model: string,
   limit: number,
   excludedMessageIds: string[] = [],
+  scopeIds?: string[],
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
 
@@ -387,6 +596,7 @@ async function semanticSearch(
       // Validate the backing memory item is still active and has non-excluded evidence
       const item = db.select().from(memoryItems).where(eq(memoryItems.id, payload.target_id)).get();
       if (!item || item.status !== 'active' || item.invalidAt !== null) continue;
+      if (scopeIds && !scopeIds.includes(item.scopeId)) continue;
       const sources = db.select().from(memoryItemSources)
         .where(eq(memoryItemSources.memoryItemId, payload.target_id)).all();
       if (sources.length === 0) continue;
@@ -409,6 +619,10 @@ async function semanticSearch(
         finalScore: 0,
       });
     } else if (payload.target_type === 'summary') {
+      if (scopeIds) {
+        const summary = db.select().from(memorySummaries).where(eq(memorySummaries.id, payload.target_id)).get();
+        if (!summary || !scopeIds.includes(summary.scopeId)) continue;
+      }
       candidates.push({
         key: `summary:${payload.target_id}`,
         type: 'summary',
@@ -424,6 +638,10 @@ async function semanticSearch(
         finalScore: 0,
       });
     } else {
+      if (scopeIds) {
+        const segment = db.select().from(memorySegments).where(eq(memorySegments.id, payload.target_id)).get();
+        if (!segment || !scopeIds.includes(segment.scopeId)) continue;
+      }
       candidates.push({
         key: `segment:${payload.target_id}`,
         type: 'segment',
@@ -444,15 +662,17 @@ async function semanticSearch(
   return candidates;
 }
 
-function recencySearch(conversationId: string, limit: number, excludedMessageIds: string[] = []): Candidate[] {
+function recencySearch(conversationId: string, limit: number, excludedMessageIds: string[] = [], scopeIds?: string[]): Candidate[] {
   if (!conversationId || limit <= 0) return [];
   const db = getDb();
-  const whereClause = excludedMessageIds.length > 0
-    ? and(
-      eq(memorySegments.conversationId, conversationId),
-      notInArray(memorySegments.messageId, excludedMessageIds),
-    )
-    : eq(memorySegments.conversationId, conversationId);
+  const conditions = [eq(memorySegments.conversationId, conversationId)];
+  if (excludedMessageIds.length > 0) {
+    conditions.push(notInArray(memorySegments.messageId, excludedMessageIds));
+  }
+  if (scopeIds && scopeIds.length > 0) {
+    conditions.push(inArray(memorySegments.scopeId, scopeIds));
+  }
+  const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
   const rows = db
     .select()
     .from(memorySegments)
@@ -481,7 +701,7 @@ function recencySearch(conversationId: string, limit: number, excludedMessageIds
  * fuzzy match against known entities (name + aliases), and return
  * all memory items linked to those entities.
  */
-function entitySearch(query: string): Candidate[] {
+function entitySearch(query: string, scopeIds?: string[]): Candidate[] {
   const trimmed = query.trim();
   if (trimmed.length === 0) return [];
 
@@ -576,14 +796,18 @@ function entitySearch(query: string): Candidate[] {
 
   // Fetch the actual memory items
   const itemIds = [...new Set(linkedRows.map((r) => r.memory_item_id))];
+  const itemConditions = [
+    inArray(memoryItems.id, itemIds),
+    eq(memoryItems.status, 'active'),
+    isNull(memoryItems.invalidAt),
+  ];
+  if (scopeIds && scopeIds.length > 0) {
+    itemConditions.push(inArray(memoryItems.scopeId, scopeIds));
+  }
   const items = db
     .select()
     .from(memoryItems)
-    .where(and(
-      inArray(memoryItems.id, itemIds),
-      eq(memoryItems.status, 'active'),
-      isNull(memoryItems.invalidAt),
-    ))
+    .where(and(...itemConditions))
     .all();
 
   return items.map((item) => ({
@@ -623,6 +847,7 @@ function mergeCandidates(
   semantic: Candidate[],
   recency: Candidate[],
   entity: Candidate[] = [],
+  freshnessConfig?: { enabled: boolean; maxAgeDays: Record<string, number>; staleDecay: number; reinforcementShieldDays: number },
 ): Candidate[] {
   // Build merged candidate map (dedup by key, keep best metadata)
   const merged = new Map<string, Candidate>();
@@ -648,11 +873,11 @@ function mergeCandidates(
   const recencyRanks = buildRankMap(recency, (c) => c.recency);
   const entityRanks = buildRankMap(entity, (c) => c.confidence);
 
-  // Look up access_count for item-type candidates (retrieval reinforcement)
+  // Look up access_count and verification_state for item-type candidates
   const itemIds = [...merged.values()]
     .filter((c) => c.type === 'item')
     .map((c) => c.id);
-  const accessCounts = lookupAccessCounts(itemIds);
+  const itemMetadata = lookupItemMetadata(itemIds);
 
   const rows = [...merged.values()];
   for (const row of rows) {
@@ -665,10 +890,20 @@ function mergeCandidates(
     const rrfScore = rrf(ranks);
 
     // Retrieval reinforcement: boost importance by accessCount
-    const accessCount = accessCounts.get(row.id) ?? 0;
+    const meta = itemMetadata.get(row.id);
+    const accessCount = meta?.accessCount ?? 0;
     const effectiveImportance = Math.min(1, row.importance + 0.03 * accessCount);
 
-    row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance);
+    // Trust-aware ranking: only apply to item candidates (segments/summaries have no metadata)
+    const trustWeight = (row.type === 'item' && meta)
+      ? (TRUST_WEIGHTS[meta.verificationState] ?? DEFAULT_TRUST_WEIGHT)
+      : 1.0;
+
+    // Freshness decay: down-rank stale items unless recently reinforced
+    const lastUsedAt = meta?.lastUsedAt ?? null;
+    const freshnessWeight = computeFreshnessWeight(row, accessCount, lastUsedAt, freshnessConfig);
+
+    row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight * freshnessWeight;
   }
 
   rows.sort((a, b) => {
@@ -699,27 +934,91 @@ function buildRankMap(candidates: Candidate[], scoreAccessor: (c: Candidate) => 
   return rankMap;
 }
 
+interface ItemMetadata {
+  accessCount: number;
+  lastUsedAt: number | null;
+  verificationState: string;
+}
+
 /**
- * Look up access_count from the memory_items table for a batch of item IDs.
- * Returns a map from item ID to access count.
+ * Look up access_count and verification_state from memory_items for a batch of item IDs.
  */
-function lookupAccessCounts(itemIds: string[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  if (itemIds.length === 0) return counts;
+function lookupItemMetadata(itemIds: string[]): Map<string, ItemMetadata> {
+  const metadata = new Map<string, ItemMetadata>();
+  if (itemIds.length === 0) return metadata;
   try {
     const db = getDb();
     const rows = db
-      .select({ id: memoryItems.id, accessCount: memoryItems.accessCount })
+      .select({
+        id: memoryItems.id,
+        accessCount: memoryItems.accessCount,
+        lastUsedAt: memoryItems.lastUsedAt,
+        verificationState: memoryItems.verificationState,
+      })
       .from(memoryItems)
       .where(inArray(memoryItems.id, itemIds))
       .all();
     for (const row of rows) {
-      counts.set(row.id, row.accessCount);
+      metadata.set(row.id, {
+        accessCount: row.accessCount,
+        lastUsedAt: row.lastUsedAt,
+        verificationState: row.verificationState,
+      });
     }
   } catch (err) {
-    log.warn({ err }, 'Failed to look up access counts for retrieval reinforcement');
+    log.warn({ err }, 'Failed to look up item metadata for retrieval ranking');
   }
-  return counts;
+  return metadata;
+}
+
+/**
+ * Trust weight by verification state. Higher = more trusted.
+ * Bounded: lowest weight is 0.7, never zero — low-trust items are
+ * down-ranked but not suppressed.
+ */
+const TRUST_WEIGHTS: Record<string, number> = {
+  user_confirmed: 1.0,
+  user_reported: 0.9,
+  assistant_inferred: 0.7,
+};
+const DEFAULT_TRUST_WEIGHT = 0.85;
+
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * Compute a freshness weight for a candidate based on its kind and age.
+ * Returns 1.0 for fresh items and `staleDecay` for items past their window.
+ * Items with recent reinforcement (accessed via lastUsedAt within the shield
+ * window) are shielded from decay.
+ */
+function computeFreshnessWeight(
+  candidate: { type: string; kind: string; createdAt: number },
+  accessCount: number,
+  lastUsedAt: number | null,
+  config?: { enabled: boolean; maxAgeDays: Record<string, number>; staleDecay: number; reinforcementShieldDays: number },
+): number {
+  if (!config?.enabled) return 1.0;
+
+  // Only apply freshness to item-type candidates
+  if (candidate.type !== 'item') return 1.0;
+
+  const maxAgeDays = config.maxAgeDays[candidate.kind] ?? 0;
+  // maxAgeDays of 0 means no expiry for this kind
+  if (maxAgeDays <= 0) return 1.0;
+
+  const now = Date.now();
+  const ageMs = now - candidate.createdAt;
+  const ageDays = ageMs / MS_PER_DAY;
+
+  if (ageDays <= maxAgeDays) return 1.0;
+
+  // Check reinforcement shield: items retrieved within the shield window are protected
+  if (accessCount > 0 && lastUsedAt != null && config.reinforcementShieldDays > 0) {
+    const shieldCutoff = now - config.reinforcementShieldDays * MS_PER_DAY;
+    if (lastUsedAt >= shieldCutoff) return 1.0;
+  }
+
+  return config.staleDecay;
 }
 
 /**
@@ -808,11 +1107,11 @@ async function rerankWithLLM(
   return reranked.map((r) => r.candidate);
 }
 
-function trimToTokenBudget(candidates: Candidate[], maxTokens: number): Candidate[] {
+function trimToTokenBudget(candidates: Candidate[], maxTokens: number, format: string = 'markdown'): Candidate[] {
   if (maxTokens <= 0) return [];
   const selected: Candidate[] = [];
   for (const candidate of candidates) {
-    const tentativeText = buildInjectedText([...selected, candidate]);
+    const tentativeText = buildInjectedText([...selected, candidate], format);
     const cost = estimateTextTokens(tentativeText);
     if (cost > maxTokens) continue;
     selected.push(candidate);
@@ -858,8 +1157,12 @@ const SECTION_ORDER = [
  * Layout per section uses "Lost in the Middle" (Liu et al., Stanford 2023)
  * ordering — see applyAttentionOrdering().
  */
-function buildInjectedText(candidates: Candidate[]): string {
+function buildInjectedText(candidates: Candidate[], format: string = 'markdown'): string {
   if (candidates.length === 0) return '';
+
+  if (format === 'structured_v1') {
+    return buildStructuredInjectedText(candidates);
+  }
 
   // Group candidates by section
   const groups = new Map<string, Candidate[]>();
@@ -887,6 +1190,34 @@ function buildInjectedText(candidates: Candidate[]): string {
   }
   parts.push(MEMORY_RECALL_CLOSE_TAG);
   return parts.join('\n');
+}
+
+/**
+ * Structured injection format (structured_v1): each memory item is
+ * rendered as a structured XML entry with explicit fields for kind,
+ * text, time, and confidence. This is less prone to prompt injection
+ * than the markdown format since the model can parse fields explicitly.
+ */
+function buildStructuredInjectedText(candidates: Candidate[]): string {
+  const parts: string[] = [MEMORY_RECALL_OPEN_TAG, MEMORY_RECALL_DISCLAIMER];
+  parts.push('<entries>');
+  const ordered = applyAttentionOrdering(candidates);
+  for (const candidate of ordered) {
+    const absolute = formatAbsoluteTime(candidate.createdAt);
+    const relative = formatRelativeTime(candidate.createdAt);
+    parts.push(
+      `<entry kind="${escapeXmlAttr(candidate.kind)}" type="${candidate.type}" confidence="${candidate.confidence.toFixed(2)}" time="${absolute} (${relative})">` +
+      escapeXmlTags(truncate(candidate.text, 320)) +
+      '</entry>',
+    );
+  }
+  parts.push('</entries>');
+  parts.push(MEMORY_RECALL_CLOSE_TAG);
+  return parts.join('\n');
+}
+
+function escapeXmlAttr(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function applyAttentionOrdering(candidates: Candidate[]): Candidate[] {
@@ -1036,9 +1367,13 @@ function emptyResult(
     semanticHits: 0,
     recencyHits: 0,
     entityHits: 0,
+    mergedCount: 0,
+    selectedCount: 0,
+    rerankApplied: false,
     injectedTokens: 0,
     injectedText: '',
     latencyMs: init.latencyMs,
+    topCandidates: [],
   };
 }
 
@@ -1076,32 +1411,53 @@ export interface MemorySearchResult {
   importance: number;
   createdAt: number;
   finalScore: number;
+  /** Per-source scores for provenance/debugging */
+  scores: {
+    lexical: number;
+    semantic: number;
+    recency: number;
+  };
 }
 
 /**
- * Search memory items using lexical and entity search.
+ * Search memory items using the same unified retrieval pipeline as
+ * automatic recall: lexical, recency, semantic (when available), entity,
+ * and direct item search — merged via RRF.
  * Returns a simplified result set suitable for the memory_search tool.
- * Unlike buildMemoryRecall, this does not build injection text or manage
- * embedding-based semantic search — it is a lightweight, synchronous-safe
- * search for the agent's explicit memory tool use.
  */
-export function searchMemoryItems(
+export async function searchMemoryItems(
   query: string,
   limit: number,
-  config: { memory: { entity: { enabled: boolean } } },
-): MemorySearchResult[] {
+  config: AssistantConfig,
+  scopeId?: string,
+): Promise<MemorySearchResult[]> {
   const trimmed = query.trim();
   if (trimmed.length === 0 || limit <= 0) return [];
 
-  const lexicalCandidates = lexicalSearch(trimmed, Math.max(limit * 2, 20));
-  const entityCandidates = config.memory.entity.enabled
-    ? entitySearch(trimmed)
-    : [];
+  // Compute embedding vector when available (same as auto recall)
+  let queryVector: number[] | null = null;
+  let provider: string | undefined;
+  let model: string | undefined;
+  const backendStatus = getMemoryBackendStatus(config);
+  if (backendStatus.provider) {
+    try {
+      const embedded = await embedWithBackend(config, [trimmed]);
+      queryVector = embedded.vectors[0] ?? null;
+      provider = embedded.provider;
+      model = embedded.model;
+    } catch {
+      // Gracefully degrade to non-semantic search
+    }
+  }
 
-  // Also search memory_items directly by subject/statement for better recall
-  const itemCandidates = directItemSearch(trimmed, Math.max(limit, 10));
+  const result = await collectAndMergeCandidates(trimmed, config, {
+    queryVector,
+    provider,
+    model,
+    scopeId,
+  });
+  const merged = result.merged;
 
-  const merged = mergeCandidates(lexicalCandidates, [], [], [...entityCandidates, ...itemCandidates]);
   return merged.slice(0, limit).map((c) => ({
     id: c.id,
     type: c.type,
@@ -1111,6 +1467,11 @@ export function searchMemoryItems(
     importance: c.importance,
     createdAt: c.createdAt,
     finalScore: c.finalScore,
+    scores: {
+      lexical: c.lexical,
+      semantic: c.semantic,
+      recency: c.recency,
+    },
   }));
 }
 
@@ -1118,7 +1479,7 @@ export function searchMemoryItems(
  * Direct search over memory_items table by subject and statement text.
  * Supplements FTS-based lexical search with LIKE-based matching on items.
  */
-function directItemSearch(query: string, limit: number): Candidate[] {
+function directItemSearch(query: string, limit: number, scopeIds?: string[]): Candidate[] {
   const db = getDb();
   const tokens = query
     .toLowerCase()
@@ -1130,13 +1491,17 @@ function directItemSearch(query: string, limit: number): Candidate[] {
   const likeClauses = tokens.map(
     (t) => `(LOWER(subject) LIKE '%${escapeSqlLike(t)}%' OR LOWER(statement) LIKE '%${escapeSqlLike(t)}%')`,
   );
+  const scopeClause = scopeIds
+    ? ` AND scope_id IN (${scopeIds.map(() => '?').join(',')})`
+    : '';
   const sqlQuery = `
     SELECT id, kind, subject, statement, status, confidence, importance, first_seen_at, last_seen_at
     FROM memory_items
-    WHERE status = 'active' AND invalid_at IS NULL AND (${likeClauses.join(' OR ')})
+    WHERE status = 'active' AND invalid_at IS NULL AND (${likeClauses.join(' OR ')})${scopeClause}
     ORDER BY last_seen_at DESC
     LIMIT ?
   `;
+  const params: unknown[] = [...(scopeIds ?? []), limit];
 
   let rows: Array<{
     id: string;
@@ -1149,7 +1514,7 @@ function directItemSearch(query: string, limit: number): Candidate[] {
     last_seen_at: number;
   }> = [];
   try {
-    rows = raw.query(sqlQuery).all(limit) as typeof rows;
+    rows = raw.query(sqlQuery).all(...params) as typeof rows;
   } catch {
     return [];
   }

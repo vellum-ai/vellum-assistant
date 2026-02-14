@@ -49,7 +49,7 @@ struct MainWindowView: View {
                             isRecording: viewModel.isRecording,
                             onOpenSettings: {
                                 // Always provide an immediate, visible fallback.
-                                activePanel = .control
+                                activePanel = .settings
                                 Self.openSettings()
                             },
                             onSend: viewModel.sendMessage,
@@ -126,11 +126,26 @@ struct MainWindowView: View {
         if let panel = activePanel {
             switch panel {
             case .generated:
-                GeneratedPanel(onClose: { activePanel = nil })
+                GeneratedPanel(onClose: { activePanel = nil }, daemonClient: daemonClient)
             case .agent:
-                AgentPanel(onClose: { activePanel = nil }, daemonClient: daemonClient)
-            case .control:
-                ControlPanel(onClose: { activePanel = nil }, ambientAgent: ambientAgent, daemonClient: daemonClient)
+                AgentPanel(onClose: { activePanel = nil }, onInvokeSkill: { skill in
+                    if threadManager.activeViewModel == nil {
+                        threadManager.createThread()
+                    }
+                    if let viewModel = threadManager.activeViewModel {
+                        viewModel.pendingSkillInvocation = SkillInvocationData(
+                            name: skill.name,
+                            emoji: skill.emoji,
+                            description: skill.description
+                        )
+                        viewModel.inputText = "Use the \(skill.name) skill"
+                        viewModel.sendMessage()
+                        // Clear leaked metadata if sendMessage() returned early
+                        viewModel.pendingSkillInvocation = nil
+                    }
+                }, daemonClient: daemonClient)
+            case .settings:
+                SettingsPanel(onClose: { activePanel = nil }, ambientAgent: ambientAgent, daemonClient: daemonClient)
             case .directory:
                 DirectoryPanel(onClose: { activePanel = nil })
             case .debug:

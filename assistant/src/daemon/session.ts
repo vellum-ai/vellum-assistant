@@ -11,6 +11,7 @@ import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { getApp } from '../memory/app-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
+import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { ToolLifecycleEventHandler, ToolExecutionResult } from '../tools/types.js';
@@ -39,6 +40,7 @@ import { getHookManager } from '../hooks/manager.js';
 import {
   buildMemoryRecall,
   injectMemoryRecallIntoUserMessage,
+  injectMemoryRecallAsSeparateMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
@@ -80,6 +82,7 @@ export class Session {
   private stale = false;
   private abortController: AbortController | null = null;
   private prompter: PermissionPrompter;
+  private secretPrompter: SecretPrompter;
   private executor: ToolExecutor;
   private sendToClient: (msg: ServerMessage) => void;
   private eventBus = new EventBus<AssistantDomainEvents>();
@@ -109,6 +112,7 @@ export class Session {
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
     this.prompter = new PermissionPrompter(sendToClient);
+    this.secretPrompter = new SecretPrompter(sendToClient);
 
     registerTimerCompletionNotifier(conversationId, (timer) => {
       this.sendToClient({
@@ -146,6 +150,13 @@ export class Session {
         sandboxOverride: this.sandboxOverride,
         onToolLifecycleEvent: handleToolLifecycleEvent,
         proxyToolResolver: this.surfaceProxyResolver.bind(this),
+        requestSecret: async (params) => {
+          return this.secretPrompter.prompt(
+            params.service, params.field, params.label,
+            params.description, params.placeholder,
+            this.conversationId,
+          );
+        },
         requestConfirmation: async (req) => {
           // Check trust store before prompting
           const existingRule = findHighestPriorityRule(
@@ -153,7 +164,7 @@ export class Session {
             [req.toolName, `cc:${req.toolName}`, 'cc:*'],
             this.workingDir,
           );
-          if (existingRule) {
+          if (existingRule && existingRule.decision !== 'ask') {
             return {
               decision: existingRule.decision === 'allow' ? 'allow' as const : 'deny' as const,
             };
@@ -254,6 +265,7 @@ export class Session {
   updateClient(sendToClient: (msg: ServerMessage) => void): void {
     this.sendToClient = sendToClient;
     this.prompter.updateSender(sendToClient);
+    this.secretPrompter.updateSender(sendToClient);
   }
 
   setSandboxOverride(enabled: boolean | undefined): void {
@@ -285,6 +297,7 @@ export class Session {
       log.info({ conversationId: this.conversationId }, 'Aborting in-flight processing');
       this.abortController?.abort();
       this.prompter.dispose();
+      this.secretPrompter.dispose();
       this.pendingSurfaceActions.clear();
       this.surfaceState.clear();
       unregisterTimerCompletionNotifier(this.conversationId);
@@ -359,6 +372,10 @@ export class Session {
     selectedScope?: string,
   ): void {
     this.prompter.resolveConfirmation(requestId, decision, selectedPattern, selectedScope);
+  }
+
+  handleSecretResponse(requestId: string, value?: string): void {
+    this.secretPrompter.resolveSecret(requestId, value);
   }
 
   /**
@@ -510,10 +527,15 @@ export class Session {
       if (recall.injectedText.length > 0) {
         const userTail = this.messages[this.messages.length - 1];
         if (userTail && userTail.role === 'user') {
-          runMessages = [
-            ...this.messages.slice(0, -1),
-            injectMemoryRecallIntoUserMessage(userTail, recall.injectedText),
-          ];
+          const strategy = runtimeConfig.memory.retrieval.injectionStrategy;
+          if (strategy === 'separate_context_message') {
+            runMessages = injectMemoryRecallAsSeparateMessage(this.messages, recall.injectedText);
+          } else {
+            runMessages = [
+              ...this.messages.slice(0, -1),
+              injectMemoryRecallIntoUserMessage(userTail, recall.injectedText),
+            ];
+          }
           onEvent({
             type: 'memory_recalled',
             provider: recall.provider ?? 'unknown',
@@ -522,8 +544,12 @@ export class Session {
             semanticHits: recall.semanticHits,
             recencyHits: recall.recencyHits,
             entityHits: recall.entityHits,
+            mergedCount: recall.mergedCount,
+            selectedCount: recall.selectedCount,
+            rerankApplied: recall.rerankApplied,
             injectedTokens: recall.injectedTokens,
             latencyMs: recall.latencyMs,
+            topCandidates: recall.topCandidates,
           });
         }
       }
@@ -704,7 +730,7 @@ export class Session {
       // (beyond the repaired prefix) are carried forward.
       const newMessages = updatedHistory.slice(preRunHistoryLength);
       const restoredHistory = [...preRepairMessages, ...newMessages];
-      this.messages = stripMemoryRecallMessages(restoredHistory, recall.injectedText);
+      this.messages = stripMemoryRecallMessages(restoredHistory, recall.injectedText, runtimeConfig.memory.retrieval.injectionStrategy);
 
       this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent');
 

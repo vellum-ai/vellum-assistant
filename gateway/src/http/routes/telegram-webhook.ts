@@ -6,7 +6,8 @@ import { downloadTelegramFile } from "../../telegram/download.js";
 import { handleInbound, type InboundResult } from "../../handlers/handle-inbound.js";
 import { sendTypingIndicator } from "../../telegram/send.js";
 import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
-import { uploadAttachment } from "../../runtime/client.js";
+import { uploadAttachment, resetConversation } from "../../runtime/client.js";
+import { sendTelegramReply } from "../../telegram/send.js";
 
 const log = pino({ name: "gateway:telegram-webhook" });
 
@@ -61,7 +62,36 @@ export function createTelegramWebhookHandler(
     // Normalize the update
     const normalized = normalizeTelegramUpdate(payload);
     if (!normalized) {
-      log.debug({ updateId: payload.update_id }, "Unsupported Telegram update, ignoring");
+      return Response.json({ ok: true });
+    }
+
+    // Handle /new command — reset conversation before it reaches the runtime
+    if (normalized.message.content.trim() === "/new") {
+      const routing = resolveAssistant(
+        config,
+        normalized.message.externalChatId,
+        normalized.sender.externalUserId,
+      );
+
+      if (!isRejection(routing)) {
+        try {
+          await resetConversation(
+            config,
+            routing.assistantId,
+            normalized.sourceChannel,
+            normalized.message.externalChatId,
+          );
+          sendTelegramReply(config, normalized.message.externalChatId, "Starting a new conversation!").catch((err) => {
+            log.error({ err }, "Failed to send /new confirmation");
+          });
+        } catch (err) {
+          log.error({ err }, "Failed to reset conversation");
+          sendTelegramReply(config, normalized.message.externalChatId, "Failed to reset conversation. Please try again.").catch((replyErr) => {
+            log.error({ err: replyErr }, "Failed to send /new error reply");
+          });
+        }
+      }
+
       return Response.json({ ok: true });
     }
 

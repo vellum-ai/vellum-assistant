@@ -75,6 +75,7 @@ export class AgentLoop {
       if (signal?.aborted) break;
 
       const turnStart = Date.now();
+      let toolUseBlocks: Extract<ContentBlock, { type: 'tool_use' }>[] = [];
 
       try {
         const providerConfig: Record<string, unknown> = { max_tokens: this.config.maxTokens };
@@ -181,7 +182,7 @@ export class AgentLoop {
         onEvent({ type: 'message_complete', message: assistantMessage });
 
         // Check for tool use
-        const toolUseBlocks = response.content.filter(
+        toolUseBlocks = response.content.filter(
           (block): block is Extract<ContentBlock, { type: 'tool_use' }> =>
             block.type === 'tool_use',
         );
@@ -334,8 +335,21 @@ export class AgentLoop {
           }
         }
       } catch (error) {
-        // Abort errors are expected when user cancels — don't emit as errors
-        if (signal?.aborted) break;
+        // Abort errors are expected when user cancels — synthesize
+        // cancellation tool_results so the history stays valid for the
+        // Anthropic API (every tool_use must have a matching tool_result).
+        if (signal?.aborted) {
+          if (toolUseBlocks.length > 0) {
+            const cancelledBlocks: ContentBlock[] = toolUseBlocks.map((toolUse) => ({
+              type: 'tool_result' as const,
+              tool_use_id: toolUse.id,
+              content: 'Cancelled by user',
+              is_error: true,
+            }));
+            history.push({ role: 'user', content: cancelledBlocks });
+          }
+          break;
+        }
         const err = error instanceof Error ? error : new Error(String(error));
         rlog.error({ err, turn: toolUseTurns, messageCount: history.length }, 'Agent loop error during turn processing');
         Sentry.captureException(err);

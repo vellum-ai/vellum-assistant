@@ -88,7 +88,7 @@ public struct IPCAttachment: Codable, Sendable {
     public let data: String
     public let extractedText: String?
 
-    public init(filename: String, mimeType: String, data: String, extractedText: String? = nil) {
+    public init(filename: String, mimeType: String, data: String, extractedText: String?) {
         self.filename = filename
         self.mimeType = mimeType
         self.data = data
@@ -107,7 +107,7 @@ public struct CuSessionCreateMessage: Encodable, Sendable {
     public let attachments: [IPCAttachment]?
     public let interactionType: String?
 
-    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]? = nil, interactionType: String? = nil) {
+    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, interactionType: String?) {
         self.sessionId = sessionId
         self.task = task
         self.screenWidth = screenWidth
@@ -129,7 +129,7 @@ public struct CuObservationMessage: Encodable, Sendable {
     public let executionResult: String?
     public let executionError: String?
 
-    public init(sessionId: String, axTree: String? = nil, axDiff: String? = nil, secondaryWindows: String? = nil, screenshot: String? = nil, executionResult: String? = nil, executionError: String? = nil) {
+    public init(sessionId: String, axTree: String?, axDiff: String?, secondaryWindows: String?, screenshot: String?, executionResult: String?, executionError: String?) {
         self.sessionId = sessionId
         self.axTree = axTree
         self.axDiff = axDiff
@@ -150,7 +150,7 @@ public struct AmbientObservationMessage: Encodable, Sendable {
     public let windowTitle: String?
     public let timestamp: Double
 
-    public init(requestId: String, ocrText: String, appName: String? = nil, windowTitle: String? = nil, timestamp: Double) {
+    public init(requestId: String, ocrText: String, appName: String?, windowTitle: String?, timestamp: Double) {
         self.requestId = requestId
         self.ocrText = ocrText
         self.appName = appName
@@ -187,7 +187,7 @@ public struct UserMessageMessage: Encodable, Sendable {
     public let content: String
     public let attachments: [IPCAttachment]?
 
-    public init(sessionId: String, content: String, attachments: [IPCAttachment]? = nil) {
+    public init(sessionId: String, content: String, attachments: [IPCAttachment]?) {
         self.sessionId = sessionId
         self.content = content
         self.attachments = attachments
@@ -203,14 +203,6 @@ public struct TaskSubmitMessage: Encodable, Sendable {
     public let screenHeight: Int
     public let attachments: [IPCAttachment]?
     public let source: String?
-
-    public init(task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]? = nil, source: String? = nil) {
-        self.task = task
-        self.screenWidth = screenWidth
-        self.screenHeight = screenHeight
-        self.attachments = attachments
-        self.source = source
-    }
 }
 
 /// Sent to cancel the active generation.
@@ -239,8 +231,6 @@ public struct CuSessionAbortMessage: Encodable, Sendable {
 /// Wire type: `"ping"`
 public struct PingMessage: Encodable, Sendable {
     public let type: String = "ping"
-
-    public init() {}
 }
 
 /// Sent when user interacts with a surface.
@@ -252,7 +242,7 @@ public struct UiSurfaceActionMessage: Encodable, Sendable {
     public let actionId: String
     public let data: [String: AnyCodable]?
 
-    public init(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]? = nil) {
+    public init(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) {
         self.sessionId = sessionId
         self.surfaceId = surfaceId
         self.actionId = actionId
@@ -271,7 +261,7 @@ public struct AppDataRequestMessage: Encodable, Sendable {
     public let recordId: String?
     public let data: [String: AnyCodable]?
 
-    public init(surfaceId: String, callId: String, method: String, appId: String, recordId: String? = nil, data: [String: AnyCodable]? = nil) {
+    public init(surfaceId: String, callId: String, method: String, appId: String, recordId: String?, data: [String: AnyCodable]?) {
         self.surfaceId = surfaceId
         self.callId = callId
         self.method = method
@@ -279,6 +269,52 @@ public struct AppDataRequestMessage: Encodable, Sendable {
         self.recordId = recordId
         self.data = data
     }
+}
+
+/// Sent to request the list of all apps.
+/// Wire type: `"apps_list"`
+public struct AppsListRequestMessage: Encodable, Sendable {
+    public let type: String = "apps_list"
+}
+
+/// Sent to request the list of shared/received apps.
+/// Wire type: `"shared_apps_list"`
+public struct SharedAppsListRequestMessage: Encodable, Sendable {
+    public let type: String = "shared_apps_list"
+}
+
+/// Sent to delete a shared app by UUID.
+/// Wire type: `"shared_app_delete"`
+public struct SharedAppDeleteRequestMessage: Encodable, Sendable {
+    public let type: String = "shared_app_delete"
+    public let uuid: String
+}
+
+/// Sent to request bundling an app for sharing.
+/// Wire type: `"bundle_app"`
+public struct BundleAppRequestMessage: Encodable, Sendable {
+    public let type: String = "bundle_app"
+    public let appId: String
+}
+
+/// Sent to open and scan a .vellumapp bundle.
+/// Wire type: `"open_bundle"`
+public struct OpenBundleMessage: Encodable, Sendable {
+    public let type: String = "open_bundle"
+    public let filePath: String
+}
+
+/// Sent to request the list of all past sessions/conversations.
+/// Wire type: `"session_list"`
+public struct SessionListRequestMessage: Encodable, Sendable {
+    public let type: String = "session_list"
+}
+
+/// Sent to request message history for a specific session.
+/// Wire type: `"history_request"`
+public struct HistoryRequestMessage: Encodable, Sendable {
+    public let type: String = "history_request"
+    public let sessionId: String
 }
 
 /// Sent to request the list of available skills.
@@ -304,20 +340,12 @@ public struct SkillDetailRequestMessage: Encodable, Sendable {
 public struct SkillsEnableMessage: Encodable, Sendable {
     public let type: String = "skills_enable"
     public let name: String
-
-    public init(name: String) {
-        self.name = name
-    }
 }
 
 /// Disable a skill. Wire type: "skills_disable"
 public struct SkillsDisableMessage: Encodable, Sendable {
     public let type: String = "skills_disable"
     public let name: String
-
-    public init(name: String) {
-        self.name = name
-    }
 }
 
 /// Configure a skill's env/apiKey/config. Wire type: "skills_configure"
@@ -327,13 +355,6 @@ public struct SkillsConfigureMessage: Encodable, Sendable {
     public let env: [String: String]?
     public let apiKey: String?
     public let config: [String: AnyCodable]?
-
-    public init(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) {
-        self.name = name
-        self.env = env
-        self.apiKey = apiKey
-        self.config = config
-    }
 }
 
 /// Install a skill from ClaWHub. Wire type: "skills_install"
@@ -341,58 +362,52 @@ public struct SkillsInstallMessage: Encodable, Sendable {
     public let type: String = "skills_install"
     public let slug: String
     public let version: String?
-
-    public init(slug: String, version: String? = nil) {
-        self.slug = slug
-        self.version = version
-    }
 }
 
 /// Uninstall a skill. Wire type: "skills_uninstall"
 public struct SkillsUninstallMessage: Encodable, Sendable {
     public let type: String = "skills_uninstall"
     public let name: String
-
-    public init(name: String) {
-        self.name = name
-    }
 }
 
 /// Update a skill. Wire type: "skills_update"
 public struct SkillsUpdateMessage: Encodable, Sendable {
     public let type: String = "skills_update"
     public let name: String
-
-    public init(name: String) {
-        self.name = name
-    }
 }
 
 /// Check for skill updates. Wire type: "skills_check_updates"
 public struct SkillsCheckUpdatesMessage: Encodable, Sendable {
     public let type: String = "skills_check_updates"
-
-    public init() {}
 }
 
 /// Search for skills on ClaWHub. Wire type: "skills_search"
 public struct SkillsSearchMessage: Encodable, Sendable {
     public let type: String = "skills_search"
     public let query: String
-
-    public init(query: String) {
-        self.query = query
-    }
 }
 
 /// Inspect a ClaWHub skill for detailed info. Wire type: "skills_inspect"
 public struct SkillsInspectMessage: Encodable, Sendable {
     public let type: String = "skills_inspect"
     public let slug: String
+}
 
-    public init(slug: String) {
-        self.slug = slug
-    }
+/// Response to a sign_bundle_payload request from the daemon.
+/// Wire type: `"sign_bundle_payload_response"`
+public struct SignBundlePayloadResponseMessage: Encodable, Sendable {
+    public let type: String = "sign_bundle_payload_response"
+    public let signature: String
+    public let keyId: String
+    public let publicKey: String
+}
+
+/// Response to a get_signing_identity request from the daemon.
+/// Wire type: `"get_signing_identity_response"`
+public struct GetSigningIdentityResponseMessage: Encodable, Sendable {
+    public let type: String = "get_signing_identity_response"
+    public let keyId: String
+    public let publicKey: String
 }
 
 // MARK: - Server → Client Messages (Decodable)
@@ -404,14 +419,6 @@ public struct CuActionMessage: Decodable, Sendable {
     public let input: [String: AnyCodable]
     public let reasoning: String?
     public let stepNumber: Int
-
-    public init(sessionId: String, toolName: String, input: [String: AnyCodable], reasoning: String? = nil, stepNumber: Int) {
-        self.sessionId = sessionId
-        self.toolName = toolName
-        self.input = input
-        self.reasoning = reasoning
-        self.stepNumber = stepNumber
-    }
 }
 
 /// Session completed successfully.
@@ -420,24 +427,12 @@ public struct CuCompleteMessage: Decodable, Sendable {
     public let summary: String
     public let stepCount: Int
     public let isResponse: Bool?
-
-    public init(sessionId: String, summary: String, stepCount: Int, isResponse: Bool? = nil) {
-        self.sessionId = sessionId
-        self.summary = summary
-        self.stepCount = stepCount
-        self.isResponse = isResponse
-    }
 }
 
 /// Session-level error from the server.
 public struct CuErrorMessage: Decodable, Sendable {
     public let sessionId: String
     public let message: String
-
-    public init(sessionId: String, message: String) {
-        self.sessionId = sessionId
-        self.message = message
-    }
 }
 
 /// Streamed text delta from the assistant's response.
@@ -454,10 +449,6 @@ public struct AssistantTextDeltaMessage: Decodable, Sendable {
 /// Streamed thinking delta from the assistant's reasoning.
 public struct AssistantThinkingDeltaMessage: Decodable, Sendable {
     public let thinking: String
-
-    public init(thinking: String) {
-        self.thinking = thinking
-    }
 }
 
 /// Signals that the assistant's message is complete.
@@ -513,6 +504,16 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
     public let actions: [SurfaceActionData]?
     /// `"inline"` embeds in chat, `"panel"` shows a floating window.
     public let display: String?
+
+    public init(sessionId: String, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?) {
+        self.sessionId = sessionId
+        self.surfaceId = surfaceId
+        self.surfaceType = surfaceType
+        self.title = title
+        self.data = data
+        self.actions = actions
+        self.display = display
+    }
 }
 
 public struct SurfaceActionData: Decodable, Sendable {
@@ -539,10 +540,6 @@ public struct UiSurfaceDismissMessage: Decodable, Sendable {
 /// Confirms generation was cancelled.
 public struct GenerationCancelledMessage: Decodable, Sendable {
     public let sessionId: String?
-
-    public init(sessionId: String? = nil) {
-        self.sessionId = sessionId
-    }
 }
 
 /// Notifies client that active generation yielded to queued work at a checkpoint.
@@ -551,12 +548,6 @@ public struct GenerationHandoffMessage: Decodable, Sendable {
     public let sessionId: String
     public let requestId: String?
     public let queuedCount: Int
-
-    public init(sessionId: String, requestId: String? = nil, queuedCount: Int) {
-        self.sessionId = sessionId
-        self.requestId = requestId
-        self.queuedCount = queuedCount
-    }
 }
 
 /// Notifies client that a message has been queued for processing.
@@ -565,12 +556,6 @@ public struct MessageQueuedMessage: Decodable, Sendable {
     public let sessionId: String
     public let requestId: String
     public let position: Int
-
-    public init(sessionId: String, requestId: String, position: Int) {
-        self.sessionId = sessionId
-        self.requestId = requestId
-        self.position = position
-    }
 }
 
 /// Notifies client that a queued message has been dequeued and is now being processed.
@@ -578,20 +563,11 @@ public struct MessageQueuedMessage: Decodable, Sendable {
 public struct MessageDequeuedMessage: Decodable, Sendable {
     public let sessionId: String
     public let requestId: String
-
-    public init(sessionId: String, requestId: String) {
-        self.sessionId = sessionId
-        self.requestId = requestId
-    }
 }
 
 /// Server-level error message.
 public struct ErrorMessage: Decodable, Sendable {
     public let message: String
-
-    public init(message: String) {
-        self.message = message
-    }
 }
 
 /// Response from the daemon for a persistent app data request.
@@ -611,14 +587,6 @@ public struct ClawhubInfo: Codable, Sendable {
     public let installs: Int
     public let reports: Int
     public let publishedAt: String
-
-    public init(author: String, stars: Int, installs: Int, reports: Int, publishedAt: String) {
-        self.author = author
-        self.stars = stars
-        self.installs = installs
-        self.reports = reports
-        self.publishedAt = publishedAt
-    }
 }
 
 /// Missing requirements preventing a skill from full operation.
@@ -626,13 +594,8 @@ public struct MissingRequirements: Codable, Sendable {
     public let bins: [String]?
     public let env: [String]?
     public let permissions: [String]?
-
-    public init(bins: [String]? = nil, env: [String]? = nil, permissions: [String]? = nil) {
-        self.bins = bins
-        self.env = env
-        self.permissions = permissions
-    }
 }
+
 /// Full skill info from the daemon's resolved skill list.
 public struct SkillInfo: Codable, Sendable, Identifiable {
     public var id: String { name }
@@ -640,7 +603,7 @@ public struct SkillInfo: Codable, Sendable, Identifiable {
     public let description: String
     public let emoji: String?
     public let homepage: String?
-    public let source: String  // "bundled" | "managed" | "workspace" | "clawhub"
+    public let source: String  // "bundled" | "managed" | "workspace" | "clawhub" | "extra"
     public let state: String   // "enabled" | "disabled" | "available"
     public let degraded: Bool
     public let missingRequirements: MissingRequirements?
@@ -650,7 +613,7 @@ public struct SkillInfo: Codable, Sendable, Identifiable {
     public let userInvocable: Bool
     public let clawhub: ClawhubInfo?
 
-    public init(name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, degraded: Bool, missingRequirements: MissingRequirements? = nil, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: ClawhubInfo? = nil) {
+    public init(name: String, description: String, emoji: String?, homepage: String?, source: String, state: String, degraded: Bool, missingRequirements: MissingRequirements?, installedVersion: String?, latestVersion: String?, updateAvailable: Bool, userInvocable: Bool, clawhub: ClawhubInfo?) {
         self.name = name
         self.description = description
         self.emoji = emoji
@@ -693,21 +656,15 @@ public struct SkillStateChangedMessage: Decodable, Sendable {
 /// Push event: updates available. Wire type: "skills_updates_available"
 public struct SkillsUpdatesAvailableMessage: Decodable, Sendable {
     public struct UpdateInfo: Decodable, Sendable {
-        public let name: String
-        public let installedVersion: String
-        public let latestVersion: String
-        
-        public init(name: String, installedVersion: String, latestVersion: String) {
-            self.name = name
-            self.installedVersion = installedVersion
-            self.latestVersion = latestVersion
-        }
+        let name: String
+        let installedVersion: String
+        let latestVersion: String
     }
     public let skills: [UpdateInfo]
 }
 
 /// A ClaWHub skill returned from a search or explore query.
-public struct ClawhubSkillItem: Decodable, Sendable, Identifiable {
+public struct ClawhubSkillItem: Decodable, Sendable, Identifiable, Equatable {
     public var id: String { slug }
     public let name: String
     public let slug: String
@@ -816,6 +773,35 @@ public struct SkillsInspectResponseMessage: Decodable, Sendable {
     public let error: String?
 }
 
+/// Response containing the list of past sessions.
+/// Wire type: `"session_list_response"`
+public struct SessionListResponseMessage: Decodable, Sendable {
+    public struct SessionItem: Decodable, Sendable {
+        let id: String
+        let title: String
+        let updatedAt: Int
+    }
+    public let sessions: [SessionItem]
+}
+
+/// Response containing message history for a session.
+/// Wire type: `"history_response"`
+public struct HistoryResponseMessage: Decodable, Sendable {
+    public struct HistoryToolCallItem: Decodable, Sendable {
+        let name: String
+        let input: [String: AnyCodable]
+        let result: String?
+        let isError: Bool?
+    }
+    public struct HistoryMessageItem: Decodable, Sendable {
+        let role: String
+        let text: String
+        let timestamp: Int
+        let toolCalls: [HistoryToolCallItem]?
+    }
+    public let messages: [HistoryMessageItem]
+}
+
 /// A single trust rule item returned from the daemon.
 public struct TrustRuleItem: Decodable, Sendable, Identifiable {
     public let id: String
@@ -831,6 +817,59 @@ public struct TrustRuleItem: Decodable, Sendable, Identifiable {
 /// Wire type: `"trust_rules_list_response"`
 public struct TrustRulesListResponseMessage: Decodable, Sendable {
     public let rules: [TrustRuleItem]
+}
+
+/// A single app item returned from the daemon.
+public struct AppItem: Decodable, Sendable, Identifiable {
+    public let id: String
+    public let name: String
+    public let description: String?
+    public let icon: String?
+    public let createdAt: Int
+}
+
+/// Response containing the list of all apps.
+/// Wire type: `"apps_list_response"`
+public struct AppsListResponseMessage: Decodable, Sendable {
+    public let apps: [AppItem]
+}
+
+/// A single shared app item returned from the daemon.
+public struct SharedAppItem: Decodable, Sendable, Identifiable {
+    public var id: String { uuid }
+    public let uuid: String
+    public let name: String
+    public let description: String?
+    public let icon: String?
+    public let entry: String
+    public let trustTier: String
+    public let signerDisplayName: String?
+    public let bundleSizeBytes: Int
+    public let installedAt: String
+}
+
+/// Response containing the list of shared apps.
+/// Wire type: `"shared_apps_list_response"`
+public struct SharedAppsListResponseMessage: Decodable, Sendable {
+    public let apps: [SharedAppItem]
+}
+
+/// Response from deleting a shared app.
+/// Wire type: `"shared_app_delete_response"`
+public struct SharedAppDeleteResponseMessage: Decodable, Sendable {
+    public let success: Bool
+}
+
+/// Response from bundling an app.
+/// Wire type: `"bundle_app_response"`
+public struct BundleAppResponseMessage: Decodable, Sendable {
+    public let bundlePath: String
+}
+
+/// Request from daemon to sign a bundle payload.
+/// Wire type: `"sign_bundle_payload"`
+public struct SignBundlePayloadMessage: Decodable, Sendable {
+    public let payload: String
 }
 
 /// Timer completed notification from daemon.
@@ -875,6 +914,18 @@ public struct SuggestionResponseMessage: Decodable, Sendable {
     public let source: String
 }
 
+/// Secret input request from daemon.
+/// Wire type: `"secret_request"`
+public struct SecretRequestMessage: Decodable, Sendable {
+    public let requestId: String
+    public let service: String
+    public let field: String
+    public let label: String
+    public let description: String?
+    public let placeholder: String?
+    public let sessionId: String?
+}
+
 /// Permission confirmation request from daemon.
 /// Wire type: `"confirmation_request"`
 public struct ConfirmationRequestMessage: Decodable, Sendable {
@@ -892,8 +943,8 @@ public struct ConfirmationRequestMessage: Decodable, Sendable {
         public let label: String
         public let description: String?
         public let pattern: String
-        
-        public init(label: String, description: String? = nil, pattern: String) {
+
+        public init(label: String, description: String?, pattern: String) {
             self.label = label
             self.description = description
             self.pattern = pattern
@@ -902,7 +953,7 @@ public struct ConfirmationRequestMessage: Decodable, Sendable {
     public struct ConfirmationScopeOption: Decodable, Sendable, Equatable {
         public let label: String
         public let scope: String
-        
+
         public init(label: String, scope: String) {
             self.label = label
             self.scope = scope
@@ -944,13 +995,14 @@ public struct ConfirmationResponseMessage: Encodable, Sendable {
     public let decision: String
     public let selectedPattern: String?
     public let selectedScope: String?
+}
 
-    public init(requestId: String, decision: String, selectedPattern: String? = nil, selectedScope: String? = nil) {
-        self.requestId = requestId
-        self.decision = decision
-        self.selectedPattern = selectedPattern
-        self.selectedScope = selectedScope
-    }
+/// Client response to a secret input request.
+/// Wire type: `"secret_response"`
+public struct SecretResponseMessage: Encodable, Sendable {
+    public let type: String = "secret_response"
+    public let requestId: String
+    public let value: String?
 }
 
 /// Sent to add a trust rule (allowlist/denylist) independently of a confirmation response.
@@ -961,21 +1013,12 @@ public struct AddTrustRuleMessage: Encodable, Sendable {
     public let pattern: String
     public let scope: String
     public let decision: String
-
-    public init(toolName: String, pattern: String, scope: String, decision: String) {
-        self.toolName = toolName
-        self.pattern = pattern
-        self.scope = scope
-        self.decision = decision
-    }
 }
 
 /// Request all trust rules from the daemon.
 /// Wire type: `"trust_rules_list"`
 public struct TrustRulesListMessage: Encodable, Sendable {
     public let type: String = "trust_rules_list"
-
-    public init() {}
 }
 
 /// Remove a trust rule by its ID.
@@ -983,10 +1026,6 @@ public struct TrustRulesListMessage: Encodable, Sendable {
 public struct RemoveTrustRuleMessage: Encodable, Sendable {
     public let type: String = "remove_trust_rule"
     public let id: String
-
-    public init(id: String) {
-        self.id = id
-    }
 }
 
 /// Update fields on an existing trust rule.
@@ -999,15 +1038,44 @@ public struct UpdateTrustRuleMessage: Encodable, Sendable {
     public let scope: String?
     public let decision: String?
     public let priority: Int?
+}
 
-    public init(id: String, tool: String? = nil, pattern: String? = nil, scope: String? = nil, decision: String? = nil, priority: Int? = nil) {
-        self.id = id
-        self.tool = tool
-        self.pattern = pattern
-        self.scope = scope
-        self.decision = decision
-        self.priority = priority
+/// Response from opening and scanning a .vellumapp bundle.
+/// Wire type: `"open_bundle_response"`
+public struct OpenBundleResponseMessage: Decodable, Sendable {
+    public struct Manifest: Decodable, Sendable {
+        public let formatVersion: Int
+        public let name: String
+        public let description: String?
+        public let icon: String?
+        public let createdAt: String
+        public let createdBy: String
+        public let entry: String
+        public let capabilities: [String]
+
+        private enum CodingKeys: String, CodingKey {
+            case formatVersion = "format_version"
+            case name, description, icon
+            case createdAt = "created_at"
+            case createdBy = "created_by"
+            case entry, capabilities
+        }
     }
+    public struct ScanResult: Decodable, Sendable {
+        public let passed: Bool
+        public let blocked: [String]
+        public let warnings: [String]
+    }
+    public struct SignatureResult: Decodable, Sendable {
+        public let trustTier: String
+        public let signerKeyId: String?
+        public let signerDisplayName: String?
+        public let signerAccount: String?
+    }
+    public let manifest: Manifest
+    public let scanResult: ScanResult
+    public let signatureResult: SignatureResult
+    public let bundleSizeBytes: Int
 }
 
 /// Discriminated union of all server → client message types relevant to the macOS client.
@@ -1020,6 +1088,8 @@ public enum ServerMessage: Decodable, Sendable {
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
     case sessionInfo(SessionInfoMessage)
+    case sessionListResponse(SessionListResponseMessage)
+    case historyResponse(HistoryResponseMessage)
     case taskRouted(TaskRoutedMessage)
     case error(ErrorMessage)
     case ambientResult(AmbientResultMessage)
@@ -1029,6 +1099,7 @@ public enum ServerMessage: Decodable, Sendable {
     case generationCancelled(GenerationCancelledMessage)
     case generationHandoff(GenerationHandoffMessage)
     case confirmationRequest(ConfirmationRequestMessage)
+    case secretRequest(SecretRequestMessage)
     case appDataResponse(AppDataResponseMessage)
     case messageQueued(MessageQueuedMessage)
     case messageDequeued(MessageDequeuedMessage)
@@ -1044,6 +1115,13 @@ public enum ServerMessage: Decodable, Sendable {
     case toolResult(ToolResultMessage)
     case timerCompleted(TimerCompletedMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
+    case appsListResponse(AppsListResponseMessage)
+    case sharedAppsListResponse(SharedAppsListResponseMessage)
+    case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
+    case bundleAppResponse(BundleAppResponseMessage)
+    case openBundleResponse(OpenBundleResponseMessage)
+    case signBundlePayload(SignBundlePayloadMessage)
+    case getSigningIdentity
     case pong
     case unknown(String)
 
@@ -1077,6 +1155,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "session_info":
             let message = try SessionInfoMessage(from: decoder)
             self = .sessionInfo(message)
+        case "session_list_response":
+            let message = try SessionListResponseMessage(from: decoder)
+            self = .sessionListResponse(message)
+        case "history_response":
+            let message = try HistoryResponseMessage(from: decoder)
+            self = .historyResponse(message)
         case "task_routed":
             let message = try TaskRoutedMessage(from: decoder)
             self = .taskRouted(message)
@@ -1104,6 +1188,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "confirmation_request":
             let message = try ConfirmationRequestMessage(from: decoder)
             self = .confirmationRequest(message)
+        case "secret_request":
+            let message = try SecretRequestMessage(from: decoder)
+            self = .secretRequest(message)
         case "app_data_response":
             let message = try AppDataResponseMessage(from: decoder)
             self = .appDataResponse(message)
@@ -1149,6 +1236,26 @@ public enum ServerMessage: Decodable, Sendable {
         case "trust_rules_list_response":
             let message = try TrustRulesListResponseMessage(from: decoder)
             self = .trustRulesListResponse(message)
+        case "apps_list_response":
+            let message = try AppsListResponseMessage(from: decoder)
+            self = .appsListResponse(message)
+        case "shared_apps_list_response":
+            let message = try SharedAppsListResponseMessage(from: decoder)
+            self = .sharedAppsListResponse(message)
+        case "shared_app_delete_response":
+            let message = try SharedAppDeleteResponseMessage(from: decoder)
+            self = .sharedAppDeleteResponse(message)
+        case "bundle_app_response":
+            let message = try BundleAppResponseMessage(from: decoder)
+            self = .bundleAppResponse(message)
+        case "open_bundle_response":
+            let message = try OpenBundleResponseMessage(from: decoder)
+            self = .openBundleResponse(message)
+        case "sign_bundle_payload":
+            let message = try SignBundlePayloadMessage(from: decoder)
+            self = .signBundlePayload(message)
+        case "get_signing_identity":
+            self = .getSigningIdentity
         case "pong":
             self = .pong
         default:

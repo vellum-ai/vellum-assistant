@@ -40,11 +40,20 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       lexicalTopK: 80,
       semanticTopK: 40,
       maxInjectTokens: 10000,
+      injectionFormat: 'markdown' as const,
+      injectionStrategy: 'prepend_user_block' as const,
       reranking: {
         enabled: true,
         model: 'claude-haiku-4-5-20251001',
         topK: 20,
       },
+      freshness: {
+        enabled: true,
+        maxAgeDays: { fact: 0, preference: 0, behavior: 90, event: 30, opinion: 60 },
+        staleDecay: 0.5,
+        reinforcementShieldDays: 7,
+      },
+      scopePolicy: 'allow_global_fallback' as const,
     },
     segmentation: {
       targetTokens: 450,

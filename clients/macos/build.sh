@@ -10,6 +10,7 @@ set -euo pipefail
 #   ./build.sh release      Build release .app
 #   ./build.sh test         Run tests (no .app needed)
 #   ./build.sh clean        Remove build artifacts
+#   ./build.sh lint         Build with strict concurrency (catches CI-only errors locally)
 #
 # Environment variables (for CI):
 #   DISPLAY_VERSION   Override CFBundleShortVersionString (default: 0.1.0)
@@ -52,6 +53,12 @@ case "$CMD" in
         swift test
         exit 0
         ;;
+    lint)
+        echo "Linting (strict concurrency)..."
+        swift build -Xswiftc -strict-concurrency=complete
+        echo "Lint passed."
+        exit 0
+        ;;
     clean)
         echo "Cleaning..."
         rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/.build"
@@ -61,7 +68,7 @@ case "$CMD" in
     build|run|release)
         ;;
     *)
-        echo "Usage: $0 [build|run|release|test|clean]"
+        echo "Usage: $0 [build|run|release|test|clean|lint]"
         exit 1
         ;;
 esac
@@ -215,6 +222,44 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <true/>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.vellum.app-bundle</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+                <string>public.content</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>Vellum App Bundle</string>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>vellumapp</string>
+                </array>
+                <key>public.mime-type</key>
+                <string>application/x-vellumapp</string>
+            </dict>
+        </dict>
+    </array>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>vellumapp</string>
+            </array>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.vellum.app-bundle</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST

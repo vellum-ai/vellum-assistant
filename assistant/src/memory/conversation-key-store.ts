@@ -43,6 +43,29 @@ export function getConversationByKey(
 }
 
 /**
+ * Delete the conversation-key mapping for a given (assistantId, conversationKey).
+ *
+ * This is a soft reset: the old conversation data remains in the database,
+ * but it is no longer reachable via this key.  The next message with the
+ * same key will create a fresh conversation.
+ *
+ */
+export function deleteConversationKey(
+  assistantId: string,
+  conversationKey: string,
+): void {
+  const db = getDb();
+  db.delete(conversationKeys)
+    .where(
+      and(
+        eq(conversationKeys.assistantId, assistantId),
+        eq(conversationKeys.conversationKey, conversationKey),
+      ),
+    )
+    .run();
+}
+
+/**
  * Get or create a conversation for the given (assistantId, conversationKey).
  *
  * If a mapping already exists, returns the existing conversation ID.

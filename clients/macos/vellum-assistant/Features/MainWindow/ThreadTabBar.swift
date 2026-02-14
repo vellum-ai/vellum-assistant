@@ -44,11 +44,11 @@ struct ThreadTabBar: View {
                     VIconButton(label: "Generated", icon: "wand.and.stars", isActive: activePanel == .generated) {
                         togglePanel(.generated)
                     }
-                    VIconButton(label: "Agent", icon: "exclamationmark.triangle", isActive: activePanel == .agent) {
+                    VIconButton(label: "Skills", icon: "exclamationmark.triangle", isActive: activePanel == .agent) {
                         togglePanel(.agent)
                     }
-                    VIconButton(label: "Control", icon: "gearshape", isActive: activePanel == .control) {
-                        togglePanel(.control)
+                    VIconButton(label: "Settings", icon: "gearshape", isActive: activePanel == .settings) {
+                        togglePanel(.settings)
                     }
                     VIconButton(label: "Directory", icon: "doc.text", isActive: activePanel == .directory, iconOnly: true) {
                         togglePanel(.directory)
@@ -78,22 +78,31 @@ struct ThreadTabBar: View {
     }
 }
 
-#Preview("ThreadTabBar") {
-    @Previewable @State var panel: SidePanelType? = .control
-    let threads = [
-        ThreadModel(title: "New Thread"),
-    ]
-
-    return ZStack {
-        VColor.background.ignoresSafeArea()
-        ThreadTabBar(
-            threads: threads,
-            activeThreadId: threads.first?.id,
-            onSelect: { _ in },
-            onClose: { _ in },
-            onCreate: {},
-            activePanel: $panel
-        )
+#if DEBUG
+struct ThreadTabBar_Preview: PreviewProvider {
+    static var previews: some View {
+        ThreadTabBarPreviewWrapper()
+            .frame(width: 600, height: 60)
+            .previewDisplayName("ThreadTabBar")
     }
-    .frame(width: 600, height: 60)
 }
+
+private struct ThreadTabBarPreviewWrapper: View {
+    @State private var panel: SidePanelType? = .settings
+    private let threads = [ThreadModel(title: "New Thread")]
+
+    var body: some View {
+        ZStack {
+            VColor.background.ignoresSafeArea()
+            ThreadTabBar(
+                threads: threads,
+                activeThreadId: threads.first?.id,
+                onSelect: { _ in },
+                onClose: { _ in },
+                onCreate: {},
+                activePanel: $panel
+            )
+        }
+    }
+}
+#endif

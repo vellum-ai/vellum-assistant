@@ -27,7 +27,7 @@ export async function handleMemorySearch(
     : 5;
 
   try {
-    const results = searchMemoryItems(query, limit, config);
+    const results = await searchMemoryItems(query, limit, config);
 
     if (results.length === 0) {
       return { content: 'No matching memories found.', isError: false };
@@ -37,7 +37,7 @@ export async function handleMemorySearch(
     for (const result of results) {
       const timeAgo = formatRelativeTime(result.createdAt);
       lines.push(`- **[${result.kind}]** ${result.text}`);
-      lines.push(`  ID: ${result.id} | ${timeAgo}`);
+      lines.push(`  _ID: ${result.id} | source: ${result.type} | ${timeAgo} | confidence: ${result.confidence.toFixed(2)} | importance: ${result.importance.toFixed(2)}_`);
     }
 
     return { content: lines.join('\n'), isError: false };
@@ -99,6 +99,7 @@ export async function handleMemorySave(
           status: 'active',
           importance: 0.8,
           lastSeenAt: now,
+          verificationState: 'user_confirmed',
         })
         .where(eq(memoryItems.id, existing.id))
         .run();
@@ -119,6 +120,7 @@ export async function handleMemorySave(
       confidence: 0.95,     // explicit saves have high confidence
       importance: 0.8,       // explicit saves are high importance
       fingerprint,
+      verificationState: 'user_confirmed',
       firstSeenAt: now,
       lastSeenAt: now,
       lastUsedAt: null,
@@ -144,10 +146,13 @@ export async function handleMemoryUpdate(
   args: Record<string, unknown>,
   _config: AssistantConfig,
 ): Promise<ToolExecutionResult> {
-  const memoryId = args.memory_id;
-  if (typeof memoryId !== 'string' || memoryId.trim().length === 0) {
+  const rawMemoryId = args.memory_id;
+  if (typeof rawMemoryId !== 'string' || rawMemoryId.trim().length === 0) {
     return { content: 'Error: memory_id is required and must be a non-empty string', isError: true };
   }
+
+  // Accept both bare IDs and typed IDs (e.g. "item:abc-123" -> "abc-123")
+  const memoryId = stripTypedIdPrefix(rawMemoryId.trim());
 
   const statement = args.statement;
   if (typeof statement !== 'string' || statement.trim().length === 0) {
@@ -159,7 +164,7 @@ export async function handleMemoryUpdate(
     const existing = db
       .select()
       .from(memoryItems)
-      .where(eq(memoryItems.id, memoryId.trim()))
+      .where(eq(memoryItems.id, memoryId))
       .get();
 
     if (!existing) {
@@ -190,6 +195,7 @@ export async function handleMemoryUpdate(
         fingerprint,
         lastSeenAt: now,
         importance: 0.8,
+        verificationState: 'user_confirmed',
       })
       .where(eq(memoryItems.id, existing.id))
       .run();
@@ -214,4 +220,13 @@ function inferSubjectFromStatement(statement: string): string {
   // Take first few words as a subject label
   const words = statement.split(/\s+/).slice(0, 6).join(' ');
   return words.slice(0, 80);
+}
+
+/**
+ * Strip a typed ID prefix (e.g. "item:abc-123" -> "abc-123") so that IDs
+ * copied from memory_search output work in memory_update.
+ */
+function stripTypedIdPrefix(id: string): string {
+  const match = id.match(/^(?:item|segment|summary):(.+)$/);
+  return match ? match[1] : id;
 }

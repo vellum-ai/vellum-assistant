@@ -10,6 +10,7 @@ import { getLogger } from '../util/logger.js';
 import {
   getConversationByKey,
   getOrCreateConversation,
+  deleteConversationKey,
 } from '../memory/conversation-key-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
@@ -160,6 +161,10 @@ export class RuntimeHttpServer {
         if (req.method === 'GET') {
           return this.handleGetRun(assistantId, runId);
         }
+      }
+
+      if (endpoint === 'channels/conversation' && req.method === 'DELETE') {
+        return await this.handleDeleteConversation(assistantId, req);
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
@@ -679,6 +684,27 @@ export class RuntimeHttpServer {
     return new Response(null, { status: 204 });
   }
 
+  private async handleDeleteConversation(assistantId: string, req: Request): Promise<Response> {
+    const body = await req.json() as {
+      sourceChannel?: string;
+      externalChatId?: string;
+    };
+
+    const { sourceChannel, externalChatId } = body;
+
+    if (!sourceChannel || typeof sourceChannel !== 'string') {
+      return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
+    }
+    if (!externalChatId || typeof externalChatId !== 'string') {
+      return Response.json({ error: 'externalChatId is required' }, { status: 400 });
+    }
+
+    const conversationKey = `${sourceChannel}:${externalChatId}`;
+    deleteConversationKey(assistantId, conversationKey);
+
+    return Response.json({ ok: true });
+  }
+
   private async handleChannelInbound(assistantId: string, req: Request): Promise<Response> {
     const body = await req.json() as {
       sourceChannel?: string;
@@ -742,6 +768,7 @@ export class RuntimeHttpServer {
         await this.processMessage(assistantId, result.conversationId, content ?? '', hasAttachments ? attachmentIds : undefined);
         processingSucceeded = true;
       } catch (err) {
+        console.error(`[runtime-http] Processing failed`, err);
         log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
       }
     }

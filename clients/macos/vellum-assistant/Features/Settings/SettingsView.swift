@@ -1,9 +1,11 @@
+import Combine
 import SwiftUI
 import VellumAssistantShared
 
 public struct SettingsView: View {
     @State private var apiKeyText = ""
     @State private var hasKey = APIKeyManager.getKey() != nil
+    @State private var isTrustRulesSheetOpen = false
     @State private var braveKeyText = ""
     @State private var hasBraveKey = APIKeyManager.getKey(for: "brave") != nil
     @State private var maxSteps: Double = {
@@ -19,7 +21,7 @@ public struct SettingsView: View {
     }()
     @State private var showingPrivacy = false
     @State private var showingSkills = false
-    @State private var showingTrustRules = false
+    @State private var skillsViewModel: SkillsSettingsViewModel?
     @State private var activationKey: ActivationKey = {
         let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
         return ActivationKey(rawValue: stored) ?? .fn
@@ -200,13 +202,9 @@ public struct SettingsView: View {
                         }
                         Spacer()
                         Button("Manage Skills...") {
+                            skillsViewModel = SkillsSettingsViewModel(daemonClient: daemonClient)
                             showingSkills = true
                         }
-                    }
-                    .sheet(isPresented: $showingSkills) {
-                        SkillsSettingsView(
-                            viewModel: SkillsSettingsViewModel(daemonClient: daemonClient)
-                        )
                     }
                 }
 
@@ -220,11 +218,9 @@ public struct SettingsView: View {
                         }
                         Spacer()
                         Button("Manage Trust Rules...") {
-                            showingTrustRules = true
+                            daemonClient.isTrustRulesSheetOpen = true
                         }
-                    }
-                    .sheet(isPresented: $showingTrustRules) {
-                        TrustRulesView(daemonClient: daemonClient)
+                        .disabled(isTrustRulesSheetOpen)
                     }
                 }
             }
@@ -239,9 +235,6 @@ public struct SettingsView: View {
                     showingPrivacy = true
                 }
                 .font(.caption)
-                .sheet(isPresented: $showingPrivacy) {
-                    PrivacyDetailView()
-                }
             }
         }
         .formStyle(.grouped)
@@ -255,6 +248,26 @@ public struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             refreshAPIKeyState()
+        }
+        .sheet(isPresented: $showingSkills, onDismiss: {
+            skillsViewModel = nil
+        }) {
+            if let vm = skillsViewModel {
+                SkillsSettingsView(viewModel: vm)
+            }
+        }
+        .onReceive(daemonClient?.objectWillChange.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
+            isTrustRulesSheetOpen = daemonClient?.isTrustRulesSheetOpen ?? false
+        }
+        .sheet(isPresented: $isTrustRulesSheetOpen, onDismiss: {
+            daemonClient?.isTrustRulesSheetOpen = false
+        }) {
+            if let daemonClient {
+                TrustRulesView(daemonClient: daemonClient)
+            }
+        }
+        .sheet(isPresented: $showingPrivacy) {
+            PrivacyDetailView()
         }
     }
 

@@ -196,6 +196,36 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'bundle_app',
     appId: 'app-001',
   },
+  apps_list: {
+    type: 'apps_list',
+  },
+  shared_apps_list: {
+    type: 'shared_apps_list',
+  },
+  shared_app_delete: {
+    type: 'shared_app_delete',
+    uuid: 'abc-123-def',
+  },
+  open_bundle: {
+    type: 'open_bundle',
+    filePath: '/tmp/My_App.vellumapp',
+  },
+  sign_bundle_payload_response: {
+    type: 'sign_bundle_payload_response',
+    signature: 'dGVzdC1zaWduYXR1cmU=',
+    keyId: 'abc123',
+    publicKey: 'dGVzdA==', // eslint-disable-line -- test fixture, not a real key
+  },
+  get_signing_identity_response: {
+    type: 'get_signing_identity_response',
+    keyId: 'abc123',
+    publicKey: 'dGVzdA==', // eslint-disable-line -- test fixture, not a real key
+  },
+  secret_response: {
+    type: 'secret_response',
+    requestId: 'req-secret-001',
+    value: 'ghp_test_token_value',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -234,6 +264,16 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       isNewFile: false,
     },
     status: 'success',
+  },
+  secret_request: {
+    type: 'secret_request',
+    requestId: 'req-secret-001',
+    service: 'github',
+    field: 'token',
+    label: 'GitHub Personal Access Token',
+    description: 'Needed to push changes',
+    placeholder: 'ghp_xxxxxxxxxxxx',
+    sessionId: 'sess-001',
   },
   confirmation_request: {
     type: 'confirmation_request',
@@ -349,8 +389,15 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     semanticHits: 8,
     recencyHits: 6,
     entityHits: 3,
+    mergedCount: 18,
+    selectedCount: 10,
+    rerankApplied: false,
     injectedTokens: 480,
     latencyMs: 55,
+    topCandidates: [
+      { key: 'segment:seg-1', type: 'segment', kind: 'fact', finalScore: 0.85, lexical: 0.9, semantic: 0.7, recency: 0.3 },
+      { key: 'item:item-1', type: 'item', kind: 'preference', finalScore: 0.72, lexical: 0.6, semantic: 0.8, recency: 0.1 },
+    ],
   },
   memory_status: {
     type: 'memory_status',
@@ -512,6 +559,68 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       entry: 'index.html',
       capabilities: [],
     },
+  },
+  apps_list_response: {
+    type: 'apps_list_response',
+    apps: [
+      {
+        id: 'app-001',
+        name: 'My App',
+        description: 'A test app',
+        createdAt: 1700000000,
+      },
+    ],
+  },
+  shared_apps_list_response: {
+    type: 'shared_apps_list_response',
+    apps: [
+      {
+        uuid: 'abc-123-def',
+        name: 'Shared App',
+        description: 'A shared app',
+        icon: '\u{1F4F1}',
+        entry: 'index.html',
+        trustTier: 'signed',
+        signerDisplayName: 'Test User',
+        bundleSizeBytes: 4096,
+        installedAt: '2026-01-15T00:00:00Z',
+      },
+    ],
+  },
+  shared_app_delete_response: {
+    type: 'shared_app_delete_response',
+    success: true,
+  },
+  open_bundle_response: {
+    type: 'open_bundle_response',
+    manifest: {
+      format_version: 1,
+      name: 'My App',
+      description: 'A test app',
+      created_at: '2026-01-01T00:00:00.000Z',
+      created_by: 'vellum-assistant/0.1.6',
+      entry: 'index.html',
+      capabilities: [],
+    },
+    scanResult: {
+      passed: true,
+      blocked: [],
+      warnings: ['Use of fetch() detected'],
+    },
+    signatureResult: {
+      trustTier: 'signed',
+      signerKeyId: 'key-001',
+      signerDisplayName: 'Test Signer',
+      signerAccount: 'test@example.com',
+    },
+    bundleSizeBytes: 4096,
+  },
+  sign_bundle_payload: {
+    type: 'sign_bundle_payload',
+    payload: '{"content_hashes":{},"manifest":{}}',
+  },
+  get_signing_identity: {
+    type: 'get_signing_identity',
   },
 };
 

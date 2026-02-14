@@ -26,6 +26,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     @Published public var isConnected: Bool = false
 
+    /// Shared flag so only one TrustRulesView sheet is open at a time across SettingsPanel and SettingsView.
+    /// Both surfaces bind to this instead of local @State, preventing the second sheet from overwriting
+    /// the first sheet's `onTrustRulesListResponse` callback on DaemonClient.
+    @Published public var isTrustRulesSheetOpen: Bool = false
+
     // MARK: - Surface Event Callbacks
 
     /// Called when the daemon sends a `ui_surface_show` message.
@@ -53,6 +58,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `confirmation_request` message for tool permission approval.
     public var onConfirmationRequest: ((ConfirmationRequestMessage) -> Void)?
 
+    /// Called when the daemon sends a `secret_request` message for secure credential input.
+    public var onSecretRequest: ((SecretRequestMessage) -> Void)?
+
     /// Called when the daemon sends a `task_routed` message (e.g. escalation from text_qa to CU).
     public var onTaskRouted: ((TaskRoutedMessage) -> Void)?
 
@@ -73,6 +81,30 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `skills_inspect_response` message.
     public var onSkillsInspectResponse: ((SkillsInspectResponseMessage) -> Void)?
+
+    /// Called when the daemon sends an `apps_list_response` message.
+    public var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `shared_apps_list_response` message.
+    public var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `shared_app_delete_response` message.
+    public var onSharedAppDeleteResponse: ((SharedAppDeleteResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `bundle_app_response` message.
+    public var onBundleAppResponse: ((BundleAppResponseMessage) -> Void)?
+
+    /// Called when the daemon sends an `open_bundle_response` message.
+    public var onOpenBundleResponse: ((OpenBundleResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `session_list_response` message.
+    public var onSessionListResponse: ((SessionListResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `history_response` message.
+    public var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
+    public var onError: ((ErrorMessage) -> Void)?
 
     // MARK: - Broadcast Subscribers
 
@@ -338,6 +370,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         ))
     }
 
+    // MARK: - Secret Response
+
+    /// Send a secret response for a credential prompt request.
+    public func sendSecretResponse(requestId: String, value: String?) throws {
+        try send(SecretResponseMessage(requestId: requestId, value: value))
+    }
+
     // MARK: - Trust Rule Addition
 
     /// Send an add_trust_rule message to persist a trust rule on the daemon.
@@ -432,6 +471,82 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) throws {
         try send(SkillsConfigureMessage(name: name, env: env, apiKey: apiKey, config: config))
     }
+
+    // MARK: - Sessions
+
+    /// Request the list of past sessions from the daemon.
+    public func sendSessionList() throws {
+        try send(SessionListRequestMessage())
+    }
+
+    /// Request message history for a specific session.
+    public func sendHistoryRequest(sessionId: String) throws {
+        try send(HistoryRequestMessage(sessionId: sessionId))
+    }
+
+    // MARK: - Apps
+
+    /// Request the list of all apps from the daemon.
+    public func sendAppsList() throws {
+        try send(AppsListRequestMessage())
+    }
+
+    /// Request bundling an app for sharing.
+    public func sendBundleApp(appId: String) throws {
+        try send(BundleAppRequestMessage(appId: appId))
+    }
+
+    /// Request opening and scanning a .vellumapp bundle.
+    public func sendOpenBundle(filePath: String) throws {
+        try send(OpenBundleMessage(filePath: filePath))
+    }
+
+    /// Request the list of shared/received apps.
+    public func sendSharedAppsList() throws {
+        try send(SharedAppsListRequestMessage())
+    }
+
+    /// Delete a shared app by UUID.
+    public func sendSharedAppDelete(uuid: String) throws {
+        try send(SharedAppDeleteRequestMessage(uuid: uuid))
+    }
+
+    // MARK: - Signing Identity (macOS only)
+
+    #if os(macOS)
+    /// Handle a sign_bundle_payload request from the daemon.
+    private func handleSignBundlePayload(_ msg: SignBundlePayloadMessage) {
+        do {
+            let payloadData = Data(msg.payload.utf8)
+            let signature = try SigningIdentityManager.shared.sign(payloadData)
+            let keyId = try SigningIdentityManager.shared.getKeyId()
+            let publicKey = try SigningIdentityManager.shared.getPublicKey()
+
+            try send(SignBundlePayloadResponseMessage(
+                signature: signature.base64EncodedString(),
+                keyId: keyId,
+                publicKey: publicKey.rawRepresentation.base64EncodedString()
+            ))
+        } catch {
+            log.error("Failed to sign bundle payload: \(error.localizedDescription)")
+        }
+    }
+
+    /// Handle a get_signing_identity request from the daemon.
+    private func handleGetSigningIdentity() {
+        do {
+            let keyId = try SigningIdentityManager.shared.getKeyId()
+            let publicKey = try SigningIdentityManager.shared.getPublicKey()
+
+            try send(GetSigningIdentityResponseMessage(
+                keyId: keyId,
+                publicKey: publicKey.rawRepresentation.base64EncodedString()
+            ))
+        } catch {
+            log.error("Failed to get signing identity: \(error.localizedDescription)")
+        }
+    }
+    #endif
 
     // MARK: - Disconnect
 
@@ -557,6 +672,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onGenerationHandoff?(msg)
         case .confirmationRequest(let msg):
             onConfirmationRequest?(msg)
+        case .secretRequest(let msg):
+            onSecretRequest?(msg)
         case .taskRouted(let msg):
             onTaskRouted?(msg)
         case .timerCompleted(let msg):
@@ -571,6 +688,28 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSkillsOperationResponse?(msg)
         case .skillsInspectResponse(let msg):
             onSkillsInspectResponse?(msg)
+        case .appsListResponse(let msg):
+            onAppsListResponse?(msg)
+        case .sharedAppsListResponse(let msg):
+            onSharedAppsListResponse?(msg)
+        case .sharedAppDeleteResponse(let msg):
+            onSharedAppDeleteResponse?(msg)
+        case .bundleAppResponse(let msg):
+            onBundleAppResponse?(msg)
+        case .openBundleResponse(let msg):
+            onOpenBundleResponse?(msg)
+        case .sessionListResponse(let msg):
+            onSessionListResponse?(msg)
+        case .historyResponse(let msg):
+            onHistoryResponse?(msg)
+        case .error(let msg):
+            onError?(msg)
+        #if os(macOS)
+        case .signBundlePayload(let msg):
+            handleSignBundlePayload(msg)
+        case .getSigningIdentity:
+            handleGetSigningIdentity()
+        #endif
         default:
             break
         }

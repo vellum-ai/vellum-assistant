@@ -12,6 +12,7 @@ import type {
   ClientMessage,
   ServerMessage,
   ConfirmationResponse,
+  SecretResponse,
   SessionCreateRequest,
   SessionSwitchRequest,
   CancelRequest,
@@ -41,18 +42,21 @@ import type {
   RemoveTrustRule,
   UpdateTrustRule,
   BundleAppRequest,
+  SharedAppDeleteRequest,
 } from './ipc-protocol.js';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { addRule, removeRule, updateRule, getAllRules } from '../permissions/trust-store.js';
 import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
-import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord } from '../memory/app-store.js';
+import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps } from '../memory/app-store.js';
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
 import { packageApp } from '../bundler/app-bundler.js';
+import { handleOpenBundle } from './handlers/open-bundle-handler.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -293,6 +297,7 @@ type DispatchMap = { [T in MessageType]: MessageHandler<T> };
 const handlers: DispatchMap = {
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
+  secret_response: handleSecretResponse,
   session_list: (_msg, socket, ctx) => handleSessionList(socket, ctx),
   session_create: handleSessionCreate,
   session_switch: handleSessionSwitch,
@@ -326,6 +331,20 @@ const handlers: DispatchMap = {
   remove_trust_rule: handleRemoveTrustRule,
   update_trust_rule: handleUpdateTrustRule,
   bundle_app: handleBundleApp,
+  open_bundle: handleOpenBundle,
+  apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
+  shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
+  shared_app_delete: handleSharedAppDelete,
+  sign_bundle_payload_response: (_msg, _socket, _ctx) => {
+    // TODO(signing): Route to pending promise resolution once the daemon-driven
+    // IPC signing orchestration is wired up. Currently a no-op placeholder to
+    // satisfy the exhaustive dispatch map; signing is invoked via SigningCallback.
+  },
+  get_signing_identity_response: (_msg, _socket, _ctx) => {
+    // TODO(signing): Route to pending promise resolution once the daemon-driven
+    // IPC signing orchestration is wired up. Currently a no-op placeholder to
+    // satisfy the exhaustive dispatch map; signing is invoked via SigningCallback.
+  },
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
@@ -420,6 +439,20 @@ function handleConfirmationResponse(
         msg.selectedPattern,
         msg.selectedScope,
       );
+    }
+  }
+}
+
+function handleSecretResponse(
+  msg: SecretResponse,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const sessionId = ctx.socketToSession.get(socket);
+  if (sessionId) {
+    const session = ctx.sessions.get(sessionId);
+    if (session) {
+      session.handleSecretResponse(msg.requestId, msg.value);
     }
   }
 }
@@ -688,7 +721,7 @@ function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
     description: r.summary.description,
     emoji: r.summary.emoji,
     homepage: r.summary.homepage,
-    source: r.summary.source as 'bundled' | 'managed' | 'workspace' | 'clawhub',
+    source: r.summary.source as 'bundled' | 'managed' | 'workspace' | 'clawhub' | 'extra',
     state: (r.state === 'degraded' ? 'enabled' : r.state) as 'enabled' | 'disabled' | 'available',
     degraded: r.degraded,
     missingRequirements: r.missingRequirements,
@@ -699,13 +732,15 @@ function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
   ctx.send(socket, { type: 'skills_list_response', skills });
 }
 
-/** Get or create the skill entry object for a given skill name, creating intermediate objects as needed. */
+/** Get or create the skill entry object for a given skill name, creating intermediate objects as needed.
+ *  Guards against malformed config (e.g. skills or entries being a string, array, or null)
+ *  by resetting non-object intermediates to {}, restoring self-healing behavior. */
 function ensureSkillEntry(raw: Record<string, unknown>, name: string): Record<string, unknown> {
-  if (!raw.skills) raw.skills = {};
+  if (!isRecord(raw.skills) || Array.isArray(raw.skills)) raw.skills = {};
   const skills = raw.skills as Record<string, unknown>;
-  if (!skills.entries) skills.entries = {};
+  if (!isRecord(skills.entries) || Array.isArray(skills.entries)) skills.entries = {};
   const entries = skills.entries as Record<string, unknown>;
-  if (!entries[name]) entries[name] = {};
+  if (!isRecord(entries[name]) || Array.isArray(entries[name])) entries[name] = {};
   return entries[name] as Record<string, unknown>;
 }
 function handleSkillsEnable(
@@ -901,8 +936,10 @@ async function handleSkillsUninstall(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  // Validate skill name to prevent path traversal
-  if (msg.name.includes('/') || msg.name.includes('\\') || msg.name.includes('..')) {
+  // Validate skill name to prevent path traversal while allowing namespaced slugs (org/name)
+  const validNamespacedSlug = /^[a-zA-Z0-9][a-zA-Z0-9._-]*\/[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+  const validSimpleName = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+  if (msg.name.includes('..') || msg.name.includes('\\') || !(validSimpleName.test(msg.name) || validNamespacedSlug.test(msg.name))) {
     ctx.send(socket, {
       type: 'skills_operation_response',
       operation: 'uninstall',
@@ -1387,6 +1424,113 @@ async function generateSuggestion(apiKey: string, assistantText: string): Promis
 
   const firstLine = raw.split('\n')[0].trim();
   return firstLine || null;
+}
+
+// ─── Apps list handler ──────────────────────────────────────────────────────
+
+function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
+  try {
+    const apps = listApps();
+    ctx.send(socket, {
+      type: 'apps_list_response',
+      apps: apps.map((a) => ({
+        id: a.id,
+        name: a.name,
+        description: a.description,
+        createdAt: a.createdAt,
+      })),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to list apps');
+    ctx.send(socket, { type: 'error', message: `Failed to list apps: ${message}` });
+  }
+}
+
+// ─── Shared apps handlers ────────────────────────────────────────────────────
+
+function getSharedAppsDir(): string {
+  return join(homedir(), 'Library', 'Application Support', 'vellum-assistant', 'shared-apps');
+}
+
+function handleSharedAppsList(socket: net.Socket, ctx: HandlerContext): void {
+  try {
+    const dir = getSharedAppsDir();
+    if (!existsSync(dir)) {
+      ctx.send(socket, { type: 'shared_apps_list_response', apps: [] });
+      return;
+    }
+
+    const files = readdirSync(dir).filter((f) => f.endsWith('-meta.json'));
+    const apps: Array<{
+      uuid: string;
+      name: string;
+      description?: string;
+      icon?: string;
+      entry: string;
+      trustTier: string;
+      signerDisplayName?: string;
+      bundleSizeBytes: number;
+      installedAt: string;
+    }> = [];
+
+    for (const file of files) {
+      try {
+        const raw = readFileSync(join(dir, file), 'utf-8');
+        const meta = JSON.parse(raw);
+        apps.push({
+          uuid: meta.uuid,
+          name: meta.name,
+          description: meta.description,
+          icon: meta.icon,
+          entry: meta.entry,
+          trustTier: meta.trustTier,
+          signerDisplayName: meta.signerDisplayName,
+          bundleSizeBytes: meta.bundleSizeBytes ?? 0,
+          installedAt: meta.installedAt,
+        });
+      } catch {
+        log.warn({ file }, 'Failed to read shared app metadata file');
+      }
+    }
+
+    ctx.send(socket, { type: 'shared_apps_list_response', apps });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to list shared apps');
+    ctx.send(socket, { type: 'error', message: `Failed to list shared apps: ${message}` });
+  }
+}
+
+function handleSharedAppDelete(
+  msg: SharedAppDeleteRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const uuid = msg.uuid;
+    // Validate UUID to prevent path traversal
+    if (uuid.includes('/') || uuid.includes('\\') || uuid.includes('..')) {
+      ctx.send(socket, { type: 'shared_app_delete_response', success: false });
+      return;
+    }
+
+    const dir = getSharedAppsDir();
+    const appDir = join(dir, uuid);
+    const metaFile = join(dir, `${uuid}-meta.json`);
+
+    if (existsSync(appDir)) {
+      rmSync(appDir, { recursive: true });
+    }
+    if (existsSync(metaFile)) {
+      rmSync(metaFile);
+    }
+
+    ctx.send(socket, { type: 'shared_app_delete_response', success: true });
+  } catch (err) {
+    log.error({ err }, 'Failed to delete shared app');
+    ctx.send(socket, { type: 'shared_app_delete_response', success: false });
+  }
 }
 
 // ─── Bundle app handler ─────────────────────────────────────────────────────

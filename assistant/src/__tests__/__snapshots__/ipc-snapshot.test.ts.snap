@@ -239,6 +239,13 @@ exports[`IPC message snapshots ClientMessage types skills_search serializes to e
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types skills_inspect serializes to expected JSON 1`] = `
+{
+  "slug": "clawhub/my-skill",
+  "type": "skills_inspect",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types suggestion_request serializes to expected JSON 1`] = `
 {
   "requestId": "req-suggest-001",
@@ -279,6 +286,64 @@ exports[`IPC message snapshots ClientMessage types update_trust_rule serializes 
   "scope": "/projects/my-app",
   "tool": "bash",
   "type": "update_trust_rule",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types bundle_app serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "type": "bundle_app",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types apps_list serializes to expected JSON 1`] = `
+{
+  "type": "apps_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types shared_apps_list serializes to expected JSON 1`] = `
+{
+  "type": "shared_apps_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types shared_app_delete serializes to expected JSON 1`] = `
+{
+  "type": "shared_app_delete",
+  "uuid": "abc-123-def",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types open_bundle serializes to expected JSON 1`] = `
+{
+  "filePath": "/tmp/My_App.vellumapp",
+  "type": "open_bundle",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types sign_bundle_payload_response serializes to expected JSON 1`] = `
+{
+  "keyId": "abc123",
+  "publicKey": "dGVzdA==",
+  "signature": "dGVzdC1zaWduYXR1cmU=",
+  "type": "sign_bundle_payload_response",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types get_signing_identity_response serializes to expected JSON 1`] = `
+{
+  "keyId": "abc123",
+  "publicKey": "dGVzdA==",
+  "type": "get_signing_identity_response",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types secret_response serializes to expected JSON 1`] = `
+{
+  "requestId": "req-secret-001",
+  "type": "secret_response",
+  "value": "ghp_test_token_value",
 }
 `;
 
@@ -331,6 +396,19 @@ exports[`IPC message snapshots ServerMessage types tool_result serializes to exp
   "status": "success",
   "toolName": "bash",
   "type": "tool_result",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types secret_request serializes to expected JSON 1`] = `
+{
+  "description": "Needed to push changes",
+  "field": "token",
+  "label": "GitHub Personal Access Token",
+  "placeholder": "ghp_xxxxxxxxxxxx",
+  "requestId": "req-secret-001",
+  "service": "github",
+  "sessionId": "sess-001",
+  "type": "secret_request",
 }
 `;
 
@@ -519,10 +597,33 @@ exports[`IPC message snapshots ServerMessage types memory_recalled serializes to
   "injectedTokens": 480,
   "latencyMs": 55,
   "lexicalHits": 12,
+  "mergedCount": 18,
   "model": "text-embedding-3-small",
   "provider": "openai",
   "recencyHits": 6,
+  "rerankApplied": false,
+  "selectedCount": 10,
   "semanticHits": 8,
+  "topCandidates": [
+    {
+      "finalScore": 0.85,
+      "key": "segment:seg-1",
+      "kind": "fact",
+      "lexical": 0.9,
+      "recency": 0.3,
+      "semantic": 0.7,
+      "type": "segment",
+    },
+    {
+      "finalScore": 0.72,
+      "key": "item:item-1",
+      "kind": "preference",
+      "lexical": 0.6,
+      "recency": 0.1,
+      "semantic": 0.8,
+      "type": "item",
+    },
+  ],
   "type": "memory_recalled",
 }
 `;
@@ -693,6 +794,47 @@ Do the thing."
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types skills_inspect_response serializes to expected JSON 1`] = `
+{
+  "data": {
+    "createdAt": 1700000000,
+    "files": [
+      {
+        "path": "SKILL.md",
+        "size": 1024,
+      },
+    ],
+    "latestVersion": {
+      "changelog": "Bug fixes",
+      "version": "1.2.0",
+    },
+    "owner": {
+      "displayName": "ClaWHub",
+      "handle": "clawhub",
+    },
+    "skill": {
+      "displayName": "My Skill",
+      "slug": "clawhub/my-skill",
+      "summary": "A test skill",
+    },
+    "skillMdContent": 
+"# My Skill
+
+Does things."
+,
+    "stats": {
+      "downloads": 5000,
+      "installs": 1000,
+      "stars": 42,
+      "versions": 3,
+    },
+    "updatedAt": 1700001000,
+  },
+  "slug": "clawhub/my-skill",
+  "type": "skills_inspect_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types suggestion_response serializes to expected JSON 1`] = `
 {
   "requestId": "req-suggest-001",
@@ -743,5 +885,103 @@ exports[`IPC message snapshots ServerMessage types trust_rules_list_response ser
     },
   ],
   "type": "trust_rules_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types bundle_app_response serializes to expected JSON 1`] = `
+{
+  "bundlePath": "/tmp/My_App-abc12345.vellumapp",
+  "manifest": {
+    "capabilities": [],
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "created_by": "vellum-assistant/0.1.6",
+    "description": "A test app",
+    "entry": "index.html",
+    "format_version": 1,
+    "name": "My App",
+  },
+  "type": "bundle_app_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types apps_list_response serializes to expected JSON 1`] = `
+{
+  "apps": [
+    {
+      "createdAt": 1700000000,
+      "description": "A test app",
+      "id": "app-001",
+      "name": "My App",
+    },
+  ],
+  "type": "apps_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types shared_apps_list_response serializes to expected JSON 1`] = `
+{
+  "apps": [
+    {
+      "bundleSizeBytes": 4096,
+      "description": "A shared app",
+      "entry": "index.html",
+      "icon": "📱",
+      "installedAt": "2026-01-15T00:00:00Z",
+      "name": "Shared App",
+      "signerDisplayName": "Test User",
+      "trustTier": "signed",
+      "uuid": "abc-123-def",
+    },
+  ],
+  "type": "shared_apps_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types shared_app_delete_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "shared_app_delete_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types open_bundle_response serializes to expected JSON 1`] = `
+{
+  "bundleSizeBytes": 4096,
+  "manifest": {
+    "capabilities": [],
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "created_by": "vellum-assistant/0.1.6",
+    "description": "A test app",
+    "entry": "index.html",
+    "format_version": 1,
+    "name": "My App",
+  },
+  "scanResult": {
+    "blocked": [],
+    "passed": true,
+    "warnings": [
+      "Use of fetch() detected",
+    ],
+  },
+  "signatureResult": {
+    "signerAccount": "test@example.com",
+    "signerDisplayName": "Test Signer",
+    "signerKeyId": "key-001",
+    "trustTier": "signed",
+  },
+  "type": "open_bundle_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types sign_bundle_payload serializes to expected JSON 1`] = `
+{
+  "payload": "{"content_hashes":{},"manifest":{}}",
+  "type": "sign_bundle_payload",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types get_signing_identity serializes to expected JSON 1`] = `
+{
+  "type": "get_signing_identity",
 }
 `;

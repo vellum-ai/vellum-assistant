@@ -473,31 +473,31 @@ describe('Permission Checker', () => {
     });
   });
 
-  // ── default protected directory deny rules ─────────────────────
+  // ── default protected directory ask rules ─────────────────────
 
-  describe('default protected directory deny rules', () => {
-    test('file_read of protected file is denied', async () => {
+  describe('default protected directory ask rules', () => {
+    test('file_read of protected file prompts', async () => {
       const protectedPath = join(checkerTestDir, 'protected', 'trust.json');
       const result = await check('file_read', { path: protectedPath }, '/tmp');
-      expect(result.decision).toBe('deny');
-      expect(result.reason).toContain('deny rule');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
     });
 
-    test('file_write to protected file is denied', async () => {
+    test('file_write to protected file prompts', async () => {
       const protectedPath = join(checkerTestDir, 'protected', 'keys.enc');
       const result = await check('file_write', { path: protectedPath }, '/tmp');
-      expect(result.decision).toBe('deny');
-      expect(result.reason).toContain('deny rule');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
     });
 
-    test('file_edit of protected file is denied', async () => {
+    test('file_edit of protected file prompts', async () => {
       const protectedPath = join(checkerTestDir, 'protected', 'secret-allowlist.json');
       const result = await check('file_edit', { path: protectedPath }, '/tmp');
-      expect(result.decision).toBe('deny');
-      expect(result.reason).toContain('deny rule');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
     });
 
-    test('file_read of non-protected file is not denied', async () => {
+    test('file_read of non-protected file is not affected', async () => {
       const safePath = join(checkerTestDir, 'data', 'assistant.db');
       const result = await check('file_read', { path: safePath }, '/tmp');
       expect(result.decision).toBe('allow');
@@ -510,9 +510,9 @@ describe('Permission Checker', () => {
       expect(result.decision).not.toBe('deny');
     });
 
-    test('relative path to protected file is still denied', async () => {
+    test('relative path to protected file still prompts', async () => {
       // Simulate a relative path that resolves to the protected directory.
-      // The default deny pattern uses an absolute path, so the checker
+      // The default ask pattern uses an absolute path, so the checker
       // must resolve relative paths against workingDir before matching.
       const workingDir = '/tmp';
       const protectedPath = join(checkerTestDir, 'protected', 'trust.json');
@@ -520,7 +520,7 @@ describe('Permission Checker', () => {
       const { relative } = await import('node:path');
       const relPath = relative(workingDir, protectedPath);
       const result = await check('file_read', { path: relPath }, workingDir);
-      expect(result.decision).toBe('deny');
+      expect(result.decision).toBe('prompt');
     });
   });
 

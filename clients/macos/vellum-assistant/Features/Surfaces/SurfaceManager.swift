@@ -140,7 +140,7 @@ final class SurfaceManager: ObservableObject {
         let surfacePanelWidth: CGFloat
         let surfacePanelHeight: CGFloat
         if case .dynamicPage(let dpData) = surface.data {
-            let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            let screen = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
             let defaultW = Int(screen.width * 0.45)
             let defaultH = Int(screen.height * 0.55)
             let minW = 280

@@ -31,6 +31,12 @@ export interface ConfirmationResponse {
   selectedScope?: string;
 }
 
+export interface SecretResponse {
+  type: 'secret_response';
+  requestId: string;
+  value?: string;    // undefined = user cancelled
+}
+
 export interface SessionListRequest {
   type: 'session_list';
 }
@@ -208,7 +214,7 @@ export interface AddTrustRule {
   toolName: string;
   pattern: string;
   scope: string;
-  decision: 'allow' | 'deny';
+  decision: 'allow' | 'deny' | 'ask';
 }
 
 export interface TrustRulesList {
@@ -226,13 +232,44 @@ export interface UpdateTrustRule {
   tool?: string;
   pattern?: string;
   scope?: string;
-  decision?: 'allow' | 'deny';
+  decision?: 'allow' | 'deny' | 'ask';
   priority?: number;
+}
+
+export interface AppsListRequest {
+  type: 'apps_list';
+}
+
+export interface SharedAppsListRequest {
+  type: 'shared_apps_list';
+}
+
+export interface SharedAppDeleteRequest {
+  type: 'shared_app_delete';
+  uuid: string;
 }
 
 export interface BundleAppRequest {
   type: 'bundle_app';
   appId: string;
+}
+
+export interface OpenBundleRequest {
+  type: 'open_bundle';
+  filePath: string;
+}
+
+export interface SignBundlePayloadResponse {
+  type: 'sign_bundle_payload_response';
+  signature: string;
+  keyId: string;
+  publicKey: string;
+}
+
+export interface GetSigningIdentityResponse {
+  type: 'get_signing_identity_response';
+  keyId: string;
+  publicKey: string;
 }
 
 // === Surface types ===
@@ -342,6 +379,7 @@ export interface UiSurfaceAction {
 export type ClientMessage =
   | UserMessage
   | ConfirmationResponse
+  | SecretResponse
   | SessionListRequest
   | SessionCreateRequest
   | SessionSwitchRequest
@@ -376,7 +414,13 @@ export type ClientMessage =
   | TrustRulesList
   | RemoveTrustRule
   | UpdateTrustRule
-  | BundleAppRequest;
+  | BundleAppRequest
+  | AppsListRequest
+  | SharedAppsListRequest
+  | SharedAppDeleteRequest
+  | OpenBundleRequest
+  | SignBundlePayloadResponse
+  | GetSigningIdentityResponse;
 
 // === Server → Client messages ===
 
@@ -423,6 +467,17 @@ export interface ConfirmationRequest {
   scopeOptions: Array<{ label: string; scope: string }>;
   diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
   sandboxed?: boolean;
+  sessionId?: string;
+}
+
+export interface SecretRequest {
+  type: 'secret_request';
+  requestId: string;
+  service: string;
+  field: string;
+  label: string;
+  description?: string;
+  placeholder?: string;
   sessionId?: string;
 }
 
@@ -529,6 +584,16 @@ export interface SecretDetected {
   action: 'redact' | 'warn' | 'block';
 }
 
+export interface MemoryRecalledCandidateDebug {
+  key: string;
+  type: string;
+  kind: string;
+  finalScore: number;
+  lexical: number;
+  semantic: number;
+  recency: number;
+}
+
 export interface MemoryRecalled {
   type: 'memory_recalled';
   provider: string;
@@ -537,8 +602,12 @@ export interface MemoryRecalled {
   semanticHits: number;
   recencyHits: number;
   entityHits: number;
+  mergedCount: number;
+  selectedCount: number;
+  rerankApplied: boolean;
   injectedTokens: number;
   latencyMs: number;
+  topCandidates: MemoryRecalledCandidateDebug[];
 }
 
 export interface MemoryStatus {
@@ -621,7 +690,7 @@ export interface SkillsListResponse {
     description: string;
     emoji?: string;
     homepage?: string;
-    source: 'bundled' | 'managed' | 'workspace' | 'clawhub';
+    source: 'bundled' | 'managed' | 'workspace' | 'clawhub' | 'extra';
     state: 'enabled' | 'disabled' | 'available';
     degraded: boolean;
     missingRequirements?: { bins?: string[]; env?: string[]; permissions?: string[] };
@@ -685,10 +754,41 @@ export interface TrustRulesListResponse {
     tool: string;
     pattern: string;
     scope: string;
-    decision: 'allow' | 'deny';
+    decision: 'allow' | 'deny' | 'ask';
     priority: number;
     createdAt: number;
   }>;
+}
+
+export interface AppsListResponse {
+  type: 'apps_list_response';
+  apps: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    icon?: string;
+    createdAt: number;
+  }>;
+}
+
+export interface SharedAppsListResponse {
+  type: 'shared_apps_list_response';
+  apps: Array<{
+    uuid: string;
+    name: string;
+    description?: string;
+    icon?: string;
+    entry: string;
+    trustTier: string;
+    signerDisplayName?: string;
+    bundleSizeBytes: number;
+    installedAt: string;
+  }>;
+}
+
+export interface SharedAppDeleteResponse {
+  type: 'shared_app_delete_response';
+  success: boolean;
 }
 
 export interface BundleAppResponse {
@@ -704,6 +804,41 @@ export interface BundleAppResponse {
     entry: string;
     capabilities: string[];
   };
+}
+
+export interface OpenBundleResponse {
+  type: 'open_bundle_response';
+  manifest: {
+    format_version: number;
+    name: string;
+    description?: string;
+    icon?: string;
+    created_at: string;
+    created_by: string;
+    entry: string;
+    capabilities: string[];
+  };
+  scanResult: {
+    passed: boolean;
+    blocked: string[];
+    warnings: string[];
+  };
+  signatureResult: {
+    trustTier: 'verified' | 'signed' | 'unsigned' | 'tampered';
+    signerKeyId?: string;
+    signerDisplayName?: string;
+    signerAccount?: string;
+  };
+  bundleSizeBytes: number;
+}
+
+export interface SignBundlePayloadRequest {
+  type: 'sign_bundle_payload';
+  payload: string;
+}
+
+export interface GetSigningIdentityRequest {
+  type: 'get_signing_identity';
 }
 
 export interface TimerCompleted {
@@ -801,6 +936,7 @@ export type ServerMessage =
   | ToolOutputChunk
   | ToolResult
   | ConfirmationRequest
+  | SecretRequest
   | MessageComplete
   | SessionInfo
   | SessionListResponse
@@ -836,7 +972,13 @@ export type ServerMessage =
   | MessageDequeued
   | TimerCompleted
   | TrustRulesListResponse
-  | BundleAppResponse;
+  | BundleAppResponse
+  | AppsListResponse
+  | SharedAppsListResponse
+  | SharedAppDeleteResponse
+  | OpenBundleResponse
+  | SignBundlePayloadRequest
+  | GetSigningIdentityRequest;
 
 // === Serialization ===
 

@@ -89,7 +89,8 @@ export async function scanBundle(zipPath: string): Promise<ScanResult> {
   if (manifest) {
     await scanHtmlEntry(zip, manifest.entry as string, findings);
   }
-  await scanAssets(zip, findings);
+  const entryName = manifest ? (manifest.entry as string | undefined) : undefined;
+  await scanAssets(zip, findings, entryName);
 
   const passed = !findings.some((f) => f.level === "block");
   return { passed, findings };
@@ -142,12 +143,15 @@ async function scanArchiveStructure(
     }
   }
 
-  // Compute total decompressed size and compression ratio
+  // Compute total decompressed size and compression ratio (bail out early to
+  // avoid decompressing the entire archive if limits are exceeded).
   let totalDecompressed = 0;
   for (const name of fileEntries) {
     const entry = zip.files[name];
     const data = await entry.async("uint8array");
     totalDecompressed += data.byteLength;
+    if (totalDecompressed > MAX_DECOMPRESSED_SIZE) break;
+    if (compressedSize > 0 && totalDecompressed / compressedSize > MAX_COMPRESSION_RATIO) break;
   }
 
   if (totalDecompressed > MAX_DECOMPRESSED_SIZE) {
@@ -235,40 +239,43 @@ async function scanHtmlEntry(
 
   // --- Block-level: external resource references ---
 
-  // <script src="..."> with external origin
-  const scriptSrcRe = /<script[^>]+src\s*=\s*["']([^"']+)["']/gi;
+  // <script src="..."> with external origin (quoted and unquoted)
+  const scriptSrcRe = /<script[^>]+src\s*=\s*(?:["']([^"']+)["']|([^\s>]+))/gi;
   for (const m of html.matchAll(scriptSrcRe)) {
-    if (isExternalUrl(m[1])) {
+    const url = m[1] ?? m[2];
+    if (isExternalUrl(url)) {
       findings.push({
         category: "html",
         code: "external_script",
-        message: `External script source: ${m[1]}`,
+        message: `External script source: ${url}`,
         level: "block",
       });
     }
   }
 
-  // <link href="..."> with external origin
-  const linkHrefRe = /<link[^>]+href\s*=\s*["']([^"']+)["']/gi;
+  // <link href="..."> with external origin (quoted and unquoted)
+  const linkHrefRe = /<link[^>]+href\s*=\s*(?:["']([^"']+)["']|([^\s>]+))/gi;
   for (const m of html.matchAll(linkHrefRe)) {
-    if (isExternalUrl(m[1])) {
+    const url = m[1] ?? m[2];
+    if (isExternalUrl(url)) {
       findings.push({
         category: "html",
         code: "external_link",
-        message: `External link href: ${m[1]}`,
+        message: `External link href: ${url}`,
         level: "block",
       });
     }
   }
 
-  // <iframe src="..."> with external origin
-  const iframeSrcRe = /<iframe[^>]+src\s*=\s*["']([^"']+)["']/gi;
+  // <iframe src="..."> with external origin (quoted and unquoted)
+  const iframeSrcRe = /<iframe[^>]+src\s*=\s*(?:["']([^"']+)["']|([^\s>]+))/gi;
   for (const m of html.matchAll(iframeSrcRe)) {
-    if (isExternalUrl(m[1])) {
+    const url = m[1] ?? m[2];
+    if (isExternalUrl(url)) {
       findings.push({
         category: "html",
         code: "external_iframe",
-        message: `External iframe source: ${m[1]}`,
+        message: `External iframe source: ${url}`,
         level: "block",
       });
     }
@@ -349,29 +356,46 @@ async function scanHtmlEntry(
 }
 
 function isExternalUrl(url: string): boolean {
-  return url.startsWith("http://") || url.startsWith("https://") || url.startsWith("//");
+  const lower = url.toLowerCase();
+  return lower.startsWith("http://") || lower.startsWith("https://") || url.startsWith("//");
 }
 
 // ---------------------------------------------------------------------------
 // Phase 3: Asset scan
 // ---------------------------------------------------------------------------
 
-async function scanAssets(zip: JSZip, findings: ScanFinding[]): Promise<void> {
+async function scanAssets(zip: JSZip, findings: ScanFinding[], manifestEntry?: string): Promise<void> {
   const allowedRootFiles = new Set(["index.html", "manifest.json", "signature.json"]);
+  if (manifestEntry) {
+    allowedRootFiles.add(manifestEntry);
+  }
 
   for (const [name, entry] of Object.entries(zip.files)) {
     if (entry.dir) continue;
 
-    // Double extension check
+    // Double extension check — only flag when a known content/media extension
+    // appears before the final extension (e.g. file.jpg.exe, file.png.sh),
+    // which is a common technique to disguise executables. Legitimate multi-dot
+    // filenames like app.min.js or vendor.module.css are not flagged.
     const basename = name.split("/").pop() ?? name;
     const dotParts = basename.split(".");
     if (dotParts.length > 2) {
-      findings.push({
-        category: "asset",
-        code: "double_extension",
-        message: `File has double extension: ${name}`,
-        level: "block",
-      });
+      const suspiciousInnerExts = new Set([
+        "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico",
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+        "html", "htm", "txt", "rtf", "zip", "tar", "gz",
+      ]);
+      // Check if any non-final extension segment is a known content type
+      const innerParts = dotParts.slice(1, -1); // extensions between first dot and last dot
+      const hasSuspiciousInner = innerParts.some((p) => suspiciousInnerExts.has(p.toLowerCase()));
+      if (hasSuspiciousInner) {
+        findings.push({
+          category: "asset",
+          code: "double_extension",
+          message: `File has suspicious double extension: ${name}`,
+          level: "block",
+        });
+      }
     }
 
     // Files outside assets/ that aren't allowed root files

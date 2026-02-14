@@ -105,41 +105,50 @@ final class JITPermissionManager {
 }
 
 #if DEBUG
-#Preview {
-    @Previewable @State var manager = JITPermissionManager()
-
-    VStack(spacing: VSpacing.xl) {
-        Text("JIT Permission Manager")
-            .font(VFont.headline)
-            .foregroundColor(VColor.textPrimary)
-
-        Text("Active: \(manager.isActive ? "Yes" : "No")")
-            .font(VFont.body)
-            .foregroundColor(VColor.textSecondary)
-
-        HStack(spacing: VSpacing.md) {
-            OnboardingButton(title: "Request Mic", style: .ghost) {
-                manager.isActive = true
-                _ = manager.requestIfNeeded(.microphone)
-            }
-            OnboardingButton(title: "Request A11y", style: .ghost) {
-                manager.isActive = true
-                _ = manager.requestIfNeeded(.accessibility)
-            }
-            OnboardingButton(title: "Request Screen", style: .ghost) {
-                manager.isActive = true
-                _ = manager.requestIfNeeded(.screenCapture)
-            }
-        }
-
-        if let request = manager.activePermissionRequest {
-            Text("Active request: \(request.title)")
-                .font(VFont.caption)
-                .foregroundColor(VColor.success)
-        }
+struct JITPermissionManager_Preview: PreviewProvider {
+    static var previews: some View {
+        JITPermissionManagerPreviewWrapper()
+            .frame(width: 500, height: 300)
+            .previewDisplayName("JITPermissionManager")
     }
-    .padding(VSpacing.xxl)
-    .frame(width: 500, height: 300)
-    .background(VColor.background)
+}
+
+private struct JITPermissionManagerPreviewWrapper: View {
+    @State private var manager = JITPermissionManager()
+
+    var body: some View {
+        VStack(spacing: VSpacing.xl) {
+            Text("JIT Permission Manager")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Active: \(manager.isActive ? "Yes" : "No")")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+
+            HStack(spacing: VSpacing.md) {
+                OnboardingButton(title: "Request Mic", style: .ghost) {
+                    manager.isActive = true
+                    _ = manager.requestIfNeeded(.microphone)
+                }
+                OnboardingButton(title: "Request A11y", style: .ghost) {
+                    manager.isActive = true
+                    _ = manager.requestIfNeeded(.accessibility)
+                }
+                OnboardingButton(title: "Request Screen", style: .ghost) {
+                    manager.isActive = true
+                    _ = manager.requestIfNeeded(.screenCapture)
+                }
+            }
+
+            if let request = manager.activePermissionRequest {
+                Text("Active request: \(request.title)")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.success)
+            }
+        }
+        .padding(VSpacing.xxl)
+        .background(VColor.background)
+    }
 }
 #endif

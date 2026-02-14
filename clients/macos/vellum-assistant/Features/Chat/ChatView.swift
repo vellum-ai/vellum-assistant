@@ -571,6 +571,10 @@ private struct ChatBubble: View {
     private var bubbleContent: some View {
         let partitioned = partitionedAttachments
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
+            if let skillInvocation = message.skillInvocation {
+                SkillInvocationChip(data: skillInvocation)
+            }
+
             if hasText {
                 Text(markdownText)
                     .font(VFont.body)
@@ -834,10 +838,18 @@ private struct MicrophoneButton: View {
 // MARK: - Preview
 
 #if DEBUG
-#Preview("ChatView") {
-    @Previewable @State var text = ""
+struct ChatView_Preview: PreviewProvider {
+    static var previews: some View {
+        ChatViewPreviewWrapper()
+            .frame(width: 600, height: 500)
+            .previewDisplayName("ChatView")
+    }
+}
 
-    let sampleMessages: [ChatMessage] = [
+private struct ChatViewPreviewWrapper: View {
+    @State private var text = ""
+
+    private let sampleMessages: [ChatMessage] = [
         ChatMessage(role: .assistant, text: "Hello! How can I help you today?"),
         ChatMessage(role: .user, text: "Can you tell me about SwiftUI?"),
         ChatMessage(
@@ -847,35 +859,36 @@ private struct MicrophoneButton: View {
         ChatMessage(role: .user, text: "That sounds great, thanks!"),
     ]
 
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        ChatView(
-            messages: sampleMessages,
-            inputText: $text,
-            hasAPIKey: true,
-            isThinking: true,
-            isSending: false,
-            errorText: nil,
-            pendingQueuedCount: 0,
-            suggestion: "That sounds great, thanks!",
-            pendingAttachments: [],
-            isRecording: false,
-            onOpenSettings: {},
-            onSend: {},
-            onStop: {},
-            onDismissError: {},
-            onAcceptSuggestion: {},
-            onAttach: {},
-            onRemoveAttachment: { _ in },
-            onDropFiles: { _ in },
-            onPaste: {},
-            onMicrophoneToggle: {},
-            onConfirmationAllow: { _ in },
-            onConfirmationDeny: { _ in },
-            onAddTrustRule: { _, _, _, _ in true },
-            onSurfaceAction: { _, _, _ in }
-        )
+    var body: some View {
+        ZStack {
+            VColor.background.ignoresSafeArea()
+            ChatView(
+                messages: sampleMessages,
+                inputText: $text,
+                hasAPIKey: true,
+                isThinking: true,
+                isSending: false,
+                errorText: nil,
+                pendingQueuedCount: 0,
+                suggestion: "That sounds great, thanks!",
+                pendingAttachments: [],
+                isRecording: false,
+                onOpenSettings: {},
+                onSend: {},
+                onStop: {},
+                onDismissError: {},
+                onAcceptSuggestion: {},
+                onAttach: {},
+                onRemoveAttachment: { _ in },
+                onDropFiles: { _ in },
+                onPaste: {},
+                onMicrophoneToggle: {},
+                onConfirmationAllow: { _ in },
+                onConfirmationDeny: { _ in },
+                onAddTrustRule: { _, _, _, _ in true },
+                onSurfaceAction: { _, _, _ in }
+            )
+        }
     }
-    .frame(width: 600, height: 500)
 }
 #endif

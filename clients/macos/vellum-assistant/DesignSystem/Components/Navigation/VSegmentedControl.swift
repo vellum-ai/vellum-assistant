@@ -33,12 +33,22 @@ struct VSegmentedControl: View {
 }
 
 #if DEBUG
-#Preview("VSegmentedControl") {
-    @Previewable @State var selection = 1
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VSegmentedControl(items: ["Profile", "Settings", "Channels", "Overview"], selection: $selection)
+struct VSegmentedControl_Preview: PreviewProvider {
+    static var previews: some View {
+        VSegmentedControlPreviewWrapper()
+            .frame(width: 500, height: 60)
+            .previewDisplayName("VSegmentedControl")
     }
-    .frame(width: 500, height: 60)
+}
+
+private struct VSegmentedControlPreviewWrapper: View {
+    @State private var selection = 1
+
+    var body: some View {
+        ZStack {
+            VColor.background.ignoresSafeArea()
+            VSegmentedControl(items: ["Profile", "Settings", "Channels", "Overview"], selection: $selection)
+        }
+    }
 }
 #endif

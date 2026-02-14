@@ -175,6 +175,54 @@ export const MemoryRerankingConfigSchema = z.object({
     .default(20),
 });
 
+/**
+ * Per-kind freshness windows (in days). Items older than their window
+ * (based on lastSeenAt) are down-ranked unless recently reinforced.
+ * A value of 0 disables freshness decay for that kind.
+ */
+const MemoryFreshnessConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.retrieval.freshness.enabled must be a boolean' })
+    .default(true),
+  maxAgeDays: z.object({
+    fact: z
+      .number({ error: 'memory.retrieval.freshness.maxAgeDays.fact must be a number' })
+      .nonnegative('memory.retrieval.freshness.maxAgeDays.fact must be non-negative')
+      .default(0),
+    preference: z
+      .number({ error: 'memory.retrieval.freshness.maxAgeDays.preference must be a number' })
+      .nonnegative('memory.retrieval.freshness.maxAgeDays.preference must be non-negative')
+      .default(0),
+    behavior: z
+      .number({ error: 'memory.retrieval.freshness.maxAgeDays.behavior must be a number' })
+      .nonnegative('memory.retrieval.freshness.maxAgeDays.behavior must be non-negative')
+      .default(90),
+    event: z
+      .number({ error: 'memory.retrieval.freshness.maxAgeDays.event must be a number' })
+      .nonnegative('memory.retrieval.freshness.maxAgeDays.event must be non-negative')
+      .default(30),
+    opinion: z
+      .number({ error: 'memory.retrieval.freshness.maxAgeDays.opinion must be a number' })
+      .nonnegative('memory.retrieval.freshness.maxAgeDays.opinion must be non-negative')
+      .default(60),
+  }).default({
+    fact: 0,
+    preference: 0,
+    behavior: 90,
+    event: 30,
+    opinion: 60,
+  }),
+  staleDecay: z
+    .number({ error: 'memory.retrieval.freshness.staleDecay must be a number' })
+    .min(0, 'memory.retrieval.freshness.staleDecay must be >= 0')
+    .max(1, 'memory.retrieval.freshness.staleDecay must be <= 1')
+    .default(0.5),
+  reinforcementShieldDays: z
+    .number({ error: 'memory.retrieval.freshness.reinforcementShieldDays must be a number' })
+    .nonnegative('memory.retrieval.freshness.reinforcementShieldDays must be non-negative')
+    .default(7),
+});
+
 export const MemoryRetrievalConfigSchema = z.object({
   lexicalTopK: z
     .number({ error: 'memory.retrieval.lexicalTopK must be a number' })
@@ -191,11 +239,36 @@ export const MemoryRetrievalConfigSchema = z.object({
     .int('memory.retrieval.maxInjectTokens must be an integer')
     .positive('memory.retrieval.maxInjectTokens must be a positive integer')
     .default(10000),
+  injectionFormat: z
+    .enum(['markdown', 'structured_v1'], { error: 'memory.retrieval.injectionFormat must be "markdown" or "structured_v1"' })
+    .default('markdown'),
+  injectionStrategy: z
+    .enum(['prepend_user_block', 'separate_context_message'], {
+      error: 'memory.retrieval.injectionStrategy must be "prepend_user_block" or "separate_context_message"',
+    })
+    .default('prepend_user_block'),
   reranking: MemoryRerankingConfigSchema.default({
     enabled: true,
     model: 'claude-haiku-4-5-20251001',
     topK: 20,
   }),
+  freshness: MemoryFreshnessConfigSchema.default({
+    enabled: true,
+    maxAgeDays: {
+      fact: 0,
+      preference: 0,
+      behavior: 90,
+      event: 30,
+      opinion: 60,
+    },
+    staleDecay: 0.5,
+    reinforcementShieldDays: 7,
+  }),
+  scopePolicy: z
+    .enum(['allow_global_fallback', 'strict'], {
+      error: 'memory.retrieval.scopePolicy must be "allow_global_fallback" or "strict"',
+    })
+    .default('allow_global_fallback'),
 });
 
 export const MemorySegmentationConfigSchema = z.object({
@@ -278,11 +351,20 @@ export const MemoryConfigSchema = z.object({
     lexicalTopK: 80,
     semanticTopK: 40,
     maxInjectTokens: 10000,
+    injectionFormat: 'markdown',
+    injectionStrategy: 'prepend_user_block',
     reranking: {
       enabled: true,
       model: 'claude-haiku-4-5-20251001',
       topK: 20,
     },
+    freshness: {
+      enabled: true,
+      maxAgeDays: { fact: 0, preference: 0, behavior: 90, event: 30, opinion: 60 },
+      staleDecay: 0.5,
+      reinforcementShieldDays: 7,
+    },
+    scopePolicy: 'allow_global_fallback',
   }),
   segmentation: MemorySegmentationConfigSchema.default({
     targetTokens: 450,
@@ -397,11 +479,20 @@ export const AssistantConfigSchema = z.object({
       lexicalTopK: 80,
       semanticTopK: 40,
       maxInjectTokens: 10000,
+      injectionFormat: 'markdown',
+      injectionStrategy: 'prepend_user_block',
       reranking: {
         enabled: true,
         model: 'claude-haiku-4-5-20251001',
         topK: 20,
       },
+      freshness: {
+        enabled: true,
+        maxAgeDays: { fact: 0, preference: 0, behavior: 90, event: 30, opinion: 60 },
+        staleDecay: 0.5,
+        reinforcementShieldDays: 7,
+      },
+      scopePolicy: 'allow_global_fallback',
     },
     segmentation: {
       targetTokens: 450,

@@ -179,48 +179,39 @@ struct JITPermissionView: View {
 // MARK: - Preview
 
 #if DEBUG
-#Preview("Microphone") {
-    @Previewable @State var manager: JITPermissionManager = {
-        let m = JITPermissionManager()
-        m.isActive = true
-        m.activePermissionRequest = .microphone
-        return m
-    }()
+struct JITPermissionView_Preview: PreviewProvider {
+    static var previews: some View {
+        JITPermissionViewPreviewWrapper(permission: .microphone)
+            .frame(width: 640, height: 560)
+            .previewDisplayName("Microphone")
 
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        JITPermissionView(manager: manager)
+        JITPermissionViewPreviewWrapper(permission: .accessibility)
+            .frame(width: 640, height: 560)
+            .previewDisplayName("Accessibility")
+
+        JITPermissionViewPreviewWrapper(permission: .screenCapture)
+            .frame(width: 640, height: 560)
+            .previewDisplayName("Screen Capture")
     }
-    .frame(width: 640, height: 560)
 }
 
-#Preview("Accessibility") {
-    @Previewable @State var manager: JITPermissionManager = {
+private struct JITPermissionViewPreviewWrapper: View {
+    let permission: JITPermissionManager.JITPermissionType
+    @State private var manager: JITPermissionManager
+
+    init(permission: JITPermissionManager.JITPermissionType) {
+        self.permission = permission
         let m = JITPermissionManager()
         m.isActive = true
-        m.activePermissionRequest = .accessibility
-        return m
-    }()
-
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        JITPermissionView(manager: manager)
+        m.activePermissionRequest = permission
+        _manager = State(initialValue: m)
     }
-    .frame(width: 640, height: 560)
-}
 
-#Preview("Screen Capture") {
-    @Previewable @State var manager: JITPermissionManager = {
-        let m = JITPermissionManager()
-        m.isActive = true
-        m.activePermissionRequest = .screenCapture
-        return m
-    }()
-
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        JITPermissionView(manager: manager)
+    var body: some View {
+        ZStack {
+            VColor.background.ignoresSafeArea()
+            JITPermissionView(manager: manager)
+        }
     }
-    .frame(width: 640, height: 560)
 }
 #endif

@@ -67,6 +67,9 @@ struct TrustRulesView: View {
             }
             loadRules()
         }
+        .onDisappear {
+            daemonClient.onTrustRulesListResponse = nil
+        }
         .sheet(isPresented: $showingAddSheet) {
             TrustRuleFormView(daemonClient: daemonClient) {
                 loadRules()
@@ -95,12 +98,12 @@ struct TrustRulesView: View {
         }
     }
 
-    private func loadRules() {
+    @MainActor private func loadRules() {
         isLoading = true
         try? daemonClient.sendListTrustRules()
     }
 
-    private func deleteRule(id: String) {
+    @MainActor private func deleteRule(id: String) {
         try? daemonClient.sendRemoveTrustRule(id: id)
         loadRules()
     }
@@ -118,6 +121,14 @@ private struct TrustRuleRow: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
 
+    private func decisionColor(_ decision: String) -> Color {
+        switch decision {
+        case "allow": return .green
+        case "ask": return .orange
+        default: return .red
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
@@ -128,8 +139,8 @@ private struct TrustRuleRow: View {
                         .font(.caption)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(rule.decision == "allow" ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
-                        .foregroundStyle(rule.decision == "allow" ? .green : .red)
+                        .background(decisionColor(rule.decision).opacity(0.15))
+                        .foregroundStyle(decisionColor(rule.decision))
                         .clipShape(Capsule())
                 }
                 Text(rule.pattern)
@@ -232,6 +243,7 @@ private struct TrustRuleFormView: View {
 
                 Picker("Decision", selection: $decision) {
                     Text("Allow").tag("allow")
+                    Text("Ask").tag("ask")
                     Text("Deny").tag("deny")
                 }
             }
@@ -250,7 +262,7 @@ private struct TrustRuleFormView: View {
         .frame(width: 420, height: 340)
     }
 
-    private func save() {
+    @MainActor private func save() {
         let trimmedPattern = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPattern.isEmpty else { return }
 

@@ -51,13 +51,14 @@ import { selectEmbeddingBackend } from '../memory/embedding-backend.js';
 import { getRecentSegmentsForConversation, indexMessageNow } from '../memory/indexer.js';
 import { extractAndUpsertMemoryItemsForMessage } from '../memory/items-extractor.js';
 import { claimMemoryJobs, enqueueMemoryJob } from '../memory/jobs-store.js';
-import { currentWeekWindow, runMemoryJobsOnce } from '../memory/jobs-worker.js';
+import { currentWeekWindow, resetStaleSweepThrottle, runMemoryJobsOnce, sweepStaleItems } from '../memory/jobs-worker.js';
 import {
   buildMemoryRecall,
   escapeXmlTags,
   formatAbsoluteTime,
   formatRelativeTime,
   injectMemoryRecallIntoUserMessage,
+  injectMemoryRecallAsSeparateMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
 import {
@@ -66,6 +67,7 @@ import {
   memoryItems,
   memoryItemSources,
   memoryJobs,
+  memorySegments,
   memorySummaries,
   messages,
 } from '../memory/schema.js';
@@ -87,6 +89,7 @@ describe('Memory V2 regressions', () => {
     db.run('DELETE FROM conversations');
     db.run('DELETE FROM memory_jobs');
     db.run('DELETE FROM memory_checkpoints');
+    resetStaleSweepThrottle();
   });
 
   afterAll(() => {
@@ -598,6 +601,70 @@ describe('Memory V2 regressions', () => {
     ]);
   });
 
+  test('separate_context_message injects memory as user+assistant pair before last user message', () => {
+    const history = [
+      { role: 'user' as const, content: [{ type: 'text', text: 'Hello' }] },
+      { role: 'assistant' as const, content: [{ type: 'text', text: 'Hi!' }] },
+      { role: 'user' as const, content: [{ type: 'text', text: 'Tell me about X' }] },
+    ];
+    const recallText = '<memory>Some recalled fact</memory>';
+    const result = injectMemoryRecallAsSeparateMessage(history, recallText);
+    // Should have 5 messages: original 2 + injected user + injected assistant ack + original last user
+    expect(result).toHaveLength(5);
+    expect(result[0]).toBe(history[0]);
+    expect(result[1]).toBe(history[1]);
+    // Injected context message
+    expect(result[2].role).toBe('user');
+    expect(result[2].content).toEqual([{ type: 'text', text: recallText }]);
+    // Assistant acknowledgment
+    expect(result[3].role).toBe('assistant');
+    expect(result[3].content).toEqual([{ type: 'text', text: '[Memory context loaded.]' }]);
+    // Original user message preserved unchanged
+    expect(result[4]).toBe(history[2]);
+  });
+
+  test('separate_context_message with empty text is a no-op', () => {
+    const history = [
+      { role: 'user' as const, content: [{ type: 'text', text: 'Hello' }] },
+    ];
+    const result = injectMemoryRecallAsSeparateMessage(history, '  ');
+    expect(result).toBe(history);
+  });
+
+  test('stripMemoryRecallMessages removes separate_context_message pair', () => {
+    const recallText = '<memory>Some recalled fact</memory>';
+    const messages = [
+      { role: 'user' as const, content: [{ type: 'text', text: 'Hello' }] },
+      { role: 'assistant' as const, content: [{ type: 'text', text: 'Hi!' }] },
+      // Injected context message pair
+      { role: 'user' as const, content: [{ type: 'text', text: recallText }] },
+      { role: 'assistant' as const, content: [{ type: 'text', text: '[Memory context loaded.]' }] },
+      // Real user message
+      { role: 'user' as const, content: [{ type: 'text', text: 'Tell me about X' }] },
+    ];
+    const cleaned = stripMemoryRecallMessages(messages, recallText);
+    expect(cleaned).toHaveLength(3);
+    expect(cleaned[0].content[0].text).toBe('Hello');
+    expect(cleaned[1].content[0].text).toBe('Hi!');
+    expect(cleaned[2].content[0].text).toBe('Tell me about X');
+  });
+
+  test('stripMemoryRecallMessages falls back to prepend_user_block when no separate pair found', () => {
+    const recallText = '<memory>Fact</memory>';
+    const messages = [
+      {
+        role: 'user' as const,
+        content: [
+          { type: 'text', text: recallText },
+          { type: 'text', text: 'User query' },
+        ],
+      },
+    ];
+    const cleaned = stripMemoryRecallMessages(messages, recallText);
+    expect(cleaned).toHaveLength(1);
+    expect(cleaned[0].content).toEqual([{ type: 'text', text: 'User query' }]);
+  });
+
   test('aborting memory recall embedding returns a non-degraded aborted recall result', async () => {
     const originalFetch = globalThis.fetch;
     const controller = new AbortController();
@@ -769,6 +836,135 @@ describe('Memory V2 regressions', () => {
       .where(eq(memoryJobs.type, 'extract_items'))
       .all();
     expect(extractionJobs).toHaveLength(0);
+  });
+
+  test('memory_save sets verificationState to user_confirmed', async () => {
+    const { handleMemorySave } = await import('../tools/memory/handlers.js');
+
+    const result = await handleMemorySave(
+      { statement: 'User explicitly saved this preference', kind: 'preference' },
+      DEFAULT_CONFIG,
+      'conv-verify-save',
+      'msg-verify-save',
+    );
+    expect(result.isError).toBe(false);
+
+    const db = getDb();
+    const items = db.select().from(memoryItems).all();
+    const saved = items.find((i) => i.statement === 'User explicitly saved this preference');
+    expect(saved).toBeDefined();
+    expect(saved!.verificationState).toBe('user_confirmed');
+  });
+
+  test('memory_update promotes verificationState to user_confirmed', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const { handleMemoryUpdate } = await import('../tools/memory/handlers.js');
+
+    // Pre-seed an assistant-inferred item
+    db.insert(memoryItems).values({
+      id: 'item-update-verify',
+      kind: 'fact',
+      subject: 'update test',
+      statement: 'Original assistant inferred statement',
+      status: 'active',
+      confidence: 0.6,
+      importance: 0.4,
+      fingerprint: 'fp-update-verify-original',
+      verificationState: 'assistant_inferred',
+      firstSeenAt: now,
+      lastSeenAt: now,
+      lastUsedAt: null,
+    }).run();
+
+    const result = await handleMemoryUpdate(
+      { memory_id: 'item-update-verify', statement: 'User corrected statement' },
+      DEFAULT_CONFIG,
+    );
+    expect(result.isError).toBe(false);
+
+    const updated = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-update-verify')).get();
+    expect(updated).toBeDefined();
+    expect(updated!.statement).toBe('User corrected statement');
+    expect(updated!.verificationState).toBe('user_confirmed');
+  });
+
+  test('extracted items from user messages get user_reported verification state', async () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-verify-extract',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-verify-user',
+      conversationId: 'conv-verify-extract',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'I prefer dark mode for all my editors and terminals.' }]),
+      createdAt: now,
+    }).run();
+
+    const upserted = await extractAndUpsertMemoryItemsForMessage('msg-verify-user');
+    expect(upserted).toBeGreaterThan(0);
+
+    const items = db.select().from(memoryItems).all();
+    const userItems = items.filter(i => i.verificationState === 'user_reported');
+    expect(userItems.length).toBeGreaterThan(0);
+  });
+
+  test('extracted items from assistant messages get assistant_inferred verification state', async () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-verify-assistant',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-verify-assistant',
+      conversationId: 'conv-verify-assistant',
+      role: 'assistant',
+      content: JSON.stringify([{ type: 'text', text: 'I noted that you prefer using TypeScript for all your projects.' }]),
+      createdAt: now,
+    }).run();
+
+    const upserted = await extractAndUpsertMemoryItemsForMessage('msg-verify-assistant');
+    expect(upserted).toBeGreaterThan(0);
+
+    const items = db.select().from(memoryItems).all();
+    const assistantItems = items.filter(i => i.verificationState === 'assistant_inferred');
+    expect(assistantItems.length).toBeGreaterThan(0);
+  });
+
+  test('verification state defaults to assistant_inferred for legacy rows', () => {
+    const db = getDb();
+    const raw = (db as unknown as { $client: { query: (q: string) => { get: (...params: unknown[]) => unknown } } }).$client;
+    // Simulate a legacy row without explicit verification_state
+    raw.query(`
+      INSERT INTO memory_items (id, kind, subject, statement, status, confidence, fingerprint, first_seen_at, last_seen_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).get(
+      'item-legacy-verify', 'fact', 'Legacy item', 'This is a legacy item', 'active', 0.5, 'fp-legacy-verify', Date.now(), Date.now(),
+    );
+
+    const item = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-legacy-verify')).get();
+    expect(item).toBeDefined();
+    expect(item!.verificationState).toBe('assistant_inferred');
   });
 
   test('recent segment helper returns newest segments first', () => {
@@ -1056,5 +1252,668 @@ describe('Memory V2 regressions', () => {
     const escaped = escapeXmlTags(text);
     expect(escaped).not.toContain('<br/>');
     expect(escaped).toContain('\uFF1Cbr/>');
+  });
+
+  test('trust-aware ranking: user_confirmed item outranks assistant_inferred with equal relevance', async () => {
+    const db = getDb();
+    const now = Date.now();
+
+    // Insert two memory items with identical text, confidence, importance, and timestamps
+    // but different verification states
+    db.insert(memoryItems).values([
+      {
+        id: 'item-trust-confirmed',
+        kind: 'fact',
+        subject: 'trust ranking test',
+        statement: 'The user prefers dark mode for all applications',
+        status: 'active',
+        confidence: 0.8,
+        importance: 0.5,
+        fingerprint: 'fp-trust-confirmed',
+        firstSeenAt: now,
+        lastSeenAt: now,
+        accessCount: 0,
+        verificationState: 'user_confirmed',
+      },
+      {
+        id: 'item-trust-inferred',
+        kind: 'fact',
+        subject: 'trust ranking test',
+        statement: 'The user prefers dark mode for all editors',
+        status: 'active',
+        confidence: 0.8,
+        importance: 0.5,
+        fingerprint: 'fp-trust-inferred',
+        firstSeenAt: now,
+        lastSeenAt: now,
+        accessCount: 0,
+        verificationState: 'assistant_inferred',
+      },
+    ]).run();
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: {
+          ...DEFAULT_CONFIG.memory.embeddings,
+          required: false,
+        },
+      },
+    };
+
+    const recall = await buildMemoryRecall('dark mode', 'conv-trust-test', config);
+
+    // Both items should be found (directItemSearch matches on "dark" and "mode")
+    const confirmed = recall.topCandidates.find((c) => c.key === 'item:item-trust-confirmed');
+    const inferred = recall.topCandidates.find((c) => c.key === 'item:item-trust-inferred');
+    expect(confirmed).toBeDefined();
+    expect(inferred).toBeDefined();
+
+    // user_confirmed (weight 1.0) should have a higher finalScore than assistant_inferred (weight 0.7)
+    expect(confirmed!.finalScore).toBeGreaterThan(inferred!.finalScore);
+  });
+
+  test('trust-aware ranking: user_reported item outranks assistant_inferred', async () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(memoryItems).values([
+      {
+        id: 'item-trust-reported',
+        kind: 'fact',
+        subject: 'trust ranking reported',
+        statement: 'The user uses vim keybindings in their editor',
+        status: 'active',
+        confidence: 0.8,
+        importance: 0.5,
+        fingerprint: 'fp-trust-reported',
+        firstSeenAt: now,
+        lastSeenAt: now,
+        accessCount: 0,
+        verificationState: 'user_reported',
+      },
+      {
+        id: 'item-trust-inferred2',
+        kind: 'fact',
+        subject: 'trust ranking inferred',
+        statement: 'The user uses vim keybindings in their terminal',
+        status: 'active',
+        confidence: 0.8,
+        importance: 0.5,
+        fingerprint: 'fp-trust-inferred2',
+        firstSeenAt: now,
+        lastSeenAt: now,
+        accessCount: 0,
+        verificationState: 'assistant_inferred',
+      },
+    ]).run();
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: {
+          ...DEFAULT_CONFIG.memory.embeddings,
+          required: false,
+        },
+      },
+    };
+
+    const recall = await buildMemoryRecall('vim keybindings', 'conv-trust-test2', config);
+
+    const reported = recall.topCandidates.find((c) => c.key === 'item:item-trust-reported');
+    const inferred = recall.topCandidates.find((c) => c.key === 'item:item-trust-inferred2');
+    expect(reported).toBeDefined();
+    expect(inferred).toBeDefined();
+
+    // user_reported (weight 0.9) should outrank assistant_inferred (weight 0.7)
+    expect(reported!.finalScore).toBeGreaterThan(inferred!.finalScore);
+  });
+
+  test('trust-aware ranking: weight values are bounded and non-zero', async () => {
+    const db = getDb();
+    const now = Date.now();
+
+    // Insert an item with an unknown verification state to test the default weight
+    const raw = (db as unknown as { $client: { query: (q: string) => { get: (...params: unknown[]) => unknown } } }).$client;
+    raw.query(`
+      INSERT INTO memory_items (id, kind, subject, statement, status, confidence, importance, fingerprint, first_seen_at, last_seen_at, access_count, verification_state)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).get(
+      'item-trust-unknown', 'fact', 'trust ranking unknown', 'The user has an unknown trust state preference',
+      'active', 0.8, 0.5, 'fp-trust-unknown', now, now, 0, 'some_future_state',
+    );
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: {
+          ...DEFAULT_CONFIG.memory.embeddings,
+          required: false,
+        },
+      },
+    };
+
+    const recall = await buildMemoryRecall('unknown trust state preference', 'conv-trust-test3', config);
+
+    const unknown = recall.topCandidates.find((c) => c.key === 'item:item-trust-unknown');
+    expect(unknown).toBeDefined();
+    // The finalScore should be > 0 (trust weight is bounded, not zero)
+    expect(unknown!.finalScore).toBeGreaterThan(0);
+  });
+
+  test('freshness decay: stale event item scores lower than fresh one', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const MS_PER_DAY = 86_400_000;
+
+    // Fresh event item (5 days old — well within the 30-day default window)
+    db.insert(memoryItems).values({
+      id: 'item-fresh-event',
+      kind: 'event',
+      subject: 'freshness decay test',
+      statement: 'User attended a workshop on machine learning',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-fresh-event',
+      firstSeenAt: now - 5 * MS_PER_DAY,
+      lastSeenAt: now - 5 * MS_PER_DAY,
+      accessCount: 0,
+      verificationState: 'user_confirmed',
+    }).run();
+
+    // Stale event item (60 days old — past the 30-day event window)
+    db.insert(memoryItems).values({
+      id: 'item-stale-event',
+      kind: 'event',
+      subject: 'freshness decay test',
+      statement: 'User attended a workshop on machine learning basics',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-stale-event',
+      firstSeenAt: now - 60 * MS_PER_DAY,
+      lastSeenAt: now - 60 * MS_PER_DAY,
+      accessCount: 0,
+      verificationState: 'user_confirmed',
+    }).run();
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: { ...DEFAULT_CONFIG.memory.embeddings, required: false },
+      },
+    };
+
+    const recall = await buildMemoryRecall('machine learning workshop', 'conv-fresh-1', config);
+
+    const fresh = recall.topCandidates.find((c) => c.key === 'item:item-fresh-event');
+    const stale = recall.topCandidates.find((c) => c.key === 'item:item-stale-event');
+    expect(fresh).toBeDefined();
+    expect(stale).toBeDefined();
+
+    // Fresh item should score higher than stale item due to freshness decay
+    expect(fresh!.finalScore).toBeGreaterThan(stale!.finalScore);
+  });
+
+  test('freshness decay: fact items with maxAgeDays=0 are never decayed', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const MS_PER_DAY = 86_400_000;
+
+    // Very old fact item (365 days) — facts have maxAgeDays=0 (no expiry)
+    db.insert(memoryItems).values({
+      id: 'item-old-fact',
+      kind: 'fact',
+      subject: 'freshness no-decay test',
+      statement: 'The speed of light is 299792458 meters per second',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-old-fact',
+      firstSeenAt: now - 365 * MS_PER_DAY,
+      lastSeenAt: now - 365 * MS_PER_DAY,
+      accessCount: 0,
+      verificationState: 'user_confirmed',
+    }).run();
+
+    // Recent fact with same text similarity
+    db.insert(memoryItems).values({
+      id: 'item-new-fact',
+      kind: 'fact',
+      subject: 'freshness no-decay test',
+      statement: 'The speed of light is approximately 3e8 meters per second',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-new-fact',
+      firstSeenAt: now - 1 * MS_PER_DAY,
+      lastSeenAt: now - 1 * MS_PER_DAY,
+      accessCount: 0,
+      verificationState: 'user_confirmed',
+    }).run();
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: { ...DEFAULT_CONFIG.memory.embeddings, required: false },
+      },
+    };
+
+    const recall = await buildMemoryRecall('speed of light', 'conv-fresh-2', config);
+
+    const oldFact = recall.topCandidates.find((c) => c.key === 'item:item-old-fact');
+    const newFact = recall.topCandidates.find((c) => c.key === 'item:item-new-fact');
+    expect(oldFact).toBeDefined();
+    expect(newFact).toBeDefined();
+
+    // Both should have similar scores — old facts are NOT decayed
+    // The scores may differ slightly due to recency scores, but the ratio should be close to 1
+    const ratio = oldFact!.finalScore / newFact!.finalScore;
+    expect(ratio).toBeGreaterThan(0.8);
+  });
+
+  test('sweepStaleItems marks deeply stale items as invalid', () => {
+    const db = getDb();
+    const now = Date.now();
+    const MS_PER_DAY = 86_400_000;
+
+    // Item 100 days old with kind=event (default maxAgeDays=30, so 2x=60 — past the deep-stale threshold)
+    db.insert(memoryItems).values({
+      id: 'item-deeply-stale',
+      kind: 'event',
+      subject: 'sweep test',
+      statement: 'Old event that should be swept',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-sweep-stale',
+      firstSeenAt: now - 100 * MS_PER_DAY,
+      lastSeenAt: now - 100 * MS_PER_DAY,
+      accessCount: 0,
+      verificationState: 'assistant_inferred',
+    }).run();
+
+    // Fresh event item — should NOT be swept
+    db.insert(memoryItems).values({
+      id: 'item-sweep-fresh',
+      kind: 'event',
+      subject: 'sweep test',
+      statement: 'Recent event that should not be swept',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-sweep-fresh',
+      firstSeenAt: now - 5 * MS_PER_DAY,
+      lastSeenAt: now - 5 * MS_PER_DAY,
+      accessCount: 0,
+      verificationState: 'assistant_inferred',
+    }).run();
+
+    const marked = sweepStaleItems(DEFAULT_CONFIG);
+    expect(marked).toBeGreaterThanOrEqual(1);
+
+    const staleItem = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-deeply-stale')).get();
+    expect(staleItem).toBeDefined();
+    expect(staleItem!.invalidAt).not.toBeNull();
+
+    const freshItem = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-sweep-fresh')).get();
+    expect(freshItem).toBeDefined();
+    expect(freshItem!.invalidAt).toBeNull();
+  });
+
+  test('sweepStaleItems shields items with recent lastUsedAt', () => {
+    const db = getDb();
+    const now = Date.now();
+    const MS_PER_DAY = 86_400_000;
+
+    // Old event (100 days) but recently retrieved (lastUsedAt = 2 days ago)
+    // reinforcementShieldDays defaults to 14, so this should be shielded
+    db.insert(memoryItems).values({
+      id: 'item-sweep-shielded',
+      kind: 'event',
+      subject: 'sweep shield test',
+      statement: 'Old event that was recently used',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-sweep-shielded',
+      firstSeenAt: now - 100 * MS_PER_DAY,
+      lastSeenAt: now - 100 * MS_PER_DAY,
+      lastUsedAt: now - 2 * MS_PER_DAY,
+      accessCount: 3,
+      verificationState: 'assistant_inferred',
+    }).run();
+
+    const marked = sweepStaleItems(DEFAULT_CONFIG);
+
+    // Sweep ran but shielded item was not marked — should return 0
+    expect(marked).toBe(0);
+
+    const shieldedItem = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-sweep-shielded')).get();
+    expect(shieldedItem).toBeDefined();
+    expect(shieldedItem!.invalidAt).toBeNull();
+  });
+
+  test('scope columns: memory items default to scope_id=default', () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(memoryItems).values({
+      id: 'item-scope-default',
+      kind: 'fact',
+      subject: 'scope test',
+      statement: 'This item should have default scope',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-scope-default',
+      firstSeenAt: now,
+      lastSeenAt: now,
+      accessCount: 0,
+      verificationState: 'user_confirmed',
+    }).run();
+
+    const item = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-scope-default')).get();
+    expect(item).toBeDefined();
+    expect(item!.scopeId).toBe('default');
+  });
+
+  test('scope columns: memory items can be inserted with explicit scope_id', () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(memoryItems).values({
+      id: 'item-scope-custom',
+      kind: 'fact',
+      subject: 'scope test',
+      statement: 'This item has a custom scope',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-scope-custom',
+      scopeId: 'project-abc',
+      firstSeenAt: now,
+      lastSeenAt: now,
+      accessCount: 0,
+      verificationState: 'user_confirmed',
+    }).run();
+
+    const item = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-scope-custom')).get();
+    expect(item).toBeDefined();
+    expect(item!.scopeId).toBe('project-abc');
+  });
+
+  test('scope columns: segments get scopeId from indexer input', () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(conversations).values({
+      id: 'conv-scope-test',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-scope-test',
+      conversationId: 'conv-scope-test',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Remember my scope preference' }]),
+      createdAt: now,
+    }).run();
+
+    indexMessageNow({
+      messageId: 'msg-scope-test',
+      conversationId: 'conv-scope-test',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Remember my scope preference' }]),
+      createdAt: now,
+      scopeId: 'project-xyz',
+    }, DEFAULT_CONFIG.memory);
+
+    const segments = db.select().from(memorySegments).where(eq(memorySegments.messageId, 'msg-scope-test')).all();
+    expect(segments.length).toBeGreaterThan(0);
+    for (const seg of segments) {
+      expect(seg.scopeId).toBe('project-xyz');
+    }
+  });
+
+  test('scope filtering: retrieval excludes items from other scopes', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = 'conv-scope-filter';
+
+    db.insert(conversations).values({
+      id: convId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-scope-filter',
+      conversationId: convId,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'scope test' }]),
+      createdAt: now,
+    }).run();
+
+    // Insert segment in scope "project-a"
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-scope-a', 'msg-scope-filter', '${convId}', 'user', 0, 'The quick brown fox jumps over the lazy dog in project alpha', 12, 'project-a', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-scope-a', 'The quick brown fox jumps over the lazy dog in project alpha')`);
+
+    // Insert segment in scope "project-b"
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-scope-b', 'msg-scope-filter', '${convId}', 'user', 1, 'The quick brown fox jumps over the lazy dog in project beta', 12, 'project-b', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-scope-b', 'The quick brown fox jumps over the lazy dog in project beta')`);
+
+    // Insert item in scope "project-a"
+    db.insert(memoryItems).values({
+      id: 'item-scope-a',
+      kind: 'fact',
+      subject: 'fox',
+      statement: 'The fox is quick and brown in project alpha',
+      status: 'active',
+      confidence: 0.9,
+      importance: 0.8,
+      fingerprint: 'fp-scope-a',
+      verificationState: 'user_confirmed',
+      scopeId: 'project-a',
+      firstSeenAt: now,
+      lastSeenAt: now,
+    }).run();
+
+    // Insert item in scope "project-b"
+    db.insert(memoryItems).values({
+      id: 'item-scope-b',
+      kind: 'fact',
+      subject: 'fox',
+      statement: 'The fox is quick and brown in project beta',
+      status: 'active',
+      confidence: 0.9,
+      importance: 0.8,
+      fingerprint: 'fp-scope-b',
+      verificationState: 'user_confirmed',
+      scopeId: 'project-b',
+      firstSeenAt: now,
+      lastSeenAt: now,
+    }).run();
+
+    // Query with scopeId "project-a" — should only find project-a items
+    const config = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
+      },
+    };
+    const result = await buildMemoryRecall('quick brown fox', convId, config, { scopeId: 'project-a' });
+    const keys = result.topCandidates.map((c) => c.key);
+
+    // Segments and items from project-b should not appear
+    expect(keys).not.toContain('segment:seg-scope-b');
+    expect(keys).not.toContain('item:item-scope-b');
+
+    // At least one project-a candidate should appear
+    const hasProjectA = keys.some((k) => k.includes('scope-a'));
+    expect(hasProjectA).toBe(true);
+  });
+
+  test('scope filtering: allow_global_fallback includes default scope', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = 'conv-scope-fallback';
+
+    db.insert(conversations).values({
+      id: convId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-scope-fallback',
+      conversationId: convId,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'fallback test' }]),
+      createdAt: now,
+    }).run();
+
+    // Insert segment in default scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-default-scope', 'msg-scope-fallback', '${convId}', 'user', 0, 'Universal knowledge about programming languages and paradigms', 10, 'default', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-default-scope', 'Universal knowledge about programming languages and paradigms')`);
+
+    // Insert segment in custom scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-custom-scope', 'msg-scope-fallback', '${convId}', 'user', 1, 'Project-specific knowledge about programming languages and paradigms', 10, 'my-project', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-custom-scope', 'Project-specific knowledge about programming languages and paradigms')`);
+
+    // With allow_global_fallback (the default), querying with scopeId "my-project"
+    // should include both "my-project" and "default" scope items
+    const config = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
+      },
+    };
+    const result = await buildMemoryRecall('programming languages', convId, config, { scopeId: 'my-project' });
+    const keys = result.topCandidates.map((c) => c.key);
+
+    // Both default and custom scope segments should be included
+    expect(keys).toContain('segment:seg-default-scope');
+    expect(keys).toContain('segment:seg-custom-scope');
+  });
+
+  test('scope filtering: strict policy excludes default scope', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = 'conv-scope-strict';
+
+    db.insert(conversations).values({
+      id: convId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-scope-strict',
+      conversationId: convId,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'strict test' }]),
+      createdAt: now,
+    }).run();
+
+    // Insert segment in default scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-strict-default', 'msg-scope-strict', '${convId}', 'user', 0, 'Global memory about database optimization techniques', 8, 'default', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-strict-default', 'Global memory about database optimization techniques')`);
+
+    // Insert segment in custom scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-strict-custom', 'msg-scope-strict', '${convId}', 'user', 1, 'Project-specific memory about database optimization techniques', 8, 'strict-project', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-strict-custom', 'Project-specific memory about database optimization techniques')`);
+
+    // With strict policy, querying with scopeId should only include that scope
+    const strictConfig = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
+        retrieval: {
+          ...TEST_CONFIG.memory.retrieval,
+          scopePolicy: 'strict' as const,
+        },
+      },
+    };
+
+    const result = await buildMemoryRecall('database optimization', convId, strictConfig, { scopeId: 'strict-project' });
+    const keys = result.topCandidates.map((c) => c.key);
+
+    // Only strict-project scope segment should appear
+    expect(keys).not.toContain('segment:seg-strict-default');
+    expect(keys).toContain('segment:seg-strict-custom');
+  });
+
+  test('scope columns: summaries default to scope_id=default', () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(memorySummaries).values({
+      id: 'summary-scope-test',
+      scope: 'weekly_global',
+      scopeKey: '2025-W01',
+      summary: 'Test summary for scope',
+      tokenEstimate: 10,
+      startAt: now - 7 * 86_400_000,
+      endAt: now,
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+
+    const summary = db.select().from(memorySummaries).where(eq(memorySummaries.id, 'summary-scope-test')).get();
+    expect(summary).toBeDefined();
+    expect(summary!.scopeId).toBe('default');
   });
 });

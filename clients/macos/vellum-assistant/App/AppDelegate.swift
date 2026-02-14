@@ -89,12 +89,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public let daemonClient = DaemonClient()
     let surfaceManager = SurfaceManager()
     let toolConfirmationManager = ToolConfirmationManager()
+    let secretPromptManager = SecretPromptManager()
     private let daemonLauncher = DaemonLauncher()
     private let updateManager = UpdateManager()
 
     private var onboardingWindow: OnboardingWindow?
     private var mainWindow: MainWindow?
     private var settingsWindow: NSWindow?
+    private var bundleConfirmationWindow: BundleConfirmationWindow?
+    /// Tracks file paths of .vellumapp bundles awaiting daemon responses (FIFO).
+    /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
+    /// pops the first entry so concurrent opens are correctly paired.
+    private var pendingBundleFilePaths: [String] = []
     #if DEBUG
     private var galleryWindow: ComponentGalleryWindow?
     #endif
@@ -103,6 +109,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var recordingViewModel: ChatViewModel?
     private var statusIconCancellable: AnyCancellable?
     private var cachedSkills: [SkillInfo] = []
+    private var refreshSkillsTask: Task<Void, Never>?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -127,6 +134,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupAmbientAgent()
         setupSurfaceManager()
         setupToolConfirmationManager()
+        setupSecretPromptManager()
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
@@ -151,6 +159,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     log.error("Failed to post timer notification: \(error.localizedDescription)")
                 }
             }
+        }
+
+        // Handle open_bundle_response from the daemon
+        daemonClient.onOpenBundleResponse = { [weak self] response in
+            guard let self else { return }
+            self.handleOpenBundleResponse(response)
+        }
+
+        // Refresh skills cache whenever skill state changes through any path
+        daemonClient.onSkillStateChanged = { [weak self] _ in
+            self?.refreshSkillsCache()
         }
 
         // Handle escalation: text_qa -> computer_use via request_computer_control
@@ -302,6 +321,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 return true
             } catch {
                 log.error("Failed to send add_trust_rule: \(error.localizedDescription)")
+                return false
+            }
+        }
+    }
+
+    private func setupSecretPromptManager() {
+        daemonClient.onSecretRequest = { [weak self] msg in
+            self?.secretPromptManager.showPrompt(msg)
+        }
+        secretPromptManager.onResponse = { [weak self] requestId, value in
+            guard let self else { return false }
+            do {
+                try self.daemonClient.sendSecretResponse(requestId: requestId, value: value)
+                return true
+            } catch {
+                log.error("Failed to send secret response: \(error.localizedDescription)")
                 return false
             }
         }
@@ -533,12 +568,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshSkillsCache() {
-        Task {
+        // Cancel any in-flight refresh so we don't consume a stale response.
+        // The new task will send its own request and wait for the next response,
+        // ensuring the cache always reflects the latest daemon state.
+        refreshSkillsTask?.cancel()
+        refreshSkillsTask = Task {
             let stream = daemonClient.subscribe()
             do {
                 try daemonClient.send(SkillsListRequestMessage())
             } catch { return }
             for await message in stream {
+                guard !Task.isCancelled else { return }
                 if case .skillsListResponse(let response) = message {
                     self.cachedSkills = response.skills
                     return
@@ -574,6 +614,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.currentTextSession?.cancel()
                     self?.surfaceManager.dismissAll()
                     self?.toolConfirmationManager.dismissAll()
+                    self?.secretPromptManager.dismissAll()
                 }
             }
         }
@@ -726,6 +767,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.setupAmbientAgent()
             self?.setupSurfaceManager()
             self?.setupToolConfirmationManager()
+            self?.setupSecretPromptManager()
             self?.setupWindowObserver()
             self?.setupNotifications()
             self?.setupAutoUpdate()
@@ -1059,6 +1101,162 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - File Open Handler
+
+    public func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard url.pathExtension == "vellumapp" else { continue }
+            log.info("Opening .vellumapp file: \(url.path)")
+
+            guard daemonClient.isConnected else {
+                log.warning("Cannot open bundle: daemon not connected")
+                continue
+            }
+
+            do {
+                pendingBundleFilePaths.append(url.path)
+                try daemonClient.sendOpenBundle(filePath: url.path)
+            } catch {
+                log.error("Failed to send open_bundle message: \(error.localizedDescription)")
+                // Remove the path we just appended since the send failed
+                if let idx = pendingBundleFilePaths.lastIndex(of: url.path) {
+                    pendingBundleFilePaths.remove(at: idx)
+                }
+            }
+        }
+    }
+
+    // MARK: - Bundle Open Handling
+
+    private func handleOpenBundleResponse(_ response: OpenBundleResponseMessage) {
+        let filePath = pendingBundleFilePaths.isEmpty ? "" : pendingBundleFilePaths.removeFirst()
+
+        // Check format version compatibility
+        if response.manifest.formatVersion > 1 {
+            let alert = NSAlert()
+            alert.messageText = "Incompatible App"
+            alert.informativeText = "This app requires a newer version of vellum-assistant."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        // If scan blocked, show error alert
+        if !response.scanResult.passed {
+            let reason = response.scanResult.blocked.first ?? "Unknown security issue"
+            let alert = NSAlert()
+            alert.messageText = "This app can't be opened"
+            alert.informativeText = "Security scan found: \(reason)"
+            alert.alertStyle = .critical
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        // Show confirmation dialog
+        let viewModel = BundleConfirmationViewModel(
+            response: response,
+            filePath: filePath
+        )
+
+        let confirmWindow = BundleConfirmationWindow()
+        self.bundleConfirmationWindow = confirmWindow
+
+        viewModel.onConfirm = { [weak self] in
+            guard let self else { return }
+            confirmWindow.close()
+            self.bundleConfirmationWindow = nil
+            self.unpackAndLoadBundle(
+                filePath: filePath,
+                manifest: response.manifest,
+                signatureResult: response.signatureResult,
+                bundleSizeBytes: response.bundleSizeBytes
+            )
+        }
+
+        viewModel.onCancel = { [weak self] in
+            confirmWindow.close()
+            self?.bundleConfirmationWindow = nil
+        }
+
+        confirmWindow.show(viewModel: viewModel)
+    }
+
+    private func unpackAndLoadBundle(
+        filePath: String,
+        manifest: OpenBundleResponseMessage.Manifest,
+        signatureResult: OpenBundleResponseMessage.SignatureResult,
+        bundleSizeBytes: Int
+    ) {
+        // Run the unzip on a background thread to avoid blocking the UI.
+        Task.detached {
+            do {
+                let (uuid, _) = try BundleSandbox.unpack(
+                    filePath: filePath,
+                    manifest: manifest,
+                    signatureResult: signatureResult,
+                    bundleSizeBytes: bundleSizeBytes
+                )
+
+                await MainActor.run {
+                    // Build the vellumapp:// URL for the entry point.
+                    // Sanitize manifest.entry to prevent JS string breakout.
+                    let sanitizedEntry = manifest.entry
+                        .replacingOccurrences(of: "\\", with: "")
+                        .replacingOccurrences(of: "'", with: "")
+                    let entryURL = "\(VellumAppSchemeHandler.scheme)://\(uuid)/\(sanitizedEntry)"
+                    log.info("Loading shared app at \(entryURL)")
+
+                    // HTML-escape manifest.name to prevent XSS injection.
+                    let safeName = Self.htmlEscape(manifest.name)
+
+                    // Load the shared app as a surface via SurfaceManager
+                    let surfaceId = "shared-app-\(uuid)"
+                    let html = """
+                    <!DOCTYPE html>
+                    <html>
+                    <head><meta charset="utf-8"><title>\(safeName)</title></head>
+                    <body>
+                        <script>window.location.href = '\(entryURL)';</script>
+                    </body>
+                    </html>
+                    """
+                    let surfaceMsg = UiSurfaceShowMessage(
+                        sessionId: "shared-app",
+                        surfaceId: surfaceId,
+                        surfaceType: "dynamic_page",
+                        title: manifest.name,
+                        data: AnyCodable(["html": html]),
+                        actions: nil,
+                        display: "panel"
+                    )
+                    self.surfaceManager.showSurface(surfaceMsg)
+                }
+            } catch {
+                await MainActor.run {
+                    log.error("Failed to unpack bundle: \(error.localizedDescription)")
+                    let alert = NSAlert()
+                    alert.messageText = "Failed to open app"
+                    alert.informativeText = error.localizedDescription
+                    alert.alertStyle = .critical
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
+            }
+        }
+    }
+
+    /// HTML-escape a string to prevent injection when interpolated into HTML.
+    private static func htmlEscape(_ string: String) -> String {
+        string
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
+    }
+
     public func applicationWillTerminate(_ notification: Notification) {
         if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)
@@ -1074,6 +1272,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         ambientAgent.stop()
         surfaceManager.dismissAll()
         toolConfirmationManager.dismissAll()
+        secretPromptManager.dismissAll()
         daemonLauncher.stop()
     }
 }

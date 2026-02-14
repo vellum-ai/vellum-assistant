@@ -24,7 +24,8 @@ struct VSidePanel<PinnedContent: View, Content: View>: View {
                     .accessibilityLabel("Close \(title)")
                 }
             }
-            .padding(VSpacing.lg)
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.vertical, VSpacing.lg)
 
             Divider()
                 .background(VColor.surfaceBorder)
@@ -68,26 +69,38 @@ extension VSidePanel where PinnedContent == EmptyView {
     .frame(width: 300, height: 300)
 }
 
-#Preview("VSidePanel with Pinned Content") {
-    @Previewable @State var tab = 1
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VSidePanel(title: "Control", onClose: {}, pinnedContent: {
-            VSegmentedControl(
-                items: ["Profile", "Settings", "Channels", "Overview"],
-                selection: $tab
-            )
-            Divider().background(VColor.surfaceBorder)
-        }) {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Tab content here")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                Text("The tab bar above stays pinned while this scrolls.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+#if DEBUG
+struct VSidePanel_PinnedContent_Preview: PreviewProvider {
+    static var previews: some View {
+        VSidePanelPinnedPreviewWrapper()
+            .frame(width: 400, height: 350)
+            .previewDisplayName("VSidePanel with Pinned Content")
+    }
+}
+
+private struct VSidePanelPinnedPreviewWrapper: View {
+    @State private var tab = 1
+
+    var body: some View {
+        ZStack {
+            VColor.background.ignoresSafeArea()
+            VSidePanel(title: "Control", onClose: {}, pinnedContent: {
+                VSegmentedControl(
+                    items: ["Profile", "Settings", "Channels", "Overview"],
+                    selection: $tab
+                )
+                Divider().background(VColor.surfaceBorder)
+            }) {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Tab content here")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("The tab bar above stays pinned while this scrolls.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
             }
         }
     }
-    .frame(width: 400, height: 350)
 }
+#endif
