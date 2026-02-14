@@ -1,0 +1,468 @@
+/* ============================================================
+   Vellum Design System — CSS Tokens & Components
+   Translated from SwiftUI DesignSystem (ColorTokens, VColor,
+   VSpacing, VRadius, VShadow, VAnimation, VFont)
+   ============================================================
+   Layer 0: Reset
+   Layer 1: Tokens (CSS custom properties, light + dark)
+   Layer 2: Element defaults
+   Layer 3: Component classes (.v-*)
+   Layer 4: Utility classes
+   ============================================================ */
+
+/* ─── Layer 0: Reset ─────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* ─── Layer 1: Tokens ────────────────────────────────────────── */
+
+:root {
+  /* ── Palette: Slate ─────────────────────────────────────────── */
+  --v-slate-950: #070D19;
+  --v-slate-900: #0F172A;
+  --v-slate-800: #1E293B;
+  --v-slate-700: #334155;
+  --v-slate-600: #475569;
+  --v-slate-500: #64748B;
+  --v-slate-400: #94A3B8;
+  --v-slate-300: #CBD5E1;
+  --v-slate-200: #E2E8F0;
+  --v-slate-100: #F1F5F9;
+  --v-slate-50:  #F8FAFC;
+
+  /* ── Palette: Emerald ───────────────────────────────────────── */
+  --v-emerald-950: #073D2E;
+  --v-emerald-900: #0A5843;
+  --v-emerald-800: #0C7356;
+  --v-emerald-700: #10906A;
+  --v-emerald-600: #18B07A;
+  --v-emerald-500: #38CF93;
+  --v-emerald-400: #6EE7B5;
+  --v-emerald-300: #A6F2D1;
+  --v-emerald-200: #D2F9E8;
+  --v-emerald-100: #ECFDF5;
+
+  /* ── Palette: Violet ────────────────────────────────────────── */
+  --v-violet-950: #321669;
+  --v-violet-900: #4A2390;
+  --v-violet-800: #5C2FB2;
+  --v-violet-700: #7240CC;
+  --v-violet-600: #8A5BE0;
+  --v-violet-500: #9878EA;
+  --v-violet-400: #B8A6F1;
+  --v-violet-300: #D4C8F7;
+  --v-violet-200: #E8E1FB;
+  --v-violet-100: #F4F0FD;
+
+  /* ── Palette: Indigo ────────────────────────────────────────── */
+  --v-indigo-950: #180F66;
+  --v-indigo-900: #261A96;
+  --v-indigo-800: #3525C4;
+  --v-indigo-700: #4636E8;
+  --v-indigo-600: #5B4EFF;
+  --v-indigo-500: #7B6BFF;
+  --v-indigo-400: #9488FF;
+  --v-indigo-300: #B8B4FF;
+  --v-indigo-200: #D8D8FF;
+  --v-indigo-100: #EEEEEE;
+
+  /* ── Palette: Rose ──────────────────────────────────────────── */
+  --v-rose-950: #620F21;
+  --v-rose-900: #85142F;
+  --v-rose-800: #A8183E;
+  --v-rose-700: #D02050;
+  --v-rose-600: #E84060;
+  --v-rose-500: #F06A86;
+  --v-rose-400: #F99AAE;
+  --v-rose-300: #FCBFC9;
+  --v-rose-200: #FFE1E6;
+  --v-rose-100: #FFF1F3;
+
+  /* ── Palette: Amber ─────────────────────────────────────────── */
+  --v-amber-950: #5E3207;
+  --v-amber-900: #7A4409;
+  --v-amber-800: #A35E0C;
+  --v-amber-700: #C97C10;
+  --v-amber-600: #E8A020;
+  --v-amber-500: #FAC426;
+  --v-amber-400: #FDD94E;
+  --v-amber-300: #FEEC94;
+  --v-amber-200: #FEF7CD;
+  --v-amber-100: #FEFCE8;
+
+  /* ── Semantic Colors (Light Mode — default) ─────────────────── */
+  --v-bg:             #FFFFFF;
+  --v-surface:        #F5F5F7;
+  --v-surface-border: #D2D2D7;
+  --v-text:           #1D1D1F;
+  --v-text-secondary: #86868B;
+  --v-text-muted:     #AEAEB2;
+  --v-accent:         var(--v-violet-600);
+  --v-accent-hover:   var(--v-violet-700);
+  --v-success:        var(--v-emerald-600);
+  --v-danger:         var(--v-rose-600);
+  --v-warning:        var(--v-amber-600);
+
+  /* ── Spacing (4pt grid) ─────────────────────────────────────── */
+  --v-spacing-xxs:  2px;
+  --v-spacing-xs:   4px;
+  --v-spacing-sm:   8px;
+  --v-spacing-md:   12px;
+  --v-spacing-lg:   16px;
+  --v-spacing-xl:   24px;
+  --v-spacing-xxl:  32px;
+  --v-spacing-xxxl: 48px;
+
+  /* ── Radius ─────────────────────────────────────────────────── */
+  --v-radius-xs:   2px;
+  --v-radius-sm:   4px;
+  --v-radius-md:   8px;
+  --v-radius-lg:   12px;
+  --v-radius-xl:   16px;
+  --v-radius-pill: 999px;
+
+  /* ── Shadows ────────────────────────────────────────────────── */
+  --v-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.08);
+  --v-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.12);
+  --v-shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.16);
+
+  /* ── Animation ──────────────────────────────────────────────── */
+  --v-duration-fast:     0.15s;
+  --v-duration-standard: 0.25s;
+  --v-duration-slow:     0.4s;
+
+  /* ── Typography ─────────────────────────────────────────────── */
+  --v-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Helvetica Neue", sans-serif;
+  --v-font-mono: "SF Mono", SFMono-Regular, ui-monospace, Menlo,
+    Monaco, monospace;
+  --v-font-size-xs:   10px;
+  --v-font-size-sm:   11px;
+  --v-font-size-base: 14px;
+  --v-font-size-lg:   17px;
+  --v-font-size-xl:   22px;
+  --v-font-size-2xl:  26px;
+  --v-line-height:    1.5;
+}
+
+/* ── Dark Mode (matches SwiftUI VColor semantic values) ───────── */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --v-bg:             var(--v-slate-950);
+    --v-surface:        var(--v-slate-800);
+    --v-surface-border: var(--v-slate-700);
+    --v-text:           var(--v-slate-50);
+    --v-text-secondary: var(--v-slate-400);
+    --v-text-muted:     var(--v-slate-500);
+
+    --v-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
+    --v-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4);
+    --v-shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* ─── Layer 2: Element Defaults ──────────────────────────────── */
+
+body {
+  margin: 0;
+  font-family: var(--v-font-family);
+  font-size: var(--v-font-size-base);
+  line-height: var(--v-line-height);
+  color: var(--v-text);
+  background: var(--v-bg);
+  padding: var(--v-spacing-xl);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  line-height: 1.2;
+  margin: 0 0 var(--v-spacing-md) 0;
+  color: var(--v-text);
+}
+
+h1 { font-size: var(--v-font-size-2xl); font-weight: 700; }
+h2 { font-size: var(--v-font-size-xl); font-weight: 600; }
+h3 { font-size: var(--v-font-size-lg); font-weight: 600; }
+h4 { font-size: var(--v-font-size-base); font-weight: 600; }
+h5 { font-size: var(--v-font-size-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+h6 { font-size: var(--v-font-size-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+
+p { margin: 0 0 var(--v-spacing-md) 0; }
+
+a {
+  color: var(--v-accent);
+  text-decoration: none;
+}
+a:hover { text-decoration: underline; }
+
+button {
+  font-family: var(--v-font-family);
+  font-size: var(--v-font-size-base);
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+}
+
+input, textarea, select {
+  font-family: var(--v-font-family);
+  font-size: var(--v-font-size-base);
+  padding: var(--v-spacing-sm) var(--v-spacing-md);
+  background: var(--v-bg);
+  color: var(--v-text);
+  border: 1px solid var(--v-surface-border);
+  border-radius: var(--v-radius-md);
+  outline: none;
+  transition: border-color var(--v-duration-fast) ease-out;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--v-accent);
+}
+
+textarea { resize: vertical; }
+
+code {
+  font-family: var(--v-font-mono);
+  font-size: 0.9em;
+  background: var(--v-surface);
+  padding: var(--v-spacing-xxs) var(--v-spacing-xs);
+  border-radius: var(--v-radius-sm);
+}
+
+pre {
+  font-family: var(--v-font-mono);
+  font-size: var(--v-font-size-sm);
+  background: var(--v-surface);
+  padding: var(--v-spacing-lg);
+  border-radius: var(--v-radius-md);
+  overflow-x: auto;
+  margin: 0 0 var(--v-spacing-md) 0;
+}
+pre code {
+  background: none;
+  padding: 0;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid var(--v-surface-border);
+  margin: var(--v-spacing-xl) 0;
+}
+
+ul, ol { padding-left: var(--v-spacing-xl); margin: 0 0 var(--v-spacing-md) 0; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 var(--v-spacing-md) 0;
+}
+th, td {
+  text-align: left;
+  padding: var(--v-spacing-sm) var(--v-spacing-md);
+  border-bottom: 1px solid var(--v-surface-border);
+}
+th { font-weight: 600; color: var(--v-text-secondary); font-size: var(--v-font-size-sm); }
+
+/* ─── Layer 3: Component Classes ─────────────────────────────── */
+
+/* Button variants */
+.v-button {
+  font-family: var(--v-font-family);
+  font-size: var(--v-font-size-base);
+  font-weight: 500;
+  padding: var(--v-spacing-sm) var(--v-spacing-lg);
+  background: var(--v-accent);
+  color: white;
+  border: none;
+  border-radius: var(--v-radius-md);
+  cursor: pointer;
+  transition: filter var(--v-duration-fast) ease-out,
+              transform var(--v-duration-fast) ease-out;
+}
+.v-button:hover { filter: brightness(1.1); }
+.v-button:active { transform: scale(0.97); }
+.v-button:disabled { opacity: 0.4; cursor: not-allowed; filter: none; transform: none; }
+.v-button.secondary {
+  background: var(--v-surface);
+  color: var(--v-text);
+  border: 1px solid var(--v-surface-border);
+}
+.v-button.secondary:hover { filter: brightness(0.95); }
+.v-button.danger {
+  background: var(--v-danger);
+}
+.v-button.ghost {
+  background: transparent;
+  color: var(--v-accent);
+}
+.v-button.ghost:hover { background: var(--v-surface); filter: none; }
+
+/* Focus-visible for keyboard accessibility */
+.v-button:focus-visible {
+  outline: 2px solid var(--v-accent);
+  outline-offset: 2px;
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  border-color: var(--v-accent);
+  outline: 2px solid var(--v-accent);
+  outline-offset: -1px;
+}
+
+/* Card */
+.v-card {
+  background: var(--v-surface);
+  border: 1px solid var(--v-surface-border);
+  border-radius: var(--v-radius-lg);
+  padding: var(--v-spacing-lg);
+  box-shadow: var(--v-shadow-sm);
+}
+
+/* Badge */
+.v-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--v-font-size-xs);
+  font-weight: 600;
+  padding: var(--v-spacing-xxs) var(--v-spacing-sm);
+  border-radius: var(--v-radius-pill);
+  background: var(--v-surface);
+  color: var(--v-text-secondary);
+}
+.v-badge.success { background: color-mix(in srgb, var(--v-success) 15%, transparent); color: var(--v-success); }
+.v-badge.danger  { background: color-mix(in srgb, var(--v-danger) 15%, transparent);  color: var(--v-danger); }
+.v-badge.warning { background: color-mix(in srgb, var(--v-warning) 15%, transparent); color: var(--v-warning); }
+
+/* List */
+.v-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.v-list-item {
+  padding: var(--v-spacing-md) var(--v-spacing-lg);
+  border-radius: var(--v-radius-md);
+  transition: background var(--v-duration-fast) ease-out;
+}
+.v-list-item:hover { background: var(--v-surface); }
+.v-list-item:focus-visible {
+  outline: 2px solid var(--v-accent);
+  outline-offset: -2px;
+}
+
+/* Empty state */
+.v-empty-state {
+  text-align: center;
+  color: var(--v-text-muted);
+  padding: var(--v-spacing-xxl) var(--v-spacing-lg);
+  font-size: var(--v-font-size-base);
+}
+
+/* Toggle switch */
+.v-toggle {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+}
+.v-toggle input {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.v-toggle-track {
+  position: absolute;
+  inset: 0;
+  background: var(--v-surface-border);
+  border-radius: var(--v-radius-pill);
+  cursor: pointer;
+  transition: background var(--v-duration-fast) ease-out;
+}
+.v-toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 18px; height: 18px;
+  background: white;
+  border-radius: 50%;
+  transition: transform var(--v-duration-fast) ease-out;
+}
+.v-toggle input:checked + .v-toggle-track {
+  background: var(--v-accent);
+}
+.v-toggle input:checked + .v-toggle-track::after {
+  transform: translateX(18px);
+}
+.v-toggle input:focus-visible + .v-toggle-track {
+  outline: 2px solid var(--v-accent);
+  outline-offset: 2px;
+}
+
+/* Input row (input + button combo) */
+.v-input-row {
+  display: flex;
+  gap: var(--v-spacing-sm);
+}
+.v-input-row input,
+.v-input-row .v-input {
+  flex: 1;
+}
+
+/* ─── Layer 4: Utility Classes ───────────────────────────────── */
+
+/* Flexbox */
+.v-flex       { display: flex; }
+.v-flex-col   { display: flex; flex-direction: column; }
+.v-flex-wrap  { flex-wrap: wrap; }
+.v-items-center    { align-items: center; }
+.v-justify-between { justify-content: space-between; }
+.v-justify-center  { justify-content: center; }
+
+/* Gap */
+.v-gap-xs  { gap: var(--v-spacing-xs); }
+.v-gap-sm  { gap: var(--v-spacing-sm); }
+.v-gap-md  { gap: var(--v-spacing-md); }
+.v-gap-lg  { gap: var(--v-spacing-lg); }
+.v-gap-xl  { gap: var(--v-spacing-xl); }
+
+/* Text */
+.v-text-secondary { color: var(--v-text-secondary); }
+.v-text-muted     { color: var(--v-text-muted); }
+.v-text-accent    { color: var(--v-accent); }
+.v-text-xs  { font-size: var(--v-font-size-xs); }
+.v-text-sm  { font-size: var(--v-font-size-sm); }
+.v-text-lg  { font-size: var(--v-font-size-lg); }
+.v-font-mono { font-family: var(--v-font-mono); }
+
+/* Layout */
+.v-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.v-w-full { width: 100%; }
+
+/* Accessibility */
+.v-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
