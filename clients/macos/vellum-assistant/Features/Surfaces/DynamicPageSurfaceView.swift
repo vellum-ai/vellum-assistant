@@ -145,6 +145,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         contentController.add(context.coordinator, name: "vellumBridge")
 
         let configuration = WKWebViewConfiguration()
+        configuration.setURLSchemeHandler(VellumAppSchemeHandler(), forURLScheme: VellumAppSchemeHandler.scheme)
         configuration.userContentController = contentController
 
         #if DEBUG

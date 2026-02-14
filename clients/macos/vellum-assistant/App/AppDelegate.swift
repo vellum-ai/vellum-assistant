@@ -95,9 +95,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: MainWindow?
     private var settingsWindow: NSWindow?
     private var bundleConfirmationWindow: BundleConfirmationWindow?
-    /// Tracks the file path of the .vellumapp currently being confirmed, so we
-    /// can associate the daemon's open_bundle_response with the correct file.
-    private var pendingBundleFilePath: String?
+    /// Tracks file paths of .vellumapp bundles awaiting daemon responses (FIFO).
+    /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
+    /// pops the first entry so concurrent opens are correctly paired.
+    private var pendingBundleFilePaths: [String] = []
     #if DEBUG
     private var galleryWindow: ComponentGalleryWindow?
     #endif
@@ -1092,11 +1093,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             do {
-                pendingBundleFilePath = url.path
+                pendingBundleFilePaths.append(url.path)
                 try daemonClient.sendOpenBundle(filePath: url.path)
             } catch {
                 log.error("Failed to send open_bundle message: \(error.localizedDescription)")
-                pendingBundleFilePath = nil
+                // Remove the path we just appended since the send failed
+                if let idx = pendingBundleFilePaths.lastIndex(of: url.path) {
+                    pendingBundleFilePaths.remove(at: idx)
+                }
             }
         }
     }
@@ -1104,8 +1108,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Bundle Open Handling
 
     private func handleOpenBundleResponse(_ response: OpenBundleResponseMessage) {
-        let filePath = pendingBundleFilePath ?? ""
-        pendingBundleFilePath = nil
+        let filePath = pendingBundleFilePaths.isEmpty ? "" : pendingBundleFilePaths.removeFirst()
 
         // Check format version compatibility
         if response.manifest.formatVersion > 1 {
@@ -1165,48 +1168,72 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         signatureResult: OpenBundleResponseMessage.SignatureResult,
         bundleSizeBytes: Int
     ) {
-        do {
-            let (uuid, _) = try BundleSandbox.unpack(
-                filePath: filePath,
-                manifest: manifest,
-                signatureResult: signatureResult,
-                bundleSizeBytes: bundleSizeBytes
-            )
+        // Run the unzip on a background thread to avoid blocking the UI.
+        Task.detached {
+            do {
+                let (uuid, _) = try BundleSandbox.unpack(
+                    filePath: filePath,
+                    manifest: manifest,
+                    signatureResult: signatureResult,
+                    bundleSizeBytes: bundleSizeBytes
+                )
 
-            // Build the vellumapp:// URL for the entry point
-            let entryURL = "\(VellumAppSchemeHandler.scheme)://\(uuid)/\(manifest.entry)"
-            log.info("Loading shared app at \(entryURL)")
+                await MainActor.run {
+                    // Build the vellumapp:// URL for the entry point.
+                    // Sanitize manifest.entry to prevent JS string breakout.
+                    let sanitizedEntry = manifest.entry
+                        .replacingOccurrences(of: "\\", with: "")
+                        .replacingOccurrences(of: "'", with: "")
+                    let entryURL = "\(VellumAppSchemeHandler.scheme)://\(uuid)/\(sanitizedEntry)"
+                    log.info("Loading shared app at \(entryURL)")
 
-            // Load the shared app as a surface via SurfaceManager
-            let surfaceId = "shared-app-\(uuid)"
-            let html = """
-            <!DOCTYPE html>
-            <html>
-            <head><meta charset="utf-8"><title>\(manifest.name)</title></head>
-            <body>
-                <script>window.location.href = '\(entryURL)';</script>
-            </body>
-            </html>
-            """
-            let surfaceMsg = UiSurfaceShowMessage(
-                sessionId: "shared-app",
-                surfaceId: surfaceId,
-                surfaceType: "dynamic_page",
-                title: manifest.name,
-                data: AnyCodable(["html": html]),
-                actions: nil,
-                display: "panel"
-            )
-            surfaceManager.showSurface(surfaceMsg)
-        } catch {
-            log.error("Failed to unpack bundle: \(error.localizedDescription)")
-            let alert = NSAlert()
-            alert.messageText = "Failed to open app"
-            alert.informativeText = error.localizedDescription
-            alert.alertStyle = .critical
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
+                    // HTML-escape manifest.name to prevent XSS injection.
+                    let safeName = Self.htmlEscape(manifest.name)
+
+                    // Load the shared app as a surface via SurfaceManager
+                    let surfaceId = "shared-app-\(uuid)"
+                    let html = """
+                    <!DOCTYPE html>
+                    <html>
+                    <head><meta charset="utf-8"><title>\(safeName)</title></head>
+                    <body>
+                        <script>window.location.href = '\(entryURL)';</script>
+                    </body>
+                    </html>
+                    """
+                    let surfaceMsg = UiSurfaceShowMessage(
+                        sessionId: "shared-app",
+                        surfaceId: surfaceId,
+                        surfaceType: "dynamic_page",
+                        title: manifest.name,
+                        data: AnyCodable(["html": html]),
+                        actions: nil,
+                        display: "panel"
+                    )
+                    self.surfaceManager.showSurface(surfaceMsg)
+                }
+            } catch {
+                await MainActor.run {
+                    log.error("Failed to unpack bundle: \(error.localizedDescription)")
+                    let alert = NSAlert()
+                    alert.messageText = "Failed to open app"
+                    alert.informativeText = error.localizedDescription
+                    alert.alertStyle = .critical
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
+            }
         }
+    }
+
+    /// HTML-escape a string to prevent injection when interpolated into HTML.
+    private static func htmlEscape(_ string: String) -> String {
+        string
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
     }
 
     public func applicationWillTerminate(_ notification: Notification) {

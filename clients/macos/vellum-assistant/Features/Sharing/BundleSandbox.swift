@@ -59,10 +59,14 @@ enum BundleSandbox {
         process.standardError = pipe
 
         try process.run()
+
+        // Read pipe data before waitUntilExit to avoid deadlock when
+        // the pipe buffer fills up and the subprocess blocks on write.
+        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
         guard process.terminationStatus == 0 else {
-            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let output = String(data: outputData, encoding: .utf8) ?? ""
             log.error("unzip failed with status \(process.terminationStatus): \(output)")
             // Clean up on failure
             try? fm.removeItem(at: targetDir)

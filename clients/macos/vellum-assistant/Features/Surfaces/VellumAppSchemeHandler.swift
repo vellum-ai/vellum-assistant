@@ -39,10 +39,12 @@ final class VellumAppSchemeHandler: NSObject, WKURLSchemeHandler {
             ? appDir
             : appDir.appendingPathComponent(resourcePath)
 
-        // Security: ensure the resolved path is within the app directory
+        // Security: ensure the resolved path is within the app directory.
+        // Append "/" to appDirPath so that a sibling like "<uuid>-meta.json"
+        // doesn't match via simple string prefix comparison.
         let resolvedPath = filePath.standardizedFileURL.path
         let appDirPath = appDir.standardizedFileURL.path
-        guard resolvedPath.hasPrefix(appDirPath) else {
+        guard resolvedPath == appDirPath || resolvedPath.hasPrefix(appDirPath + "/") else {
             log.error("Path traversal attempt: \(resolvedPath) outside \(appDirPath)")
             fail(urlSchemeTask, statusCode: 403, message: "Access denied")
             return
