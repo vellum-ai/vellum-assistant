@@ -531,6 +531,11 @@ function handleSessionList(socket: net.Socket, ctx: HandlerContext): void {
 
 function handleSessionsClear(socket: net.Socket, ctx: HandlerContext): void {
   const cleared = ctx.clearAllSessions();
+  // Also clear DB conversations. When a new IPC connection triggers
+  // sendInitialSession, it auto-creates a conversation if none exist.
+  // Without this DB clear, that auto-created row survives, contradicting
+  // the "clear all conversations" intent.
+  conversationStore.clearAll();
   ctx.send(socket, { type: 'sessions_clear_response', cleared });
 }
 
