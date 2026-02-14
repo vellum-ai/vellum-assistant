@@ -750,7 +750,7 @@ function handleUndo(
     return;
   }
   const removedCount = session.undo();
-  ctx.send(socket, { type: 'undo_complete', removedCount });
+  ctx.send(socket, { type: 'undo_complete', removedCount, sessionId: msg.sessionId });
 }
 
 async function handleRegenerate(

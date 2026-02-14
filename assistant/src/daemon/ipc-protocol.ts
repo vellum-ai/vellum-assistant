@@ -561,6 +561,7 @@ export interface HistoryResponse {
 export interface UndoComplete {
   type: 'undo_complete';
   removedCount: number;
+  sessionId?: string;
 }
 
 export interface UsageUpdate {

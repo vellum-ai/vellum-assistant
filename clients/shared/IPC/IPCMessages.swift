@@ -667,6 +667,7 @@ public struct UiSurfaceDismissMessage: Decodable, Sendable {
 /// Confirms undo/regenerate removed messages.
 public struct UndoCompleteMessage: Decodable, Sendable {
     public let removedCount: Int
+    public let sessionId: String?
 }
 
 /// Confirms generation was cancelled.
