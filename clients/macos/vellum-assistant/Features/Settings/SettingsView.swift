@@ -218,7 +218,7 @@ public struct SettingsView: View {
                         }
                         Spacer()
                         Button("Manage Trust Rules...") {
-                            daemonClient.isTrustRulesSheetOpen = true
+                            isTrustRulesSheetOpen = true
                         }
                         .disabled(isTrustRulesSheetOpen)
                     }
@@ -256,14 +256,7 @@ public struct SettingsView: View {
                 SkillsSettingsView(viewModel: vm)
             }
         }
-        .onReceive(
-            daemonClient.map { $0.$isTrustRulesSheetOpen.eraseToAnyPublisher() } ?? Empty().eraseToAnyPublisher()
-        ) { newValue in
-            isTrustRulesSheetOpen = newValue
-        }
-        .sheet(isPresented: $isTrustRulesSheetOpen, onDismiss: {
-            daemonClient?.isTrustRulesSheetOpen = false
-        }) {
+        .sheet(isPresented: $isTrustRulesSheetOpen) {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
             }
