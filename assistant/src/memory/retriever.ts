@@ -783,11 +783,11 @@ function mergeCandidates(
   const recencyRanks = buildRankMap(recency, (c) => c.recency);
   const entityRanks = buildRankMap(entity, (c) => c.confidence);
 
-  // Look up access_count for item-type candidates (retrieval reinforcement)
+  // Look up access_count and verification_state for item-type candidates
   const itemIds = [...merged.values()]
     .filter((c) => c.type === 'item')
     .map((c) => c.id);
-  const accessCounts = lookupAccessCounts(itemIds);
+  const itemMetadata = lookupItemMetadata(itemIds);
 
   const rows = [...merged.values()];
   for (const row of rows) {
@@ -800,10 +800,16 @@ function mergeCandidates(
     const rrfScore = rrf(ranks);
 
     // Retrieval reinforcement: boost importance by accessCount
-    const accessCount = accessCounts.get(row.id) ?? 0;
+    const meta = itemMetadata.get(row.id);
+    const accessCount = meta?.accessCount ?? 0;
     const effectiveImportance = Math.min(1, row.importance + 0.03 * accessCount);
 
-    row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance);
+    // Trust-aware ranking: items with higher verification state rank higher
+    const trustWeight = meta
+      ? (TRUST_WEIGHTS[meta.verificationState] ?? DEFAULT_TRUST_WEIGHT)
+      : DEFAULT_TRUST_WEIGHT;
+
+    row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight;
   }
 
   rows.sort((a, b) => {
@@ -834,28 +840,51 @@ function buildRankMap(candidates: Candidate[], scoreAccessor: (c: Candidate) => 
   return rankMap;
 }
 
+interface ItemMetadata {
+  accessCount: number;
+  verificationState: string;
+}
+
 /**
- * Look up access_count from the memory_items table for a batch of item IDs.
- * Returns a map from item ID to access count.
+ * Look up access_count and verification_state from memory_items for a batch of item IDs.
  */
-function lookupAccessCounts(itemIds: string[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  if (itemIds.length === 0) return counts;
+function lookupItemMetadata(itemIds: string[]): Map<string, ItemMetadata> {
+  const metadata = new Map<string, ItemMetadata>();
+  if (itemIds.length === 0) return metadata;
   try {
     const db = getDb();
     const rows = db
-      .select({ id: memoryItems.id, accessCount: memoryItems.accessCount })
+      .select({
+        id: memoryItems.id,
+        accessCount: memoryItems.accessCount,
+        verificationState: memoryItems.verificationState,
+      })
       .from(memoryItems)
       .where(inArray(memoryItems.id, itemIds))
       .all();
     for (const row of rows) {
-      counts.set(row.id, row.accessCount);
+      metadata.set(row.id, {
+        accessCount: row.accessCount,
+        verificationState: row.verificationState,
+      });
     }
   } catch (err) {
-    log.warn({ err }, 'Failed to look up access counts for retrieval reinforcement');
+    log.warn({ err }, 'Failed to look up item metadata for retrieval ranking');
   }
-  return counts;
+  return metadata;
 }
+
+/**
+ * Trust weight by verification state. Higher = more trusted.
+ * Bounded: lowest weight is 0.7, never zero — low-trust items are
+ * down-ranked but not suppressed.
+ */
+const TRUST_WEIGHTS: Record<string, number> = {
+  user_confirmed: 1.0,
+  user_reported: 0.9,
+  assistant_inferred: 0.7,
+};
+const DEFAULT_TRUST_WEIGHT = 0.85;
 
 /**
  * LLM re-ranking: send candidate memories to Haiku for relevance scoring.

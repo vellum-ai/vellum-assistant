@@ -1239,4 +1239,154 @@ describe('Memory V2 regressions', () => {
     expect(escaped).not.toContain('<br/>');
     expect(escaped).toContain('\uFF1Cbr/>');
   });
+
+  test('trust-aware ranking: user_confirmed item outranks assistant_inferred with equal relevance', async () => {
+    const db = getDb();
+    const now = Date.now();
+
+    // Insert two memory items with identical text, confidence, importance, and timestamps
+    // but different verification states
+    db.insert(memoryItems).values([
+      {
+        id: 'item-trust-confirmed',
+        kind: 'fact',
+        subject: 'trust ranking test',
+        statement: 'The user prefers dark mode for all applications',
+        status: 'active',
+        confidence: 0.8,
+        importance: 0.5,
+        fingerprint: 'fp-trust-confirmed',
+        firstSeenAt: now,
+        lastSeenAt: now,
+        accessCount: 0,
+        verificationState: 'user_confirmed',
+      },
+      {
+        id: 'item-trust-inferred',
+        kind: 'fact',
+        subject: 'trust ranking test',
+        statement: 'The user prefers dark mode for all editors',
+        status: 'active',
+        confidence: 0.8,
+        importance: 0.5,
+        fingerprint: 'fp-trust-inferred',
+        firstSeenAt: now,
+        lastSeenAt: now,
+        accessCount: 0,
+        verificationState: 'assistant_inferred',
+      },
+    ]).run();
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: {
+          ...DEFAULT_CONFIG.memory.embeddings,
+          required: false,
+        },
+      },
+    };
+
+    const recall = await buildMemoryRecall('dark mode', 'conv-trust-test', config);
+
+    // Both items should be found (directItemSearch matches on "dark" and "mode")
+    const confirmed = recall.topCandidates.find((c) => c.key === 'item:item-trust-confirmed');
+    const inferred = recall.topCandidates.find((c) => c.key === 'item:item-trust-inferred');
+    expect(confirmed).toBeDefined();
+    expect(inferred).toBeDefined();
+
+    // user_confirmed (weight 1.0) should have a higher finalScore than assistant_inferred (weight 0.7)
+    expect(confirmed!.finalScore).toBeGreaterThan(inferred!.finalScore);
+  });
+
+  test('trust-aware ranking: user_reported item outranks assistant_inferred', async () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(memoryItems).values([
+      {
+        id: 'item-trust-reported',
+        kind: 'fact',
+        subject: 'trust ranking reported',
+        statement: 'The user uses vim keybindings in their editor',
+        status: 'active',
+        confidence: 0.8,
+        importance: 0.5,
+        fingerprint: 'fp-trust-reported',
+        firstSeenAt: now,
+        lastSeenAt: now,
+        accessCount: 0,
+        verificationState: 'user_reported',
+      },
+      {
+        id: 'item-trust-inferred2',
+        kind: 'fact',
+        subject: 'trust ranking inferred',
+        statement: 'The user uses vim keybindings in their terminal',
+        status: 'active',
+        confidence: 0.8,
+        importance: 0.5,
+        fingerprint: 'fp-trust-inferred2',
+        firstSeenAt: now,
+        lastSeenAt: now,
+        accessCount: 0,
+        verificationState: 'assistant_inferred',
+      },
+    ]).run();
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: {
+          ...DEFAULT_CONFIG.memory.embeddings,
+          required: false,
+        },
+      },
+    };
+
+    const recall = await buildMemoryRecall('vim keybindings', 'conv-trust-test2', config);
+
+    const reported = recall.topCandidates.find((c) => c.key === 'item:item-trust-reported');
+    const inferred = recall.topCandidates.find((c) => c.key === 'item:item-trust-inferred2');
+    expect(reported).toBeDefined();
+    expect(inferred).toBeDefined();
+
+    // user_reported (weight 0.9) should outrank assistant_inferred (weight 0.7)
+    expect(reported!.finalScore).toBeGreaterThan(inferred!.finalScore);
+  });
+
+  test('trust-aware ranking: weight values are bounded and non-zero', async () => {
+    const db = getDb();
+    const now = Date.now();
+
+    // Insert an item with an unknown verification state to test the default weight
+    const raw = (db as unknown as { $client: { query: (q: string) => { get: (...params: unknown[]) => unknown } } }).$client;
+    raw.query(`
+      INSERT INTO memory_items (id, kind, subject, statement, status, confidence, importance, fingerprint, first_seen_at, last_seen_at, access_count, verification_state)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).get(
+      'item-trust-unknown', 'fact', 'trust ranking unknown', 'The user has an unknown trust state preference',
+      'active', 0.8, 0.5, 'fp-trust-unknown', now, now, 0, 'some_future_state',
+    );
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: {
+          ...DEFAULT_CONFIG.memory.embeddings,
+          required: false,
+        },
+      },
+    };
+
+    const recall = await buildMemoryRecall('unknown trust state preference', 'conv-trust-test3', config);
+
+    const unknown = recall.topCandidates.find((c) => c.key === 'item:item-trust-unknown');
+    expect(unknown).toBeDefined();
+    // The finalScore should be > 0 (trust weight is bounded, not zero)
+    expect(unknown!.finalScore).toBeGreaterThan(0);
+  });
 });
