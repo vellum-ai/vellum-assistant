@@ -8,10 +8,51 @@ This repository also includes an iOS app target (`vellum-assistant-ios`) that sh
 
 **Status:** Basic structure in place (PR 4 of 13). The iOS target requires xcodebuild with iOS SDK to build - it cannot be built with `swift build` on macOS due to UIKit dependencies.
 
-**Shared code:**
+**Code organization:**
 - `clients/shared/` — Shared library (IPC layer, chat models/ViewModels, design system)
-- `clients/macos/vellum-assistant/` — macOS-specific code (accessibility, CGEvent, computer-use)
-- `clients/macos/vellum-assistant-ios/` — iOS-specific code (UIKit app structure)
+- `clients/macos/` — macOS-specific code (accessibility, CGEvent, computer-use)
+- `clients/ios/` — iOS-specific code (UIKit app structure, SwiftUI views)
+
+### Testing the iOS App
+
+The iOS app can be tested in three ways:
+
+**1. Xcode Simulator (Recommended for development)**
+```bash
+# Open the iOS target in Xcode
+open clients/Package.swift
+
+# In Xcode:
+# - Select the vellum-assistant-ios scheme
+# - Choose an iOS Simulator (iPhone 15, iPad Pro, etc.)
+# - Click Run (⌘R)
+```
+
+**Pros:** No signing needed, fast iteration, free
+**Cons:** No push notifications, camera, or some hardware features
+**Use for:** Chat interface, settings, basic UI testing
+
+**2. Physical Device (For hardware features)**
+
+Requires either:
+- Free personal Apple ID (7-day code signing)
+- Paid Apple Developer account ($99/year, 1-year signing)
+
+```bash
+# In Xcode:
+# - Connect your iPhone/iPad via USB
+# - Select your device in the destination menu
+# - Xcode will prompt for Apple ID and handle signing
+# - Click Run (⌘R)
+```
+
+**Use for:** Voice input, camera/photo picker, push notifications
+
+**3. TestFlight (For beta testing)**
+
+Requires Apple Developer account + App Store Connect setup. Deferred to PR 12-13 (deployment).
+
+**Daemon Connection Note:** The iOS app connects to the daemon via TCP (default: localhost:8765). For Simulator testing, the daemon should run on your Mac. For device testing, configure the daemon hostname to your Mac's IP address in Settings.
 
 ## Requirements
 

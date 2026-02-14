@@ -15,8 +15,10 @@ clients/
 │   ├── vellum-assistant-app/  # Executable entry point
 │   ├── build.sh               # Build script (wraps SPM → .app → codesign)
 │   └── CLAUDE.md              # Development guide for Claude Code
-└── ios/                       # (Future) iOS-specific code
-    └── vellum-assistant-ios/  # iOS app (planned in PR 4-6)
+└── ios/                       # iOS-specific code
+    ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate)
+    ├── Views/                 # SwiftUI views (ChatTabView, MessageBubbleView, etc.)
+    └── Resources/             # Assets, Info.plist
 ```
 
 ## Targets
@@ -71,8 +73,25 @@ The build script:
 2. Packages binary into `dist/Vellum.app` bundle
 3. Codesigns with ad-hoc signature (or release identity)
 
-### iOS App (Future)
-Planned for PR 4-6 of the iOS rollout. Will depend only on VellumAssistantShared.
+### iOS App
+```bash
+cd clients
+open Package.swift
+# Xcode: Select vellum-assistant-ios scheme
+# Choose iOS Simulator (e.g., iPhone 15)
+# Run (⌘R)
+```
+
+**Current status** (as of PR 5):
+- ✅ Basic app structure with tab bar (Chat, Settings)
+- ✅ Chat interface with message rendering and streaming
+- ✅ Tool confirmation and inline surface support
+- ✅ Daemon connection via TCP
+- ⏳ Settings and onboarding (PR 6)
+- ⏳ Voice input (PR 7)
+- ⏳ Attachment handling (PR 8)
+
+Depends only on `VellumAssistantShared` (no macOS frameworks).
 
 ## Code Reuse Strategy
 
@@ -112,10 +131,11 @@ After migration:
 2. Import `VellumAssistantShared` for access to IPC types
 3. Can use AppKit, ScreenCaptureKit, etc. freely
 
-### Adding iOS Code (Future)
-1. Place in `clients/ios/vellum-assistant-ios/`
+### Adding iOS Code
+1. Place in `clients/ios/App/` (app lifecycle) or `clients/ios/Views/` (UI)
 2. Import `VellumAssistantShared` for IPC, design tokens, ViewModels
 3. DO NOT import `VellumAssistantLib` (macOS-only)
+4. Use `#if os(iOS)` guards if sharing files with macOS
 
 ## Known Limitations
 
@@ -131,14 +151,18 @@ After migration:
 
 ### iOS Localhost Default
 - iOS defaults to `localhost:8765` in UserDefaults
-- Real device usage requires configuring daemon hostname
+- Works for simulator testing (daemon runs on host Mac)
+- Real device usage requires configuring daemon hostname (network-accessible IP)
 - PR 6 (iOS settings/onboarding) will provide UI for configuration
 
 ## Documentation
 
 - **macOS development**: See `clients/macos/CLAUDE.md`
-- **PR #1821**: [iOS shared library foundation](https://github.com/vellum-ai/vellum-assistant/pull/1821)
 - **iOS rollout plan**: See `.private/plans/sharded-mapping-shannon.md` (13 PRs)
+- **Completed iOS PRs**:
+  - PR #1821: iOS shared library foundation
+  - PR #1973: iOS app target with basic structure
+  - PR #1975: iOS chat interface implementation
 
 ## Testing
 
