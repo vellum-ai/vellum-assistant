@@ -3,6 +3,8 @@ import VellumAssistantShared
 
 struct MessageBubbleView: View {
     let message: ChatMessage
+    let onConfirmationResponse: ((String, String) -> Void)?
+    let onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?
 
     var body: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
@@ -16,12 +18,10 @@ struct MessageBubbleView: View {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
                         onAllow: {
-                            // TODO: Implement confirmation handling in ChatViewModel/ThreadManager
-                            // For now, this at least shows the prompt to users
-                            print("iOS: Tool confirmation allow requested for \(confirmation.requestId)")
+                            onConfirmationResponse?(confirmation.requestId, "allow")
                         },
                         onDeny: {
-                            print("iOS: Tool confirmation deny requested for \(confirmation.requestId)")
+                            onConfirmationResponse?(confirmation.requestId, "deny")
                         },
                         onAddTrustRule: { _, _, _, _ in
                             print("iOS: Add trust rule not yet implemented")
@@ -56,9 +56,7 @@ struct MessageBubbleView: View {
                             InlineSurfaceRouter(
                                 surface: surface,
                                 onAction: { surfaceId, actionId, data in
-                                    // TODO: Get viewModel reference to call sendSurfaceAction
-                                    // For now, surface UI renders but actions don't work
-                                    print("iOS: Surface action \(actionId) on \(surfaceId)")
+                                    onSurfaceAction?(surfaceId, actionId, data)
                                 }
                             )
                         }
@@ -97,10 +95,14 @@ struct MessageBubbleView: View {
 
 #Preview("User Message") {
     VStack(spacing: VSpacing.md) {
-        MessageBubbleView(message: ChatMessage(
-            role: .user,
-            text: "Hello! Can you help me with something?"
-        ))
+        MessageBubbleView(
+            message: ChatMessage(
+                role: .user,
+                text: "Hello! Can you help me with something?"
+            ),
+            onConfirmationResponse: nil,
+            onSurfaceAction: nil
+        )
     }
     .padding()
     .background(VColor.background)
@@ -108,10 +110,14 @@ struct MessageBubbleView: View {
 
 #Preview("Assistant Message") {
     VStack(spacing: VSpacing.md) {
-        MessageBubbleView(message: ChatMessage(
-            role: .assistant,
-            text: "Of course! I'd be happy to help. What do you need assistance with?"
-        ))
+        MessageBubbleView(
+            message: ChatMessage(
+                role: .assistant,
+                text: "Of course! I'd be happy to help. What do you need assistance with?"
+            ),
+            onConfirmationResponse: nil,
+            onSurfaceAction: nil
+        )
     }
     .padding()
     .background(VColor.background)
@@ -119,11 +125,15 @@ struct MessageBubbleView: View {
 
 #Preview("Streaming") {
     VStack(spacing: VSpacing.md) {
-        MessageBubbleView(message: ChatMessage(
-            role: .assistant,
-            text: "I'm thinking about",
-            isStreaming: true
-        ))
+        MessageBubbleView(
+            message: ChatMessage(
+                role: .assistant,
+                text: "I'm thinking about",
+                isStreaming: true
+            ),
+            onConfirmationResponse: nil,
+            onSurfaceAction: nil
+        )
     }
     .padding()
     .background(VColor.background)
@@ -131,17 +141,23 @@ struct MessageBubbleView: View {
 
 #Preview("Tool Confirmation") {
     VStack(spacing: VSpacing.md) {
-        MessageBubbleView(message: ChatMessage(
-            role: .assistant,
-            text: "",
-            confirmation: ToolConfirmationData(
-                requestId: "test-123",
-                toolName: "bash",
-                input: ["command": AnyCodable("rm -rf /important/data")],
-                riskLevel: "high"
+        MessageBubbleView(
+            message: ChatMessage(
+                role: .assistant,
+                text: "",
+                confirmation: ToolConfirmationData(
+                    requestId: "test-123",
+                    toolName: "bash",
+                    input: ["command": AnyCodable("rm -rf /important/data")],
+                    riskLevel: "high"
+                ),
+                toolCalls: []
             ),
-            toolCalls: []
-        ))
+            onConfirmationResponse: { requestId, decision in
+                print("Preview: Confirmation \(decision) for \(requestId)")
+            },
+            onSurfaceAction: nil
+        )
     }
     .padding()
     .background(VColor.background)

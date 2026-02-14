@@ -34,8 +34,16 @@ struct ChatTabView: View {
                 ScrollView {
                     LazyVStack(spacing: VSpacing.md) {
                         ForEach(viewModel.messages) { message in
-                            MessageBubbleView(message: message)
-                                .id(message.id)
+                            MessageBubbleView(
+                                message: message,
+                                onConfirmationResponse: { requestId, decision in
+                                    viewModel.respondToConfirmation(requestId: requestId, decision: decision)
+                                },
+                                onSurfaceAction: { surfaceId, actionId, data in
+                                    viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data)
+                                }
+                            )
+                            .id(message.id)
                         }
                     }
                     .padding(VSpacing.lg)
