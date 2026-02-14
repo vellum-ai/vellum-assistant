@@ -39,7 +39,7 @@ final class SecretPromptManager {
         let hostingController = NSHostingController(rootView: view)
         hostingController.sizingOptions = .preferredContentSize
 
-        let panelHeight: CGFloat = message.description != nil ? 220 : 180
+        let panelHeight: CGFloat = message.description != nil ? 270 : 230
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
             styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow],
@@ -142,6 +142,18 @@ struct SecretPromptView: View {
                 .textFieldStyle(.roundedBorder)
                 .font(VFont.mono)
 
+            // Safety explainer
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                safetyBullet(
+                    icon: "key.fill",
+                    text: "Stored in your Mac's Keychain, not sent to any server"
+                )
+                safetyBullet(
+                    icon: "eye.slash.fill",
+                    text: "The AI never sees this value — only your Mac can read it"
+                )
+            }
+
             if saved {
                 HStack(spacing: VSpacing.xs) {
                     Image(systemName: "checkmark.circle.fill")
@@ -170,5 +182,17 @@ struct SecretPromptView: View {
         .padding(VSpacing.xl)
         .frame(width: 400)
         .vPanelBackground()
+    }
+
+    private func safetyBullet(icon: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+                .foregroundColor(VColor.success)
+                .frame(width: 14, alignment: .center)
+            Text(text)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+        }
     }
 }
