@@ -161,9 +161,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
+    private let config: DaemonConfig
+
     // MARK: - Init
 
-    public init() {}
+    public init(config: DaemonConfig = .default) {
+        self.config = config
+    }
 
     deinit {
         // Swift 5.9+: deinit on @MainActor class is NOT guaranteed to run on main actor.
@@ -226,17 +230,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         shouldReconnect = true
 
         #if os(macOS)
-        let socketPath = Self.resolveSocketPath()
-        log.info("Connecting to daemon socket at \(socketPath)")
-        let endpoint = NWEndpoint.unix(path: socketPath)
+        log.info("Connecting to daemon socket at \(self.config.socketPath)")
+        let endpoint = NWEndpoint.unix(path: self.config.socketPath)
         #elseif os(iOS)
-        let hostname = UserDefaults.standard.string(forKey: "daemon_hostname") ?? "localhost"
-        let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
-        let port = UInt16(clamping: rawPort > 0 && rawPort <= 65535 ? rawPort : 8765)
-        log.info("Connecting to daemon at \(hostname):\(port)")
+        log.info("Connecting to daemon at \(self.config.hostname):\(self.config.port)")
         let endpoint = NWEndpoint.hostPort(
-            host: NWEndpoint.Host(hostname),
-            port: NWEndpoint.Port(integerLiteral: port)
+            host: NWEndpoint.Host(self.config.hostname),
+            port: NWEndpoint.Port(integerLiteral: self.config.port)
         )
         #else
         #error("DaemonClient is only supported on macOS and iOS")
