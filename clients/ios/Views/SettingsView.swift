@@ -5,7 +5,9 @@ struct SettingsView: View {
     @State private var apiKey: String = ""
     @State private var daemonHostname: String = ""
     @State private var daemonPort: String = ""
-    @State private var showingAPIKeySaved = false
+    @State private var showingAPIKeyAlert = false
+    @State private var apiKeyAlertMessage = ""
+    @State private var apiKeyAlertTitle = ""
 
     var body: some View {
         NavigationStack {
@@ -16,13 +18,22 @@ struct SettingsView: View {
                         .autocapitalization(.none)
 
                     Button("Save") {
-                        APIKeyManager.shared.setAPIKey(apiKey)
-                        showingAPIKeySaved = true
+                        let success = APIKeyManager.shared.setAPIKey(apiKey)
+                        if success {
+                            apiKeyAlertTitle = "Success"
+                            apiKeyAlertMessage = "API Key saved securely"
+                        } else {
+                            apiKeyAlertTitle = "Error"
+                            apiKeyAlertMessage = "Failed to save API Key to Keychain"
+                        }
+                        showingAPIKeyAlert = true
                     }
                     .disabled(apiKey.isEmpty)
                 }
-                .alert("API Key Saved", isPresented: $showingAPIKeySaved) {
+                .alert(apiKeyAlertTitle, isPresented: $showingAPIKeyAlert) {
                     Button("OK") {}
+                } message: {
+                    Text(apiKeyAlertMessage)
                 }
 
                 Section("Daemon Connection") {

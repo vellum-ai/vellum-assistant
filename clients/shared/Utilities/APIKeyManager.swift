@@ -33,10 +33,10 @@ public class APIKeyManager {
         return key
     }
 
-    public func setAPIKey(_ key: String, provider: String = "anthropic") {
-        guard let data = key.data(using: .utf8) else { return }
+    public func setAPIKey(_ key: String, provider: String = "anthropic") -> Bool {
+        guard let data = key.data(using: .utf8) else { return false }
 
-        // Delete existing key
+        // Delete existing key (ignore status since key may not exist)
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -52,6 +52,7 @@ public class APIKeyManager {
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
         ]
-        SecItemAdd(addQuery as CFDictionary, nil)
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        return status == errSecSuccess
     }
 }

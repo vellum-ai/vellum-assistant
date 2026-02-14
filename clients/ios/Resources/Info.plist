@@ -18,5 +18,9 @@
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Vellum Assistant needs access to your microphone for voice input.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Vellum Assistant needs access to speech recognition to transcribe your voice input.</string>
 </dict>
 </plist>
