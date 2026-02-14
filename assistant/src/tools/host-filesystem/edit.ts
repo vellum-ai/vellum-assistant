@@ -3,8 +3,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { findAllMatches, adjustIndentation } from '../filesystem/fuzzy-match.js';
 import { checkFileSizeOnDisk } from '../filesystem/size-guard.js';
+import { applyEdit } from '../shared/filesystem/edit-engine.js';
 
 class HostFileEditTool implements Tool {
   name = 'host_file_edit';
@@ -81,51 +81,38 @@ class HostFileEditTool implements Tool {
     try {
       const content = readFileSync(filePath, 'utf-8');
       const replaceAll = input.replace_all === true;
+      const result = applyEdit(content, oldString, newString, replaceAll);
 
-      if (replaceAll) {
-        const firstIndex = content.indexOf(oldString);
-        if (firstIndex === -1) {
+      if (!result.ok) {
+        if (result.reason === 'not_found') {
           return { content: `Error: old_string not found in ${filePath}`, isError: true };
         }
-        const updated = content.split(oldString).join(newString);
-        const count = content.split(oldString).length - 1;
-        writeFileSync(filePath, updated);
-        return {
-          content: `Successfully replaced ${count} occurrence${count > 1 ? 's' : ''} in ${filePath}`,
-          isError: false,
-          diff: { filePath, oldContent: content, newContent: updated, isNewFile: false },
-        };
-      }
-
-      const matches = findAllMatches(content, oldString);
-      if (matches.length === 0) {
-        return { content: `Error: old_string not found in ${filePath}`, isError: true };
-      }
-      if (matches.length > 1) {
         return {
           content: `Error: old_string appears multiple times in ${filePath}. Provide more surrounding context to make it unique, or set replace_all to true.`,
           isError: true,
         };
       }
 
-      const match = matches[0];
-      const adjustedNewString = match.method !== 'exact'
-        ? adjustIndentation(oldString, match.matched, newString)
-        : newString;
+      writeFileSync(filePath, result.updatedContent);
 
-      const updated = content.slice(0, match.start) + adjustedNewString + content.slice(match.end);
-      writeFileSync(filePath, updated);
+      if (replaceAll) {
+        return {
+          content: `Successfully replaced ${result.matchCount} occurrence${result.matchCount > 1 ? 's' : ''} in ${filePath}`,
+          isError: false,
+          diff: { filePath, oldContent: content, newContent: result.updatedContent, isNewFile: false },
+        };
+      }
 
-      const methodNote = match.method === 'exact'
+      const methodNote = result.matchMethod === 'exact'
         ? ''
-        : match.method === 'whitespace'
+        : result.matchMethod === 'whitespace'
           ? ' (matched with whitespace normalization)'
-          : ` (fuzzy matched, similarity ${(match.similarity * 100).toFixed(0)}%)`;
+          : ' (fuzzy matched)';
 
       return {
         content: `Successfully edited ${filePath}${methodNote}`,
         isError: false,
-        diff: { filePath, oldContent: content, newContent: updated, isNewFile: false },
+        diff: { filePath, oldContent: content, newContent: result.updatedContent, isNewFile: false },
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
