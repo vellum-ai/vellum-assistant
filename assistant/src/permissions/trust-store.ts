@@ -59,6 +59,24 @@ function backfillDefaults(rules: TrustRule[]): boolean {
     }
   }
 
+  // Migrate existing default rules whose priority or pattern has changed
+  // in the template (e.g. host_bash pattern changed from '*' to '**',
+  // host tool priorities changed from 1000 to 50).
+  for (const template of getDefaultRuleTemplates()) {
+    if (existingIds.has(template.id)) {
+      const rule = rules.find((r) => r.id === template.id);
+      if (rule && (rule.priority !== template.priority || rule.pattern !== template.pattern)) {
+        log.info(
+          { ruleId: rule.id, oldPriority: rule.priority, newPriority: template.priority, oldPattern: rule.pattern, newPattern: template.pattern },
+          'Migrated default rule to updated template values',
+        );
+        rule.priority = template.priority;
+        rule.pattern = template.pattern;
+        changed = true;
+      }
+    }
+  }
+
   for (const template of getDefaultRuleTemplates()) {
     if (!existingIds.has(template.id)) {
       rules.push({
