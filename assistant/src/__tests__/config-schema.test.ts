@@ -44,6 +44,7 @@ import { _setStorePath } from '../security/encrypted-store.js';
 import { _setBackend } from '../security/secure-keys.js';
 import { loadConfig, invalidateConfigCache } from '../config/loader.js';
 import { AssistantConfigSchema } from '../config/schema.js';
+import { DEFAULT_CONFIG } from '../config/defaults.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -278,6 +279,17 @@ describe('AssistantConfigSchema', () => {
       expect(messages.some(m => m.includes('positive'))).toBe(true);
       expect(messages.some(m => m.includes('redact') && m.includes('warn') && m.includes('block'))).toBe(true);
     }
+  });
+
+  // SANDBOX M11: native is the deliberate default — Docker is opt-in hardening.
+  // These tests guard against an accidental cutover.
+  test('default sandbox backend is native (not docker)', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.sandbox.backend).toBe('native');
+  });
+
+  test('DEFAULT_CONFIG sandbox backend is native', () => {
+    expect(DEFAULT_CONFIG.sandbox.backend).toBe('native');
   });
 
   test('backward compatibility: sandbox with only enabled still parses', () => {
