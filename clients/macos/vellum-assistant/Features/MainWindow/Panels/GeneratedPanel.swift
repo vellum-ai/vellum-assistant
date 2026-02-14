@@ -208,20 +208,14 @@ struct GeneratedPanel: View {
                         set: { showShareSheet = $0 }
                     )
                 )
-                .frame(width: 28, height: 28)
+                .frame(width: 0, height: 0)
+                .opacity(0)
 
-                Button(action: {
+                VIconButton(label: "Share", icon: "square.and.arrow.up", iconOnly: true) {
                     bundleAndShare(appId: localId, itemId: item.id)
-                }) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 13))
-                        .foregroundColor(Emerald._400)
-                        .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
             }
         } else if item.isShared, let uuid = item.sharedUUID {
-            // Shared apps can be re-shared — reconstruct from unpacked files
             ZStack {
                 ShareSheetButton(
                     items: shareFileURL != nil && sharingAppId == item.id ? [shareFileURL!] : [],
@@ -230,31 +224,20 @@ struct GeneratedPanel: View {
                         set: { showShareSheet = $0 }
                     )
                 )
-                .frame(width: 28, height: 28)
+                .frame(width: 0, height: 0)
+                .opacity(0)
 
-                Button(action: {
+                VIconButton(label: "Share", icon: "square.and.arrow.up", iconOnly: true) {
                     reshareApp(uuid: uuid, itemId: item.id)
-                }) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 13))
-                        .foregroundColor(Violet._400)
-                        .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
             }
         }
     }
 
     private func deleteButton(for item: DisplayAppItem) -> some View {
-        Button(action: {
+        VIconButton(label: "Delete", icon: "trash", iconOnly: true) {
             deleteSharedApp(item)
-        }) {
-            Image(systemName: "trash")
-                .font(.system(size: 12))
-                .foregroundColor(Rose._400)
-                .frame(width: 24, height: 24)
         }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Data Fetching
