@@ -360,9 +360,14 @@ struct ChatView: View {
                 // Attachment / Stop button
                 if isSending {
                     Button(action: onStop) {
-                        Image(systemName: "stop.circle.fill")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(VColor.error)
+                        ZStack {
+                            Circle()
+                                .fill(VColor.textPrimary)
+                                .frame(width: 28, height: 28)
+                            RoundedRectangle(cornerRadius: VRadius.xs)
+                                .fill(VColor.surface)
+                                .frame(width: 10, height: 10)
+                        }
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Stop generation")
