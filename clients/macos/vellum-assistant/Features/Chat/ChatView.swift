@@ -48,7 +48,7 @@ struct ChatView: View {
     }
 
     @State private var isDropTargeted = false
-    @State private var editorContentHeight: CGFloat = 36
+    @State private var editorContentHeight: CGFloat = 28
     @State private var editorWidth: CGFloat = 0
 
     var body: some View {
@@ -99,8 +99,8 @@ struct ChatView: View {
 
     /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
     private var composerReservedHeight: CGFloat {
-        let editorClamped = min(max(editorContentHeight, 36), 200)
-        let base: CGFloat = VSpacing.md * 2 + VSpacing.sm * 2 + editorClamped + 4
+        let editorClamped = min(max(editorContentHeight, 28), 200)
+        let base: CGFloat = VSpacing.md * 2 + VSpacing.xs * 2 + editorClamped + 4
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 44
         let error: CGFloat = errorText != nil ? 36 : 0
         let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
@@ -407,8 +407,8 @@ struct ChatView: View {
                             .font(VFont.body)
                             .foregroundColor(VColor.textMuted)
                             .lineSpacing(4)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 6)
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
                     }
@@ -419,8 +419,8 @@ struct ChatView: View {
                             .font(VFont.body)
                             .lineSpacing(4)
                             .foregroundColor(.clear)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 6)
                             .overlay(alignment: .topLeading) {
                                 HStack(spacing: 0) {
                                     Text(inputText)
@@ -432,14 +432,14 @@ struct ChatView: View {
                                         .lineSpacing(4)
                                         .foregroundColor(VColor.textMuted.opacity(0.5))
                                 }
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 8)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 6)
                             }
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
                     }
                 }
-                .frame(height: min(max(editorContentHeight, 36), 200))
+                .frame(height: min(max(editorContentHeight, 28), 200))
                 .clipped()
                 .background(
                     GeometryReader { geo in
@@ -532,7 +532,7 @@ struct ChatView: View {
             .animation(VAnimation.spring, value: canSend)
         }
         .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
         .background(VColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xxl))
         .overlay(
