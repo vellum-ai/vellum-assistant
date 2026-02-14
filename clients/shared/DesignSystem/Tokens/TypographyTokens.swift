@@ -31,8 +31,8 @@ public enum VFont {
         }
         let descriptor = uiFont.fontDescriptor.addingAttributes([
             .featureSettings: [[
-                UIFontDescriptor.FeatureKey.featureIdentifier: kStylisticAlternativesType,
-                UIFontDescriptor.FeatureKey.typeIdentifier: kStylisticAltFiveOnSelector,
+                UIFontDescriptor.FeatureKey.typeIdentifier: kStylisticAlternativesType,
+                UIFontDescriptor.FeatureKey.selectorIdentifier: kStylisticAltFiveOnSelector,
             ]]
         ])
         return Font(UIFont(descriptor: descriptor, size: size))
