@@ -3,14 +3,13 @@
    Translated from SwiftUI DesignSystem (ColorTokens, VColor,
    VSpacing, VRadius, VShadow, VAnimation, VFont)
    ============================================================
-   Layer 0: Reset
-   Layer 1: Tokens (CSS custom properties, light + dark)
-   Layer 2: Element defaults
-   Layer 3: Component classes (.v-*)
-   Layer 4: Utility classes
+   Wrapped in @layer so app-authored CSS always wins (un-layered
+   styles beat layered styles regardless of specificity/order).
    ============================================================ */
 
-/* ─── Layer 0: Reset ─────────────────────────────────────────── */
+@layer vellum-design-system {
+
+/* ─── Reset ──────────────────────────────────────────────────── */
 
 *,
 *::before,
@@ -466,3 +465,5 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   white-space: nowrap;
   border-width: 0;
 }
+
+} /* end @layer vellum-design-system */

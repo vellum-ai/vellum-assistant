@@ -152,7 +152,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     var style = document.createElement('style');
                     style.id = 'vellum-design-system';
                     style.textContent = `\(Self.designSystemCSS)`;
-                    (document.head || document.documentElement).appendChild(style);
+                    var target = document.head || document.documentElement;
+                    target.insertBefore(style, target.firstChild);
                 })();
                 """,
             injectionTime: .atDocumentStart,
