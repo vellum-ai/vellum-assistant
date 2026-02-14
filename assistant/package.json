@@ -11,6 +11,8 @@
     "db:push": "drizzle-kit push",
     "ipc:inventory": "bun run scripts/ipc/check-contract-inventory.ts",
     "ipc:inventory:update": "bun run scripts/ipc/check-contract-inventory.ts --update",
+    "generate:ipc": "bun run scripts/ipc/generate-swift.ts",
+    "check:ipc-generated": "bun run scripts/ipc/generate-swift.ts --check",
     "lint": "eslint",
     "test": "bash scripts/test.sh"
   },
@@ -45,7 +47,9 @@
     "drizzle-kit": "^0.30.4",
     "eslint": "^10.0.0",
     "fast-check": "^4.5.3",
+    "quicktype-core": "^23.2.6",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.54.0"
+    "typescript-eslint": "^8.54.0",
+    "typescript-json-schema": "^0.67.1"
   }
 }
