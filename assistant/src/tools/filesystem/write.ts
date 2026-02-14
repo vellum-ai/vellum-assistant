@@ -1,11 +1,9 @@
-import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { validateFilePath } from './path-guard.js';
-import { checkContentSize } from './size-guard.js';
+import { FileSystemOps } from '../shared/filesystem/file-ops-service.js';
+import { sandboxPolicy } from '../shared/filesystem/path-policy.js';
 
 class FileWriteTool implements Tool {
   name = 'file_write';
@@ -45,43 +43,31 @@ class FileWriteTool implements Tool {
       return { content: 'Error: content is required and must be a string', isError: true };
     }
 
-    const pathCheck = validateFilePath(rawPath, context.workingDir, { mustExist: false });
-    if (!pathCheck.ok) {
-      return { content: `Error: ${pathCheck.error}`, isError: true };
-    }
-    const filePath = pathCheck.resolved;
+    const ops = new FileSystemOps(
+      (path, opts) => sandboxPolicy(path, context.workingDir, opts),
+    );
 
-    const sizeError = checkContentSize(fileContent, filePath);
-    if (sizeError) {
-      return { content: `Error: ${sizeError}`, isError: true };
-    }
+    const result = ops.writeFileSafe({ path: rawPath, content: fileContent });
 
-    try {
-      const dir = dirname(filePath);
-      if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true });
+    if (!result.ok) {
+      const { error } = result;
+      if (error.code === 'IO_ERROR') {
+        const msg = error.message;
+        const hint = msg.includes('ENOENT') ? ' (parent directory does not exist)'
+          : msg.includes('EACCES') ? ' (permission denied)'
+          : msg.includes('EROFS') ? ' (read-only file system)'
+          : '';
+        return { content: `Error writing file "${rawPath}"${hint}: ${msg}`, isError: true };
       }
-
-      let oldContent: string | null = null;
-      const isNewFile = !existsSync(filePath);
-      if (!isNewFile) {
-        try { oldContent = readFileSync(filePath, 'utf-8'); } catch { /* unreadable */ }
-      }
-
-      writeFileSync(filePath, fileContent);
-      return {
-        content: `Successfully wrote to ${filePath}`,
-        isError: false,
-        diff: { filePath, oldContent: oldContent ?? '', newContent: fileContent, isNewFile },
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const hint = msg.includes('ENOENT') ? ' (parent directory does not exist)'
-        : msg.includes('EACCES') ? ' (permission denied)'
-        : msg.includes('EROFS') ? ' (read-only file system)'
-        : '';
-      return { content: `Error writing file "${input.path}"${hint}: ${msg}`, isError: true };
+      return { content: `Error: ${error.message}`, isError: true };
     }
+
+    const { filePath, oldContent, newContent, isNewFile } = result.value;
+    return {
+      content: `Successfully wrote to ${filePath}`,
+      isError: false,
+      diff: { filePath, oldContent, newContent, isNewFile },
+    };
   }
 }
 

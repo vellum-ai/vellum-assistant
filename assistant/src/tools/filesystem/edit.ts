@@ -1,11 +1,9 @@
-import { readFileSync, writeFileSync } from 'node:fs';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { validateFilePath } from './path-guard.js';
-import { checkFileSizeOnDisk } from './size-guard.js';
-import { applyEdit } from '../shared/filesystem/edit-engine.js';
+import { FileSystemOps } from '../shared/filesystem/file-ops-service.js';
+import { sandboxPolicy } from '../shared/filesystem/path-policy.js';
 
 class FileEditTool implements Tool {
   name = 'file_edit';
@@ -67,59 +65,55 @@ class FileEditTool implements Tool {
     }
 
     const replaceAll = input.replace_all === true;
-    const pathCheck = validateFilePath(rawPath, context.workingDir);
-    if (!pathCheck.ok) {
-      return { content: `Error: ${pathCheck.error}`, isError: true };
+
+    const ops = new FileSystemOps(
+      (path, opts) => sandboxPolicy(path, context.workingDir, opts),
+    );
+
+    const result = ops.editFileSafe({
+      path: rawPath,
+      oldString,
+      newString,
+      replaceAll,
+    });
+
+    if (!result.ok) {
+      const { error } = result;
+      switch (error.code) {
+        case 'MATCH_NOT_FOUND':
+          return { content: `Error: old_string not found in ${error.path}`, isError: true };
+        case 'MATCH_AMBIGUOUS':
+          return {
+            content: `Error: old_string appears multiple times in ${error.path}. Provide more surrounding context to make it unique, or set replace_all to true.`,
+            isError: true,
+          };
+        case 'IO_ERROR':
+          return { content: `Error editing file: ${error.message}`, isError: true };
+        default:
+          return { content: `Error: ${error.message}`, isError: true };
+      }
     }
-    const filePath = pathCheck.resolved;
 
-    try {
-      const sizeError = checkFileSizeOnDisk(filePath);
-      if (sizeError) {
-        return { content: `Error: ${sizeError}`, isError: true };
-      }
-    } catch {
-      // File may not exist — will be caught by readFileSync below
-    }
+    const { filePath, matchCount, oldContent, newContent, matchMethod } = result.value;
 
-    try {
-      const content = readFileSync(filePath, 'utf-8');
-      const result = applyEdit(content, oldString, newString, replaceAll);
-
-      if (!result.ok) {
-        if (result.reason === 'not_found') {
-          return { content: `Error: old_string not found in ${filePath}`, isError: true };
-        }
-        return {
-          content: `Error: old_string appears multiple times in ${filePath}. Provide more surrounding context to make it unique, or set replace_all to true.`,
-          isError: true,
-        };
-      }
-
-      writeFileSync(filePath, result.updatedContent);
-
-      if (replaceAll) {
-        return {
-          content: `Successfully replaced ${result.matchCount} occurrence${result.matchCount > 1 ? 's' : ''} in ${filePath}`,
-          isError: false,
-          diff: { filePath, oldContent: content, newContent: result.updatedContent, isNewFile: false },
-        };
-      }
-
-      const methodNote = result.matchMethod === 'exact'
-        ? ''
-        : result.matchMethod === 'whitespace'
-          ? ' (matched with whitespace normalization)'
-          : ' (fuzzy matched)';
+    if (replaceAll) {
       return {
-        content: `Successfully edited ${filePath}${methodNote}`,
+        content: `Successfully replaced ${matchCount} occurrence${matchCount > 1 ? 's' : ''} in ${filePath}`,
         isError: false,
-        diff: { filePath, oldContent: content, newContent: result.updatedContent, isNewFile: false },
+        diff: { filePath, oldContent, newContent, isNewFile: false },
       };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return { content: `Error editing file: ${msg}`, isError: true };
     }
+
+    const methodNote = matchMethod === 'exact'
+      ? ''
+      : matchMethod === 'whitespace'
+        ? ' (matched with whitespace normalization)'
+        : ' (fuzzy matched)';
+    return {
+      content: `Successfully edited ${filePath}${methodNote}`,
+      isError: false,
+      diff: { filePath, oldContent, newContent, isNewFile: false },
+    };
   }
 }
 
