@@ -34,8 +34,12 @@ struct ChatView: View {
     let onDismissSessionError: () -> Void
 
     /// The portion of the suggestion that extends beyond the current input.
+    /// Returns nil when the composer content exceeds the max height (200pt) because
+    /// the ghost text overlay is a sibling in the ZStack and would become misaligned
+    /// once the TextEditor scrolls internally.
     private var ghostSuffix: String? {
         guard let suggestion else { return nil }
+        guard editorContentHeight <= 200 else { return nil }
         if suggestion.hasPrefix(inputText) {
             let suffix = String(suggestion.dropFirst(inputText.count))
             return suffix.isEmpty ? nil : suffix
