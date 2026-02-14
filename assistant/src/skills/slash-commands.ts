@@ -149,3 +149,26 @@ export function formatUnknownSlashSkillMessage(
   }
   return lines.join('\n');
 }
+
+// ─── Prompt rewrite for known slash commands ─────────────────────────────────
+
+/**
+ * Rewrite user input for a known slash command into a model-facing prompt
+ * that explicitly instructs the model to invoke the skill.
+ */
+export function rewriteKnownSlashCommandPrompt(params: {
+  rawInput: string;
+  skillId: string;
+  skillName: string;
+  trailingArgs: string;
+}): string {
+  const lines = [
+    `The user invoked the slash command \`/${params.skillId}\`.`,
+    `Please invoke the "${params.skillName}" skill (ID: ${params.skillId}).`,
+  ];
+  if (params.trailingArgs) {
+    lines.push('');
+    lines.push(`User arguments: ${params.trailingArgs}`);
+  }
+  return lines.join('\n');
+}
