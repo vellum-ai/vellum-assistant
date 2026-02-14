@@ -21,6 +21,7 @@ struct ChatView: View {
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
     let onDropFiles: ([URL]) -> Void
+    let onDropImageData: (Data) -> Void
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
     let onConfirmationAllow: (String) -> Void
@@ -46,20 +47,50 @@ struct ChatView: View {
         return (last?.text.count ?? 0) + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
 
+    @State private var isDropTargeted = false
+
     var body: some View {
-        VStack(spacing: 0) {
-            apiKeyBanner
-            messageList
-            if let errorText {
-                errorBanner(errorText)
+        ZStack {
+            VStack(spacing: 0) {
+                apiKeyBanner
+                messageList
+                if let errorText {
+                    errorBanner(errorText)
+                }
+                queueSummary
+                composerArea
             }
-            queueSummary
-            composerArea
+            .background(alignment: .bottom) {
+                chatBackground
+            }
+            .background(VColor.chatBackground)
+
+            // Drop target overlay
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(VColor.accent, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .fill(VColor.accent.opacity(0.08))
+                    )
+                    .overlay {
+                        VStack(spacing: VSpacing.sm) {
+                            Image(systemName: "arrow.down.doc.fill")
+                                .font(.system(size: 28, weight: .medium))
+                                .foregroundColor(VColor.accent)
+                            Text("Drop files here")
+                                .font(VFont.bodyMedium)
+                                .foregroundColor(VColor.accent)
+                        }
+                    }
+                    .padding(VSpacing.lg)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
         }
-        .background(alignment: .bottom) {
-            chatBackground
+        .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
+            handleDrop(providers: providers)
         }
-        .background(VColor.chatBackground)
     }
 
     @ViewBuilder
@@ -71,6 +102,59 @@ struct ChatView: View {
                 .scaledToFit()
                 .allowsHitTesting(false)
         }
+    }
+
+    /// Handle dropped items — supports both file URLs and raw image data.
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        var urls: [URL] = []
+        var imageDataItems: [NSItemProvider] = []
+        let group = DispatchGroup()
+
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                // File URL drop (e.g. dragging a saved file)
+                group.enter()
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    DispatchQueue.main.async {
+                        if let url { urls.append(url) }
+                        group.leave()
+                    }
+                }
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+                        || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
+                        || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
+                // Raw image data drop (e.g. dragging a screenshot thumbnail)
+                imageDataItems.append(provider)
+            }
+        }
+
+        // Load image data items
+        for provider in imageDataItems {
+            // Try PNG first, then TIFF, then generic image
+            let typeIdentifier: String
+            if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
+                typeIdentifier = UTType.png.identifier
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
+                typeIdentifier = UTType.tiff.identifier
+            } else {
+                typeIdentifier = UTType.image.identifier
+            }
+
+            group.enter()
+            provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
+                DispatchQueue.main.async {
+                    if let data {
+                        onDropImageData(data)
+                    }
+                    group.leave()
+                }
+            }
+        }
+
+        group.notify(queue: .main) {
+            if !urls.isEmpty { onDropFiles(urls) }
+        }
+        return true
     }
 
     // MARK: - Message List
@@ -309,23 +393,6 @@ struct ChatView: View {
         .padding(.vertical, VSpacing.lg)
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-            var urls: [URL] = []
-            let group = DispatchGroup()
-            for provider in providers {
-                group.enter()
-                _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    DispatchQueue.main.async {
-                        if let url { urls.append(url) }
-                        group.leave()
-                    }
-                }
-            }
-            group.notify(queue: .main) {
-                if !urls.isEmpty { onDropFiles(urls) }
-            }
-            return true
-        }
     }
 
     // MARK: - Attachment Preview Strip
@@ -900,6 +967,7 @@ private struct ChatViewPreviewWrapper: View {
                 onAttach: {},
                 onRemoveAttachment: { _ in },
                 onDropFiles: { _ in },
+                onDropImageData: { _ in },
                 onPaste: {},
                 onMicrophoneToggle: {},
                 onConfirmationAllow: { _ in },
