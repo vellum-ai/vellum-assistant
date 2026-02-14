@@ -26,6 +26,9 @@ Single build script: `./build.sh` wraps SwiftPM → `.app` bundle → codesign. 
 # Run a single test
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter SessionTests/testHappyPath_completesInThreeSteps
 
+# Lint (strict concurrency — catches CI-only errors locally)
+./build.sh lint
+
 # Watch logs from a running instance
 log stream --predicate 'subsystem == "com.vellum.vellum-assistant"' --level debug
 ```
