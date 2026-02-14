@@ -499,7 +499,8 @@ final class ChatViewModel: ObservableObject {
                 fetchSuggestion()
             }
 
-        case .undoComplete:
+        case .undoComplete(let undoMsg):
+            guard belongsToSession(undoMsg.sessionId) else { return }
             // Remove all messages after the last user message (the assistant
             // exchange that was regenerated). The daemon will immediately start
             // streaming a new response.

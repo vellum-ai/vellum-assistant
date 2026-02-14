@@ -551,6 +551,7 @@ exports[`IPC message snapshots ServerMessage types history_response serializes t
 exports[`IPC message snapshots ServerMessage types undo_complete serializes to expected JSON 1`] = `
 {
   "removedCount": 2,
+  "sessionId": "session-abc",
   "type": "undo_complete",
 }
 `;

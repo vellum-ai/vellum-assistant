@@ -353,6 +353,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   undo_complete: {
     type: 'undo_complete',
     removedCount: 2,
+    sessionId: 'session-abc',
   },
   usage_update: {
     type: 'usage_update',

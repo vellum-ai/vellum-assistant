@@ -1012,6 +1012,10 @@ export class Session {
       return;
     }
 
+    // Capture the existing DB user message ID so we can pass it to
+    // runAgentLoop without re-persisting the user message.
+    const existingUserMessageId = dbMessages[dbUserMsgIdx].id;
+
     // Everything after the user message needs to be deleted.
     const messagesToDelete = dbMessages.slice(dbUserMsgIdx + 1);
 
@@ -1030,6 +1034,8 @@ export class Session {
     });
 
     // Re-extract the user message content for the agent loop.
+    // Use all content blocks (text, image, file) so attachments are
+    // preserved — not just text blocks.
     const userMessage = this.messages[lastUserIdx];
     const textBlocks = userMessage.content.filter(
       (b) => b.type === 'text',
@@ -1039,10 +1045,16 @@ export class Session {
       .join('');
 
     // Notify client that the old response has been removed.
-    onEvent({ type: 'undo_complete', removedCount: messagesToDelete.length });
+    onEvent({ type: 'undo_complete', removedCount: messagesToDelete.length, sessionId: this.conversationId });
 
-    // Re-run the agent loop with the same user message.
-    await this.processMessage(content, [], onEvent);
+    // Set up processing state manually and call runAgentLoop directly,
+    // bypassing processMessage to avoid duplicating the user message
+    // in both this.messages and the DB.
+    this.processing = true;
+    this.abortController = new AbortController();
+    this.currentRequestId = uuid();
+
+    await this.runAgentLoop(content, existingUserMessageId, onEvent);
   }
 
   /**
