@@ -94,6 +94,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboardingWindow: OnboardingWindow?
     private var mainWindow: MainWindow?
     private var settingsWindow: NSWindow?
+    private var bundleConfirmationWindow: BundleConfirmationWindow?
+    /// Tracks the file path of the .vellumapp currently being confirmed, so we
+    /// can associate the daemon's open_bundle_response with the correct file.
+    private var pendingBundleFilePath: String?
     #if DEBUG
     private var galleryWindow: ComponentGalleryWindow?
     #endif
@@ -150,6 +154,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     log.error("Failed to post timer notification: \(error.localizedDescription)")
                 }
             }
+        }
+
+        // Handle open_bundle_response from the daemon
+        daemonClient.onOpenBundleResponse = { [weak self] response in
+            guard let self else { return }
+            self.handleOpenBundleResponse(response)
         }
 
         // Handle escalation: text_qa -> computer_use via request_computer_control
@@ -1071,10 +1081,109 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             do {
+                pendingBundleFilePath = url.path
                 try daemonClient.sendOpenBundle(filePath: url.path)
             } catch {
                 log.error("Failed to send open_bundle message: \(error.localizedDescription)")
+                pendingBundleFilePath = nil
             }
+        }
+    }
+
+    // MARK: - Bundle Open Handling
+
+    private func handleOpenBundleResponse(_ response: OpenBundleResponseMessage) {
+        let filePath = pendingBundleFilePath ?? ""
+        pendingBundleFilePath = nil
+
+        // If scan blocked, show error alert
+        if !response.scanResult.passed {
+            let reason = response.scanResult.blocked.first ?? "Unknown security issue"
+            let alert = NSAlert()
+            alert.messageText = "This app can't be opened"
+            alert.informativeText = "Security scan found: \(reason)"
+            alert.alertStyle = .critical
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        // Show confirmation dialog
+        let viewModel = BundleConfirmationViewModel(
+            response: response,
+            filePath: filePath
+        )
+
+        let confirmWindow = BundleConfirmationWindow()
+        self.bundleConfirmationWindow = confirmWindow
+
+        viewModel.onConfirm = { [weak self] in
+            guard let self else { return }
+            confirmWindow.close()
+            self.bundleConfirmationWindow = nil
+            self.unpackAndLoadBundle(
+                filePath: filePath,
+                manifest: response.manifest,
+                signatureResult: response.signatureResult,
+                bundleSizeBytes: response.bundleSizeBytes
+            )
+        }
+
+        viewModel.onCancel = { [weak self] in
+            confirmWindow.close()
+            self?.bundleConfirmationWindow = nil
+        }
+
+        confirmWindow.show(viewModel: viewModel)
+    }
+
+    private func unpackAndLoadBundle(
+        filePath: String,
+        manifest: OpenBundleResponseMessage.Manifest,
+        signatureResult: OpenBundleResponseMessage.SignatureResult,
+        bundleSizeBytes: Int
+    ) {
+        do {
+            let (uuid, _) = try BundleSandbox.unpack(
+                filePath: filePath,
+                manifest: manifest,
+                signatureResult: signatureResult,
+                bundleSizeBytes: bundleSizeBytes
+            )
+
+            // Build the vellumapp:// URL for the entry point
+            let entryURL = "\(VellumAppSchemeHandler.scheme)://\(uuid)/\(manifest.entry)"
+            log.info("Loading shared app at \(entryURL)")
+
+            // Load the shared app as a surface via SurfaceManager
+            let surfaceId = "shared-app-\(uuid)"
+            let html = """
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="utf-8"><title>\(manifest.name)</title></head>
+            <body>
+                <script>window.location.href = '\(entryURL)';</script>
+            </body>
+            </html>
+            """
+            let surfaceMsg = UiSurfaceShowMessage(
+                sessionId: "shared-app",
+                surfaceId: surfaceId,
+                surfaceType: "dynamic_page",
+                title: manifest.name,
+                data: AnyCodable(["html": html]),
+                actions: nil,
+                display: "panel"
+            )
+            surfaceManager.showSurface(surfaceMsg)
+        } catch {
+            log.error("Failed to unpack bundle: \(error.localizedDescription)")
+            let alert = NSAlert()
+            alert.messageText = "Failed to open app"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .critical
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
         }
     }
 
