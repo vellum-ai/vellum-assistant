@@ -506,7 +506,7 @@ export class Session {
       let exchangeOutputTokens = 0;
       let model = '';
       let runMessages = this.messages;
-      const pendingToolResults = new Map<string, { content: string; isError: boolean }>();
+      const pendingToolResults = new Map<string, { content: string; isError: boolean; contentBlocks?: ContentBlock[] }>();
       const persistedToolUseIds = new Set<string>();
       const runtimeConfig = getConfig();
       const recallQuery = buildMemoryQuery(content, this.messages);
@@ -588,7 +588,7 @@ export class Session {
             break;
           case 'tool_result':
             onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status, sessionId: this.conversationId });
-            pendingToolResults.set(event.toolUseId, { content: event.content, isError: event.isError });
+            pendingToolResults.set(event.toolUseId, { content: event.content, isError: event.isError, contentBlocks: event.contentBlocks });
             break;
           case 'error':
             if (isProviderOrderingError(event.error.message)) {
@@ -609,6 +609,7 @@ export class Session {
                   tool_use_id: toolUseId,
                   content: result.content,
                   is_error: result.isError,
+                  ...(result.contentBlocks ? { contentBlocks: result.contentBlocks } : {}),
                 }),
               );
               conversationStore.addMessage(
@@ -714,6 +715,7 @@ export class Session {
             tool_use_id: toolUseId,
             content: result.content,
             is_error: result.isError,
+            ...(result.contentBlocks ? { contentBlocks: result.contentBlocks } : {}),
           }),
         );
         conversationStore.addMessage(

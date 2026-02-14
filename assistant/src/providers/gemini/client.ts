@@ -211,15 +211,26 @@ export class GeminiProvider implements Provider {
             },
           });
           break;
-        case 'tool_result':
+        case 'tool_result': {
+          let outputText = block.content;
+          // Extract additional text from contentBlocks (Gemini function responses only support text)
+          if (block.contentBlocks && block.contentBlocks.length > 0) {
+            const extraText = block.contentBlocks
+              .filter((cb): cb is Extract<ContentBlock, { type: 'text' }> => cb.type === 'text')
+              .map((cb) => cb.text);
+            if (extraText.length > 0) {
+              outputText = outputText + '\n' + extraText.join('\n');
+            }
+          }
           parts.push({
             functionResponse: {
               id: block.tool_use_id,
               name: toolCallNames.get(block.tool_use_id) ?? block.tool_use_id,
-              response: { output: block.content },
+              response: { output: outputText },
             },
           });
           break;
+        }
         // thinking, redacted_thinking — not applicable for Gemini
       }
     }

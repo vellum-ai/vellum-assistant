@@ -177,10 +177,20 @@ export class OpenAIProvider implements Provider {
 
         // Emit tool results as separate tool-role messages
         for (const tr of toolResults) {
+          let textContent = tr.content;
+          // Extract additional text from contentBlocks (images can't be represented in OpenAI tool results)
+          if (tr.contentBlocks && tr.contentBlocks.length > 0) {
+            const extraText = tr.contentBlocks
+              .filter((cb): cb is Extract<ContentBlock, { type: 'text' }> => cb.type === 'text')
+              .map((cb) => cb.text);
+            if (extraText.length > 0) {
+              textContent = textContent + '\n' + extraText.join('\n');
+            }
+          }
           result.push({
             role: 'tool',
             tool_call_id: tr.tool_use_id,
-            content: tr.is_error ? `[ERROR] ${tr.content}` : tr.content,
+            content: tr.is_error ? `[ERROR] ${textContent}` : textContent,
           });
         }
 
