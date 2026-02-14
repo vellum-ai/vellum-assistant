@@ -128,7 +128,20 @@ async function collectAndMergeCandidates(
   }
 
   // Direct item search supplements FTS with LIKE-based matching
-  const directItems = directItemSearch(query, Math.max(10, config.memory.retrieval.lexicalTopK), scopeIds);
+  let directItems = directItemSearch(query, Math.max(10, config.memory.retrieval.lexicalTopK), scopeIds);
+
+  // Filter direct items by excluded message IDs — items whose only evidence
+  // comes from excluded messages should not leak back into recall.
+  if (excludeMessageIds.length > 0 && directItems.length > 0) {
+    const db = getDb();
+    directItems = directItems.filter((candidate) => {
+      const sources = db.select().from(memoryItemSources)
+        .where(eq(memoryItemSources.memoryItemId, candidate.id)).all();
+      if (sources.length === 0) return true;
+      const nonExcluded = sources.filter((s) => !excludeMessageIds.includes(s.messageId));
+      return nonExcluded.length > 0;
+    });
+  }
 
   const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems], config.memory.retrieval.freshness);
 
@@ -1399,12 +1412,19 @@ export async function searchMemoryItems(
     }
   }
 
-  const { merged } = await collectAndMergeCandidates(trimmed, config, {
-    queryVector,
-    provider,
-    model,
-    scopeId,
-  });
+  let merged: Candidate[];
+  try {
+    const result = await collectAndMergeCandidates(trimmed, config, {
+      queryVector,
+      provider,
+      model,
+      scopeId,
+    });
+    merged = result.merged;
+  } catch (err) {
+    log.warn({ err }, 'Memory search retrieval failed, returning empty results');
+    return [];
+  }
 
   return merged.slice(0, limit).map((c) => ({
     id: c.id,
