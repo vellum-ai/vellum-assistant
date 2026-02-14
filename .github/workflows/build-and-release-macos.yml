@@ -324,20 +324,30 @@ jobs:
         if: always() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          UPSTREAM_BODY: ${{ github.event.release.body }}
         run: |
           VERSION="${{ steps.version.outputs.display_version }}"
           SHORT_SHA=$(git rev-parse --short HEAD)
           FULL_SHA=$(git rev-parse HEAD)
           TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
-          RELEASE_NOTES="**Build:** \`$VERSION\`
-          **Commit:** [\`$SHORT_SHA\`](https://github.com/${{ github.repository }}/commit/$FULL_SHA)
-          **Built at:** $TIMESTAMP
-
-          ---
-
-          Download the DMG, open it, and drag Vellum to your Applications folder.
-          Existing installations will auto-update via Sparkle."
+          NOTES_FILE=$(mktemp)
+          {
+            echo "**Build:** \`$VERSION\`"
+            echo "**Commit:** [\`$SHORT_SHA\`](https://github.com/${{ github.repository }}/commit/$FULL_SHA)"
+            echo "**Built at:** $TIMESTAMP"
+            echo ""
+            echo "---"
+            echo ""
+            if [ -n "$UPSTREAM_BODY" ]; then
+              echo "$UPSTREAM_BODY"
+              echo ""
+              echo "---"
+              echo ""
+            fi
+            echo "Download the DMG, open it, and drag Vellum to your Applications folder."
+            echo "Existing installations will auto-update via Sparkle."
+          } > "$NOTES_FILE"
 
           REPO="vellum-ai/velly"
           APPCAST="dist/appcast-${REPO//\//-}.xml"
@@ -359,9 +369,10 @@ jobs:
             "${ASSETS[@]}" \
             --repo "$REPO" \
             --title "Vellum $VERSION" \
-            --notes "$RELEASE_NOTES" \
+            --notes-file "$NOTES_FILE" \
             --latest
 
+          rm -f "$NOTES_FILE"
           echo "Release created at https://github.com/$REPO/releases/tag/latest"
 
       - name: Cleanup keychain
