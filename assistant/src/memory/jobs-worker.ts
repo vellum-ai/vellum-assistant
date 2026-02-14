@@ -620,8 +620,14 @@ async function embedAndUpsert(
   const vector = embedded.vectors[0];
   if (!vector) return;
 
+  let qdrant;
   try {
-    const qdrant = getQdrantClient();
+    qdrant = getQdrantClient();
+  } catch {
+    throw new BackendUnavailableError('Qdrant client not initialized');
+  }
+
+  try {
     const now = Date.now();
     await qdrant.upsert(targetType, targetId, vector, {
       text,
