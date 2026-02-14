@@ -27,7 +27,7 @@ export async function handleMemorySearch(
     : 5;
 
   try {
-    const results = searchMemoryItems(query, limit, config);
+    const results = await searchMemoryItems(query, limit, config);
 
     if (results.length === 0) {
       return { content: 'No matching memories found.', isError: false };
