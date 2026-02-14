@@ -51,7 +51,7 @@ public struct WeatherForecastItem: Identifiable {
         return useFahrenheit ? Int(lowC * 9 / 5 + 32) : Int((lowC - 32) * 5 / 9)
     }
 
-    func high(useFahrenheit: Bool) -> Int {
+    public func high(useFahrenheit: Bool) -> Int {
         if sourceIsFahrenheit == useFahrenheit { return Int(highC) }
         return useFahrenheit ? Int(highC * 9 / 5 + 32) : Int((highC - 32) * 5 / 9)
     }
@@ -87,7 +87,7 @@ public struct WeatherForecastData {
         return useFahrenheit ? Int(currentTemp * 9 / 5 + 32) : Int((currentTemp - 32) * 5 / 9)
     }
 
-    func feelsLike(useFahrenheit: Bool) -> Int {
+    public func feelsLike(useFahrenheit: Bool) -> Int {
         if sourceIsFahrenheit == useFahrenheit { return Int(feelsLike) }
         return useFahrenheit ? Int(feelsLike * 9 / 5 + 32) : Int((feelsLike - 32) * 5 / 9)
     }

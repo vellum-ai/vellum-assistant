@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 import AppKit
 #elseif os(iOS)
 import UIKit
+#else
+#error("Unsupported platform")
 #endif
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel")
@@ -123,6 +125,8 @@ public final class ChatViewModel: ObservableObject {
         let thumbnailImage = thumbnail.flatMap { NSImage(data: $0) }
         #elseif os(iOS)
         let thumbnailImage = thumbnail.flatMap { UIImage(data: $0) }
+        #else
+        #error("Unsupported platform")
         #endif
 
         let attachment = ChatAttachment(
@@ -154,6 +158,8 @@ public final class ChatViewModel: ObservableObject {
             return
         }
         addAttachment(imageData: imageData, filename: "Pasted Image.png")
+        #else
+        #error("Unsupported platform")
         #endif
     }
 
@@ -206,6 +212,8 @@ public final class ChatViewModel: ObservableObject {
             errorText = "Could not process image."
             return
         }
+        #else
+        #error("Unsupported platform")
         #endif
 
         guard pngData.count <= Self.maxFileSize else {
@@ -220,6 +228,8 @@ public final class ChatViewModel: ObservableObject {
         let thumbnailImage = thumbnail.flatMap { NSImage(data: $0) }
         #elseif os(iOS)
         let thumbnailImage = thumbnail.flatMap { UIImage(data: $0) }
+        #else
+        #error("Unsupported platform")
         #endif
 
         let attachment = ChatAttachment(
@@ -263,6 +273,8 @@ public final class ChatViewModel: ObservableObject {
         let resized = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
         return resized?.pngData()
+        #else
+        #error("Unsupported platform")
         #endif
     }
 

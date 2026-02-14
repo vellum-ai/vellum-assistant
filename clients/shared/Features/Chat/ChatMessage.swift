@@ -3,6 +3,8 @@ import Foundation
 import AppKit
 #elseif os(iOS)
 import UIKit
+#else
+#error("Unsupported platform")
 #endif
 
 public enum ChatRole: String {
@@ -86,6 +88,8 @@ public struct ToolCallData: Identifiable, Equatable {
     public var cachedImage: NSImage?
     #elseif os(iOS)
     public var cachedImage: UIImage?
+    #else
+    #error("Unsupported platform")
     #endif
 
     public static func == (lhs: ToolCallData, rhs: ToolCallData) -> Bool {
@@ -120,6 +124,8 @@ public struct ToolCallData: Identifiable, Equatable {
         guard let base64String, let data = Data(base64Encoded: base64String) else { return nil }
         return UIImage(data: data)
     }
+    #else
+    #error("Unsupported platform")
     #endif
 }
 
@@ -163,6 +169,8 @@ public struct ChatAttachment: Identifiable {
     public let thumbnailImage: NSImage?
     #elseif os(iOS)
     public let thumbnailImage: UIImage?
+    #else
+    #error("Unsupported platform")
     #endif
 
     #if os(macOS)
@@ -185,6 +193,8 @@ public struct ChatAttachment: Identifiable {
         self.dataLength = dataLength
         self.thumbnailImage = thumbnailImage
     }
+    #else
+    #error("Unsupported platform")
     #endif
 }
 

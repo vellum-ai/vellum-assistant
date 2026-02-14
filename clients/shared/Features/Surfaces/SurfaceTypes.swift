@@ -285,7 +285,7 @@ public struct Surface: Identifiable, Sendable {
 public extension Surface {
     /// Parse a `Surface` from a `UiSurfaceShowMessage` received over IPC.
     /// The message carries an `AnyCodable` data payload whose shape depends on `surfaceType`.
-    public static func from(_ message: UiSurfaceShowMessage) -> Surface? {
+    static func from(_ message: UiSurfaceShowMessage) -> Surface? {
         guard let surfaceType = SurfaceType(rawValue: message.surfaceType) else {
             return nil
         }
