@@ -221,7 +221,7 @@ struct SettingsPanel: View {
                             }
                             Spacer()
                             VButton(label: "Manage...", style: .ghost) {
-                                daemonClient?.isTrustRulesSheetOpen = true
+                                isTrustRulesSheetOpen = true
                             }
                             .disabled(isTrustRulesSheetOpen)
                         }
@@ -256,14 +256,7 @@ struct SettingsPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             refreshAPIKeyState()
         }
-        .onReceive(
-            daemonClient.map { $0.$isTrustRulesSheetOpen.eraseToAnyPublisher() } ?? Empty().eraseToAnyPublisher()
-        ) { newValue in
-            isTrustRulesSheetOpen = newValue
-        }
-        .sheet(isPresented: $isTrustRulesSheetOpen, onDismiss: {
-            daemonClient?.isTrustRulesSheetOpen = false
-        }) {
+        .sheet(isPresented: $isTrustRulesSheetOpen) {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
             }
