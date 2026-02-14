@@ -89,6 +89,7 @@ describe('Memory V2 regressions', () => {
     db.run('DELETE FROM conversations');
     db.run('DELETE FROM memory_jobs');
     db.run('DELETE FROM memory_checkpoints');
+    resetStaleSweepThrottle();
   });
 
   afterAll(() => {
@@ -1589,8 +1590,6 @@ describe('Memory V2 regressions', () => {
       verificationState: 'assistant_inferred',
     }).run();
 
-    // Reset throttle so the sweep actually executes (the previous test set lastStaleSweepMs)
-    resetStaleSweepThrottle();
     const marked = sweepStaleItems(DEFAULT_CONFIG);
 
     // Sweep ran but shielded item was not marked — should return 0
