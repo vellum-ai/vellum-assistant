@@ -90,7 +90,7 @@ struct MainWindowView: View {
                                 onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
                                 onRegenerate: { viewModel.regenerateLastMessage() },
                                 sessionError: viewModel.sessionError,
-                                onRetry: { viewModel.regenerateLastMessage() },
+                                onRetry: { viewModel.retryAfterSessionError() },
                                 onDismissSessionError: { viewModel.dismissSessionError() }
                             )
                         }

@@ -5,15 +5,37 @@ import AppKit
 import UIKit
 #endif
 
+public struct VToastAction {
+    public let label: String
+    public let action: () -> Void
+
+    public init(label: String, action: @escaping () -> Void) {
+        self.label = label
+        self.action = action
+    }
+}
+
 public struct VToast: View {
     public enum Style { case info, success, warning, error }
 
     public let message: String
     public var style: Style = .info
+    public var primaryAction: VToastAction?
+    public var secondaryAction: VToastAction?
+    public var onDismiss: (() -> Void)?
 
-    public init(message: String, style: Style = .info) {
+    public init(
+        message: String,
+        style: Style = .info,
+        primaryAction: VToastAction? = nil,
+        secondaryAction: VToastAction? = nil,
+        onDismiss: (() -> Void)? = nil
+    ) {
         self.message = message
         self.style = style
+        self.primaryAction = primaryAction
+        self.secondaryAction = secondaryAction
+        self.onDismiss = onDismiss
     }
 
     public var body: some View {
@@ -23,6 +45,30 @@ public struct VToast: View {
             Text(message)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
+                .lineLimit(3)
+
+            Spacer(minLength: 0)
+
+            if primaryAction != nil || secondaryAction != nil || onDismiss != nil {
+                HStack(spacing: VSpacing.sm) {
+                    if let secondary = secondaryAction {
+                        VButton(label: secondary.label, style: .ghost, action: secondary.action)
+                    }
+                    if let primary = primaryAction {
+                        VButton(label: primary.label, style: actionButtonStyle, action: primary.action)
+                    }
+                    if let onDismiss {
+                        Button(action: onDismiss) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(VColor.textSecondary)
+                                .frame(width: 24, height: 24)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Dismiss")
+                    }
+                }
+            }
         }
         .padding(.horizontal, VSpacing.xl)
         .padding(.vertical, VSpacing.lg)
@@ -30,10 +76,10 @@ public struct VToast: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(accentBorder, lineWidth: 1)
         )
         .vShadow(VShadow.md)
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(Text("\(String(describing: style)): \(message)"))
         .onAppear {
             #if os(macOS)
@@ -48,6 +94,20 @@ public struct VToast: View {
             #elseif os(iOS)
             UIAccessibility.post(notification: .announcement, argument: "\(style): \(message)")
             #endif
+        }
+    }
+
+    /// Use danger style for error toasts, primary for everything else.
+    private var actionButtonStyle: VButton.Style {
+        style == .error ? .danger : .primary
+    }
+
+    /// Border color tinted by toast style for visual emphasis.
+    private var accentBorder: Color {
+        switch style {
+        case .error: return VColor.error.opacity(0.4)
+        case .warning: return VColor.warning.opacity(0.4)
+        default: return VColor.surfaceBorder
         }
     }
 
@@ -78,8 +138,15 @@ public struct VToast: View {
             VToast(message: "Success message", style: .success)
             VToast(message: "Warning message", style: .warning)
             VToast(message: "Error message", style: .error)
+            VToast(
+                message: "Error with actions",
+                style: .error,
+                primaryAction: VToastAction(label: "Retry") {},
+                secondaryAction: VToastAction(label: "Copy Debug Info") {},
+                onDismiss: {}
+            )
         }
         .padding()
     }
-    .frame(width: 400, height: 300)
+    .frame(width: 500, height: 400)
 }

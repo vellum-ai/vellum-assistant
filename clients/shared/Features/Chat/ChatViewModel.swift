@@ -1138,6 +1138,30 @@ public final class ChatViewModel: ObservableObject {
         errorText = nil
     }
 
+    /// Copy session error details to the clipboard for debugging.
+    public func copySessionErrorDebugDetails() {
+        guard let error = sessionError else { return }
+        let details = """
+        Error: \(error.message)
+        Category: \(error.category)
+        Session: \(error.sessionId)
+        Retryable: \(error.isRetryable)
+        """
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(details, forType: .string)
+        #elseif os(iOS)
+        UIPasteboard.general.string = details
+        #endif
+    }
+
+    /// Retry the last message after a session error, if the error is retryable.
+    public func retryAfterSessionError() {
+        guard let error = sessionError, error.isRetryable else { return }
+        dismissSessionError()
+        regenerateLastMessage()
+    }
+
     /// Respond to a tool confirmation request displayed inline in the chat.
     public func respondToConfirmation(requestId: String, decision: String) {
         // DaemonClient.send silently returns when connection is nil (it does
