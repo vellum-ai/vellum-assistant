@@ -28,3 +28,35 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+  notify-failure:
+    if: failure()
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack of publish failure
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_RELEASES_CHANNEL_ID }}
+            unfurl_links: false
+            unfurl_media: false
+            blocks:
+              - type: header
+                text:
+                  type: plain_text
+                  text: "\u274c Publish Velly Failed"
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: "*Workflow:* Publish velly\n*Branch:* `${{ github.ref_name }}`\n*Commit:* `${{ github.sha }}`\n*Triggered by:* ${{ github.actor }}"
+              - type: actions
+                elements:
+                  - type: button
+                    text:
+                      type: plain_text
+                      text: "View Run"
+                    url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    style: danger

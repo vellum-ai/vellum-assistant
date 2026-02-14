@@ -343,3 +343,35 @@ jobs:
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+
+  notify-failure:
+    if: failure()
+    needs: [build-sign-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack of build failure
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_RELEASES_CHANNEL_ID }}
+            unfurl_links: false
+            unfurl_media: false
+            blocks:
+              - type: header
+                text:
+                  type: plain_text
+                  text: "\u274c Build and Release macOS App Failed"
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: "*Workflow:* Build and Release macOS App\n*Branch:* `${{ github.ref_name }}`\n*Triggered by:* ${{ github.actor }}"
+              - type: actions
+                elements:
+                  - type: button
+                    text:
+                      type: plain_text
+                      text: "View Run"
+                    url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    style: danger
