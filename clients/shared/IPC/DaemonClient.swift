@@ -233,10 +233,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         log.info("Connecting to daemon socket at \(self.config.socketPath)")
         let endpoint = NWEndpoint.unix(path: self.config.socketPath)
         #elseif os(iOS)
-        log.info("Connecting to daemon at \(self.config.hostname):\(self.config.port)")
+        // Re-read UserDefaults on each connect() so reconnects pick up changed settings
+        // (Settings UI not yet implemented in PR 4; will be added in PR 6)
+        let hostname = UserDefaults.standard.string(forKey: "daemon_hostname") ?? "localhost"
+        let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
+        let port = (rawPort > 0 && rawPort <= 65535) ? UInt16(rawPort) : 8765
+        log.info("Connecting to daemon at \(hostname):\(port)")
         let endpoint = NWEndpoint.hostPort(
-            host: NWEndpoint.Host(self.config.hostname),
-            port: NWEndpoint.Port(integerLiteral: self.config.port)
+            host: NWEndpoint.Host(hostname),
+            port: NWEndpoint.Port(integerLiteral: port)
         )
         #else
         #error("DaemonClient is only supported on macOS and iOS")
