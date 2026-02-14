@@ -101,12 +101,11 @@ program
   .name('vellum')
   .description('Local AI assistant')
   .version(version)
-  .option('--no-sandbox', 'Disable sandbox for this session (runtime override, not persisted)')
-  .action(async (opts: { sandbox?: boolean }) => {
+  .action(async () => {
     if (shouldAutoStartDaemon()) {
       await ensureDaemonRunning();
     }
-    await startCli({ noSandbox: opts.sandbox === false });
+    await startCli();
   });
 
 const daemon = program.command('daemon').description('Manage the daemon process');
@@ -955,7 +954,7 @@ _vellum_completions() {
     _init_completion || return
 
     if [[ $cword -eq 1 ]]; then
-        COMPREPLY=( $(compgen -W "${topLevel.join(' ')} --help --version --no-sandbox" -- "$cur") )
+        COMPREPLY=( $(compgen -W "${topLevel.join(' ')} --help --version" -- "$cur") )
         return
     fi
 
@@ -999,7 +998,7 @@ _vellum() {
 
     if (( CURRENT == 2 )); then
         _describe 'command' commands
-        _arguments '--help[Show help]' '--version[Show version]' '--no-sandbox[Disable sandbox]'
+        _arguments '--help[Show help]' '--version[Show version]'
         return
     fi
 
@@ -1046,7 +1045,6 @@ function generateFishCompletion(
   }
   script += `complete -c vellum -n '__fish_use_subcommand' -l help -d 'Show help'\n`;
   script += `complete -c vellum -n '__fish_use_subcommand' -l version -d 'Show version'\n`;
-  script += `complete -c vellum -n '__fish_use_subcommand' -l no-sandbox -d 'Disable sandbox'\n`;
 
   // Subcommands
   for (const [cmd, subs] of Object.entries(subcommands)) {

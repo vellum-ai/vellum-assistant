@@ -659,20 +659,13 @@ function handleModelSet(
 
 function handleSandboxSet(
   msg: SandboxSetRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
+  _socket: net.Socket,
+  _ctx: HandlerContext,
 ): void {
-  // Per-socket override: store the sandbox preference for this client only.
-  // The override is applied to the session so it doesn't affect other clients.
-  ctx.socketSandboxOverride.set(socket, msg.enabled);
-  const sessionId = ctx.socketToSession.get(socket);
-  if (sessionId) {
-    const session = ctx.sessions.get(sessionId);
-    if (session) {
-      session.setSandboxOverride(msg.enabled);
-    }
-  }
-  log.info({ enabled: msg.enabled }, 'Sandbox override applied (per-session)');
+  log.warn(
+    { enabled: msg.enabled },
+    'Received deprecated sandbox_set message. Runtime sandbox overrides are ignored.',
+  );
 }
 
 export interface ParsedHistoryMessage {
