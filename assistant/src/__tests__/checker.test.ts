@@ -357,6 +357,36 @@ describe('Permission Checker', () => {
       expect(result.matchedRule?.id).toBe('default:ask-host_bash-global');
     });
 
+    test('cu_click prompts by default via computer-use ask rule', async () => {
+      const result = await check('cu_click', { reasoning: 'Click the save button' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-cu_click-global');
+    });
+
+    test('request_computer_control prompts by default via computer-use ask rule', async () => {
+      const result = await check('request_computer_control', { task: 'Open system settings' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-request_computer_control-global');
+    });
+
+    test('higher-priority allow rule can override default cu ask rule', async () => {
+      addRule('cu_click', 'cu_click:*', 'everywhere', 'allow', 2000);
+      const result = await check('cu_click', { reasoning: 'Click confirm' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.decision).toBe('allow');
+      expect(result.matchedRule?.priority).toBe(2000);
+    });
+
+    test('higher-priority deny rule can override default cu ask rule', async () => {
+      addRule('cu_click', 'cu_click:*', 'everywhere', 'deny', 2001);
+      const result = await check('cu_click', { reasoning: 'Click confirm' }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.matchedRule?.decision).toBe('deny');
+      expect(result.matchedRule?.priority).toBe(2001);
+    });
+
     test('deny rule for skill_load matches specific skill selectors', async () => {
       addRule('skill_load', 'skill_load:dangerous-skill', 'everywhere', 'deny');
       const result = await check('skill_load', { skill: 'dangerous-skill' }, '/tmp');
