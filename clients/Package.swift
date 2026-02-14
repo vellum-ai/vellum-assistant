@@ -32,6 +32,9 @@ let package = Package(
             path: "shared",
             swiftSettings: [
                 .enableUpcomingFeature("BareSlashRegexLiterals")
+            ],
+            linkerSettings: [
+                .linkedFramework("Network")  // Required for DaemonClient (NWConnection)
             ]
         ),
         // VellumAssistantLib: macOS-only target (links AppKit, ScreenCaptureKit, etc.)
