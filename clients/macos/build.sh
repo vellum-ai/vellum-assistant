@@ -282,14 +282,29 @@ echo "Signing with: $SIGN_IDENTITY"
 # Sign components explicitly (Apple's recommended approach instead of --deep)
 # This ensures nested binaries with specific entitlements aren't overwritten
 
-# Sign Sparkle.framework first
+# Sign Sparkle.framework — must sign nested binaries inside-out before the outer framework
 if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
     FW_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
     if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
         FW_SIGN_FLAGS+=(--timestamp --options runtime)
     fi
+
+    SPARKLE_VERSIONS="$FRAMEWORKS_DIR/Sparkle.framework/Versions/B"
+
+    # Sign XPC services first (deepest nesting)
+    for XPC in "$SPARKLE_VERSIONS"/XPCServices/*.xpc; do
+        [ -d "$XPC" ] && codesign "${FW_SIGN_FLAGS[@]}" "$XPC"
+    done
+
+    # Sign Updater.app
+    [ -d "$SPARKLE_VERSIONS/Updater.app" ] && codesign "${FW_SIGN_FLAGS[@]}" "$SPARKLE_VERSIONS/Updater.app"
+
+    # Sign Autoupdate binary
+    [ -f "$SPARKLE_VERSIONS/Autoupdate" ] && codesign "${FW_SIGN_FLAGS[@]}" "$SPARKLE_VERSIONS/Autoupdate"
+
+    # Sign the outer framework last
     codesign "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework"
-    echo "Sparkle.framework signed"
+    echo "Sparkle.framework signed (including nested binaries)"
 fi
 
 # Sign daemon binary with its own entitlements (JIT, network)
