@@ -232,9 +232,6 @@ public struct SettingsView: View {
                     showingPrivacy = true
                 }
                 .font(.caption)
-                .sheet(isPresented: $showingPrivacy) {
-                    PrivacyDetailView()
-                }
             }
         }
         .formStyle(.grouped)
@@ -263,6 +260,9 @@ public struct SettingsView: View {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
             }
+        }
+        .sheet(isPresented: $showingPrivacy) {
+            PrivacyDetailView()
         }
     }
 
