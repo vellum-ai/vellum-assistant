@@ -1047,6 +1047,36 @@ public struct TraceEventMessage: Decodable, Sendable {
     public let attributes: [String: AnyCodable]?
 }
 
+/// Structured error codes for session-level errors.
+public enum SessionErrorCode: String, CaseIterable, Codable, Sendable {
+    case providerNetwork = "PROVIDER_NETWORK"
+    case providerRateLimit = "PROVIDER_RATE_LIMIT"
+    case providerApi = "PROVIDER_API"
+    case queueFull = "QUEUE_FULL"
+    case sessionAborted = "SESSION_ABORTED"
+    case sessionProcessingFailed = "SESSION_PROCESSING_FAILED"
+    case regenerateFailed = "REGENERATE_FAILED"
+    case unknown = "UNKNOWN"
+}
+
+/// Structured session-level error from the daemon.
+/// Wire type: `"session_error"`
+public struct SessionErrorMessage: Decodable, Sendable {
+    public let sessionId: String
+    public let code: SessionErrorCode
+    public let userMessage: String
+    public let retryable: Bool
+    public let debugDetails: String?
+
+    public init(sessionId: String, code: SessionErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil) {
+        self.sessionId = sessionId
+        self.code = code
+        self.userMessage = userMessage
+        self.retryable = retryable
+        self.debugDetails = debugDetails
+    }
+}
+
 /// Timer completed notification from daemon.
 /// Wire type: `"timer_completed"`
 public struct TimerCompletedMessage: Decodable, Sendable {
@@ -1335,6 +1365,7 @@ public enum ServerMessage: Decodable, Sendable {
     case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
     case bundleAppResponse(BundleAppResponseMessage)
     case openBundleResponse(OpenBundleResponseMessage)
+    case sessionError(SessionErrorMessage)
     case signBundlePayload(SignBundlePayloadMessage)
     case getSigningIdentity
     case pong
@@ -1472,6 +1503,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "trace_event":
             let message = try TraceEventMessage(from: decoder)
             self = .traceEvent(message)
+        case "session_error":
+            let message = try SessionErrorMessage(from: decoder)
+            self = .sessionError(message)
         case "sign_bundle_payload":
             let message = try SignBundlePayloadMessage(from: decoder)
             self = .signBundlePayload(message)
