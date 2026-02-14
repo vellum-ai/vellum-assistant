@@ -10,7 +10,9 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "lint": "eslint",
-    "test": "bash scripts/test.sh"
+    "test": "bash scripts/test.sh",
+    "ipc:inventory": "bun scripts/ipc/check-contract-inventory.ts",
+    "ipc:inventory:update": "bun scripts/ipc/check-contract-inventory.ts --update"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.42",
