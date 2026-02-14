@@ -99,7 +99,7 @@ struct ChatView: View {
     /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
     private var composerReservedHeight: CGFloat {
         let editorClamped = min(max(editorContentHeight, 36), 200)
-        let base: CGFloat = VSpacing.lg * 2 + VSpacing.sm * 2 + editorClamped + 8
+        let base: CGFloat = VSpacing.lg * 2 + VSpacing.md * 2 + editorClamped + 8
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 44
         let error: CGFloat = errorText != nil ? 36 : 0
         let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
