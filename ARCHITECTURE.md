@@ -638,7 +638,7 @@ graph LR
 
 ## Task Routing — Voice Source Bypass and Escalation
 
-When a task is submitted via `task_submit`, the daemon classifies it to determine routing. Voice-sourced tasks bypass the classifier entirely for lower latency and more predictable routing.
+When a task is submitted via `task_submit`, the daemon classifies it to determine routing. Voice-sourced tasks and slash command candidates bypass the classifier entirely for lower latency and more predictable routing.
 
 ```mermaid
 graph TB
@@ -647,6 +647,7 @@ graph TB
     end
 
     subgraph "Routing Decision"
+        SLASH_CHECK{"Slash candidate?<br/>(parseSlashCandidate)"}
         VOICE_CHECK{"source === 'voice'?"}
         CLASSIFIER["Classifier<br/>Haiku-4.5 tool call<br/>+ heuristic fallback"]
         CU_ROUTE["Route: computer_use<br/>→ CU session"]
@@ -658,7 +659,9 @@ graph TB
         ESCALATE["request_computer_control<br/>(proxy tool)"]
     end
 
-    SUBMIT --> VOICE_CHECK
+    SUBMIT --> SLASH_CHECK
+    SLASH_CHECK -->|"Yes (/skill-id)"| QA_ROUTE
+    SLASH_CHECK -->|"No"| VOICE_CHECK
     VOICE_CHECK -->|"Yes"| QA_ROUTE
     VOICE_CHECK -->|"No"| CLASSIFIER
     CLASSIFIER -->|"computer_use"| CU_ROUTE
@@ -681,6 +684,33 @@ The text_qa system prompt includes an action execution hierarchy that guides too
 | **LAST RESORT** | Foreground computer use | `request_computer_control` | Only on explicit user request ("go ahead", "take over") |
 
 The `request_computer_control` tool is a proxy tool available only to text_qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session and sends a `task_routed` message to the client, effectively escalating from text_qa to foreground computer use.
+
+---
+
+## Slash Command Resolution
+
+When a user message enters the daemon (via `processMessage` or the queue drain path), it passes through slash command resolution before persistence or agent execution.
+
+```mermaid
+graph TB
+    INPUT["User input"]
+    PARSE{"parseSlashCandidate"}
+    RESOLVE{"resolveSlashSkillCommand"}
+    NONE["Normal flow<br/>persist + agent loop"]
+    KNOWN["Rewrite to skill prompt<br/>persist + agent loop"]
+    UNKNOWN["Deterministic response<br/>list available commands<br/>no agent loop"]
+
+    INPUT --> PARSE
+    PARSE -->|"Not a slash candidate"| NONE
+    PARSE -->|"Valid candidate"| RESOLVE
+    RESOLVE -->|"Known skill ID"| KNOWN
+    RESOLVE -->|"Unknown ID"| UNKNOWN
+```
+
+Key behaviors:
+- **Known**: Content is rewritten via `rewriteKnownSlashCommandPrompt` to instruct the model to invoke the skill. Trailing arguments are preserved.
+- **Unknown**: A deterministic `assistant_text_delta` + `message_complete` is emitted listing available slash commands. No message persistence or model call occurs.
+- **Queue**: Queued messages receive the same slash resolution. Unknown slash commands in the queue emit their response and continue draining without stalling.
 
 ---
 
