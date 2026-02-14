@@ -46,6 +46,13 @@ import {
 } from '../memory/retriever.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
 import type { UsageActor } from '../usage/actors.js';
+import { loadSkillCatalog } from '../config/skills.js';
+import { resolveSkillStates } from '../config/skill-state.js';
+import {
+  buildInvocableSlashCatalog,
+  resolveSlashSkillCommand,
+  rewriteKnownSlashCommandPrompt,
+} from '../skills/slash-commands.js';
 
 const log = getLogger('session');
 
@@ -860,17 +867,44 @@ export class Session {
     onEvent: (msg: ServerMessage) => void,
     requestId?: string,
   ): Promise<string> {
+    // Resolve slash commands before persistence
+    const resolvedContent = this.resolveSlashContent(content);
+
     let userMessageId: string;
     try {
-      userMessageId = this.persistUserMessage(content, attachments, requestId);
+      userMessageId = this.persistUserMessage(resolvedContent, attachments, requestId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       onEvent({ type: 'error', message });
       return '';
     }
 
-    await this.runAgentLoop(content, userMessageId, onEvent);
+    await this.runAgentLoop(resolvedContent, userMessageId, onEvent);
     return userMessageId;
+  }
+
+  /**
+   * If the content is a known slash command, rewrite it into a model-facing
+   * skill invocation prompt. Otherwise return the content unchanged.
+   */
+  private resolveSlashContent(content: string): string {
+    const config = getConfig();
+    const catalog = loadSkillCatalog();
+    const resolved = resolveSkillStates(catalog, config);
+    const invocable = buildInvocableSlashCatalog(catalog, resolved);
+    const resolution = resolveSlashSkillCommand(content, invocable);
+
+    if (resolution.kind === 'known') {
+      const skill = invocable.get(resolution.skillId.toLowerCase());
+      return rewriteKnownSlashCommandPrompt({
+        rawInput: content,
+        skillId: resolution.skillId,
+        skillName: skill?.name ?? resolution.skillId,
+        trailingArgs: resolution.trailingArgs,
+      });
+    }
+
+    return content;
   }
 
   handleSurfaceAction(surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
