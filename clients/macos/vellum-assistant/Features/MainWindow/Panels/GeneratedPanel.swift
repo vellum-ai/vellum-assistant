@@ -29,6 +29,7 @@ struct GeneratedPanel: View {
     @State private var shareFileURL: URL?
     @State private var showShareSheet = false
     @State private var pendingDeleteId: String?
+    @State private var loadError: String?
 
     // Track how many list responses we're waiting for
     @State private var pendingResponses = 0
@@ -48,6 +49,22 @@ struct GeneratedPanel: View {
                     Spacer()
                 }
                 .frame(height: 250)
+            } else if loadError != nil && displayItems.isEmpty {
+                VEmptyState(
+                    title: "Error loading apps",
+                    subtitle: loadError ?? "",
+                    icon: "exclamationmark.triangle"
+                )
+                Button(action: { fetchApps() }) {
+                    Text("Retry")
+                        .font(VFont.mono)
+                        .foregroundColor(Emerald._400)
+                        .padding(.horizontal, VSpacing.lg)
+                        .padding(.vertical, VSpacing.sm)
+                        .background(Slate._800)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                }
+                .buttonStyle(.plain)
             } else if displayItems.isEmpty {
                 VEmptyState(
                     title: "No generated items",
@@ -56,6 +73,27 @@ struct GeneratedPanel: View {
                 )
             } else {
                 VStack(spacing: VSpacing.md) {
+                    if let loadError {
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(Amber._500)
+                            Text(loadError)
+                                .font(VFont.caption)
+                                .foregroundColor(Amber._500)
+                            Spacer()
+                            Button(action: { fetchApps() }) {
+                                Text("Retry")
+                                    .font(VFont.small)
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(VSpacing.md)
+                        .background(Amber._500.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    }
+
                     ForEach(displayItems) { item in
                         appRow(item)
                     }
@@ -247,6 +285,7 @@ struct GeneratedPanel: View {
     @State private var sharedApps: [SharedAppItem] = []
 
     private func fetchApps() {
+        loadError = nil
         isLoading = true
         pendingResponses = 2
 
@@ -302,10 +341,23 @@ struct GeneratedPanel: View {
                 buildDisplayItems()
                 isLoading = false
             }
+
+            // Timeout: if still loading after 10s, show partial results or error
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                guard self.isLoading else { return }
+                self.buildDisplayItems()
+                self.isLoading = false
+                if self.displayItems.isEmpty {
+                    self.loadError = "Unable to load apps"
+                } else {
+                    self.loadError = "Some apps couldn't be loaded"
+                }
+            }
         }
     }
 
     private func buildDisplayItems() {
+        loadError = nil
         var items: [DisplayAppItem] = []
 
         // Local apps
