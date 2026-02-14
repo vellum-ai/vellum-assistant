@@ -10,7 +10,7 @@ struct ToolCallChip: View {
     }
 
     private var hasExpandableContent: Bool {
-        toolCall.result != nil || toolCall.imageData != nil
+        toolCall.result != nil || toolCall.cachedImage != nil
     }
 
     var body: some View {
