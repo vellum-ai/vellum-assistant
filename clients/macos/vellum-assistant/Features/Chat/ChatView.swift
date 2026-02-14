@@ -539,6 +539,7 @@ struct ChatView: View {
                 .textFieldStyle(.plain)
                 .lineLimit(1...)
                 .disabled(!hasAPIKey)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel("Message")
                 .background(
                     GeometryReader { geo in
