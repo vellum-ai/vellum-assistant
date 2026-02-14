@@ -71,7 +71,11 @@ Build apps that look and feel like professional native software. Every app you c
 
 Every app automatically has the Vellum design system CSS injected into the WebView. It provides sensible defaults for all bare HTML elements (body, headings, inputs, buttons, tables, etc.) and supports both light and dark mode via `@media (prefers-color-scheme)`.
 
-You do NOT need to include base styles — they are already applied. The design system also provides opt-in component classes (prefixed with `v-`, e.g. `.v-button`, `.v-card`, `.v-badge`), utility classes, and CSS custom properties (`--v-*`) for colors, spacing, radius, and shadows.
+You do NOT need to include base styles — they are already applied. Use the provided CSS variables for colors so your custom styles respect light/dark mode automatically.
+
+**Key CSS variables:** `--v-bg`, `--v-surface`, `--v-surface-border`, `--v-text`, `--v-text-secondary`, `--v-text-muted`, `--v-accent`, `--v-accent-hover`, `--v-danger`, `--v-success`, `--v-warning`, `--v-radius-sm`/`md`/`lg`, `--v-shadow-sm`/`md`/`lg`, `--v-spacing-xs`/`sm`/`md`/`lg`/`xl`. Color palettes: `--v-slate-{950..50}`, `--v-emerald-*`, `--v-violet-*`, `--v-indigo-*`, `--v-rose-*`, `--v-amber-*`.
+
+**Key component classes:** `.v-button` (+ `.secondary`, `.danger`, `.ghost`), `.v-card`, `.v-list` + `.v-list-item`, `.v-badge` (+ `.success`, `.danger`, `.warning`), `.v-input-row`, `.v-empty-state`, `.v-toggle`.
 
 To customize the theme, override `--v-*` variables in your `<style>` tag. You can also write fully custom CSS or ignore the design system entirely.
 
