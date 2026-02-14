@@ -25,6 +25,7 @@ import { generateScopeOptions } from '../permissions/checker.js';
 import { getConfig } from '../config/loader.js';
 import { estimateCost, resolvePricing } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
+import { TraceEmitter } from './trace-emitter.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
 import { registerTimerCompletionNotifier, unregisterTimerCompletionNotifier, pruneSessionTimers } from '../tools/timer/pomodoro.js';
@@ -106,6 +107,7 @@ export class Session {
   }>();
   private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
   private onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
+  public readonly traceEmitter: TraceEmitter;
 
   constructor(
     conversationId: string,
@@ -119,6 +121,7 @@ export class Session {
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
+    this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.secretPrompter = new SecretPrompter(sendToClient);
 

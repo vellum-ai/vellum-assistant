@@ -358,29 +358,28 @@ struct ChatView: View {
                 attachmentStrip
             }
 
-            HStack(alignment: .bottom, spacing: VSpacing.sm) {
-                // Text editor with ghost text overlay and scrollable content
-                ZStack(alignment: .topLeading) {
-                    TextEditor(text: $inputText)
+            HStack(alignment: .center, spacing: VSpacing.sm) {
+                // Text input with ghost text overlay and vertical centering
+                ZStack(alignment: .leading) {
+                    TextField("What would you like to do?", text: $inputText, axis: .vertical)
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
                         .lineSpacing(4)
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 20, maxHeight: 200)
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...10)
                         .disabled(!hasAPIKey)
                         .accessibilityLabel("Message")
-
-                    // Placeholder
-                    if inputText.isEmpty && ghostSuffix == nil {
-                        Text("What would you like to do?")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textMuted)
-                            .lineSpacing(4)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 8)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear
+                                    .onAppear { editorContentHeight = geo.size.height }
+                                    .onChange(of: geo.size.height) { _, h in
+                                        withAnimation(VAnimation.spring) {
+                                            editorContentHeight = h
+                                        }
+                                    }
+                            }
+                        )
 
                     // Ghost text overlay — shows the suggested suffix so users
                     // know what Tab will insert. Without this visual cue, Tab
@@ -390,11 +389,8 @@ struct ChatView: View {
                             .font(VFont.body)
                             .lineSpacing(4)
                             .foregroundColor(.clear)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 8)
-                            .frame(maxHeight: 200, alignment: .topLeading)
-                            .clipped()
-                            .overlay(alignment: .topLeading) {
+                            .lineLimit(1...10)
+                            .overlay(alignment: .leading) {
                                 HStack(spacing: 0) {
                                     Text(inputText)
                                         .font(VFont.body)
@@ -405,24 +401,11 @@ struct ChatView: View {
                                         .lineSpacing(4)
                                         .foregroundColor(VColor.textMuted.opacity(0.5))
                                 }
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 8)
                             }
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
                     }
                 }
-                .background(
-                    GeometryReader { geo in
-                        Color.clear
-                            .onAppear { editorContentHeight = geo.size.height }
-                            .onChange(of: geo.size.height) { _, h in
-                                withAnimation(VAnimation.spring) {
-                                    editorContentHeight = h
-                                }
-                            }
-                    }
-                )
                 .onKeyPress(.tab, phases: .down) { keyPress in
                     if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
                         onAcceptSuggestion()

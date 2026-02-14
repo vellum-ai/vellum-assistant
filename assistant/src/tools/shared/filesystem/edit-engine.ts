@@ -5,13 +5,6 @@ import type { MatchMethod } from '../../filesystem/fuzzy-match.js';
 // Types
 // ---------------------------------------------------------------------------
 
-export interface EditEngineInput {
-  content: string;
-  oldString: string;
-  newString: string;
-  replaceAll: boolean;
-}
-
 export type EditEngineResult =
   | { ok: true; updatedContent: string; matchCount: number; matchMethod: MatchMethod }
   | { ok: false; reason: 'not_found' }
@@ -22,25 +15,26 @@ export type EditEngineResult =
 // ---------------------------------------------------------------------------
 
 /**
- * Pure match-and-replace logic shared by sandbox and host filesystem edit
- * tools, and the executor's preview-diff computation.
+ * Core match/replace logic shared by both sandbox and host edit tools,
+ * and by the executor's preview-diff computation.
  *
- * Cascading strategy:
- *   1. replace_all  -- exact indexOf across the whole content
- *   2. single match -- exact -> whitespace-normalised -> fuzzy (via findAllMatches)
+ * This function is pure — it takes file content and edit parameters and
+ * returns the result without performing any I/O.
  */
-export function applyEdit(input: EditEngineInput): EditEngineResult {
-  const { content, oldString, newString, replaceAll } = input;
-
+export function applyEdit(
+  content: string,
+  oldString: string,
+  newString: string,
+  replaceAll: boolean,
+): EditEngineResult {
   if (replaceAll) {
     const firstIndex = content.indexOf(oldString);
     if (firstIndex === -1) {
       return { ok: false, reason: 'not_found' };
     }
-    const parts = content.split(oldString);
-    const matchCount = parts.length - 1;
-    const updatedContent = parts.join(newString);
-    return { ok: true, updatedContent, matchCount, matchMethod: 'exact' };
+    const count = content.split(oldString).length - 1;
+    const updatedContent = content.split(oldString).join(newString);
+    return { ok: true, updatedContent, matchCount: count, matchMethod: 'exact' };
   }
 
   // Single-match path: cascading exact -> whitespace -> fuzzy

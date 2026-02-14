@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'assistant/**'
+      - 'clients/shared/IPC/Generated/**'
       - '.github/workflows/ci-assistant.yml'
 
 jobs:
@@ -25,6 +26,14 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Check IPC generated code is up to date
+        run: |
+          bun run generate:ipc
+          git diff --exit-code ../clients/shared/IPC/Generated/ || {
+            echo "::error::Generated IPC Swift models are out of date. Run 'cd assistant && bun run generate:ipc' and commit the result."
+            exit 1
+          }
 
       - name: Type check
         run: bunx tsc --noEmit

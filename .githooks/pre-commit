@@ -120,4 +120,44 @@ if [ $FOUND_SECRETS -eq 1 ]; then
 fi
 
 echo "✅ No plain text keys detected in $CHECKED_FILES files"
+
+# --- IPC contract generation check ---
+# When the IPC contract source or generator changes, verify the generated
+# Swift file stays in sync. Only runs when relevant files are staged.
+
+IPC_CONTRACT="assistant/src/daemon/ipc-contract.ts"
+IPC_GENERATOR="assistant/scripts/ipc/generate-swift.ts"
+IPC_GENERATED="clients/shared/IPC/Generated/IPCContractGenerated.swift"
+
+IPC_CHANGED=0
+while IFS= read -r -d '' FILE; do
+    if [ "$FILE" = "$IPC_CONTRACT" ] || [ "$FILE" = "$IPC_GENERATOR" ] || [ "$FILE" = "$IPC_GENERATED" ]; then
+        IPC_CHANGED=1
+        break
+    fi
+done < <(git diff --cached --name-only -z)
+
+if [ $IPC_CHANGED -eq 1 ]; then
+    echo "🔍 IPC contract files changed — checking generated Swift is up to date..."
+
+    # Detect bun location
+    BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
+    if [ ! -x "$BUN" ]; then
+        echo -e "${YELLOW}⚠️  bun not found — skipping IPC generation check${NC}"
+        echo "  Install bun or run 'cd assistant && bun run generate:ipc' manually."
+    else
+        if (cd assistant && "$BUN" run check:ipc-generated) 2>/dev/null; then
+            echo "✅ Generated IPC Swift models are up to date"
+        else
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}Generated IPC Swift models are out of date!${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo "Run: cd assistant && bun run generate:ipc"
+            echo "Then stage the updated file and commit again."
+            exit 1
+        fi
+    fi
+fi
+
 exit 0

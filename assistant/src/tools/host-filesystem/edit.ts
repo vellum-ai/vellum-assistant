@@ -81,8 +81,8 @@ class HostFileEditTool implements Tool {
     try {
       const content = readFileSync(filePath, 'utf-8');
       const replaceAll = input.replace_all === true;
+      const result = applyEdit(content, oldString, newString, replaceAll);
 
-      const result = applyEdit({ content, oldString, newString, replaceAll });
       if (!result.ok) {
         if (result.reason === 'not_found') {
           return { content: `Error: old_string not found in ${filePath}`, isError: true };

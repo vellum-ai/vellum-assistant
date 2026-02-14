@@ -491,7 +491,7 @@ function computePreviewDiff(
       if (stat.size > MAX_FILE_SIZE_BYTES) return undefined;
       const content = readFileSync(filePath, 'utf-8');
       const replaceAll = input.replace_all === true;
-      const result = applyEdit({ content, oldString, newString, replaceAll });
+      const result = applyEdit(content, oldString, newString, replaceAll);
       if (!result.ok) return undefined;
       return { filePath, oldContent: content, newContent: result.updatedContent, isNewFile: false };
     }
