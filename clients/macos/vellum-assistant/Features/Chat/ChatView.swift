@@ -436,11 +436,6 @@ struct ChatView: View {
                     }
                     return .ignored
                 }
-                .onKeyPress(.return, phases: .down) { keyPress in
-                    if keyPress.modifiers.contains(.shift) { return .ignored }
-                    if canSend { onSend() }
-                    return .handled
-                }
                 .onKeyPress(characters: CharacterSet(charactersIn: "v"), phases: .down) { keyPress in
                     if keyPress.modifiers.contains(.command) {
                         onPaste()
@@ -500,6 +495,17 @@ struct ChatView: View {
                 }
             }
             .animation(VAnimation.spring, value: canSend)
+
+            // Hidden button intercepts bare Return at the window/menu level,
+            // before NSTextView's insertNewline: fires. Shift+Return still
+            // inserts a newline because the shortcut only matches unmodified Return.
+            Button("") {
+                if canSend { onSend() }
+            }
+            .keyboardShortcut(.return, modifiers: [])
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .allowsHitTesting(false)
         }
         .padding(.horizontal, VSpacing.xl)
         .padding(.vertical, VSpacing.sm)
