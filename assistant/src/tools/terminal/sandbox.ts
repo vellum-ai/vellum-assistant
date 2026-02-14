@@ -88,8 +88,11 @@ function getProfilePath(workingDir: string): string {
   return path;
 }
 
-/** Cache bwrap usability check so we only shell out once. */
-let bwrapAvailable: boolean | null = null;
+/**
+ * Cache positive bwrap results only. Negative results are not cached so that
+ * installing bwrap after the daemon starts takes effect without a restart.
+ */
+let bwrapAvailable = false;
 
 /**
  * Check whether bwrap is installed AND functional (can create namespaces).
@@ -99,16 +102,19 @@ let bwrapAvailable: boolean | null = null;
  * or when user namespaces are disabled). We run a minimal sandbox that
  * exercises all namespace types used by buildBwrapArgs() (mount, network,
  * PID) to verify end-to-end functionality.
+ *
+ * Only positive results are cached — if bwrap is unavailable, we re-check
+ * on every call so that a mid-session install is picked up immediately.
  */
 function isBwrapAvailable(): boolean {
-  if (bwrapAvailable !== null) return bwrapAvailable;
+  if (bwrapAvailable) return true;
   try {
     execSync('bwrap --ro-bind / / --unshare-net --unshare-pid true', { stdio: 'ignore', timeout: 5000 });
     bwrapAvailable = true;
+    return true;
   } catch {
-    bwrapAvailable = false;
+    return false;
   }
-  return bwrapAvailable;
 }
 
 /**
