@@ -14,6 +14,7 @@ struct InputBarView: View {
                 .textFieldStyle(.plain)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
+                .lineLimit(1...8)
                 .padding(VSpacing.md)
                 .background(VColor.surface)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
