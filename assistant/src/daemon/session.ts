@@ -868,7 +868,16 @@ export class Session {
     requestId?: string,
   ): Promise<string> {
     // Resolve slash commands before persistence
-    const resolvedContent = this.resolveSlashContent(content);
+    const slashResult = this.resolveSlash(content);
+
+    // Unknown slash command — emit deterministic response without agent loop
+    if (slashResult.kind === 'unknown') {
+      onEvent({ type: 'assistant_text_delta', text: slashResult.message });
+      onEvent({ type: 'message_complete', sessionId: this.conversationId });
+      return '';
+    }
+
+    const resolvedContent = slashResult.content;
 
     let userMessageId: string;
     try {
@@ -884,10 +893,10 @@ export class Session {
   }
 
   /**
-   * If the content is a known slash command, rewrite it into a model-facing
-   * skill invocation prompt. Otherwise return the content unchanged.
+   * Resolve slash commands against the current skill catalog.
+   * Returns `unknown` with a deterministic message, or the (possibly rewritten) content.
    */
-  private resolveSlashContent(content: string): string {
+  private resolveSlash(content: string): { kind: 'passthrough' | 'rewritten'; content: string } | { kind: 'unknown'; message: string } {
     const config = getConfig();
     const catalog = loadSkillCatalog();
     const resolved = resolveSkillStates(catalog, config);
@@ -896,15 +905,22 @@ export class Session {
 
     if (resolution.kind === 'known') {
       const skill = invocable.get(resolution.skillId.toLowerCase());
-      return rewriteKnownSlashCommandPrompt({
-        rawInput: content,
-        skillId: resolution.skillId,
-        skillName: skill?.name ?? resolution.skillId,
-        trailingArgs: resolution.trailingArgs,
-      });
+      return {
+        kind: 'rewritten',
+        content: rewriteKnownSlashCommandPrompt({
+          rawInput: content,
+          skillId: resolution.skillId,
+          skillName: skill?.name ?? resolution.skillId,
+          trailingArgs: resolution.trailingArgs,
+        }),
+      };
     }
 
-    return content;
+    if (resolution.kind === 'unknown') {
+      return { kind: 'unknown', message: resolution.message };
+    }
+
+    return { kind: 'passthrough', content };
   }
 
   handleSurfaceAction(surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
