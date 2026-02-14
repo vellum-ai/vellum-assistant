@@ -7,7 +7,7 @@ import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
 import { getDb } from './db.js';
 import { getQdrantClient } from './qdrant-client.js';
-import { memoryItems, memoryItemSources, memorySegments } from './schema.js';
+import { memoryItems, memoryItemSources, memorySegments, memorySummaries } from './schema.js';
 
 const log = getLogger('memory-retriever');
 const MEMORY_RECALL_OPEN_TAG = '<memory source="long_term_memory" confidence="approximate">';
@@ -608,6 +608,10 @@ async function semanticSearch(
         finalScore: 0,
       });
     } else if (payload.target_type === 'summary') {
+      if (scopeIds) {
+        const summary = db.select().from(memorySummaries).where(eq(memorySummaries.id, payload.target_id)).get();
+        if (!summary || !scopeIds.includes(summary.scopeId)) continue;
+      }
       candidates.push({
         key: `summary:${payload.target_id}`,
         type: 'summary',
@@ -623,6 +627,10 @@ async function semanticSearch(
         finalScore: 0,
       });
     } else {
+      if (scopeIds) {
+        const segment = db.select().from(memorySegments).where(eq(memorySegments.id, payload.target_id)).get();
+        if (!segment || !scopeIds.includes(segment.scopeId)) continue;
+      }
       candidates.push({
         key: `segment:${payload.target_id}`,
         type: 'segment',
