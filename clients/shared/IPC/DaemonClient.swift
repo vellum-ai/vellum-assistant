@@ -167,16 +167,21 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public init() {}
 
     deinit {
-        // Cancel everything without triggering reconnect.
-        shouldReconnect = false
-        reconnectTask?.cancel()
-        pingTask?.cancel()
-        pongTimeoutTask?.cancel()
-        connection?.cancel()
-        for continuation in subscribers.values {
-            continuation.finish()
+        // Swift 5.9+: deinit on @MainActor class is NOT guaranteed to run on main actor.
+        // Use assumeIsolated to safely access main-actor-isolated state during cleanup.
+        // This will trap if deinit somehow runs on wrong thread (better than silent data race).
+        MainActor.assumeIsolated {
+            // Cancel everything without triggering reconnect.
+            shouldReconnect = false
+            reconnectTask?.cancel()
+            pingTask?.cancel()
+            pongTimeoutTask?.cancel()
+            connection?.cancel()
+            for continuation in subscribers.values {
+                continuation.finish()
+            }
+            subscribers.removeAll()
         }
-        subscribers.removeAll()
     }
 
     // MARK: - Socket Path
