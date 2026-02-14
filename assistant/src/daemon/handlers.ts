@@ -673,7 +673,7 @@ function handleHistoryRequest(
     timestamp: m.timestamp,
     ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
   }));
-  ctx.send(socket, { type: 'history_response', messages: historyMessages });
+  ctx.send(socket, { type: 'history_response', sessionId: msg.sessionId, messages: historyMessages });
 }
 
 export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistoryMessage[] {

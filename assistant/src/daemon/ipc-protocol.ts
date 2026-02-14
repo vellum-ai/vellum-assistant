@@ -533,6 +533,7 @@ export interface HistoryResponseToolCall {
 
 export interface HistoryResponse {
   type: 'history_response';
+  sessionId: string;
   messages: Array<{
     role: string;
     text: string;

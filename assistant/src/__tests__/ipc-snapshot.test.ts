@@ -336,6 +336,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   history_response: {
     type: 'history_response',
+    sessionId: 'sess-history-001',
     messages: [
       { role: 'user', text: 'Hello', timestamp: 1700000000 },
       { role: 'assistant', text: 'Hi there!', timestamp: 1700000001 },
