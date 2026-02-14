@@ -63,6 +63,7 @@ export function indexMessageNow(
       set: {
         text: segment.text,
         tokenEstimate: segment.tokenEstimate,
+        scopeId: input.scopeId ?? 'default',
         updatedAt: now,
       },
     }).run();
