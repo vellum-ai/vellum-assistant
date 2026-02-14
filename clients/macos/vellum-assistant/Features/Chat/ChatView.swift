@@ -359,80 +359,58 @@ struct ChatView: View {
             }
 
             HStack(alignment: .center, spacing: VSpacing.sm) {
-                // Text editor with ghost text overlay and scrollable content
-                ZStack(alignment: .topLeading) {
-                    TextEditor(text: $inputText)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineSpacing(4)
-                        .scrollContentBackground(.hidden)
-                        .disabled(!hasAPIKey)
-                        .accessibilityLabel("Message")
-
-                    // Placeholder
-                    if inputText.isEmpty && ghostSuffix == nil {
-                        Text("What would you like to do?")
+                // Scrollable text input — TextField centers text natively;
+                // ScrollView adds scrolling when content exceeds 200pt.
+                ScrollView(.vertical, showsIndicators: false) {
+                    ZStack(alignment: .leading) {
+                        TextField("What would you like to do?", text: $inputText, axis: .vertical)
                             .font(VFont.body)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.textPrimary)
                             .lineSpacing(4)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 8)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
-
-                    // Ghost text overlay — shows the suggested suffix so users
-                    // know what Tab will insert.
-                    if let ghostSuffix {
-                        Text(inputText + ghostSuffix)
-                            .font(VFont.body)
-                            .lineSpacing(4)
-                            .foregroundColor(.clear)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 8)
-                            .overlay(alignment: .topLeading) {
-                                HStack(spacing: 0) {
-                                    Text(inputText)
-                                        .font(VFont.body)
-                                        .lineSpacing(4)
-                                        .foregroundColor(.clear)
-                                    Text(ghostSuffix)
-                                        .font(VFont.body)
-                                        .lineSpacing(4)
-                                        .foregroundColor(VColor.textMuted.opacity(0.5))
-                                }
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 8)
-                            }
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
-                }
-                .frame(height: min(max(editorContentHeight, 20), 200))
-                .clipped()
-                .background(alignment: .topLeading) {
-                    // Invisible text measurer — drives editorContentHeight independently
-                    // so the ZStack grows with content but caps at 200pt for scrolling.
-                    Text(inputText.isEmpty ? " " : inputText)
-                        .font(VFont.body)
-                        .lineSpacing(4)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 8)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .opacity(0)
-                        .accessibilityHidden(true)
-                        .background(
-                            GeometryReader { geo in
-                                Color.clear
-                                    .onAppear { editorContentHeight = geo.size.height }
-                                    .onChange(of: geo.size.height) { _, h in
-                                        withAnimation(VAnimation.spring) {
-                                            editorContentHeight = h
+                            .textFieldStyle(.plain)
+                            .lineLimit(1...)
+                            .disabled(!hasAPIKey)
+                            .accessibilityLabel("Message")
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear
+                                        .onAppear { editorContentHeight = geo.size.height }
+                                        .onChange(of: geo.size.height) { _, h in
+                                            withAnimation(VAnimation.spring) {
+                                                editorContentHeight = h
+                                            }
                                         }
+                                }
+                            )
+
+                        // Ghost text overlay — shows the suggested suffix so users
+                        // know what Tab will insert.
+                        if let ghostSuffix {
+                            Text(inputText + ghostSuffix)
+                                .font(VFont.body)
+                                .lineSpacing(4)
+                                .foregroundColor(.clear)
+                                .lineLimit(1...)
+                                .overlay(alignment: .leading) {
+                                    HStack(spacing: 0) {
+                                        Text(inputText)
+                                            .font(VFont.body)
+                                            .lineSpacing(4)
+                                            .foregroundColor(.clear)
+                                        Text(ghostSuffix)
+                                            .font(VFont.body)
+                                            .lineSpacing(4)
+                                            .foregroundColor(VColor.textMuted.opacity(0.5))
                                     }
-                            }
-                        )
+                                }
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .frame(minHeight: 28)
                 }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(height: min(max(editorContentHeight, 28), 200))
                 .onKeyPress(.tab, phases: .down) { keyPress in
                     if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
                         onAcceptSuggestion()
