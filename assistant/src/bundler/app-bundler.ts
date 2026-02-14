@@ -21,11 +21,8 @@ import { getLogger } from '../util/logger.js';
 
 const bundlerLog = getLogger('app-bundler');
 
-/** Read the package version at import time. */
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const packageJson = require('../../package.json') as { version: string };
-const PACKAGE_VERSION = packageJson.version;
+import { APP_VERSION } from '../version.js';
+const PACKAGE_VERSION = APP_VERSION;
 
 const MAX_BUNDLE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 
