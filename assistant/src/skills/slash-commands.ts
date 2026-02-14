@@ -71,7 +71,7 @@ export function buildInvocableSlashCatalog(
   for (const skill of catalog) {
     if (!skill.userInvocable) continue;
     const resolved = stateById.get(skill.id);
-    if (resolved && resolved.state === 'disabled') continue;
+    if (!resolved || resolved.state === 'disabled') continue;
     result.set(skill.id.toLowerCase(), {
       canonicalId: skill.id,
       name: skill.name,

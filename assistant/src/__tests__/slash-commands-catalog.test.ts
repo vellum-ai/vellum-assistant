@@ -65,6 +65,15 @@ describe('buildInvocableSlashCatalog', () => {
     expect(result.size).toBe(1);
   });
 
+  test('excludes skill with no resolved state entry', () => {
+    const skill = makeSkill('unresolved-skill');
+    const catalog = [skill];
+    const resolved: ResolvedSkill[] = [];
+
+    const result = buildInvocableSlashCatalog(catalog, resolved);
+    expect(result.size).toBe(0);
+  });
+
   test('case-insensitive lookup key', () => {
     const skill = makeSkill('MySkill');
     const catalog = [skill];
