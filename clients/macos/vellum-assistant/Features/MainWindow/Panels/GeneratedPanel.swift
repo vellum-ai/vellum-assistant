@@ -20,6 +20,7 @@ private struct DisplayAppItem: Identifiable {
 struct GeneratedPanel: View {
     var onClose: () -> Void
     let daemonClient: DaemonClient
+    @ObservedObject var appsManager: AppsManager
 
     @State private var displayItems: [DisplayAppItem] = []
     @State private var isLoading = false
@@ -30,40 +31,99 @@ struct GeneratedPanel: View {
     @State private var showShareSheet = false
     @State private var pendingDeleteId: String?
 
+    @State private var searchText = ""
+    @State private var selectedFilter: AppFilter = .all
+
     // Track how many list responses we're waiting for
     @State private var pendingResponses = 0
 
-    init(onClose: @escaping () -> Void, daemonClient: DaemonClient) {
+    private let columns = [GridItem(.adaptive(minimum: 180), spacing: VSpacing.sm)]
+
+    init(onClose: @escaping () -> Void, daemonClient: DaemonClient, appsManager: AppsManager) {
         self.onClose = onClose
         self.daemonClient = daemonClient
+        self.appsManager = appsManager
     }
 
     var body: some View {
         VSidePanel(title: "Generated", onClose: onClose) {
-            if isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                    Spacer()
-                }
-                .frame(height: 250)
-            } else if displayItems.isEmpty {
-                VEmptyState(
-                    title: "No generated items",
-                    subtitle: "Items created by your assistant will appear here",
-                    icon: "wand.and.stars"
-                )
-            } else {
-                VStack(spacing: VSpacing.md) {
-                    ForEach(displayItems) { item in
-                        appRow(item)
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                VTextField(placeholder: "Search apps...", text: $searchText, leadingIcon: "magnifyingglass")
+
+                filterTabs
+
+                let filtered = appsManager.filteredApps(searchText: searchText, filter: selectedFilter)
+
+                if isLoading {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .controlSize(.small)
+                        Spacer()
+                    }
+                    .frame(height: 250)
+                } else if appsManager.apps.isEmpty && displayItems.isEmpty {
+                    VEmptyState(
+                        title: "No generated apps",
+                        subtitle: "Apps created by your assistant will appear here",
+                        icon: "wand.and.stars"
+                    )
+                } else if filtered.isEmpty && displayItems.isEmpty {
+                    VEmptyState(
+                        title: "No results",
+                        subtitle: "Try a different search or filter"
+                    )
+                } else {
+                    // Grid view for apps with icons (from AppsManager)
+                    if !filtered.isEmpty {
+                        LazyVGrid(columns: columns, spacing: VSpacing.sm) {
+                            ForEach(filtered) { app in
+                                VAppPill(
+                                    name: app.name,
+                                    icon: app.icon,
+                                    isFavorite: appsManager.favoriteIds.contains(app.id),
+                                    onTap: {
+                                        appsManager.markRecent(app.id)
+                                    },
+                                    onToggleFavorite: {
+                                        appsManager.toggleFavorite(app.id)
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // List view for shared apps
+                    if !displayItems.filter({ $0.isShared }).isEmpty {
+                        VStack(spacing: VSpacing.md) {
+                            ForEach(displayItems.filter { $0.isShared }) { item in
+                                appRow(item)
+                            }
+                        }
                     }
                 }
             }
         }
         .onAppear {
+            appsManager.fetchApps()
             fetchApps()
+        }
+    }
+
+    private var filterTabs: some View {
+        HStack(spacing: VSpacing.xs) {
+            ForEach(AppFilter.allCases, id: \.self) { filter in
+                Button(action: { selectedFilter = filter }) {
+                    Text(filter.rawValue)
+                        .font(VFont.captionMedium)
+                        .foregroundColor(selectedFilter == filter ? VColor.textPrimary : VColor.textMuted)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(selectedFilter == filter ? VColor.surface : .clear)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -243,7 +303,7 @@ struct GeneratedPanel: View {
 
     // MARK: - Data Fetching
 
-    @State private var localApps: [AppItem] = []
+    @State private var localApps: [AppSummaryItem] = []
     @State private var sharedApps: [SharedAppItem] = []
 
     private func fetchApps() {
@@ -313,7 +373,7 @@ struct GeneratedPanel: View {
                 name: app.name,
                 description: app.description,
                 icon: app.icon,
-                dateLabel: formatDate(app.createdAt),
+                dateLabel: formatEpoch(app.updatedAt),
                 isShared: false,
                 trustTier: nil,
                 signerDisplayName: nil,
@@ -393,8 +453,8 @@ struct GeneratedPanel: View {
 
     // MARK: - Helpers
 
-    private func formatDate(_ epochMs: Int) -> String {
-        let date = Date(timeIntervalSince1970: Double(epochMs) / 1000)
+    private func formatEpoch(_ epochMs: Double) -> String {
+        let date = Date(timeIntervalSince1970: epochMs / 1000)
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
@@ -410,5 +470,6 @@ struct GeneratedPanel: View {
 }
 
 #Preview {
-    GeneratedPanel(onClose: {}, daemonClient: DaemonClient())
+    let dc = DaemonClient()
+    GeneratedPanel(onClose: {}, daemonClient: dc, appsManager: AppsManager(daemonClient: dc))
 }

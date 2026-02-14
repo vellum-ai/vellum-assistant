@@ -11,6 +11,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolExecutionResult, ToolContext } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import * as appStore from '../../memory/app-store.js';
+import { ensureAppIcon } from './icon-generator.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -76,6 +77,8 @@ export const appCreateTool: Tool = {
     const autoOpen = input.auto_open !== false; // default true
 
     const app = appStore.createApp({ name, description, schemaJson, htmlDefinition });
+
+    ensureAppIcon(app.id, name, description).catch(() => {});
 
     // Auto-open the app via the proxy resolver if available
     if (autoOpen && context.proxyToolResolver) {

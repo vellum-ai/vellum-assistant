@@ -442,6 +442,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     result: [{ id: 'rec-001', appId: 'app-001', data: { name: 'Test' }, createdAt: 1700000000, updatedAt: 1700000000 }],
   },
+  apps_list_response: {
+    type: 'apps_list_response',
+    apps: [
+      { id: 'app-001', name: 'Weather App', description: 'Shows weather', updatedAt: 1700000000, icon: '<svg viewBox="0 0 16 16"></svg>' },
+    ],
+  },
   skills_list_response: {
     type: 'skills_list_response',
     skills: [
@@ -537,17 +543,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       entry: 'index.html',
       capabilities: [],
     },
-  },
-  apps_list_response: {
-    type: 'apps_list_response',
-    apps: [
-      {
-        id: 'app-001',
-        name: 'My App',
-        description: 'A test app',
-        createdAt: 1700000000,
-      },
-    ],
   },
   shared_apps_list_response: {
     type: 'shared_apps_list_response',

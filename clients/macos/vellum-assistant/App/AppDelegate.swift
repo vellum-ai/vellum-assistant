@@ -1236,6 +1236,34 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             .replacingOccurrences(of: "'", with: "&#39;")
     }
 
+    // MARK: - Dock Menu
+
+    public func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        guard let appsManager = mainWindow?.appsManager else { return nil }
+        let recentApps = Array(appsManager.recentApps.prefix(5))
+        guard !recentApps.isEmpty else { return nil }
+
+        let menu = NSMenu()
+        let headerItem = NSMenuItem(title: "Recent Apps", action: nil, keyEquivalent: "")
+        headerItem.isEnabled = false
+        menu.addItem(headerItem)
+
+        for app in recentApps {
+            let item = NSMenuItem(title: app.name, action: #selector(dockMenuOpenApp(_:)), keyEquivalent: "")
+            item.representedObject = app.id
+            item.target = self
+            menu.addItem(item)
+        }
+
+        return menu
+    }
+
+    @objc private func dockMenuOpenApp(_ sender: NSMenuItem) {
+        guard let appId = sender.representedObject as? String else { return }
+        mainWindow?.appsManager.markRecent(appId)
+        showMainWindow()
+    }
+
     public func applicationWillTerminate(_ notification: Notification) {
         if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)

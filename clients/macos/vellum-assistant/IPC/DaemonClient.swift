@@ -62,6 +62,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `trust_rules_list_response` message.
     var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
 
+    /// Called when the daemon sends an `apps_list_response` message.
+    var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `skills_state_changed` push event.
     var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
 
@@ -73,9 +76,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `skills_inspect_response` message.
     var onSkillsInspectResponse: ((SkillsInspectResponseMessage) -> Void)?
-
-    /// Called when the daemon sends an `apps_list_response` message.
-    var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `shared_apps_list_response` message.
     var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
@@ -443,6 +443,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(AppsListRequestMessage())
     }
 
+    /// Alias for sendAppsList used by AppsManager.
+    func requestAppsList() throws {
+        try sendAppsList()
+    }
+
     /// Request bundling an app for sharing.
     func sendBundleApp(appId: String) throws {
         try send(BundleAppRequestMessage(appId: appId))
@@ -497,6 +502,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             log.error("Failed to get signing identity: \(error.localizedDescription)")
         }
     }
+
 
     // MARK: - Disconnect
 
@@ -628,6 +634,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onTimerCompleted?(msg)
         case .trustRulesListResponse(let msg):
             onTrustRulesListResponse?(msg.rules)
+        case .appsListResponse(let msg):
+            onAppsListResponse?(msg)
         case .skillStateChanged(let msg):
             onSkillStateChanged?(msg)
         case .skillsUpdatesAvailable(let msg):
@@ -636,8 +644,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSkillsOperationResponse?(msg)
         case .skillsInspectResponse(let msg):
             onSkillsInspectResponse?(msg)
-        case .appsListResponse(let msg):
-            onAppsListResponse?(msg)
         case .sharedAppsListResponse(let msg):
             onSharedAppsListResponse?(msg)
         case .sharedAppDeleteResponse(let msg):

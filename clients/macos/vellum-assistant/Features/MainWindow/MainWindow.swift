@@ -7,6 +7,7 @@ final class MainWindow {
     private let ambientAgent: AmbientAgent
     private var window: NSWindow?
     let threadManager: ThreadManager
+    let appsManager: AppsManager
     var onMicrophoneToggle: (() -> Void)?
 
     /// Whether the main window is currently visible on screen.
@@ -23,6 +24,7 @@ final class MainWindow {
         self.daemonClient = daemonClient
         self.ambientAgent = ambientAgent
         self.threadManager = ThreadManager(daemonClient: daemonClient)
+        self.appsManager = AppsManager(daemonClient: daemonClient)
     }
 
     func show() {
@@ -30,14 +32,14 @@ final class MainWindow {
         if let existing = window {
             // Rebuild the SwiftUI view hierarchy so it picks up any
             // UserDefaults changes (e.g. assistantName set during onboarding replay)
-            existing.contentViewController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
+            existing.contentViewController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, appsManager: appsManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
             existing.makeKeyAndOrderFront(nil)
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
+        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, appsManager: appsManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
 
         let window = NSWindow(
             contentRect: NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900),

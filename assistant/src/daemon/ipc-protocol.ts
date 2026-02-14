@@ -140,6 +140,10 @@ export interface AppDataRequest {
   data?: Record<string, unknown>;
 }
 
+export interface AppsListRequest {
+  type: 'apps_list';
+}
+
 export interface SkillsListRequest {
   type: 'skills_list';
 }
@@ -391,6 +395,7 @@ export type ClientMessage =
   | TaskSubmit
   | UiSurfaceAction
   | AppDataRequest
+  | AppsListRequest
   | SkillsListRequest
   | SkillDetailRequest
   | SkillsEnableRequest
@@ -648,6 +653,11 @@ export interface AppDataResponse {
   success: boolean;
   result?: unknown;
   error?: string;
+}
+
+export interface AppsListResponse {
+  type: 'apps_list_response';
+  apps: Array<{ id: string; name: string; description?: string; updatedAt: number; icon?: string }>;
 }
 
 export interface SkillsListResponse {
@@ -929,6 +939,7 @@ export type ServerMessage =
   | UiSurfaceUpdate
   | UiSurfaceDismiss
   | AppDataResponse
+  | AppsListResponse
   | SkillsListResponse
   | SkillDetailResponse
   | SkillStateChanged

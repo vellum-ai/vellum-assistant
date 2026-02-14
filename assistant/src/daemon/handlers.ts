@@ -54,6 +54,7 @@ import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps } from '../memory/app-store.js';
+import { ensureAppIcon } from '../tools/apps/icon-generator.js';
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
 import { packageApp } from '../bundler/app-bundler.js';
@@ -314,6 +315,7 @@ const handlers: DispatchMap = {
   ambient_observation: handleAmbientObservation,
   task_submit: handleTaskSubmit,
   app_data_request: handleAppDataRequest,
+  apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
   skills_list: (_msg, socket, ctx) => handleSkillsList(socket, ctx),
   skill_detail: handleSkillDetail,
   skills_enable: handleSkillsEnable,
@@ -332,7 +334,6 @@ const handlers: DispatchMap = {
   update_trust_rule: handleUpdateTrustRule,
   bundle_app: handleBundleApp,
   open_bundle: handleOpenBundle,
-  apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
   shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
   shared_app_delete: handleSharedAppDelete,
   sign_bundle_payload_response: (_msg, _socket, _ctx) => {
@@ -692,6 +693,37 @@ function handleUsageRequest(
     estimatedCost: conversation.totalEstimatedCost,
     model: config.model,
   });
+}
+
+// ─── Apps handlers ──────────────────────────────────────────────────────────
+
+function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
+  const apps = listApps().map((a) => ({
+    id: a.id,
+    name: a.name,
+    description: a.description,
+    updatedAt: a.updatedAt,
+    icon: a.icon,
+  }));
+
+  ctx.send(socket, { type: 'apps_list_response', apps });
+
+  for (const a of apps) {
+    if (!a.icon) {
+      ensureAppIcon(a.id, a.name, a.description).then((icon) => {
+        if (icon) {
+          const refreshed = listApps().map((app) => ({
+            id: app.id,
+            name: app.name,
+            description: app.description,
+            updatedAt: app.updatedAt,
+            icon: app.icon,
+          }));
+          ctx.send(socket, { type: 'apps_list_response', apps: refreshed });
+        }
+      }).catch(() => {});
+    }
+  }
 }
 
 // ─── Skills handlers ─────────────────────────────────────────────────────────
@@ -1410,27 +1442,6 @@ async function generateSuggestion(apiKey: string, assistantText: string): Promis
 
   const firstLine = raw.split('\n')[0].trim();
   return firstLine || null;
-}
-
-// ─── Apps list handler ──────────────────────────────────────────────────────
-
-function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
-  try {
-    const apps = listApps();
-    ctx.send(socket, {
-      type: 'apps_list_response',
-      apps: apps.map((a) => ({
-        id: a.id,
-        name: a.name,
-        description: a.description,
-        createdAt: a.createdAt,
-      })),
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Failed to list apps');
-    ctx.send(socket, { type: 'error', message: `Failed to list apps: ${message}` });
-  }
 }
 
 // ─── Shared apps handlers ────────────────────────────────────────────────────

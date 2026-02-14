@@ -207,7 +207,7 @@ struct AppDataRequestMessage: Encodable, Sendable {
     let data: [String: AnyCodable]?
 }
 
-/// Sent to request the list of all apps.
+/// Sent to request the list of all generated apps.
 /// Wire type: `"apps_list"`
 struct AppsListRequestMessage: Encodable, Sendable {
     let type: String = "apps_list"
@@ -239,6 +239,7 @@ struct OpenBundleMessage: Encodable, Sendable {
     let type: String = "open_bundle"
     let filePath: String
 }
+
 
 /// Sent to request the list of available skills.
 /// Wire type: `"skills_list"`
@@ -524,6 +525,21 @@ struct SkillInfo: Codable, Sendable, Identifiable {
 /// Backward-compatible alias for code referencing the old name.
 typealias SkillSummaryItem = SkillInfo
 
+/// Summary of a single app returned from the daemon.
+struct AppSummaryItem: Decodable, Sendable, Identifiable {
+    let id: String
+    let name: String
+    let description: String?
+    let updatedAt: Double
+    let icon: String?
+}
+
+/// Response containing the list of generated apps.
+/// Wire type: `"apps_list_response"`
+struct AppsListResponseMessage: Decodable, Sendable {
+    let apps: [AppSummaryItem]
+}
+
 /// Response containing the list of available skills.
 /// Wire type: `"skills_list_response"`
 struct SkillsListResponseMessage: Decodable, Sendable {
@@ -679,21 +695,6 @@ struct TrustRuleItem: Decodable, Sendable, Identifiable {
 /// Wire type: `"trust_rules_list_response"`
 struct TrustRulesListResponseMessage: Decodable, Sendable {
     let rules: [TrustRuleItem]
-}
-
-/// A single app item returned from the daemon.
-struct AppItem: Decodable, Sendable, Identifiable {
-    let id: String
-    let name: String
-    let description: String?
-    let icon: String?
-    let createdAt: Int
-}
-
-/// Response containing the list of all apps.
-/// Wire type: `"apps_list_response"`
-struct AppsListResponseMessage: Decodable, Sendable {
-    let apps: [AppItem]
 }
 
 /// A single shared app item returned from the daemon.
@@ -919,6 +920,7 @@ enum ServerMessage: Decodable, Sendable {
     case appDataResponse(AppDataResponseMessage)
     case messageQueued(MessageQueuedMessage)
     case messageDequeued(MessageDequeuedMessage)
+    case appsListResponse(AppsListResponseMessage)
     case skillsListResponse(SkillsListResponseMessage)
     case skillDetailResponse(SkillDetailResponseMessage)
     case skillStateChanged(SkillStateChangedMessage)
@@ -931,7 +933,6 @@ enum ServerMessage: Decodable, Sendable {
     case toolResult(ToolResultMessage)
     case timerCompleted(TimerCompletedMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
-    case appsListResponse(AppsListResponseMessage)
     case sharedAppsListResponse(SharedAppsListResponseMessage)
     case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
     case bundleAppResponse(BundleAppResponseMessage)
@@ -1007,6 +1008,9 @@ enum ServerMessage: Decodable, Sendable {
         case "message_dequeued":
             let message = try MessageDequeuedMessage(from: decoder)
             self = .messageDequeued(message)
+        case "apps_list_response":
+            let message = try AppsListResponseMessage(from: decoder)
+            self = .appsListResponse(message)
         case "skills_list_response":
             let message = try SkillsListResponseMessage(from: decoder)
             self = .skillsListResponse(message)
@@ -1043,9 +1047,6 @@ enum ServerMessage: Decodable, Sendable {
         case "trust_rules_list_response":
             let message = try TrustRulesListResponseMessage(from: decoder)
             self = .trustRulesListResponse(message)
-        case "apps_list_response":
-            let message = try AppsListResponseMessage(from: decoder)
-            self = .appsListResponse(message)
         case "shared_apps_list_response":
             let message = try SharedAppsListResponseMessage(from: decoder)
             self = .sharedAppsListResponse(message)
