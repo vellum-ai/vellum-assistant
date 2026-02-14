@@ -723,7 +723,7 @@ export function sweepStaleItems(config: AssistantConfig): number {
         AND status = 'active'
         AND invalid_at IS NULL
         AND last_seen_at < ?
-        AND (access_count = 0 OR last_seen_at < ?)
+        AND (access_count = 0 OR COALESCE(last_used_at, 0) < ?)
     `).run(now, kind, cutoffMs, shieldCutoffMs);
     if (result.changes > 0) {
       log.info({ kind, marked: result.changes, cutoffMs }, 'Marked stale memory items as invalid');
