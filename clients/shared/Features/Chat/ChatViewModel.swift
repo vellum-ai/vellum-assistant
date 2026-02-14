@@ -797,10 +797,11 @@ public final class ChatViewModel: ObservableObject {
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].inlineSurfaces.append(inlineSurface)
-            } else if let lastAssistantIndex = messages.lastIndex(where: { $0.role == .assistant }) {
-                // Attach to the last assistant message so the surface lives alongside
-                // its tool call, letting the rendering logic hide the tool call chip.
-                messages[lastAssistantIndex].inlineSurfaces.append(inlineSurface)
+            } else if let lastUserIndex = messages.lastIndex(where: { $0.role == .user }),
+                      let idx = messages[lastUserIndex...].lastIndex(where: { $0.role == .assistant }) {
+                // Scope to the current turn so we never attach to an assistant message
+                // from a previous conversation turn.
+                messages[idx].inlineSurfaces.append(inlineSurface)
             } else {
                 let newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, inlineSurfaces: [inlineSurface])
                 currentAssistantMessageId = newMsg.id
