@@ -49,7 +49,6 @@ struct ChatView: View {
 
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
-    @State private var editorWidth: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -106,35 +105,6 @@ struct ChatView: View {
         let error: CGFloat = errorText != nil ? 36 : 0
         let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
         return base + attachments + error + queue
-    }
-
-    /// Measures text content height using NSLayoutManager for accurate TextEditor sizing.
-    private func recalculateEditorHeight() {
-        guard editorWidth > 0 else { return }
-        let text = inputText.isEmpty ? " " : inputText
-        let font = NSFont(name: "DMMono-Regular", size: 13)
-            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        let style = NSMutableParagraphStyle()
-        style.lineSpacing = 4
-        let storage = NSTextStorage(string: text, attributes: [
-            .font: font,
-            .paragraphStyle: style,
-        ])
-        let container = NSTextContainer(
-            size: NSSize(width: editorWidth, height: .greatestFiniteMagnitude)
-        )
-        container.lineFragmentPadding = 5
-        let layoutManager = NSLayoutManager()
-        layoutManager.addTextContainer(container)
-        storage.addLayoutManager(layoutManager)
-        layoutManager.ensureLayout(for: container)
-        let textHeight = layoutManager.usedRect(for: container).height
-            + layoutManager.extraLineFragmentRect.height
-        // Tight fit — HStack .center alignment handles vertical centering
-        let newHeight = textHeight + 4
-        withAnimation(VAnimation.spring) {
-            editorContentHeight = newHeight
-        }
     }
 
     private var composerOverlay: some View {
@@ -391,66 +361,26 @@ struct ChatView: View {
             }
 
             HStack(alignment: .center, spacing: VSpacing.sm) {
-                // Text editor with ghost text / placeholder overlay
-                ZStack(alignment: .topLeading) {
-                    // Placeholder — uses a matching TextEditor for pixel-perfect cursor alignment
-                    if inputText.isEmpty && ghostSuffix == nil {
-                        TextEditor(text: .constant("What would you like to do?"))
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textMuted)
-                            .lineSpacing(4)
-                            .scrollContentBackground(.hidden)
-                            .scrollDisabled(true)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
-
-                    TextEditor(text: $inputText)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineSpacing(4)
-                        .scrollContentBackground(.hidden)
-                        .scrollDisabled(editorContentHeight <= 200)
-                        .disabled(!hasAPIKey)
-                        .accessibilityLabel("Message")
-
-                    // Ghost text overlay
-                    if let ghostSuffix {
-                        Text(inputText + ghostSuffix)
-                            .font(VFont.body)
-                            .lineSpacing(4)
-                            .foregroundColor(.clear)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 6)
-                            .overlay(alignment: .topLeading) {
-                                HStack(spacing: 0) {
-                                    Text(inputText)
-                                        .font(VFont.body)
-                                        .lineSpacing(4)
-                                        .foregroundColor(.clear)
-                                    Text(ghostSuffix)
-                                        .font(VFont.body)
-                                        .lineSpacing(4)
-                                        .foregroundColor(VColor.textMuted.opacity(0.5))
+                // Text input with built-in placeholder and vertical centering
+                TextField("What would you like to do?", text: $inputText, axis: .vertical)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineSpacing(4)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...10)
+                    .disabled(!hasAPIKey)
+                    .accessibilityLabel("Message")
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear
+                                .onAppear { editorContentHeight = geo.size.height }
+                                .onChange(of: geo.size.height) { _, h in
+                                    withAnimation(VAnimation.spring) {
+                                        editorContentHeight = h
+                                    }
                                 }
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 6)
-                            }
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
-                }
-                .frame(height: min(max(editorContentHeight, 14), 200))
-                .clipped()
-                .background(
-                    GeometryReader { geo in
-                        Color.clear
-                            .onAppear { editorWidth = geo.size.width }
-                            .onChange(of: geo.size.width) { _, w in editorWidth = w }
-                    }
-                )
-                .onChange(of: inputText) { _, _ in recalculateEditorHeight() }
-                .onChange(of: editorWidth) { _, _ in recalculateEditorHeight() }
+                        }
+                    )
                 .onKeyPress(.tab, phases: .down) { keyPress in
                     if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
                         onAcceptSuggestion()
@@ -460,10 +390,9 @@ struct ChatView: View {
                 }
                 .onKeyPress(.return, phases: .down) { keyPress in
                     // Only intercept bare Return (no modifiers); any modifier
-                    // (Shift, Cmd, Option, Ctrl) falls through to TextEditor.
+                    // (Shift, Cmd, Option, Ctrl) inserts a newline.
                     guard keyPress.modifiers.isEmpty else { return .ignored }
-                    // TextEditor inserts a newline before onKeyPress fires,
-                    // so always strip the trailing newline that was just added.
+                    // Strip any trailing newline inserted before this handler fired.
                     inputText = inputText.replacingOccurrences(
                         of: "\\n$", with: "", options: .regularExpression
                     )
