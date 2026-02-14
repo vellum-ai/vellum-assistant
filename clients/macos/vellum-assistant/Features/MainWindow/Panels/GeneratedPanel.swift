@@ -217,6 +217,43 @@ struct GeneratedPanel: View {
             .foregroundColor(color)
     }
 
+    // MARK: - Section Header
+
+    @ViewBuilder
+    private func sectionHeader(_ title: String, count: Int? = nil) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            Text(title)
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.textMuted)
+
+            if let count {
+                Text("\(count)")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xxs)
+                    .background(Slate._800)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            }
+
+            Rectangle()
+                .fill(VColor.surfaceBorder)
+                .frame(height: 1)
+        }
+        .padding(.top, VSpacing.lg)
+        .padding(.bottom, VSpacing.sm)
+    }
+
+    private func metaItem(icon: String, value: String, color: Color = VColor.textMuted) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+            Text(value)
+        }
+        .font(VFont.small)
+        .foregroundColor(color)
+    }
+
     // MARK: - Buttons
 
     @ViewBuilder
