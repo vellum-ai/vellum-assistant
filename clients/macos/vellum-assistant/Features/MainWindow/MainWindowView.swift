@@ -105,6 +105,13 @@ struct MainWindowView: View {
         .onReceive(daemonClient.$isConnected) { _ in
             refreshAPIKeyState()
         }
+        .onChange(of: activePanel) { _, newPanel in
+            // Reset expanded state when navigating away from the Dynamic panel
+            // via toolbar or tab bar buttons, which only modify activePanel.
+            if newPanel != .generated {
+                isDynamicExpanded = false
+            }
+        }
     }
 
     @MainActor
