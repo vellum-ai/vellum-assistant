@@ -280,6 +280,10 @@ export class Session {
     this.onEscalateToComputerUse = handler;
   }
 
+  hasEscalationHandler(): boolean {
+    return this.onEscalateToComputerUse !== undefined;
+  }
+
   isProcessing(): boolean {
     return this.processing;
   }

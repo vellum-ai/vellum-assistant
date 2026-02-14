@@ -420,7 +420,12 @@ async function handleUserMessage(
   try {
     ctx.socketToSession.set(socket, msg.sessionId);
     const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
-    wireEscalationHandler(session, socket, ctx);
+    // Only wire the escalation handler if one isn't already set — handleTaskSubmit
+    // sets a handler with the client's actual screen dimensions, and overwriting it
+    // here would replace those dimensions with the daemon's defaults.
+    if (!session.hasEscalationHandler()) {
+      wireEscalationHandler(session, socket, ctx);
+    }
 
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
 
