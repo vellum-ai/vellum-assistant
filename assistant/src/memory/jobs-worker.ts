@@ -690,6 +690,11 @@ function weekNumber(date: Date): number {
 const STALE_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 let lastStaleSweepMs = 0;
 
+/** Reset the sweep throttle so tests can call sweepStaleItems back-to-back. */
+export function resetStaleSweepThrottle(): void {
+  lastStaleSweepMs = 0;
+}
+
 /**
  * Mark deeply stale memory items as invalid. An item is considered deeply
  * stale when it has exceeded 2x its freshness window for its kind and has
