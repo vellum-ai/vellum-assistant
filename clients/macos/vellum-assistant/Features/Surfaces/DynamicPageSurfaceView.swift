@@ -4,6 +4,23 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DynamicPage")
 
+extension DynamicPageSurfaceView {
+    static let designSystemCSS: String = {
+        guard let url = ResourceBundle.bundle.url(
+            forResource: "vellum-design-system", withExtension: "css"
+        ), let css = try? String(contentsOf: url) else {
+            log.error("Failed to load vellum-design-system.css from resource bundle")
+            assertionFailure("vellum-design-system.css not found in resource bundle")
+            return ""
+        }
+        return css
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "${", with: "\\${")
+            .replacingOccurrences(of: "\r", with: "")
+    }()
+}
+
 struct DynamicPageSurfaceView: NSViewRepresentable {
     let data: DynamicPageSurfaceData
     let onAction: (String, Any?) -> Void
@@ -127,21 +144,22 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             forMainFrameOnly: true
         )
 
-        let centeringScript = WKUserScript(
+        let designSystemScript = WKUserScript(
             source: """
                 (function() {
                     var style = document.createElement('style');
-                    style.textContent = 'body { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; margin: 0; }';
+                    style.id = 'vellum-design-system';
+                    style.textContent = `\(Self.designSystemCSS)`;
                     (document.head || document.documentElement).appendChild(style);
                 })();
                 """,
-            injectionTime: .atDocumentEnd,
+            injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         )
 
         let contentController = WKUserContentController()
         contentController.addUserScript(userScript)
-        contentController.addUserScript(centeringScript)
+        contentController.addUserScript(designSystemScript)
         contentController.add(context.coordinator, name: "vellumBridge")
 
         let configuration = WKWebViewConfiguration()

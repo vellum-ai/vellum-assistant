@@ -53,24 +53,50 @@ Write a complete, self-contained HTML document. The HTML is rendered inside a sa
 - Design for a window that is roughly 400-600px wide but can resize larger
 - The WebView blocks all navigation, so links and form submissions with `action` attributes will not work
 
+#### Injected design system
+
+Every app automatically has the Vellum design system CSS injected into the WebView.
+You do NOT need to include base styles — they are applied to bare HTML elements by default.
+The design system supports both light and dark mode via `@media (prefers-color-scheme)`.
+
+**What you get for free (no classes needed):**
+- `body` — system font, proper colors, padding (24px), line-height (1.5)
+- `button` — accent color (#8A5BE0), rounded corners, hover/active states
+- `input`, `textarea`, `select` — bordered, rounded, proper sizing, focus ring
+- `h1`–`h6` — sized headings
+- `a` — accent-colored links
+- `code`, `pre` — monospace font, surface background
+- `table`, `th`, `td` — bordered, padded
+
+**Available component classes (opt-in):**
+- `.v-button`, `.v-button.secondary`, `.v-button.danger`, `.v-button.ghost` — button variants
+- `.v-card` — surface background with border, shadow, and padding
+- `.v-input-row` — flex row for input + button combos (gap: 8px)
+- `.v-list` + `.v-list-item` — hoverable list rows with padding
+- `.v-badge`, `.v-badge.success`, `.v-badge.danger`, `.v-badge.warning` — small pill labels
+- `.v-empty-state` — centered muted placeholder text
+- `.v-toggle` — CSS-only toggle switch (use with label + checkbox)
+
+**Available utility classes:**
+- Layout: `.v-flex`, `.v-flex-col`, `.v-flex-wrap`, `.v-items-center`, `.v-justify-between`, `.v-justify-center`
+- Gaps: `.v-gap-xs` (4px), `.v-gap-sm` (8px), `.v-gap-md` (12px), `.v-gap-lg` (16px), `.v-gap-xl` (24px)
+- Text: `.v-text-secondary`, `.v-text-muted`, `.v-text-accent`, `.v-text-sm`, `.v-text-xs`, `.v-text-lg`
+- Other: `.v-font-mono`, `.v-truncate`, `.v-w-full`, `.v-sr-only`
+
+**Customizing the theme:**
+To change the look, override `--v-*` CSS custom properties in your `<style>` tag:
+```css
+:root {
+  --v-accent: #e91e63;
+  --v-bg: #1a1a2e;
+  --v-text: #eaeaea;
+  --v-radius-md: 16px;
+}
+```
+This overrides the injected defaults — all elements and component classes update automatically.
+You can also write fully custom CSS or ignore the design system entirely.
+
 #### Styling guidelines
-- Use a light color scheme with good contrast
-- Use CSS variables for easy theming:
-  ```css
-  :root {
-    --bg: #ffffff;
-    --surface: #f5f5f7;
-    --text: #1d1d1f;
-    --text-secondary: #86868b;
-    --accent: #007aff;
-    --accent-hover: #0056b3;
-    --border: #d2d2d7;
-    --danger: #ff3b30;
-    --success: #34c759;
-    --radius: 8px;
-  }
-  ```
-- Use system fonts: `font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;`
 - Use flexbox or grid for layout
 - Keep the design clean, minimal, and functional -- follow macOS/Apple design sensibilities
 - Add subtle transitions for interactive elements (hover states, adding/removing items)
@@ -195,133 +221,26 @@ Here is a full example showing the exact `schema_json` and `html` values for a t
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Todo List</title>
   <style>
-    :root {
-      --bg: #ffffff;
-      --surface: #f5f5f7;
-      --text: #1d1d1f;
-      --text-secondary: #86868b;
-      --accent: #007aff;
-      --accent-hover: #0056b3;
-      --border: #d2d2d7;
-      --danger: #ff3b30;
-      --success: #34c759;
-      --radius: 8px;
-    }
-
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      padding: 24px;
-      line-height: 1.5;
-    }
-
-    h1 {
-      font-size: 24px;
-      font-weight: 700;
-      margin-bottom: 20px;
-    }
-
-    .input-row {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 20px;
-    }
-
-    .input-row input {
-      flex: 1;
-      padding: 10px 14px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      font-size: 14px;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-
-    .input-row input:focus {
-      border-color: var(--accent);
-    }
-
-    .input-row button {
-      padding: 10px 20px;
-      background: var(--accent);
-      color: white;
-      border: none;
-      border-radius: var(--radius);
-      font-size: 14px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .input-row button:hover {
-      background: var(--accent-hover);
-    }
-
-    .todo-list {
-      list-style: none;
-    }
-
-    .todo-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 14px;
-      background: var(--surface);
-      border-radius: var(--radius);
-      margin-bottom: 8px;
-      transition: opacity 0.2s;
-    }
-
     .todo-item input[type="checkbox"] {
       width: 18px;
       height: 18px;
-      accent-color: var(--accent);
+      accent-color: var(--v-accent);
       cursor: pointer;
     }
-
-    .todo-item .title {
-      flex: 1;
-      font-size: 14px;
-    }
-
+    .todo-item .title { flex: 1; }
     .todo-item .title.completed {
       text-decoration: line-through;
-      color: var(--text-secondary);
-    }
-
-    .todo-item .delete-btn {
-      background: none;
-      border: none;
-      color: var(--text-secondary);
-      cursor: pointer;
-      font-size: 16px;
-      padding: 4px 8px;
-      border-radius: 4px;
-      transition: color 0.2s, background 0.2s;
-    }
-
-    .todo-item .delete-btn:hover {
-      color: var(--danger);
-      background: rgba(255, 59, 48, 0.1);
-    }
-
-    .empty-state {
-      text-align: center;
-      color: var(--text-secondary);
-      padding: 40px 0;
-      font-size: 14px;
+      color: var(--v-text-secondary);
     }
   </style>
 </head>
 <body>
   <h1>Todo List</h1>
-  <div class="input-row">
+  <div class="v-input-row" style="margin-bottom: 20px;">
     <input type="text" id="newTodo" placeholder="What needs to be done?">
-    <button onclick="addTodo()">Add</button>
+    <button class="v-button" onclick="addTodo()">Add</button>
   </div>
-  <ul class="todo-list" id="todoList"></ul>
+  <ul class="v-list" id="todoList"></ul>
 
   <script>
     let allRecords = [];
@@ -346,17 +265,17 @@ Here is a full example showing the exact `schema_json` and `html` values for a t
       allRecords = records;
       const list = document.getElementById('todoList');
       if (records.length === 0) {
-        list.innerHTML = '<div class="empty-state">No todos yet. Add one above!</div>';
+        list.innerHTML = '<div class="v-empty-state">No todos yet. Add one above!</div>';
         return;
       }
       list.innerHTML = records
         .sort((a, b) => a.createdAt - b.createdAt)
         .map(r => `
-          <li class="todo-item">
+          <li class="v-list-item v-flex v-items-center v-gap-md todo-item">
             <input type="checkbox" ${r.data.completed ? 'checked' : ''}
               onchange="toggleTodo('${r.id}')">
             <span class="title ${r.data.completed ? 'completed' : ''}">${escapeHtml(r.data.title)}</span>
-            <button class="delete-btn" onclick="deleteTodo('${r.id}')">&#x2715;</button>
+            <button class="v-button danger" onclick="deleteTodo('${r.id}')">&#x2715;</button>
           </li>
         `).join('');
     }
