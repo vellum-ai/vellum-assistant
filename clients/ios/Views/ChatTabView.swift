@@ -45,8 +45,12 @@ struct ChatTabView: View {
                     scrollToBottom(proxy: proxy, animated: true)
                 }
                 .onChange(of: viewModel.messages.last?.text) { oldValue, newValue in
-                    // Scroll without animation during streaming to avoid jank
-                    scrollToBottom(proxy: proxy, animated: false)
+                    // Scroll without animation during streaming to avoid jank.
+                    // Only scroll when actively streaming to avoid overriding the animated
+                    // scroll from new message additions (handled by count change above).
+                    if viewModel.messages.last?.isStreaming == true {
+                        scrollToBottom(proxy: proxy, animated: false)
+                    }
                 }
             }
 
