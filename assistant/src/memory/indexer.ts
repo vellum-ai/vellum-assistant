@@ -18,6 +18,7 @@ export interface IndexMessageInput {
   role: string;
   content: string;
   createdAt: number;
+  scopeId?: string;
 }
 
 export interface IndexMessageResult {
@@ -54,6 +55,7 @@ export function indexMessageNow(
       segmentIndex: segment.segmentIndex,
       text: segment.text,
       tokenEstimate: segment.tokenEstimate,
+      scopeId: input.scopeId ?? 'default',
       createdAt: input.createdAt,
       updatedAt: now,
     }).onConflictDoUpdate({

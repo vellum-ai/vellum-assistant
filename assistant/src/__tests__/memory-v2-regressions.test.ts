@@ -67,6 +67,7 @@ import {
   memoryItems,
   memoryItemSources,
   memoryJobs,
+  memorySegments,
   memorySummaries,
   messages,
 } from '../memory/schema.js';
@@ -1551,5 +1552,115 @@ describe('Memory V2 regressions', () => {
     const freshItem = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-sweep-fresh')).get();
     expect(freshItem).toBeDefined();
     expect(freshItem!.invalidAt).toBeNull();
+  });
+
+  test('scope columns: memory items default to scope_id=default', () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(memoryItems).values({
+      id: 'item-scope-default',
+      kind: 'fact',
+      subject: 'scope test',
+      statement: 'This item should have default scope',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-scope-default',
+      firstSeenAt: now,
+      lastSeenAt: now,
+      accessCount: 0,
+      verificationState: 'user_confirmed',
+    }).run();
+
+    const item = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-scope-default')).get();
+    expect(item).toBeDefined();
+    expect(item!.scopeId).toBe('default');
+  });
+
+  test('scope columns: memory items can be inserted with explicit scope_id', () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(memoryItems).values({
+      id: 'item-scope-custom',
+      kind: 'fact',
+      subject: 'scope test',
+      statement: 'This item has a custom scope',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-scope-custom',
+      scopeId: 'project-abc',
+      firstSeenAt: now,
+      lastSeenAt: now,
+      accessCount: 0,
+      verificationState: 'user_confirmed',
+    }).run();
+
+    const item = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-scope-custom')).get();
+    expect(item).toBeDefined();
+    expect(item!.scopeId).toBe('project-abc');
+  });
+
+  test('scope columns: segments get scopeId from indexer input', () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(conversations).values({
+      id: 'conv-scope-test',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-scope-test',
+      conversationId: 'conv-scope-test',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Remember my scope preference' }]),
+      createdAt: now,
+    }).run();
+
+    indexMessageNow({
+      messageId: 'msg-scope-test',
+      conversationId: 'conv-scope-test',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Remember my scope preference' }]),
+      createdAt: now,
+      scopeId: 'project-xyz',
+    }, DEFAULT_CONFIG.memory);
+
+    const segments = db.select().from(memorySegments).where(eq(memorySegments.messageId, 'msg-scope-test')).all();
+    expect(segments.length).toBeGreaterThan(0);
+    for (const seg of segments) {
+      expect(seg.scopeId).toBe('project-xyz');
+    }
+  });
+
+  test('scope columns: summaries default to scope_id=default', () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(memorySummaries).values({
+      id: 'summary-scope-test',
+      scope: 'weekly_global',
+      scopeKey: '2025-W01',
+      summary: 'Test summary for scope',
+      tokenEstimate: 10,
+      startAt: now - 7 * 86_400_000,
+      endAt: now,
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+
+    const summary = db.select().from(memorySummaries).where(eq(memorySummaries.id, 'summary-scope-test')).get();
+    expect(summary).toBeDefined();
+    expect(summary!.scopeId).toBe('default');
   });
 });

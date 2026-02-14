@@ -49,6 +49,7 @@ export const memorySegments = sqliteTable('memory_segments', {
   segmentIndex: integer('segment_index').notNull(),
   text: text('text').notNull(),
   tokenEstimate: integer('token_estimate').notNull(),
+  scopeId: text('scope_id').notNull().default('default'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
@@ -64,6 +65,7 @@ export const memoryItems = sqliteTable('memory_items', {
   accessCount: integer('access_count').notNull().default(0),
   fingerprint: text('fingerprint').notNull(),
   verificationState: text('verification_state').notNull().default('assistant_inferred'),
+  scopeId: text('scope_id').notNull().default('default'),
   firstSeenAt: integer('first_seen_at').notNull(),
   lastSeenAt: integer('last_seen_at').notNull(),
   lastUsedAt: integer('last_used_at'),
@@ -89,6 +91,7 @@ export const memorySummaries = sqliteTable('memory_summaries', {
   summary: text('summary').notNull(),
   tokenEstimate: integer('token_estimate').notNull(),
   version: integer('version').notNull().default(1),
+  scopeId: text('scope_id').notNull().default('default'),
   startAt: integer('start_at').notNull(),
   endAt: integer('end_at').notNull(),
   createdAt: integer('created_at').notNull(),
