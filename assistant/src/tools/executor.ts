@@ -7,9 +7,9 @@ import { addRule } from '../permissions/trust-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { ToolError, PermissionDeniedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
-import { findAllMatches, adjustIndentation } from './filesystem/fuzzy-match.js';
 import { validateFilePath } from './filesystem/path-guard.js';
 import { MAX_FILE_SIZE_BYTES } from './filesystem/size-guard.js';
+import { applyEdit } from './shared/filesystem/edit-engine.js';
 import { wrapCommand } from './terminal/sandbox.js';
 import { getConfig } from '../config/loader.js';
 import { scanText, redactSecrets } from '../security/secret-scanner.js';
@@ -491,20 +491,9 @@ function computePreviewDiff(
       if (stat.size > MAX_FILE_SIZE_BYTES) return undefined;
       const content = readFileSync(filePath, 'utf-8');
       const replaceAll = input.replace_all === true;
-      let updated: string;
-      if (replaceAll) {
-        if (!content.includes(oldString)) return undefined;
-        updated = content.split(oldString).join(newString);
-      } else {
-        const matches = findAllMatches(content, oldString);
-        if (matches.length !== 1) return undefined;
-        const match = matches[0];
-        const adjustedNewString = match.method !== 'exact'
-          ? adjustIndentation(oldString, match.matched, newString)
-          : newString;
-        updated = content.slice(0, match.start) + adjustedNewString + content.slice(match.end);
-      }
-      return { filePath, oldContent: content, newContent: updated, isNewFile: false };
+      const result = applyEdit({ content, oldString, newString, replaceAll });
+      if (!result.ok) return undefined;
+      return { filePath, oldContent: content, newContent: result.updatedContent, isNewFile: false };
     }
   } catch {
     // Preview is best-effort — don't block the prompt on errors
