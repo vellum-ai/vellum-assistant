@@ -85,6 +85,12 @@ jobs:
           (cd ../../assistant && zip -r ../clients/macos/build/assistant.zip .)
           ls -lh build/assistant.zip
 
+      - name: Zip gateway directory
+        run: |
+          mkdir -p build
+          (cd ../../gateway && zip -r ../clients/macos/build/gateway.zip .)
+          ls -lh build/gateway.zip
+
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -362,6 +368,7 @@ jobs:
           [ -f "dist/vellum-assistant.zip" ] && ASSETS+=("dist/vellum-assistant.zip")
           [ -f "$APPCAST" ] && ASSETS+=("$APPCAST#appcast.xml")
           [ -f "build/assistant.zip" ] && ASSETS+=("build/assistant.zip#assistant.zip")
+          [ -f "build/gateway.zip" ] && ASSETS+=("build/gateway.zip#gateway.zip")
 
           echo "Release assets: ${ASSETS[*]}"
 

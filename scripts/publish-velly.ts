@@ -78,12 +78,7 @@ try {
   releaseNotes = gitLog;
 }
 
-const gatewayZip = "gateway.zip";
-await $`cd gateway && zip -r ../${gatewayZip} .`;
-
-await $`gh release create ${tag} --title ${tag} --notes ${releaseNotes} ${gatewayZip}`;
-
-await $`rm ${gatewayZip}`;
+await $`gh release create ${tag} --title ${tag} --notes ${releaseNotes}`;
 console.log(`Release ${tag} created successfully.`);
 
 if (process.env.GITHUB_OUTPUT) {
