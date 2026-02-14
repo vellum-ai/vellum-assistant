@@ -124,60 +124,69 @@ struct GeneratedPanel: View {
         let isHovered = hoveredAppId == item.id
         let isBundlingThis = sharingAppId == item.id && isBundling
 
-        return HStack(spacing: VSpacing.md) {
-            // Icon
-            Text(item.icon ?? "\u{1F4F1}")
-                .font(.system(size: 20))
-                .frame(width: 28, height: 28)
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Row 1: Icon + name/description + action buttons
+            HStack(spacing: VSpacing.md) {
+                Text(item.icon ?? "\u{1F4F1}")
+                    .font(.system(size: 20))
+                    .frame(width: 24, height: 24)
 
-            // Name + badges + description
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: VSpacing.xs) {
-                    Text(item.name)
-                        .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineLimit(1)
-
-                    if item.isShared {
-                        sharedBadge
-                    }
-
-                    if let tier = item.trustTier {
-                        trustBadge(tier: tier)
-                    }
-                }
-
-                if let description = item.description, !description.isEmpty {
-                    Text(description)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .lineLimit(2)
-                }
-
-                Text(item.dateLabel)
-                    .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
-            }
-
-            Spacer()
-
-            // Action buttons — visible on hover
-            let showingShareSheet = showShareSheet && sharingAppId == item.id
-            if isHovered || isBundlingThis || showingShareSheet {
-                HStack(spacing: VSpacing.xs) {
-                    if isBundlingThis {
-                        ProgressView()
-                            .controlSize(.mini)
-                            .frame(width: 24, height: 24)
-                    } else {
-                        shareButton(for: item)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: VSpacing.sm) {
+                        Text(item.name)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textPrimary)
 
                         if item.isShared {
-                            deleteButton(for: item)
+                            sharedBadge
+                        }
+
+                        if let tier = item.trustTier {
+                            trustBadge(tier: tier)
+                        }
+                    }
+
+                    if let description = item.description, !description.isEmpty {
+                        Text(description)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .lineLimit(2)
+                    }
+                }
+
+                Spacer()
+
+                // Action buttons — visible on hover
+                let showingShareSheet = showShareSheet && sharingAppId == item.id
+                if isHovered || isBundlingThis || showingShareSheet {
+                    HStack(spacing: VSpacing.xs) {
+                        if isBundlingThis {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .frame(width: 24, height: 24)
+                        } else {
+                            shareButton(for: item)
+
+                            if item.isShared {
+                                deleteButton(for: item)
+                            }
                         }
                     }
                 }
             }
+
+            // Row 2: Metadata
+            HStack(spacing: VSpacing.lg) {
+                metaItem(icon: "clock", value: item.dateLabel)
+                metaItem(icon: item.isShared ? "arrow.down.circle" : "hammer", value: item.isShared ? "Received" : "Local")
+
+                if let signer = item.signerDisplayName, !signer.isEmpty {
+                    metaItem(icon: "person.fill", value: signer)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 24 + VSpacing.md)
         }
         .padding(VSpacing.lg)
         .background(isHovered ? Slate._800 : Slate._900)
@@ -196,17 +205,9 @@ struct GeneratedPanel: View {
     // MARK: - Badges
 
     private var sharedBadge: some View {
-        HStack(spacing: 2) {
-            Image(systemName: "person.2.fill")
-                .font(.system(size: 8))
-            Text("Shared")
-                .font(VFont.small)
-        }
-        .foregroundColor(Violet._400)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 1)
-        .background(Violet._900.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        Text("SHARED")
+            .font(VFont.small)
+            .foregroundColor(Violet._400)
     }
 
     private func trustBadge(tier: String) -> some View {
