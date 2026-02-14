@@ -34,10 +34,17 @@ export function estimateContentBlockTokens(block: ContentBlock, options?: TokenE
       return TOOL_BLOCK_OVERHEAD_TOKENS
         + estimateTextTokens(block.name)
         + estimateTextTokens(stableJson(block.input));
-    case 'tool_result':
-      return TOOL_BLOCK_OVERHEAD_TOKENS
+    case 'tool_result': {
+      let tokens = TOOL_BLOCK_OVERHEAD_TOKENS
         + estimateTextTokens(block.tool_use_id)
         + estimateTextTokens(block.content);
+      if (block.contentBlocks) {
+        for (const cb of block.contentBlocks) {
+          tokens += estimateContentBlockTokens(cb, options);
+        }
+      }
+      return tokens;
+    }
     case 'image':
       return IMAGE_BLOCK_TOKENS;
     case 'file':
