@@ -665,45 +665,66 @@ The daemon emits two distinct error message types over IPC:
 
 | Message type | Scope | Purpose | Payload |
 |---|---|---|---|
-| `session_error` | Session-scoped | Typed, actionable failures during chat/session runtime (e.g., provider rate limit, context overflow, auth failure) | `sessionId`, `code` (typed enum), `userMessage`, `retryable`, `debugDetails?` |
+| `session_error` | Session-scoped | Typed, actionable failures during chat/session runtime (e.g., provider network error, rate limit, API failure) | `sessionId`, `code` (typed enum), `userMessage`, `retryable`, `debugDetails?` |
 | `error` | Global | Generic, non-session failures (e.g., daemon startup errors, unknown message types) | `message` (string) |
 
 **Design rationale:** `session_error` carries structured metadata (error code, retryable flag, debug details) so the client can present actionable UI — a toast with retry/copy-debug/dismiss buttons — rather than a generic error banner. The older `error` type is retained for backward compatibility with non-session contexts.
 
 ### Session Error Codes
 
-| Code | Meaning |
-|---|---|
-| `provider_rate_limit` | LLM provider rate-limited the request |
-| `provider_auth` | Invalid or expired API key |
-| `provider_overloaded` | Provider temporarily unavailable |
-| `context_overflow` | Conversation exceeded the model's context window |
-| `generation_failed` | Model returned an unexpected or malformed response |
-| `internal` | Catch-all for unexpected daemon errors |
+| Code | Meaning | Retryable |
+|---|---|---|
+| `PROVIDER_NETWORK` | Unable to reach the LLM provider (connection refused, timeout, DNS) | Yes |
+| `PROVIDER_RATE_LIMIT` | LLM provider rate-limited the request (HTTP 429) | Yes |
+| `PROVIDER_API` | Provider returned a server error (5xx) | Yes |
+| `QUEUE_FULL` | The message queue is full | Yes |
+| `SESSION_ABORTED` | Non-user abort interrupted the request | Yes |
+| `SESSION_PROCESSING_FAILED` | Catch-all for unexpected processing failures | No |
+| `REGENERATE_FAILED` | Failed to regenerate a previous response | Yes |
+| `UNKNOWN` | Unclassified error | No |
+
+### Error Classification
+
+The daemon classifies errors via `classifySessionError()` in `session-error.ts`. Before classification, `isUserCancellation()` checks whether the error is a user-initiated abort (active abort signal or `AbortError`); if so, the daemon emits `generation_cancelled` instead of `session_error`. Classification uses regex pattern matching against the error message to detect network failures, rate limits, and provider API errors, with phase-specific overrides for queue and regeneration contexts.
 
 ### Error → Toast → Recovery Flow
 
-```
-Daemon                    Client (ChatViewModel)         UI (MainWindowView)
-  |                            |                              |
-  |--- session_error --------->|                              |
-  |   {sessionId, code,        |                              |
-  |    userMessage, retryable,  |                              |
-  |    debugDetails}            |                              |
-  |                            |-- sets activeSessionError -->|
-  |                            |-- stops streaming state      |
-  |                            |                              |-- shows toast
-  |                            |                              |   [Retry] [Copy Debug] [X]
-  |                            |<--- retryFromActiveError() --|-- user taps Retry
-  |<-- regenerate_message -----|                              |
+```mermaid
+sequenceDiagram
+    participant Daemon as Daemon (session-error.ts)
+    participant DC as DaemonClient (Swift)
+    participant VM as ChatViewModel
+    participant UI as ChatView (toast)
+
+    Note over Daemon: LLM call fails or<br/>processing error occurs
+    Daemon->>Daemon: classifySessionError(error, ctx)
+    Daemon->>DC: session_error {sessionId, code,<br/>userMessage, retryable, debugDetails?}
+    DC->>VM: onSessionError callback
+    VM->>VM: set sessionError property<br/>clear isThinking / isCancelling
+    VM-->>UI: @Published sessionError observed
+
+    UI->>UI: show sessionErrorToast<br/>[Retry] [Copy Debug] [Dismiss]
+
+    alt User taps Retry (retryable == true)
+        UI->>VM: retryAfterSessionError()
+        VM->>VM: dismissSessionError()<br/>+ regenerateLastMessage()
+        VM->>DC: regenerate {sessionId}
+        DC->>Daemon: IPC
+    else User taps Copy Debug
+        UI->>VM: copySessionErrorDebugDetails()
+        Note over VM: Copies error details<br/>to system clipboard
+    else User taps Dismiss
+        UI->>VM: dismissSessionError()
+        VM->>VM: clear sessionError + errorText
+    end
 ```
 
-1. **Daemon** encounters a session-scoped failure and sends a `session_error` message with the session ID, typed error code, user-facing message, and retryable flag.
-2. **ChatViewModel** receives the error, sets `activeSessionError`, and transitions out of the streaming/loading state so the UI is interactive.
-3. **MainWindowView** observes the error and displays an actionable toast:
-   - **Retry** (shown when `retryable` is true): calls `retryFromActiveError()`, which clears the error and sends a `regenerate_message` to the daemon.
-   - **Copy Debug**: copies `debugDetails` to the clipboard for bug reports.
-   - **Dismiss (X)**: clears the error without retrying.
+1. **Daemon** encounters a session-scoped failure, classifies it via `classifySessionError()`, and sends a `session_error` IPC message with the session ID, typed error code, user-facing message, retryable flag, and optional debug details.
+2. **ChatViewModel** receives the error via the `onSessionError` callback, sets the `sessionError` property, and transitions out of the streaming/loading state so the UI is interactive.
+3. **ChatView** observes the published `sessionError` and displays an actionable toast with a category-specific icon and accent color:
+   - **Retry** (shown when `retryable` is true): calls `retryAfterSessionError()`, which clears the error and sends a `regenerate` message to the daemon.
+   - **Copy Debug**: calls `copySessionErrorDebugDetails()` to copy error details to the clipboard.
+   - **Dismiss (X)**: calls `dismissSessionError()` to clear the error without retrying.
 4. If the error is not retryable, the Retry button is hidden and the user can only dismiss or copy debug info.
 
 ---
