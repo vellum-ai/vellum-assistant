@@ -13,7 +13,7 @@ struct ContentView: View {
                 Label("Chat", systemImage: "message")
             }
 
-            Text("Settings")
+            SettingsView()
                 .tabItem {
                     Label("Settings", systemImage: "gear")
                 }
