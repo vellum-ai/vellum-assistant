@@ -8,7 +8,7 @@ import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { CheckpointDecision } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
-import { createUserMessage } from '../agent/message-types.js';
+import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { getApp } from '../memory/app-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
@@ -834,8 +834,24 @@ export class Session {
     // Resolve slash commands for queued messages
     const slashResult = this.resolveSlash(next.content);
 
-    // Unknown slash — emit deterministic response and continue draining
+    // Unknown slash — persist the exchange and continue draining
     if (slashResult.kind === 'unknown') {
+      const userMsg = createUserMessage(next.content, []);
+      this.messages.push(userMsg);
+      conversationStore.addMessage(
+        this.conversationId,
+        'user',
+        JSON.stringify(userMsg.content),
+      );
+
+      const assistantMsg = createAssistantMessage(slashResult.message);
+      this.messages.push(assistantMsg);
+      conversationStore.addMessage(
+        this.conversationId,
+        'assistant',
+        JSON.stringify(assistantMsg.content),
+      );
+
       next.onEvent({ type: 'assistant_text_delta', text: slashResult.message });
       next.onEvent({ type: 'message_complete', sessionId: this.conversationId });
       this.drainQueue();
@@ -883,13 +899,29 @@ export class Session {
     // Resolve slash commands before persistence
     const slashResult = this.resolveSlash(content);
 
-    // Unknown slash command — emit deterministic response without agent loop.
-    // Return a synthetic messageId so callers (e.g. server.ts) don't treat
-    // this as a persistence failure.
+    // Unknown slash command — persist the exchange (user + assistant) so the
+    // messageId is real.  Without persistence, callers like the channel inbound
+    // path would see "success" but find a stale assistant reply in the DB.
     if (slashResult.kind === 'unknown') {
+      const userMsg = createUserMessage(content, []);
+      this.messages.push(userMsg);
+      const persisted = conversationStore.addMessage(
+        this.conversationId,
+        'user',
+        JSON.stringify(userMsg.content),
+      );
+
+      const assistantMsg = createAssistantMessage(slashResult.message);
+      this.messages.push(assistantMsg);
+      conversationStore.addMessage(
+        this.conversationId,
+        'assistant',
+        JSON.stringify(assistantMsg.content),
+      );
+
       onEvent({ type: 'assistant_text_delta', text: slashResult.message });
       onEvent({ type: 'message_complete', sessionId: this.conversationId });
-      return uuid();
+      return persisted.id;
     }
 
     const resolvedContent = slashResult.content;

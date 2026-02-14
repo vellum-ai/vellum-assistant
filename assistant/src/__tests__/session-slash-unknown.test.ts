@@ -54,6 +54,8 @@ mock.module('../security/secret-allowlist.js', () => ({
   resetAllowlist: () => {},
 }));
 
+const addMessageCalls: Array<{ convId: string; role: string; content: string }> = [];
+
 mock.module('../memory/conversation-store.js', () => ({
   getMessages: () => [],
   getConversation: () => ({
@@ -66,7 +68,8 @@ mock.module('../memory/conversation-store.js', () => ({
   }),
   createConversation: () => ({ id: 'conv-1' }),
   listConversations: () => [],
-  addMessage: (_convId: string, _role: string, _content: string) => {
+  addMessage: (convId: string, role: string, content: string) => {
+    addMessageCalls.push({ convId, role, content });
     return { id: `msg-${Date.now()}` };
   },
   updateConversationUsage: () => {},
@@ -179,6 +182,7 @@ function makeSession(): Session {
 describe('Session slash command — unknown', () => {
   beforeEach(() => {
     agentLoopRunCalled = false;
+    addMessageCalls.length = 0;
   });
 
   test('unknown slash emits deterministic assistant response', async () => {
@@ -212,6 +216,19 @@ describe('Session slash command — unknown', () => {
     const session = makeSession();
     await session.processMessage('/not-a-skill', [], () => {});
     expect(agentLoopRunCalled).toBe(false);
+  });
+
+  test('unknown slash persists both user and assistant messages', async () => {
+    const session = makeSession();
+    await session.processMessage('/not-a-skill', [], () => {});
+
+    // Should persist exactly two messages: user + assistant
+    const roles = addMessageCalls.map((c) => c.role);
+    expect(roles).toEqual(['user', 'assistant']);
+
+    // The assistant message content should contain the unknown-command text
+    const assistantContent = addMessageCalls[1].content;
+    expect(assistantContent).toContain('Unknown command');
   });
 
   test('normal messages still go through standard path', async () => {
