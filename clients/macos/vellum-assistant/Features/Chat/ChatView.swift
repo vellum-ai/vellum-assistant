@@ -570,6 +570,10 @@ private struct ChatBubble: View {
     private var bubbleContent: some View {
         let partitioned = partitionedAttachments
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
+            if let skillInvocation = message.skillInvocation {
+                SkillInvocationChip(data: skillInvocation)
+            }
+
             if hasText {
                 Text(markdownText)
                     .font(VFont.body)

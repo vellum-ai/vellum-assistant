@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Pixel Border Shape
 
-private struct PixelBorderShape: Shape {
+struct PixelBorderShape: Shape {
     let pixelSize: CGFloat
     let cornerSteps: Int
 
