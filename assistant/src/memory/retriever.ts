@@ -34,6 +34,16 @@ interface Candidate {
   finalScore: number;
 }
 
+export interface MemoryRecallCandiateDebug {
+  key: string;
+  type: CandidateType;
+  kind: string;
+  finalScore: number;
+  lexical: number;
+  semantic: number;
+  recency: number;
+}
+
 export interface MemoryRecallResult {
   enabled: boolean;
   degraded: boolean;
@@ -44,9 +54,13 @@ export interface MemoryRecallResult {
   semanticHits: number;
   recencyHits: number;
   entityHits: number;
+  mergedCount: number;
+  selectedCount: number;
+  rerankApplied: boolean;
   injectedTokens: number;
   injectedText: string;
   latencyMs: number;
+  topCandidates: MemoryRecallCandiateDebug[];
 }
 
 interface MemoryRecallOptions {
@@ -162,6 +176,7 @@ export async function buildMemoryRecall(
 
   // LLM re-ranking: send top candidates to Haiku for relevance scoring
   const rerankingConfig = config.memory.retrieval.reranking;
+  let rerankApplied = false;
   if (rerankingConfig.enabled && merged.length >= 5) {
     const rerankStart = Date.now();
     const topCandidates = merged.slice(0, rerankingConfig.topK);
@@ -169,6 +184,7 @@ export async function buildMemoryRecall(
       const reranked = await rerankWithLLM(query, topCandidates, rerankingConfig);
       // Replace the top portion with re-ranked results, keep any overflow untouched
       merged = [...reranked, ...merged.slice(rerankingConfig.topK)];
+      rerankApplied = true;
       log.debug({ rerankLatencyMs: Date.now() - rerankStart, rerankedCount: reranked.length }, 'LLM re-ranking completed');
     } catch (err) {
       if (signal?.aborted || isAbortError(err)) {
@@ -185,10 +201,20 @@ export async function buildMemoryRecall(
     }
   }
 
+  const mergedCount = merged.length;
   const selected = trimToTokenBudget(merged, config.memory.retrieval.maxInjectTokens);
   markItemUsage(selected);
 
   const injectedText = buildInjectedText(selected);
+  const topCandidates: MemoryRecallCandiateDebug[] = selected.slice(0, 10).map((c) => ({
+    key: c.key,
+    type: c.type,
+    kind: c.kind,
+    finalScore: c.finalScore,
+    lexical: c.lexical,
+    semantic: c.semantic,
+    recency: c.recency,
+  }));
 
   const latencyMs = Date.now() - start;
   log.debug({
@@ -197,7 +223,9 @@ export async function buildMemoryRecall(
     semanticHits: semanticCandidates.length,
     recencyHits: recencyCandidates.length,
     entityHits: entityCandidates.length,
+    mergedCount,
     selected: selected.length,
+    rerankApplied,
     injectedTokens: estimateTextTokens(injectedText),
     latencyMs,
   }, 'Memory recall completed');
@@ -212,9 +240,13 @@ export async function buildMemoryRecall(
     semanticHits: semanticCandidates.length,
     recencyHits: recencyCandidates.length,
     entityHits: entityCandidates.length,
+    mergedCount,
+    selectedCount: selected.length,
+    rerankApplied,
     injectedTokens: estimateTextTokens(injectedText),
     injectedText,
     latencyMs,
+    topCandidates,
   };
 }
 
@@ -1036,9 +1068,13 @@ function emptyResult(
     semanticHits: 0,
     recencyHits: 0,
     entityHits: 0,
+    mergedCount: 0,
+    selectedCount: 0,
+    rerankApplied: false,
     injectedTokens: 0,
     injectedText: '',
     latencyMs: init.latencyMs,
+    topCandidates: [],
   };
 }
 

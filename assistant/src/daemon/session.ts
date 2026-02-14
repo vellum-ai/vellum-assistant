@@ -522,8 +522,12 @@ export class Session {
             semanticHits: recall.semanticHits,
             recencyHits: recall.recencyHits,
             entityHits: recall.entityHits,
+            mergedCount: recall.mergedCount,
+            selectedCount: recall.selectedCount,
+            rerankApplied: recall.rerankApplied,
             injectedTokens: recall.injectedTokens,
             latencyMs: recall.latencyMs,
+            topCandidates: recall.topCandidates,
           });
         }
       }
