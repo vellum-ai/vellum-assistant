@@ -12,6 +12,7 @@ export interface DefaultRuleTemplate {
 
 /** Tools that directly access the filesystem by path. */
 const FILE_TOOLS = ['file_read', 'file_write', 'file_edit'] as const;
+const HOST_FILE_TOOLS = ['host_file_read', 'host_file_write', 'host_file_edit'] as const;
 
 /**
  * Returns default trust rules shipped with the assistant.
@@ -22,7 +23,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   // (path.join produces backslashes on Windows, which minimatch treats as escapes).
   const protectedDir = join(getRootDir(), 'protected').replaceAll('\\', '/');
 
-  return FILE_TOOLS.map((tool) => ({
+  const protectedFileRules = FILE_TOOLS.map((tool) => ({
     id: `default:ask-${tool}-protected`,
     tool,
     pattern: `${tool}:${protectedDir}/**`,
@@ -30,4 +31,26 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     decision: 'ask' as const,
     priority: 1000,
   }));
+
+  const hostFileRules = HOST_FILE_TOOLS.map((tool) => ({
+    id: `default:ask-${tool}-global`,
+    tool,
+    pattern: `${tool}:/**`,
+    scope: 'everywhere',
+    decision: 'ask' as const,
+    priority: 1000,
+  }));
+
+  // host_bash command candidates are raw commands ("ls", "npm test"), so the
+  // global default ask rule uses "*" instead of a "tool:*" prefix.
+  const hostShellRule: DefaultRuleTemplate = {
+    id: 'default:ask-host_bash-global',
+    tool: 'host_bash',
+    pattern: '*',
+    scope: 'everywhere',
+    decision: 'ask',
+    priority: 1000,
+  };
+
+  return [...protectedFileRules, ...hostFileRules, hostShellRule];
 }

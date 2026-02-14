@@ -301,32 +301,60 @@ describe('Permission Checker', () => {
       expect(result.matchedRule).toBeDefined();
     });
 
-    test('host_file_read with matching host rule → allow', async () => {
-      addRule('host_file_read', 'host_file_read:/etc/hosts', 'everywhere');
+    test('host_file_read with higher-priority host rule → allow', async () => {
+      addRule('host_file_read', 'host_file_read:/etc/hosts', 'everywhere', 'allow', 2000);
       const result = await check('host_file_read', { path: '/etc/hosts' }, '/tmp');
       expect(result.decision).toBe('allow');
       expect(result.matchedRule?.pattern).toBe('host_file_read:/etc/hosts');
     });
 
-    test('host_file_write with matching host rule → allow', async () => {
-      addRule('host_file_write', 'host_file_write:/Users/test/project/*', 'everywhere');
+    test('host_file_write with higher-priority host rule → allow', async () => {
+      addRule('host_file_write', 'host_file_write:/Users/test/project/*', 'everywhere', 'allow', 2000);
       const result = await check('host_file_write', { path: '/Users/test/project/output.txt' }, '/tmp');
       expect(result.decision).toBe('allow');
       expect(result.matchedRule?.pattern).toBe('host_file_write:/Users/test/project/*');
     });
 
-    test('host_file_edit with matching host rule → allow', async () => {
-      addRule('host_file_edit', 'host_file_edit:/opt/config/app.yml', 'everywhere');
+    test('host_file_edit with higher-priority host rule → allow', async () => {
+      addRule('host_file_edit', 'host_file_edit:/opt/config/app.yml', 'everywhere', 'allow', 2000);
       const result = await check('host_file_edit', { path: '/opt/config/app.yml' }, '/tmp');
       expect(result.decision).toBe('allow');
       expect(result.matchedRule?.pattern).toBe('host_file_edit:/opt/config/app.yml');
     });
 
     test('host_bash reuses bash-style command matching', async () => {
-      addRule('host_bash', 'npm *', 'everywhere');
+      addRule('host_bash', 'npm *', 'everywhere', 'allow', 2000);
       const result = await check('host_bash', { command: 'npm test' }, '/tmp');
       expect(result.decision).toBe('allow');
       expect(result.matchedRule?.pattern).toBe('npm *');
+    });
+
+    test('host_file_read prompts by default via host ask rule', async () => {
+      const result = await check('host_file_read', { path: '/etc/hosts' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-host_file_read-global');
+    });
+
+    test('host_file_write prompts by default via host ask rule', async () => {
+      const result = await check('host_file_write', { path: '/etc/hosts' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-host_file_write-global');
+    });
+
+    test('host_file_edit prompts by default via host ask rule', async () => {
+      const result = await check('host_file_edit', { path: '/etc/hosts' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-host_file_edit-global');
+    });
+
+    test('host_bash prompts by default via host ask rule', async () => {
+      const result = await check('host_bash', { command: 'ls' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-host_bash-global');
     });
 
     test('deny rule for skill_load matches specific skill selectors', async () => {

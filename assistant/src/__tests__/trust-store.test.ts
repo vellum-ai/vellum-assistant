@@ -578,17 +578,30 @@ describe('Trust Store', () => {
         expect(rule.decision).toBe('ask');
         expect(rule.priority).toBe(1000);
         expect(rule.scope).toBe('everywhere');
+      }
+
+      const protectedDefaults = defaults.filter((rule) => rule.id.endsWith('-protected'));
+      expect(protectedDefaults).toHaveLength(3);
+      for (const rule of protectedDefaults) {
         expect(rule.pattern).toContain(`${testDir}/protected/`);
       }
     });
 
-    test('default rules cover file_read, file_write, and file_edit', () => {
+    test('default rules cover file, host file, and host shell tools', () => {
       const rules = getAllRules();
       const defaultTools = rules
         .filter((r) => r.id.startsWith('default:'))
         .map((r) => r.tool)
         .sort();
-      expect(defaultTools).toEqual(['file_edit', 'file_read', 'file_write']);
+      expect(defaultTools).toEqual([
+        'file_edit',
+        'file_read',
+        'file_write',
+        'host_bash',
+        'host_file_edit',
+        'host_file_read',
+        'host_file_write',
+      ]);
     });
 
     test('default rules are not duplicated on reload', () => {
@@ -662,6 +675,38 @@ describe('Trust Store', () => {
       const match = findHighestPriorityRule('file_edit', [`file_edit:${protectedPath}`], '/tmp');
       expect(match).not.toBeNull();
       expect(match!.decision).toBe('ask');
+    });
+
+    test('findHighestPriorityRule matches default ask for host_file_read', () => {
+      const match = findHighestPriorityRule('host_file_read', ['host_file_read:/etc/hosts'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-host_file_read-global');
+      expect(match!.decision).toBe('ask');
+      expect(match!.priority).toBe(1000);
+    });
+
+    test('findHighestPriorityRule matches default ask for host_file_write', () => {
+      const match = findHighestPriorityRule('host_file_write', ['host_file_write:/etc/hosts'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-host_file_write-global');
+      expect(match!.decision).toBe('ask');
+      expect(match!.priority).toBe(1000);
+    });
+
+    test('findHighestPriorityRule matches default ask for host_file_edit', () => {
+      const match = findHighestPriorityRule('host_file_edit', ['host_file_edit:/etc/hosts'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-host_file_edit-global');
+      expect(match!.decision).toBe('ask');
+      expect(match!.priority).toBe(1000);
+    });
+
+    test('findHighestPriorityRule matches default ask for host_bash', () => {
+      const match = findHighestPriorityRule('host_bash', ['ls'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-host_bash-global');
+      expect(match!.decision).toBe('ask');
+      expect(match!.priority).toBe(1000);
     });
 
     test('default ask does not affect files outside protected directory', () => {
