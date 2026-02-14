@@ -19,7 +19,6 @@ public struct SettingsView: View {
     @State private var showingPrivacy = false
     @State private var showingSkills = false
     @State private var skillsViewModel: SkillsSettingsViewModel?
-    @State private var showingTrustRules = false
     @State private var activationKey: ActivationKey = {
         let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
         return ActivationKey(rawValue: stored) ?? .fn
@@ -223,10 +222,14 @@ public struct SettingsView: View {
                         }
                         Spacer()
                         Button("Manage Trust Rules...") {
-                            showingTrustRules = true
+                            daemonClient.isTrustRulesSheetOpen = true
                         }
+                        .disabled(daemonClient.isTrustRulesSheetOpen)
                     }
-                    .sheet(isPresented: $showingTrustRules) {
+                    .sheet(isPresented: Binding(
+                        get: { daemonClient.isTrustRulesSheetOpen },
+                        set: { daemonClient.isTrustRulesSheetOpen = $0 }
+                    )) {
                         TrustRulesView(daemonClient: daemonClient)
                     }
                 }
