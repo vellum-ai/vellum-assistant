@@ -559,13 +559,12 @@ public struct CuErrorMessage: Decodable, Sendable {
 }
 
 /// Streamed text delta from the assistant's response.
-public struct AssistantTextDeltaMessage: Decodable, Sendable {
-    public let text: String
-    public let sessionId: String?
+/// Backed by generated `IPCAssistantTextDelta`.
+public typealias AssistantTextDeltaMessage = IPCAssistantTextDelta
 
+extension IPCAssistantTextDelta {
     public init(text: String, sessionId: String? = nil) {
-        self.text = text
-        self.sessionId = sessionId
+        self.init(type: "assistant_text_delta", text: text, sessionId: sessionId)
     }
 }
 
@@ -579,26 +578,22 @@ public struct AssistantThinkingDeltaMessage: Decodable, Sendable {
 }
 
 /// Signals that the assistant's message is complete.
-public struct MessageCompleteMessage: Decodable, Sendable {
-    public let sessionId: String?
+/// Backed by generated `IPCMessageComplete`.
+public typealias MessageCompleteMessage = IPCMessageComplete
 
+extension IPCMessageComplete {
     public init(sessionId: String? = nil) {
-        self.sessionId = sessionId
+        self.init(type: "message_complete", sessionId: sessionId)
     }
 }
 
 /// Session metadata from the server (e.g. generated title).
-public struct SessionInfoMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let title: String
-    /// Echoed from the `session_create` request so the caller can match
-    /// this response to its specific request.
-    public let correlationId: String?
+/// Backed by generated `IPCSessionInfo`.
+public typealias SessionInfoMessage = IPCSessionInfo
 
+extension IPCSessionInfo {
     public init(sessionId: String, title: String, correlationId: String? = nil) {
-        self.sessionId = sessionId
-        self.title = title
-        self.correlationId = correlationId
+        self.init(type: "session_info", sessionId: sessionId, title: title, correlationId: correlationId)
     }
 }
 
@@ -720,11 +715,12 @@ public struct MessageDequeuedMessage: Decodable, Sendable {
 }
 
 /// Server-level error message.
-public struct ErrorMessage: Decodable, Sendable {
-    public let message: String
+/// Backed by generated `IPCErrorMessage`.
+public typealias ErrorMessage = IPCErrorMessage
 
+extension IPCErrorMessage {
     public init(message: String) {
-        self.message = message
+        self.init(type: "error", message: message)
     }
 }
 
@@ -932,15 +928,8 @@ public struct SkillsInspectResponseMessage: Decodable, Sendable {
 }
 
 /// Response containing the list of past sessions.
-/// Wire type: `"session_list_response"`
-public struct SessionListResponseMessage: Decodable, Sendable {
-    public struct SessionItem: Decodable, Sendable {
-        public let id: String
-        public let title: String
-        public let updatedAt: Int
-    }
-    public let sessions: [SessionItem]
-}
+/// Backed by generated `IPCSessionListResponse`.
+public typealias SessionListResponseMessage = IPCSessionListResponse
 
 /// Response containing message history for a session.
 /// Wire type: `"history_response"`
