@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { isMacOS, isLinux } from '../../util/platform.js';
 import { ToolError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
+import type { SandboxResult, SandboxBackend } from './backends/types.js';
+
+export type { SandboxResult, SandboxBackend };
 
 const log = getLogger('sandbox');
 
@@ -143,14 +146,6 @@ function buildBwrapArgs(workingDir: string, command: string): string[] {
     // Run bash inside the sandbox
     'bash', '-c', '--', command,
   ];
-}
-
-export interface SandboxResult {
-  /** The command/args to use for spawning. */
-  command: string;
-  args: string[];
-  /** Whether sandboxing was applied. */
-  sandboxed: boolean;
 }
 
 /**
