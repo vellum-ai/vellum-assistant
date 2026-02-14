@@ -11,6 +11,24 @@ struct ChatTabView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Error banner
+            if let errorText = viewModel.errorText {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.error)
+                    Text(errorText)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
+                    Button(action: { viewModel.errorText = nil }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                }
+                .padding(VSpacing.md)
+                .background(VColor.error.opacity(0.1))
+            }
+
             // Messages list
             ScrollViewReader { proxy in
                 ScrollView {

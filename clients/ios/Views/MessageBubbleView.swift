@@ -3,7 +3,6 @@ import VellumAssistantShared
 
 struct MessageBubbleView: View {
     let message: ChatMessage
-    @State private var animationPhase: Double = 0
 
     var body: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
@@ -37,7 +36,7 @@ struct MessageBubbleView: View {
                 if message.isStreaming {
                     TimelineView(.animation(minimumInterval: 0.05)) { context in
                         HStack(spacing: VSpacing.xs) {
-                            ForEach(0..<3) { index in
+                            ForEach(0..<3, id: \.self) { index in
                                 Circle()
                                     .fill(VColor.textSecondary)
                                     .frame(width: 4, height: 4)
