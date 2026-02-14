@@ -206,6 +206,8 @@ export interface HistoryToolCall {
   input: Record<string, unknown>;
   result?: string;
   isError?: boolean;
+  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). */
+  imageData?: string;
 }
 
 export interface RenderedHistoryContent {
@@ -259,12 +261,26 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       const toolUseId = typeof block.tool_use_id === 'string' ? block.tool_use_id : '';
       const resultContent = typeof block.content === 'string' ? block.content : '';
       const isError = block.is_error === true;
+      // Extract base64 image data from persisted contentBlocks (e.g. browser_screenshot)
+      let imageData: string | undefined;
+      if (Array.isArray(block.contentBlocks)) {
+        const imgBlock = block.contentBlocks.find(
+          (b: Record<string, unknown>) => isRecord(b) && b.type === 'image',
+        );
+        if (imgBlock && isRecord(imgBlock) && isRecord(imgBlock.source)) {
+          const src = imgBlock.source as Record<string, unknown>;
+          if (typeof src.data === 'string') {
+            imageData = src.data;
+          }
+        }
+      }
       const matched = toolUseId ? pendingToolUses.get(toolUseId) : null;
       if (matched) {
         matched.result = resultContent;
         matched.isError = isError;
+        if (imageData) matched.imageData = imageData;
       } else {
-        toolCalls.push({ name: 'unknown', input: {}, result: resultContent, isError });
+        toolCalls.push({ name: 'unknown', input: {}, result: resultContent, isError, ...(imageData ? { imageData } : {}) });
       }
       continue;
     }
@@ -710,6 +726,7 @@ export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistor
           if (unresolved) {
             unresolved.result = resultEntry.result;
             unresolved.isError = resultEntry.isError;
+            if (resultEntry.imageData) unresolved.imageData = resultEntry.imageData;
           }
         }
       }

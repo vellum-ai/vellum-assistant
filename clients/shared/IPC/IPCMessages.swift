@@ -950,6 +950,8 @@ public struct HistoryResponseMessage: Decodable, Sendable {
         public let input: [String: AnyCodable]
         public let result: String?
         public let isError: Bool?
+        /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
+        public let imageData: String?
     }
     public struct HistoryMessageItem: Decodable, Sendable {
         public let role: String

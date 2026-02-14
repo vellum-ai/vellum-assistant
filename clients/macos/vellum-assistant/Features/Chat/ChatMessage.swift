@@ -78,6 +78,18 @@ struct ToolCallData: Identifiable, Equatable {
     var isComplete: Bool
     /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
     var imageData: String?
+    /// Pre-decoded NSImage cached to avoid repeated base64 decoding in SwiftUI body.
+    var cachedImage: NSImage?
+
+    static func == (lhs: ToolCallData, rhs: ToolCallData) -> Bool {
+        lhs.id == rhs.id
+            && lhs.toolName == rhs.toolName
+            && lhs.inputSummary == rhs.inputSummary
+            && lhs.result == rhs.result
+            && lhs.isError == rhs.isError
+            && lhs.isComplete == rhs.isComplete
+            && lhs.imageData == rhs.imageData
+    }
 
     init(id: UUID = UUID(), toolName: String, inputSummary: String, result: String? = nil, isError: Bool = false, isComplete: Bool = false, imageData: String? = nil) {
         self.id = id
@@ -87,6 +99,13 @@ struct ToolCallData: Identifiable, Equatable {
         self.isError = isError
         self.isComplete = isComplete
         self.imageData = imageData
+        self.cachedImage = Self.decodeImage(from: imageData)
+    }
+
+    /// Decode base64 image data into an NSImage. Returns nil if data is absent or invalid.
+    static func decodeImage(from base64String: String?) -> NSImage? {
+        guard let base64String, let data = Data(base64Encoded: base64String) else { return nil }
+        return NSImage(data: data)
     }
 }
 

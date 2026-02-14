@@ -63,9 +63,7 @@ struct ToolCallChip: View {
             if isExpanded, hasExpandableContent {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     // Image preview (for browser_screenshot etc.)
-                    if let imageData = toolCall.imageData,
-                       let data = Data(base64Encoded: imageData),
-                       let nsImage = NSImage(data: data) {
+                    if let nsImage = toolCall.cachedImage {
                         Image(nsImage: nsImage)
                             .resizable()
                             .aspectRatio(contentMode: .fit)

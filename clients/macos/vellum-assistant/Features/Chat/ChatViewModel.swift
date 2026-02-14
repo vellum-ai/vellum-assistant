@@ -694,6 +694,7 @@ final class ChatViewModel: ObservableObject {
                 messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
                 messages[msgIndex].toolCalls[tcIndex].isComplete = true
                 messages[msgIndex].toolCalls[tcIndex].imageData = msg.imageData
+                messages[msgIndex].toolCalls[tcIndex].cachedImage = ToolCallData.decodeImage(from: msg.imageData)
             }
 
         case .uiSurfaceShow(let msg):
@@ -1035,7 +1036,8 @@ final class ChatViewModel: ObservableObject {
                         inputSummary: summarizeToolInput(tc.input),
                         result: tc.result,
                         isError: tc.isError ?? false,
-                        isComplete: true
+                        isComplete: true,
+                        imageData: tc.imageData
                     )
                 }
             }

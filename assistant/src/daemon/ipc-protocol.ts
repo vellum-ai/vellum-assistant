@@ -543,6 +543,8 @@ export interface HistoryResponseToolCall {
   input: Record<string, unknown>;
   result?: string;
   isError?: boolean;
+  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). */
+  imageData?: string;
 }
 
 export interface HistoryResponse {
