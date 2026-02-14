@@ -9,6 +9,8 @@
     "dev": "bun run src/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
+    "ipc:inventory": "bun run scripts/ipc/check-contract-inventory.ts",
+    "ipc:inventory:update": "bun run scripts/ipc/check-contract-inventory.ts --update",
     "lint": "eslint",
     "test": "bash scripts/test.sh"
   },
