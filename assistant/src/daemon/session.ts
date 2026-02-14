@@ -883,11 +883,13 @@ export class Session {
     // Resolve slash commands before persistence
     const slashResult = this.resolveSlash(content);
 
-    // Unknown slash command — emit deterministic response without agent loop
+    // Unknown slash command — emit deterministic response without agent loop.
+    // Return a synthetic messageId so callers (e.g. server.ts) don't treat
+    // this as a persistence failure.
     if (slashResult.kind === 'unknown') {
       onEvent({ type: 'assistant_text_delta', text: slashResult.message });
       onEvent({ type: 'message_complete', sessionId: this.conversationId });
-      return '';
+      return uuid();
     }
 
     const resolvedContent = slashResult.content;

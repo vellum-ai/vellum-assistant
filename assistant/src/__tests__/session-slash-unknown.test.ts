@@ -200,6 +200,14 @@ describe('Session slash command — unknown', () => {
     expect(completes.length).toBe(1);
   });
 
+  test('unknown slash returns a non-empty messageId', async () => {
+    const session = makeSession();
+    const messageId = await session.processMessage('/not-a-skill', [], () => {});
+    expect(messageId).toBeTruthy();
+    expect(typeof messageId).toBe('string');
+    expect(messageId.length).toBeGreaterThan(0);
+  });
+
   test('no agent loop execution occurs for unknown slash', async () => {
     const session = makeSession();
     await session.processMessage('/not-a-skill', [], () => {});
