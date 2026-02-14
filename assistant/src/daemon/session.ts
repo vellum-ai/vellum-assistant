@@ -323,7 +323,6 @@ export class Session {
 
       // Clear queued messages and notify each caller
       for (const queued of this.messageQueue) {
-        queued.onEvent({ type: 'error', message: 'Session aborted — queued message discarded' });
         queued.onEvent(buildSessionErrorMessage(this.conversationId, {
           code: 'SESSION_ABORTED',
           userMessage: 'The request was interrupted. You can try sending your message again.',
@@ -493,7 +492,9 @@ export class Session {
           this.messages.pop();
           conversationStore.deleteMessageById(userMessageId);
         }
-        onEvent({ type: 'error', message: `Message blocked by hook "${preMessageResult.blockedBy}"` });
+        onEvent(buildSessionErrorMessage(this.conversationId,
+          classifySessionError(new Error(`Message blocked by hook "${preMessageResult.blockedBy}"`), { phase: 'agent_loop' }),
+        ));
         return;
       }
 
@@ -630,7 +631,9 @@ export class Session {
               // Defer the error event — only forward if retry also fails
               deferredOrderingError = event.error.message;
             } else {
-              onEvent({ type: 'error', message: event.error.message });
+              onEvent(buildSessionErrorMessage(this.conversationId,
+                classifySessionError(event.error, { phase: 'agent_loop' }),
+              ));
             }
             break;
           case 'message_complete': {
@@ -720,7 +723,9 @@ export class Session {
 
       // Forward the deferred ordering error to the client if retry failed or was not attempted
       if (deferredOrderingError) {
-        onEvent({ type: 'error', message: deferredOrderingError });
+        onEvent(buildSessionErrorMessage(this.conversationId,
+          classifySessionError(new Error(deferredOrderingError), { phase: 'agent_loop' }),
+        ));
       }
 
       // Reconcile synthesized cancellation tool_results from history tail.
@@ -825,7 +830,6 @@ export class Session {
           status: 'error',
           attributes: { errorClass, message: message.slice(0, 500) },
         });
-        onEvent({ type: 'error', message: `Failed to process message: ${message}` });
         const classified = classifySessionError(err, errorCtx);
         onEvent(buildSessionErrorMessage(this.conversationId, classified));
         void getHookManager().trigger('on-error', {
@@ -901,9 +905,10 @@ export class Session {
         next.onEvent({ type: 'assistant_text_delta', text: slashResult.message });
         next.onEvent({ type: 'message_complete', sessionId: this.conversationId });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
         log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Failed to persist unknown-slash exchange');
-        next.onEvent({ type: 'error', message });
+        next.onEvent(buildSessionErrorMessage(this.conversationId,
+          classifySessionError(err, { phase: 'persist' }),
+        ));
       }
       // Continue draining regardless of success/failure
       this.drainQueue();
@@ -920,9 +925,10 @@ export class Session {
     try {
       userMessageId = this.persistUserMessage(resolvedContent, next.attachments, next.requestId);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Failed to persist queued message');
-      next.onEvent({ type: 'error', message });
+      next.onEvent(buildSessionErrorMessage(this.conversationId,
+        classifySessionError(err, { phase: 'persist' }),
+      ));
       // Continue draining — don't strand remaining messages
       this.drainQueue();
       return;
@@ -932,9 +938,10 @@ export class Session {
     // so subsequent messages will still be enqueued. runAgentLoop's
     // finally block will call drainQueue when this run completes.
     this.runAgentLoop(resolvedContent, userMessageId, next.onEvent).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
       log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Error processing queued message');
-      next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
+      next.onEvent(buildSessionErrorMessage(this.conversationId,
+        classifySessionError(err, { phase: 'agent_loop' }),
+      ));
     });
   }
 
@@ -982,8 +989,9 @@ export class Session {
     try {
       userMessageId = this.persistUserMessage(resolvedContent, attachments, requestId);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      onEvent({ type: 'error', message });
+      onEvent(buildSessionErrorMessage(this.conversationId,
+        classifySessionError(err, { phase: 'persist' }),
+      ));
       return '';
     }
 
@@ -1073,16 +1081,19 @@ export class Session {
 
     if (result.rejected) {
       log.error({ surfaceId, actionId }, 'Surface action rejected — queue full');
-      onEvent({ type: 'error', message: 'Surface action rejected — session queue is full' });
+      onEvent(buildSessionErrorMessage(this.conversationId,
+        classifySessionError(new Error('Surface action rejected — session queue is full'), { phase: 'queue' }),
+      ));
       return;
     }
 
     this.pendingSurfaceActions.delete(surfaceId);
     log.info({ surfaceId, actionId, requestId }, 'Processing surface action as follow-up');
     this.processMessage(content, [], onEvent, requestId).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
       log.error({ err, surfaceId, actionId }, 'Error processing surface action');
-      onEvent({ type: 'error', message: `Failed to process surface action: ${message}` });
+      onEvent(buildSessionErrorMessage(this.conversationId,
+        classifySessionError(err, { phase: 'agent_loop' }),
+      ));
     });
   }
 
@@ -1137,7 +1148,9 @@ export class Session {
    */
   async regenerate(onEvent: (msg: ServerMessage) => void): Promise<void> {
     if (this.processing) {
-      onEvent({ type: 'error', message: 'Cannot regenerate while processing' });
+      onEvent(buildSessionErrorMessage(this.conversationId,
+        classifySessionError(new Error('Cannot regenerate while processing'), { phase: 'regenerate' }),
+      ));
       return;
     }
 
@@ -1145,13 +1158,17 @@ export class Session {
     // assistant's exchange that we want to regenerate.
     const lastUserIdx = findLastUndoableUserMessageIndex(this.messages);
     if (lastUserIdx === -1) {
-      onEvent({ type: 'error', message: 'No messages to regenerate' });
+      onEvent(buildSessionErrorMessage(this.conversationId,
+        classifySessionError(new Error('No messages to regenerate'), { phase: 'regenerate' }),
+      ));
       return;
     }
 
     // There must be at least one message after the user message (the assistant reply).
     if (lastUserIdx >= this.messages.length - 1) {
-      onEvent({ type: 'error', message: 'No assistant response to regenerate' });
+      onEvent(buildSessionErrorMessage(this.conversationId,
+        classifySessionError(new Error('No assistant response to regenerate'), { phase: 'regenerate' }),
+      ));
       return;
     }
 
@@ -1177,7 +1194,9 @@ export class Session {
     }
 
     if (dbUserMsgIdx === -1) {
-      onEvent({ type: 'error', message: 'No user message found in DB' });
+      onEvent(buildSessionErrorMessage(this.conversationId,
+        classifySessionError(new Error('No user message found in DB'), { phase: 'regenerate' }),
+      ));
       return;
     }
 
