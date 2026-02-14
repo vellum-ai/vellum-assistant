@@ -3,6 +3,7 @@ import { loadConfig } from "./config.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
 import { sendTelegramReply } from "./telegram/send.js";
+import { callTelegramApi } from "./telegram/api.js";
 
 const log = pino({ name: "gateway" });
 
@@ -17,11 +18,14 @@ function main() {
     config,
     async (chatId, result) => {
       const content = result.runtimeResponse?.assistantMessage?.content;
-      if (!content) return;
+      if (!content) {
+        return;
+      }
 
       try {
         await sendTelegramReply(config, chatId, content);
       } catch (err) {
+        console.error("[gateway] Failed to send Telegram reply", err);
         log.error({ err, chatId }, "Failed to send Telegram reply");
       }
     },
@@ -60,6 +64,13 @@ function main() {
   });
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
+
+  // Register bot commands with Telegram (fire-and-forget)
+  callTelegramApi(config, "setMyCommands", {
+    commands: [{ command: "new", description: "Start a new conversation" }],
+  }).catch((err) => {
+    log.error({ err }, "Failed to register Telegram bot commands");
+  });
 
   const drainMs = config.shutdownDrainMs;
 

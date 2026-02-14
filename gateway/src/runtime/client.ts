@@ -95,6 +95,27 @@ export async function forwardToRuntime(
   throw lastError ?? new Error("Runtime forward failed after retries");
 }
 
+export async function resetConversation(
+  config: GatewayConfig,
+  assistantId: string,
+  sourceChannel: string,
+  externalChatId: string,
+): Promise<void> {
+  const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/channels/conversation`;
+
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sourceChannel, externalChatId }),
+    signal: AbortSignal.timeout(config.runtimeTimeoutMs),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Reset conversation failed (${response.status}): ${body}`);
+  }
+}
+
 export type UploadAttachmentInput = {
   filename: string;
   mimeType: string;
