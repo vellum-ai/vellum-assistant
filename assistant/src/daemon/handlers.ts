@@ -44,6 +44,7 @@ import type {
   BundleAppRequest,
   SharedAppDeleteRequest,
 } from './ipc-protocol.js';
+import { execSync } from 'node:child_process';
 import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -60,6 +61,32 @@ import { handleOpenBundle } from './handlers/open-bundle-handler.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
+
+const FALLBACK_SCREEN = { width: 1920, height: 1080 };
+let cachedScreenDims: { width: number; height: number } | null = null;
+
+/**
+ * Query the main display dimensions via CoreGraphics.
+ * Cached after the first successful call; falls back to 1920x1080.
+ */
+function getScreenDimensions(): { width: number; height: number } {
+  if (cachedScreenDims) return cachedScreenDims;
+  try {
+    const out = execSync(
+      `swift -e 'import CoreGraphics; let b = CGDisplayBounds(CGMainDisplayID()); print("\\(Int(b.width))x\\(Int(b.height))")'`,
+      { timeout: 10_000, encoding: 'utf-8' },
+    ).trim();
+    const [w, h] = out.split('x').map(Number);
+    if (w > 0 && h > 0) {
+      cachedScreenDims = { width: w, height: h };
+      return cachedScreenDims;
+    }
+  } catch (err) {
+    log.debug({ err }, 'Failed to query screen dimensions, using fallback');
+  }
+  cachedScreenDims = FALLBACK_SCREEN;
+  return cachedScreenDims;
+}
 
 /**
  * Find the current socket bound to a given session by reversing the
@@ -88,9 +115,14 @@ function wireEscalationHandler(
   session: Session,
   _socket: net.Socket,
   ctx: HandlerContext,
-  screenWidth = 1920,
-  screenHeight = 1080,
+  explicitWidth?: number,
+  explicitHeight?: number,
 ): void {
+  const dims = (explicitWidth && explicitHeight)
+    ? { width: explicitWidth, height: explicitHeight }
+    : getScreenDimensions();
+  const screenWidth = dims.width;
+  const screenHeight = dims.height;
   session.setEscalationHandler((task: string, sourceSessionId: string): boolean => {
     const currentSocket = findSocketForSession(sourceSessionId, ctx);
     if (!currentSocket) {
