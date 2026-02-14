@@ -13,6 +13,21 @@ export interface DefaultRuleTemplate {
 /** Tools that directly access the filesystem by path. */
 const FILE_TOOLS = ['file_read', 'file_write', 'file_edit'] as const;
 const HOST_FILE_TOOLS = ['host_file_read', 'host_file_write', 'host_file_edit'] as const;
+const COMPUTER_USE_TOOLS = [
+  'cu_click',
+  'cu_double_click',
+  'cu_right_click',
+  'cu_type_text',
+  'cu_key',
+  'cu_scroll',
+  'cu_drag',
+  'cu_wait',
+  'cu_open_app',
+  'cu_run_applescript',
+  'cu_done',
+  'cu_respond',
+  'request_computer_control',
+] as const;
 
 /**
  * Returns default trust rules shipped with the assistant.
@@ -52,5 +67,14 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 1000,
   };
 
-  return [...protectedFileRules, ...hostFileRules, hostShellRule];
+  const computerUseRules = COMPUTER_USE_TOOLS.map((tool) => ({
+    id: `default:ask-${tool}-global`,
+    tool,
+    pattern: `${tool}:*`,
+    scope: 'everywhere',
+    decision: 'ask' as const,
+    priority: 1000,
+  }));
+
+  return [...protectedFileRules, ...hostFileRules, hostShellRule, ...computerUseRules];
 }

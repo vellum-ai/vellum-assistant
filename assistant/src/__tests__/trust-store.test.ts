@@ -594,6 +594,18 @@ describe('Trust Store', () => {
         .map((r) => r.tool)
         .sort();
       expect(defaultTools).toEqual([
+        'cu_click',
+        'cu_done',
+        'cu_double_click',
+        'cu_drag',
+        'cu_key',
+        'cu_open_app',
+        'cu_respond',
+        'cu_right_click',
+        'cu_run_applescript',
+        'cu_scroll',
+        'cu_type_text',
+        'cu_wait',
         'file_edit',
         'file_read',
         'file_write',
@@ -601,6 +613,7 @@ describe('Trust Store', () => {
         'host_file_edit',
         'host_file_read',
         'host_file_write',
+        'request_computer_control',
       ]);
     });
 
@@ -705,6 +718,22 @@ describe('Trust Store', () => {
       const match = findHighestPriorityRule('host_bash', ['ls'], '/tmp');
       expect(match).not.toBeNull();
       expect(match!.id).toBe('default:ask-host_bash-global');
+      expect(match!.decision).toBe('ask');
+      expect(match!.priority).toBe(1000);
+    });
+
+    test('findHighestPriorityRule matches default ask for cu_click', () => {
+      const match = findHighestPriorityRule('cu_click', ['cu_click:'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-cu_click-global');
+      expect(match!.decision).toBe('ask');
+      expect(match!.priority).toBe(1000);
+    });
+
+    test('findHighestPriorityRule matches default ask for request_computer_control', () => {
+      const match = findHighestPriorityRule('request_computer_control', ['request_computer_control:'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-request_computer_control-global');
       expect(match!.decision).toBe('ask');
       expect(match!.priority).toBe(1000);
     });
