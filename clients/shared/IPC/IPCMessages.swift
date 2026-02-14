@@ -1321,35 +1321,6 @@ public struct OpenBundleResponseMessage: Decodable, Sendable {
     public let bundleSizeBytes: Int
 }
 
-/// Structured error code for session-level errors.
-public enum SessionErrorCode: String, Codable, Sendable {
-    case providerNetwork = "PROVIDER_NETWORK"
-    case providerRateLimit = "PROVIDER_RATE_LIMIT"
-    case providerApi = "PROVIDER_API"
-    case queueFull = "QUEUE_FULL"
-    case sessionAborted = "SESSION_ABORTED"
-    case sessionProcessingFailed = "SESSION_PROCESSING_FAILED"
-    case regenerateFailed = "REGENERATE_FAILED"
-    case unknown = "UNKNOWN"
-}
-
-/// Typed session-level error from the daemon.
-/// Wire type: `"session_error"`
-public struct SessionErrorMessagePayload: Decodable, Sendable {
-    public let sessionId: String
-    public let code: SessionErrorCode
-    public let userMessage: String
-    public let retryable: Bool
-    public let debugDetails: String?
-
-    public init(sessionId: String, code: SessionErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil) {
-        self.sessionId = sessionId
-        self.code = code
-        self.userMessage = userMessage
-        self.retryable = retryable
-        self.debugDetails = debugDetails
-    }
-}
 
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
@@ -1357,7 +1328,7 @@ public enum ServerMessage: Decodable, Sendable {
     case cuAction(CuActionMessage)
     case cuComplete(CuCompleteMessage)
     case cuError(CuErrorMessage)
-    case sessionError(SessionErrorMessagePayload)
+    case sessionError(SessionErrorMessage)
     case assistantTextDelta(AssistantTextDeltaMessage)
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
@@ -1396,7 +1367,6 @@ public enum ServerMessage: Decodable, Sendable {
     case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
     case bundleAppResponse(BundleAppResponseMessage)
     case openBundleResponse(OpenBundleResponseMessage)
-    case sessionError(SessionErrorMessage)
     case signBundlePayload(SignBundlePayloadMessage)
     case getSigningIdentity
     case pong
@@ -1421,7 +1391,7 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try CuErrorMessage(from: decoder)
             self = .cuError(message)
         case "session_error":
-            let message = try SessionErrorMessagePayload(from: decoder)
+            let message = try SessionErrorMessage(from: decoder)
             self = .sessionError(message)
         case "assistant_text_delta":
             let message = try AssistantTextDeltaMessage(from: decoder)
@@ -1537,9 +1507,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "trace_event":
             let message = try TraceEventMessage(from: decoder)
             self = .traceEvent(message)
-        case "session_error":
-            let message = try SessionErrorMessage(from: decoder)
-            self = .sessionError(message)
         case "sign_bundle_payload":
             let message = try SignBundlePayloadMessage(from: decoder)
             self = .signBundlePayload(message)

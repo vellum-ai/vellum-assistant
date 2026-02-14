@@ -382,28 +382,30 @@ struct ChatView: View {
                     }
 
                     // Ghost text overlay — shows the suggested suffix so users
-                    // know what Tab will insert.
+                    // know what Tab will insert. Uses Text concatenation (`+`)
+                    // so the suffix renders at the end of the last line, not to
+                    // the right of the entire text block.
                     if let ghostSuffix {
-                        Text(inputText + ghostSuffix)
+                        // Text `+` concatenation requires each operand to be
+                        // a `Text` value (modifiers like `.font` and
+                        // `.foregroundColor` return `Text`, but `.lineSpacing`
+                        // returns `some View`), so `.lineSpacing` is applied
+                        // after the concatenation.
+                        (Text(inputText)
                             .font(VFont.body)
-                            .lineSpacing(4)
                             .foregroundColor(.clear)
+                        + Text(ghostSuffix)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textMuted.opacity(0.5)))
+                            .lineSpacing(4)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 8)
-                            .overlay(alignment: .topLeading) {
-                                HStack(spacing: 0) {
-                                    Text(inputText)
-                                        .font(VFont.body)
-                                        .lineSpacing(4)
-                                        .foregroundColor(.clear)
-                                    Text(ghostSuffix)
-                                        .font(VFont.body)
-                                        .lineSpacing(4)
-                                        .foregroundColor(VColor.textMuted.opacity(0.5))
-                                }
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 8)
-                            }
+                            // Prevent the ghost text from expanding the composer —
+                            // sizing is driven solely by the real inputText measurer
+                            // in the background modifier below.
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxHeight: min(max(editorContentHeight, 20), 200), alignment: .topLeading)
+                            .clipped()
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
                     }
