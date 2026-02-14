@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import SwiftUI
 
 /// Five cumulative progress dots for the onboarding flow.

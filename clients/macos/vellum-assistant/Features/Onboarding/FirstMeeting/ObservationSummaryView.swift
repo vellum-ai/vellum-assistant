@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import SwiftUI
 
 /// Post-observation summary view — shown after the observation session completes.

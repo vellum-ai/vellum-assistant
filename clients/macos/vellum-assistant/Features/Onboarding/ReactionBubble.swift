@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import SwiftUI
 
 struct ReactionBubble: View {

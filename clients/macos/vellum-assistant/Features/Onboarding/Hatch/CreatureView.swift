@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import SwiftUI
 
 /// The revealed creature (purple dino) with spring entrance and breathing animation.

@@ -1,0 +1,39 @@
+import SwiftUI
+
+public struct HoverEffectModifier: ViewModifier {
+    @State private var isHovered = false
+
+    public func body(content: Content) -> some View {
+        content
+            .background(isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+    }
+}
+
+public extension View {
+    func vHover() -> some View {
+        modifier(HoverEffectModifier())
+    }
+}
+
+#Preview("HoverEffect") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VStack(spacing: 4) {
+            Text("Hover over me")
+                .foregroundColor(VColor.textPrimary)
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .vHover()
+            Text("Hover here too")
+                .foregroundColor(VColor.textPrimary)
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .vHover()
+        }
+        .padding()
+    }
+    .frame(width: 300, height: 150)
+}

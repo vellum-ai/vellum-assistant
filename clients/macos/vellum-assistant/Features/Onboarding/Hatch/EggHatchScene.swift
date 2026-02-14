@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import SpriteKit
 import AppKit
 

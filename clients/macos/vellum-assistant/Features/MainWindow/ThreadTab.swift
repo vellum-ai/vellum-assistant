@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import SwiftUI
 
 /// A thread tab component that renders a tab with thread-specific styling.

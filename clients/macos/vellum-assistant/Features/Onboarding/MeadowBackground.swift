@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import SwiftUI
 
 /// Full-bleed pixel art meadow background for onboarding.

@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import SwiftUI
 
 /// Observation mode pitch view — step 4 of the first meeting flow.
