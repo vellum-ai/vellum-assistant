@@ -312,10 +312,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Send
 
-    enum SendError: Error, LocalizedError {
+    public enum SendError: Error, LocalizedError {
         case notConnected
 
-        var errorDescription: String? {
+        public var errorDescription: String? {
             switch self {
             case .notConnected:
                 return "Cannot send: not connected to daemon"

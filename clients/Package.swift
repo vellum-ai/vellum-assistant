@@ -35,6 +35,8 @@ let package = Package(
                 .enableUpcomingFeature("BareSlashRegexLiterals")
             ]
         ),
+        // VellumAssistantLib: macOS-only target (links AppKit, ScreenCaptureKit, etc.)
+        // iOS apps should depend only on VellumAssistantShared, not this target.
         .target(
             name: "VellumAssistantLib",
             dependencies: ["VellumAssistantShared", "HotKey", "Sparkle"],
