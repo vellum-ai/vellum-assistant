@@ -39,57 +39,80 @@ final class SkillsSettingsViewModel: ObservableObject {
     }
 
     func enableSkill(name: String) {
-        do {
-            try daemonClient.enableSkill(name)
-            if let index = skills.firstIndex(where: { $0.name == name }) {
-                // Optimistically update — will be corrected on next loadSkills
-                var updated = skills[index]
-                updated = SkillInfo(
-                    name: updated.name,
-                    description: updated.description,
-                    emoji: updated.emoji,
-                    homepage: updated.homepage,
-                    source: updated.source,
-                    state: "enabled",
-                    degraded: updated.degraded,
-                    missingRequirements: updated.missingRequirements,
-                    installedVersion: updated.installedVersion,
-                    latestVersion: updated.latestVersion,
-                    updateAvailable: updated.updateAvailable,
-                    userInvocable: updated.userInvocable,
-                    clawhub: updated.clawhub
-                )
-                skills[index] = updated
+        Task {
+            let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.enableSkill(name)
+            } catch {
+                return
             }
-        } catch {
-            // Silently ignore — daemon may be disconnected
+
+            for await message in stream {
+                if case .skillsOperationResponse(let response) = message,
+                   response.operation == "enable" {
+                    if response.success {
+                        if let index = skills.firstIndex(where: { $0.name == name }) {
+                            let updated = skills[index]
+                            skills[index] = SkillInfo(
+                                name: updated.name,
+                                description: updated.description,
+                                emoji: updated.emoji,
+                                homepage: updated.homepage,
+                                source: updated.source,
+                                state: "enabled",
+                                degraded: updated.degraded,
+                                missingRequirements: updated.missingRequirements,
+                                installedVersion: updated.installedVersion,
+                                latestVersion: updated.latestVersion,
+                                updateAvailable: updated.updateAvailable,
+                                userInvocable: updated.userInvocable,
+                                clawhub: updated.clawhub
+                            )
+                        }
+                    }
+                    return
+                }
+            }
         }
     }
 
     func disableSkill(name: String) {
-        do {
-            try daemonClient.disableSkill(name)
-            if let index = skills.firstIndex(where: { $0.name == name }) {
-                var updated = skills[index]
-                updated = SkillInfo(
-                    name: updated.name,
-                    description: updated.description,
-                    emoji: updated.emoji,
-                    homepage: updated.homepage,
-                    source: updated.source,
-                    state: "disabled",
-                    degraded: updated.degraded,
-                    missingRequirements: updated.missingRequirements,
-                    installedVersion: updated.installedVersion,
-                    latestVersion: updated.latestVersion,
-                    updateAvailable: updated.updateAvailable,
-                    userInvocable: updated.userInvocable,
-                    clawhub: updated.clawhub
-                )
-                skills[index] = updated
+        Task {
+            let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.disableSkill(name)
+            } catch {
+                return
             }
-        } catch {
-            // Silently ignore
+
+            for await message in stream {
+                if case .skillsOperationResponse(let response) = message,
+                   response.operation == "disable" {
+                    if response.success {
+                        if let index = skills.firstIndex(where: { $0.name == name }) {
+                            let updated = skills[index]
+                            skills[index] = SkillInfo(
+                                name: updated.name,
+                                description: updated.description,
+                                emoji: updated.emoji,
+                                homepage: updated.homepage,
+                                source: updated.source,
+                                state: "disabled",
+                                degraded: updated.degraded,
+                                missingRequirements: updated.missingRequirements,
+                                installedVersion: updated.installedVersion,
+                                latestVersion: updated.latestVersion,
+                                updateAvailable: updated.updateAvailable,
+                                userInvocable: updated.userInvocable,
+                                clawhub: updated.clawhub
+                            )
+                        }
+                    }
+                    return
+                }
+            }
         }
     }
 }
@@ -97,7 +120,7 @@ final class SkillsSettingsViewModel: ObservableObject {
 // MARK: - Skills Settings View
 
 struct SkillsSettingsView: View {
-    @ObservedObject var viewModel: SkillsSettingsViewModel
+    @StateObject var viewModel: SkillsSettingsViewModel
     @Environment(\.dismiss) var dismiss
     @State private var searchText = ""
 
