@@ -186,6 +186,7 @@ struct AgentPanel: View {
             if let result = skillsManager.installResult {
                 if result.slug == installingSlug {
                     installingSlug = nil
+                    installAttemptId = nil
                 }
             }
         }
@@ -294,6 +295,7 @@ struct AgentPanel: View {
     }
 
     @State private var installingSlug: String?
+    @State private var installAttemptId: UUID?
     @State private var hoveredStarterInstall: String?
     @State private var skillSearchQuery = ""
     @State private var skillSortOrder: SkillSortOrder = .installs
@@ -395,11 +397,14 @@ struct AgentPanel: View {
 
                 Button(action: {
                     guard installingSlug == nil else { return }
+                    let attemptId = UUID()
                     installingSlug = skill.slug
+                    installAttemptId = attemptId
                     skillsManager.installSkill(slug: skill.slug)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                        if installingSlug == skill.slug {
+                        if installingSlug == skill.slug && installAttemptId == attemptId {
                             installingSlug = nil
+                            installAttemptId = nil
                         }
                     }
                 }) {
@@ -714,11 +719,14 @@ struct AgentPanel: View {
 
         Button(action: {
             guard installingSlug == nil, !isSuccess else { return }
+            let attemptId = UUID()
             installingSlug = slug
+            installAttemptId = attemptId
             skillsManager.installSkill(slug: slug)
             DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                if installingSlug == slug {
+                if installingSlug == slug && installAttemptId == attemptId {
                     installingSlug = nil
+                    installAttemptId = nil
                 }
             }
         }) {
