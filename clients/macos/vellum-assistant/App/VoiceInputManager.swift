@@ -18,6 +18,7 @@ final class VoiceInputManager {
     private var globalKeyDownMonitor: Any?
     private var localKeyDownMonitor: Any?
     private var holdTask: Task<Void, Never>?
+    private var otherKeyPressedDuringHold = false  // True if any other key pressed while holding
     private static let holdDelay: UInt64 = 300_000_000 // 300ms in nanoseconds
 
     private var activationFlag: NSEvent.ModifierFlags? {
@@ -105,19 +106,23 @@ final class VoiceInputManager {
         let hasOtherModifiers = !event.modifierFlags.intersection(otherModifiers).isEmpty
 
         if keyPressed && !hasOtherModifiers && !isRecording {
-            // Start a delayed hold — cancelled if key is released quickly (e.g. Fn+arrow combo)
-            // or if a regular key is pressed (e.g. Control+C, handled by handleKeyDown)
+            // Activation key pressed alone - start timer to begin recording while key is held
             holdTask?.cancel()
-            holdTask = Task {
+            otherKeyPressedDuringHold = false
+            holdTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: Self.holdDelay)
                 guard !Task.isCancelled else { return }
-                beginRecording()
+                guard let self = self else { return }
+                // Don't start recording if any key was pressed during hold (Control+C, etc.)
+                guard !self.otherKeyPressedDuringHold else { return }
+                self.beginRecording()
             }
         } else if keyPressed && hasOtherModifiers {
-            // Another modifier pressed while activation key held — cancel pending voice activation
+            // Another modifier pressed - cancel voice activation
             holdTask?.cancel()
             holdTask = nil
         } else if !keyPressed {
+            // Activation key released
             holdTask?.cancel()
             holdTask = nil
             if isRecording {
@@ -128,8 +133,8 @@ final class VoiceInputManager {
 
     private func handleKeyDown() {
         // If user types any key while holding the activation modifier (e.g. Control+C),
-        // they're using a keyboard shortcut, not trying to activate voice input.
-        // Cancel the pending voice activation timer.
+        // set flag to prevent recording and cancel timer for immediate feedback
+        otherKeyPressedDuringHold = true
         holdTask?.cancel()
         holdTask = nil
     }
