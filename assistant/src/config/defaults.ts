@@ -87,6 +87,14 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   },
   sandbox: {
     enabled: true,
+    backend: 'native',
+    docker: {
+      image: 'node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9',
+      cpus: 1,
+      memoryMb: 512,
+      pidsLimit: 256,
+      network: 'none' as const,
+    },
   },
   rateLimit: {
     maxRequestsPerMinute: 0,
