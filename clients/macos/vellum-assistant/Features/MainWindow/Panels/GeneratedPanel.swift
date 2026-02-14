@@ -350,11 +350,16 @@ struct GeneratedPanel: View {
             try? daemonClient.sendAppOpen(appId: localId)
         } else if let uuid = item.sharedUUID {
             // Shared apps: construct surface from unpacked files on disk
-            let entryURL = "\(VellumAppSchemeHandler.scheme)://\(uuid)/index.html"
+            // Sanitize to prevent XSS — name comes from external bundle metadata
+            let safeName = htmlEscape(item.name)
+            let sanitizedUUID = uuid
+                .replacingOccurrences(of: "\\", with: "")
+                .replacingOccurrences(of: "'", with: "")
+            let entryURL = "\(VellumAppSchemeHandler.scheme)://\(sanitizedUUID)/index.html"
             let html = """
             <!DOCTYPE html>
             <html>
-            <head><meta charset="utf-8"><title>\(item.name)</title></head>
+            <head><meta charset="utf-8"><title>\(safeName)</title></head>
             <body><script>window.location.href = '\(entryURL)';</script></body>
             </html>
             """
@@ -440,6 +445,15 @@ struct GeneratedPanel: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private func htmlEscape(_ string: String) -> String {
+        string
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
     }
 }
 
