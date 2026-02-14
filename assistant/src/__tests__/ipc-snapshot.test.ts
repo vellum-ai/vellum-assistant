@@ -199,6 +199,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   apps_list: {
     type: 'apps_list',
   },
+  open_bundle: {
+    type: 'open_bundle',
+    filePath: '/tmp/My_App.vellumapp',
+  },
   sign_bundle_payload_response: {
     type: 'sign_bundle_payload_response',
     signature: 'dGVzdC1zaWduYXR1cmU=',
@@ -537,6 +541,30 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         createdAt: 1700000000,
       },
     ],
+  },
+  open_bundle_response: {
+    type: 'open_bundle_response',
+    manifest: {
+      format_version: 1,
+      name: 'My App',
+      description: 'A test app',
+      created_at: '2026-01-01T00:00:00.000Z',
+      created_by: 'vellum-assistant/0.1.6',
+      entry: 'index.html',
+      capabilities: [],
+    },
+    scanResult: {
+      passed: true,
+      blocked: [],
+      warnings: ['Use of fetch() detected'],
+    },
+    signatureResult: {
+      trustTier: 'signed',
+      signerKeyId: 'key-001',
+      signerDisplayName: 'Test Signer',
+      signerAccount: 'test@example.com',
+    },
+    bundleSizeBytes: 4096,
   },
   sign_bundle_payload: {
     type: 'sign_bundle_payload',

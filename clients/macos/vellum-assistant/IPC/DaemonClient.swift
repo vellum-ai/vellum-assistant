@@ -80,6 +80,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `bundle_app_response` message.
     var onBundleAppResponse: ((BundleAppResponseMessage) -> Void)?
 
+    /// Called when the daemon sends an `open_bundle_response` message.
+    var onOpenBundleResponse: ((OpenBundleResponseMessage) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -436,6 +439,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(BundleAppRequestMessage(appId: appId))
     }
 
+    /// Request opening and scanning a .vellumapp bundle.
+    func sendOpenBundle(filePath: String) throws {
+        try send(OpenBundleMessage(filePath: filePath))
+    }
+
     // MARK: - Signing Identity
 
     /// Handle a sign_bundle_payload request from the daemon.
@@ -613,6 +621,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onAppsListResponse?(msg)
         case .bundleAppResponse(let msg):
             onBundleAppResponse?(msg)
+        case .openBundleResponse(let msg):
+            onOpenBundleResponse?(msg)
         case .signBundlePayload(let msg):
             handleSignBundlePayload(msg)
         case .getSigningIdentity:

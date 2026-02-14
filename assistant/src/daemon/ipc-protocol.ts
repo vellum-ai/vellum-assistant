@@ -239,6 +239,11 @@ export interface BundleAppRequest {
   appId: string;
 }
 
+export interface OpenBundleRequest {
+  type: 'open_bundle';
+  filePath: string;
+}
+
 export interface SignBundlePayloadResponse {
   type: 'sign_bundle_payload_response';
   signature: string;
@@ -395,6 +400,7 @@ export type ClientMessage =
   | UpdateTrustRule
   | BundleAppRequest
   | AppsListRequest
+  | OpenBundleRequest
   | SignBundlePayloadResponse
   | GetSigningIdentityResponse;
 
@@ -737,6 +743,32 @@ export interface BundleAppResponse {
   };
 }
 
+export interface OpenBundleResponse {
+  type: 'open_bundle_response';
+  manifest: {
+    format_version: number;
+    name: string;
+    description?: string;
+    icon?: string;
+    created_at: string;
+    created_by: string;
+    entry: string;
+    capabilities: string[];
+  };
+  scanResult: {
+    passed: boolean;
+    blocked: string[];
+    warnings: string[];
+  };
+  signatureResult: {
+    trustTier: 'verified' | 'signed' | 'unsigned' | 'tampered';
+    signerKeyId?: string;
+    signerDisplayName?: string;
+    signerAccount?: string;
+  };
+  bundleSizeBytes: number;
+}
+
 export interface SignBundlePayloadRequest {
   type: 'sign_bundle_payload';
   payload: string;
@@ -878,6 +910,7 @@ export type ServerMessage =
   | TrustRulesListResponse
   | BundleAppResponse
   | AppsListResponse
+  | OpenBundleResponse
   | SignBundlePayloadRequest
   | GetSigningIdentityRequest;
 
