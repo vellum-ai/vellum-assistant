@@ -21,7 +21,7 @@ struct ChatView: View {
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
     let onDropFiles: ([URL]) -> Void
-    let onDropImageData: (Data) -> Void
+    let onDropImageData: (Data, String?) -> Void
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
     let onConfirmationAllow: (String) -> Void
@@ -140,11 +140,12 @@ struct ChatView: View {
                 typeIdentifier = UTType.image.identifier
             }
 
+            let suggestedName = provider.suggestedName
             group.enter()
             provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
                 DispatchQueue.main.async {
                     if let data {
-                        onDropImageData(data)
+                        onDropImageData(data, suggestedName)
                     }
                     group.leave()
                 }
@@ -572,19 +573,13 @@ private struct ChatBubble: View {
         }
     }
 
-    /// Whether the bubble chrome should be rendered.
-    /// Hides the bubble when an inline surface widget is present (the widget
-    /// replaces the text), and during streaming when only tool-call chips
-    /// exist (the thinking indicator already signals progress).
+    /// Whether the text/attachment bubble should be rendered.
+    /// Tool calls for assistant messages render outside the bubble as separate chips,
+    /// so only show the bubble when there's actual text or attachment content.
     private var shouldShowBubble: Bool {
         if isUser { return true }
-        // When an inline surface is present, it replaces the text bubble
         if !message.inlineSurfaces.isEmpty { return false }
-        if hasText || !message.attachments.isEmpty { return true }
-        // During streaming, hide tool-call-only bubbles so the thinking
-        // indicator stays visible instead of showing raw tool progress.
-        if message.isStreaming { return false }
-        return !message.toolCalls.isEmpty
+        return hasText || !message.attachments.isEmpty
     }
 
     var body: some View {
@@ -594,6 +589,16 @@ private struct ChatBubble: View {
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
                 if shouldShowBubble {
                     bubbleContent
+                }
+
+                // Tool calls render outside the bubble as compact chips
+                if !isUser && !message.toolCalls.isEmpty {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        ForEach(message.toolCalls) { toolCall in
+                            ToolCallChip(toolCall: toolCall)
+                        }
+                    }
+                    .frame(maxWidth: 520, alignment: .leading)
                 }
 
                 // Inline surfaces render below the bubble as full-width cards
@@ -656,7 +661,6 @@ private struct ChatBubble: View {
                     .tint(isUser ? .white : VColor.accent)
                     .textSelection(.enabled)
             } else if !message.attachments.isEmpty {
-                // Show attachment summary when no text is provided
                 Text(attachmentSummary)
                     .font(VFont.caption)
                     .foregroundColor(isUser ? .white.opacity(0.8) : VColor.textSecondary)
@@ -674,7 +678,8 @@ private struct ChatBubble: View {
                 }
             }
 
-            if !message.toolCalls.isEmpty {
+            // User messages keep tool calls inside the bubble
+            if isUser && !message.toolCalls.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     ForEach(message.toolCalls) { toolCall in
                         ToolCallChip(toolCall: toolCall)
@@ -771,11 +776,12 @@ private struct ChatBubble: View {
     }
 
     private var markdownText: AttributedString {
+        let trimmed = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        return (try? AttributedString(markdown: message.text, options: options))
-            ?? AttributedString(message.text)
+        return (try? AttributedString(markdown: trimmed, options: options))
+            ?? AttributedString(trimmed)
     }
 
     private func ordinal(_ n: Int) -> String {
@@ -955,7 +961,7 @@ private struct ChatViewPreviewWrapper: View {
                 onAttach: {},
                 onRemoveAttachment: { _ in },
                 onDropFiles: { _ in },
-                onDropImageData: { _ in },
+                onDropImageData: { _, _ in },
                 onPaste: {},
                 onMicrophoneToggle: {},
                 onConfirmationAllow: { _ in },

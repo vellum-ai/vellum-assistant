@@ -59,7 +59,7 @@ struct MainWindowView: View {
                             onAttach: { Self.openFilePicker(viewModel: viewModel) },
                             onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
                             onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
-                            onDropImageData: { data in viewModel.addAttachment(imageData: data) },
+                            onDropImageData: { data, name in viewModel.addAttachment(imageData: data, filename: name ?? "Dropped Image.png") },
                             onPaste: { viewModel.addAttachmentFromPasteboard() },
                             onMicrophoneToggle: onMicrophoneToggle,
                             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
