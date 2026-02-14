@@ -81,13 +81,15 @@ export function createTelegramWebhookHandler(
             normalized.sourceChannel,
             normalized.message.externalChatId,
           );
+          sendTelegramReply(config, normalized.message.externalChatId, "Starting a new conversation!").catch((err) => {
+            log.error({ err }, "Failed to send /new confirmation");
+          });
         } catch (err) {
           log.error({ err }, "Failed to reset conversation");
+          sendTelegramReply(config, normalized.message.externalChatId, "Failed to reset conversation. Please try again.").catch((replyErr) => {
+            log.error({ err: replyErr }, "Failed to send /new error reply");
+          });
         }
-
-        sendTelegramReply(config, normalized.message.externalChatId, "Starting a new conversation!").catch((err) => {
-          log.error({ err }, "Failed to send /new confirmation");
-        });
       }
 
       return Response.json({ ok: true });

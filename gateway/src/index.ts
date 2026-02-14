@@ -25,7 +25,6 @@ function main() {
       try {
         await sendTelegramReply(config, chatId, content);
       } catch (err) {
-        console.error("[gateway] Failed to send Telegram reply", err);
         log.error({ err, chatId }, "Failed to send Telegram reply");
       }
     },

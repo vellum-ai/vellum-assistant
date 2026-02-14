@@ -49,7 +49,6 @@ export function getConversationByKey(
  * but it is no longer reachable via this key.  The next message with the
  * same key will create a fresh conversation.
  *
- * Returns `true` if a mapping was deleted, `false` if none existed.
  */
 export function deleteConversationKey(
   assistantId: string,
