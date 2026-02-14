@@ -51,7 +51,7 @@ import { selectEmbeddingBackend } from '../memory/embedding-backend.js';
 import { getRecentSegmentsForConversation, indexMessageNow } from '../memory/indexer.js';
 import { extractAndUpsertMemoryItemsForMessage } from '../memory/items-extractor.js';
 import { claimMemoryJobs, enqueueMemoryJob } from '../memory/jobs-store.js';
-import { currentWeekWindow, runMemoryJobsOnce, sweepStaleItems } from '../memory/jobs-worker.js';
+import { currentWeekWindow, resetStaleSweepThrottle, runMemoryJobsOnce, sweepStaleItems } from '../memory/jobs-worker.js';
 import {
   buildMemoryRecall,
   escapeXmlTags,
@@ -1589,7 +1589,12 @@ describe('Memory V2 regressions', () => {
       verificationState: 'assistant_inferred',
     }).run();
 
+    // Reset throttle so the sweep actually executes (the previous test set lastStaleSweepMs)
+    resetStaleSweepThrottle();
     const marked = sweepStaleItems(DEFAULT_CONFIG);
+
+    // Sweep ran but shielded item was not marked — should return 0
+    expect(marked).toBe(0);
 
     const shieldedItem = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-sweep-shielded')).get();
     expect(shieldedItem).toBeDefined();
