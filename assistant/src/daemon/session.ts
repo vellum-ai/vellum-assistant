@@ -439,11 +439,17 @@ export class Session {
   /**
    * Run the agent loop after a user message has been persisted via
    * `persistUserMessage`. Clears the `processing` flag when done.
+   *
+   * @param options.skipPreMessageRollback - When true, the pre-message hook
+   *   blocked path will NOT delete the user message from in-memory history or
+   *   the DB. Used by `regenerate()` where the user message is the original
+   *   (not freshly persisted) and must be preserved.
    */
   async runAgentLoop(
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
+    options?: { skipPreMessageRollback?: boolean },
   ): Promise<void> {
     if (!this.abortController) {
       throw new Error('runAgentLoop called without prior persistUserMessage');
@@ -460,12 +466,14 @@ export class Session {
       });
 
       if (preMessageResult.blocked) {
-        // Roll back the user message from both in-memory history and the DB.
-        // We use deleteMessageById (not deleteLastExchange) because it NULLs
-        // nullable FK references (message_runs, channel_inbound_events) before
-        // deleting the message row, so the run record survives.
-        this.messages.pop();
-        conversationStore.deleteMessageById(userMessageId);
+        if (!options?.skipPreMessageRollback) {
+          // Roll back the user message from both in-memory history and the DB.
+          // We use deleteMessageById (not deleteLastExchange) because it NULLs
+          // nullable FK references (message_runs, channel_inbound_events) before
+          // deleting the message row, so the run record survives.
+          this.messages.pop();
+          conversationStore.deleteMessageById(userMessageId);
+        }
         onEvent({ type: 'error', message: `Message blocked by hook "${preMessageResult.blockedBy}"` });
         return;
       }
@@ -1054,7 +1062,7 @@ export class Session {
     this.abortController = new AbortController();
     this.currentRequestId = uuid();
 
-    await this.runAgentLoop(content, existingUserMessageId, onEvent);
+    await this.runAgentLoop(content, existingUserMessageId, onEvent, { skipPreMessageRollback: true });
   }
 
   /**
