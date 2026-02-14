@@ -21,7 +21,7 @@ Kill the running Vellum app, delete all persistent data so the next launch behav
 
 3. Remove the daemon database (conversations, messages, etc.):
    ```bash
-   rm -f ~/.vellum/data/assistant.db
+   rm -f ~/.vellum/data/db/assistant.db ~/.vellum/data/db/assistant.db-shm ~/.vellum/data/db/assistant.db-wal
    ```
 
 4. Remove caches:
