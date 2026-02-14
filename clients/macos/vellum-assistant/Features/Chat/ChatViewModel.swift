@@ -1014,18 +1014,10 @@ final class ChatViewModel: ObservableObject {
     }
 
     /// Populate messages from history data returned by the daemon.
-    /// Only replaces messages if the user hasn't sent any new messages yet,
-    /// preventing a late history_response from overwriting live conversation.
+    /// If the user hasn't sent any messages yet, replaces messages entirely.
+    /// If the user already sent messages (late history_response), prepends
+    /// history before the existing messages so the user sees full context.
     func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
-        let hasUserSentMessages = messages.contains { $0.role == .user }
-        if hasUserSentMessages {
-            // Don't set isHistoryLoaded here — the user sent a message before
-            // history arrived, so we skipped populating. Leaving the flag false
-            // allows ThreadManager.loadHistoryForActiveThreadIfNeeded() to
-            // retry on the next tab switch.
-            return
-        }
-
         var chatMessages: [ChatMessage] = []
         for item in historyMessages {
             let role: ChatRole = item.role == "assistant" ? .assistant : .user
@@ -1053,7 +1045,16 @@ final class ChatViewModel: ObservableObject {
             )
             chatMessages.append(chatMsg)
         }
-        self.messages = chatMessages
+
+        let hasUserSentMessages = messages.contains { $0.role == .user }
+        if hasUserSentMessages {
+            // History arrived after the user already sent messages.
+            // Prepend history before existing messages so the user sees
+            // the full conversation context.
+            self.messages = chatMessages + self.messages
+        } else {
+            self.messages = chatMessages
+        }
         self.isHistoryLoaded = true
     }
 
