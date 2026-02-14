@@ -836,6 +836,7 @@ export class Session {
 
     // Unknown slash — persist the exchange and continue draining
     if (slashResult.kind === 'unknown') {
+      const msgCountBefore = this.messages.length;
       try {
         const userMsg = createUserMessage(next.content, next.attachments);
         this.messages.push(userMsg);
@@ -856,6 +857,9 @@ export class Session {
         next.onEvent({ type: 'assistant_text_delta', text: slashResult.message });
         next.onEvent({ type: 'message_complete', sessionId: this.conversationId });
       } catch (err) {
+        // Roll back any messages pushed before the error so in-memory
+        // history stays consistent with what was actually persisted.
+        while (this.messages.length > msgCountBefore) this.messages.pop();
         const message = err instanceof Error ? err.message : String(err);
         log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Failed to persist unknown-slash exchange');
         next.onEvent({ type: 'error', message });
