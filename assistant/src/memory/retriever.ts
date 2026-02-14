@@ -881,7 +881,8 @@ function mergeCandidates(
       : 1.0;
 
     // Freshness decay: down-rank stale items unless recently reinforced
-    const freshnessWeight = computeFreshnessWeight(row, accessCount, freshnessConfig);
+    const lastUsedAt = meta?.lastUsedAt ?? null;
+    const freshnessWeight = computeFreshnessWeight(row, accessCount, lastUsedAt, freshnessConfig);
 
     row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight * freshnessWeight;
   }
@@ -916,6 +917,7 @@ function buildRankMap(candidates: Candidate[], scoreAccessor: (c: Candidate) => 
 
 interface ItemMetadata {
   accessCount: number;
+  lastUsedAt: number | null;
   verificationState: string;
 }
 
@@ -931,6 +933,7 @@ function lookupItemMetadata(itemIds: string[]): Map<string, ItemMetadata> {
       .select({
         id: memoryItems.id,
         accessCount: memoryItems.accessCount,
+        lastUsedAt: memoryItems.lastUsedAt,
         verificationState: memoryItems.verificationState,
       })
       .from(memoryItems)
@@ -939,6 +942,7 @@ function lookupItemMetadata(itemIds: string[]): Map<string, ItemMetadata> {
     for (const row of rows) {
       metadata.set(row.id, {
         accessCount: row.accessCount,
+        lastUsedAt: row.lastUsedAt,
         verificationState: row.verificationState,
       });
     }
@@ -965,12 +969,13 @@ const MS_PER_DAY = 86_400_000;
 /**
  * Compute a freshness weight for a candidate based on its kind and age.
  * Returns 1.0 for fresh items and `staleDecay` for items past their window.
- * Items with recent reinforcement (accessCount > 0 and within shield window)
- * are shielded from decay.
+ * Items with recent reinforcement (accessed via lastUsedAt within the shield
+ * window) are shielded from decay.
  */
 function computeFreshnessWeight(
   candidate: { type: string; kind: string; createdAt: number },
   accessCount: number,
+  lastUsedAt: number | null,
   config?: { enabled: boolean; maxAgeDays: Record<string, number>; staleDecay: number; reinforcementShieldDays: number },
 ): number {
   if (!config?.enabled) return 1.0;
@@ -988,10 +993,10 @@ function computeFreshnessWeight(
 
   if (ageDays <= maxAgeDays) return 1.0;
 
-  // Check reinforcement shield: recently accessed items are protected
-  if (accessCount > 0 && config.reinforcementShieldDays > 0) {
-    const shieldMs = config.reinforcementShieldDays * MS_PER_DAY;
-    if (ageMs - maxAgeDays * MS_PER_DAY < shieldMs) return 1.0;
+  // Check reinforcement shield: items retrieved within the shield window are protected
+  if (accessCount > 0 && lastUsedAt != null && config.reinforcementShieldDays > 0) {
+    const shieldCutoff = now - config.reinforcementShieldDays * MS_PER_DAY;
+    if (lastUsedAt >= shieldCutoff) return 1.0;
   }
 
   return config.staleDecay;

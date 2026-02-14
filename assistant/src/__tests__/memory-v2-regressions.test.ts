@@ -1566,6 +1566,36 @@ describe('Memory V2 regressions', () => {
     expect(freshItem!.invalidAt).toBeNull();
   });
 
+  test('sweepStaleItems shields items with recent lastUsedAt', () => {
+    const db = getDb();
+    const now = Date.now();
+    const MS_PER_DAY = 86_400_000;
+
+    // Old event (100 days) but recently retrieved (lastUsedAt = 2 days ago)
+    // reinforcementShieldDays defaults to 14, so this should be shielded
+    db.insert(memoryItems).values({
+      id: 'item-sweep-shielded',
+      kind: 'event',
+      subject: 'sweep shield test',
+      statement: 'Old event that was recently used',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.5,
+      fingerprint: 'fp-sweep-shielded',
+      firstSeenAt: now - 100 * MS_PER_DAY,
+      lastSeenAt: now - 100 * MS_PER_DAY,
+      lastUsedAt: now - 2 * MS_PER_DAY,
+      accessCount: 3,
+      verificationState: 'assistant_inferred',
+    }).run();
+
+    const marked = sweepStaleItems(DEFAULT_CONFIG);
+
+    const shieldedItem = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-sweep-shielded')).get();
+    expect(shieldedItem).toBeDefined();
+    expect(shieldedItem!.invalidAt).toBeNull();
+  });
+
   test('scope columns: memory items default to scope_id=default', () => {
     const db = getDb();
     const now = Date.now();
