@@ -48,17 +48,21 @@ struct ChatView: View {
     }
 
     @State private var isDropTargeted = false
+    @State private var contentHeight: CGFloat = 22
+    @FocusState private var isComposerFocused: Bool
 
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
                 apiKeyBanner
-                messageList
-                if let errorText {
-                    errorBanner(errorText)
+                ZStack(alignment: .bottom) {
+                    messageList
+                        .safeAreaInset(edge: .bottom) {
+                            Color.clear.frame(height: composerReservedHeight)
+                        }
+
+                    composerOverlay
                 }
-                queueSummary
-                composerArea
             }
             .background(alignment: .bottom) {
                 chatBackground
@@ -91,6 +95,51 @@ struct ChatView: View {
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
+    }
+
+    /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
+    private var composerReservedHeight: CGFloat {
+        // Composer vertical padding (lg top + lg bottom) + content + some extra for error/queue banners
+        let base: CGFloat = VSpacing.lg * 2 + VSpacing.sm * 2 + editorHeight + 8
+        let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 44
+        let error: CGFloat = errorText != nil ? 36 : 0
+        let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
+        return base + attachments + error + queue
+    }
+
+    private var composerOverlay: some View {
+        VStack(spacing: 0) {
+            // Gradient fade so messages dissolve behind the composer
+            LinearGradient(
+                stops: [
+                    .init(color: VColor.chatBackground.opacity(0), location: 0),
+                    .init(color: VColor.chatBackground.opacity(0.85), location: 0.5),
+                    .init(color: VColor.chatBackground, location: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 32)
+            .allowsHitTesting(false)
+
+            VStack(spacing: 0) {
+                if let errorText {
+                    errorBanner(errorText)
+                }
+                queueSummary
+                composerArea
+            }
+            .background(VColor.chatBackground)
+        }
+    }
+
+    // MARK: - Dynamic Editor Height
+
+    private let editorMinHeight: CGFloat = 22
+    private let editorMaxHeight: CGFloat = 200
+
+    private var editorHeight: CGFloat {
+        min(max(contentHeight, editorMinHeight), editorMaxHeight)
     }
 
     @ViewBuilder
@@ -321,58 +370,98 @@ struct ChatView: View {
                 attachmentStrip
             }
 
-            HStack(spacing: VSpacing.sm) {
-                // Text field with ghost suffix overlay
-                ZStack(alignment: .leading) {
-                    TextField("", text: $inputText, axis: .vertical)
-                        .textFieldStyle(.plain)
+            HStack(alignment: .bottom, spacing: VSpacing.sm) {
+                // Text editor with ghost text / placeholder overlay
+                ZStack(alignment: .topLeading) {
+                    // Hidden measurement text — drives dynamic height
+                    Text(inputText.isEmpty ? " " : inputText)
+                        .font(VFont.body)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 8)
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
+                            }
+                        )
+                        .hidden()
+
+                    TextEditor(text: $inputText)
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .lineLimit(1...3)
+                        .lineSpacing(4)
+                        .scrollContentBackground(.hidden)
+                        .scrollDisabled(contentHeight <= editorMaxHeight)
+                        .focused($isComposerFocused)
+                        .frame(height: editorHeight)
                         .disabled(!hasAPIKey)
                         .accessibilityLabel("Message")
-                        .onKeyPress(.tab, phases: .down) { keyPress in
-                            if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
-                                onAcceptSuggestion()
-                                return .handled
-                            }
-                            return .ignored
-                        }
-                        .onKeyPress(.return, phases: .down) { keyPress in
-                            if keyPress.modifiers.contains(.shift) { return .ignored }
-                            if canSend { onSend() }
-                            return .handled
-                        }
-                        .onKeyPress(characters: CharacterSet(charactersIn: "v"), phases: .down) { keyPress in
-                            if keyPress.modifiers.contains(.command) {
-                                onPaste()
-                                return .ignored
-                            }
-                            return .ignored
-                        }
-                        .onSubmit { if canSend { onSend() } }
 
+                    // Placeholder
+                    if inputText.isEmpty && ghostSuffix == nil {
+                        Text("What would you like to do?")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textMuted)
+                            .lineSpacing(4)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+
+                    // Ghost text overlay
                     if let ghostSuffix {
                         Text(inputText + ghostSuffix)
                             .font(VFont.body)
+                            .lineSpacing(4)
                             .foregroundColor(.clear)
-                            .lineLimit(1...3)
-                            .overlay(alignment: .leading) {
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 8)
+                            .overlay(alignment: .topLeading) {
                                 HStack(spacing: 0) {
                                     Text(inputText)
                                         .font(VFont.body)
+                                        .lineSpacing(4)
                                         .foregroundColor(.clear)
                                     Text(ghostSuffix)
                                         .font(VFont.body)
+                                        .lineSpacing(4)
                                         .foregroundColor(VColor.textMuted.opacity(0.5))
                                 }
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 8)
                             }
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
                     }
                 }
+                .onPreferenceChange(ContentHeightKey.self) { height in
+                    withAnimation(VAnimation.spring) {
+                        contentHeight = height
+                    }
+                }
+                .onKeyPress(.tab, phases: .down) { keyPress in
+                    if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
+                        onAcceptSuggestion()
+                        return .handled
+                    }
+                    return .ignored
+                }
+                .onKeyPress(.return, phases: .down) { keyPress in
+                    if keyPress.modifiers.contains(.shift) { return .ignored }
+                    if canSend { onSend() }
+                    return .handled
+                }
+                .onKeyPress(characters: CharacterSet(charactersIn: "v"), phases: .down) { keyPress in
+                    if keyPress.modifiers.contains(.command) {
+                        onPaste()
+                        return .ignored
+                    }
+                    return .ignored
+                }
 
-                // Attachment / Stop button
+                // Action buttons — bottom-aligned
                 if isSending {
                     Button(action: onStop) {
                         ZStack {
@@ -387,8 +476,26 @@ struct ChatView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Stop generation")
                 } else {
-                    MicrophoneButton(isRecording: isRecording, action: onMicrophoneToggle)
-                        .disabled(!hasAPIKey)
+                    // Send button (when text present) or Mic button
+                    if canSend {
+                        Button(action: onSend) {
+                            ZStack {
+                                Circle()
+                                    .fill(VColor.accent)
+                                    .frame(width: 28, height: 28)
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Send message")
+                        .transition(.scale.combined(with: .opacity))
+                    } else {
+                        MicrophoneButton(isRecording: isRecording, action: onMicrophoneToggle)
+                            .disabled(!hasAPIKey)
+                            .transition(.scale.combined(with: .opacity))
+                    }
 
                     Button(action: onAttach) {
                         Image(systemName: "paperclip")
@@ -401,15 +508,20 @@ struct ChatView: View {
                     .disabled(!hasAPIKey)
                 }
             }
+            .animation(VAnimation.spring, value: canSend)
         }
         .padding(.horizontal, VSpacing.xl)
         .padding(.vertical, VSpacing.sm)
         .background(VColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xxl))
         .overlay(
-            RoundedRectangle(cornerRadius: VRadius.pill)
-                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+            RoundedRectangle(cornerRadius: VRadius.xxl)
+                .stroke(
+                    isComposerFocused ? VColor.accent.opacity(0.4) : VColor.surfaceBorder.opacity(0.5),
+                    lineWidth: isComposerFocused ? 1.5 : 1
+                )
         )
+        .animation(VAnimation.fast, value: isComposerFocused)
         .padding(.horizontal, VSpacing.xl)
         .padding(.vertical, VSpacing.lg)
         .frame(maxWidth: 700)
@@ -535,6 +647,15 @@ struct ChatView: View {
             .foregroundColor(.white)
             .background(VColor.warning)
         }
+    }
+}
+
+// MARK: - Content Height Preference Key
+
+private struct ContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
