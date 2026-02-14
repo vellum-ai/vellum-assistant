@@ -385,8 +385,22 @@ export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'
   }
   if (targetIndex === -1) return messages;
 
+  // Check if the message after targetIndex is the assistant ack from a
+  // merged separate-context injection (deepRepairHistory can merge the
+  // standalone recall user message into an adjacent user message, leaving
+  // the ack orphaned).
+  const ackIndex =
+    targetIndex + 1 < messages.length &&
+    messages[targetIndex + 1].role === 'assistant' &&
+    messages[targetIndex + 1].content.length === 1 &&
+    messages[targetIndex + 1].content[0].type === 'text' &&
+    messages[targetIndex + 1].content[0].text === MEMORY_CONTEXT_ACK
+      ? targetIndex + 1
+      : -1;
+
   const cleaned: T[] = [];
   for (let index = 0; index < messages.length; index++) {
+    if (index === ackIndex) continue;
     const message = messages[index];
     if (index !== targetIndex) {
       cleaned.push(message);
