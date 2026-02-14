@@ -713,9 +713,23 @@ graph TB
     CALL["Model tool call"] --> EXEC["ToolExecutor"]
 
     EXEC -->|"file_read / file_write / file_edit / bash"| SB_TOOLS["Sandbox-scoped tools"]
-    SB_TOOLS --> SB_FS["Sandbox filesystem root<br/>~/.vellum/data/sandbox/fs"]
+    SB_TOOLS --> WRAP["wrapCommand()<br/>sandbox.ts"]
 
-    EXEC -->|"host_file_* / host_bash / cu_* / request_computer_control"| HOST_TOOLS["Host-target tools"]
+    WRAP --> BACKEND_CHECK{"sandbox.backend?"}
+    BACKEND_CHECK -->|"native (default)"| NATIVE["NativeBackend"]
+    BACKEND_CHECK -->|"docker"| DOCKER["DockerBackend"]
+
+    NATIVE -->|"macOS"| SBPL["sandbox-exec<br/>SBPL profile<br/>deny-default + allow workdir"]
+    NATIVE -->|"Linux"| BWRAP["bwrap<br/>bubblewrap<br/>ro-root + rw-workdir<br/>unshare-net + unshare-pid"]
+    SBPL --> SB_FS["Sandbox filesystem root<br/>~/.vellum/data/sandbox/fs"]
+    BWRAP --> SB_FS
+
+    DOCKER --> PREFLIGHT["Preflight checks<br/>CLI → daemon → image → mount"]
+    PREFLIGHT -->|"all pass"| CONTAINER["docker run --rm<br/>bind-mount /workspace<br/>--cap-drop=ALL<br/>--read-only<br/>--network=none"]
+    PREFLIGHT -->|"any fail"| FAIL_CLOSED["ToolError<br/>(fail closed, no fallback)"]
+    CONTAINER --> SB_FS
+
+    EXEC -->|"host_file_* / host_bash / cu_* / request_computer_control"| HOST_TOOLS["Host-target tools<br/>(unchanged by backend choice)"]
     HOST_TOOLS --> CHECK["Permission checker + trust-store"]
     CHECK --> DEFAULTS["Default rules<br/>ask for host_* + cu_*"]
     CHECK -->|"allow"| HOST_EXEC["Execute on host filesystem / shell / computer control"]
@@ -725,6 +739,11 @@ graph TB
     USER --> CHECK
 ```
 
+- **Backend selection**: The `sandbox.backend` config option (`"native"` or `"docker"`) determines how `bash` commands are sandboxed. The default is `"native"`.
+- **Native backend**: Uses OS-level sandboxing — `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. Denies network access and restricts filesystem writes to the sandbox root.
+- **Docker backend**: Wraps each command in an ephemeral `docker run --rm` container. The sandbox filesystem root is bind-mounted to `/workspace`. Containers run with all capabilities dropped, a read-only root filesystem, no network access, and host UID:GID forwarding. The default image is pinned with a `sha256` digest.
+- **Fail-closed**: Both backends refuse to execute unsandboxed if their prerequisites are unavailable. The Docker backend runs preflight checks (CLI, daemon, image, mount probe) and throws `ToolError` with actionable messages on failure. Positive preflight results are cached; negative results are rechecked on every call.
+- **Host tools unchanged**: `host_bash`, `host_file_read`, `host_file_write`, and `host_file_edit` always execute directly on the host regardless of which sandbox backend is active.
 - Sandbox defaults: `file_*` and `bash` execute within `~/.vellum/data/sandbox/fs`.
 - Host access is explicit: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` are separate tools.
 - Prompt defaults: host tools, `request_computer_control`, and `cu_*` actions default to `ask` unless a trust rule allowlists/denylists them.
