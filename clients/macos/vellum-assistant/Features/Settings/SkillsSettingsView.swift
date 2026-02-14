@@ -8,6 +8,8 @@ final class SkillsSettingsViewModel: ObservableObject {
     @Published var isLoading = false
 
     private let daemonClient: DaemonClient
+    private var isOperationInProgress = false
+    private var pendingOperations: [(name: String, enable: Bool)] = []
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -38,60 +40,41 @@ final class SkillsSettingsViewModel: ObservableObject {
         }
     }
 
-    func enableSkill(name: String) {
-        Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.enableSkill(name)
-            } catch {
-                return
-            }
-
-            for await message in stream {
-                if case .skillsOperationResponse(let response) = message,
-                   response.operation == "enable" {
-                    if response.success {
-                        if let index = skills.firstIndex(where: { $0.name == name }) {
-                            let updated = skills[index]
-                            skills[index] = SkillInfo(
-                                name: updated.name,
-                                description: updated.description,
-                                emoji: updated.emoji,
-                                homepage: updated.homepage,
-                                source: updated.source,
-                                state: "enabled",
-                                degraded: updated.degraded,
-                                missingRequirements: updated.missingRequirements,
-                                installedVersion: updated.installedVersion,
-                                latestVersion: updated.latestVersion,
-                                updateAvailable: updated.updateAvailable,
-                                userInvocable: updated.userInvocable,
-                                clawhub: updated.clawhub
-                            )
-                        }
-                    }
-                    return
-                }
-            }
-        }
+    func toggleSkill(name: String, enable: Bool) {
+        pendingOperations.append((name: name, enable: enable))
+        processNextOperation()
     }
 
-    func disableSkill(name: String) {
+    private func processNextOperation() {
+        guard !isOperationInProgress, let op = pendingOperations.first else { return }
+        pendingOperations.removeFirst()
+        isOperationInProgress = true
+
         Task {
+            defer {
+                isOperationInProgress = false
+                processNextOperation()
+            }
+
             let stream = daemonClient.subscribe()
+            let operation = op.enable ? "enable" : "disable"
+            let newState = op.enable ? "enabled" : "disabled"
 
             do {
-                try daemonClient.disableSkill(name)
+                if op.enable {
+                    try daemonClient.enableSkill(op.name)
+                } else {
+                    try daemonClient.disableSkill(op.name)
+                }
             } catch {
                 return
             }
 
             for await message in stream {
                 if case .skillsOperationResponse(let response) = message,
-                   response.operation == "disable" {
+                   response.operation == operation {
                     if response.success {
-                        if let index = skills.firstIndex(where: { $0.name == name }) {
+                        if let index = skills.firstIndex(where: { $0.name == op.name }) {
                             let updated = skills[index]
                             skills[index] = SkillInfo(
                                 name: updated.name,
@@ -99,7 +82,7 @@ final class SkillsSettingsViewModel: ObservableObject {
                                 emoji: updated.emoji,
                                 homepage: updated.homepage,
                                 source: updated.source,
-                                state: "disabled",
+                                state: newState,
                                 degraded: updated.degraded,
                                 missingRequirements: updated.missingRequirements,
                                 installedVersion: updated.installedVersion,
@@ -154,11 +137,7 @@ struct SkillsSettingsView: View {
                                 SkillRow(
                                     skill: skill,
                                     onToggle: { enabled in
-                                        if enabled {
-                                            viewModel.enableSkill(name: skill.name)
-                                        } else {
-                                            viewModel.disableSkill(name: skill.name)
-                                        }
+                                        viewModel.toggleSkill(name: skill.name, enable: enabled)
                                     }
                                 )
                             }
@@ -203,14 +182,6 @@ private struct SkillRow: View {
     let skill: SkillInfo
     let onToggle: (Bool) -> Void
 
-    @State private var isEnabled: Bool
-
-    init(skill: SkillInfo, onToggle: @escaping (Bool) -> Void) {
-        self.skill = skill
-        self.onToggle = onToggle
-        self._isEnabled = State(initialValue: skill.state == "enabled")
-    }
-
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             // Emoji
@@ -233,17 +204,14 @@ private struct SkillRow: View {
 
             Spacer()
 
-            Toggle("", isOn: $isEnabled)
+            Toggle("", isOn: Binding(
+                get: { skill.state == "enabled" },
+                set: { newValue in onToggle(newValue) }
+            ))
                 .toggleStyle(.switch)
                 .labelsHidden()
-                .onChange(of: isEnabled) { _, newValue in
-                    onToggle(newValue)
-                }
         }
         .padding(.vertical, 2)
-        .onChange(of: skill.state) { _, newState in
-            isEnabled = newState == "enabled"
-        }
     }
 
     @ViewBuilder
