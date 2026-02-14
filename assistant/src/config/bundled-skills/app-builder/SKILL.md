@@ -55,38 +55,62 @@ Write a complete, self-contained HTML document. The HTML is rendered inside a sa
 - Design for a window that is roughly 400-600px wide but should resize gracefully
 - The WebView blocks all navigation, so links and form submissions with `action` attributes will not work
 
-#### Design philosophy
+#### Injected design system
 
-Build apps that look and feel like professional native software. Every app you create should feel like something someone would pay for.
+Every app automatically has the Vellum design system CSS injected into the WebView.
+You do NOT need to include base styles — they are applied to bare HTML elements by default.
+The design system supports both light and dark mode via `@media (prefers-color-scheme)`.
 
-- **Typography**: Use the system font stack. Establish clear hierarchy with size, weight, and color. Don't make everything the same size.
-- **Color**: Use restrained, intentional palettes. 1-2 accent colors max. Use color to convey meaning (status, priority, categories), not decoration.
-- **Layout**: Use CSS Grid and Flexbox. Give content room to breathe with generous whitespace. Align elements precisely.
-- **Motion**: Add subtle transitions on interactive elements (150-250ms). Animate state changes. Use `transform` and `opacity` for smooth 60fps animations.
-- **Interaction**: Every clickable element needs hover and active states. Add focus styles for keyboard navigation. Provide immediate visual feedback for all actions.
-- **Empty states**: Design thoughtful empty states that guide the user — not just "No items."
-- **Details**: Rounded corners, subtle shadows, smooth gradients. Polish the small things.
+**What you get for free (no classes needed):**
+- `body` — system font, proper colors, padding (24px), line-height (1.5), flex centering
+- `button` — reset to inherit font, no border/background, cursor pointer
+- `input`, `textarea`, `select` — bordered, rounded, proper sizing, focus ring
+- `h1`–`h6` — sized headings with proper weight and spacing
+- `a` — accent-colored links
+- `code`, `pre` — monospace font, surface background
+- `table`, `th`, `td` — bordered, padded
 
-Use CSS variables for theming:
+**Available component classes (opt-in):**
+- `.v-button`, `.v-button.secondary`, `.v-button.danger`, `.v-button.ghost` — button variants
+- `.v-card` — surface background with border, shadow, and padding
+- `.v-input-row` — flex row for input + button combos (gap: 8px)
+- `.v-list` + `.v-list-item` — hoverable list rows with padding
+- `.v-badge`, `.v-badge.success`, `.v-badge.danger`, `.v-badge.warning` — small pill labels
+- `.v-empty-state` — centered muted placeholder text
+- `.v-toggle` — CSS-only toggle switch (use with label + hidden checkbox + `.v-toggle-track`)
+
+**Available utility classes:**
+- Layout: `.v-flex`, `.v-flex-col`, `.v-flex-wrap`, `.v-items-center`, `.v-justify-between`, `.v-justify-center`
+- Gaps: `.v-gap-xs` (4px), `.v-gap-sm` (8px), `.v-gap-md` (12px), `.v-gap-lg` (16px), `.v-gap-xl` (24px)
+- Text: `.v-text-secondary`, `.v-text-muted`, `.v-text-accent`, `.v-text-sm`, `.v-text-xs`, `.v-text-lg`
+- Other: `.v-font-mono`, `.v-truncate`, `.v-w-full`, `.v-sr-only`
+
+**Available color palettes (as CSS variables):**
+All six Vellum color scales are available as `--v-{palette}-{stop}` variables:
+- Slate: `--v-slate-950` through `--v-slate-50`
+- Emerald: `--v-emerald-950` through `--v-emerald-100`
+- Violet: `--v-violet-950` through `--v-violet-100`
+- Indigo: `--v-indigo-950` through `--v-indigo-100`
+- Rose: `--v-rose-950` through `--v-rose-100`
+- Amber: `--v-amber-950` through `--v-amber-100`
+
+**Customizing the theme:**
+To change the look, override `--v-*` CSS custom properties in your `<style>` tag:
 ```css
 :root {
-  --bg: #ffffff;
-  --surface: #f5f5f7;
-  --text: #1d1d1f;
-  --text-secondary: #86868b;
-  --accent: #007aff;
-  --accent-hover: #0056b3;
-  --border: #d2d2d7;
-  --danger: #ff3b30;
-  --success: #34c759;
-  --warning: #ff9500;
-  --radius: 10px;
-  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
-  --shadow-lg: 0 4px 12px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.06);
+  --v-accent: #e91e63;
+  --v-bg: #1a1a2e;
+  --v-text: #eaeaea;
+  --v-radius-md: 16px;
 }
 ```
+This overrides the injected defaults — all elements and component classes update automatically.
+You can also write fully custom CSS or ignore the design system entirely.
 
-Use system fonts: `font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;`
+#### Styling guidelines
+- Use flexbox or grid for layout
+- Keep the design clean, minimal, and functional -- follow macOS/Apple design sensibilities
+- Add subtle transitions for interactive elements (hover states, adding/removing items)
 
 #### Advanced techniques you should use
 
