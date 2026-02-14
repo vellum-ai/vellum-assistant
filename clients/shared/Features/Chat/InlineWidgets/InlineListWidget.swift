@@ -1,14 +1,18 @@
 import SwiftUI
-import VellumAssistantShared
 
 /// Inline list widget for selectable items in chat.
-struct InlineListWidget: View {
-    let data: ListSurfaceData
-    let onAction: (String, [String: AnyCodable]?) -> Void
+public struct InlineListWidget: View {
+    public let data: ListSurfaceData
+    public let onAction: (String, [String: AnyCodable]?) -> Void
 
     @State private var selectedIds: Set<String> = []
 
-    var body: some View {
+    public init(data: ListSurfaceData, onAction: @escaping (String, [String: AnyCodable]?) -> Void) {
+        self.data = data
+        self.onAction = onAction
+    }
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             ForEach(data.items) { item in
                 itemRow(item)

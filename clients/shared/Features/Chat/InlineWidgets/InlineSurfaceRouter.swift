@@ -1,12 +1,16 @@
 import SwiftUI
-import VellumAssistantShared
 
 /// Routes an `InlineSurfaceData` to the correct inline widget view.
-struct InlineSurfaceRouter: View {
-    let surface: InlineSurfaceData
-    let onAction: (String, String, [String: AnyCodable]?) -> Void
+public struct InlineSurfaceRouter: View {
+    public let surface: InlineSurfaceData
+    public let onAction: (String, String, [String: AnyCodable]?) -> Void
 
     @State private var selectionPayload: [String: AnyCodable]?
+
+    public init(surface: InlineSurfaceData, onAction: @escaping (String, String, [String: AnyCodable]?) -> Void) {
+        self.surface = surface
+        self.onAction = onAction
+    }
 
     /// Whether the surface content handles its own header/chrome.
     private var isTemplateCard: Bool {
@@ -16,7 +20,7 @@ struct InlineSurfaceRouter: View {
         return false
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Template cards handle their own header — skip the generic title
             if !isTemplateCard, let title = surface.title {

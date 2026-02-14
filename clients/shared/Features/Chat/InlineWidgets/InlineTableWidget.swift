@@ -1,14 +1,18 @@
 import SwiftUI
-import VellumAssistantShared
 
 /// Inline table widget with selectable rows and action support.
-struct InlineTableWidget: View {
-    let data: TableSurfaceData
-    let onAction: (String, [String: AnyCodable]?) -> Void
+public struct InlineTableWidget: View {
+    public let data: TableSurfaceData
+    public let onAction: (String, [String: AnyCodable]?) -> Void
 
     @State private var selectedIds: Set<String> = []
 
-    var body: some View {
+    public init(data: TableSurfaceData, onAction: @escaping (String, [String: AnyCodable]?) -> Void) {
+        self.data = data
+        self.onAction = onAction
+    }
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Column headers
             HStack(spacing: 0) {

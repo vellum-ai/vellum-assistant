@@ -1,12 +1,15 @@
 import SwiftUI
-import VellumAssistantShared
 
 /// Inline card widget for displaying structured information in chat.
 /// Supports template-based rendering for specialized layouts (e.g. weather forecasts).
-struct InlineCardWidget: View {
-    let data: CardSurfaceData
+public struct InlineCardWidget: View {
+    public let data: CardSurfaceData
 
-    var body: some View {
+    public init(data: CardSurfaceData) {
+        self.data = data
+    }
+
+    public var body: some View {
         if data.template == "weather_forecast",
            let templateData = data.templateData,
            let weatherData = WeatherForecastData.parse(from: templateData) {

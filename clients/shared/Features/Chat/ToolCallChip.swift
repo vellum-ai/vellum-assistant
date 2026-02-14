@@ -1,8 +1,11 @@
 import SwiftUI
-import VellumAssistantShared
 
-struct ToolCallChip: View {
-    let toolCall: ToolCallData
+public struct ToolCallChip: View {
+    public let toolCall: ToolCallData
+
+    public init(toolCall: ToolCallData) {
+        self.toolCall = toolCall
+    }
     @State private var isExpanded = false
 
     private var toolDisplayName: String {
@@ -13,7 +16,7 @@ struct ToolCallChip: View {
         toolCall.result != nil || toolCall.cachedImage != nil
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Chip header (always visible)
             Button {
@@ -63,12 +66,20 @@ struct ToolCallChip: View {
             if isExpanded, hasExpandableContent {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     // Image preview (for browser_screenshot etc.)
-                    if let nsImage = toolCall.cachedImage {
-                        Image(nsImage: nsImage)
+                    if let cachedImage = toolCall.cachedImage {
+                        #if os(macOS)
+                        Image(nsImage: cachedImage)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(maxWidth: .infinity)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        #elseif os(iOS)
+                        Image(uiImage: cachedImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        #endif
                     }
 
                     // Text result

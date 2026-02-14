@@ -1,11 +1,17 @@
 import SwiftUI
-import VellumAssistantShared
 
-struct ToolConfirmationBubble: View {
-    let confirmation: ToolConfirmationData
-    let onAllow: () -> Void
-    let onDeny: () -> Void
-    let onAddTrustRule: (String, String, String, String) -> Bool
+public struct ToolConfirmationBubble: View {
+    public let confirmation: ToolConfirmationData
+    public let onAllow: () -> Void
+    public let onDeny: () -> Void
+    public let onAddTrustRule: (String, String, String, String) -> Bool
+
+    public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAddTrustRule: @escaping (String, String, String, String) -> Bool) {
+        self.confirmation = confirmation
+        self.onAllow = onAllow
+        self.onDeny = onDeny
+        self.onAddTrustRule = onAddTrustRule
+    }
 
     @State private var showRulePicker = false
     @State private var selectedPattern: String = ""
@@ -28,7 +34,7 @@ struct ToolConfirmationBubble: View {
         }
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             // Header row: icon + tool name + risk badge
             HStack(spacing: VSpacing.sm) {

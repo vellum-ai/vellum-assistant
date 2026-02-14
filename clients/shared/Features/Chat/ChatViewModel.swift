@@ -1,23 +1,26 @@
 import Foundation
-import VellumAssistantShared
 import os
 import UniformTypeIdentifiers
+#if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel")
 
 @MainActor
-final class ChatViewModel: ObservableObject {
-    @Published var messages: [ChatMessage] = []
-    @Published var inputText: String = ""
-    @Published var isThinking: Bool = false
-    @Published var isSending: Bool = false
-    @Published var errorText: String?
-    @Published var pendingQueuedCount: Int = 0
-    @Published var suggestion: String?
-    @Published var pendingAttachments: [ChatAttachment] = []
-    @Published var isRecording: Bool = false
-    @Published var pendingSkillInvocation: SkillInvocationData?
+public final class ChatViewModel: ObservableObject {
+    @Published public var messages: [ChatMessage] = []
+    @Published public var inputText: String = ""
+    @Published public var isThinking: Bool = false
+    @Published public var isSending: Bool = false
+    @Published public var errorText: String?
+    @Published public var pendingQueuedCount: Int = 0
+    @Published public var suggestion: String?
+    @Published public var pendingAttachments: [ChatAttachment] = []
+    @Published public var isRecording: Bool = false
+    @Published public var pendingSkillInvocation: SkillInvocationData?
 
     /// Maximum file size per attachment (20 MB).
     private static let maxFileSize = 20 * 1024 * 1024
@@ -25,7 +28,7 @@ final class ChatViewModel: ObservableObject {
     private static let maxAttachments = 5
 
     private let daemonClient: DaemonClient
-    var sessionId: String?
+    public var sessionId: String?
     private var pendingUserMessage: String?
     private var pendingUserAttachments: [IPCAttachment]?
     /// Nonce sent with `session_create` and echoed back in `session_info`.
@@ -52,25 +55,25 @@ final class ChatViewModel: ObservableObject {
     /// Timestamp of the most recent `toolUseStart` event received by this view model.
     /// Used by ThreadManager to route `confirmationRequest` messages to the correct
     /// ChatViewModel when multiple threads have active sessions.
-    var lastToolUseReceivedAt: Date?
+    public var lastToolUseReceivedAt: Date?
 
     /// Called when an inline confirmation is responded to, so the floating panel can be dismissed.
-    var onInlineConfirmationResponse: ((String) -> Void)?
+    public var onInlineConfirmationResponse: ((String) -> Void)?
 
     /// Called to determine whether this ChatViewModel should accept a `confirmationRequest`.
     /// Set by ThreadManager to coordinate routing when multiple ChatViewModels are active.
-    var shouldAcceptConfirmation: (() -> Bool)?
+    public var shouldAcceptConfirmation: (() -> Bool)?
 
     /// Whether this view model has had its history loaded from the daemon.
-    var isHistoryLoaded: Bool = false
+    public var isHistoryLoaded: Bool = false
 
-    init(daemonClient: DaemonClient) {
+    public init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
     }
 
     // MARK: - Attachments
 
-    func addAttachment(url: URL) {
+    public func addAttachment(url: URL) {
         guard pendingAttachments.count < Self.maxAttachments else {
             errorText = "Maximum \(Self.maxAttachments) attachments per message."
             return
@@ -116,6 +119,12 @@ final class ChatViewModel: ObservableObject {
             thumbnail = Self.generateThumbnail(from: data, maxDimension: 120)
         }
 
+        #if os(macOS)
+        let thumbnailImage = thumbnail.flatMap { NSImage(data: $0) }
+        #elseif os(iOS)
+        let thumbnailImage = thumbnail.flatMap { UIImage(data: $0) }
+        #endif
+
         let attachment = ChatAttachment(
             id: UUID().uuidString,
             filename: filename,
@@ -123,27 +132,34 @@ final class ChatViewModel: ObservableObject {
             data: base64,
             thumbnailData: thumbnail,
             dataLength: base64.count,
-            thumbnailImage: thumbnail.flatMap { NSImage(data: $0) }
+            thumbnailImage: thumbnailImage
         )
         pendingAttachments.append(attachment)
     }
 
-    func removeAttachment(id: String) {
+    public func removeAttachment(id: String) {
         pendingAttachments.removeAll { $0.id == id }
     }
 
-    func addAttachmentFromPasteboard() {
+    public func addAttachmentFromPasteboard() {
+        #if os(macOS)
         let pasteboard = NSPasteboard.general
         guard let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) else {
             return
         }
-
         addAttachment(imageData: imageData, filename: "Pasted Image.png")
+        #elseif os(iOS)
+        let pasteboard = UIPasteboard.general
+        guard let image = pasteboard.image, let imageData = image.pngData() else {
+            return
+        }
+        addAttachment(imageData: imageData, filename: "Pasted Image.png")
+        #endif
     }
 
     /// Add an attachment from raw image data (e.g. drag-and-drop, pasteboard).
     /// Converts TIFF to PNG if needed.
-    func addAttachment(imageData: Data, filename: String = "Dropped Image.png") {
+    public func addAttachment(imageData: Data, filename: String = "Dropped Image.png") {
         guard pendingAttachments.count < Self.maxAttachments else {
             errorText = "Maximum \(Self.maxAttachments) attachments per message."
             return
@@ -151,6 +167,7 @@ final class ChatViewModel: ObservableObject {
 
         // Convert to PNG if needed — raw image data may be TIFF
         let pngData: Data
+        #if os(macOS)
         if let _ = NSImage(data: imageData) {
             // Check if already PNG by looking at magic bytes
             let pngMagic: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
@@ -170,6 +187,26 @@ final class ChatViewModel: ObservableObject {
             errorText = "Could not process image."
             return
         }
+        #elseif os(iOS)
+        if let image = UIImage(data: imageData) {
+            // Check if already PNG by looking at magic bytes
+            let pngMagic: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
+            let headerBytes = [UInt8](imageData.prefix(4))
+            if headerBytes == pngMagic {
+                pngData = imageData
+            } else if let converted = image.pngData() {
+                pngData = converted
+            } else {
+                log.error("Failed to convert dropped image to PNG")
+                errorText = "Could not process image."
+                return
+            }
+        } else {
+            log.error("Dropped data is not a valid image")
+            errorText = "Could not process image."
+            return
+        }
+        #endif
 
         guard pngData.count <= Self.maxFileSize else {
             errorText = "Image exceeds 20 MB limit."
@@ -179,6 +216,12 @@ final class ChatViewModel: ObservableObject {
         let base64 = pngData.base64EncodedString()
         let thumbnail = Self.generateThumbnail(from: pngData, maxDimension: 120)
 
+        #if os(macOS)
+        let thumbnailImage = thumbnail.flatMap { NSImage(data: $0) }
+        #elseif os(iOS)
+        let thumbnailImage = thumbnail.flatMap { UIImage(data: $0) }
+        #endif
+
         let attachment = ChatAttachment(
             id: UUID().uuidString,
             filename: filename,
@@ -186,13 +229,14 @@ final class ChatViewModel: ObservableObject {
             data: base64,
             thumbnailData: thumbnail,
             dataLength: base64.count,
-            thumbnailImage: thumbnail.flatMap { NSImage(data: $0) }
+            thumbnailImage: thumbnailImage
         )
         pendingAttachments.append(attachment)
     }
 
     /// Resize image data to fit within `maxDimension` and return PNG data.
     private static func generateThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {
+        #if os(macOS)
         guard let image = NSImage(data: data) else { return nil }
         let size = image.size
         guard size.width > 0 && size.height > 0 else { return nil }
@@ -208,11 +252,23 @@ final class ChatViewModel: ObservableObject {
               let bitmap = NSBitmapImageRep(data: tiffData),
               let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
         return png
+        #elseif os(iOS)
+        guard let image = UIImage(data: data) else { return nil }
+        let size = image.size
+        guard size.width > 0 && size.height > 0 else { return nil }
+        let scale = min(maxDimension / size.width, maxDimension / size.height, 1.0)
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 0.0)
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        let resized = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        return resized?.pngData()
+        #endif
     }
 
     // MARK: - Sending
 
-    func sendMessage() {
+    public func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachments = !pendingAttachments.isEmpty
         let hasSkillInvocation = pendingSkillInvocation != nil
@@ -421,7 +477,7 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
-    func handleServerMessage(_ message: ServerMessage) {
+    public func handleServerMessage(_ message: ServerMessage) {
         switch message {
         case .sessionInfo(let info):
             // Only claim this session_info if:
@@ -769,7 +825,7 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
-    func sendSurfaceAction(surfaceId: String, actionId: String, data: [String: AnyCodable]? = nil) {
+    public func sendSurfaceAction(surfaceId: String, actionId: String, data: [String: AnyCodable]? = nil) {
         guard let sessionId = sessionId else { return }
         let msg = UiSurfaceActionMessage(
             sessionId: sessionId,
@@ -780,7 +836,7 @@ final class ChatViewModel: ObservableObject {
         try? daemonClient.send(msg)
     }
 
-    func stopGenerating() {
+    public func stopGenerating() {
         guard isSending else { return }
 
         // If we're still bootstrapping (no session yet), cancel locally:
@@ -904,7 +960,7 @@ final class ChatViewModel: ObservableObject {
 
     /// Regenerate the last assistant response. Removes the old reply from
     /// all memory systems (including Qdrant) and re-runs the agent loop.
-    func regenerateLastMessage() {
+    public func regenerateLastMessage() {
         guard let sessionId, !isSending else { return }
         guard daemonClient.isConnected else {
             errorText = "Cannot connect to daemon. Please ensure it's running."
@@ -931,12 +987,12 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
-    func dismissError() {
+    public func dismissError() {
         errorText = nil
     }
 
     /// Respond to a tool confirmation request displayed inline in the chat.
-    func respondToConfirmation(requestId: String, decision: String) {
+    public func respondToConfirmation(requestId: String, decision: String) {
         // DaemonClient.send silently returns when connection is nil (it does
         // not throw), so we must check connectivity explicitly before calling
         // sendConfirmationResponse. Without this guard the UI would show the
@@ -965,7 +1021,7 @@ final class ChatViewModel: ObservableObject {
 
     /// Update the inline confirmation message state without sending a response to the daemon.
     /// Used when the floating panel handles the response.
-    func updateConfirmationState(requestId: String, decision: String) {
+    public func updateConfirmationState(requestId: String, decision: String) {
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             switch decision {
             case "allow":
@@ -980,7 +1036,7 @@ final class ChatViewModel: ObservableObject {
 
     /// Send an add_trust_rule message to persist a trust rule.
     /// Returns `true` if the IPC send succeeded, `false` otherwise.
-    func addTrustRule(toolName: String, pattern: String, scope: String, decision: String) -> Bool {
+    public func addTrustRule(toolName: String, pattern: String, scope: String, decision: String) -> Bool {
         guard daemonClient.isConnected else {
             log.warning("Cannot send add_trust_rule: daemon not connected")
             return false
@@ -1018,7 +1074,7 @@ final class ChatViewModel: ObservableObject {
     }
 
     /// Accept the current suggestion, appending the ghost suffix to input.
-    func acceptSuggestion() {
+    public func acceptSuggestion() {
         guard let suggestion else { return }
         if suggestion.hasPrefix(inputText) {
             inputText = suggestion
@@ -1032,7 +1088,7 @@ final class ChatViewModel: ObservableObject {
     /// If the user hasn't sent any messages yet, replaces messages entirely.
     /// If the user already sent messages (late history_response), prepends
     /// history before the existing messages so the user sees full context.
-    func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
+    public func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
         var chatMessages: [ChatMessage] = []
         for item in historyMessages {
             let role: ChatRole = item.role == "assistant" ? .assistant : .user

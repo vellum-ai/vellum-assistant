@@ -1,34 +1,52 @@
 import SwiftUI
-import VellumAssistantShared
 
 // MARK: - Data Model
 
-struct WeatherHourlyItem: Identifiable {
-    let id: String
-    let time: String
-    let icon: String
-    let tempC: Double
-    let sourceIsFahrenheit: Bool
+public struct WeatherHourlyItem: Identifiable {
+    public let id: String
+    public let time: String
+    public let icon: String
+    public let tempC: Double
+    public let sourceIsFahrenheit: Bool
 
-    func temp(useFahrenheit: Bool) -> Int {
+    public init(id: String, time: String, icon: String, tempC: Double, sourceIsFahrenheit: Bool) {
+        self.id = id
+        self.time = time
+        self.icon = icon
+        self.tempC = tempC
+        self.sourceIsFahrenheit = sourceIsFahrenheit
+    }
+
+    public func temp(useFahrenheit: Bool) -> Int {
         if sourceIsFahrenheit == useFahrenheit { return Int(tempC) }
         return useFahrenheit ? Int(tempC * 9 / 5 + 32) : Int((tempC - 32) * 5 / 9)
     }
 }
 
-struct WeatherForecastItem: Identifiable {
-    let id: String
-    let day: String
-    let icon: String
-    let lowC: Double
-    let highC: Double
-    let precip: Int?
-    let condition: String
+public struct WeatherForecastItem: Identifiable {
+    public let id: String
+    public let day: String
+    public let icon: String
+    public let lowC: Double
+    public let highC: Double
+    public let precip: Int?
+    public let condition: String
 
     /// Whether the original data was in Fahrenheit.
-    let sourceIsFahrenheit: Bool
+    public let sourceIsFahrenheit: Bool
 
-    func low(useFahrenheit: Bool) -> Int {
+    public init(id: String, day: String, icon: String, lowC: Double, highC: Double, precip: Int?, condition: String, sourceIsFahrenheit: Bool) {
+        self.id = id
+        self.day = day
+        self.icon = icon
+        self.lowC = lowC
+        self.highC = highC
+        self.precip = precip
+        self.condition = condition
+        self.sourceIsFahrenheit = sourceIsFahrenheit
+    }
+
+    public func low(useFahrenheit: Bool) -> Int {
         if sourceIsFahrenheit == useFahrenheit { return Int(lowC) }
         return useFahrenheit ? Int(lowC * 9 / 5 + 32) : Int((lowC - 32) * 5 / 9)
     }
@@ -39,19 +57,32 @@ struct WeatherForecastItem: Identifiable {
     }
 }
 
-struct WeatherForecastData {
-    let location: String
-    let currentTemp: Double
-    let feelsLike: Double
-    let condition: String
-    let humidity: Int
-    let windSpeed: Int
-    let windDirection: String
-    let sourceIsFahrenheit: Bool
-    let hourly: [WeatherHourlyItem]
-    let forecast: [WeatherForecastItem]
+public struct WeatherForecastData {
+    public let location: String
+    public let currentTemp: Double
+    public let feelsLike: Double
+    public let condition: String
+    public let humidity: Int
+    public let windSpeed: Int
+    public let windDirection: String
+    public let sourceIsFahrenheit: Bool
+    public let hourly: [WeatherHourlyItem]
+    public let forecast: [WeatherForecastItem]
 
-    func currentTemp(useFahrenheit: Bool) -> Int {
+    public init(location: String, currentTemp: Double, feelsLike: Double, condition: String, humidity: Int, windSpeed: Int, windDirection: String, sourceIsFahrenheit: Bool, hourly: [WeatherHourlyItem], forecast: [WeatherForecastItem]) {
+        self.location = location
+        self.currentTemp = currentTemp
+        self.feelsLike = feelsLike
+        self.condition = condition
+        self.humidity = humidity
+        self.windSpeed = windSpeed
+        self.windDirection = windDirection
+        self.sourceIsFahrenheit = sourceIsFahrenheit
+        self.hourly = hourly
+        self.forecast = forecast
+    }
+
+    public func currentTemp(useFahrenheit: Bool) -> Int {
         if sourceIsFahrenheit == useFahrenheit { return Int(currentTemp) }
         return useFahrenheit ? Int(currentTemp * 9 / 5 + 32) : Int((currentTemp - 32) * 5 / 9)
     }
@@ -61,13 +92,13 @@ struct WeatherForecastData {
         return useFahrenheit ? Int(feelsLike * 9 / 5 + 32) : Int((feelsLike - 32) * 5 / 9)
     }
 
-    func windSpeed(useFahrenheit: Bool) -> Int {
+    public func windSpeed(useFahrenheit: Bool) -> Int {
         if sourceIsFahrenheit == useFahrenheit { return windSpeed }
         // Convert between mph (Fahrenheit) and km/h (Celsius)
         return useFahrenheit ? Int(Double(windSpeed) / 1.60934) : Int(Double(windSpeed) * 1.60934)
     }
 
-    static func parse(from dict: [String: Any?]) -> WeatherForecastData? {
+    public static func parse(from dict: [String: Any?]) -> WeatherForecastData? {
         guard let location = dict["location"] as? String else { return nil }
 
         let currentTemp = (dict["currentTemp"] as? Double) ?? Double(dict["currentTemp"] as? Int ?? 0)
@@ -132,12 +163,12 @@ struct WeatherForecastData {
 
 // MARK: - Widget View
 
-struct InlineWeatherWidget: View {
-    let data: WeatherForecastData
+public struct InlineWeatherWidget: View {
+    public let data: WeatherForecastData
 
     @State private var useFahrenheit: Bool
 
-    init(data: WeatherForecastData) {
+    public init(data: WeatherForecastData) {
         self.data = data
         self._useFahrenheit = State(initialValue: data.sourceIsFahrenheit)
     }
@@ -160,7 +191,7 @@ struct InlineWeatherWidget: View {
         return (today.high(useFahrenheit: useFahrenheit), today.low(useFahrenheit: useFahrenheit))
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             heroSection
             if !data.hourly.isEmpty {
