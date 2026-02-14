@@ -42,7 +42,6 @@ struct ChatTabView: View {
         .background(VColor.background)
         .navigationTitle("Chat")
         .navigationBarTitleDisplayMode(.inline)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy) {
