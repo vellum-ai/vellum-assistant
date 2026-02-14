@@ -29,13 +29,17 @@ final class MainWindow {
     }
 
     func show() {
+        // Switch to regular activation policy FIRST so macOS allows window
+        // foregrounding — calling makeKeyAndOrderFront while still .accessory
+        // can silently fail on Spotlight/Dock reopens.
+        NSApp.setActivationPolicy(.regular)
+
         // Reuse the existing window if one already exists
         if let existing = window {
-            // Rebuild the SwiftUI view hierarchy so it picks up any
-            // UserDefaults changes (e.g. assistantName set during onboarding replay)
-            existing.contentViewController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, zoomManager: zoomManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
+            if existing.isMiniaturized {
+                existing.deminiaturize(nil)
+            }
             existing.makeKeyAndOrderFront(nil)
-            NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
@@ -65,9 +69,6 @@ final class MainWindow {
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 800, height: 600)
-
-        // Keep regular activation policy — the main window should appear in Dock and Cmd+Tab
-        NSApp.setActivationPolicy(.regular)
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
