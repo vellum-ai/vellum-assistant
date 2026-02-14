@@ -12,6 +12,7 @@ struct SettingsPanel: View {
     @State private var hasBraveKey: Bool = false
     @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
     @AppStorage("ambientAgentEnabled") private var ambientEnabled: Bool = false
+    @State private var showTrustRulesSheet: Bool = false
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -218,17 +219,14 @@ struct SettingsPanel: View {
                             }
                             Spacer()
                             VButton(label: "Manage...", style: .ghost) {
-                                daemonClient.isTrustRulesSheetOpen = true
+                                showTrustRulesSheet = true
                             }
-                            .disabled(daemonClient.isTrustRulesSheetOpen)
+                            .disabled(showTrustRulesSheet)
                         }
                     }
                     .padding(VSpacing.lg)
                     .vCard(background: Slate._900)
-                    .sheet(isPresented: Binding(
-                        get: { daemonClient.isTrustRulesSheetOpen },
-                        set: { daemonClient.isTrustRulesSheetOpen = $0 }
-                    )) {
+                    .sheet(isPresented: $showTrustRulesSheet) {
                         TrustRulesView(daemonClient: daemonClient)
                     }
                 }
