@@ -1643,6 +1643,213 @@ describe('Memory V2 regressions', () => {
     }
   });
 
+  test('scope filtering: retrieval excludes items from other scopes', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = 'conv-scope-filter';
+
+    db.insert(conversations).values({
+      id: convId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-scope-filter',
+      conversationId: convId,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'scope test' }]),
+      createdAt: now,
+    }).run();
+
+    // Insert segment in scope "project-a"
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-scope-a', 'msg-scope-filter', '${convId}', 'user', 0, 'The quick brown fox jumps over the lazy dog in project alpha', 12, 'project-a', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-scope-a', 'The quick brown fox jumps over the lazy dog in project alpha')`);
+
+    // Insert segment in scope "project-b"
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-scope-b', 'msg-scope-filter', '${convId}', 'user', 1, 'The quick brown fox jumps over the lazy dog in project beta', 12, 'project-b', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-scope-b', 'The quick brown fox jumps over the lazy dog in project beta')`);
+
+    // Insert item in scope "project-a"
+    db.insert(memoryItems).values({
+      id: 'item-scope-a',
+      kind: 'fact',
+      subject: 'fox',
+      statement: 'The fox is quick and brown in project alpha',
+      status: 'active',
+      confidence: 0.9,
+      importance: 0.8,
+      fingerprint: 'fp-scope-a',
+      verificationState: 'user_confirmed',
+      scopeId: 'project-a',
+      firstSeenAt: now,
+      lastSeenAt: now,
+    }).run();
+
+    // Insert item in scope "project-b"
+    db.insert(memoryItems).values({
+      id: 'item-scope-b',
+      kind: 'fact',
+      subject: 'fox',
+      statement: 'The fox is quick and brown in project beta',
+      status: 'active',
+      confidence: 0.9,
+      importance: 0.8,
+      fingerprint: 'fp-scope-b',
+      verificationState: 'user_confirmed',
+      scopeId: 'project-b',
+      firstSeenAt: now,
+      lastSeenAt: now,
+    }).run();
+
+    // Query with scopeId "project-a" — should only find project-a items
+    const config = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
+      },
+    };
+    const result = await buildMemoryRecall('quick brown fox', convId, config, { scopeId: 'project-a' });
+    const keys = result.topCandidates.map((c) => c.key);
+
+    // Segments and items from project-b should not appear
+    expect(keys).not.toContain('segment:seg-scope-b');
+    expect(keys).not.toContain('item:item-scope-b');
+
+    // At least one project-a candidate should appear
+    const hasProjectA = keys.some((k) => k.includes('scope-a'));
+    expect(hasProjectA).toBe(true);
+  });
+
+  test('scope filtering: allow_global_fallback includes default scope', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = 'conv-scope-fallback';
+
+    db.insert(conversations).values({
+      id: convId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-scope-fallback',
+      conversationId: convId,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'fallback test' }]),
+      createdAt: now,
+    }).run();
+
+    // Insert segment in default scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-default-scope', 'msg-scope-fallback', '${convId}', 'user', 0, 'Universal knowledge about programming languages and paradigms', 10, 'default', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-default-scope', 'Universal knowledge about programming languages and paradigms')`);
+
+    // Insert segment in custom scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-custom-scope', 'msg-scope-fallback', '${convId}', 'user', 1, 'Project-specific knowledge about programming languages and paradigms', 10, 'my-project', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-custom-scope', 'Project-specific knowledge about programming languages and paradigms')`);
+
+    // With allow_global_fallback (the default), querying with scopeId "my-project"
+    // should include both "my-project" and "default" scope items
+    const config = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
+      },
+    };
+    const result = await buildMemoryRecall('programming languages', convId, config, { scopeId: 'my-project' });
+    const keys = result.topCandidates.map((c) => c.key);
+
+    // Both default and custom scope segments should be included
+    expect(keys).toContain('segment:seg-default-scope');
+    expect(keys).toContain('segment:seg-custom-scope');
+  });
+
+  test('scope filtering: strict policy excludes default scope', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = 'conv-scope-strict';
+
+    db.insert(conversations).values({
+      id: convId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-scope-strict',
+      conversationId: convId,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'strict test' }]),
+      createdAt: now,
+    }).run();
+
+    // Insert segment in default scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-strict-default', 'msg-scope-strict', '${convId}', 'user', 0, 'Global memory about database optimization techniques', 8, 'default', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-strict-default', 'Global memory about database optimization techniques')`);
+
+    // Insert segment in custom scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-strict-custom', 'msg-scope-strict', '${convId}', 'user', 1, 'Project-specific memory about database optimization techniques', 8, 'strict-project', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-strict-custom', 'Project-specific memory about database optimization techniques')`);
+
+    // With strict policy, querying with scopeId should only include that scope
+    const strictConfig = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
+        retrieval: {
+          ...TEST_CONFIG.memory.retrieval,
+          scopePolicy: 'strict' as const,
+        },
+      },
+    };
+
+    const result = await buildMemoryRecall('database optimization', convId, strictConfig, { scopeId: 'strict-project' });
+    const keys = result.topCandidates.map((c) => c.key);
+
+    // Only strict-project scope segment should appear
+    expect(keys).not.toContain('segment:seg-strict-default');
+    expect(keys).toContain('segment:seg-strict-custom');
+  });
+
   test('scope columns: summaries default to scope_id=default', () => {
     const db = getDb();
     const now = Date.now();
