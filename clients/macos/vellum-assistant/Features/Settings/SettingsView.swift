@@ -18,6 +18,7 @@ public struct SettingsView: View {
     }()
     @State private var showingPrivacy = false
     @State private var showingSkills = false
+    @State private var skillsViewModel: SkillsSettingsViewModel?
     @State private var showingTrustRules = false
     @State private var activationKey: ActivationKey = {
         let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
@@ -202,10 +203,17 @@ public struct SettingsView: View {
                             showingSkills = true
                         }
                     }
-                    .sheet(isPresented: $showingSkills) {
-                        SkillsSettingsView(
-                            viewModel: SkillsSettingsViewModel(daemonClient: daemonClient)
-                        )
+                    .sheet(isPresented: $showingSkills, onDismiss: {
+                        skillsViewModel = nil
+                    }) {
+                        if let vm = skillsViewModel {
+                            SkillsSettingsView(viewModel: vm)
+                        }
+                    }
+                    .onChange(of: showingSkills) { _, isShowing in
+                        if isShowing && skillsViewModel == nil {
+                            skillsViewModel = SkillsSettingsViewModel(daemonClient: daemonClient)
+                        }
                     }
                 }
 
