@@ -194,6 +194,11 @@ export const MemoryRetrievalConfigSchema = z.object({
   injectionFormat: z
     .enum(['markdown', 'structured_v1'], { error: 'memory.retrieval.injectionFormat must be "markdown" or "structured_v1"' })
     .default('markdown'),
+  injectionStrategy: z
+    .enum(['prepend_user_block', 'separate_context_message'], {
+      error: 'memory.retrieval.injectionStrategy must be "prepend_user_block" or "separate_context_message"',
+    })
+    .default('prepend_user_block'),
   reranking: MemoryRerankingConfigSchema.default({
     enabled: true,
     model: 'claude-haiku-4-5-20251001',
@@ -282,6 +287,7 @@ export const MemoryConfigSchema = z.object({
     semanticTopK: 40,
     maxInjectTokens: 10000,
     injectionFormat: 'markdown',
+    injectionStrategy: 'prepend_user_block',
     reranking: {
       enabled: true,
       model: 'claude-haiku-4-5-20251001',
@@ -402,6 +408,7 @@ export const AssistantConfigSchema = z.object({
       semanticTopK: 40,
       maxInjectTokens: 10000,
       injectionFormat: 'markdown',
+      injectionStrategy: 'prepend_user_block',
       reranking: {
         enabled: true,
         model: 'claude-haiku-4-5-20251001',

@@ -40,6 +40,7 @@ import { getHookManager } from '../hooks/manager.js';
 import {
   buildMemoryRecall,
   injectMemoryRecallIntoUserMessage,
+  injectMemoryRecallAsSeparateMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
@@ -526,10 +527,15 @@ export class Session {
       if (recall.injectedText.length > 0) {
         const userTail = this.messages[this.messages.length - 1];
         if (userTail && userTail.role === 'user') {
-          runMessages = [
-            ...this.messages.slice(0, -1),
-            injectMemoryRecallIntoUserMessage(userTail, recall.injectedText),
-          ];
+          const strategy = runtimeConfig.memory.retrieval.injectionStrategy;
+          if (strategy === 'separate_context_message') {
+            runMessages = injectMemoryRecallAsSeparateMessage(this.messages, recall.injectedText);
+          } else {
+            runMessages = [
+              ...this.messages.slice(0, -1),
+              injectMemoryRecallIntoUserMessage(userTail, recall.injectedText),
+            ];
+          }
           onEvent({
             type: 'memory_recalled',
             provider: recall.provider ?? 'unknown',

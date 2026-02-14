@@ -58,6 +58,7 @@ import {
   formatAbsoluteTime,
   formatRelativeTime,
   injectMemoryRecallIntoUserMessage,
+  injectMemoryRecallAsSeparateMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
 import {
@@ -596,6 +597,70 @@ describe('Memory V2 regressions', () => {
       { type: 'text', text: 'Earlier user request' },
       { type: 'text', text: 'Latest user request' },
     ]);
+  });
+
+  test('separate_context_message injects memory as user+assistant pair before last user message', () => {
+    const history = [
+      { role: 'user' as const, content: [{ type: 'text', text: 'Hello' }] },
+      { role: 'assistant' as const, content: [{ type: 'text', text: 'Hi!' }] },
+      { role: 'user' as const, content: [{ type: 'text', text: 'Tell me about X' }] },
+    ];
+    const recallText = '<memory>Some recalled fact</memory>';
+    const result = injectMemoryRecallAsSeparateMessage(history, recallText);
+    // Should have 5 messages: original 2 + injected user + injected assistant ack + original last user
+    expect(result).toHaveLength(5);
+    expect(result[0]).toBe(history[0]);
+    expect(result[1]).toBe(history[1]);
+    // Injected context message
+    expect(result[2].role).toBe('user');
+    expect(result[2].content).toEqual([{ type: 'text', text: recallText }]);
+    // Assistant acknowledgment
+    expect(result[3].role).toBe('assistant');
+    expect(result[3].content).toEqual([{ type: 'text', text: '[Memory context loaded.]' }]);
+    // Original user message preserved unchanged
+    expect(result[4]).toBe(history[2]);
+  });
+
+  test('separate_context_message with empty text is a no-op', () => {
+    const history = [
+      { role: 'user' as const, content: [{ type: 'text', text: 'Hello' }] },
+    ];
+    const result = injectMemoryRecallAsSeparateMessage(history, '  ');
+    expect(result).toBe(history);
+  });
+
+  test('stripMemoryRecallMessages removes separate_context_message pair', () => {
+    const recallText = '<memory>Some recalled fact</memory>';
+    const messages = [
+      { role: 'user' as const, content: [{ type: 'text', text: 'Hello' }] },
+      { role: 'assistant' as const, content: [{ type: 'text', text: 'Hi!' }] },
+      // Injected context message pair
+      { role: 'user' as const, content: [{ type: 'text', text: recallText }] },
+      { role: 'assistant' as const, content: [{ type: 'text', text: '[Memory context loaded.]' }] },
+      // Real user message
+      { role: 'user' as const, content: [{ type: 'text', text: 'Tell me about X' }] },
+    ];
+    const cleaned = stripMemoryRecallMessages(messages, recallText);
+    expect(cleaned).toHaveLength(3);
+    expect(cleaned[0].content[0].text).toBe('Hello');
+    expect(cleaned[1].content[0].text).toBe('Hi!');
+    expect(cleaned[2].content[0].text).toBe('Tell me about X');
+  });
+
+  test('stripMemoryRecallMessages falls back to prepend_user_block when no separate pair found', () => {
+    const recallText = '<memory>Fact</memory>';
+    const messages = [
+      {
+        role: 'user' as const,
+        content: [
+          { type: 'text', text: recallText },
+          { type: 'text', text: 'User query' },
+        ],
+      },
+    ];
+    const cleaned = stripMemoryRecallMessages(messages, recallText);
+    expect(cleaned).toHaveLength(1);
+    expect(cleaned[0].content).toEqual([{ type: 'text', text: 'User query' }]);
   });
 
   test('aborting memory recall embedding returns a non-degraded aborted recall result', async () => {

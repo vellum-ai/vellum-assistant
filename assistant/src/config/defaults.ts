@@ -41,6 +41,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       semanticTopK: 40,
       maxInjectTokens: 10000,
       injectionFormat: 'markdown' as const,
+      injectionStrategy: 'prepend_user_block' as const,
       reranking: {
         enabled: true,
         model: 'claude-haiku-4-5-20251001',
