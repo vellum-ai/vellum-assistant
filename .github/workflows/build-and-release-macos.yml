@@ -211,8 +211,9 @@ jobs:
           # Extract the submission ID for log fetching
           SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
 
-          if [ "$NOTARIZE_FAILED" = "true" ]; then
-            echo "::error::Notarization failed"
+          # Check for failure: either the command failed or Apple rejected the submission
+          if [ "$NOTARIZE_FAILED" = "true" ] || echo "$NOTARIZE_OUTPUT" | grep -q "status: Invalid"; then
+            echo "::error::Notarization failed (status: Invalid or command error)"
             if [ -n "$SUBMISSION_ID" ]; then
               echo "Fetching notarization log for submission $SUBMISSION_ID..."
               xcrun notarytool log "$SUBMISSION_ID" \
@@ -224,11 +225,9 @@ jobs:
             exit 1
           fi
 
-          echo "Notarization succeeded"
+          echo "Notarization succeeded (status: Accepted)"
 
       - name: Staple notarization ticket
-        id: staple
-        continue-on-error: true
         run: |
           # Apple's CDN can take several minutes to propagate the ticket after notarization
           MAX_ATTEMPTS=15
@@ -327,7 +326,7 @@ jobs:
           echo "Appcast generated for $REPO"
 
       - name: Create GitHub Release on public repos
-        if: always() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           UPSTREAM_BODY: ${{ github.event.release.body }}
