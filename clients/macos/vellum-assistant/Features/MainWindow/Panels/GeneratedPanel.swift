@@ -246,60 +246,62 @@ struct GeneratedPanel: View {
     @State private var localApps: [AppItem] = []
     @State private var sharedApps: [SharedAppItem] = []
 
-    @MainActor private func fetchApps() {
+    private func fetchApps() {
         isLoading = true
         pendingResponses = 2
 
-        daemonClient.onAppsListResponse = { response in
-            self.localApps = response.apps
-            self.pendingResponses -= 1
-            if self.pendingResponses <= 0 {
-                self.buildDisplayItems()
-                self.isLoading = false
-            }
-        }
-
-        daemonClient.onSharedAppsListResponse = { response in
-            self.sharedApps = response.apps
-            self.pendingResponses -= 1
-            if self.pendingResponses <= 0 {
-                self.buildDisplayItems()
-                self.isLoading = false
-            }
-        }
-
-        // Handle daemon-side errors that arrive as generic `error` messages
-        // instead of typed responses — reset loading/bundling state so the UI
-        // never gets permanently stuck.
-        daemonClient.onError = { _ in
-            if self.isLoading {
+        Task { @MainActor in
+            daemonClient.onAppsListResponse = { response in
+                self.localApps = response.apps
                 self.pendingResponses -= 1
                 if self.pendingResponses <= 0 {
                     self.buildDisplayItems()
                     self.isLoading = false
                 }
             }
-            if self.isBundling {
-                self.isBundling = false
-                self.sharingAppId = nil
+
+            daemonClient.onSharedAppsListResponse = { response in
+                self.sharedApps = response.apps
+                self.pendingResponses -= 1
+                if self.pendingResponses <= 0 {
+                    self.buildDisplayItems()
+                    self.isLoading = false
+                }
             }
-        }
 
-        do {
-            try daemonClient.sendAppsList()
-        } catch {
-            pendingResponses -= 1
-        }
+            // Handle daemon-side errors that arrive as generic `error` messages
+            // instead of typed responses — reset loading/bundling state so the UI
+            // never gets permanently stuck.
+            daemonClient.onError = { _ in
+                if self.isLoading {
+                    self.pendingResponses -= 1
+                    if self.pendingResponses <= 0 {
+                        self.buildDisplayItems()
+                        self.isLoading = false
+                    }
+                }
+                if self.isBundling {
+                    self.isBundling = false
+                    self.sharingAppId = nil
+                }
+            }
 
-        do {
-            try daemonClient.sendSharedAppsList()
-        } catch {
-            pendingResponses -= 1
-        }
+            do {
+                try daemonClient.sendAppsList()
+            } catch {
+                pendingResponses -= 1
+            }
 
-        if pendingResponses <= 0 {
-            buildDisplayItems()
-            isLoading = false
+            do {
+                try daemonClient.sendSharedAppsList()
+            } catch {
+                pendingResponses -= 1
+            }
+
+            if pendingResponses <= 0 {
+                buildDisplayItems()
+                isLoading = false
+            }
         }
     }
 
@@ -343,23 +345,25 @@ struct GeneratedPanel: View {
 
     // MARK: - Bundle & Share
 
-    @MainActor private func bundleAndShare(appId: String, itemId: String) {
+    private func bundleAndShare(appId: String, itemId: String) {
         guard !isBundling else { return }
         sharingAppId = itemId
         isBundling = true
 
-        daemonClient.onBundleAppResponse = { response in
-            let url = URL(fileURLWithPath: response.bundlePath)
-            self.shareFileURL = url
-            self.isBundling = false
-            self.showShareSheet = true
-        }
+        Task { @MainActor in
+            daemonClient.onBundleAppResponse = { response in
+                let url = URL(fileURLWithPath: response.bundlePath)
+                self.shareFileURL = url
+                self.isBundling = false
+                self.showShareSheet = true
+            }
 
-        do {
-            try daemonClient.sendBundleApp(appId: appId)
-        } catch {
-            isBundling = false
-            sharingAppId = nil
+            do {
+                try daemonClient.sendBundleApp(appId: appId)
+            } catch {
+                isBundling = false
+                sharingAppId = nil
+            }
         }
     }
 
@@ -374,20 +378,22 @@ struct GeneratedPanel: View {
 
     // MARK: - Delete Shared App
 
-    @MainActor private func deleteSharedApp(_ item: DisplayAppItem) {
+    private func deleteSharedApp(_ item: DisplayAppItem) {
         guard let uuid = item.sharedUUID else { return }
 
-        daemonClient.onSharedAppDeleteResponse = { response in
-            if response.success {
-                self.sharedApps.removeAll { $0.uuid == uuid }
-                self.buildDisplayItems()
+        Task { @MainActor in
+            daemonClient.onSharedAppDeleteResponse = { response in
+                if response.success {
+                    self.sharedApps.removeAll { $0.uuid == uuid }
+                    self.buildDisplayItems()
+                }
             }
-        }
 
-        do {
-            try daemonClient.sendSharedAppDelete(uuid: uuid)
-        } catch {
-            // Silently fail
+            do {
+                try daemonClient.sendSharedAppDelete(uuid: uuid)
+            } catch {
+                // Silently fail
+            }
         }
     }
 
