@@ -217,8 +217,8 @@ jobs:
       - name: Staple notarization ticket
         run: |
           # Apple's CDN can take several minutes to propagate the ticket after notarization
-          MAX_ATTEMPTS=10
-          WAIT_SECS=30
+          MAX_ATTEMPTS=15
+          WAIT_SECS=60
           for i in $(seq 1 $MAX_ATTEMPTS); do
             if xcrun stapler staple "$DMG_PATH" 2>&1; then
               echo "Stapling succeeded on attempt $i"
