@@ -81,7 +81,7 @@ let package = Package(
         .executableTarget(
             name: "vellum-assistant-ios",
             dependencies: ["VellumAssistantShared"],
-            path: "macos/vellum-assistant-ios",
+            path: "ios",
             exclude: ["Resources/Info.plist"],
             resources: [
                 .process("Resources/Assets.xcassets")

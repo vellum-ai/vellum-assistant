@@ -8,10 +8,10 @@ This repository also includes an iOS app target (`vellum-assistant-ios`) that sh
 
 **Status:** Basic structure in place (PR 4 of 13). The iOS target requires xcodebuild with iOS SDK to build - it cannot be built with `swift build` on macOS due to UIKit dependencies.
 
-**Shared code:**
+**Code organization:**
 - `clients/shared/` — Shared library (IPC layer, chat models/ViewModels, design system)
-- `clients/macos/vellum-assistant/` — macOS-specific code (accessibility, CGEvent, computer-use)
-- `clients/macos/vellum-assistant-ios/` — iOS-specific code (UIKit app structure)
+- `clients/macos/` — macOS-specific code (accessibility, CGEvent, computer-use)
+- `clients/ios/` — iOS-specific code (UIKit app structure, SwiftUI views)
 
 ### Testing the iOS App
 
