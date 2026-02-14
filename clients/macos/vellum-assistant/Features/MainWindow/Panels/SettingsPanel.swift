@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 @MainActor
@@ -8,6 +9,7 @@ struct SettingsPanel: View {
 
     @State private var apiKeyText: String = ""
     @State private var hasKey: Bool = false
+    @State private var isTrustRulesSheetOpen: Bool = false
     @State private var braveKeyText: String = ""
     @State private var hasBraveKey: Bool = false
     @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
@@ -220,7 +222,7 @@ struct SettingsPanel: View {
                             VButton(label: "Manage...", style: .ghost) {
                                 daemonClient?.isTrustRulesSheetOpen = true
                             }
-                            .disabled(daemonClient?.isTrustRulesSheetOpen == true)
+                            .disabled(isTrustRulesSheetOpen)
                         }
                     }
                     .padding(VSpacing.lg)
@@ -253,10 +255,12 @@ struct SettingsPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             refreshAPIKeyState()
         }
-        .sheet(isPresented: Binding(
-            get: { daemonClient?.isTrustRulesSheetOpen ?? false },
-            set: { daemonClient?.isTrustRulesSheetOpen = $0 }
-        )) {
+        .onReceive(daemonClient?.objectWillChange.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
+            isTrustRulesSheetOpen = daemonClient?.isTrustRulesSheetOpen ?? false
+        }
+        .sheet(isPresented: $isTrustRulesSheetOpen, onDismiss: {
+            daemonClient?.isTrustRulesSheetOpen = false
+        }) {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
             }

@@ -1,8 +1,10 @@
+import Combine
 import SwiftUI
 
 public struct SettingsView: View {
     @State private var apiKeyText = ""
     @State private var hasKey = APIKeyManager.getKey() != nil
+    @State private var isTrustRulesSheetOpen = false
     @State private var braveKeyText = ""
     @State private var hasBraveKey = APIKeyManager.getKey(for: "brave") != nil
     @State private var maxSteps: Double = {
@@ -217,7 +219,7 @@ public struct SettingsView: View {
                         Button("Manage Trust Rules...") {
                             daemonClient.isTrustRulesSheetOpen = true
                         }
-                        .disabled(daemonClient.isTrustRulesSheetOpen)
+                        .disabled(isTrustRulesSheetOpen)
                     }
                 }
             }
@@ -253,10 +255,12 @@ public struct SettingsView: View {
                 SkillsSettingsView(viewModel: vm)
             }
         }
-        .sheet(isPresented: Binding(
-            get: { daemonClient?.isTrustRulesSheetOpen ?? false },
-            set: { daemonClient?.isTrustRulesSheetOpen = $0 }
-        )) {
+        .onReceive(daemonClient?.objectWillChange.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
+            isTrustRulesSheetOpen = daemonClient?.isTrustRulesSheetOpen ?? false
+        }
+        .sheet(isPresented: $isTrustRulesSheetOpen, onDismiss: {
+            daemonClient?.isTrustRulesSheetOpen = false
+        }) {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
             }
