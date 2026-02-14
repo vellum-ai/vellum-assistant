@@ -46,7 +46,7 @@ public struct VToast: View {
                 ]
             )
             #elseif os(iOS)
-            UIAccessibility.post(notification: .announcement, argument: message)
+            UIAccessibility.post(notification: .announcement, argument: "\(style): \(message)")
             #endif
         }
     }
