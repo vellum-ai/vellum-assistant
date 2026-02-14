@@ -303,6 +303,13 @@ exports[`IPC message snapshots ClientMessage types bundle_app serializes to expe
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types app_open_request serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "type": "app_open_request",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types apps_list serializes to expected JSON 1`] = `
 {
   "type": "apps_list",
