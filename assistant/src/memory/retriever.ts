@@ -68,6 +68,61 @@ interface MemoryRecallOptions {
   signal?: AbortSignal;
 }
 
+interface CollectedCandidates {
+  lexical: Candidate[];
+  recency: Candidate[];
+  semantic: Candidate[];
+  entity: Candidate[];
+  merged: Candidate[];
+}
+
+/**
+ * Shared retrieval pipeline: collect candidates from all available sources
+ * (lexical, recency, semantic, entity, direct item search) and merge them
+ * using RRF. Used by both `buildMemoryRecall()` (auto recall) and
+ * `searchMemoryItems()` (memory_search tool) for consistent behavior.
+ */
+async function collectAndMergeCandidates(
+  query: string,
+  config: AssistantConfig,
+  opts?: {
+    queryVector?: number[] | null;
+    provider?: string;
+    model?: string;
+    conversationId?: string;
+    excludeMessageIds?: string[];
+  },
+): Promise<CollectedCandidates> {
+  const queryVector = opts?.queryVector ?? null;
+  const excludeMessageIds = opts?.excludeMessageIds ?? [];
+
+  const lexical = lexicalSearch(query, config.memory.retrieval.lexicalTopK, excludeMessageIds);
+
+  const recency = opts?.conversationId
+    ? recencySearch(
+        opts.conversationId,
+        Math.max(10, Math.floor(config.memory.retrieval.semanticTopK / 2)),
+        excludeMessageIds,
+      )
+    : [];
+
+  const semantic = queryVector
+    ? await semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds)
+    : [];
+
+  let entity: Candidate[] = [];
+  if (config.memory.entity.enabled) {
+    entity = entitySearch(query);
+  }
+
+  // Direct item search supplements FTS with LIKE-based matching
+  const directItems = directItemSearch(query, Math.max(10, config.memory.retrieval.lexicalTopK));
+
+  const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems]);
+
+  return { lexical, recency, semantic, entity, merged };
+}
+
 export async function buildMemoryRecall(
   query: string,
   conversationId: string,
@@ -133,23 +188,15 @@ export async function buildMemoryRecall(
     });
   }
 
-  let lexicalCandidates: Candidate[] = [];
-  let recencyCandidates: Candidate[] = [];
-  let semanticCandidates: Candidate[] = [];
-  let entityCandidates: Candidate[] = [];
+  let collected: CollectedCandidates;
   try {
-    lexicalCandidates = lexicalSearch(query, config.memory.retrieval.lexicalTopK, excludeMessageIds);
-    recencyCandidates = recencySearch(
+    collected = await collectAndMergeCandidates(query, config, {
+      queryVector,
+      provider,
+      model,
       conversationId,
-      Math.max(10, Math.floor(config.memory.retrieval.semanticTopK / 2)),
       excludeMessageIds,
-    );
-    semanticCandidates = queryVector
-      ? await semanticSearch(queryVector, provider!, model!, config.memory.retrieval.semanticTopK, excludeMessageIds)
-      : [];
-    if (config.memory.entity.enabled) {
-      entityCandidates = entitySearch(query);
-    }
+    });
   } catch (err) {
     if (signal?.aborted || isAbortError(err)) {
       return emptyResult({
@@ -172,7 +219,8 @@ export async function buildMemoryRecall(
     });
   }
 
-  let merged = mergeCandidates(lexicalCandidates, semanticCandidates, recencyCandidates, entityCandidates);
+  const { lexical: lexicalCandidates, recency: recencyCandidates, semantic: semanticCandidates, entity: entityCandidates } = collected;
+  let merged = collected.merged;
 
   // LLM re-ranking: send top candidates to Haiku for relevance scoring
   const rerankingConfig = config.memory.retrieval.reranking;
@@ -1115,29 +1163,41 @@ export interface MemorySearchResult {
 }
 
 /**
- * Search memory items using lexical and entity search.
+ * Search memory items using the same unified retrieval pipeline as
+ * automatic recall: lexical, recency, semantic (when available), entity,
+ * and direct item search — merged via RRF.
  * Returns a simplified result set suitable for the memory_search tool.
- * Unlike buildMemoryRecall, this does not build injection text or manage
- * embedding-based semantic search — it is a lightweight, synchronous-safe
- * search for the agent's explicit memory tool use.
  */
-export function searchMemoryItems(
+export async function searchMemoryItems(
   query: string,
   limit: number,
-  config: { memory: { entity: { enabled: boolean } } },
-): MemorySearchResult[] {
+  config: AssistantConfig,
+): Promise<MemorySearchResult[]> {
   const trimmed = query.trim();
   if (trimmed.length === 0 || limit <= 0) return [];
 
-  const lexicalCandidates = lexicalSearch(trimmed, Math.max(limit * 2, 20));
-  const entityCandidates = config.memory.entity.enabled
-    ? entitySearch(trimmed)
-    : [];
+  // Compute embedding vector when available (same as auto recall)
+  let queryVector: number[] | null = null;
+  let provider: string | undefined;
+  let model: string | undefined;
+  const backendStatus = getMemoryBackendStatus(config);
+  if (backendStatus.provider) {
+    try {
+      const embedded = await embedWithBackend(config, [trimmed]);
+      queryVector = embedded.vectors[0] ?? null;
+      provider = embedded.provider;
+      model = embedded.model;
+    } catch {
+      // Gracefully degrade to non-semantic search
+    }
+  }
 
-  // Also search memory_items directly by subject/statement for better recall
-  const itemCandidates = directItemSearch(trimmed, Math.max(limit, 10));
+  const { merged } = await collectAndMergeCandidates(trimmed, config, {
+    queryVector,
+    provider,
+    model,
+  });
 
-  const merged = mergeCandidates(lexicalCandidates, [], [], [...entityCandidates, ...itemCandidates]);
   return merged.slice(0, limit).map((c) => ({
     id: c.id,
     type: c.type,
