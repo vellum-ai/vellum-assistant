@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 struct ToolCallChip: View {
     let toolCall: ToolCallData

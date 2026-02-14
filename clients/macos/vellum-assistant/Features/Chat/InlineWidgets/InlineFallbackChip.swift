@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Fallback view for unsupported inline surface types.
 struct InlineFallbackChip: View {

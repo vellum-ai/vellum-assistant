@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import os
+import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ToolConfirmationManager")
 

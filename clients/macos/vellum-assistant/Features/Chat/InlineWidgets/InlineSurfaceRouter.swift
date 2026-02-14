@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Routes an `InlineSurfaceData` to the correct inline widget view.
 struct InlineSurfaceRouter: View {

@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 import CoreGraphics
 import AppKit
 import os

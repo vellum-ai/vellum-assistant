@@ -6,7 +6,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 /// Protocol for daemon client communication, enabling dependency injection and testing.
 @MainActor
-protocol DaemonClientProtocol {
+public protocol DaemonClientProtocol {
     func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
 }
@@ -24,62 +24,62 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Published State
 
-    @Published var isConnected: Bool = false
+    @Published public var isConnected: Bool = false
 
     // MARK: - Surface Event Callbacks
 
     /// Called when the daemon sends a `ui_surface_show` message.
     /// Set by the app layer to forward to SurfaceManager without coupling DaemonClient to it.
-    var onSurfaceShow: ((UiSurfaceShowMessage) -> Void)?
+    public var onSurfaceShow: ((UiSurfaceShowMessage) -> Void)?
 
     /// Called when the daemon sends a `ui_surface_update` message.
-    var onSurfaceUpdate: ((UiSurfaceUpdateMessage) -> Void)?
+    public var onSurfaceUpdate: ((UiSurfaceUpdateMessage) -> Void)?
 
     /// Called when the daemon sends a `ui_surface_dismiss` message.
-    var onSurfaceDismiss: ((UiSurfaceDismissMessage) -> Void)?
+    public var onSurfaceDismiss: ((UiSurfaceDismissMessage) -> Void)?
 
     /// Called when the daemon sends an `app_data_response` message.
-    var onAppDataResponse: ((AppDataResponseMessage) -> Void)?
+    public var onAppDataResponse: ((AppDataResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `message_queued` message.
-    var onMessageQueued: ((MessageQueuedMessage) -> Void)?
+    public var onMessageQueued: ((MessageQueuedMessage) -> Void)?
 
     /// Called when the daemon sends a `message_dequeued` message.
-    var onMessageDequeued: ((MessageDequeuedMessage) -> Void)?
+    public var onMessageDequeued: ((MessageDequeuedMessage) -> Void)?
 
     /// Called when the daemon sends a `generation_handoff` message.
-    var onGenerationHandoff: ((GenerationHandoffMessage) -> Void)?
+    public var onGenerationHandoff: ((GenerationHandoffMessage) -> Void)?
 
     /// Called when the daemon sends a `confirmation_request` message for tool permission approval.
-    var onConfirmationRequest: ((ConfirmationRequestMessage) -> Void)?
+    public var onConfirmationRequest: ((ConfirmationRequestMessage) -> Void)?
 
     /// Called when the daemon sends a `task_routed` message (e.g. escalation from text_qa to CU).
-    var onTaskRouted: ((TaskRoutedMessage) -> Void)?
+    public var onTaskRouted: ((TaskRoutedMessage) -> Void)?
 
     /// Called when a pomodoro timer completes.
-    var onTimerCompleted: ((TimerCompletedMessage) -> Void)?
+    public var onTimerCompleted: ((TimerCompletedMessage) -> Void)?
 
     /// Called when the daemon sends a `trust_rules_list_response` message.
-    var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
+    public var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
 
     /// Called when the daemon sends a `skills_state_changed` push event.
-    var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
+    public var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
 
     /// Called when the daemon sends a `skills_updates_available` push event.
-    var onSkillsUpdatesAvailable: ((SkillsUpdatesAvailableMessage) -> Void)?
+    public var onSkillsUpdatesAvailable: ((SkillsUpdatesAvailableMessage) -> Void)?
 
     /// Called when the daemon sends a `skills_operation_response` message.
-    var onSkillsOperationResponse: ((SkillsOperationResponseMessage) -> Void)?
+    public var onSkillsOperationResponse: ((SkillsOperationResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `skills_inspect_response` message.
-    var onSkillsInspectResponse: ((SkillsInspectResponseMessage) -> Void)?
+    public var onSkillsInspectResponse: ((SkillsInspectResponseMessage) -> Void)?
 
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
     /// independently, enabling multiple consumers (ComputerUseSession, AmbientAgent) to
     /// filter for messages relevant to them without competing for elements.
-    func subscribe() -> AsyncStream<ServerMessage> {
+    public func subscribe() -> AsyncStream<ServerMessage> {
         let id = UUID()
         let (stream, continuation) = AsyncStream<ServerMessage>.makeStream()
         subscribers[id] = continuation
@@ -130,7 +130,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Init
 
-    init() {}
+    public init() {}
 
     deinit {
         // Cancel everything without triggering reconnect.
@@ -147,12 +147,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Socket Path
 
-    /// Resolves the daemon socket path:
+    /// Resolves the daemon socket path (macOS only):
     /// 1. `VELLUM_DAEMON_SOCKET` environment variable (or override dictionary)
     /// 2. `~/.vellum/vellum.sock`
     ///
     /// Accepts an optional environment dictionary for testability.
-    static func resolveSocketPath(environment: [String: String]? = nil) -> String {
+    #if os(macOS)
+    public static func resolveSocketPath(environment: [String: String]? = nil) -> String {
         let env = environment ?? ProcessInfo.processInfo.environment
         if let envPath = env["VELLUM_DAEMON_SOCKET"], !envPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let trimmed = envPath.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -163,23 +164,36 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
         return NSHomeDirectory() + "/.vellum/vellum.sock"
     }
+    #endif
 
     // MARK: - Connect
 
     /// How long to wait for a connection before giving up.
     private static let connectTimeout: TimeInterval = 5.0
 
-    /// Connect to the daemon socket. If already connected, disconnects first.
-    func connect() async throws {
+    /// Connect to the daemon. If already connected, disconnects first.
+    /// - macOS: Connects to Unix domain socket at `~/.vellum/vellum.sock`
+    /// - iOS: Connects to TCP endpoint (hostname from UserDefaults or localhost:8765)
+    public func connect() async throws {
         // Disconnect any existing connection without triggering reconnect.
         disconnectInternal(triggerReconnect: false)
 
         shouldReconnect = true
 
+        #if os(macOS)
         let socketPath = Self.resolveSocketPath()
         log.info("Connecting to daemon socket at \(socketPath)")
-
         let endpoint = NWEndpoint.unix(path: socketPath)
+        #elseif os(iOS)
+        let hostname = UserDefaults.standard.string(forKey: "daemon_hostname") ?? "localhost"
+        let port = UInt16(UserDefaults.standard.integer(forKey: "daemon_port") != 0 ? UserDefaults.standard.integer(forKey: "daemon_port") : 8765)
+        log.info("Connecting to daemon at \(hostname):\(port)")
+        let endpoint = NWEndpoint.hostPort(
+            host: NWEndpoint.Host(hostname),
+            port: NWEndpoint.Port(integerLiteral: port)
+        )
+        #endif
+
         let parameters = NWParameters()
         parameters.defaultProtocolStack.transportProtocol = NWProtocolTCP.Options()
 
@@ -276,7 +290,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Encodes the message as JSON, appends a newline, and writes to the connection.
     /// Throws `SendError.notConnected` when the connection is nil so callers can
     /// distinguish a silently-dropped message from a successful write.
-    func send<T: Encodable>(_ message: T) throws {
+    public func send<T: Encodable>(_ message: T) throws {
         guard let conn = connection else {
             log.warning("Cannot send: not connected")
             throw SendError.notConnected
@@ -296,7 +310,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Convenience method for sending a surface action response to the daemon.
     /// Keeps the IPC message construction co-located with the client.
-    func sendSurfaceAction(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
+    public func sendSurfaceAction(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
         let message = UiSurfaceActionMessage(
             sessionId: sessionId,
             surfaceId: surfaceId,
@@ -309,7 +323,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Confirmation Response
 
     /// Send a confirmation response for a tool permission request.
-    func sendConfirmationResponse(
+    public func sendConfirmationResponse(
         requestId: String,
         decision: String,
         selectedPattern: String? = nil,
@@ -326,7 +340,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Trust Rule Addition
 
     /// Send an add_trust_rule message to persist a trust rule on the daemon.
-    func sendAddTrustRule(
+    public func sendAddTrustRule(
         toolName: String,
         pattern: String,
         scope: String,
@@ -343,17 +357,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Trust Rule Management
 
     /// Request the list of all trust rules from the daemon.
-    func sendListTrustRules() throws {
+    public func sendListTrustRules() throws {
         try send(TrustRulesListMessage())
     }
 
     /// Remove a trust rule by its ID.
-    func sendRemoveTrustRule(id: String) throws {
+    public func sendRemoveTrustRule(id: String) throws {
         try send(RemoveTrustRuleMessage(id: id))
     }
 
     /// Update fields on an existing trust rule.
-    func sendUpdateTrustRule(
+    public func sendUpdateTrustRule(
         id: String,
         tool: String? = nil,
         pattern: String? = nil,
@@ -374,54 +388,54 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Skills Management
 
     /// Enable a skill by name.
-    func enableSkill(_ name: String) throws {
+    public func enableSkill(_ name: String) throws {
         try send(SkillsEnableMessage(name: name))
     }
 
     /// Disable a skill by name.
-    func disableSkill(_ name: String) throws {
+    public func disableSkill(_ name: String) throws {
         try send(SkillsDisableMessage(name: name))
     }
 
     /// Install a skill from ClaWHub.
-    func installSkill(slug: String, version: String? = nil) throws {
+    public func installSkill(slug: String, version: String? = nil) throws {
         try send(SkillsInstallMessage(slug: slug, version: version))
     }
 
     /// Uninstall a skill by name.
-    func uninstallSkill(_ name: String) throws {
+    public func uninstallSkill(_ name: String) throws {
         try send(SkillsUninstallMessage(name: name))
     }
 
     /// Update a skill to its latest version.
-    func updateSkill(_ name: String) throws {
+    public func updateSkill(_ name: String) throws {
         try send(SkillsUpdateMessage(name: name))
     }
 
     /// Check for available skill updates.
-    func checkSkillUpdates() throws {
+    public func checkSkillUpdates() throws {
         try send(SkillsCheckUpdatesMessage())
     }
 
     /// Search for skills on ClaWHub.
-    func searchSkills(query: String) throws {
+    public func searchSkills(query: String) throws {
         try send(SkillsSearchMessage(query: query))
     }
 
     /// Inspect a ClaWHub skill for detailed metadata.
-    func inspectSkill(slug: String) throws {
+    public func inspectSkill(slug: String) throws {
         try send(SkillsInspectMessage(slug: slug))
     }
 
     /// Configure a skill's environment, API key, or config.
-    func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) throws {
+    public func configureSkill(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) throws {
         try send(SkillsConfigureMessage(name: name, env: env, apiKey: apiKey, config: config))
     }
 
     // MARK: - Disconnect
 
     /// Disconnect from the daemon. Stops reconnect and ping timers.
-    func disconnect() {
+    public func disconnect() {
         disconnectInternal(triggerReconnect: false)
     }
 

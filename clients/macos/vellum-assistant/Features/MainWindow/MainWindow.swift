@@ -1,4 +1,5 @@
 import AppKit
+import VellumAssistantShared
 import SwiftUI
 
 @MainActor

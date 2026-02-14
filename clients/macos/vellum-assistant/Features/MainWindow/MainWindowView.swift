@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 import UniformTypeIdentifiers
 
 struct MainWindowView: View {

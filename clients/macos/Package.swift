@@ -4,12 +4,17 @@ import PackageDescription
 let package = Package(
     name: "vellum-assistant",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v14),
+        .iOS(.v17)
     ],
     products: [
         .library(
             name: "VellumAssistantLib",
             targets: ["VellumAssistantLib"]
+        ),
+        .library(
+            name: "VellumAssistantShared",
+            targets: ["VellumAssistantShared"]
         ),
         .executable(
             name: "vellum-assistant",
@@ -22,8 +27,17 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "VellumAssistantShared",
+            dependencies: [],
+            path: "vellum-assistant-shared",
+            resources: [.process("Resources")],
+            swiftSettings: [
+                .enableUpcomingFeature("BareSlashRegexLiterals")
+            ]
+        ),
+        .target(
             name: "VellumAssistantLib",
-            dependencies: ["HotKey", "Sparkle"],
+            dependencies: ["VellumAssistantShared", "HotKey", "Sparkle"],
             path: "vellum-assistant",
             exclude: ["Resources/Info.plist"],
             resources: [

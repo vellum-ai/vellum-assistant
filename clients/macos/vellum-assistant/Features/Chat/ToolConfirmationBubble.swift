@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 struct ToolConfirmationBubble: View {
     let confirmation: ToolConfirmationData
@@ -274,12 +275,12 @@ struct ToolConfirmationBubble: View {
                 riskLevel: "medium",
                 diff: nil,
                 allowlistOptions: [
-                    .init(label: "git push", description: "This exact command", pattern: "git push"),
-                    .init(label: "git *", description: "Any git command", pattern: "git *"),
+                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "git push", description: "This exact command", pattern: "git push"),
+                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "git *", description: "Any git command", pattern: "git *"),
                 ],
                 scopeOptions: [
-                    .init(label: "This project", scope: "/Users/test/project"),
-                    .init(label: "Everywhere", scope: "everywhere"),
+                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "This project", scope: "/Users/test/project"),
+                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "Everywhere", scope: "everywhere"),
                 ]
             ),
             onAllow: {},
@@ -314,7 +315,7 @@ struct ToolConfirmationBubble: View {
                     .init(label: "npm install", description: "This exact command", pattern: "npm install"),
                 ],
                 scopeOptions: [
-                    .init(label: "Everywhere", scope: "everywhere"),
+                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "Everywhere", scope: "everywhere"),
                 ],
                 state: .approved
             ),
