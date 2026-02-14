@@ -1,4 +1,3 @@
-import VellumAssistantShared
 #if DEBUG
 import SwiftUI
 

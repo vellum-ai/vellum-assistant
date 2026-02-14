@@ -3,6 +3,8 @@ import SwiftUI
 public struct HoverEffectModifier: ViewModifier {
     @State private var isHovered = false
 
+    public init() {}
+
     public func body(content: Content) -> some View {
         content
             .background(isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)

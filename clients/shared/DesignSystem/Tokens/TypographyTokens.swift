@@ -26,8 +26,16 @@ public enum VFont {
         ])
         return Font(NSFont(descriptor: descriptor, size: size) ?? nsFont)
         #elseif os(iOS)
-        // iOS: Use custom font without stylistic alternates (not as widely supported)
-        return Font.custom(name, size: size)
+        guard let uiFont = UIFont(name: name, size: size) else {
+            return Font.custom(name, size: size)
+        }
+        let descriptor = uiFont.fontDescriptor.addingAttributes([
+            .featureSettings: [[
+                UIFontDescriptor.FeatureKey.type: kStylisticAlternativesType,
+                UIFontDescriptor.FeatureKey.selector: kStylisticAltFiveOnSelector,
+            ]]
+        ])
+        return Font(UIFont(descriptor: descriptor, size: size))
         #endif
     }
     // MARK: - Onboarding (Silkscreen pixel font)
