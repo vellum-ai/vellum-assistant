@@ -61,6 +61,7 @@ struct TrustRulesView: View {
         }
         .frame(width: 600, height: 500)
         .onAppear {
+            daemonClient.isTrustRulesSheetOpen = true
             daemonClient.onTrustRulesListResponse = { items in
                 rules = items
                 isLoading = false
@@ -69,6 +70,7 @@ struct TrustRulesView: View {
         }
         .onDisappear {
             daemonClient.onTrustRulesListResponse = nil
+            daemonClient.isTrustRulesSheetOpen = false
         }
         .sheet(isPresented: $showingAddSheet) {
             TrustRuleFormView(daemonClient: daemonClient) {

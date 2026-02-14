@@ -11,6 +11,8 @@ struct SettingsPanel: View {
     @State private var apiKeyText: String = ""
     @State private var hasKey: Bool = false
     @State private var isTrustRulesSheetOpen: Bool = false
+    /// Tracks whether trust rules are open from any surface (synced from DaemonClient).
+    @State private var trustRulesOpenElsewhere: Bool = false
     @State private var braveKeyText: String = ""
     @State private var hasBraveKey: Bool = false
     @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
@@ -223,7 +225,7 @@ struct SettingsPanel: View {
                             VButton(label: "Manage...", style: .ghost) {
                                 isTrustRulesSheetOpen = true
                             }
-                            .disabled(isTrustRulesSheetOpen)
+                            .disabled(isTrustRulesSheetOpen || trustRulesOpenElsewhere)
                         }
                     }
                     .padding(VSpacing.lg)
@@ -260,6 +262,10 @@ struct SettingsPanel: View {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
             }
+        }
+        .onReceive(daemonClient?.$isTrustRulesSheetOpen.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { isOpen in
+            // Only track whether trust rules opened from another surface, not this one
+            trustRulesOpenElsewhere = isOpen && !isTrustRulesSheetOpen
         }
     }
 
