@@ -27,13 +27,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Check IPC generated code is up to date
-        run: |
-          bun run generate:ipc
-          git diff --exit-code ../clients/shared/IPC/Generated/ || {
-            echo "::error::Generated IPC Swift models are out of date. Run 'cd assistant && bun run generate:ipc' and commit the result."
-            exit 1
-          }
+      - name: Verify IPC generated code is up to date
+        run: bun run check:ipc-generated
+
+      - name: Verify IPC contract inventory is up to date
+        run: bun run ipc:inventory
 
       - name: Type check
         run: bunx tsc --noEmit
