@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 import { existsSync, chmodSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
-import { getSocketPath, getRootDir, removeSocketFile } from '../util/platform.js';
+import { getSocketPath, getRootDir, getSandboxWorkingDir, removeSocketFile } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
@@ -498,7 +498,7 @@ export class DaemonServer {
         if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
           provider = new RateLimitProvider(provider, rateLimit, this.sharedRequestTimestamps);
         }
-        const workingDir = process.cwd();
+        const workingDir = getSandboxWorkingDir();
 
         const systemPrompt = storedOptions?.systemPromptOverride ?? buildSystemPrompt();
         const maxTokens = storedOptions?.maxResponseTokens ?? config.maxTokens;
