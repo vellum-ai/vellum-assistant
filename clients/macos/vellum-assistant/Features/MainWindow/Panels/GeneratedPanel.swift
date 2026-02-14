@@ -374,7 +374,7 @@ struct GeneratedPanel: View {
 
     // MARK: - Delete Shared App
 
-    private func deleteSharedApp(_ item: DisplayAppItem) {
+    @MainActor private func deleteSharedApp(_ item: DisplayAppItem) {
         guard let uuid = item.sharedUUID else { return }
 
         daemonClient.onSharedAppDeleteResponse = { response in
