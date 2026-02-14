@@ -1,6 +1,6 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+import type { ToolDefinition, ImageContent } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { getLogger } from '../../util/logger.js';
 import {
@@ -350,6 +350,69 @@ class BrowserSnapshotTool implements Tool {
 }
 
 registerTool(new BrowserSnapshotTool());
+
+// ── browser_screenshot ───────────────────────────────────────────────
+
+async function executeBrowserScreenshot(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const fullPage = !!input.fullPage;
+
+  try {
+    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    const buffer = await page.screenshot({ type: 'jpeg', quality: 80, fullPage });
+    const base64Data = buffer.toString('base64');
+
+    const imageBlock: ImageContent = {
+      type: 'image' as const,
+      source: {
+        type: 'base64' as const,
+        media_type: 'image/jpeg',
+        data: base64Data,
+      },
+    };
+
+    return {
+      content: `Screenshot captured (${buffer.length} bytes, ${fullPage ? 'full page' : 'viewport'})`,
+      isError: false,
+      contentBlocks: [imageBlock],
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Screenshot failed');
+    return { content: `Error: Screenshot failed: ${msg}`, isError: true };
+  }
+}
+
+class BrowserScreenshotTool implements Tool {
+  name = 'browser_screenshot';
+  description = 'Take a visual screenshot of the current page. Returns a JPEG image.';
+  category = 'browser';
+  defaultRiskLevel = RiskLevel.Low;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          fullPage: {
+            type: 'boolean',
+            description: 'Capture the full scrollable page instead of just the viewport.',
+          },
+        },
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeBrowserScreenshot(input, context);
+  }
+}
+
+registerTool(new BrowserScreenshotTool());
 
 // ── browser_close ────────────────────────────────────────────────────
 
@@ -961,6 +1024,7 @@ registerTool(new BrowserDetectCaptchaTool());
 export {
   executeBrowserNavigate,
   executeBrowserSnapshot,
+  executeBrowserScreenshot,
   executeBrowserClose,
   executeBrowserClick,
   executeBrowserType,
