@@ -302,6 +302,13 @@ exports[`IPC message snapshots ClientMessage types apps_list serializes to expec
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types open_bundle serializes to expected JSON 1`] = `
+{
+  "filePath": "/tmp/My_App.vellumapp",
+  "type": "open_bundle",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types sign_bundle_payload_response serializes to expected JSON 1`] = `
 {
   "keyId": "abc123",
@@ -851,6 +858,35 @@ exports[`IPC message snapshots ServerMessage types apps_list_response serializes
     },
   ],
   "type": "apps_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types open_bundle_response serializes to expected JSON 1`] = `
+{
+  "bundleSizeBytes": 4096,
+  "manifest": {
+    "capabilities": [],
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "created_by": "vellum-assistant/0.1.6",
+    "description": "A test app",
+    "entry": "index.html",
+    "format_version": 1,
+    "name": "My App",
+  },
+  "scanResult": {
+    "blocked": [],
+    "passed": true,
+    "warnings": [
+      "Use of fetch() detected",
+    ],
+  },
+  "signatureResult": {
+    "signerAccount": "test@example.com",
+    "signerDisplayName": "Test Signer",
+    "signerKeyId": "key-001",
+    "trustTier": "signed",
+  },
+  "type": "open_bundle_response",
 }
 `;
 

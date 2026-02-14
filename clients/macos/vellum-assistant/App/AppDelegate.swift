@@ -1058,6 +1058,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - File Open Handler
+
+    public func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard url.pathExtension == "vellumapp" else { continue }
+            log.info("Opening .vellumapp file: \(url.path)")
+
+            guard daemonClient.isConnected else {
+                log.warning("Cannot open bundle: daemon not connected")
+                continue
+            }
+
+            do {
+                try daemonClient.sendOpenBundle(filePath: url.path)
+            } catch {
+                log.error("Failed to send open_bundle message: \(error.localizedDescription)")
+            }
+        }
+    }
+
     public func applicationWillTerminate(_ notification: Notification) {
         if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)

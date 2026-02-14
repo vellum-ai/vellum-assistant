@@ -220,6 +220,13 @@ struct BundleAppRequestMessage: Encodable, Sendable {
     let appId: String
 }
 
+/// Sent to open and scan a .vellumapp bundle.
+/// Wire type: `"open_bundle"`
+struct OpenBundleMessage: Encodable, Sendable {
+    let type: String = "open_bundle"
+    let filePath: String
+}
+
 /// Sent to request the list of available skills.
 /// Wire type: `"skills_list"`
 struct SkillsListRequestMessage: Encodable, Sendable {
@@ -813,6 +820,44 @@ struct UpdateTrustRuleMessage: Encodable, Sendable {
     let priority: Int?
 }
 
+/// Response from opening and scanning a .vellumapp bundle.
+/// Wire type: `"open_bundle_response"`
+struct OpenBundleResponseMessage: Decodable, Sendable {
+    struct Manifest: Decodable, Sendable {
+        let formatVersion: Int
+        let name: String
+        let description: String?
+        let icon: String?
+        let createdAt: String
+        let createdBy: String
+        let entry: String
+        let capabilities: [String]
+
+        private enum CodingKeys: String, CodingKey {
+            case formatVersion = "format_version"
+            case name, description, icon
+            case createdAt = "created_at"
+            case createdBy = "created_by"
+            case entry, capabilities
+        }
+    }
+    struct ScanResult: Decodable, Sendable {
+        let passed: Bool
+        let blocked: [String]
+        let warnings: [String]
+    }
+    struct SignatureResult: Decodable, Sendable {
+        let trustTier: String
+        let signerKeyId: String?
+        let signerDisplayName: String?
+        let signerAccount: String?
+    }
+    let manifest: Manifest
+    let scanResult: ScanResult
+    let signatureResult: SignatureResult
+    let bundleSizeBytes: Int
+}
+
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 enum ServerMessage: Decodable, Sendable {
@@ -849,6 +894,7 @@ enum ServerMessage: Decodable, Sendable {
     case trustRulesListResponse(TrustRulesListResponseMessage)
     case appsListResponse(AppsListResponseMessage)
     case bundleAppResponse(BundleAppResponseMessage)
+    case openBundleResponse(OpenBundleResponseMessage)
     case signBundlePayload(SignBundlePayloadMessage)
     case getSigningIdentity
     case pong
@@ -962,6 +1008,9 @@ enum ServerMessage: Decodable, Sendable {
         case "bundle_app_response":
             let message = try BundleAppResponseMessage(from: decoder)
             self = .bundleAppResponse(message)
+        case "open_bundle_response":
+            let message = try OpenBundleResponseMessage(from: decoder)
+            self = .openBundleResponse(message)
         case "sign_bundle_payload":
             let message = try SignBundlePayloadMessage(from: decoder)
             self = .signBundlePayload(message)

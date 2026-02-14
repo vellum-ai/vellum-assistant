@@ -41,6 +41,7 @@ import type {
   RemoveTrustRule,
   UpdateTrustRule,
   BundleAppRequest,
+  OpenBundleRequest,
 } from './ipc-protocol.js';
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -53,6 +54,7 @@ import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, lis
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
 import { packageApp } from '../bundler/app-bundler.js';
+import { handleOpenBundle } from './handlers/open-bundle-handler.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -326,6 +328,7 @@ const handlers: DispatchMap = {
   remove_trust_rule: handleRemoveTrustRule,
   update_trust_rule: handleUpdateTrustRule,
   bundle_app: handleBundleApp,
+  open_bundle: handleOpenBundle,
   apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
   sign_bundle_payload_response: (_msg, _socket, _ctx) => {
     // Handled by pending promise resolution in signing flow — no-op in dispatch

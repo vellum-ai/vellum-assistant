@@ -215,6 +215,44 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <true/>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.vellum.app-bundle</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+                <string>public.content</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>Vellum App Bundle</string>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>vellumapp</string>
+                </array>
+                <key>public.mime-type</key>
+                <string>application/x-vellumapp</string>
+            </dict>
+        </dict>
+    </array>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>vellumapp</string>
+            </array>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.vellum.app-bundle</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST
