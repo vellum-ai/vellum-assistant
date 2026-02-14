@@ -48,7 +48,7 @@ struct ChatView: View {
     }
 
     @State private var isDropTargeted = false
-    @State private var editorContentHeight: CGFloat = 28
+    @State private var editorContentHeight: CGFloat = 20
     @State private var editorWidth: CGFloat = 0
 
     var body: some View {
@@ -99,8 +99,9 @@ struct ChatView: View {
 
     /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
     private var composerReservedHeight: CGFloat {
-        let editorClamped = min(max(editorContentHeight, 28), 200)
-        let base: CGFloat = VSpacing.md * 2 + VSpacing.xs * 2 + editorClamped + 4
+        let editorClamped = min(max(editorContentHeight, 14), 200)
+        let contentHeight = max(editorClamped, 28)
+        let base: CGFloat = VSpacing.md * 2 + VSpacing.xs * 2 + contentHeight + 4
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 44
         let error: CGFloat = errorText != nil ? 36 : 0
         let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
@@ -129,8 +130,8 @@ struct ChatView: View {
         layoutManager.ensureLayout(for: container)
         let textHeight = layoutManager.usedRect(for: container).height
             + layoutManager.extraLineFragmentRect.height
-        // Add vertical padding matching the TextEditor's internal insets
-        let newHeight = textHeight + 16
+        // Tight fit — HStack .center alignment handles vertical centering
+        let newHeight = textHeight + 4
         withAnimation(VAnimation.spring) {
             editorContentHeight = newHeight
         }
@@ -392,6 +393,18 @@ struct ChatView: View {
             HStack(alignment: .center, spacing: VSpacing.sm) {
                 // Text editor with ghost text / placeholder overlay
                 ZStack(alignment: .topLeading) {
+                    // Placeholder — uses a matching TextEditor for pixel-perfect cursor alignment
+                    if inputText.isEmpty && ghostSuffix == nil {
+                        TextEditor(text: .constant("What would you like to do?"))
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textMuted)
+                            .lineSpacing(4)
+                            .scrollContentBackground(.hidden)
+                            .scrollDisabled(true)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+
                     TextEditor(text: $inputText)
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
@@ -400,18 +413,6 @@ struct ChatView: View {
                         .scrollDisabled(editorContentHeight <= 200)
                         .disabled(!hasAPIKey)
                         .accessibilityLabel("Message")
-
-                    // Placeholder
-                    if inputText.isEmpty && ghostSuffix == nil {
-                        Text("What would you like to do?")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textMuted)
-                            .lineSpacing(4)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 6)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
 
                     // Ghost text overlay
                     if let ghostSuffix {
@@ -439,7 +440,7 @@ struct ChatView: View {
                             .accessibilityHidden(true)
                     }
                 }
-                .frame(height: min(max(editorContentHeight, 28), 200))
+                .frame(height: min(max(editorContentHeight, 14), 200))
                 .clipped()
                 .background(
                     GeometryReader { geo in
