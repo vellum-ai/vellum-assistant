@@ -227,6 +227,7 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string): 
   const message = db
     .select({
       id: messages.id,
+      role: messages.role,
       content: messages.content,
       createdAt: messages.createdAt,
     })
@@ -250,6 +251,9 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string): 
 
   if (extracted.length === 0) return 0;
 
+  // Determine verification state from message role
+  const verificationState = message.role === 'user' ? 'user_reported' : 'assistant_inferred';
+
   let upserted = 0;
   for (const item of extracted) {
     const now = Date.now();
@@ -263,12 +267,18 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string): 
     let memoryItemId: string;
     if (existing) {
       memoryItemId = existing.id;
+      // Promote verification state if re-seen from a more trusted source
+      const promotedState =
+        existing.verificationState === 'assistant_inferred' && verificationState === 'user_reported'
+          ? 'user_reported'
+          : existing.verificationState;
       db.update(memoryItems)
         .set({
           status: 'active',
           confidence: Math.max(existing.confidence, item.confidence),
           importance: Math.max(existing.importance ?? 0, item.importance),
           lastSeenAt: Math.max(existing.lastSeenAt, seenAt),
+          verificationState: promotedState,
         })
         .where(eq(memoryItems.id, existing.id))
         .run();
@@ -283,6 +293,7 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string): 
         confidence: item.confidence,
         importance: item.importance,
         fingerprint: item.fingerprint,
+        verificationState,
         firstSeenAt: message.createdAt,
         lastSeenAt: seenAt,
         lastUsedAt: null,

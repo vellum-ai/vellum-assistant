@@ -99,6 +99,7 @@ export async function handleMemorySave(
           status: 'active',
           importance: 0.8,
           lastSeenAt: now,
+          verificationState: 'user_confirmed',
         })
         .where(eq(memoryItems.id, existing.id))
         .run();
@@ -119,6 +120,7 @@ export async function handleMemorySave(
       confidence: 0.95,     // explicit saves have high confidence
       importance: 0.8,       // explicit saves are high importance
       fingerprint,
+      verificationState: 'user_confirmed',
       firstSeenAt: now,
       lastSeenAt: now,
       lastUsedAt: null,
