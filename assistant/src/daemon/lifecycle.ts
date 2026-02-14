@@ -185,7 +185,7 @@ export async function runDaemon(): Promise<void> {
   initializeProviders(config);
   await initializeTools();
 
-  // Initialize Qdrant vector store
+  // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
   const qdrantUrl = process.env.QDRANT_URL?.trim() || config.memory.qdrant.url;
   const qdrantManager = new QdrantManager({
     url: qdrantUrl,
