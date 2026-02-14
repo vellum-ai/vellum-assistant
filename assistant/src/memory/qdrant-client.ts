@@ -252,6 +252,19 @@ export class VellumQdrantClient {
     return result.count;
   }
 
+  async deleteCollection(): Promise<boolean> {
+    try {
+      const exists = await this.client.collectionExists(this.collection);
+      if (!exists.exists) return false;
+      await this.client.deleteCollection(this.collection);
+      this.collectionReady = false;
+      return true;
+    } catch (err) {
+      log.warn({ err, collection: this.collection }, 'Failed to delete Qdrant collection');
+      return false;
+    }
+  }
+
   private async findByTarget(targetType: string, targetId: string): Promise<string | null> {
     try {
       const results = await this.client.scroll(this.collection, {
