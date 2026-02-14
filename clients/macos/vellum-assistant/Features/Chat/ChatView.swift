@@ -49,6 +49,7 @@ struct ChatView: View {
 
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 36
+    @State private var editorWidth: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -104,6 +105,34 @@ struct ChatView: View {
         let error: CGFloat = errorText != nil ? 36 : 0
         let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
         return base + attachments + error + queue
+    }
+
+    /// Measures text content height using NSLayoutManager for accurate TextEditor sizing.
+    private func recalculateEditorHeight() {
+        guard editorWidth > 0 else { return }
+        let text = inputText.isEmpty ? " " : inputText
+        let font = NSFont(name: "DMMono-Regular", size: 13)
+            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = 4
+        let storage = NSTextStorage(string: text, attributes: [
+            .font: font,
+            .paragraphStyle: style,
+        ])
+        let container = NSTextContainer(
+            size: NSSize(width: editorWidth, height: .greatestFiniteMagnitude)
+        )
+        container.lineFragmentPadding = 5
+        let layoutManager = NSLayoutManager()
+        layoutManager.addTextContainer(container)
+        storage.addLayoutManager(layoutManager)
+        layoutManager.ensureLayout(for: container)
+        let textHeight = layoutManager.usedRect(for: container).height
+        // Add vertical padding matching the TextEditor's internal insets
+        let newHeight = textHeight + 16
+        withAnimation(VAnimation.spring) {
+            editorContentHeight = newHeight
+        }
     }
 
     private var composerOverlay: some View {
@@ -363,23 +392,6 @@ struct ChatView: View {
             HStack(alignment: .bottom, spacing: VSpacing.sm) {
                 // Text editor with ghost text / placeholder overlay
                 ZStack(alignment: .topLeading) {
-                    // Sizing text — measures content height via GeometryReader.
-                    // fixedSize lets this text grow beyond the clamped ZStack frame
-                    // so ContentHeightKey always reflects true multiline content height.
-                    Text(inputText.isEmpty ? " " : inputText)
-                        .font(VFont.body)
-                        .lineSpacing(4)
-                        .foregroundColor(.clear)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 8)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityHidden(true)
-                        .background(
-                            GeometryReader { geo in
-                                Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
-                            }
-                        )
-
                     TextEditor(text: $inputText)
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
@@ -429,11 +441,15 @@ struct ChatView: View {
                 }
                 .frame(height: min(max(editorContentHeight, 36), 200))
                 .clipped()
-                .onPreferenceChange(ContentHeightKey.self) { height in
-                    withAnimation(VAnimation.spring) {
-                        editorContentHeight = height
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .onAppear { editorWidth = geo.size.width }
+                            .onChange(of: geo.size.width) { _, w in editorWidth = w }
                     }
-                }
+                )
+                .onChange(of: inputText) { _, _ in recalculateEditorHeight() }
+                .onChange(of: editorWidth) { _, _ in recalculateEditorHeight() }
                 .onKeyPress(.tab, phases: .down) { keyPress in
                     if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
                         onAcceptSuggestion()
@@ -648,15 +664,6 @@ struct ChatView: View {
             .foregroundColor(.white)
             .background(VColor.warning)
         }
-    }
-}
-
-// MARK: - Content Height Preference Key
-
-private struct ContentHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
     }
 }
 
