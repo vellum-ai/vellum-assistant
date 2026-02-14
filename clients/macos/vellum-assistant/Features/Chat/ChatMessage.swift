@@ -109,6 +109,12 @@ struct ChatAttachment: Identifiable {
     let thumbnailData: Data?
 }
 
+struct SkillInvocationData: Equatable {
+    let name: String
+    let emoji: String?
+    let description: String
+}
+
 struct ChatMessage: Identifiable {
     let id: UUID
     let role: ChatRole
@@ -118,11 +124,12 @@ struct ChatMessage: Identifiable {
     var status: ChatMessageStatus
     /// Non-nil when this message is an inline tool confirmation request.
     var confirmation: ToolConfirmationData?
+    var skillInvocation: SkillInvocationData?
     var attachments: [ChatAttachment]
     var toolCalls: [ToolCallData]
     var inlineSurfaces: [InlineSurfaceData]
 
-    init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = []) {
+    init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = []) {
         self.id = id
         self.role = role
         self.text = text
@@ -130,6 +137,7 @@ struct ChatMessage: Identifiable {
         self.isStreaming = isStreaming
         self.status = status
         self.confirmation = confirmation
+        self.skillInvocation = skillInvocation
         self.attachments = attachments
         self.toolCalls = toolCalls
         self.inlineSurfaces = inlineSurfaces

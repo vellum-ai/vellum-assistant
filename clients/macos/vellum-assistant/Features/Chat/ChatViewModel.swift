@@ -16,6 +16,7 @@ final class ChatViewModel: ObservableObject {
     @Published var suggestion: String?
     @Published var pendingAttachments: [ChatAttachment] = []
     @Published var isRecording: Bool = false
+    @Published var pendingSkillInvocation: SkillInvocationData?
 
     /// Maximum file size per attachment (20 MB).
     private static let maxFileSize = 20 * 1024 * 1024
@@ -203,7 +204,8 @@ final class ChatViewModel: ObservableObject {
         // Append user message immediately for responsive UX
         let willBeQueued = isSending && sessionId != nil
         let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
-        let userMessage = ChatMessage(role: .user, text: text, status: status, attachments: attachments)
+        let userMessage = ChatMessage(role: .user, text: text, status: status, skillInvocation: pendingSkillInvocation, attachments: attachments)
+        pendingSkillInvocation = nil
         messages.append(userMessage)
         // Only track in pendingMessageIds when the message will actually be
         // queued by the daemon (i.e. sent while another message is processing).
