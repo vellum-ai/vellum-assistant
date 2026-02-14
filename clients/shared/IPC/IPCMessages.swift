@@ -651,6 +651,7 @@ public struct GenerationCancelledMessage: Decodable, Sendable {
 }
 
 /// Notifies client that active generation yielded to queued work at a checkpoint.
+/// Backed by generated `IPCGenerationHandoff`.
 public typealias GenerationHandoffMessage = IPCGenerationHandoff
 
 extension IPCGenerationHandoff {
@@ -660,6 +661,7 @@ extension IPCGenerationHandoff {
 }
 
 /// Notifies client that a message has been queued for processing.
+/// Backed by generated `IPCMessageQueued`.
 public typealias MessageQueuedMessage = IPCMessageQueued
 
 extension IPCMessageQueued {
@@ -669,6 +671,7 @@ extension IPCMessageQueued {
 }
 
 /// Notifies client that a queued message has been dequeued and is now being processed.
+/// Backed by generated `IPCMessageDequeued`.
 public typealias MessageDequeuedMessage = IPCMessageDequeued
 
 extension IPCMessageDequeued {
@@ -895,24 +898,14 @@ public struct SkillsInspectResponseMessage: Decodable, Sendable {
 public typealias SessionListResponseMessage = IPCSessionListResponse
 
 /// Response containing message history for a session.
-/// Wire type: `"history_response"`
-public struct HistoryResponseMessage: Decodable, Sendable {
-    public let sessionId: String
-    public struct HistoryToolCallItem: Decodable, Sendable {
-        public let name: String
-        public let input: [String: AnyCodable]
-        public let result: String?
-        public let isError: Bool?
-        /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
-        public let imageData: String?
-    }
-    public struct HistoryMessageItem: Decodable, Sendable {
-        public let role: String
-        public let text: String
-        public let timestamp: Int
-        public let toolCalls: [HistoryToolCallItem]?
-    }
-    public let messages: [HistoryMessageItem]
+/// Backed by generated `IPCHistoryResponse`.
+public typealias HistoryResponseMessage = IPCHistoryResponse
+
+extension IPCHistoryResponse {
+    /// Backward-compatible alias for the nested message item type.
+    public typealias HistoryMessageItem = IPCHistoryResponseMessage
+    /// Backward-compatible alias for the nested tool call type.
+    public typealias HistoryToolCallItem = IPCHistoryResponseToolCall
 }
 
 /// A single trust rule item returned from the daemon.

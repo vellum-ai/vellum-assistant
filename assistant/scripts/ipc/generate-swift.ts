@@ -49,6 +49,12 @@ const SKIP_TYPES = new Set([
   'UiSurfaceShow',
   'UiSurfaceShowBase',
   'INTERACTIVE_SURFACE_TYPES',
+  // String-union types that need hand-written Swift enums
+  'SessionErrorCode',
+  'TraceEventKind',
+  // Uses SessionErrorCode and TraceEventKind which are hand-maintained enums
+  'SessionErrorMessage',
+  'TraceEvent',
 ]);
 
 // --- JSON Schema type definitions ---
