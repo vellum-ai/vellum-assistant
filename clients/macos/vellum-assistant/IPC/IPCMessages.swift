@@ -809,6 +809,8 @@ struct ToolResultMessage: Decodable, Sendable {
     let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
     let status: String?
     let sessionId: String?
+    /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
+    let imageData: String?
 }
 
 /// Follow-up suggestion response from daemon.
