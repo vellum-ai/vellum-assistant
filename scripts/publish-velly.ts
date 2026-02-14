@@ -78,8 +78,8 @@ try {
   releaseNotes = gitLog;
 }
 
-await $`gh release create ${tag} --title ${tag} --notes ${releaseNotes} --draft=false`;
-console.log(`Release ${tag} created and published successfully.`);
+await $`gh release create ${tag} --title ${tag} --notes ${releaseNotes}`;
+console.log(`Release ${tag} created successfully.`);
 
 if (process.env.GITHUB_OUTPUT) {
   appendFileSync(process.env.GITHUB_OUTPUT, "released=true\n");
