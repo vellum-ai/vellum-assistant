@@ -1,6 +1,6 @@
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
-import { relative, posix } from 'node:path';
+import { resolve, relative, posix } from 'node:path';
 import { ToolError } from '../../../util/errors.js';
 import { getLogger } from '../../../util/logger.js';
 import type { SandboxBackend, SandboxResult } from './types.js';
@@ -22,6 +22,14 @@ const DEFAULTS: Required<DockerConfig> = {
   pidsLimit: 256,
   network: 'none',
 };
+
+/**
+ * Characters that are dangerous if interpolated into shell commands.
+ * We validate paths contain none of these before using them in Docker args.
+ * Although we pass everything as argv segments (no shell), this provides
+ * defense-in-depth against injection if Docker's mount parser has quirks.
+ */
+const UNSAFE_PATH_CHARS = /[\x00\n\r]/;
 
 /**
  * Cache positive preflight results only, matching the bwrap pattern in native.ts.
@@ -70,7 +78,8 @@ function checkDockerDaemon(): void {
 function checkImageAvailable(image: string): void {
   if (imageAvailableCache.has(image)) return;
   try {
-    execSync(`docker image inspect ${image}`, { stdio: 'ignore', timeout: 10000 });
+    // Use execFileSync to avoid shell interpolation of the image name.
+    execFileSync('docker', ['image', 'inspect', image], { stdio: 'ignore', timeout: 10000 });
     imageAvailableCache.add(image);
   } catch {
     throw new ToolError(
@@ -83,15 +92,37 @@ function checkImageAvailable(image: string): void {
 function checkMountProbe(sandboxRoot: string): void {
   if (mountProbeCache.has(sandboxRoot)) return;
   try {
-    execSync(
-      `docker run --rm --mount type=bind,src=${sandboxRoot},dst=/workspace ubuntu:22.04 test -w /workspace`,
+    // Use execFileSync with argv segments to prevent shell interpolation
+    // of the sandbox root path (which may contain spaces or special chars).
+    execFileSync(
+      'docker',
+      [
+        'run', '--rm',
+        '--mount', `type=bind,src=${sandboxRoot},dst=/workspace`,
+        'ubuntu:22.04', 'test', '-w', '/workspace',
+      ],
       { stdio: 'ignore', timeout: 15000 },
     );
     mountProbeCache.add(sandboxRoot);
   } catch {
     throw new ToolError(
-      `Cannot bind-mount "${sandboxRoot}" into a Docker container or /workspace is not writable. ` +
+      'Cannot bind-mount the sandbox root into a Docker container or /workspace is not writable. ' +
       'If using Docker Desktop, enable file sharing for this path in Settings > Resources > File Sharing.',
+      'bash',
+    );
+  }
+}
+
+/**
+ * Validate that a path is safe to use in Docker mount arguments.
+ * Rejects paths containing null bytes, newlines, or carriage returns which
+ * could cause argument injection or parsing issues.
+ */
+function validatePathSafety(path: string, label: string): void {
+  if (UNSAFE_PATH_CHARS.test(path)) {
+    throw new ToolError(
+      `${label} contains characters that are unsafe for Docker mount arguments. ` +
+      'Refusing to execute. Remove null bytes, newlines, or carriage returns from the path.',
       'bash',
     );
   }
@@ -119,7 +150,11 @@ export class DockerBackend implements SandboxBackend {
     uid?: number,
     gid?: number,
   ) {
-    this.sandboxRoot = realpathSync(sandboxRoot);
+    // Resolve to an absolute path first, then follow symlinks.
+    // This prevents path traversal via ../.. or symlink tricks.
+    const resolved = resolve(sandboxRoot);
+    this.sandboxRoot = realpathSync(resolved);
+    validatePathSafety(this.sandboxRoot, 'Sandbox root');
     this.config = { ...DEFAULTS, ...config };
     this.uid = uid ?? process.getuid!();
     this.gid = gid ?? process.getgid!();
@@ -140,18 +175,21 @@ export class DockerBackend implements SandboxBackend {
     // Preflight: fail closed if Docker is not usable.
     this.preflight();
 
-    const realWorkDir = realpathSync(workingDir);
+    // Resolve + follow symlinks for the working directory.
+    const resolved = resolve(workingDir);
+    const realWorkDir = realpathSync(resolved);
     const realRoot = this.sandboxRoot;
+
+    // Validate path safety for mount/workdir args.
+    validatePathSafety(realWorkDir, 'Working directory');
 
     // Fail closed: working dir must be inside sandbox root.
     if (!realWorkDir.startsWith(realRoot + '/') && realWorkDir !== realRoot) {
       log.error(
-        'Working directory %s is outside sandbox root %s',
-        realWorkDir,
-        realRoot,
+        'Working directory is outside sandbox root — refusing to execute',
       );
       throw new ToolError(
-        `Working directory "${realWorkDir}" is outside the sandbox root "${realRoot}". Refusing to execute.`,
+        'Working directory is outside the sandbox root. Refusing to execute.',
         'bash',
       );
     }
@@ -163,6 +201,7 @@ export class DockerBackend implements SandboxBackend {
 
     const { image, cpus, memoryMb, pidsLimit, network } = this.config;
 
+    // Every flag is a separate argv segment — no shell interpolation occurs.
     const args: string[] = [
       'run',
       '--rm',
@@ -172,6 +211,10 @@ export class DockerBackend implements SandboxBackend {
       `--pids-limit=${pidsLimit}`,
       '--cap-drop=ALL',
       '--security-opt=no-new-privileges',
+      // Read-only container root prevents writes outside explicit mounts.
+      '--read-only',
+      // Writable tmpfs for /tmp — required for shell behavior, temp files, etc.
+      '--tmpfs', '/tmp:rw,nosuid,nodev,noexec',
       '--mount',
       `type=bind,src=${realRoot},dst=/workspace`,
       '--workdir',

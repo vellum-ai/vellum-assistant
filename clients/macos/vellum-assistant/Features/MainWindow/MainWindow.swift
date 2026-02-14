@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import VellumAssistantShared
 import SwiftUI
 
@@ -11,6 +12,10 @@ final class MainWindow {
     let threadManager: ThreadManager
     let traceStore = TraceStore()
     var onMicrophoneToggle: (() -> Void)?
+
+    /// Tracks daemon reconnects so trace state can be reset on stream restart.
+    private var connectionCancellable: AnyCancellable?
+    private var hasConnectedOnce = false
 
     /// Whether the main window is currently visible on screen.
     var isVisible: Bool {
@@ -32,6 +37,24 @@ final class MainWindow {
                 self?.traceStore.ingest(msg)
             }
         }
+        observeDaemonReconnects()
+    }
+
+    /// Reset trace state when the daemon reconnects after a disconnect.
+    /// The trace event stream is ephemeral; a reconnect means the daemon
+    /// restarted and any in-flight trace context is stale.
+    private func observeDaemonReconnects() {
+        connectionCancellable = daemonClient.$isConnected
+            .removeDuplicates()
+            .sink { [weak self] connected in
+                guard let self else { return }
+                if connected {
+                    if self.hasConnectedOnce {
+                        self.traceStore.resetAll()
+                    }
+                    self.hasConnectedOnce = true
+                }
+            }
     }
 
     func show() {

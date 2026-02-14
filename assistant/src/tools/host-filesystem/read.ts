@@ -1,9 +1,8 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { checkFileSizeOnDisk } from '../filesystem/size-guard.js';
+import { FileSystemOps } from '../shared/filesystem/file-ops-service.js';
+import { hostPolicy } from '../shared/filesystem/path-policy.js';
 
 class HostFileReadTool implements Tool {
   name = 'host_file_read';
@@ -42,47 +41,35 @@ class HostFileReadTool implements Tool {
       return { content: 'Error: path is required and must be a string', isError: true };
     }
 
-    if (!isAbsolute(rawPath)) {
-      return { content: `Error: path must be absolute for host file access: ${rawPath}`, isError: true };
+    const ops = new FileSystemOps(hostPolicy);
+
+    const result = ops.readFileSafe({
+      path: rawPath,
+      offset: typeof input.offset === 'number' ? input.offset : undefined,
+      limit: typeof input.limit === 'number' ? input.limit : undefined,
+    });
+
+    if (!result.ok) {
+      const { error } = result;
+      switch (error.code) {
+        case 'NOT_FOUND':
+          return { content: `Error: File not found: ${error.path}`, isError: true };
+        case 'NOT_A_FILE':
+          return { content: `Error: ${error.path} is not a regular file`, isError: true };
+        case 'IO_ERROR': {
+          const msg = error.message;
+          const hint = msg.includes('ENOENT') ? ' (file does not exist)'
+            : msg.includes('EACCES') ? ' (permission denied)'
+            : msg.includes('EISDIR') ? ' (path is a directory, not a file)'
+            : '';
+          return { content: `Error reading file "${rawPath}"${hint}: ${msg}`, isError: true };
+        }
+        default:
+          return { content: `Error: ${error.message}`, isError: true };
+      }
     }
-    const filePath = rawPath;
 
-    if (!existsSync(filePath)) {
-      return { content: `Error: File not found: ${filePath}`, isError: true };
-    }
-
-    const stat = statSync(filePath);
-    if (!stat.isFile()) {
-      return { content: `Error: ${filePath} is not a regular file`, isError: true };
-    }
-
-    const sizeError = checkFileSizeOnDisk(filePath);
-    if (sizeError) {
-      return { content: `Error: ${sizeError}`, isError: true };
-    }
-
-    try {
-      const content = readFileSync(filePath, 'utf-8');
-      const lines = content.split('\n');
-
-      const offset = (typeof input.offset === 'number' ? input.offset : 1) - 1;
-      const limit = typeof input.limit === 'number' ? input.limit : lines.length;
-      const selectedLines = lines.slice(Math.max(0, offset), offset + limit);
-
-      const numbered = selectedLines.map((line, i) => {
-        const lineNum = offset + i + 1;
-        return `${String(lineNum).padStart(6)}  ${line}`;
-      }).join('\n');
-
-      return { content: numbered, isError: false };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const hint = msg.includes('ENOENT') ? ' (file does not exist)'
-        : msg.includes('EACCES') ? ' (permission denied)'
-        : msg.includes('EISDIR') ? ' (path is a directory, not a file)'
-        : '';
-      return { content: `Error reading file "${input.path}"${hint}: ${msg}`, isError: true };
-    }
+    return { content: result.value.content, isError: false };
   }
 }
 

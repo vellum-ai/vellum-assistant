@@ -248,4 +248,194 @@ struct TraceStoreTests {
         #expect(store.llmCallCount(sessionId: "s1") == 0)
         #expect(store.llmCallCount(sessionId: "s2") == 1)
     }
+
+    // MARK: - Session Switching Shows Correct Traces
+
+    @Test @MainActor
+    func sessionSwitchingShowsCorrectTraces() {
+        let store = TraceStore()
+
+        // Populate two sessions with distinct events.
+        store.ingest(makeEvent(eventId: "s1-a", sessionId: "session-A", requestId: "rA", sequence: 1, kind: "request_started", summary: "Start A"))
+        store.ingest(makeEvent(eventId: "s1-b", sessionId: "session-A", requestId: "rA", sequence: 2, kind: "llm_call_finished", summary: "LLM A"))
+
+        store.ingest(makeEvent(eventId: "s2-a", sessionId: "session-B", requestId: "rB", sequence: 1, kind: "request_started", summary: "Start B"))
+        store.ingest(makeEvent(eventId: "s2-b", sessionId: "session-B", requestId: "rB", sequence: 2, kind: "tool_started", summary: "Tool B"))
+        store.ingest(makeEvent(eventId: "s2-c", sessionId: "session-B", requestId: "rB", sequence: 3, kind: "tool_failed", summary: "Fail B"))
+
+        // "Switch" to session-A — only its events are visible.
+        let eventsA = store.eventsBySession["session-A"] ?? []
+        #expect(eventsA.count == 2)
+        #expect(eventsA.allSatisfy { $0.sessionId == "session-A" })
+
+        // "Switch" to session-B — only its events are visible.
+        let eventsB = store.eventsBySession["session-B"] ?? []
+        #expect(eventsB.count == 3)
+        #expect(eventsB.allSatisfy { $0.sessionId == "session-B" })
+
+        // Metrics are scoped correctly.
+        #expect(store.llmCallCount(sessionId: "session-A") == 1)
+        #expect(store.llmCallCount(sessionId: "session-B") == 0)
+        #expect(store.toolFailureCount(sessionId: "session-A") == 0)
+        #expect(store.toolFailureCount(sessionId: "session-B") == 1)
+    }
+
+    // MARK: - No Cross-Session Trace Contamination
+
+    @Test @MainActor
+    func noCrossSessionContamination() {
+        let store = TraceStore()
+
+        // Session 1 events.
+        store.ingest(makeEvent(eventId: "e1", sessionId: "s1", requestId: "r1", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e2", sessionId: "s1", requestId: "r1", sequence: 2, kind: "llm_call_finished",
+                               attributes: ["inputTokens": 100, "outputTokens": 50]))
+
+        // Session 2 events.
+        store.ingest(makeEvent(eventId: "e3", sessionId: "s2", requestId: "r2", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e4", sessionId: "s2", requestId: "r2", sequence: 2, kind: "tool_failed"))
+
+        // Session 1 must not see session 2's events.
+        let grouped1 = store.eventsByRequest(sessionId: "s1")
+        #expect(grouped1.count == 1)
+        #expect(grouped1["r1"]?.count == 2)
+        #expect(grouped1["r2"] == nil)
+
+        // Session 2 must not see session 1's events.
+        let grouped2 = store.eventsByRequest(sessionId: "s2")
+        #expect(grouped2.count == 1)
+        #expect(grouped2["r2"]?.count == 2)
+        #expect(grouped2["r1"] == nil)
+
+        // Adding more events to one session does not affect the other.
+        store.ingest(makeEvent(eventId: "e5", sessionId: "s1", requestId: "r1", sequence: 3, kind: "request_finished"))
+        #expect(store.eventsBySession["s1"]?.count == 3)
+        #expect(store.eventsBySession["s2"]?.count == 2)
+    }
+
+    // MARK: - Cancellation Terminal Event
+
+    @Test @MainActor
+    func cancellationTerminalEvent() {
+        let store = TraceStore()
+
+        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "llm_call_started"))
+        store.ingest(makeEvent(eventId: "e3", requestId: "r1", sequence: 3, kind: "request_cancelled", summary: "Cancelled by user"))
+
+        let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
+        #expect(status == .cancelled)
+    }
+
+    // MARK: - Error Terminal Event
+
+    @Test @MainActor
+    func errorTerminalEvent() {
+        let store = TraceStore()
+
+        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "llm_call_started"))
+        store.ingest(makeEvent(eventId: "e3", requestId: "r1", sequence: 3, kind: "request_failed", status: "error", summary: "API error"))
+
+        let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
+        #expect(status == .error)
+    }
+
+    // MARK: - Completed Terminal Event
+
+    @Test @MainActor
+    func completedTerminalEvent() {
+        let store = TraceStore()
+
+        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "request_finished"))
+
+        let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
+        #expect(status == .completed)
+    }
+
+    // MARK: - Active Request Group (no terminal event)
+
+    @Test @MainActor
+    func activeRequestGroup() {
+        let store = TraceStore()
+
+        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "llm_call_started"))
+
+        let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
+        #expect(status == .active)
+    }
+
+    // MARK: - Error Status Fallback
+
+    @Test @MainActor
+    func errorStatusFallback() {
+        let store = TraceStore()
+
+        // No terminal kind event, but an event with status "error".
+        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "tool_failed", status: "error", summary: "tool crashed"))
+
+        let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
+        #expect(status == .error)
+    }
+
+    // MARK: - Unknown Request Group Returns Active
+
+    @Test @MainActor
+    func unknownRequestGroupReturnsActive() {
+        let store = TraceStore()
+        let status = store.requestGroupStatus(sessionId: "nonexistent", requestId: "r1")
+        #expect(status == .active)
+    }
+
+    // MARK: - Daemon Reconnect Resets Trace State
+
+    @Test @MainActor
+    func daemonReconnectResetsTraceState() {
+        let store = TraceStore()
+
+        // Populate with events from two sessions.
+        store.ingest(makeEvent(eventId: "e1", sessionId: "s1", sequence: 1))
+        store.ingest(makeEvent(eventId: "e2", sessionId: "s2", sequence: 1))
+        #expect(store.eventsBySession.count == 2)
+
+        // Simulate daemon reconnect by calling resetAll().
+        store.resetAll()
+
+        #expect(store.eventsBySession.isEmpty)
+
+        // New events can be ingested after reset, even with the same eventIds
+        // (dedup state was also cleared).
+        store.ingest(makeEvent(eventId: "e1", sessionId: "s1", sequence: 1, summary: "post-reset"))
+        #expect(store.eventsBySession["s1"]?.count == 1)
+        #expect(store.eventsBySession["s1"]?.first?.summary == "post-reset")
+    }
+
+    // MARK: - Historical Traces Retained Per Session
+
+    @Test @MainActor
+    func historicalTracesRetainedPerSession() {
+        let store = TraceStore()
+
+        // Build up events across multiple sessions.
+        for i in 0..<10 {
+            store.ingest(makeEvent(eventId: "s1-\(i)", sessionId: "s1", requestId: "r1", sequence: i))
+            store.ingest(makeEvent(eventId: "s2-\(i)", sessionId: "s2", requestId: "r2", sequence: i))
+            store.ingest(makeEvent(eventId: "s3-\(i)", sessionId: "s3", requestId: "r3", sequence: i))
+        }
+
+        // All three sessions' traces are retained simultaneously.
+        #expect(store.eventsBySession.count == 3)
+        #expect(store.eventsBySession["s1"]?.count == 10)
+        #expect(store.eventsBySession["s2"]?.count == 10)
+        #expect(store.eventsBySession["s3"]?.count == 10)
+
+        // Resetting one session preserves the others.
+        store.resetSession(sessionId: "s2")
+        #expect(store.eventsBySession.count == 2)
+        #expect(store.eventsBySession["s1"]?.count == 10)
+        #expect(store.eventsBySession["s3"]?.count == 10)
+    }
 }

@@ -548,6 +548,7 @@ extension IPCCuError {
 }
 
 /// Streamed text delta from the assistant's response.
+/// Backed by generated `IPCAssistantTextDelta`.
 public typealias AssistantTextDeltaMessage = IPCAssistantTextDelta
 
 extension IPCAssistantTextDelta {
@@ -566,6 +567,7 @@ extension IPCAssistantThinkingDelta {
 }
 
 /// Signals that the assistant's message is complete.
+/// Backed by generated `IPCMessageComplete`.
 public typealias MessageCompleteMessage = IPCMessageComplete
 
 extension IPCMessageComplete {
@@ -575,6 +577,7 @@ extension IPCMessageComplete {
 }
 
 /// Session metadata from the server (e.g. generated title).
+/// Backed by generated `IPCSessionInfo`.
 public typealias SessionInfoMessage = IPCSessionInfo
 
 extension IPCSessionInfo {
@@ -675,6 +678,7 @@ extension IPCMessageDequeued {
 }
 
 /// Server-level error message.
+/// Backed by generated `IPCErrorMessage`.
 public typealias ErrorMessage = IPCErrorMessage
 
 extension IPCErrorMessage {
@@ -887,15 +891,8 @@ public struct SkillsInspectResponseMessage: Decodable, Sendable {
 }
 
 /// Response containing the list of past sessions.
-/// Wire type: `"session_list_response"`
-public struct SessionListResponseMessage: Decodable, Sendable {
-    public struct SessionItem: Decodable, Sendable {
-        public let id: String
-        public let title: String
-        public let updatedAt: Int
-    }
-    public let sessions: [SessionItem]
-}
+/// Backed by generated `IPCSessionListResponse`.
+public typealias SessionListResponseMessage = IPCSessionListResponse
 
 /// Response containing message history for a session.
 /// Wire type: `"history_response"`
@@ -1276,23 +1273,6 @@ public struct OpenBundleResponseMessage: Decodable, Sendable {
     public let bundleSizeBytes: Int
 }
 
-/// Typed session-level error from the daemon.
-/// Wire type: `"session_error"`
-public struct SessionErrorMessagePayload: Decodable, Sendable {
-    public let sessionId: String
-    public let code: SessionErrorCode
-    public let userMessage: String
-    public let retryable: Bool
-    public let debugDetails: String?
-
-    public init(sessionId: String, code: SessionErrorCode, userMessage: String, retryable: Bool, debugDetails: String? = nil) {
-        self.sessionId = sessionId
-        self.code = code
-        self.userMessage = userMessage
-        self.retryable = retryable
-        self.debugDetails = debugDetails
-    }
-}
 
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
@@ -1300,7 +1280,7 @@ public enum ServerMessage: Decodable, Sendable {
     case cuAction(CuActionMessage)
     case cuComplete(CuCompleteMessage)
     case cuError(CuErrorMessage)
-    case sessionError(SessionErrorMessagePayload)
+    case sessionError(SessionErrorMessage)
     case assistantTextDelta(AssistantTextDeltaMessage)
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
@@ -1363,7 +1343,7 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try CuErrorMessage(from: decoder)
             self = .cuError(message)
         case "session_error":
-            let message = try SessionErrorMessagePayload(from: decoder)
+            let message = try SessionErrorMessage(from: decoder)
             self = .sessionError(message)
         case "assistant_text_delta":
             let message = try AssistantTextDeltaMessage(from: decoder)

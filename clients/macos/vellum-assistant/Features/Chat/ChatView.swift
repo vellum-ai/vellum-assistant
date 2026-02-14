@@ -100,7 +100,8 @@ struct ChatView: View {
     private var composerReservedHeight: CGFloat {
         let editorClamped = min(max(editorContentHeight, 14), 200)
         let contentHeight = max(editorClamped, 28)
-        let base: CGFloat = VSpacing.md * 2 + VSpacing.sm * 2 + contentHeight + 4
+        // text area + button row (28pt) + button top padding (xs) + outer padding
+        let base: CGFloat = VSpacing.md * 2 + VSpacing.sm * 2 + contentHeight + 28 + VSpacing.xs
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 44
         let error: CGFloat = errorText != nil ? 36 : 0
         let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
@@ -358,51 +359,64 @@ struct ChatView: View {
                 attachmentStrip
             }
 
-            HStack(alignment: .center, spacing: VSpacing.sm) {
-                // Scrollable text input — TextField centers text natively;
-                // ScrollView adds scrolling when content exceeds 200pt.
+            // Scrollable text input area
+            ZStack(alignment: .bottom) {
                 ScrollView(.vertical, showsIndicators: false) {
                     ZStack(alignment: .leading) {
-                        TextField("What would you like to do?", text: $inputText, axis: .vertical)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                            .lineSpacing(4)
-                            .textFieldStyle(.plain)
-                            .lineLimit(1...)
-                            .disabled(!hasAPIKey)
-                            .accessibilityLabel("Message")
-                            .background(
-                                GeometryReader { geo in
-                                    Color.clear
-                                        .onAppear { editorContentHeight = geo.size.height }
-                                        .onChange(of: geo.size.height) { _, h in
-                                            withAnimation(VAnimation.spring) {
-                                                editorContentHeight = h
-                                            }
-                                        }
-                                }
-                            )
-
-                        // Ghost text overlay — shows the suggested suffix so users
-                        // know what Tab will insert.
-                        if let ghostSuffix {
-                            Text(inputText + ghostSuffix)
+                        if ghostSuffix != nil {
+                            TextField("", text: $inputText, axis: .vertical)
                                 .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
                                 .lineSpacing(4)
-                                .foregroundColor(.clear)
+                                .textFieldStyle(.plain)
                                 .lineLimit(1...)
-                                .overlay(alignment: .leading) {
-                                    HStack(spacing: 0) {
-                                        Text(inputText)
-                                            .font(VFont.body)
-                                            .lineSpacing(4)
-                                            .foregroundColor(.clear)
-                                        Text(ghostSuffix)
-                                            .font(VFont.body)
-                                            .lineSpacing(4)
-                                            .foregroundColor(VColor.textMuted.opacity(0.5))
+                                .disabled(!hasAPIKey)
+                                .accessibilityLabel("Message")
+                                .background(
+                                    GeometryReader { geo in
+                                        Color.clear
+                                            .onAppear { editorContentHeight = geo.size.height }
+                                            .onChange(of: geo.size.height) { _, h in
+                                                withAnimation(VAnimation.spring) {
+                                                    editorContentHeight = h
+                                                }
+                                            }
                                     }
-                                }
+                                )
+                        } else {
+                            TextField("What would you like to do?", text: $inputText, axis: .vertical)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
+                                .lineSpacing(4)
+                                .textFieldStyle(.plain)
+                                .lineLimit(1...)
+                                .disabled(!hasAPIKey)
+                                .accessibilityLabel("Message")
+                                .background(
+                                    GeometryReader { geo in
+                                        Color.clear
+                                            .onAppear { editorContentHeight = geo.size.height }
+                                            .onChange(of: geo.size.height) { _, h in
+                                                withAnimation(VAnimation.spring) {
+                                                    editorContentHeight = h
+                                                }
+                                            }
+                                    }
+                                )
+                        }
+
+                        if let ghostSuffix {
+                            (Text(inputText)
+                                .font(VFont.body)
+                                .foregroundColor(.clear)
+                            + Text(ghostSuffix)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textMuted.opacity(0.5)))
+                                .lineSpacing(4)
+                                .lineLimit(1...)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxHeight: min(max(editorContentHeight, 28), 200), alignment: .topLeading)
+                                .clipped()
                                 .allowsHitTesting(false)
                                 .accessibilityHidden(true)
                         }
@@ -411,35 +425,47 @@ struct ChatView: View {
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 .frame(height: min(max(editorContentHeight, 28), 200))
-                .onKeyPress(.tab, phases: .down) { keyPress in
-                    if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
-                        onAcceptSuggestion()
-                        return .handled
-                    }
-                    return .ignored
-                }
-                .onKeyPress(.return, phases: .down) { keyPress in
-                    // Only intercept bare Return (no modifiers); any modifier
-                    // (Shift, Cmd, Option, Ctrl) inserts a newline.
-                    guard keyPress.modifiers.isEmpty else { return .ignored }
-                    // Strip any trailing newline inserted before this handler fired.
-                    inputText = inputText.replacingOccurrences(
-                        of: "\\n$", with: "", options: .regularExpression
+
+                // Fade at bottom of text area when content is scrollable
+                if editorContentHeight > 60 {
+                    LinearGradient(
+                        colors: [VColor.surface.opacity(0), VColor.surface],
+                        startPoint: .top,
+                        endPoint: .bottom
                     )
-                    if canSend {
-                        onSend()
-                    }
+                    .frame(height: 20)
+                    .allowsHitTesting(false)
+                }
+            }
+            .onKeyPress(.tab, phases: .down) { keyPress in
+                if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
+                    onAcceptSuggestion()
                     return .handled
                 }
-                .onKeyPress(characters: CharacterSet(charactersIn: "v"), phases: .down) { keyPress in
-                    if keyPress.modifiers.contains(.command) {
-                        onPaste()
-                        return .ignored
-                    }
+                return .ignored
+            }
+            .onKeyPress(.return, phases: .down) { keyPress in
+                guard keyPress.modifiers.isEmpty else { return .ignored }
+                inputText = inputText.replacingOccurrences(
+                    of: "\\n$", with: "", options: .regularExpression
+                )
+                if canSend {
+                    onSend()
+                }
+                return .handled
+            }
+            .onKeyPress(characters: CharacterSet(charactersIn: "v"), phases: .down) { keyPress in
+                if keyPress.modifiers.contains(.command) {
+                    onPaste()
                     return .ignored
                 }
+                return .ignored
+            }
 
-                // Action buttons — bottom-aligned, consistent 28pt height
+            // Bottom action row — pinned below text area like ChatGPT
+            HStack(spacing: VSpacing.sm) {
+                Spacer()
+
                 if isSending {
                     Button(action: onStop) {
                         ZStack {
@@ -455,7 +481,6 @@ struct ChatView: View {
                     .frame(height: 28)
                     .accessibilityLabel("Stop generation")
                 } else {
-                    // Send button (when text present) or Mic button
                     if canSend {
                         Button(action: onSend) {
                             ZStack {
@@ -490,6 +515,7 @@ struct ChatView: View {
                 }
             }
             .animation(VAnimation.spring, value: canSend)
+            .padding(.top, VSpacing.xs)
         }
         .padding(.vertical, VSpacing.sm)
         .padding(.leading, VSpacing.xl)

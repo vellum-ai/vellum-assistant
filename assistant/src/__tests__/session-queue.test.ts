@@ -35,6 +35,8 @@ mock.module('../config/loader.js', () => ({
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     apiKeys: {},
+    skills: { entries: {}, allowBundled: true },
+    memory: { retrieval: { injectionStrategy: 'inline' } },
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
@@ -43,6 +45,23 @@ mock.module('../config/loader.js', () => ({
 
 mock.module('../config/system-prompt.js', () => ({
   buildSystemPrompt: () => 'system prompt',
+}));
+
+mock.module('../config/skills.js', () => ({
+  loadSkillCatalog: () => [],
+  loadSkillBySelector: () => ({ skill: null }),
+  ensureSkillIcon: async () => null,
+}));
+
+mock.module('../config/skill-state.js', () => ({
+  resolveSkillStates: () => [],
+}));
+
+mock.module('../skills/slash-commands.js', () => ({
+  buildInvocableSlashCatalog: () => new Map(),
+  resolveSlashSkillCommand: () => ({ kind: 'not_slash' }),
+  rewriteKnownSlashCommandPrompt: () => '',
+  parseSlashCandidate: () => ({ kind: 'not_slash' }),
 }));
 
 mock.module('../permissions/trust-store.js', () => ({

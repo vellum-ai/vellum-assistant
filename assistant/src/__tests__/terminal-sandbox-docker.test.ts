@@ -3,10 +3,14 @@ import { realpathSync, mkdirSync, existsSync } from 'node:fs';
 import * as realChildProcess from 'node:child_process';
 
 const execSyncMock = mock((_command: string, _opts?: unknown): unknown => undefined);
+const execFileSyncMock = mock(
+  (_file: string, _args?: readonly string[], _opts?: unknown): unknown => undefined,
+);
 
 mock.module('node:child_process', () => ({
   ...realChildProcess,
   execSync: execSyncMock,
+  execFileSync: execFileSyncMock,
 }));
 
 mock.module('../util/logger.js', () => ({
@@ -29,8 +33,10 @@ const sandboxRoot = realpathSync('/tmp');
 beforeEach(() => {
   _resetDockerChecks();
   execSyncMock.mockReset();
+  execFileSyncMock.mockReset();
   // Default: all preflight checks pass.
   execSyncMock.mockImplementation(() => undefined);
+  execFileSyncMock.mockImplementation(() => undefined);
 });
 
 describe('DockerBackend — argument construction', () => {
@@ -112,6 +118,38 @@ describe('DockerBackend — argument construction', () => {
   });
 });
 
+describe('DockerBackend — read-only root and tmpfs', () => {
+  test('sets --read-only flag for container root filesystem', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot);
+    expect(result.args).toContain('--read-only');
+  });
+
+  test('mounts writable tmpfs at /tmp', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot);
+    expect(result.args).toContain('--tmpfs');
+    const tmpfsIdx = result.args.indexOf('--tmpfs');
+    expect(result.args[tmpfsIdx + 1]).toBe('/tmp:rw,nosuid,nodev,noexec');
+  });
+
+  test('--read-only appears before image name', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot);
+    const readOnlyIdx = result.args.indexOf('--read-only');
+    const imageIdx = result.args.indexOf('ubuntu:22.04');
+    expect(readOnlyIdx).toBeLessThan(imageIdx);
+  });
+
+  test('--tmpfs appears before image name', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot);
+    const tmpfsIdx = result.args.indexOf('--tmpfs');
+    const imageIdx = result.args.indexOf('ubuntu:22.04');
+    expect(tmpfsIdx).toBeLessThan(imageIdx);
+  });
+});
+
 describe('DockerBackend — path mapping', () => {
   test('maps sandbox root to /workspace workdir', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
@@ -141,6 +179,133 @@ describe('DockerBackend — fail-closed on escape', () => {
     expect(() => backend.wrap('ls', outsideDir)).toThrow(
       'outside the sandbox root',
     );
+  });
+
+  test('error message does not leak host working directory path', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const outsideDir = realpathSync('/var');
+    try {
+      backend.wrap('ls', outsideDir);
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ToolError);
+      // Should NOT contain the actual host paths
+      expect((err as Error).message).not.toContain(outsideDir);
+      expect((err as Error).message).not.toContain(sandboxRoot);
+    }
+  });
+
+  test('rejects path traversal via ../ in working directory', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const subDir = `${sandboxRoot}/docker-sandbox-test-sub`;
+    if (!existsSync(subDir)) {
+      mkdirSync(subDir, { recursive: true });
+    }
+    // ../../var should resolve outside sandbox root
+    const traversalDir = `${subDir}/../../var`;
+    expect(() => backend.wrap('ls', traversalDir)).toThrow(ToolError);
+    expect(() => backend.wrap('ls', traversalDir)).toThrow(
+      'outside the sandbox root',
+    );
+  });
+});
+
+describe('DockerBackend — special characters in paths', () => {
+  test('handles spaces in sandbox root path', () => {
+    const dirWithSpaces = `${sandboxRoot}/docker sandbox test spaces`;
+    if (!existsSync(dirWithSpaces)) {
+      mkdirSync(dirWithSpaces, { recursive: true });
+    }
+    const backend = new DockerBackend(dirWithSpaces, undefined, 1000, 1000);
+    const result = backend.wrap('ls', dirWithSpaces);
+    // Args are separate argv segments, so spaces are safe
+    expect(result.args).toContain('--mount');
+    const mountIdx = result.args.indexOf('--mount');
+    expect(result.args[mountIdx + 1]).toContain(dirWithSpaces);
+    expect(result.sandboxed).toBe(true);
+  });
+
+  test('handles quotes in working directory name', () => {
+    const dirWithQuotes = `${sandboxRoot}/docker'sandbox"test`;
+    if (!existsSync(dirWithQuotes)) {
+      mkdirSync(dirWithQuotes, { recursive: true });
+    }
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', dirWithQuotes);
+    const wdIdx = result.args.indexOf('--workdir');
+    expect(result.args[wdIdx + 1]).toContain("docker'sandbox\"test");
+    expect(result.sandboxed).toBe(true);
+  });
+
+  test('handles dollar signs and backticks in paths', () => {
+    const dirWithShellChars = `${sandboxRoot}/docker$sandbox\`test`;
+    if (!existsSync(dirWithShellChars)) {
+      mkdirSync(dirWithShellChars, { recursive: true });
+    }
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', dirWithShellChars);
+    // Because we use argv segments (not shell interpolation), these are safe
+    expect(result.sandboxed).toBe(true);
+  });
+});
+
+describe('DockerBackend — argv segment safety', () => {
+  test('all args are discrete strings — no shell metacharacters are interpreted', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('echo $(whoami)', sandboxRoot);
+    // The command is passed as a single argv element after '--'
+    const dashDashIdx = result.args.indexOf('--');
+    expect(dashDashIdx).toBeGreaterThan(0);
+    expect(result.args[dashDashIdx + 1]).toBe('echo $(whoami)');
+    // The command itself is a single string, not split by the shell
+    expect(result.args.filter((a: string) => a === '$(whoami)').length).toBe(0);
+  });
+
+  test('every arg is a string type', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls -la', sandboxRoot);
+    for (const arg of result.args) {
+      expect(typeof arg).toBe('string');
+    }
+  });
+
+  test('no arg contains unintended shell operators', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot);
+    // None of the docker flag args (before the image) should contain ; | && etc.
+    const imageIdx = result.args.indexOf('ubuntu:22.04');
+    const flagArgs = result.args.slice(0, imageIdx);
+    for (const arg of flagArgs) {
+      expect(arg).not.toContain(';');
+      expect(arg).not.toContain('|');
+      expect(arg).not.toContain('&&');
+    }
+  });
+});
+
+describe('DockerBackend — UID:GID mapping', () => {
+  test('always includes --user flag with UID:GID', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 501, 20);
+    const result = backend.wrap('ls', sandboxRoot);
+    expect(result.args).toContain('--user');
+    const userIdx = result.args.indexOf('--user');
+    expect(result.args[userIdx + 1]).toBe('501:20');
+  });
+
+  test('defaults to process UID:GID when not specified', () => {
+    const backend = new DockerBackend(sandboxRoot);
+    const result = backend.wrap('ls', sandboxRoot);
+    expect(result.args).toContain('--user');
+    const userIdx = result.args.indexOf('--user');
+    const expected = `${process.getuid!()}:${process.getgid!()}`;
+    expect(result.args[userIdx + 1]).toBe(expected);
+  });
+
+  test('UID:GID format is always numeric colon-separated', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 0, 0);
+    const result = backend.wrap('ls', sandboxRoot);
+    const userIdx = result.args.indexOf('--user');
+    expect(result.args[userIdx + 1]).toMatch(/^\d+:\d+$/);
   });
 });
 
@@ -241,12 +406,19 @@ describe('DockerBackend — preflight: Docker daemon check', () => {
 
 describe('DockerBackend — preflight: image availability check', () => {
   test('throws ToolError with pull hint when image is missing', () => {
-    execSyncMock.mockImplementation((cmd: string) => {
-      if (typeof cmd === 'string' && cmd.includes('docker image inspect')) {
-        throw new Error('No such image');
-      }
-      return undefined;
-    });
+    // Image check now uses execFileSync instead of execSync.
+    execFileSyncMock.mockImplementation(
+      (file: string, args?: readonly string[]) => {
+        if (
+          file === 'docker' &&
+          Array.isArray(args) &&
+          args.includes('inspect')
+        ) {
+          throw new Error('No such image');
+        }
+        return undefined;
+      },
+    );
 
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     expect(() => backend.wrap('ls', sandboxRoot)).toThrow(ToolError);
@@ -256,12 +428,18 @@ describe('DockerBackend — preflight: image availability check', () => {
   });
 
   test('includes image name in error message', () => {
-    execSyncMock.mockImplementation((cmd: string) => {
-      if (typeof cmd === 'string' && cmd.includes('docker image inspect')) {
-        throw new Error('No such image');
-      }
-      return undefined;
-    });
+    execFileSyncMock.mockImplementation(
+      (file: string, args?: readonly string[]) => {
+        if (
+          file === 'docker' &&
+          Array.isArray(args) &&
+          args.includes('inspect')
+        ) {
+          throw new Error('No such image');
+        }
+        return undefined;
+      },
+    );
 
     const backend = new DockerBackend(
       sandboxRoot,
@@ -278,14 +456,35 @@ describe('DockerBackend — preflight: image availability check', () => {
     }
   });
 
+  test('uses execFileSync (not execSync) for image check — no shell interpolation', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    backend.wrap('ls', sandboxRoot);
+
+    // execFileSync should have been called with 'docker' and argv array
+    const imageCalls = execFileSyncMock.mock.calls.filter(
+      (args) =>
+        args[0] === 'docker' &&
+        Array.isArray(args[1]) &&
+        (args[1] as string[]).includes('inspect'),
+    );
+    expect(imageCalls.length).toBe(1);
+    // Verify the image name is a separate argv element, not interpolated into a string
+    const argv = imageCalls[0]![1] as string[];
+    expect(argv).toContain('image');
+    expect(argv).toContain('inspect');
+    expect(argv).toContain('ubuntu:22.04');
+  });
+
   test('caches successful image check per image', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     backend.wrap('ls', sandboxRoot);
     backend.wrap('ls', sandboxRoot);
 
-    const inspectCalls = execSyncMock.mock.calls.filter(
+    const inspectCalls = execFileSyncMock.mock.calls.filter(
       (args) =>
-        typeof args[0] === 'string' && args[0].includes('docker image inspect'),
+        args[0] === 'docker' &&
+        Array.isArray(args[1]) &&
+        (args[1] as string[]).includes('inspect'),
     );
     expect(inspectCalls.length).toBe(1);
   });
@@ -293,12 +492,19 @@ describe('DockerBackend — preflight: image availability check', () => {
 
 describe('DockerBackend — preflight: mount probe', () => {
   test('throws ToolError with file sharing hint when mount fails', () => {
-    execSyncMock.mockImplementation((cmd: string) => {
-      if (typeof cmd === 'string' && cmd.includes('docker run --rm')) {
-        throw new Error('mount failed');
-      }
-      return undefined;
-    });
+    // Mount probe now uses execFileSync.
+    execFileSyncMock.mockImplementation(
+      (file: string, args?: readonly string[]) => {
+        if (
+          file === 'docker' &&
+          Array.isArray(args) &&
+          args.includes('run')
+        ) {
+          throw new Error('mount failed');
+        }
+        return undefined;
+      },
+    );
 
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     expect(() => backend.wrap('ls', sandboxRoot)).toThrow(ToolError);
@@ -307,13 +513,19 @@ describe('DockerBackend — preflight: mount probe', () => {
     );
   });
 
-  test('includes sandbox root path in error message', () => {
-    execSyncMock.mockImplementation((cmd: string) => {
-      if (typeof cmd === 'string' && cmd.includes('docker run --rm')) {
-        throw new Error('mount failed');
-      }
-      return undefined;
-    });
+  test('mount probe error does not leak host sandbox root path', () => {
+    execFileSyncMock.mockImplementation(
+      (file: string, args?: readonly string[]) => {
+        if (
+          file === 'docker' &&
+          Array.isArray(args) &&
+          args.includes('run')
+        ) {
+          throw new Error('mount failed');
+        }
+        return undefined;
+      },
+    );
 
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     try {
@@ -321,8 +533,26 @@ describe('DockerBackend — preflight: mount probe', () => {
       throw new Error('should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(ToolError);
-      expect((err as Error).message).toContain(sandboxRoot);
+      // Error message should be generic, not revealing the host path
+      expect((err as Error).message).not.toContain(sandboxRoot);
     }
+  });
+
+  test('uses execFileSync (not execSync) for mount probe — no shell interpolation', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    backend.wrap('ls', sandboxRoot);
+
+    const mountCalls = execFileSyncMock.mock.calls.filter(
+      (args) =>
+        args[0] === 'docker' &&
+        Array.isArray(args[1]) &&
+        (args[1] as string[]).includes('run'),
+    );
+    expect(mountCalls.length).toBe(1);
+    // Verify mount arg is passed as a single argv element
+    const argv = mountCalls[0]![1] as string[];
+    expect(argv).toContain('--rm');
+    expect(argv).toContain('--mount');
   });
 
   test('caches successful mount probe per sandbox root', () => {
@@ -330,9 +560,11 @@ describe('DockerBackend — preflight: mount probe', () => {
     backend.wrap('ls', sandboxRoot);
     backend.wrap('ls', sandboxRoot);
 
-    const mountCalls = execSyncMock.mock.calls.filter(
+    const mountCalls = execFileSyncMock.mock.calls.filter(
       (args) =>
-        typeof args[0] === 'string' && args[0].includes('docker run --rm'),
+        args[0] === 'docker' &&
+        Array.isArray(args[1]) &&
+        (args[1] as string[]).includes('run'),
     );
     expect(mountCalls.length).toBe(1);
   });
@@ -370,6 +602,14 @@ describe('DockerBackend — preflight check order', () => {
       }
       return undefined;
     });
+    execFileSyncMock.mockImplementation(
+      (file: string) => {
+        if (file === 'docker') {
+          throw new Error('docker unavailable');
+        }
+        return undefined;
+      },
+    );
 
     // Should still succeed — all checks are cached.
     const result = backend.wrap('ls', sandboxRoot);
@@ -422,5 +662,39 @@ describe('DockerBackend — no unsandboxed fallback', () => {
       expect(err).toBeInstanceOf(ToolError);
     }
     expect(threw).toBe(true);
+  });
+});
+
+describe('DockerBackend — complete hardening profile verification', () => {
+  test('all security flags are present in correct order before image', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot);
+    const imageIdx = result.args.indexOf('ubuntu:22.04');
+
+    // All of these must appear before the image name
+    const securityFlags = [
+      '--network=none',
+      '--cap-drop=ALL',
+      '--security-opt=no-new-privileges',
+      '--read-only',
+    ];
+    for (const flag of securityFlags) {
+      const idx = result.args.indexOf(flag);
+      expect(idx).toBeGreaterThan(-1);
+      expect(idx).toBeLessThan(imageIdx);
+    }
+  });
+
+  test('resource limits are all applied', () => {
+    const backend = new DockerBackend(
+      sandboxRoot,
+      { cpus: 1, memoryMb: 256, pidsLimit: 64 },
+      1000,
+      1000,
+    );
+    const result = backend.wrap('ls', sandboxRoot);
+    expect(result.args).toContain('--cpus=1');
+    expect(result.args).toContain('--memory=256m');
+    expect(result.args).toContain('--pids-limit=64');
   });
 });
