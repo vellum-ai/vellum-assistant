@@ -35,7 +35,7 @@ export function createTelegramWebhookHandler(
     }
 
     // Verify webhook secret
-    if (!verifyWebhookSecret(req.headers, config.telegramWebhookSecret)) {
+    if (!config.telegramWebhookSecret || !verifyWebhookSecret(req.headers, config.telegramWebhookSecret)) {
       log.warn("Telegram webhook request failed secret verification");
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }

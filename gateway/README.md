@@ -26,8 +26,8 @@ bun run dev
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Yes | — | Bot token from @BotFather |
-| `TELEGRAM_WEBHOOK_SECRET` | Yes | — | Secret for verifying webhook requests |
+| `TELEGRAM_BOT_TOKEN` | No | — | Bot token from @BotFather (Telegram disabled when unset) |
+| `TELEGRAM_WEBHOOK_SECRET` | No | — | Secret for verifying webhook requests (Telegram disabled when unset) |
 | `TELEGRAM_API_BASE_URL` | No | `https://api.telegram.org` | Override Telegram API base URL |
 | `ASSISTANT_RUNTIME_BASE_URL` | Yes | — | Base URL of the assistant runtime HTTP server |
 | `GATEWAY_ASSISTANT_ROUTING_JSON` | No | `{}` | JSON mapping of Telegram identities to assistant IDs |

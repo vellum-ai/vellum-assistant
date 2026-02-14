@@ -14,21 +14,25 @@ function main() {
 
   const config = loadConfig();
 
-  const handleTelegramWebhook = createTelegramWebhookHandler(
-    config,
-    async (chatId, result) => {
-      const content = result.runtimeResponse?.assistantMessage?.content;
-      if (!content) {
-        return;
-      }
+  const telegramConfigured = !!(config.telegramBotToken && config.telegramWebhookSecret);
 
-      try {
-        await sendTelegramReply(config, chatId, content);
-      } catch (err) {
-        log.error({ err, chatId }, "Failed to send Telegram reply");
-      }
-    },
-  );
+  const handleTelegramWebhook = telegramConfigured
+    ? createTelegramWebhookHandler(
+        config,
+        async (chatId, result) => {
+          const content = result.runtimeResponse?.assistantMessage?.content;
+          if (!content) {
+            return;
+          }
+
+          try {
+            await sendTelegramReply(config, chatId, content);
+          } catch (err) {
+            log.error({ err, chatId }, "Failed to send Telegram reply");
+          }
+        },
+      )
+    : null;
 
   const handleRuntimeProxy = config.runtimeProxyEnabled
     ? createRuntimeProxyHandler(config)
@@ -51,6 +55,12 @@ function main() {
       }
 
       if (url.pathname === "/webhooks/telegram") {
+        if (!handleTelegramWebhook) {
+          return Response.json(
+            { error: "Telegram integration not configured" },
+            { status: 503 },
+          );
+        }
         return handleTelegramWebhook(req);
       }
 
@@ -64,12 +74,13 @@ function main() {
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
 
-  // Register bot commands with Telegram (fire-and-forget)
-  callTelegramApi(config, "setMyCommands", {
-    commands: [{ command: "new", description: "Start a new conversation" }],
-  }).catch((err) => {
-    log.error({ err }, "Failed to register Telegram bot commands");
-  });
+  if (telegramConfigured) {
+    callTelegramApi(config, "setMyCommands", {
+      commands: [{ command: "new", description: "Start a new conversation" }],
+    }).catch((err) => {
+      log.error({ err }, "Failed to register Telegram bot commands");
+    });
+  }
 
   const drainMs = config.shutdownDrainMs;
 

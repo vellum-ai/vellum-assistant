@@ -9,8 +9,8 @@ export type RoutingEntry = {
 };
 
 export type GatewayConfig = {
-  telegramBotToken: string;
-  telegramWebhookSecret: string;
+  telegramBotToken: string | undefined;
+  telegramWebhookSecret: string | undefined;
   telegramApiBaseUrl: string;
   assistantRuntimeBaseUrl: string;
   routingEntries: RoutingEntry[];
@@ -60,14 +60,13 @@ function parseRoutingJson(raw: string): RoutingEntry[] {
 }
 
 export function loadConfig(): GatewayConfig {
-  const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!telegramBotToken) {
-    throw new Error("TELEGRAM_BOT_TOKEN is required");
-  }
+  const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || undefined;
+  const telegramWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET || undefined;
 
-  const telegramWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (!telegramWebhookSecret) {
-    throw new Error("TELEGRAM_WEBHOOK_SECRET is required");
+  if (!telegramBotToken || !telegramWebhookSecret) {
+    log.warn(
+      "TELEGRAM_BOT_TOKEN and/or TELEGRAM_WEBHOOK_SECRET not set — Telegram integration disabled",
+    );
   }
 
   const telegramApiBaseUrl =
