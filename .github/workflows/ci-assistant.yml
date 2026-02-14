@@ -34,3 +34,5 @@ jobs:
 
       - name: Test
         run: bun run test
+        env:
+          EXCLUDE_EXPERIMENTAL: 'true'

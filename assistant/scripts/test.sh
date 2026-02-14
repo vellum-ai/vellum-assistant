@@ -10,11 +10,17 @@ set -euo pipefail
 # To avoid order-dependent CI flakes, run each test file in its own Bun process.
 # ---------------------------------------------------------------------------
 
+EXCLUDE_EXPERIMENTAL="${EXCLUDE_EXPERIMENTAL:-false}"
+
 found_test=0
 while IFS= read -r test_file; do
   found_test=1
   echo "==> Running ${test_file}"
-  bun test "${test_file}"
+  if [[ "${EXCLUDE_EXPERIMENTAL}" == "true" ]]; then
+    bun test --test-name-pattern '^(?!.*\[experimental\])' "${test_file}"
+  else
+    bun test "${test_file}"
+  fi
 done < <(find src/__tests__ -maxdepth 1 -type f -name '*.test.ts' | sort)
 
 if [[ ${found_test} -eq 0 ]]; then

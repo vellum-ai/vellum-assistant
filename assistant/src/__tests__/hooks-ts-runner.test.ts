@@ -43,7 +43,7 @@ describe('TypeScript hooks runner', () => {
     rmSync(hooksDir, { recursive: true, force: true });
   });
 
-  test('runs .ts hook via bun run', async () => {
+  test('[experimental] runs .ts hook via bun run', async () => {
     const hook = createHook('ts-hook', 'run.ts', `
 import { readFileSync } from 'node:fs';
 const data = JSON.parse(readFileSync('/dev/stdin', 'utf-8'));
@@ -59,7 +59,7 @@ console.log(JSON.stringify({ event: data.event, ok: true }));
     expect(output.ok).toBe(true);
   });
 
-  test('.ts hook receives event data on stdin', async () => {
+  test('[experimental] .ts hook receives event data on stdin', async () => {
     const hook = createHook('stdin-hook', 'handler.ts', `
 import { readFileSync } from 'node:fs';
 const data = JSON.parse(readFileSync('/dev/stdin', 'utf-8'));

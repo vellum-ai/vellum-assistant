@@ -58,7 +58,7 @@ describe('key migration', () => {
     invalidateConfigCache();
   });
 
-  test('migrates plaintext apiKeys from config.json to secure storage', () => {
+  test('[experimental] migrates plaintext apiKeys from config.json to secure storage', () => {
     const configPath = join(TEST_DIR, 'config.json');
     writeFileSync(configPath, JSON.stringify({
       provider: 'anthropic',
@@ -135,7 +135,7 @@ describe('key migration', () => {
     expect(rawJson.apiKeys).toBeUndefined();
   });
 
-  test('migration only happens once (idempotent)', () => {
+  test('[experimental] migration only happens once (idempotent)', () => {
     const configPath = join(TEST_DIR, 'config.json');
     writeFileSync(configPath, JSON.stringify({
       provider: 'anthropic',

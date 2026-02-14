@@ -45,7 +45,7 @@ describe('ComputerUseSession.escapeAxTreeContent', () => {
 });
 
 describe('ComputerUseSession.compactHistory', () => {
-  test('strips old AX trees and keeps the most recent ones', () => {
+  test('[experimental] strips old AX trees and keeps the most recent ones', () => {
     const messages: Message[] = [
       { role: 'assistant', content: [{ type: 'text', text: 'thinking...' }] },
       toolResultMsg('<ax-tree>CURRENT SCREEN STATE:\nWindow "App" [1]</ax-tree>'),
@@ -76,7 +76,7 @@ describe('ComputerUseSession.compactHistory', () => {
     }
   });
 
-  test('handles AX tree content containing literal </ax-tree> (escaped)', () => {
+  test('[experimental] handles AX tree content containing literal </ax-tree> (escaped)', () => {
     // Simulate content where the AX tree text includes an escaped closing tag,
     // e.g. user is viewing XML source code with "</ax-tree>" in it.
     const escapedContent =

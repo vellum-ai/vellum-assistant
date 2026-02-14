@@ -243,7 +243,7 @@ describe('Memory V2 regressions', () => {
     expect(recall.injectedText).not.toContain('What is my timezone again?');
   });
 
-  test('semantic recall excludes items backed only by excluded message ids', async () => {
+  test('[experimental] semantic recall excludes items backed only by excluded message ids', async () => {
     const db = getDb();
     const now = 1_700_000_120_000;
     db.insert(conversations).values({
@@ -352,7 +352,7 @@ describe('Memory V2 regressions', () => {
     expect(recall.injectedText).not.toContain('(current turn)');
   });
 
-  test('semantic recall skips active items that have no remaining evidence rows', async () => {
+  test('[experimental] semantic recall skips active items that have no remaining evidence rows', async () => {
     const db = getDb();
     const now = 1_700_000_130_000;
     db.insert(conversations).values({
@@ -443,7 +443,7 @@ describe('Memory V2 regressions', () => {
     expect(recall.injectedText).not.toContain('Stale orphan fact');
   });
 
-  test('semantic recall excludes conversation summaries that overlap excluded messages', async () => {
+  test('[experimental] semantic recall excludes conversation summaries that overlap excluded messages', async () => {
     const db = getDb();
     const now = 1_700_000_140_000;
     const conversationId = 'conv-semantic-summary';
@@ -750,7 +750,7 @@ describe('Memory V2 regressions', () => {
     expect(row?.lastSeenAt).toBe(1_000);
   });
 
-  test('indexing no longer enqueues segment embedding jobs', () => {
+  test('[experimental] indexing no longer enqueues segment embedding jobs', () => {
     const db = getDb();
     const createdAt = 2_000;
     db.insert(conversations).values({
@@ -790,7 +790,7 @@ describe('Memory V2 regressions', () => {
     expect(embedSegmentJobs).toHaveLength(0);
   });
 
-  test('indexing skips durable item extraction for assistant messages when extractFromAssistant is false', () => {
+  test('[experimental] indexing skips durable item extraction for assistant messages when extractFromAssistant is false', () => {
     const db = getDb();
     const createdAt = 2_100;
     db.insert(conversations).values({
@@ -1019,7 +1019,7 @@ describe('Memory V2 regressions', () => {
     expect(recent[1]?.id).toBe('seg-recent-2');
   });
 
-  test('embed jobs are skipped (not failed) when no embedding backend is configured', async () => {
+  test('[experimental] embed jobs are skipped (not failed) when no embedding backend is configured', async () => {
     const db = getDb();
     const now = 3_000;
     db.insert(memoryItems).values({

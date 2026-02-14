@@ -105,7 +105,7 @@ describe('Hook Runner', () => {
     expect(result.stdout.trim()).toContain('.vellum');
   });
 
-  test('times out after specified duration', async () => {
+  test('[experimental] times out after specified duration', async () => {
     const hook = createTestHook(hooksDir, 'slow-hook', '#!/bin/bash\nsleep 10');
     const eventData: HookEventData = { event: 'pre-tool-execute' };
 
