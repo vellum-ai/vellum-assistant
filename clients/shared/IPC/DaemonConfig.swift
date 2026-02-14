@@ -26,12 +26,10 @@ public struct DaemonConfig {
     #elseif os(iOS)
     public let hostname: String
     public let port: UInt16
-    public let useTLS: Bool
 
-    public init(hostname: String, port: UInt16, useTLS: Bool = true) {
+    public init(hostname: String, port: UInt16) {
         self.hostname = hostname
         self.port = port
-        self.useTLS = useTLS
     }
 
     public static var `default`: DaemonConfig {
@@ -39,7 +37,7 @@ public struct DaemonConfig {
         let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
         // Validate port is in valid UInt16 range (1-65535) before converting to avoid crash
         let finalPort: UInt16 = (rawPort > 0 && rawPort <= 65535) ? UInt16(rawPort) : 8765
-        return DaemonConfig(hostname: hostname, port: finalPort, useTLS: true)
+        return DaemonConfig(hostname: hostname, port: finalPort)
     }
     #else
     #error("Unsupported platform")
