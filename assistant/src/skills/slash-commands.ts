@@ -121,7 +121,7 @@ export function resolveSlashSkillCommand(
 
   const availableIds = Array.from(catalog.values())
     .map((s) => s.canonicalId)
-    .sort();
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   return {
     kind: 'unknown',
     requestedId,
