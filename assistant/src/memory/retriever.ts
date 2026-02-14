@@ -281,7 +281,7 @@ export async function buildMemoryRecall(
   }
 
   const mergedCount = merged.length;
-  const selected = trimToTokenBudget(merged, config.memory.retrieval.maxInjectTokens);
+  const selected = trimToTokenBudget(merged, config.memory.retrieval.maxInjectTokens, config.memory.retrieval.injectionFormat);
   markItemUsage(selected);
 
   const injectedText = buildInjectedText(selected, config.memory.retrieval.injectionFormat);
@@ -1056,11 +1056,11 @@ async function rerankWithLLM(
   return reranked.map((r) => r.candidate);
 }
 
-function trimToTokenBudget(candidates: Candidate[], maxTokens: number): Candidate[] {
+function trimToTokenBudget(candidates: Candidate[], maxTokens: number, format: string = 'markdown'): Candidate[] {
   if (maxTokens <= 0) return [];
   const selected: Candidate[] = [];
   for (const candidate of candidates) {
-    const tentativeText = buildInjectedText([...selected, candidate]);
+    const tentativeText = buildInjectedText([...selected, candidate], format);
     const cost = estimateTextTokens(tentativeText);
     if (cost > maxTokens) continue;
     selected.push(candidate);
