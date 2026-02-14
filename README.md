@@ -89,7 +89,7 @@ VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock open -a Vellum
 | macOS: not connecting | Verify socket path in `VELLUM_DAEMON_SOCKET` exists and is writable |
 | Any: "connection refused" | Is the remote daemon running? (`vellum daemon status` on remote) |
 
-Run `vellum doctor` for a full diagnostic check including socket path and autostart policy.
+Run `vellum doctor` for a full diagnostic check including socket path, autostart policy, and sandbox backend readiness (native `sandbox-exec`/`bwrap` availability, or Docker CLI/daemon/image/mount checks).
 
 ## Claude Code Workflow
 

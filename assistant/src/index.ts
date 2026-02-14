@@ -898,6 +898,67 @@ program
     } else {
       fail('Browser runtime', browserStatus.error ?? 'Chromium not installed');
     }
+
+    // 13. Sandbox backend readiness
+    const { isMacOS, isLinux } = await import('./util/platform.js');
+    const sandboxCfg = getConfig().sandbox;
+    if (!sandboxCfg.enabled) {
+      console.log('  - Sandbox: disabled');
+    } else if (sandboxCfg.backend === 'native') {
+      console.log(`  Sandbox: enabled (backend=native)`);
+      if (isMacOS()) {
+        // sandbox-exec is a built-in macOS binary
+        try {
+          execSync('which sandbox-exec', { stdio: 'pipe', timeout: 5000 });
+          pass('Native sandbox: sandbox-exec available');
+        } catch {
+          fail('Native sandbox: sandbox-exec available', 'sandbox-exec not found in PATH — expected on macOS');
+        }
+      } else if (isLinux()) {
+        try {
+          execSync('bwrap --ro-bind / / --unshare-net --unshare-pid true', { stdio: 'ignore', timeout: 5000 });
+          pass('Native sandbox: bwrap available and functional');
+        } catch {
+          fail('Native sandbox: bwrap available', 'bubblewrap (bwrap) not installed or cannot create namespaces — install with: apt install bubblewrap');
+        }
+      } else {
+        fail('Native sandbox', `not supported on this platform (${process.platform})`);
+      }
+    } else if (sandboxCfg.backend === 'docker') {
+      console.log(`  Sandbox: enabled (backend=docker)`);
+      // Docker CLI
+      try {
+        execSync('docker --version', { stdio: 'pipe', timeout: 5000 });
+        pass('Docker sandbox: CLI installed');
+      } catch {
+        fail('Docker sandbox: CLI installed', 'docker not found in PATH — install from https://docs.docker.com/get-docker/');
+      }
+      // Docker daemon
+      try {
+        execSync('docker info', { stdio: 'ignore', timeout: 10000 });
+        pass('Docker sandbox: daemon running');
+      } catch {
+        fail('Docker sandbox: daemon running', 'Docker daemon is not running — start Docker Desktop or run "sudo systemctl start docker"');
+      }
+      // Docker image
+      const dockerImage = sandboxCfg.docker.image;
+      try {
+        execSync(`docker image inspect ${JSON.stringify(dockerImage)}`, { stdio: 'ignore', timeout: 10000 });
+        pass(`Docker sandbox: image available (${dockerImage.split('@')[0]})`);
+      } catch {
+        fail('Docker sandbox: image available', `image "${dockerImage}" not found locally — run: docker pull ${dockerImage}`);
+      }
+      // Mount/write probe — use a temp dir to avoid requiring a sandbox root
+      try {
+        execSync(
+          `docker run --rm --mount type=bind,src=/tmp,dst=/workspace ubuntu:22.04 test -w /workspace`,
+          { stdio: 'ignore', timeout: 15000 },
+        );
+        pass('Docker sandbox: bind-mount writable');
+      } catch {
+        fail('Docker sandbox: bind-mount writable', 'cannot bind-mount into Docker or /workspace is not writable — check Docker Desktop file sharing settings');
+      }
+    }
   });
 
 // --- Hooks commands ---
