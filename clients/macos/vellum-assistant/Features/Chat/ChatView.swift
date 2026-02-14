@@ -109,27 +109,25 @@ struct ChatView: View {
 
     private var composerOverlay: some View {
         VStack(spacing: 0) {
-            // Gradient fade so messages dissolve behind the composer
+            if let errorText {
+                errorBanner(errorText)
+            }
+            queueSummary
+            composerArea
+        }
+        .background(
+            // Gentle fade that never becomes fully opaque — background stays visible
             LinearGradient(
                 stops: [
                     .init(color: VColor.chatBackground.opacity(0), location: 0),
-                    .init(color: VColor.chatBackground.opacity(0.85), location: 1.0)
+                    .init(color: VColor.chatBackground.opacity(0.5), location: 0.5),
+                    .init(color: VColor.chatBackground.opacity(0.65), location: 1.0)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 16)
             .allowsHitTesting(false)
-
-            VStack(spacing: 0) {
-                if let errorText {
-                    errorBanner(errorText)
-                }
-                queueSummary
-                composerArea
-            }
-            .background(VColor.chatBackground.opacity(0.85))
-        }
+        )
     }
 
     @ViewBuilder
