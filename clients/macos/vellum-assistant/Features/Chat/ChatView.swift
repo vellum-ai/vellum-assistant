@@ -160,6 +160,17 @@ struct ChatView: View {
 
     // MARK: - Message List
 
+    /// Check if the next assistant message after `index` has inline surfaces,
+    /// meaning tool call chips at `index` should be hidden.
+    private func nextAssistantHasSurfaces(after index: Int) -> Bool {
+        for i in (index + 1)..<messages.count {
+            let m = messages[i]
+            if m.role == .user { break }
+            if !m.inlineSurfaces.isEmpty { return true }
+        }
+        return false
+    }
+
     private func shouldShowTimestamp(at index: Int) -> Bool {
         if index == 0 { return true }
         let current = messages[index].timestamp
@@ -189,7 +200,11 @@ struct ChatView: View {
                             .id(message.id)
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                         } else {
-                            ChatBubble(message: message, onSurfaceAction: onSurfaceAction)
+                            ChatBubble(
+                                message: message,
+                                hideToolCalls: nextAssistantHasSurfaces(after: index),
+                                onSurfaceAction: onSurfaceAction
+                            )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
@@ -527,6 +542,8 @@ struct ChatView: View {
 
 private struct ChatBubble: View {
     let message: ChatMessage
+    /// When true, tool call chips are suppressed because a nearby message has inline surfaces.
+    let hideToolCalls: Bool
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
 
     private var isUser: Bool { message.role == .user }
@@ -602,8 +619,8 @@ private struct ChatBubble: View {
                 }
 
                 // Tool calls render outside the bubble as compact chips.
-                // Hidden when inline surfaces are present — the dynamic UI replaces the tool output.
-                if !isUser && !message.toolCalls.isEmpty && message.inlineSurfaces.isEmpty {
+                // Hidden when inline surfaces are present (same or adjacent message).
+                if !isUser && !message.toolCalls.isEmpty && message.inlineSurfaces.isEmpty && !hideToolCalls {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         ForEach(message.toolCalls) { toolCall in
                             ToolCallChip(toolCall: toolCall)
