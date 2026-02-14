@@ -186,7 +186,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         let endpoint = NWEndpoint.unix(path: socketPath)
         #elseif os(iOS)
         let hostname = UserDefaults.standard.string(forKey: "daemon_hostname") ?? "localhost"
-        let port = UInt16(UserDefaults.standard.integer(forKey: "daemon_port") != 0 ? UserDefaults.standard.integer(forKey: "daemon_port") : 8765)
+        let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
+        let port = UInt16(clamping: rawPort > 0 && rawPort <= 65535 ? rawPort : 8765)
         log.info("Connecting to daemon at \(hostname):\(port)")
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(hostname),
