@@ -193,7 +193,7 @@ All memory settings live under the `memory` key in `config.json`:
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `memory.enabled` | boolean | `true` | Master toggle for the entire memory system. |
-| `memory.embeddings.required` | boolean | `true` | If `true`, retrieval fails degraded when no embedding backend is available. If `false`, falls back to lexical-only. |
+| `memory.embeddings.required` | boolean | `true` | If `true`, retrieval fails when embedding generation is unavailable (no working provider). If `false`, falls back to lexical-only. Qdrant outages are handled separately — semantic search degrades but other sources continue. |
 | `memory.embeddings.provider` | enum | `"auto"` | Embedding backend: `auto` (tries local, then falls back), `local`, `openai`, `gemini`, `ollama`. |
 | `memory.retrieval.injectionFormat` | enum | `"markdown"` | Output format: `markdown` (grouped sections) or `structured_v1` (XML entries with explicit fields). |
 | `memory.retrieval.injectionStrategy` | enum | `"prepend_user_block"` | How memories are placed in the prompt: `prepend_user_block` (inline) or `separate_context_message` (dedicated user+assistant pair). |
@@ -220,7 +220,7 @@ When enabling memory features on a new deployment, follow this order to minimize
 
 ### Troubleshooting
 
-- **Empty recall despite populated database**: Check if `memory.embeddings.required` is `true` and the embedding backend is down. The entire retrieval pipeline fails when Qdrant/embeddings are unavailable and `required` is `true`. Set `required: false` to fall back to lexical-only.
+- **Empty recall despite populated database**: Check if `memory.embeddings.required` is `true` and no embedding provider is available. When `required` is `true`, retrieval fails only if embedding generation itself cannot run (no working provider). If Qdrant is down but embeddings can still be generated, semantic search degrades gracefully while lexical, recency, entity, and direct sources continue to return results. To diagnose: check embedding provider health first; for a Qdrant outage, check Qdrant connectivity (`memory.qdrant.url`) rather than disabling `required`.
 - **Stale memories appearing**: Lower `memory.retrieval.freshness.maxAgeDays` for the relevant kind, or set `staleDecay` closer to 0.
 - **Cross-project memory leaks**: Switch `scopePolicy` from `allow_global_fallback` to `strict`.
 - **High latency**: Disable LLM re-ranking (`reranking.enabled: false`) or reduce `lexicalTopK`/`semanticTopK`.
