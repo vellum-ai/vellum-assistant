@@ -44,6 +44,8 @@ printf '%s' "$data" | jq -r '
     elif (.content | type) == "array" then
       [.content[] |
         if .type == "text" then .text
+        elif .type == "image" then "[image: \(.source.media_type // "unknown")] \(.source.data[:1000])..."
+        elif .type == "file" then "[file: \(.source.filename // "unknown")] \(.source.data[:1000])..."
         elif .type == "tool_use" then "[tool_use: \(.name)] \(.input | tostring)"
         elif .type == "tool_result" then "[tool_result: \(.content // "" | tostring)]"
         else "[" + .type + "] " + (. | tostring)
