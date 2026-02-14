@@ -37,7 +37,7 @@ export async function handleMemorySearch(
     for (const result of results) {
       const timeAgo = formatRelativeTime(result.createdAt);
       lines.push(`- **[${result.kind}]** ${result.text}`);
-      lines.push(`  ID: ${result.id} | ${timeAgo}`);
+      lines.push(`  _Source: ${result.type}:${result.id} | ${timeAgo} | confidence: ${result.confidence.toFixed(2)} | importance: ${result.importance.toFixed(2)}_`);
     }
 
     return { content: lines.join('\n'), isError: false };

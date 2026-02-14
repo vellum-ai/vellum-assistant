@@ -1160,6 +1160,12 @@ export interface MemorySearchResult {
   importance: number;
   createdAt: number;
   finalScore: number;
+  /** Per-source scores for provenance/debugging */
+  scores: {
+    lexical: number;
+    semantic: number;
+    recency: number;
+  };
 }
 
 /**
@@ -1207,6 +1213,11 @@ export async function searchMemoryItems(
     importance: c.importance,
     createdAt: c.createdAt,
     finalScore: c.finalScore,
+    scores: {
+      lexical: c.lexical,
+      semantic: c.semantic,
+      recency: c.recency,
+    },
   }));
 }
 
