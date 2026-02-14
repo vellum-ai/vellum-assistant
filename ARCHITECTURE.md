@@ -152,7 +152,7 @@ graph TB
 
     %% Main Window Chat flow
     CHAT_VM -->|"session_create +<br/>user_message +<br/>cancel"| IPC_SERVER
-    IPC_SERVER -->|"session_info +<br/>text deltas +<br/>message_complete +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff"| CHAT_VM
+    IPC_SERVER -->|"session_info +<br/>text deltas +<br/>message_complete +<br/>session_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
 
     %% Ambient flow
@@ -624,6 +624,7 @@ graph LR
         S13["message_dequeued<br/>queue drained"]
         S14["generation_handoff<br/>sessionId, requestId?,<br/>queuedCount"]
         S15["trace_event<br/>eventId, sessionId, requestId?,<br/>timestampMs, sequence, kind,<br/>status?, summary, attributes?"]
+        S16["session_error<br/>sessionId, code,<br/>userMessage, retryable,<br/>debugDetails?"]
     end
 
     C0 --> SOCKET
@@ -653,7 +654,57 @@ graph LR
     SOCKET --> S13
     SOCKET --> S14
     SOCKET --> S15
+    SOCKET --> S16
 ```
+
+---
+
+## Session Errors vs Global Errors
+
+The daemon emits two distinct error message types over IPC:
+
+| Message type | Scope | Purpose | Payload |
+|---|---|---|---|
+| `session_error` | Session-scoped | Typed, actionable failures during chat/session runtime (e.g., provider rate limit, context overflow, auth failure) | `sessionId`, `code` (typed enum), `userMessage`, `retryable`, `debugDetails?` |
+| `error` | Global | Generic, non-session failures (e.g., daemon startup errors, unknown message types) | `message` (string) |
+
+**Design rationale:** `session_error` carries structured metadata (error code, retryable flag, debug details) so the client can present actionable UI — a toast with retry/copy-debug/dismiss buttons — rather than a generic error banner. The older `error` type is retained for backward compatibility with non-session contexts.
+
+### Session Error Codes
+
+| Code | Meaning |
+|---|---|
+| `provider_rate_limit` | LLM provider rate-limited the request |
+| `provider_auth` | Invalid or expired API key |
+| `provider_overloaded` | Provider temporarily unavailable |
+| `context_overflow` | Conversation exceeded the model's context window |
+| `generation_failed` | Model returned an unexpected or malformed response |
+| `internal` | Catch-all for unexpected daemon errors |
+
+### Error → Toast → Recovery Flow
+
+```
+Daemon                    Client (ChatViewModel)         UI (MainWindowView)
+  |                            |                              |
+  |--- session_error --------->|                              |
+  |   {sessionId, code,        |                              |
+  |    userMessage, retryable,  |                              |
+  |    debugDetails}            |                              |
+  |                            |-- sets activeSessionError -->|
+  |                            |-- stops streaming state      |
+  |                            |                              |-- shows toast
+  |                            |                              |   [Retry] [Copy Debug] [X]
+  |                            |<--- retryFromActiveError() --|-- user taps Retry
+  |<-- regenerate_message -----|                              |
+```
+
+1. **Daemon** encounters a session-scoped failure and sends a `session_error` message with the session ID, typed error code, user-facing message, and retryable flag.
+2. **ChatViewModel** receives the error, sets `activeSessionError`, and transitions out of the streaming/loading state so the UI is interactive.
+3. **MainWindowView** observes the error and displays an actionable toast:
+   - **Retry** (shown when `retryable` is true): calls `retryFromActiveError()`, which clears the error and sends a `regenerate_message` to the daemon.
+   - **Copy Debug**: copies `debugDetails` to the clipboard for bug reports.
+   - **Dismiss (X)**: clears the error without retrying.
+4. If the error is not retryable, the Retry button is hidden and the user can only dismiss or copy debug info.
 
 ---
 
