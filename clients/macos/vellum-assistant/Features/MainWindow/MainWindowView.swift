@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
+    @ObservedObject var zoomManager: ZoomManager
     @State private var activePanel: SidePanelType?
     @State private var isDynamicExpanded = false
     @State private var hasAPIKey = APIKeyManager.hasAnyKey()
@@ -11,8 +12,9 @@ struct MainWindowView: View {
     let ambientAgent: AmbientAgent
     let onMicrophoneToggle: () -> Void
 
-    init(threadManager: ThreadManager, daemonClient: DaemonClient, ambientAgent: AmbientAgent, onMicrophoneToggle: @escaping () -> Void = {}) {
+    init(threadManager: ThreadManager, zoomManager: ZoomManager, daemonClient: DaemonClient, ambientAgent: AmbientAgent, onMicrophoneToggle: @escaping () -> Void = {}) {
         self.threadManager = threadManager
+        self.zoomManager = zoomManager
         self.daemonClient = daemonClient
         self.ambientAgent = ambientAgent
         self.onMicrophoneToggle = onMicrophoneToggle
@@ -94,8 +96,21 @@ struct MainWindowView: View {
             }
             .ignoresSafeArea(edges: .top)
             .background(VColor.background.ignoresSafeArea())
+            .frame(width: geometry.size.width / zoomManager.zoomLevel,
+                   height: geometry.size.height / zoomManager.zoomLevel)
+            .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
+            .frame(width: geometry.size.width, height: geometry.size.height,
+                   alignment: .topLeading)
         }
         .frame(minWidth: 800, minHeight: 600)
+        .overlay(alignment: .top) {
+            if zoomManager.showZoomIndicator {
+                ZoomIndicatorView(percentage: zoomManager.zoomPercentage)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.top, VSpacing.xxl + VSpacing.xl)
+            }
+        }
+        .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
         .onAppear {
             refreshAPIKeyState()
         }
@@ -185,9 +200,27 @@ struct MainWindowView: View {
     }
 }
 
+private struct ZoomIndicatorView: View {
+    let percentage: Int
+
+    var body: some View {
+        Text("\(percentage)%")
+            .font(VFont.bodyMedium)
+            .foregroundStyle(VColor.textPrimary)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(VColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
+    }
+}
+
 #Preview {
     let dc = DaemonClient()
-    return MainWindowView(threadManager: ThreadManager(daemonClient: dc), daemonClient: dc, ambientAgent: AmbientAgent())
+    return MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), daemonClient: dc, ambientAgent: AmbientAgent())
         .frame(width: 900, height: 600)
         .padding(.top, 36)
 }

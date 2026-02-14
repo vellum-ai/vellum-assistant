@@ -92,6 +92,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let secretPromptManager = SecretPromptManager()
     private let daemonLauncher = DaemonLauncher()
     private let updateManager = UpdateManager()
+    let zoomManager = ZoomManager()
 
     private var onboardingWindow: OnboardingWindow?
     private var mainWindow: MainWindow?
@@ -128,6 +129,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupDaemonClient()
         setupMenuBar()
+        setupViewMenu()
         setupHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
@@ -388,6 +390,35 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
     }
+
+    private func setupViewMenu() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+
+        let viewMenu = NSMenu(title: "View")
+
+        let zoomInItem = NSMenuItem(title: "Zoom In", action: #selector(handleZoomIn), keyEquivalent: "=")
+        zoomInItem.keyEquivalentModifierMask = .command
+        zoomInItem.target = self
+        viewMenu.addItem(zoomInItem)
+
+        let zoomOutItem = NSMenuItem(title: "Zoom Out", action: #selector(handleZoomOut), keyEquivalent: "-")
+        zoomOutItem.keyEquivalentModifierMask = .command
+        zoomOutItem.target = self
+        viewMenu.addItem(zoomOutItem)
+
+        let resetItem = NSMenuItem(title: "Actual Size", action: #selector(handleZoomReset), keyEquivalent: "0")
+        resetItem.keyEquivalentModifierMask = .command
+        resetItem.target = self
+        viewMenu.addItem(resetItem)
+
+        let viewMenuItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
+        viewMenuItem.submenu = viewMenu
+        mainMenu.addItem(viewMenuItem)
+    }
+
+    @objc private func handleZoomIn() { zoomManager.zoomIn() }
+    @objc private func handleZoomOut() { zoomManager.zoomOut() }
+    @objc private func handleZoomReset() { zoomManager.resetZoom() }
 
     private func configureMenuBarIcon(_ button: NSStatusBarButton) {
         let iconSize: CGFloat = 18
@@ -761,6 +792,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.onboardingWindow = nil
 
             self?.setupMenuBar()
+            self?.setupViewMenu()
             self?.setupHotKey()
             self?.setupEscapeMonitor()
             self?.setupVoiceInput()
@@ -839,7 +871,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             existing.show()
             return
         }
-        let main = MainWindow(daemonClient: daemonClient, ambientAgent: ambientAgent)
+        let main = MainWindow(daemonClient: daemonClient, ambientAgent: ambientAgent, zoomManager: zoomManager)
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }

@@ -6,6 +6,7 @@ import SwiftUI
 final class MainWindow {
     private let daemonClient: DaemonClient
     private let ambientAgent: AmbientAgent
+    private let zoomManager: ZoomManager
     private var window: NSWindow?
     let threadManager: ThreadManager
     var onMicrophoneToggle: (() -> Void)?
@@ -20,9 +21,10 @@ final class MainWindow {
         threadManager.activeViewModel
     }
 
-    init(daemonClient: DaemonClient, ambientAgent: AmbientAgent) {
+    init(daemonClient: DaemonClient, ambientAgent: AmbientAgent, zoomManager: ZoomManager) {
         self.daemonClient = daemonClient
         self.ambientAgent = ambientAgent
+        self.zoomManager = zoomManager
         self.threadManager = ThreadManager(daemonClient: daemonClient)
     }
 
@@ -31,14 +33,14 @@ final class MainWindow {
         if let existing = window {
             // Rebuild the SwiftUI view hierarchy so it picks up any
             // UserDefaults changes (e.g. assistantName set during onboarding replay)
-            existing.contentViewController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
+            existing.contentViewController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, zoomManager: zoomManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
             existing.makeKeyAndOrderFront(nil)
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
+        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, zoomManager: zoomManager, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let windowWidth = min(1100.0, screenFrame.width * 0.75)

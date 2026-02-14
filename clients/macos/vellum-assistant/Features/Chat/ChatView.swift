@@ -601,8 +601,9 @@ private struct ChatBubble: View {
                     bubbleContent
                 }
 
-                // Tool calls render outside the bubble as compact chips
-                if !isUser && !message.toolCalls.isEmpty {
+                // Tool calls render outside the bubble as compact chips.
+                // Hidden when inline surfaces are present — the dynamic UI replaces the tool output.
+                if !isUser && !message.toolCalls.isEmpty && message.inlineSurfaces.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         ForEach(message.toolCalls) { toolCall in
                             ToolCallChip(toolCall: toolCall)
