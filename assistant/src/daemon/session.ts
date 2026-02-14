@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
-import type { Message, ContentBlock } from '../providers/types.js';
+import type { Message, ContentBlock, ImageContent } from '../providers/types.js';
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
 import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, DynamicPageSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
@@ -590,10 +590,12 @@ export class Session {
           case 'tool_output_chunk':
             onEvent({ type: 'tool_output_chunk', chunk: event.chunk });
             break;
-          case 'tool_result':
-            onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status, sessionId: this.conversationId });
+          case 'tool_result': {
+            const imageBlock = event.contentBlocks?.find((b): b is ImageContent => b.type === 'image');
+            onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status, sessionId: this.conversationId, imageData: imageBlock?.source.data });
             pendingToolResults.set(event.toolUseId, { content: event.content, isError: event.isError, contentBlocks: event.contentBlocks });
             break;
+          }
           case 'error':
             if (isProviderOrderingError(event.error.message)) {
               orderingErrorDetected = true;

@@ -213,13 +213,25 @@ export class GeminiProvider implements Provider {
           break;
         case 'tool_result': {
           let outputText = block.content;
-          // Extract additional text from contentBlocks (Gemini function responses only support text)
           if (block.contentBlocks && block.contentBlocks.length > 0) {
             const extraText = block.contentBlocks
               .filter((cb): cb is Extract<ContentBlock, { type: 'text' }> => cb.type === 'text')
               .map((cb) => cb.text);
             if (extraText.length > 0) {
               outputText = outputText + '\n' + extraText.join('\n');
+            }
+            // Include images as inline data parts alongside the function response
+            // (Gemini function responses only support text, but images can be
+            // added as sibling parts in the same user message).
+            for (const cb of block.contentBlocks) {
+              if (cb.type === 'image') {
+                parts.push({
+                  inlineData: {
+                    mimeType: cb.source.media_type,
+                    data: cb.source.data,
+                  },
+                });
+              }
             }
           }
           parts.push({

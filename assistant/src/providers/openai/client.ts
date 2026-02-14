@@ -176,15 +176,20 @@ export class OpenAIProvider implements Provider {
         );
 
         // Emit tool results as separate tool-role messages
+        // OpenAI's API only supports string content in tool messages, so images
+        // from contentBlocks are collected and injected as a user message below.
+        const toolResultImages: ContentBlock[] = [];
         for (const tr of toolResults) {
           let textContent = tr.content;
-          // Extract additional text from contentBlocks (images can't be represented in OpenAI tool results)
           if (tr.contentBlocks && tr.contentBlocks.length > 0) {
             const extraText = tr.contentBlocks
               .filter((cb): cb is Extract<ContentBlock, { type: 'text' }> => cb.type === 'text')
               .map((cb) => cb.text);
             if (extraText.length > 0) {
               textContent = textContent + '\n' + extraText.join('\n');
+            }
+            for (const cb of tr.contentBlocks) {
+              if (cb.type === 'image') toolResultImages.push(cb);
             }
           }
           result.push({
@@ -194,9 +199,12 @@ export class OpenAIProvider implements Provider {
           });
         }
 
-        // Emit remaining content as a user message (if any)
-        if (otherBlocks.length > 0) {
-          result.push(this.toOpenAIUserMessage(otherBlocks));
+        // Emit remaining content + any tool result images as a user message.
+        // Images from tool results (e.g. browser_screenshot) must go in a user
+        // message because OpenAI-compatible APIs don't support images in tool messages.
+        const userContent = [...otherBlocks, ...toolResultImages];
+        if (userContent.length > 0) {
+          result.push(this.toOpenAIUserMessage(userContent));
         }
       }
     }

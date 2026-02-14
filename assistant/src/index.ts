@@ -30,6 +30,7 @@ import {
   saveRawConfig,
   getNestedValue,
   setNestedValue,
+  getConfig,
   API_KEY_PROVIDERS,
 } from './config/loader.js';
 import {
@@ -46,6 +47,7 @@ import {
   clearAll as clearAllConversations,
 } from './memory/conversation-store.js';
 import { initializeDb } from './memory/db.js';
+import { initQdrantClient } from './memory/qdrant-client.js';
 import { formatMarkdown, formatJson } from './export/formatter.js';
 import {
   getMemorySystemStatus,
@@ -294,9 +296,9 @@ sessions
 
 sessions
   .command('clear')
-  .description('Clear all conversations and messages from the daemon SQLite DB (dev only)')
+  .description('Clear all conversations, messages, and vector data (dev only)')
   .action(async () => {
-    console.log('This will permanently delete all conversations and messages from the daemon SQLite database.');
+    console.log('This will permanently delete all conversations, messages, and vector data.');
 
     const readline = await import('node:readline');
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -312,6 +314,23 @@ sessions
     initializeDb();
     const result = clearAllConversations();
     console.log(`Cleared ${result.conversations} conversations, ${result.messages} messages`);
+
+    const config = getConfig();
+    const qdrantUrl = process.env.QDRANT_URL?.trim() || config.memory.qdrant.url;
+    const qdrant = initQdrantClient({
+      url: qdrantUrl,
+      collection: config.memory.qdrant.collection,
+      vectorSize: config.memory.qdrant.vectorSize,
+      onDisk: config.memory.qdrant.onDisk,
+      quantization: config.memory.qdrant.quantization,
+    });
+    const deleted = await qdrant.deleteCollection();
+    if (deleted) {
+      console.log(`Deleted Qdrant collection "${config.memory.qdrant.collection}"`);
+    } else {
+      console.log('Qdrant collection not found or not reachable (skipped)');
+    }
+
     console.log('Done.');
   });
 
