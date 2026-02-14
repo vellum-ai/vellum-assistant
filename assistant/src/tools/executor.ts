@@ -405,6 +405,12 @@ function resolveExecutionTarget(toolName: string): ExecutionTarget {
   if (toolName.startsWith('host_') || toolName.startsWith('cu_') || toolName === 'request_computer_control') {
     return 'host';
   }
+  // Check the tool's executionMode metadata — proxy tools run on the connected
+  // client (host), not inside the sandbox.
+  const tool = getTool(toolName);
+  if (tool?.executionMode === 'proxy') {
+    return 'host';
+  }
   return 'sandbox';
 }
 
