@@ -166,8 +166,11 @@ final class SurfaceManager: ObservableObject {
         panel.contentViewController = hostingController
 
         // Re-measure fittingSize for non-dynamic panels now that the view is attached to a window.
+        // For dynamic pages, restore the intended size because setting contentViewController
+        // resizes the panel to the hosting controller's fittingSize, which is nearly zero
+        // for a WKWebView that hasn't loaded content yet.
         if case .dynamicPage = surface.data {
-            // Dynamic pages handle their own sizing via webView didFinish.
+            panel.setContentSize(NSSize(width: surfacePanelWidth, height: surfacePanelHeight))
         } else if let fittingSize = panel.contentView?.fittingSize {
             let maxH = (NSScreen.main?.visibleFrame.height ?? 800) - 40
             let newHeight = min(max(fittingSize.height, 150), maxH)
