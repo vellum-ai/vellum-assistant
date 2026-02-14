@@ -166,7 +166,12 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
 
   const fileTarget = getStringField(input, 'path', 'file_path');
   if (toolName === 'host_file_read' || toolName === 'host_file_write' || toolName === 'host_file_edit') {
-    return [`${toolName}:${fileTarget}`];
+    const normalized = fileTarget ? resolve(fileTarget) : fileTarget;
+    const candidates = [`${toolName}:${normalized}`];
+    if (normalized !== fileTarget) {
+      candidates.push(`${toolName}:${fileTarget}`);
+    }
+    return candidates;
   }
 
   const resolved = fileTarget ? resolve(workingDir, fileTarget) : fileTarget;
@@ -198,7 +203,7 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   if (toolName === 'browser_extract') return RiskLevel.Low;
   if (toolName === 'skill_load') return RiskLevel.Low;
 
-  if (toolName === 'bash') {
+  if (toolName === 'bash' || toolName === 'host_bash') {
     const command = (input.command as string) ?? '';
     if (!command.trim()) return RiskLevel.Low;
 
