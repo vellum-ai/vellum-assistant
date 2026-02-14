@@ -1,0 +1,77 @@
+import { describe, expect, test } from 'bun:test';
+import { buildInvocableSlashCatalog } from '../skills/slash-commands.js';
+import type { SkillSummary } from '../config/skills.js';
+import type { ResolvedSkill } from '../config/skill-state.js';
+
+function makeSkill(id: string, overrides?: Partial<SkillSummary>): SkillSummary {
+  return {
+    id,
+    name: overrides?.name ?? id,
+    description: `Description for ${id}`,
+    directoryPath: `/skills/${id}`,
+    skillFilePath: `/skills/${id}/SKILL.md`,
+    userInvocable: overrides?.userInvocable ?? true,
+    disableModelInvocation: false,
+    source: 'managed',
+  };
+}
+
+function makeResolved(skill: SkillSummary, state: ResolvedSkill['state']): ResolvedSkill {
+  return {
+    summary: skill,
+    state,
+    degraded: state === 'degraded',
+  };
+}
+
+describe('buildInvocableSlashCatalog', () => {
+  test('excludes disabled skill', () => {
+    const skill = makeSkill('my-skill');
+    const catalog = [skill];
+    const resolved = [makeResolved(skill, 'disabled')];
+
+    const result = buildInvocableSlashCatalog(catalog, resolved);
+    expect(result.size).toBe(0);
+  });
+
+  test('excludes userInvocable: false skill', () => {
+    const skill = makeSkill('hidden-skill', { userInvocable: false });
+    const catalog = [skill];
+    const resolved = [makeResolved(skill, 'enabled')];
+
+    const result = buildInvocableSlashCatalog(catalog, resolved);
+    expect(result.size).toBe(0);
+  });
+
+  test('includes enabled invocable skill', () => {
+    const skill = makeSkill('start-the-day', { name: 'Start the Day' });
+    const catalog = [skill];
+    const resolved = [makeResolved(skill, 'enabled')];
+
+    const result = buildInvocableSlashCatalog(catalog, resolved);
+    expect(result.size).toBe(1);
+    const entry = result.get('start-the-day');
+    expect(entry).toBeDefined();
+    expect(entry!.canonicalId).toBe('start-the-day');
+    expect(entry!.name).toBe('Start the Day');
+  });
+
+  test('includes degraded invocable skill', () => {
+    const skill = makeSkill('degraded-skill');
+    const catalog = [skill];
+    const resolved = [makeResolved(skill, 'degraded')];
+
+    const result = buildInvocableSlashCatalog(catalog, resolved);
+    expect(result.size).toBe(1);
+  });
+
+  test('case-insensitive lookup key', () => {
+    const skill = makeSkill('MySkill');
+    const catalog = [skill];
+    const resolved = [makeResolved(skill, 'enabled')];
+
+    const result = buildInvocableSlashCatalog(catalog, resolved);
+    expect(result.get('myskill')).toBeDefined();
+    expect(result.get('myskill')!.canonicalId).toBe('MySkill');
+  });
+});

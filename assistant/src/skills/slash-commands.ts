@@ -1,3 +1,6 @@
+import type { SkillSummary } from '../config/skills.js';
+import type { ResolvedSkill } from '../config/skill-state.js';
+
 /**
  * Parse whether user input starts with a slash-like command token.
  *
@@ -40,4 +43,40 @@ export function isPathLikeSlashToken(token: string): boolean {
   // Count slashes — a single leading `/` is expected, but any additional `/` means it's a path
   const slashCount = token.split('/').length - 1;
   return slashCount > 1;
+}
+
+// ─── Invocable slash skill catalog ──────────────────────────────────────────
+
+export interface InvocableSlashSkill {
+  canonicalId: string;
+  name: string;
+  summary: SkillSummary;
+}
+
+/**
+ * Build a map of slash-invocable skills keyed by lowercase ID for
+ * case-insensitive lookup. Only includes skills that are `userInvocable`
+ * and whose resolved state is not `disabled`.
+ */
+export function buildInvocableSlashCatalog(
+  catalog: SkillSummary[],
+  resolvedStates: ResolvedSkill[],
+): Map<string, InvocableSlashSkill> {
+  const stateById = new Map<string, ResolvedSkill>();
+  for (const rs of resolvedStates) {
+    stateById.set(rs.summary.id, rs);
+  }
+
+  const result = new Map<string, InvocableSlashSkill>();
+  for (const skill of catalog) {
+    if (!skill.userInvocable) continue;
+    const resolved = stateById.get(skill.id);
+    if (resolved && resolved.state === 'disabled') continue;
+    result.set(skill.id.toLowerCase(), {
+      canonicalId: skill.id,
+      name: skill.name,
+      summary: skill,
+    });
+  }
+  return result;
 }
