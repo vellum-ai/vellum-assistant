@@ -200,6 +200,7 @@ public struct SettingsView: View {
                         }
                         Spacer()
                         Button("Manage Skills...") {
+                            skillsViewModel = SkillsSettingsViewModel(daemonClient: daemonClient)
                             showingSkills = true
                         }
                     }
@@ -208,11 +209,6 @@ public struct SettingsView: View {
                     }) {
                         if let vm = skillsViewModel {
                             SkillsSettingsView(viewModel: vm)
-                        }
-                    }
-                    .onChange(of: showingSkills) { _, isShowing in
-                        if isShowing && skillsViewModel == nil {
-                            skillsViewModel = SkillsSettingsViewModel(daemonClient: daemonClient)
                         }
                     }
                 }
