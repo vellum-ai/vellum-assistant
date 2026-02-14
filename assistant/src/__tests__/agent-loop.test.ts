@@ -282,9 +282,14 @@ describe('AgentLoop', () => {
     // The loop should exit quickly (~50ms for abort), not wait 10s for the tool
     expect(elapsed).toBeLessThan(2000);
 
-    // Only the user message + assistant tool_use message should be in history
-    // (no tool results since abort interrupted before tool completed)
-    expect(history).toHaveLength(2);
+    // User message + assistant tool_use + synthesized cancellation tool_result
+    expect(history).toHaveLength(3);
+    const lastMsg = history[2];
+    expect(lastMsg.role).toBe('user');
+    expect(lastMsg.content).toHaveLength(1);
+    expect(lastMsg.content[0].type).toBe('tool_result');
+    expect((lastMsg.content[0] as { type: 'tool_result'; tool_use_id: string; content: string; is_error: boolean }).content).toBe('Cancelled by user');
+    expect((lastMsg.content[0] as { type: 'tool_result'; tool_use_id: string; content: string; is_error: boolean }).is_error).toBe(true);
   });
 
   // 7. Events — verify text_delta and other events are emitted
