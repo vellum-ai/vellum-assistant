@@ -79,6 +79,12 @@ jobs:
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
 
+      - name: Zip assistant directory
+        run: |
+          mkdir -p build
+          (cd ../.. && zip -r clients/macos/build/assistant.zip assistant/)
+          ls -lh build/assistant.zip
+
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -215,20 +221,27 @@ jobs:
           echo "Notarization succeeded"
 
       - name: Staple notarization ticket
+        id: staple
+        continue-on-error: true
         run: |
           # Apple's CDN can take several minutes to propagate the ticket after notarization
           MAX_ATTEMPTS=15
           WAIT_SECS=60
           for i in $(seq 1 $MAX_ATTEMPTS); do
-            if xcrun stapler staple "$DMG_PATH" 2>&1; then
+            STAPLE_OUTPUT=$(xcrun stapler staple "$DMG_PATH" 2>&1)
+            STAPLE_EXIT=$?
+            if [ $STAPLE_EXIT -eq 0 ]; then
               echo "Stapling succeeded on attempt $i"
+              echo "$STAPLE_OUTPUT"
               break
             fi
+            echo "::warning::Stapling attempt $i/$MAX_ATTEMPTS failed (exit code $STAPLE_EXIT):"
+            echo "$STAPLE_OUTPUT"
             if [ "$i" -eq "$MAX_ATTEMPTS" ]; then
               echo "::error::Stapling failed after $MAX_ATTEMPTS attempts"
               exit 1
             fi
-            echo "Stapling attempt $i failed, waiting ${WAIT_SECS}s for CDN propagation..."
+            echo "Waiting ${WAIT_SECS}s for CDN propagation..."
             sleep $WAIT_SECS
             # Increase wait time for subsequent attempts (60, 75, 90, 105, ...)
             WAIT_SECS=$((WAIT_SECS + 15))
@@ -308,7 +321,7 @@ jobs:
           echo "Appcast generated for $REPO"
 
       - name: Create GitHub Release on public repos
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+        if: always() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -333,11 +346,17 @@ jobs:
           gh release delete latest --repo "$REPO" --yes 2>/dev/null || true
           gh api "repos/$REPO/git/refs/tags/latest" -X DELETE 2>/dev/null || true
 
-          # Create new release with DMG + ZIP + appcast
+          # Build asset list from available files
+          ASSETS=()
+          [ -f "$DMG_PATH" ] && ASSETS+=("$DMG_PATH")
+          [ -f "dist/vellum-assistant.zip" ] && ASSETS+=("dist/vellum-assistant.zip")
+          [ -f "$APPCAST" ] && ASSETS+=("$APPCAST#appcast.xml")
+          [ -f "build/assistant.zip" ] && ASSETS+=("build/assistant.zip#assistant.zip")
+
+          echo "Release assets: ${ASSETS[*]}"
+
           gh release create latest \
-            "$DMG_PATH" \
-            dist/vellum-assistant.zip \
-            "$APPCAST#appcast.xml" \
+            "${ASSETS[@]}" \
             --repo "$REPO" \
             --title "Vellum $VERSION" \
             --notes "$RELEASE_NOTES" \
