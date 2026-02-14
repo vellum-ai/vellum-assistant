@@ -52,6 +52,8 @@ class HostFileReadTool implements Tool {
     if (!result.ok) {
       const { error } = result;
       switch (error.code) {
+        case 'NOT_FOUND':
+          return { content: `Error: File not found: ${error.path}`, isError: true };
         case 'NOT_A_FILE':
           return { content: `Error: ${error.path} is not a regular file`, isError: true };
         case 'IO_ERROR': {
