@@ -233,11 +233,24 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         log.info("Connecting to daemon socket at \(self.config.socketPath)")
         let endpoint = NWEndpoint.unix(path: self.config.socketPath)
         #elseif os(iOS)
-        // Re-read UserDefaults on each connect() so reconnects pick up changed settings
-        // (Settings UI not yet implemented in PR 4; will be added in PR 6)
-        let hostname = UserDefaults.standard.string(forKey: "daemon_hostname") ?? "localhost"
+        // Check UserDefaults first to pick up runtime changes, fall back to config
+        // This allows reconnects to pick up changed settings while preserving custom configs for tests
+        let hostname: String
+        let port: UInt16
+
+        if let userHostname = UserDefaults.standard.string(forKey: "daemon_hostname"), !userHostname.isEmpty {
+            hostname = userHostname
+        } else {
+            hostname = self.config.hostname
+        }
+
         let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
-        let port = (rawPort > 0 && rawPort <= 65535) ? UInt16(rawPort) : 8765
+        if rawPort > 0 && rawPort <= 65535 {
+            port = UInt16(rawPort)
+        } else {
+            port = self.config.port
+        }
+
         log.info("Connecting to daemon at \(hostname):\(port)")
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(hostname),
