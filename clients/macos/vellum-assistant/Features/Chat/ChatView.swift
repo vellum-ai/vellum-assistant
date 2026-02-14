@@ -573,7 +573,7 @@ struct ChatView: View {
                         .accessibilityHidden(true)
                 }
             }
-            .frame(minHeight: 28)
+            .frame(minHeight: 28, maxHeight: .infinity, alignment: .center)
         }
         .scrollBounceBehavior(.basedOnSize)
         .onKeyPress(.tab, phases: .down) { keyPress in
