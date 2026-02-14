@@ -4,7 +4,6 @@ import VellumAssistantShared
 struct ChatTabView: View {
     @EnvironmentObject var daemonClient: DaemonClient
     @StateObject private var viewModel: ChatViewModel
-    @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
 
     init(daemonClient: DaemonClient) {
@@ -34,24 +33,15 @@ struct ChatTabView: View {
 
             // Input bar
             InputBarView(
-                text: $inputText,
+                text: $viewModel.inputText,
                 isInputFocused: $isInputFocused,
-                isGenerating: viewModel.isGenerating,
-                onSend: sendMessage
+                isGenerating: viewModel.isSending || viewModel.isThinking,
+                onSend: viewModel.sendMessage
             )
         }
         .background(VColor.background)
         .navigationTitle("Chat")
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func sendMessage() {
-        guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let text = inputText
-        inputText = ""
-        Task {
-            await viewModel.sendMessage(text)
-        }
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy) {

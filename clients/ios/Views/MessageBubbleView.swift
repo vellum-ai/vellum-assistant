@@ -3,6 +3,7 @@ import VellumAssistantShared
 
 struct MessageBubbleView: View {
     let message: ChatMessage
+    @State private var isAnimating = false
 
     var body: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
@@ -42,11 +43,14 @@ struct MessageBubbleView: View {
                                     .easeInOut(duration: 0.6)
                                     .repeatForever()
                                     .delay(Double(index) * 0.2),
-                                    value: message.isStreaming
+                                    value: isAnimating
                                 )
                         }
                     }
                     .padding(.horizontal, VSpacing.sm)
+                    .onAppear {
+                        isAnimating = true
+                    }
                 }
             }
 
@@ -57,7 +61,7 @@ struct MessageBubbleView: View {
     }
 
     private func streamingScale(for index: Int) -> CGFloat {
-        return message.isStreaming ? 1.4 : 1.0
+        return isAnimating ? 1.4 : 1.0
     }
 }
 

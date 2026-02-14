@@ -42,18 +42,26 @@ struct InputBarView: View {
     }
 }
 
-#Preview {
-    @Previewable @State var text = "Hello world"
-    @Previewable @FocusState var isFocused: Bool
+struct InputBarView_Previews: PreviewProvider {
+    struct PreviewWrapper: View {
+        @State private var text = "Hello world"
+        @FocusState private var isFocused: Bool
 
-    VStack {
-        Spacer()
-        InputBarView(
-            text: $text,
-            isInputFocused: $isFocused,
-            isGenerating: false,
-            onSend: { print("Send tapped") }
-        )
+        var body: some View {
+            VStack {
+                Spacer()
+                InputBarView(
+                    text: $text,
+                    isInputFocused: $isFocused,
+                    isGenerating: false,
+                    onSend: { print("Send tapped") }
+                )
+            }
+            .background(VColor.background)
+        }
     }
-    .background(VColor.background)
+
+    static var previews: some View {
+        PreviewWrapper()
+    }
 }
