@@ -6,7 +6,7 @@ struct ContentView: View {
 
     var body: some View {
         TabView {
-            NavigationView {
+            NavigationStack {
                 ChatTabView(daemonClient: daemonClient)
             }
             .tabItem {

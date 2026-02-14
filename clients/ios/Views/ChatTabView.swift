@@ -2,7 +2,6 @@ import SwiftUI
 import VellumAssistantShared
 
 struct ChatTabView: View {
-    @EnvironmentObject var daemonClient: DaemonClient
     @StateObject private var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
 
@@ -23,10 +22,11 @@ struct ChatTabView: View {
                     }
                     .padding(VSpacing.lg)
                 }
-                .onChange(of: viewModel.messages.count) { _ in
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: viewModel.messages.count) { oldValue, newValue in
                     scrollToBottom(proxy: proxy)
                 }
-                .onChange(of: viewModel.messages.last?.text) { _ in
+                .onChange(of: viewModel.messages.last?.text) { oldValue, newValue in
                     scrollToBottom(proxy: proxy)
                 }
             }
@@ -42,6 +42,7 @@ struct ChatTabView: View {
         .background(VColor.background)
         .navigationTitle("Chat")
         .navigationBarTitleDisplayMode(.inline)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy) {
@@ -53,8 +54,8 @@ struct ChatTabView: View {
 }
 
 #Preview {
-    NavigationView {
-        ChatTabView(daemonClient: DaemonClient(config: .default))
-            .environmentObject(DaemonClient(config: .default))
+    let daemonClient = DaemonClient(config: .default)
+    return NavigationStack {
+        ChatTabView(daemonClient: daemonClient)
     }
 }

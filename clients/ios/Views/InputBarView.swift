@@ -18,11 +18,6 @@ struct InputBarView: View {
                 .background(VColor.surface)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .focused(isInputFocused)
-                .onSubmit {
-                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        onSend()
-                    }
-                }
                 .disabled(isGenerating)
 
             // Send button
