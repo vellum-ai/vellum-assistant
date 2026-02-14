@@ -3,6 +3,7 @@ import { AnthropicProvider } from "./anthropic/client.js";
 import { OpenAIProvider } from "./openai/client.js";
 import { GeminiProvider } from "./gemini/client.js";
 import { OllamaProvider } from "./ollama/client.js";
+import { FireworksProvider } from "./fireworks/client.js";
 import { RetryProvider } from "./retry.js";
 import { ConfigError } from "../util/errors.js";
 
@@ -11,6 +12,7 @@ const DEFAULT_MODELS: Record<string, string> = {
   openai: 'gpt-5.2',
   gemini: 'gemini-3-flash',
   ollama: 'llama3.2',
+  fireworks: 'accounts/fireworks/models/kimi-k2p5',
 };
 
 const providers = new Map<string, Provider>();
@@ -76,6 +78,12 @@ export function initializeProviders(config: ProvidersConfig): void {
     const model = resolveModel(config, 'ollama');
     registerProvider('ollama', new RetryProvider(
       new OllamaProvider(model, { apiKey: config.apiKeys.ollama }),
+    ));
+  }
+  if (config.apiKeys.fireworks) {
+    const model = resolveModel(config, 'fireworks');
+    registerProvider('fireworks', new RetryProvider(
+      new FireworksProvider(config.apiKeys.fireworks, model),
     ));
   }
 }
