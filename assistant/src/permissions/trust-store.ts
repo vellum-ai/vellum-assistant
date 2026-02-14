@@ -28,17 +28,37 @@ function getTrustPath(): string {
  */
 function ruleOrder(a: TrustRule, b: TrustRule): number {
   if (b.priority !== a.priority) return b.priority - a.priority;
-  if (a.decision !== b.decision) return a.decision === 'deny' ? -1 : 1;
+  if (a.decision !== b.decision) {
+    // deny > ask > allow
+    const order = { deny: 0, ask: 1, allow: 2 };
+    return (order[a.decision] ?? 2) - (order[b.decision] ?? 2);
+  }
   return 0;
 }
 
 /**
- * Ensure default deny rules are always present in the rule set.
+ * Ensure default rules are always present in the rule set.
  * Mutates the provided array and returns whether any rules were added.
  */
 function backfillDefaults(rules: TrustRule[]): boolean {
-  let added = false;
+  let changed = false;
   const existingIds = new Set(rules.map((r) => r.id));
+
+  // Migrate old default:deny-*-protected rules → default:ask-*-protected
+  const oldDefaultPrefix = 'default:deny-';
+  const newDefaultPrefix = 'default:ask-';
+  for (let i = rules.length - 1; i >= 0; i--) {
+    const rule = rules[i];
+    if (rule.id.startsWith(oldDefaultPrefix) && rule.id.endsWith('-protected')) {
+      const newId = newDefaultPrefix + rule.id.slice(oldDefaultPrefix.length);
+      rules.splice(i, 1);
+      existingIds.delete(rule.id);
+      // Don't add newId to existingIds — let the backfill loop re-add it
+      changed = true;
+      log.info({ oldId: rule.id, newId }, 'Migrated default deny rule to ask');
+    }
+  }
+
   for (const template of getDefaultRuleTemplates()) {
     if (!existingIds.has(template.id)) {
       rules.push({
@@ -50,11 +70,11 @@ function backfillDefaults(rules: TrustRule[]): boolean {
         priority: template.priority,
         createdAt: Date.now(),
       });
-      added = true;
+      changed = true;
       log.info({ ruleId: template.id }, 'Backfilled default trust rule');
     }
   }
-  return added;
+  return changed;
 }
 
 function loadFromDisk(): TrustRule[] {
@@ -134,7 +154,7 @@ export function addRule(
   tool: string,
   pattern: string,
   scope: string,
-  decision: 'allow' | 'deny' = 'allow',
+  decision: 'allow' | 'deny' | 'ask' = 'allow',
   priority: number = 100,
 ): TrustRule {
   // Re-read from disk to avoid lost updates if another call modified rules
@@ -160,7 +180,7 @@ export function addRule(
 
 export function updateRule(
   id: string,
-  updates: { tool?: string; pattern?: string; scope?: string; decision?: 'allow' | 'deny'; priority?: number },
+  updates: { tool?: string; pattern?: string; scope?: string; decision?: 'allow' | 'deny' | 'ask'; priority?: number },
 ): TrustRule {
   const defaultIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
   if (defaultIds.has(id)) throw new Error(`Cannot modify default trust rule: ${id}`);
@@ -205,7 +225,7 @@ function matchesScope(ruleScope: string, workingDir: string): boolean {
   return workingDir.startsWith(ruleScope.replace(/\*$/, ''));
 }
 
-function findRuleByDecision(tool: string, command: string, scope: string, decision: 'allow' | 'deny'): TrustRule | null {
+function findRuleByDecision(tool: string, command: string, scope: string, decision: 'allow' | 'deny' | 'ask'): TrustRule | null {
   const rules = getRules();
   for (const rule of rules) {
     if (rule.tool !== tool) continue;
@@ -248,13 +268,13 @@ export function getAllRules(): TrustRule[] {
 }
 
 export function clearAllRules(): void {
-  // Re-backfill default deny rules so protected directory stays guarded.
+  // Re-backfill default rules so protected directory stays guarded.
   const rules: TrustRule[] = [];
   backfillDefaults(rules);
   rules.sort(ruleOrder);
   cachedRules = rules;
   saveToDisk(rules);
-  log.info('Cleared all user trust rules (default deny rules preserved)');
+  log.info('Cleared all user trust rules (default rules preserved)');
 }
 
 export function clearCache(): void {

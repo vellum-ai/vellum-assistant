@@ -164,7 +164,7 @@ export class Session {
             [req.toolName, `cc:${req.toolName}`, 'cc:*'],
             this.workingDir,
           );
-          if (existingRule) {
+          if (existingRule && existingRule.decision !== 'ask') {
             return {
               decision: existingRule.decision === 'allow' ? 'allow' as const : 'deny' as const,
             };
