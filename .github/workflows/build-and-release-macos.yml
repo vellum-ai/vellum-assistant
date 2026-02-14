@@ -230,7 +230,7 @@ jobs:
             fi
             echo "Stapling attempt $i failed, waiting ${WAIT_SECS}s for CDN propagation..."
             sleep $WAIT_SECS
-            # Increase wait time for subsequent attempts (30, 45, 60, 75, ...)
+            # Increase wait time for subsequent attempts (60, 75, 90, 105, ...)
             WAIT_SECS=$((WAIT_SECS + 15))
           done
 
