@@ -363,6 +363,20 @@ struct ChatView: View {
             HStack(alignment: .bottom, spacing: VSpacing.sm) {
                 // Text editor with ghost text / placeholder overlay
                 ZStack(alignment: .topLeading) {
+                    // Sizing text — measures content height via GeometryReader
+                    Text(inputText.isEmpty ? " " : inputText)
+                        .font(VFont.body)
+                        .lineSpacing(4)
+                        .foregroundColor(.clear)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 8)
+                        .accessibilityHidden(true)
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
+                            }
+                        )
+
                     TextEditor(text: $inputText)
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
@@ -411,20 +425,7 @@ struct ChatView: View {
                     }
                 }
                 .frame(height: min(max(editorContentHeight, 36), 200))
-                .background(
-                    Text(inputText.isEmpty ? " " : inputText)
-                        .font(VFont.body)
-                        .lineSpacing(4)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 8)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .hidden()
-                        .background(
-                            GeometryReader { geo in
-                                Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
-                            }
-                        )
-                )
+                .clipped()
                 .onPreferenceChange(ContentHeightKey.self) { height in
                     withAnimation(VAnimation.spring) {
                         editorContentHeight = height
