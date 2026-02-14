@@ -119,6 +119,13 @@ struct GeneratedPanel: View {
                         ProgressView()
                             .controlSize(.mini)
                             .frame(width: 24, height: 24)
+
+                        // Keep the ShareSheetButton in the view tree during
+                        // bundling so the NSButton stays attached to a window.
+                        // It's hidden but will be ready when bundling completes.
+                        shareButton(for: item)
+                            .frame(width: 0, height: 0)
+                            .opacity(0)
                     } else {
                         shareButton(for: item)
 
