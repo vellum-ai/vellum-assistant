@@ -363,47 +363,29 @@ struct ChatView: View {
             ZStack(alignment: .bottom) {
                 ScrollView(.vertical, showsIndicators: false) {
                     ZStack(alignment: .leading) {
-                        if ghostSuffix != nil {
-                            TextField("", text: $inputText, axis: .vertical)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
-                                .lineSpacing(4)
-                                .textFieldStyle(.plain)
-                                .lineLimit(1...)
-                                .disabled(!hasAPIKey)
-                                .accessibilityLabel("Message")
-                                .background(
-                                    GeometryReader { geo in
-                                        Color.clear
-                                            .onAppear { editorContentHeight = geo.size.height }
-                                            .onChange(of: geo.size.height) { _, h in
-                                                withAnimation(VAnimation.spring) {
-                                                    editorContentHeight = h
-                                                }
-                                            }
+                        TextField(
+                            ghostSuffix != nil ? "" : "What would you like to do?",
+                            text: $inputText,
+                            axis: .vertical
+                        )
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .lineSpacing(4)
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...)
+                        .disabled(!hasAPIKey)
+                        .accessibilityLabel("Message")
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear
+                                    .onAppear { editorContentHeight = geo.size.height }
+                                    .onChange(of: geo.size.height) { _, h in
+                                        withAnimation(VAnimation.spring) {
+                                            editorContentHeight = h
+                                        }
                                     }
-                                )
-                        } else {
-                            TextField("What would you like to do?", text: $inputText, axis: .vertical)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
-                                .lineSpacing(4)
-                                .textFieldStyle(.plain)
-                                .lineLimit(1...)
-                                .disabled(!hasAPIKey)
-                                .accessibilityLabel("Message")
-                                .background(
-                                    GeometryReader { geo in
-                                        Color.clear
-                                            .onAppear { editorContentHeight = geo.size.height }
-                                            .onChange(of: geo.size.height) { _, h in
-                                                withAnimation(VAnimation.spring) {
-                                                    editorContentHeight = h
-                                                }
-                                            }
-                                    }
-                                )
-                        }
+                            }
+                        )
 
                         if let ghostSuffix {
                             (Text(inputText)
