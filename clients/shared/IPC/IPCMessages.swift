@@ -500,6 +500,14 @@ public struct CuActionMessage: Decodable, Sendable {
     public let input: [String: AnyCodable]
     public let reasoning: String?
     public let stepNumber: Int
+
+    public init(sessionId: String, toolName: String, input: [String: AnyCodable], reasoning: String?, stepNumber: Int) {
+        self.sessionId = sessionId
+        self.toolName = toolName
+        self.input = input
+        self.reasoning = reasoning
+        self.stepNumber = stepNumber
+    }
 }
 
 /// Session completed successfully.
@@ -508,12 +516,24 @@ public struct CuCompleteMessage: Decodable, Sendable {
     public let summary: String
     public let stepCount: Int
     public let isResponse: Bool?
+
+    public init(sessionId: String, summary: String, stepCount: Int, isResponse: Bool?) {
+        self.sessionId = sessionId
+        self.summary = summary
+        self.stepCount = stepCount
+        self.isResponse = isResponse
+    }
 }
 
 /// Session-level error from the server.
 public struct CuErrorMessage: Decodable, Sendable {
     public let sessionId: String
     public let message: String
+
+    public init(sessionId: String, message: String) {
+        self.sessionId = sessionId
+        self.message = message
+    }
 }
 
 /// Streamed text delta from the assistant's response.
@@ -530,6 +550,10 @@ public struct AssistantTextDeltaMessage: Decodable, Sendable {
 /// Streamed thinking delta from the assistant's reasoning.
 public struct AssistantThinkingDeltaMessage: Decodable, Sendable {
     public let thinking: String
+
+    public init(thinking: String) {
+        self.thinking = thinking
+    }
 }
 
 /// Signals that the assistant's message is complete.
@@ -621,6 +645,10 @@ public struct UiSurfaceDismissMessage: Decodable, Sendable {
 /// Confirms generation was cancelled.
 public struct GenerationCancelledMessage: Decodable, Sendable {
     public let sessionId: String?
+
+    public init(sessionId: String?) {
+        self.sessionId = sessionId
+    }
 }
 
 /// Notifies client that active generation yielded to queued work at a checkpoint.
@@ -629,6 +657,12 @@ public struct GenerationHandoffMessage: Decodable, Sendable {
     public let sessionId: String
     public let requestId: String?
     public let queuedCount: Int
+
+    public init(sessionId: String, requestId: String?, queuedCount: Int) {
+        self.sessionId = sessionId
+        self.requestId = requestId
+        self.queuedCount = queuedCount
+    }
 }
 
 /// Notifies client that a message has been queued for processing.
@@ -637,6 +671,12 @@ public struct MessageQueuedMessage: Decodable, Sendable {
     public let sessionId: String
     public let requestId: String
     public let position: Int
+
+    public init(sessionId: String, requestId: String, position: Int) {
+        self.sessionId = sessionId
+        self.requestId = requestId
+        self.position = position
+    }
 }
 
 /// Notifies client that a queued message has been dequeued and is now being processed.
@@ -644,11 +684,20 @@ public struct MessageQueuedMessage: Decodable, Sendable {
 public struct MessageDequeuedMessage: Decodable, Sendable {
     public let sessionId: String
     public let requestId: String
+
+    public init(sessionId: String, requestId: String) {
+        self.sessionId = sessionId
+        self.requestId = requestId
+    }
 }
 
 /// Server-level error message.
 public struct ErrorMessage: Decodable, Sendable {
     public let message: String
+
+    public init(message: String) {
+        self.message = message
+    }
 }
 
 /// Response from the daemon for a persistent app data request.
