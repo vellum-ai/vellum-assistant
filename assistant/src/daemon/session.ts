@@ -32,6 +32,7 @@ import { registerTimerCompletionNotifier, unregisterTimerCompletionNotifier, pru
 import { createToolDomainEventPublisher } from '../events/tool-domain-event-publisher.js';
 import { registerToolMetricsLoggingListener } from '../events/tool-metrics-listener.js';
 import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
+import { registerToolTraceListener } from '../events/tool-trace-listener.js';
 import { createToolAuditListener } from '../events/tool-audit-listener.js';
 import {
   ContextWindowManager,
@@ -137,6 +138,7 @@ export class Session {
     this.executor = new ToolExecutor(this.prompter);
     registerToolMetricsLoggingListener(this.eventBus);
     registerToolNotificationListener(this.eventBus, (msg) => this.sendToClient(msg));
+    registerToolTraceListener(this.eventBus, this.traceEmitter);
     const auditToolLifecycleEvent = createToolAuditListener();
     const publishToolDomainEvent = createToolDomainEventPublisher(this.eventBus);
     const handleToolLifecycleEvent: ToolLifecycleEventHandler = (event) => {

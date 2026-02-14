@@ -15,3 +15,4 @@ export type {
 export { createToolDomainEventPublisher } from './tool-domain-event-publisher.js';
 export { registerToolMetricsLoggingListener } from './tool-metrics-listener.js';
 export { registerToolNotificationListener } from './tool-notification-listener.js';
+export { registerToolTraceListener } from './tool-trace-listener.js';
