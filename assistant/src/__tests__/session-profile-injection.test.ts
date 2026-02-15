@@ -347,7 +347,7 @@ describe('Session dynamic profile injection', () => {
     // Simulate tool_result user message appended by agent loop
     const toolResultUser: Message = {
       role: 'user',
-      content: [{ type: 'tool_result' as 'text', tool_use_id: 'tu-1', content: 'result' } as any],
+      content: [{ type: 'tool_result', tool_use_id: 'tu-1', content: 'result' }],
     };
     const msgs = [injectedUser, assistantMsg, toolResultUser];
     const stripped = stripDynamicProfileMessages(msgs, profile);
