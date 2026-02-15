@@ -74,6 +74,7 @@ struct MainWindowView: View {
                     } detail: {
                         // Detail: Main content
                         chatContentView(geometry: geometry)
+                            .toolbar(removing: .sidebarToggle)
                             .toolbar {
                                 ToolbarItemGroup {
                                     HStack(spacing: VSpacing.sm) {
@@ -102,7 +103,6 @@ struct MainWindowView: View {
                                         }
                                         .id("toolbar-doctor")
                                     }
-                                    .animation(nil, value: columnVisibility)
                                 }
                             }
                     }
