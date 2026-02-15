@@ -48,6 +48,13 @@ mock.module('../security/secret-allowlist.js', () => ({
   resetAllowlist: () => {},
 }));
 
+mock.module('../memory/admin.js', () => ({
+  getMemoryConflictAndCleanupStats: () => ({
+    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
+    cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
+  }),
+}));
+
 mock.module('../memory/conversation-store.js', () => ({
   getMessages: () => [],
   getConversation: () => ({
