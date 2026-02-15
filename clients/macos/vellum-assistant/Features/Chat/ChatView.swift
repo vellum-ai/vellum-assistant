@@ -709,7 +709,7 @@ private struct ChatBubble: View {
 
             if hasText {
                 Text(markdownText)
-                    .font(VFont.body)
+                    .font(.system(size: 13))
                     .foregroundColor(isUser ? .white : VColor.textPrimary)
                     .tint(isUser ? .white : VColor.accent)
                     .textSelection(.enabled)

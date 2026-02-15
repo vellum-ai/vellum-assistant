@@ -53,18 +53,18 @@ public enum VFont {
     public static let title      = Font.custom("Silkscreen-Bold", size: 22)
     public static let headline   = Font.custom("Silkscreen-Bold", size: 13)
 
-    // MARK: - Body / UI (DM Mono)
+    // MARK: - Body / UI (Inter)
 
-    public static let body       = dmMono("DMMono-Regular", size: 13)
-    public static let bodyMedium = dmMono("DMMono-Medium", size: 13)
-    public static let bodyBold   = dmMono("DMMono-Medium", size: 13)
-    public static let caption    = dmMono("DMMono-Regular", size: 11)
-    public static let captionMedium = dmMono("DMMono-Medium", size: 11)
-    public static let small      = dmMono("DMMono-Regular", size: 10)
+    public static let body       = Font.custom("Inter", size: 13)
+    public static let bodyMedium = Font.custom("Inter-Medium", size: 13)
+    public static let bodyBold   = Font.custom("Inter-SemiBold", size: 13)
+    public static let caption    = Font.custom("Inter", size: 11)
+    public static let captionMedium = Font.custom("Inter-Medium", size: 11)
+    public static let small      = Font.custom("Inter", size: 10)
 
     // MARK: - Specialized
 
-    public static let cardTitle  = dmMono("DMMono-Medium", size: 17)
+    public static let cardTitle  = Font.custom("Inter-Medium", size: 17)
     public static let cardEmoji  = Font.system(size: 32)
     public static let mono       = dmMono("DMMono-Regular", size: 13)
     public static let monoSmall  = dmMono("DMMono-Regular", size: 11)
