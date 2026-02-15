@@ -8,6 +8,7 @@ import {
   listSecureKeys,
   getBackendType,
 } from '../../security/secure-keys.js';
+import { upsertCredentialMetadata, deleteCredentialMetadata } from './metadata-store.js';
 
 /**
  * Retrieve the actual secret value for a credential.
@@ -89,6 +90,7 @@ class CredentialStoreTool implements Tool {
         if (!ok) {
           return { content: 'Error: failed to store credential', isError: true };
         }
+        upsertCredentialMetadata(service, field);
         return { content: `Stored credential for ${service}/${field}.`, isError: false };
       }
 
@@ -130,6 +132,7 @@ class CredentialStoreTool implements Tool {
         if (!ok) {
           return { content: `Error: credential ${service}/${field} not found`, isError: true };
         }
+        deleteCredentialMetadata(service, field);
         return { content: `Deleted credential for ${service}/${field}.`, isError: false };
       }
 
@@ -162,6 +165,7 @@ class CredentialStoreTool implements Tool {
         if (!ok) {
           return { content: 'Error: failed to store credential', isError: true };
         }
+        upsertCredentialMetadata(service, field);
         return { content: `Credential stored for ${service}/${field}.`, isError: false };
       }
 
