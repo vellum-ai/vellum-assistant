@@ -581,6 +581,9 @@ struct MainWindowView: View {
                     guard let appId = data.appId else { return }
                     try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)
                 } : nil,
+                onLinkOpen: { url, metadata in
+                    surfaceManager.onLinkOpen?(url, metadata)
+                },
                 topContentInset: 56,
                 bottomContentInset: workspaceComposerReservedHeight
             )

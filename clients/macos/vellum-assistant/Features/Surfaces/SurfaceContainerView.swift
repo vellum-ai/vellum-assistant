@@ -78,7 +78,8 @@ struct SurfaceContainerView: View {
                     appId: viewModel.appId,
                     onDataRequest: viewModel.onDataRequest,
                     onCoordinatorReady: viewModel.onCoordinatorReady,
-                    sandboxMode: viewModel.sandboxMode
+                    sandboxMode: viewModel.sandboxMode,
+                    onLinkOpen: viewModel.onLinkOpen
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .fileUpload(let data):
