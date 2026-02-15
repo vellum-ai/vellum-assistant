@@ -45,7 +45,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 // Import after mock
-const { buildSystemPrompt, ensurePromptFiles, stripCommentLines } = await import('../config/system-prompt.js');
+const { buildSystemPrompt, ensurePromptFiles, stripCommentLines, buildOnboardingGuidanceSection } = await import('../config/system-prompt.js');
 
 /** Strip the Configuration and Skills sections so base-prompt tests stay focused. */
 function basePrompt(result: string): string {
@@ -152,6 +152,20 @@ describe('buildSystemPrompt', () => {
     const result = buildSystemPrompt();
     expect(result).toContain('## Parallel Task Orchestration');
     expect(result).toContain('swarm_delegate');
+  });
+
+  test('includes onboarding guidance section', () => {
+    const result = buildSystemPrompt();
+    expect(result).toContain('## Onboarding State Management');
+  });
+
+  test('onboarding guidance appears before swarm guidance', () => {
+    const result = buildSystemPrompt();
+    const onboardingIdx = result.indexOf('## Onboarding State Management');
+    const swarmIdx = result.indexOf('## Parallel Task Orchestration');
+    expect(onboardingIdx).toBeGreaterThan(-1);
+    expect(swarmIdx).toBeGreaterThan(-1);
+    expect(onboardingIdx).toBeLessThan(swarmIdx);
   });
 
   test('omits user skills from catalog when none are configured', () => {
@@ -369,5 +383,58 @@ describe('ensurePromptFiles', () => {
     // doesn't crash. A true "missing template" scenario would require
     // mocking the filesystem, but the important contract is: no throw.
     expect(() => ensurePromptFiles()).not.toThrow();
+  });
+});
+
+describe('buildOnboardingGuidanceSection', () => {
+  test('includes locale guidance', () => {
+    const section = buildOnboardingGuidanceSection();
+    expect(section).toContain('### Locale');
+    expect(section).toContain('city');
+    expect(section).toContain('region');
+    expect(section).toContain('country');
+    expect(section).toContain('timezone');
+    expect(section).toContain('localeId');
+    expect(section).toContain('confidence');
+  });
+
+  test('includes dashboard color preference guidance', () => {
+    const section = buildOnboardingGuidanceSection();
+    expect(section).toContain('### Dashboard Color Preference');
+    expect(section).toContain('label');
+    expect(section).toContain('hex');
+    expect(section).toContain('source');
+    expect(section).toContain('applied');
+  });
+
+  test('includes onboarding tasks guidance with valid states', () => {
+    const section = buildOnboardingGuidanceSection();
+    expect(section).toContain('### Onboarding Tasks');
+    expect(section).toContain('pending');
+    expect(section).toContain('in_progress');
+    expect(section).toContain('done');
+    expect(section).toContain('deferred_to_dashboard');
+  });
+
+  test('includes trust stage guidance with milestones', () => {
+    const section = buildOnboardingGuidanceSection();
+    expect(section).toContain('### Trust Stage');
+    expect(section).toContain('hatched');
+    expect(section).toContain('firstConversationComplete');
+    expect(section).toContain('permissionsUnlocked');
+  });
+
+  test('includes trust-gated permission guidance', () => {
+    const section = buildOnboardingGuidanceSection();
+    expect(section).toContain('Gate permission requests based on trust stage');
+    expect(section).toContain('firstConversationComplete');
+  });
+
+  test('does not contain platform-specific logic', () => {
+    const section = buildOnboardingGuidanceSection();
+    expect(section).not.toContain('macOS');
+    expect(section).not.toContain('darwin');
+    expect(section).not.toContain('Windows');
+    expect(section).not.toContain('Linux');
   });
 });

@@ -58,6 +58,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildConfigSection(getWorkspaceDir()));
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
+  parts.push(buildOnboardingGuidanceSection());
   parts.push(buildSwarmGuidanceSection());
 
   return appendSkillsCatalog(parts.join('\n\n'));
@@ -172,6 +173,35 @@ export function buildSwarmGuidanceSection(): string {
     '## Parallel Task Orchestration',
     '',
     'Use `swarm_delegate` only when a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"). For single-focus tasks, work directly — do not decompose them into a swarm.',
+  ].join('\n');
+}
+
+export function buildOnboardingGuidanceSection(): string {
+  return [
+    '## Onboarding State Management',
+    '',
+    'USER.md contains structured onboarding sections that you must keep up to date as you learn about the user. These sections are client-agnostic and persist across sessions.',
+    '',
+    '### Locale',
+    'When the user mentions where they live, their timezone, or their language preferences, update the `## Locale` section in USER.md with the relevant fields (`city`, `region`, `country`, `timezone`, `localeId`). Set `confidence` to `low`, `medium`, or `high` based on how explicit the information was.',
+    '',
+    '### Dashboard Color Preference',
+    'When the user chooses an accent color for their dashboard, update the `## Dashboard Color Preference` section with `label` (color name), `hex` (hex code), and `source` (how it was chosen, e.g. "user_selected", "inferred"). Set `applied` to `true` once the preference has been applied to the dashboard.',
+    '',
+    '### Onboarding Tasks',
+    'The `## Onboarding Tasks` section tracks progress through onboarding steps. Update each task status as appropriate:',
+    '- `pending` — not yet started',
+    '- `in_progress` — currently being worked on',
+    '- `done` — completed',
+    '- `deferred_to_dashboard` — user chose to handle this later via the dashboard UI',
+    '',
+    '### Trust Stage',
+    'The `## Trust Stage` section tracks trust milestones. Update these as the user progresses:',
+    '- `hatched` — the assistant has been activated and the user has begun interacting',
+    '- `firstConversationComplete` — the user has completed their first meaningful conversation',
+    '- `permissionsUnlocked` — the user has granted elevated permissions (e.g. file access, external actions)',
+    '',
+    'Gate permission requests based on trust stage. Do not ask for elevated permissions until `firstConversationComplete` is `true`. Be transparent about what each permission enables.',
   ].join('\n');
 }
 

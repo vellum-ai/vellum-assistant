@@ -6,9 +6,45 @@ _Your assistant learns about you over time. Fill in what you're comfortable shar
 
 - **Name:**
 - **Pronouns:**
-- **Timezone:**
 - **What to call you:**
 
 ## Context
 
 _(What do you care about? What are you working on? What are your preferences? Add notes here over time.)_
+
+## Locale
+
+_Geographic and language context. Updated during onboarding or when the user shares location details._
+
+- **city:**
+- **region:**
+- **country:**
+- **timezone:**
+- **localeId:**
+- **confidence:** low
+
+## Dashboard Color Preference
+
+_The user's chosen accent color for their dashboard. Updated during onboarding or when the user changes their preference._
+
+- **label:**
+- **hex:**
+- **source:**
+- **applied:** false
+
+## Onboarding Tasks
+
+_Tracks progress through onboarding steps. Each task is one of: pending, in_progress, done, deferred_to_dashboard._
+
+- **set_name:** pending
+- **set_locale:** pending
+- **choose_color:** pending
+- **first_conversation:** pending
+
+## Trust Stage
+
+_Tracks how far the user has progressed in building trust with the assistant. Values are true or false._
+
+- **hatched:** false
+- **firstConversationComplete:** false
+- **permissionsUnlocked:** false
