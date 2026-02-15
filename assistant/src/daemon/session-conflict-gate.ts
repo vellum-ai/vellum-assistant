@@ -40,7 +40,12 @@ export class ConflictGate {
     const pendingBeforeResolve = listPendingConflictDetails('default', 50);
     const candidatesBeforeResolve = pendingBeforeResolve.filter((conflict) => {
       const relevance = computeConflictRelevance(userMessage, conflict);
-      return relevance >= threshold || this.wasRecentlyAsked(conflict.id, cooldownTurns);
+      if (relevance >= threshold) return true;
+      // Only try to resolve recently-asked conflicts when the user message
+      // looks like a short clarification reply (e.g. "keep the new one"),
+      // not a full unrelated question that happens to contain cue words.
+      return this.wasRecentlyAsked(conflict.id, cooldownTurns)
+        && looksLikeClarificationReply(userMessage);
     });
     await this.resolvePendingConflicts(
       userMessage,
@@ -147,4 +152,39 @@ function overlapRatio(left: Set<string>, right: Set<string>): number {
     if (right.has(token)) overlap += 1;
   }
   return overlap / Math.max(left.size, right.size);
+}
+
+// Action verbs that signal the user is making a deliberate choice.
+const ACTION_CUES = new Set([
+  'keep', 'use', 'prefer', 'go', 'pick', 'choose', 'take', 'want', 'select',
+]);
+
+// Directional/merge cue words mirrored from clarification-resolver.ts heuristics.
+const DIRECTIONAL_CUES = new Set([
+  'existing', 'old', 'previous', 'first', 'earlier', 'original',
+  'candidate', 'new', 'latest', 'second', 'updated', 'instead', 'replace',
+  'both', 'merge', 'combine', 'together', 'either', 'mix',
+  'option', 'former', 'latter',
+]);
+
+const MAX_REPLY_WORD_COUNT = 12;
+
+/**
+ * Determines whether a user message looks like a deliberate reply to a
+ * recently asked conflict clarification (e.g. "keep the new one", "option B").
+ * Requires both an action cue and a directional cue, and the message must be
+ * short. Questions and longer statements are excluded to prevent accidental
+ * resolution from messages like "what's new in Bun?".
+ */
+export function looksLikeClarificationReply(userMessage: string): boolean {
+  const trimmed = userMessage.trim();
+  if (trimmed.endsWith('?')) return false;
+
+  const words = trimmed.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > MAX_REPLY_WORD_COUNT) return false;
+
+  const normalized = words.map((w) => w.replace(/[^a-z]/g, ''));
+  const hasAction = normalized.some((w) => ACTION_CUES.has(w));
+  const hasDirection = normalized.some((w) => DIRECTIONAL_CUES.has(w));
+  return hasAction && hasDirection;
 }

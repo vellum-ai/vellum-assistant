@@ -380,6 +380,48 @@ describe('Session conflict soft gate', () => {
     expect(runCalls).toHaveLength(1);
   });
 
+  test('unrelated message during cooldown does not accidentally resolve conflict', async () => {
+    pendingConflicts = [{
+      id: 'conflict-unrelated',
+      scopeId: 'default',
+      existingItemId: 'existing-unrelated',
+      candidateItemId: 'candidate-unrelated',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Should I assume Postgres or MySQL?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use Postgres as the default database.',
+      candidateStatement: 'Use MySQL as the default database.',
+    }];
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // First turn: relevant question triggers clarification ask.
+    await session.processMessage('Should I assume Postgres or MySQL?', [], () => {});
+    expect(resolverCallCount).toBe(1);
+    expect(markAskedCalls).toEqual(['conflict-unrelated']);
+
+    // Second turn: unrelated question containing the cue word "new" should NOT
+    // resolve the conflict — it is not a clarification reply.
+    resolverResult = {
+      resolution: 'keep_candidate',
+      strategy: 'heuristic',
+      resolvedStatement: null,
+      explanation: 'Directional clarification received.',
+    };
+    await session.processMessage("What's new in Bun?", [], () => {});
+
+    // The resolver should NOT have been called again for this unrelated question.
+    expect(resolverCallCount).toBe(1);
+    // Normal agent loop should still run.
+    expect(runCalls).toHaveLength(1);
+  });
+
   test('cooldown prevents repeated asks on subsequent turns', async () => {
     pendingConflicts = [{
       id: 'conflict-cooldown',
