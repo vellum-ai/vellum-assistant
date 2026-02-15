@@ -1,16 +1,16 @@
-# Skills Support (`~/.vellum/skills`)
+# Skills Support (`~/.vellum/workspace/skills`)
 
 Vellum Assistant supports a skills catalog at:
 
-- `~/.vellum/skills/SKILLS.md`
+- `~/.vellum/workspace/skills/SKILLS.md`
 
 Each skill lives in its own directory:
 
-- `~/.vellum/skills/<skill-id>/SKILL.md`
+- `~/.vellum/workspace/skills/<skill-id>/SKILL.md`
 
 ## `SKILLS.md` Format
 
-`SKILLS.md` is a Markdown list of paths, one skill per list item, resolved relative to `~/.vellum/skills/`.
+`SKILLS.md` is a Markdown list of paths, one skill per list item, resolved relative to `~/.vellum/workspace/skills/`.
 
 Supported entry forms:
 
@@ -21,10 +21,10 @@ Supported entry forms:
 Notes:
 
 - Absolute paths are ignored.
-- Paths resolving outside `~/.vellum/skills/` are ignored.
+- Paths resolving outside `~/.vellum/workspace/skills/` are ignored.
 - Duplicate entries are deduplicated (first entry wins).
 - If `SKILLS.md` exists, it is authoritative for which skills are exposed.
-- If `SKILLS.md` is missing, skills are auto-discovered from `~/.vellum/skills/*/SKILL.md`.
+- If `SKILLS.md` is missing, skills are auto-discovered from `~/.vellum/workspace/skills/*/SKILL.md`.
 
 ## `SKILL.md` Requirements
 

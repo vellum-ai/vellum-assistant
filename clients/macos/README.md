@@ -334,7 +334,7 @@ The app supports connecting to a remote daemon via SSH socket forwarding. Set `V
 
 ### Zero-Copy Blob Transport
 
-On local macOS connections, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at `~/.vellum/data/ipc-blobs/` instead of inline base64/text. On every macOS socket connect, the client runs a blob probe: writes a random nonce to the blob directory and sends its SHA-256 to the daemon. If the daemon reads the file and the hashes match, `isBlobTransportAvailable` is set to `true` and subsequent observations use blob references. Over SSH-forwarded sockets, the probe fails automatically (no shared filesystem) and the client falls back to inline payloads. On iOS, the probe is compiled out via `#if os(macOS)`.
+On local macOS connections, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at `~/.vellum/workspace/data/ipc-blobs/` instead of inline base64/text. On every macOS socket connect, the client runs a blob probe: writes a random nonce to the blob directory and sends its SHA-256 to the daemon. If the daemon reads the file and the hashes match, `isBlobTransportAvailable` is set to `true` and subsequent observations use blob references. Over SSH-forwarded sockets, the probe fails automatically (no shared filesystem) and the client falls back to inline payloads. On iOS, the probe is compiled out via `#if os(macOS)`.
 
 ## Safety
 
