@@ -984,6 +984,8 @@ public struct AppItem: Decodable, Sendable, Identifiable {
     public let description: String?
     public let icon: String?
     public let createdAt: Int
+    public let version: String?
+    public let contentId: String?
 }
 
 /// Response containing the list of all apps.
@@ -1004,6 +1006,9 @@ public struct SharedAppItem: Decodable, Sendable, Identifiable {
     public let signerDisplayName: String?
     public let bundleSizeBytes: Int
     public let installedAt: String
+    public let version: String?
+    public let contentId: String?
+    public let updateAvailable: Bool?
 }
 
 /// Response containing the list of shared apps.

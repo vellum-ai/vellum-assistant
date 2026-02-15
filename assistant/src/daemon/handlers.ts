@@ -46,6 +46,7 @@ import type {
   SharedAppDeleteRequest,
   UiSurfaceShow,
 } from './ipc-protocol.js';
+import { createHash } from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -1524,12 +1525,21 @@ function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
     const apps = listApps();
     ctx.send(socket, {
       type: 'apps_list_response',
-      apps: apps.map((a) => ({
-        id: a.id,
-        name: a.name,
-        description: a.description,
-        createdAt: a.createdAt,
-      })),
+      apps: apps.map((a) => {
+        const version = a.version ?? '1.0.0';
+        const contentId = createHash('sha256')
+          .update(`vellum-assistant:${a.name}`)
+          .digest('hex')
+          .slice(0, 16);
+        return {
+          id: a.id,
+          name: a.name,
+          description: a.description,
+          createdAt: a.createdAt,
+          version,
+          contentId,
+        };
+      }),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1563,12 +1573,31 @@ function handleSharedAppsList(socket: net.Socket, ctx: HandlerContext): void {
       signerDisplayName?: string;
       bundleSizeBytes: number;
       installedAt: string;
+      version?: string;
+      contentId?: string;
+      forked?: boolean;
     }> = [];
 
     for (const file of files) {
       try {
         const raw = readFileSync(join(dir, file), 'utf-8');
         const meta = JSON.parse(raw);
+
+        // Try to read version and content_id from the manifest.json inside the app dir
+        let version: string | undefined;
+        let contentId: string | undefined;
+        const manifestPath = join(dir, meta.uuid, 'manifest.json');
+        if (existsSync(manifestPath)) {
+          try {
+            const manifestRaw = readFileSync(manifestPath, 'utf-8');
+            const manifest = JSON.parse(manifestRaw);
+            version = manifest.version;
+            contentId = manifest.content_id;
+          } catch {
+            // ignore malformed manifest
+          }
+        }
+
         apps.push({
           uuid: meta.uuid,
           name: meta.name,
@@ -1579,18 +1608,65 @@ function handleSharedAppsList(socket: net.Socket, ctx: HandlerContext): void {
           signerDisplayName: meta.signerDisplayName,
           bundleSizeBytes: meta.bundleSizeBytes ?? 0,
           installedAt: meta.installedAt,
+          version,
+          contentId,
+          forked: meta.forked,
         });
       } catch {
         log.warn({ file }, 'Failed to read shared app metadata file');
       }
     }
 
-    ctx.send(socket, { type: 'shared_apps_list_response', apps });
+    // Detect update availability for non-forked shared apps.
+    // Group by contentId, then mark older versions as having an update available.
+    const contentIdVersions = new Map<string, string[]>();
+    for (const app of apps) {
+      if (app.contentId && !app.forked) {
+        const versions = contentIdVersions.get(app.contentId) ?? [];
+        if (app.version) versions.push(app.version);
+        contentIdVersions.set(app.contentId, versions);
+      }
+    }
+
+    // Find the latest version for each contentId
+    const latestVersions = new Map<string, string>();
+    for (const [cid, versions] of contentIdVersions) {
+      if (versions.length > 0) {
+        versions.sort((a, b) => compareSemver(a, b));
+        latestVersions.set(cid, versions[versions.length - 1]);
+      }
+    }
+
+    const result = apps.map((app) => {
+      let updateAvailable = false;
+      if (app.contentId && app.version && !app.forked) {
+        const latest = latestVersions.get(app.contentId);
+        if (latest && compareSemver(app.version, latest) < 0) {
+          updateAvailable = true;
+        }
+      }
+      // Remove the internal forked field before sending
+      const { forked: _, ...rest } = app;
+      return { ...rest, updateAvailable: updateAvailable || undefined };
+    });
+
+    ctx.send(socket, { type: 'shared_apps_list_response', apps: result });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Failed to list shared apps');
     ctx.send(socket, { type: 'error', message: `Failed to list shared apps: ${message}` });
   }
+}
+
+/** Compare two semver strings. Returns negative if a < b, 0 if equal, positive if a > b. */
+function compareSemver(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
 }
 
 function handleSharedAppDelete(

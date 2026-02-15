@@ -28,6 +28,7 @@ export interface AppDefinition {
   description?: string;
   schemaJson: string;
   htmlDefinition: string;
+  version?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -57,6 +58,7 @@ export function createApp(params: {
   description?: string;
   schemaJson: string;
   htmlDefinition: string;
+  version?: string;
 }): AppDefinition {
   const dir = getAppsDir();
   const now = Date.now();
@@ -66,6 +68,7 @@ export function createApp(params: {
     description: params.description,
     schemaJson: params.schemaJson,
     htmlDefinition: params.htmlDefinition,
+    version: params.version,
     createdAt: now,
     updatedAt: now,
   };
@@ -101,7 +104,7 @@ export function listApps(): AppDefinition[] {
 
 export function updateApp(
   id: string,
-  updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'schemaJson' | 'htmlDefinition'>>,
+  updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'schemaJson' | 'htmlDefinition' | 'version'>>,
 ): AppDefinition {
   validateId(id);
   const existing = getApp(id);

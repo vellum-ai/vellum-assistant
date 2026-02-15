@@ -9,7 +9,7 @@ import { createWriteStream } from 'node:fs';
 import { readFile, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import archiver from 'archiver';
 import JSZip from 'jszip';
 import { getApp } from '../memory/app-store.js';
@@ -53,14 +53,23 @@ export async function packageApp(
   }
 
   // Build manifest
+  const createdBy = `vellum-assistant/${PACKAGE_VERSION}`;
+  const version = app.version ?? '1.0.0';
+  const contentId = createHash('sha256')
+    .update(`${createdBy}:${app.name}`)
+    .digest('hex')
+    .slice(0, 16);
+
   const manifest: AppManifest = {
     format_version: 1,
     name: app.name,
     ...(app.description ? { description: app.description } : {}),
     created_at: new Date().toISOString(),
-    created_by: `vellum-assistant/${PACKAGE_VERSION}`,
+    created_by: createdBy,
     entry: 'index.html',
     capabilities: [],
+    version,
+    content_id: contentId,
   };
 
   // NOTE: Asset fetching is not yet implemented, so we keep the original HTML

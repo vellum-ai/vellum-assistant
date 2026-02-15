@@ -11,6 +11,8 @@ private struct DisplayAppItem: Identifiable {
     let isShared: Bool
     let trustTier: String?
     let signerDisplayName: String?
+    let version: String?
+    let updateAvailable: Bool?
 
     /// For local apps: the app store ID used for bundling.
     let localAppId: String?
@@ -88,12 +90,22 @@ struct GeneratedPanel: View {
                         .foregroundColor(VColor.textPrimary)
                         .lineLimit(1)
 
+                    if let version = item.version {
+                        Text("v\(version)")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+
                     if item.isShared {
                         sharedBadge
                     }
 
                     if let tier = item.trustTier {
                         trustBadge(tier: tier)
+                    }
+
+                    if item.updateAvailable == true {
+                        updateAvailableBadge
                     }
                 }
 
@@ -171,6 +183,20 @@ struct GeneratedPanel: View {
         .padding(.horizontal, 5)
         .padding(.vertical, 1)
         .background(Violet._900.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+    }
+
+    private var updateAvailableBadge: some View {
+        HStack(spacing: 2) {
+            Image(systemName: "arrow.up.circle.fill")
+                .font(.system(size: 8))
+            Text("Update available")
+                .font(VFont.small)
+        }
+        .foregroundColor(VColor.accent)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 1)
+        .background(VColor.accent.opacity(0.15))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 
@@ -318,6 +344,8 @@ struct GeneratedPanel: View {
                 isShared: false,
                 trustTier: nil,
                 signerDisplayName: nil,
+                version: app.version,
+                updateAvailable: nil,
                 localAppId: app.id,
                 sharedUUID: nil
             ))
@@ -334,6 +362,8 @@ struct GeneratedPanel: View {
                 isShared: true,
                 trustTier: app.trustTier,
                 signerDisplayName: app.signerDisplayName,
+                version: app.version,
+                updateAvailable: app.updateAvailable,
                 localAppId: nil,
                 sharedUUID: app.uuid
             ))
