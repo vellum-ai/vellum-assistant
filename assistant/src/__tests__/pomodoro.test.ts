@@ -1,5 +1,11 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { executePomodoro, timers, MAX_DURATION_MINUTES } from '../tools/timer/pomodoro.js';
+import { executePomodoro, timers, rehydrateTimers, MAX_DURATION_MINUTES } from '../tools/timer/pomodoro.js';
+import { initializeDb } from '../memory/db.js';
+import { getDb } from '../memory/db.js';
+import { pomodoroTimers } from '../memory/schema.js';
+import { eq } from 'drizzle-orm';
+
+initializeDb();
 
 const SESSION_A = 'session-a';
 const SESSION_B = 'session-b';
@@ -11,9 +17,16 @@ function getSessionTimers(sessionId: string) {
   return timers.get(sessionId) ?? new Map();
 }
 
+/** Clear all timer rows from the database. */
+function clearTimerDb() {
+  const db = getDb();
+  db.delete(pomodoroTimers).run();
+}
+
 describe('pomodoro tool', () => {
   beforeEach(() => {
     timers.clear();
+    clearTimerDb();
   });
 
   afterEach(() => {
@@ -26,6 +39,7 @@ describe('pomodoro tool', () => {
       }
     }
     timers.clear();
+    clearTimerDb();
   });
 
   // ── action validation ────────────────────────────────────────────
@@ -86,6 +100,18 @@ describe('pomodoro tool', () => {
     expect(sessionTimers.size).toBe(2);
     const ids = Array.from(sessionTimers.keys());
     expect(ids[0]).not.toBe(ids[1]);
+  });
+
+  test('start persists timer to database', () => {
+    executePomodoro({ action: 'start', label: 'Persisted' }, ctxA);
+    const id = getSessionTimers(SESSION_A).keys().next().value!;
+
+    const db = getDb();
+    const row = db.select().from(pomodoroTimers).where(eq(pomodoroTimers.id, id)).get();
+    expect(row).toBeDefined();
+    expect(row!.label).toBe('Persisted');
+    expect(row!.status).toBe('running');
+    expect(row!.sessionId).toBe(SESSION_A);
   });
 
   // ── duration overflow ─────────────────────────────────────────────
@@ -187,6 +213,17 @@ describe('pomodoro tool', () => {
     expect(timer.timeoutHandle).toBeUndefined();
   });
 
+  test('pause persists status to database', () => {
+    executePomodoro({ action: 'start', label: 'PauseMe' }, ctxA);
+    const id = getSessionTimers(SESSION_A).keys().next().value!;
+    executePomodoro({ action: 'pause', timer_id: id }, ctxA);
+
+    const db = getDb();
+    const row = db.select().from(pomodoroTimers).where(eq(pomodoroTimers.id, id)).get();
+    expect(row!.status).toBe('paused');
+    expect(row!.remainingMs).toBeGreaterThan(0);
+  });
+
   test('pause rejects already paused timer', () => {
     executePomodoro({ action: 'start' }, ctxA);
     const id = getSessionTimers(SESSION_A).keys().next().value!;
@@ -269,6 +306,16 @@ describe('pomodoro tool', () => {
     const result = executePomodoro({ action: 'cancel', timer_id: id }, ctxA);
     expect(result.isError).toBe(false);
     expect(result.content).toContain('cancelled');
+  });
+
+  test('cancel persists status to database', () => {
+    executePomodoro({ action: 'start', label: 'CancelMe' }, ctxA);
+    const id = getSessionTimers(SESSION_A).keys().next().value!;
+    executePomodoro({ action: 'cancel', timer_id: id }, ctxA);
+
+    const db = getDb();
+    const row = db.select().from(pomodoroTimers).where(eq(pomodoroTimers.id, id)).get();
+    expect(row!.status).toBe('cancelled');
   });
 
   test('cancel rejects already cancelled timer', () => {
@@ -367,6 +414,12 @@ describe('pomodoro tool', () => {
     expect(timer.completedAt).toBeDefined();
     expect(timer.remainingMs).toBe(0);
     expect(timer.timeoutHandle).toBeUndefined();
+
+    // Verify completion was persisted
+    const db = getDb();
+    const row = db.select().from(pomodoroTimers).where(eq(pomodoroTimers.id, id)).get();
+    expect(row!.status).toBe('completed');
+    expect(row!.completedAt).toBeDefined();
   });
 
   test('completed timer shows 100% progress', async () => {
@@ -434,5 +487,117 @@ describe('pomodoro tool', () => {
     const result = executePomodoro({ action: 'start', duration_minutes: 30 }, ctxA);
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Expected end:');
+  });
+
+  // ── rehydration ──────────────────────────────────────────────────
+
+  test('rehydrateTimers restores paused timers from database', () => {
+    // Create and pause a timer
+    executePomodoro({ action: 'start', label: 'Paused Across Restart', duration_minutes: 10 }, ctxA);
+    const id = getSessionTimers(SESSION_A).keys().next().value!;
+    executePomodoro({ action: 'pause', timer_id: id }, ctxA);
+
+    // Simulate daemon restart: clear in-memory state
+    for (const sessionMap of timers.values()) {
+      for (const timer of sessionMap.values()) {
+        if (timer.timeoutHandle) clearTimeout(timer.timeoutHandle);
+      }
+    }
+    timers.clear();
+    expect(getSessionTimers(SESSION_A).size).toBe(0);
+
+    // Rehydrate
+    const count = rehydrateTimers();
+    expect(count).toBe(1);
+
+    // Timer should be back in memory
+    const rehydrated = getSessionTimers(SESSION_A).get(id);
+    expect(rehydrated).toBeDefined();
+    expect(rehydrated!.status).toBe('paused');
+    expect(rehydrated!.label).toBe('Paused Across Restart');
+    expect(rehydrated!.timeoutHandle).toBeUndefined();
+  });
+
+  test('rehydrateTimers marks expired running timers as completed', () => {
+    // Insert a timer directly into DB that should have already expired
+    const db = getDb();
+    const now = Date.now();
+    const expiredId = 'expired1';
+    db.insert(pomodoroTimers).values({
+      id: expiredId,
+      sessionId: SESSION_A,
+      label: 'Already Expired',
+      durationMinutes: 1,
+      startedAt: now - 120_000, // started 2 min ago (1-min timer)
+      remainingMs: 60_000,
+      status: 'running',
+      completedAt: null,
+      createdAt: now - 120_000,
+      updatedAt: now - 120_000,
+    }).run();
+
+    const count = rehydrateTimers();
+    expect(count).toBe(1);
+
+    const timer = getSessionTimers(SESSION_A).get(expiredId);
+    expect(timer).toBeDefined();
+    expect(timer!.status).toBe('completed');
+    expect(timer!.completedAt).toBeDefined();
+    expect(timer!.remainingMs).toBe(0);
+
+    // DB should also reflect completion
+    const row = db.select().from(pomodoroTimers).where(eq(pomodoroTimers.id, expiredId)).get();
+    expect(row!.status).toBe('completed');
+  });
+
+  test('rehydrateTimers resumes running timers with remaining time', () => {
+    // Insert a timer directly into DB that still has time left
+    const db = getDb();
+    const now = Date.now();
+    const activeId = 'active1';
+    db.insert(pomodoroTimers).values({
+      id: activeId,
+      sessionId: SESSION_A,
+      label: 'Still Running',
+      durationMinutes: 10,
+      startedAt: now - 60_000, // started 1 min ago (10-min timer)
+      remainingMs: 600_000,
+      status: 'running',
+      completedAt: null,
+      createdAt: now - 60_000,
+      updatedAt: now - 60_000,
+    }).run();
+
+    const count = rehydrateTimers();
+    expect(count).toBe(1);
+
+    const timer = getSessionTimers(SESSION_A).get(activeId);
+    expect(timer).toBeDefined();
+    expect(timer!.status).toBe('running');
+    expect(timer!.timeoutHandle).toBeDefined();
+    // Should have ~9 min remaining
+    expect(timer!.remainingMs).toBeGreaterThan(500_000);
+    expect(timer!.remainingMs).toBeLessThanOrEqual(540_000);
+  });
+
+  test('rehydrateTimers skips completed/cancelled timers', () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(pomodoroTimers).values({
+      id: 'done1',
+      sessionId: SESSION_A,
+      label: 'Done',
+      durationMinutes: 5,
+      startedAt: now - 300_000,
+      remainingMs: 0,
+      status: 'completed',
+      completedAt: now,
+      createdAt: now - 300_000,
+      updatedAt: now,
+    }).run();
+
+    const count = rehydrateTimers();
+    expect(count).toBe(0);
+    expect(getSessionTimers(SESSION_A).size).toBe(0);
   });
 });

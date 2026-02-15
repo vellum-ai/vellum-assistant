@@ -24,6 +24,7 @@ import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
 import { QdrantManager } from '../memory/qdrant-manager.js';
 import { initQdrantClient } from '../memory/qdrant-client.js';
 import { startScheduler } from '../schedule/scheduler.js';
+import { rehydrateTimers } from '../tools/timer/pomodoro.js';
 import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { getHookManager } from '../hooks/manager.js';
@@ -219,6 +220,8 @@ export async function runDaemon(): Promise<void> {
   const scheduler = startScheduler(async (conversationId, message) => {
     await server.processMessage('schedule', conversationId, message);
   });
+
+  rehydrateTimers();
 
   // Start optional runtime HTTP server when RUNTIME_HTTP_PORT is set
   let runtimeHttp: RuntimeHttpServer | null = null;
