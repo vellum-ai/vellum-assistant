@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 final class MainWindow {
     private let daemonClient: DaemonClient
+    private let surfaceManager: SurfaceManager
     private let ambientAgent: AmbientAgent
     private let zoomManager: ZoomManager
     private var window: NSWindow?
@@ -29,8 +30,9 @@ final class MainWindow {
         threadManager.activeViewModel
     }
 
-    init(daemonClient: DaemonClient, ambientAgent: AmbientAgent, zoomManager: ZoomManager) {
+    init(daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, zoomManager: ZoomManager) {
         self.daemonClient = daemonClient
+        self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
         self.zoomManager = zoomManager
         self.threadManager = ThreadManager(daemonClient: daemonClient)
@@ -75,7 +77,7 @@ final class MainWindow {
             return
         }
 
-        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
+        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, onMicrophoneToggle: onMicrophoneToggle ?? {}))
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let windowWidth = min(1100.0, screenFrame.width * 0.75)

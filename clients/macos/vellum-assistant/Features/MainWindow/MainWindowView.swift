@@ -9,20 +9,25 @@ struct MainWindowView: View {
     @State private var activePanel: SidePanelType?
     @State private var isDynamicExpanded = false
     @State private var activeDynamicSurface: UiSurfaceShowMessage?
+    /// Parsed surface for the active workspace dynamic page, kept in sync with
+    /// SurfaceManager via notifications so updates from the daemon are reflected.
+    @State private var activeDynamicParsedSurface: Surface?
     @State private var hasAPIKey = APIKeyManager.hasAnyKey()
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var selectedThreadId: UUID?
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
     let daemonClient: DaemonClient
+    let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
     let onMicrophoneToggle: () -> Void
 
-    init(threadManager: ThreadManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, ambientAgent: AmbientAgent, onMicrophoneToggle: @escaping () -> Void = {}) {
+    init(threadManager: ThreadManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, onMicrophoneToggle: @escaping () -> Void = {}) {
         self.threadManager = threadManager
         self.zoomManager = zoomManager
         self.traceStore = traceStore
         self.daemonClient = daemonClient
+        self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
         self.onMicrophoneToggle = onMicrophoneToggle
     }
@@ -145,6 +150,7 @@ struct MainWindowView: View {
             if newPanel != .generated {
                 isDynamicExpanded = false
                 activeDynamicSurface = nil
+                activeDynamicParsedSurface = nil
             }
         }
         .onChange(of: selectedThreadId) { _, newId in
@@ -159,8 +165,27 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
             if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
                 activeDynamicSurface = msg
+                activeDynamicParsedSurface = Surface.from(msg)
                 activePanel = .generated
                 isDynamicExpanded = true
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
+            if let updated = notification.userInfo?["surface"] as? Surface {
+                activeDynamicParsedSurface = updated
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .dismissDynamicWorkspace)) { notification in
+            // If a specific surfaceId was dismissed, only clear if it matches.
+            if let surfaceId = notification.userInfo?["surfaceId"] as? String {
+                if activeDynamicSurface?.surfaceId == surfaceId {
+                    activeDynamicSurface = nil
+                    activeDynamicParsedSurface = nil
+                }
+            } else {
+                // Bulk dismiss (dismissAll)
+                activeDynamicSurface = nil
+                activeDynamicParsedSurface = nil
             }
         }
     }
@@ -262,19 +287,19 @@ struct MainWindowView: View {
     @ViewBuilder
     private func chatContentView(geometry: GeometryProxy) -> some View {
         if isDynamicExpanded && activePanel == .generated {
-            if let surfaceMsg = activeDynamicSurface,
-               let surface = Surface.from(surfaceMsg),
+            if let surface = activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
                 // Workspace mode: full-window dynamic page
                 dynamicWorkspaceView(surface: surface, data: dpData)
             } else {
                 // Gallery mode: existing behavior, with workspace routing
                 GeneratedPanel(
-                    onClose: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil },
+                    onClose: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil },
                     isExpanded: $isDynamicExpanded,
                     daemonClient: daemonClient,
                     onOpenApp: { surfaceMsg in
                         activeDynamicSurface = surfaceMsg
+                        activeDynamicParsedSurface = Surface.from(surfaceMsg)
                     }
                 )
             }
@@ -387,7 +412,7 @@ struct MainWindowView: View {
         VStack(spacing: 0) {
             // Toolbar
             HStack {
-                Button(action: { activeDynamicSurface = nil }) {
+                Button(action: { activeDynamicSurface = nil; activeDynamicParsedSurface = nil }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(VColor.textMuted)
@@ -402,7 +427,7 @@ struct MainWindowView: View {
 
                 Spacer()
 
-                Button(action: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil }) {
+                Button(action: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(VColor.textMuted)
@@ -419,8 +444,17 @@ struct MainWindowView: View {
             // Dynamic page WebView fills remaining space
             DynamicPageSurfaceView(
                 data: data,
-                onAction: { _, _ in },
-                appId: data.appId
+                onAction: { actionId, actionData in
+                    surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
+                },
+                appId: data.appId,
+                onDataRequest: data.appId != nil ? { callId, method, recordId, requestData in
+                    guard let appId = surfaceManager.surfaceAppIds[surface.id] else { return }
+                    surfaceManager.onDataRequest?(surface.id, callId, method, appId, recordId, requestData)
+                } : nil,
+                onCoordinatorReady: data.appId != nil ? { coordinator in
+                    surfaceManager.surfaceCoordinators[surface.id] = coordinator
+                } : nil
             )
 
             // Chatbar pinned at bottom
@@ -454,7 +488,7 @@ struct MainWindowView: View {
         if let panel = activePanel {
             switch panel {
             case .generated:
-                GeneratedPanel(onClose: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil }, isExpanded: $isDynamicExpanded, daemonClient: daemonClient)
+                GeneratedPanel(onClose: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil }, isExpanded: $isDynamicExpanded, daemonClient: daemonClient)
             case .agent:
                 AgentPanel(onClose: { activePanel = nil }, onInvokeSkill: { skill in
                     if threadManager.activeViewModel == nil {
@@ -509,7 +543,7 @@ private struct ZoomIndicatorView: View {
 
 #Preview {
     let dc = DaemonClient()
-    return MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, ambientAgent: AmbientAgent())
+    return MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent())
         .frame(width: 900, height: 600)
         .padding(.top, 36)
 }
