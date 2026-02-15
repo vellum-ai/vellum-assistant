@@ -151,14 +151,17 @@ describe('tool manifest', () => {
   });
 
   test('eager module list contains expected count', () => {
-    expect(eagerModules.length).toBe(18);
+    expect(eagerModules.length).toBe(15);
   });
 
-  test('explicit tools list includes memory tools', () => {
+  test('explicit tools list includes memory, credential, and timer tools', () => {
     const names = explicitTools.map((t) => t.name);
     expect(names).toContain('memory_search');
     expect(names).toContain('memory_save');
     expect(names).toContain('memory_update');
+    expect(names).toContain('credential_store');
+    expect(names).toContain('account_manage');
+    expect(names).toContain('pomodoro');
   });
 
   test('registered tool count is at least eager + lazy + host', async () => {
