@@ -358,14 +358,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   outline-offset: -2px;
 }
 
-/* Empty state */
-.v-empty-state {
-  text-align: center;
-  color: var(--v-text-muted);
-  padding: var(--v-spacing-xxl) var(--v-spacing-lg);
-  font-size: var(--v-font-size-base);
-}
-
 /* Toggle switch */
 .v-toggle {
   position: relative;
@@ -514,7 +506,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 /* Data Table — sortable, hoverable, sticky header */
 .v-data-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   background: var(--v-surface);
   border: 1px solid var(--v-surface-border);
   border-radius: var(--v-radius-lg);
@@ -999,7 +992,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   height: 36px;
   border-radius: 50%;
   background: var(--v-accent);
-  color: white;
+  color: var(--v-slate-50);
   display: flex;
   align-items: center;
   justify-content: center;
