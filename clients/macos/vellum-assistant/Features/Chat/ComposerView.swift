@@ -204,8 +204,23 @@ struct ComposerView: View {
         }
         .onKeyPress(.return, phases: .down) { keyPress in
             if keyPress.modifiers == .shift {
-                if let textView = NSApp.keyWindow?.firstResponder as? NSTextView {
+                if let textView = NSApp.keyWindow?.firstResponder as? NSTextView,
+                   let window = NSApp.keyWindow {
                     textView.insertNewlineIgnoringFieldEditor(nil)
+                    // Restore focus at the AppKit level if SwiftUI's re-render
+                    // resigns first responder. Using makeFirstResponder instead
+                    // of @FocusState avoids the select-all that SwiftUI applies
+                    // when re-focusing a TextField.
+                    let savedRange = textView.selectedRange()
+                    DispatchQueue.main.async {
+                        if !(window.firstResponder is NSTextView) {
+                            window.makeFirstResponder(textView)
+                        }
+                        if let tv = window.firstResponder as? NSTextView,
+                           tv.selectedRange() != savedRange {
+                            tv.setSelectedRange(savedRange)
+                        }
+                    }
                 } else {
                     inputText += "\n"
                 }
