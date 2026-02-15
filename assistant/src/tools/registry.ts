@@ -108,6 +108,8 @@ export async function initializeTools(): Promise<void> {
   await import('./network/web-search.js');
   await import('./network/web-fetch.js');
   await import('./skills/load.js');
+  await import('./skills/scaffold-managed.js');
+  await import('./skills/delete-managed.js');
   await import('./browser/headless-browser.js');
   await import('./weather/get-weather.js');
   await import('./memory/register.js');

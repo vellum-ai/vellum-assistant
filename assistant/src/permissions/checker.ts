@@ -143,6 +143,11 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
     return [...new Set(targets)].map((target) => `${toolName}:${target}`);
   }
 
+  if (toolName === 'scaffold_managed_skill' || toolName === 'delete_managed_skill') {
+    const skillId = getStringField(input, 'skill_id').trim();
+    return [`${toolName}:${skillId}`];
+  }
+
   if (toolName === 'web_fetch' || toolName === 'browser_navigate') {
     const rawUrl = getStringField(input, 'url').trim();
     const candidates: string[] = [];
@@ -415,6 +420,25 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
       seen.add(o.pattern);
       return true;
     });
+  }
+
+  if (toolName === 'scaffold_managed_skill' || toolName === 'delete_managed_skill') {
+    const skillId = getStringField(input, 'skill_id').trim();
+    const toolLabel = toolName === 'scaffold_managed_skill' ? 'scaffold' : 'delete';
+    const options: AllowlistOption[] = [];
+    if (skillId) {
+      options.push({
+        label: skillId,
+        description: `This skill only`,
+        pattern: `${toolName}:${skillId}`,
+      });
+    }
+    options.push({
+      label: `${toolName}:*`,
+      description: `All managed skill ${toolLabel}s`,
+      pattern: `${toolName}:*`,
+    });
+    return options;
   }
 
   return [{ label: '*', description: 'Everything', pattern: '*' }];
