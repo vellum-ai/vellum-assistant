@@ -169,12 +169,27 @@ const DIRECTIONAL_CUES = new Set([
 
 const MAX_REPLY_WORD_COUNT = 12;
 
+// Direction-only matches (no action verb) must be very short to avoid
+// false positives from unrelated statements that happen to contain
+// common words like "new", "old", "option", etc.
+const MAX_DIRECTION_ONLY_WORD_COUNT = 4;
+
+// Messages starting with a question word are unlikely to be clarification
+// replies even when they lack a trailing question mark.
+const QUESTION_WORD_PREFIXES = new Set([
+  'what', 'how', 'why', 'where', 'when', 'which', 'who', 'whom', 'whose',
+]);
+
 /**
  * Determines whether a user message looks like a deliberate reply to a
  * recently asked conflict clarification (e.g. "keep the new one", "both",
  * "option B", "new one"). Requires at least one action or directional cue,
  * and the message must be short. Questions and longer statements are excluded
  * to prevent accidental resolution from unrelated messages.
+ *
+ * When only directional cues are present (no action verb), the message must
+ * be very short (<= 4 words) to avoid false positives from unrelated messages
+ * like "What's new in Bun" or "try the old approach".
  */
 export function looksLikeClarificationReply(userMessage: string): boolean {
   const trimmed = userMessage.trim();
@@ -184,7 +199,18 @@ export function looksLikeClarificationReply(userMessage: string): boolean {
   if (words.length === 0 || words.length > MAX_REPLY_WORD_COUNT) return false;
 
   const normalized = words.map((w) => w.replace(/[^a-z]/g, ''));
+
+  // Reject messages that start with a question word (even without '?').
+  // Use startsWith to handle contractions like "what's", "where's", etc.
+  const firstWord = words[0];
+  for (const qw of QUESTION_WORD_PREFIXES) {
+    if (firstWord.startsWith(qw)) return false;
+  }
+
   const hasAction = normalized.some((w) => ACTION_CUES.has(w));
   const hasDirection = normalized.some((w) => DIRECTIONAL_CUES.has(w));
-  return hasAction || hasDirection;
+
+  if (hasAction) return true;
+  if (hasDirection) return words.length <= MAX_DIRECTION_ONLY_WORD_COUNT;
+  return false;
 }
