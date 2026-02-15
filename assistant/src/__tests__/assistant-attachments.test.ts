@@ -4,6 +4,9 @@ import {
   inferMimeType,
   classifyKind,
   validateDrafts,
+  cleanAssistantContent,
+  contentBlocksToDrafts,
+  deduplicateDrafts,
   MAX_ASSISTANT_ATTACHMENTS,
   MAX_ASSISTANT_ATTACHMENT_BYTES,
   type AssistantAttachmentDraft,
@@ -159,5 +162,134 @@ describe('validateDrafts', () => {
     const result = validateDrafts([]);
     expect(result.accepted).toHaveLength(0);
     expect(result.warnings).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cleanAssistantContent
+// ---------------------------------------------------------------------------
+
+describe('cleanAssistantContent', () => {
+  test('strips directives from text blocks and returns them', () => {
+    const content = [
+      { type: 'text', text: 'Here is the file:\n<vellum-attachment path="out.png" />' },
+    ];
+    const result = cleanAssistantContent(content);
+
+    expect(result.directives).toHaveLength(1);
+    expect(result.directives[0].path).toBe('out.png');
+    expect((result.cleanedContent[0] as { text: string }).text).toBe('Here is the file:');
+  });
+
+  test('leaves non-text blocks unchanged', () => {
+    const content = [
+      { type: 'tool_use', id: 't1', name: 'read', input: {} },
+      { type: 'text', text: '<vellum-attachment path="x.pdf" />' },
+    ];
+    const result = cleanAssistantContent(content);
+
+    expect(result.cleanedContent[0]).toEqual(content[0]);
+    expect(result.directives).toHaveLength(1);
+  });
+
+  test('accumulates warnings for malformed tags', () => {
+    const content = [
+      { type: 'text', text: '<vellum-attachment source="bad" path="x.txt" />' },
+    ];
+    const result = cleanAssistantContent(content);
+
+    expect(result.directives).toHaveLength(0);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain('invalid source');
+  });
+
+  test('handles content with no text blocks', () => {
+    const content = [
+      { type: 'thinking', thinking: 'hmm', signature: 'sig' },
+    ];
+    const result = cleanAssistantContent(content);
+
+    expect(result.directives).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0);
+    expect(result.cleanedContent).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// contentBlocksToDrafts
+// ---------------------------------------------------------------------------
+
+describe('contentBlocksToDrafts', () => {
+  test('converts image content block to draft', () => {
+    const blocks = [
+      {
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' },
+      },
+    ];
+    const drafts = contentBlocksToDrafts(blocks);
+
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].sourceType).toBe('tool_block');
+    expect(drafts[0].filename).toBe('tool-output.png');
+    expect(drafts[0].mimeType).toBe('image/png');
+    expect(drafts[0].kind).toBe('image');
+  });
+
+  test('converts file content block to draft', () => {
+    const blocks = [
+      {
+        type: 'file',
+        source: { type: 'base64', media_type: 'application/pdf', data: 'JVBER', filename: 'report.pdf' },
+      },
+    ];
+    const drafts = contentBlocksToDrafts(blocks);
+
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].sourceType).toBe('tool_block');
+    expect(drafts[0].filename).toBe('report.pdf');
+    expect(drafts[0].kind).toBe('document');
+  });
+
+  test('skips non-image/file blocks', () => {
+    const blocks = [
+      { type: 'text', text: 'hello' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: '/9j/' } },
+    ];
+    const drafts = contentBlocksToDrafts(blocks);
+
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].mimeType).toBe('image/jpeg');
+  });
+
+  test('returns empty for empty input', () => {
+    expect(contentBlocksToDrafts([])).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deduplicateDrafts
+// ---------------------------------------------------------------------------
+
+describe('deduplicateDrafts', () => {
+  test('removes duplicates by filename + content prefix', () => {
+    const d = makeDraft({ filename: 'same.txt', dataBase64: 'AAAA'.repeat(20) });
+    const result = deduplicateDrafts([d, { ...d }, makeDraft({ filename: 'other.txt' })]);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].filename).toBe('same.txt');
+    expect(result[1].filename).toBe('other.txt');
+  });
+
+  test('keeps drafts with same filename but different content', () => {
+    const d1 = makeDraft({ filename: 'file.txt', dataBase64: 'AAAA'.repeat(20) });
+    const d2 = makeDraft({ filename: 'file.txt', dataBase64: 'BBBB'.repeat(20) });
+    const result = deduplicateDrafts([d1, d2]);
+
+    expect(result).toHaveLength(2);
+  });
+
+  test('returns empty for empty input', () => {
+    expect(deduplicateDrafts([])).toHaveLength(0);
   });
 });

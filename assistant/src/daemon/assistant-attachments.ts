@@ -409,6 +409,141 @@ export async function resolveHostDirective(
 }
 
 // ---------------------------------------------------------------------------
+// Batch directive resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve an array of parsed directives to attachment drafts.
+ *
+ * Sandbox directives are resolved synchronously; host directives go through
+ * the async approval callback.
+ */
+export async function resolveDirectives(
+  directives: DirectiveRequest[],
+  workingDir: string,
+  approveHostRead: ApproveHostRead,
+): Promise<{ drafts: AssistantAttachmentDraft[]; warnings: string[] }> {
+  const drafts: AssistantAttachmentDraft[] = [];
+  const warnings: string[] = [];
+
+  for (const d of directives) {
+    const result = d.source === 'sandbox'
+      ? resolveSandboxDirective(d, workingDir)
+      : await resolveHostDirective(d, approveHostRead);
+    if (result.draft) drafts.push(result.draft);
+    if (result.warning) warnings.push(result.warning);
+  }
+
+  return { drafts, warnings };
+}
+
+// ---------------------------------------------------------------------------
+// Tool content block → draft conversion
+// ---------------------------------------------------------------------------
+
+interface ImageBlock {
+  type: 'image';
+  source: { type: 'base64'; media_type: string; data: string };
+}
+
+interface FileBlock {
+  type: 'file';
+  source: { type: 'base64'; media_type: string; data: string; filename: string };
+}
+
+/**
+ * Convert tool content blocks (images/files from tool results) into
+ * attachment drafts. Blocks that aren't image or file types are skipped.
+ */
+export function contentBlocksToDrafts(
+  blocks: readonly unknown[],
+): AssistantAttachmentDraft[] {
+  const drafts: AssistantAttachmentDraft[] = [];
+
+  for (const block of blocks) {
+    const b = block as Record<string, unknown>;
+    if (b.type === 'image') {
+      const src = b.source as ImageBlock['source'];
+      const data = src.data;
+      const mimeType = src.media_type;
+      const ext = mimeType.split('/')[1] ?? 'png';
+      drafts.push({
+        sourceType: 'tool_block',
+        filename: `tool-output.${ext}`,
+        mimeType,
+        dataBase64: data,
+        sizeBytes: estimateBase64Bytes(data),
+        kind: 'image',
+      });
+    } else if (b.type === 'file') {
+      const src = b.source as FileBlock['source'];
+      const data = src.data;
+      const mimeType = src.media_type;
+      const filename = src.filename;
+      drafts.push({
+        sourceType: 'tool_block',
+        filename,
+        mimeType,
+        dataBase64: data,
+        sizeBytes: estimateBase64Bytes(data),
+        kind: classifyKind(mimeType),
+      });
+    }
+  }
+
+  return drafts;
+}
+
+// ---------------------------------------------------------------------------
+// Content cleaning: strip directives from assistant text blocks
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse directives from assistant content blocks, returning cleaned content
+ * (tags stripped) and all accumulated directive requests + warnings.
+ */
+export function cleanAssistantContent(
+  content: readonly unknown[],
+): {
+  cleanedContent: unknown[];
+  directives: DirectiveRequest[];
+  warnings: string[];
+} {
+  const directives: DirectiveRequest[] = [];
+  const warnings: string[] = [];
+
+  const cleanedContent = content.map((block) => {
+    const b = block as Record<string, unknown>;
+    if (b.type !== 'text') return block;
+    const text = b.text as string;
+    const result = parseDirectives(text);
+    directives.push(...result.directiveRequests);
+    warnings.push(...result.parseWarnings);
+    return { ...b, text: result.cleanText };
+  });
+
+  return { cleanedContent, directives, warnings };
+}
+
+// ---------------------------------------------------------------------------
+// De-duplication
+// ---------------------------------------------------------------------------
+
+/**
+ * De-duplicate drafts by filename + content hash (first 64 chars of base64
+ * as a cheap proxy for content identity).
+ */
+export function deduplicateDrafts(drafts: AssistantAttachmentDraft[]): AssistantAttachmentDraft[] {
+  const seen = new Set<string>();
+  return drafts.filter((d) => {
+    const key = `${d.filename}:${d.dataBase64.slice(0, 64)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
 

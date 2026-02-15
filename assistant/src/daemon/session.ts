@@ -56,6 +56,16 @@ import {
   resolveSlashSkillCommand,
   rewriteKnownSlashCommandPrompt,
 } from '../skills/slash-commands.js';
+import {
+  cleanAssistantContent,
+  resolveDirectives,
+  contentBlocksToDrafts,
+  deduplicateDrafts,
+  validateDrafts,
+  type DirectiveRequest,
+  type AssistantAttachmentDraft,
+  type ApproveHostRead,
+} from './assistant-attachments.js';
 
 const log = getLogger('session');
 
@@ -110,6 +120,11 @@ export class Session {
   private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
   private onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
   public readonly traceEmitter: TraceEmitter;
+
+  /** Resolved assistant attachment drafts from the most recent exchange. */
+  public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
+  /** Warnings from directive parsing/resolution for the most recent exchange. */
+  public lastAttachmentWarnings: string[] = [];
 
   constructor(
     conversationId: string,
@@ -539,6 +554,9 @@ export class Session {
       let runMessages = this.messages;
       const pendingToolResults = new Map<string, { content: string; isError: boolean; contentBlocks?: ContentBlock[] }>();
       const persistedToolUseIds = new Set<string>();
+      const accumulatedDirectives: DirectiveRequest[] = [];
+      const accumulatedToolContentBlocks: ContentBlock[] = [];
+      const directiveWarnings: string[] = [];
       const runtimeConfig = getConfig();
       const recallQuery = buildMemoryQuery(content, this.messages);
       const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig, {
@@ -642,6 +660,14 @@ export class Session {
             const imageBlock = event.contentBlocks?.find((b): b is ImageContent => b.type === 'image');
             onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status, sessionId: this.conversationId, imageData: imageBlock?.source.data });
             pendingToolResults.set(event.toolUseId, { content: event.content, isError: event.isError, contentBlocks: event.contentBlocks });
+            // Collect image/file content blocks for assistant attachment conversion
+            if (event.contentBlocks) {
+              for (const cb of event.contentBlocks) {
+                if (cb.type === 'image' || cb.type === 'file') {
+                  accumulatedToolContentBlocks.push(cb);
+                }
+              }
+            }
             break;
           }
           case 'error':
@@ -676,19 +702,25 @@ export class Session {
               }
               pendingToolResults.clear();
             }
-            // Save assistant message to DB
+            // Parse and strip attachment directives from assistant text
+            const { cleanedContent, directives: msgDirectives, warnings: msgWarnings } =
+              cleanAssistantContent(event.message.content);
+            accumulatedDirectives.push(...msgDirectives);
+            directiveWarnings.push(...msgWarnings);
+
+            // Save assistant message with cleaned content (tags stripped)
             conversationStore.addMessage(
               this.conversationId,
               'assistant',
-              JSON.stringify(event.message.content),
+              JSON.stringify(cleanedContent),
             );
 
             // Emit assistant_message trace with content metrics.
             // Char count only includes text blocks; thinking blocks are
             // explicitly excluded from traces.
-            const charCount = event.message.content
-              .filter((b) => b.type === 'text')
-              .reduce((sum, b) => sum + ((b as { type: 'text'; text: string }).text?.length ?? 0), 0);
+            const charCount = cleanedContent
+              .filter((b) => (b as Record<string, unknown>).type === 'text')
+              .reduce((sum: number, b) => sum + ((b as { text?: string }).text?.length ?? 0), 0);
             const toolUseCount = event.message.content
               .filter((b) => b.type === 'tool_use')
               .length;
@@ -828,6 +860,31 @@ export class Session {
       void getHookManager().trigger('post-message', {
         sessionId: this.conversationId,
       });
+
+      // Resolve accumulated attachment directives and tool content blocks
+      let assistantAttachments: AssistantAttachmentDraft[] = [];
+      if (accumulatedDirectives.length > 0 || accumulatedToolContentBlocks.length > 0) {
+        const approveHostRead: ApproveHostRead = async (_filePath) => {
+          // TODO(PR-6+): Wire to permission prompter for interactive approval
+          return false;
+        };
+
+        const directiveDrafts = accumulatedDirectives.length > 0
+          ? await resolveDirectives(accumulatedDirectives, this.workingDir, approveHostRead)
+          : { drafts: [], warnings: [] };
+        directiveWarnings.push(...directiveDrafts.warnings);
+
+        const toolDrafts = contentBlocksToDrafts(accumulatedToolContentBlocks);
+
+        const merged = deduplicateDrafts([...directiveDrafts.drafts, ...toolDrafts]);
+        const validated = validateDrafts(merged);
+        directiveWarnings.push(...validated.warnings);
+        assistantAttachments = validated.accepted;
+      }
+
+      // Store resolved attachments on the session for PR 6 (persistence)
+      this.lastAssistantAttachments = assistantAttachments;
+      this.lastAttachmentWarnings = directiveWarnings;
 
       if (yieldedForHandoff) {
         this.traceEmitter.emit('generation_handoff', 'Handing off to next queued message', {
