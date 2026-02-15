@@ -2,10 +2,13 @@ import { v4 as uuid } from 'uuid';
 import type {
   AuthorizeRequest,
   AuthorizeResult,
+  BrowserFillRequest,
+  BrowserFillResult,
   ConsumeResult,
   UsageToken,
 } from './broker-types.js';
 import { getCredentialMetadata } from './metadata-store.js';
+import { getCredentialValue } from './vault.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('credential-broker');
@@ -94,6 +97,50 @@ export class CredentialBroker {
     this.tokens.clear();
     if (count > 0) {
       log.info({ count }, 'All usage tokens revoked');
+    }
+  }
+
+  /**
+   * Fill a browser field using a credential without exposing plaintext to the caller.
+   *
+   * The broker resolves the credential, reads the secret internally, and passes it
+   * to the provided fill callback. The return value contains only metadata — the
+   * plaintext never leaves this method's scope.
+   */
+  async browserFill(request: BrowserFillRequest): Promise<BrowserFillResult> {
+    const metadata = getCredentialMetadata(request.service, request.field);
+    if (!metadata) {
+      return {
+        success: false,
+        reason: `No credential found for ${request.service}/${request.field}`,
+      };
+    }
+
+    // Policy check stubs — full enforcement in PRs 19-20
+    // For now, always allow if metadata exists.
+
+    const value = getCredentialValue(request.service, request.field);
+    if (!value) {
+      return {
+        success: false,
+        reason: `Credential metadata exists but no stored value for ${request.service}/${request.field}`,
+      };
+    }
+
+    try {
+      await request.fill(value);
+      log.info(
+        { service: request.service, field: request.field, tool: request.toolName },
+        'Browser fill completed',
+      );
+      return { success: true };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error(
+        { err, service: request.service, field: request.field },
+        'Browser fill failed',
+      );
+      return { success: false, reason: `Fill operation failed: ${msg}` };
     }
   }
 
