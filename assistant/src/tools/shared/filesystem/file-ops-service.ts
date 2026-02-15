@@ -57,7 +57,7 @@ export class FileSystemOps {
 
     const sizeErr = checkFileSizeOnDisk(filePath);
     if (sizeErr) {
-      return { ok: false, error: Err.sizeLimitExceeded(filePath, `${stat.size}`, sizeErr) };
+      return { ok: false, error: Err.sizeLimitExceeded(filePath, sizeErr) };
     }
 
     try {
@@ -95,7 +95,7 @@ export class FileSystemOps {
 
     const sizeErr = checkContentSize(input.content, filePath);
     if (sizeErr) {
-      return { ok: false, error: Err.sizeLimitExceeded(filePath, 'content', sizeErr) };
+      return { ok: false, error: Err.sizeLimitExceeded(filePath, sizeErr) };
     }
 
     try {
@@ -146,7 +146,7 @@ export class FileSystemOps {
     try {
       const sizeErr = checkFileSizeOnDisk(filePath);
       if (sizeErr) {
-        return { ok: false, error: Err.sizeLimitExceeded(filePath, 'file', sizeErr) };
+        return { ok: false, error: Err.sizeLimitExceeded(filePath, sizeErr) };
       }
     } catch {
       // Fall through — the readFileSync below will surface NOT_FOUND.
@@ -155,8 +155,12 @@ export class FileSystemOps {
     let content: string;
     try {
       content = readFileSync(filePath, 'utf-8');
-    } catch (err) {
-      if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'EISDIR') {
+        return { ok: false, error: Err.notAFile(filePath) };
+      }
+      if (code === 'ENOENT') {
         return { ok: false, error: Err.notFound(filePath) };
       }
       const msg = err instanceof Error ? err.message : String(err);

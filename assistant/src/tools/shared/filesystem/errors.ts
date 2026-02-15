@@ -56,10 +56,10 @@ export function notAFile(path: string): FsError {
   return { code: 'NOT_A_FILE', message: `Not a regular file: ${path}`, path };
 }
 
-export function sizeLimitExceeded(path: string, size: string, limit: string): FsError {
+export function sizeLimitExceeded(path: string, detail: string): FsError {
   return {
     code: 'SIZE_LIMIT_EXCEEDED',
-    message: `File size (${size}) exceeds the ${limit} limit: ${path}`,
+    message: detail,
     path,
   };
 }

@@ -47,11 +47,11 @@ describe('shared filesystem error helpers', () => {
     expect(err.message).toContain('/some/dir');
   });
 
-  it('sizeLimitExceeded includes size and limit', () => {
-    const err = sizeLimitExceeded('/big.bin', '200 MB', '100 MB');
+  it('sizeLimitExceeded includes detail message', () => {
+    const detail = 'File size (200 MB) exceeds the 100 MB limit: /big.bin';
+    const err = sizeLimitExceeded('/big.bin', detail);
     expect(err.code).toBe('SIZE_LIMIT_EXCEEDED' satisfies FsErrorCode);
-    expect(err.message).toContain('200 MB');
-    expect(err.message).toContain('100 MB');
+    expect(err.message).toBe(detail);
     expect(err.path).toBe('/big.bin');
   });
 
