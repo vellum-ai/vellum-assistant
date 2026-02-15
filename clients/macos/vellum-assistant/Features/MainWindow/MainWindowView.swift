@@ -51,6 +51,7 @@ struct MainWindowView: View {
                                         .buttonStyle(.plain)
                                         .accessibilityLabel("Close \(thread.title)")
                                     }
+                                    .padding(.vertical, VSpacing.xxs)
                                     .tag(thread.id)
                                 }
                             } header: {
@@ -63,12 +64,14 @@ struct MainWindowView: View {
                                         threadManager.createThread()
                                     }
                                 }
+                                .padding(.bottom, VSpacing.xs)
                             }
 
                             // Hidden threads section
-                            if !threadManager.threads.filter({ $0.isHidden }).isEmpty {
+                            let hiddenThreads = threadManager.threads.filter { $0.isHidden }
+                            if !hiddenThreads.isEmpty {
                                 Section {
-                                    ForEach(threadManager.threads.filter { $0.isHidden }) { thread in
+                                    ForEach(hiddenThreads) { thread in
                                         HStack(spacing: VSpacing.sm) {
                                             Image(systemName: "eye.slash")
                                                 .font(.system(size: 12))
@@ -87,8 +90,18 @@ struct MainWindowView: View {
                                             }
                                             .buttonStyle(.plain)
                                             .accessibilityLabel("Restore \(thread.title)")
+
+                                            Button(action: { threadManager.deleteThread(id: thread.id) }) {
+                                                Image(systemName: "trash")
+                                                    .font(.system(size: 10, weight: .bold))
+                                                    .foregroundColor(VColor.textMuted)
+                                                    .frame(width: 16, height: 16)
+                                                    .contentShape(Rectangle())
+                                            }
+                                            .buttonStyle(.plain)
+                                            .accessibilityLabel("Delete \(thread.title)")
                                         }
-                                        .tag(thread.id)
+                                        .padding(.vertical, VSpacing.xxs)
                                     }
                                 } header: {
                                     Text("HIDDEN")
@@ -109,21 +122,27 @@ struct MainWindowView: View {
                                         VIconButton(label: "Dynamic", icon: "wand.and.stars", isActive: activePanel == .generated, iconOnly: true) {
                                             togglePanel(.generated)
                                         }
+                                        .id("toolbar-dynamic")
                                         VIconButton(label: "Skills", icon: "exclamationmark.triangle", isActive: activePanel == .agent, iconOnly: true) {
                                             togglePanel(.agent)
                                         }
+                                        .id("toolbar-skills")
                                         VIconButton(label: "Settings", icon: "gearshape", isActive: activePanel == .settings, iconOnly: true) {
                                             togglePanel(.settings)
                                         }
+                                        .id("toolbar-settings")
                                         VIconButton(label: "Directory", icon: "doc.text", isActive: activePanel == .directory, iconOnly: true) {
                                             togglePanel(.directory)
                                         }
+                                        .id("toolbar-directory")
                                         VIconButton(label: "Debug", icon: "ant", isActive: activePanel == .debug, iconOnly: true) {
                                             togglePanel(.debug)
                                         }
+                                        .id("toolbar-debug")
                                         VIconButton(label: "Doctor", icon: "stethoscope", isActive: activePanel == .doctor, iconOnly: true) {
                                             togglePanel(.doctor)
                                         }
+                                        .id("toolbar-doctor")
                                     }
                                 }
                             }
@@ -177,6 +196,11 @@ struct MainWindowView: View {
             // via toolbar or tab bar buttons, which only modify activePanel.
             if newPanel != .generated {
                 isDynamicExpanded = false
+            }
+
+            // Close thread drawer when opening a right-side panel to avoid cramped layout
+            if useThreadDrawer && newPanel != nil {
+                columnVisibility = .detailOnly
             }
         }
         .onChange(of: selectedThreadId) { _, newId in
