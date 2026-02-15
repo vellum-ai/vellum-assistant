@@ -634,6 +634,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(AppOpenRequestMessage(appId: appId))
     }
 
+    /// Send a preview screenshot for an app.
+    public func sendAppUpdatePreview(appId: String, preview: String) throws {
+        try send(AppUpdatePreviewRequestMessage(appId: appId, preview: preview))
+    }
+
     /// Request the list of all apps from the daemon.
     public func sendAppsList() throws {
         try send(AppsListRequestMessage())
@@ -873,6 +878,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSkillsInspectResponse?(msg)
         case .appsListResponse(let msg):
             onAppsListResponse?(msg)
+        case .appUpdatePreviewResponse:
+            break // Fire-and-forget; no callback needed
         case .sharedAppsListResponse(let msg):
             onSharedAppsListResponse?(msg)
         case .sharedAppDeleteResponse(let msg):

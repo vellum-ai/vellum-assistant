@@ -337,6 +337,19 @@ export interface BundleAppRequest {
   appId: string;
 }
 
+export interface AppUpdatePreviewRequest {
+  type: 'app_update_preview';
+  appId: string;
+  /** Base64-encoded PNG screenshot thumbnail. */
+  preview: string;
+}
+
+export interface AppUpdatePreviewResponse {
+  type: 'app_update_preview_response';
+  success: boolean;
+  appId: string;
+}
+
 export interface OpenBundleRequest {
   type: 'open_bundle';
   filePath: string;
@@ -559,7 +572,8 @@ export type ClientMessage =
   | SlackWebhookConfigRequest
   | SessionsClearRequest
   | GalleryListRequest
-  | GalleryInstallRequest;
+  | GalleryInstallRequest
+  | AppUpdatePreviewRequest;
 
 // === Server → Client messages ===
 
@@ -1313,7 +1327,8 @@ export type ServerMessage =
   | GalleryListResponse
   | GalleryInstallResponse
   | ShareToSlackResponse
-  | SlackWebhookConfigResponse;
+  | SlackWebhookConfigResponse
+  | AppUpdatePreviewResponse;
 
 // === Contract schema ===
 

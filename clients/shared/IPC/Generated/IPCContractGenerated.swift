@@ -79,6 +79,19 @@ public struct IPCAppsListResponseApp: Codable, Sendable {
     public let contentId: String?
 }
 
+public struct IPCAppUpdatePreviewRequest: Codable, Sendable {
+    public let type: String
+    public let appId: String
+    /// Base64-encoded PNG screenshot thumbnail.
+    public let preview: String
+}
+
+public struct IPCAppUpdatePreviewResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let appId: String
+}
+
 public struct IPCAssistantTextDelta: Codable, Sendable {
     public let type: String
     public let text: String

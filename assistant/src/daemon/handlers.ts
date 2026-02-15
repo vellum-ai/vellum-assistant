@@ -54,6 +54,7 @@ import type {
   GalleryInstallRequest,
   ShareToSlackRequest,
   SlackWebhookConfigRequest,
+  AppUpdatePreviewRequest,
 } from './ipc-protocol.js';
 import { postToSlackWebhook } from '../slack/slack-webhook.js';
 import { createHash } from 'node:crypto';
@@ -70,7 +71,7 @@ import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { handleWatchObservation } from './watch-handler.js';
 import { classifyInteraction } from './classifier.js';
-import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp, createApp } from '../memory/app-store.js';
+import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp, createApp, updateApp } from '../memory/app-store.js';
 import { defaultGallery } from '../gallery/default-gallery.js';
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
@@ -423,6 +424,7 @@ const handlers: DispatchMap = {
   bundle_app: handleBundleApp,
   open_bundle: handleOpenBundle,
   app_open_request: (msg, socket, ctx) => handleAppOpenRequest(msg, socket, ctx),
+  app_update_preview: handleAppUpdatePreview,
   apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
   shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
   shared_app_delete: handleSharedAppDelete,
@@ -1779,6 +1781,19 @@ function handleAppOpenRequest(msg: { appId: string }, socket: net.Socket, ctx: H
     data: { html: app.htmlDefinition, appId: app.id },
     display: 'panel',
   } as UiSurfaceShow);
+}
+
+// ─── App update preview handler ─────────────────────────────────────────────
+
+function handleAppUpdatePreview(msg: AppUpdatePreviewRequest, socket: net.Socket, ctx: HandlerContext): void {
+  try {
+    updateApp(msg.appId, { preview: msg.preview });
+    ctx.send(socket, { type: 'app_update_preview_response', success: true, appId: msg.appId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to update app preview');
+    ctx.send(socket, { type: 'error', message: `Failed to update app preview: ${message}` });
+  }
 }
 
 // ─── Apps list handler ──────────────────────────────────────────────────────

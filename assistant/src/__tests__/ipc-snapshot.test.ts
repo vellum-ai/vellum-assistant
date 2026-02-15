@@ -291,6 +291,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'gallery_install',
     galleryAppId: 'gallery-pomodoro-timer',
   },
+  app_update_preview: {
+    type: 'app_update_preview',
+    appId: 'app-001',
+    preview: 'base64-png-data',
+  },
   share_app_cloud: {
     type: 'share_app_cloud',
     appId: 'app-001',
@@ -852,6 +857,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'slack_webhook_config_response',
     webhookUrl: 'https://hooks.slack.com/services/T00/B00/xxx',
     success: true,
+  },
+  app_update_preview_response: {
+    type: 'app_update_preview_response',
+    success: true,
+    appId: 'app-001',
   },
 };
 

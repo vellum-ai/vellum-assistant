@@ -93,25 +93,6 @@ struct MainWindowView: View {
                                 }
 
                                 Spacer()
-
-                                // Panel toggle buttons
-                                HStack(spacing: VSpacing.sm) {
-                                    VIconButton(label: "Skills", icon: "exclamationmark.triangle", isActive: windowState.activePanel == .agent, iconOnly: true) {
-                                        windowState.togglePanel(.agent)
-                                    }
-                                    VIconButton(label: "Settings", icon: "gearshape", isActive: windowState.activePanel == .settings, iconOnly: true) {
-                                        windowState.togglePanel(.settings)
-                                    }
-                                    VIconButton(label: "Directory", icon: "doc.text", isActive: windowState.activePanel == .directory, iconOnly: true) {
-                                        windowState.togglePanel(.directory)
-                                    }
-                                    VIconButton(label: "Debug", icon: "ant", isActive: windowState.activePanel == .debug, iconOnly: true) {
-                                        windowState.togglePanel(.debug)
-                                    }
-                                    VIconButton(label: "Doctor", icon: "stethoscope", isActive: windowState.activePanel == .doctor, iconOnly: true) {
-                                        windowState.togglePanel(.doctor)
-                                    }
-                                }
                             }
                             .padding(.leading, trafficLightPadding)
                             .padding(.trailing, VSpacing.lg)
@@ -260,6 +241,9 @@ struct MainWindowView: View {
             Button(action: {
                 threadMenuOpenId = nil
                 threadManager.selectThread(id: thread.id)
+                if windowState.activePanel == .directory {
+                    windowState.activePanel = nil
+                }
             }) {
                 Text(thread.title)
                     .font(.system(size: 13))
@@ -311,7 +295,7 @@ struct MainWindowView: View {
     @ViewBuilder
     private var threadDrawerView: some View {
         VStack(spacing: 0) {
-            NewConversationButton(action: { threadMenuOpenId = nil; threadManager.createThread() })
+            NewConversationButton(action: { threadMenuOpenId = nil; windowState.activePanel = nil; threadManager.createThread() })
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.xl)
@@ -340,6 +324,7 @@ struct MainWindowView: View {
             ParentalControlsMenuButton(
                 onSettings: { windowState.togglePanel(.settings) },
                 onSkills: { windowState.togglePanel(.agent) },
+                onDirectory: { windowState.togglePanel(.directory) },
                 onDebug: { windowState.togglePanel(.debug) },
                 onDoctor: { windowState.togglePanel(.doctor) }
             )
@@ -408,7 +393,18 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func chatContentView(geometry: GeometryProxy) -> some View {
-        if windowState.isDynamicExpanded && windowState.activePanel == .generated {
+        if windowState.activePanel == .directory {
+            AppDirectoryView(
+                daemonClient: daemonClient,
+                onBack: { windowState.activePanel = nil },
+                onOpenApp: { surfaceMsg in
+                    windowState.activeDynamicSurface = surfaceMsg
+                    windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                    windowState.activePanel = .generated
+                    windowState.isDynamicExpanded = true
+                }
+            )
+        } else if windowState.isDynamicExpanded && windowState.activePanel == .generated {
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
                 // Workspace mode: full-window dynamic page
@@ -553,6 +549,10 @@ struct MainWindowView: View {
                 } : nil,
                 onCoordinatorReady: data.appId != nil ? { coordinator in
                     surfaceManager.surfaceCoordinators[surface.id] = coordinator
+                } : nil,
+                onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
+                    guard let appId = data.appId else { return }
+                    try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)
                 } : nil,
                 topContentInset: 56,
                 bottomContentInset: workspaceComposerReservedHeight
@@ -744,7 +744,8 @@ struct MainWindowView: View {
             case .settings:
                 SettingsPanel(onClose: { windowState.activePanel = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
             case .directory:
-                DirectoryPanel(onClose: { windowState.activePanel = nil })
+                Color.clear.frame(width: 0, height: 0)
+                    .onAppear { /* handled full-screen in chatContentView */ }
             case .debug:
                 DebugPanel(
                     traceStore: traceStore,
@@ -825,6 +826,7 @@ private struct NewConversationButton: View {
 private struct ParentalControlsMenuButton: View {
     let onSettings: () -> Void
     let onSkills: () -> Void
+    let onDirectory: () -> Void
     let onDebug: () -> Void
     let onDoctor: () -> Void
     @State private var isHovered = false
@@ -869,6 +871,7 @@ private struct ParentalControlsMenuButton: View {
                 DrawerMenuView(
                     onSettings: { showDrawer = false; onSettings() },
                     onSkills: { showDrawer = false; onSkills() },
+                    onDirectory: { showDrawer = false; onDirectory() },
                     onDebug: { showDrawer = false; onDebug() },
                     onDoctor: { showDrawer = false; onDoctor() }
                 )
@@ -882,6 +885,7 @@ private struct ParentalControlsMenuButton: View {
 private struct DrawerMenuView: View {
     let onSettings: () -> Void
     let onSkills: () -> Void
+    let onDirectory: () -> Void
     let onDebug: () -> Void
     let onDoctor: () -> Void
 
@@ -889,6 +893,7 @@ private struct DrawerMenuView: View {
         VStack(alignment: .leading, spacing: 0) {
             DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
             DrawerMenuItem(icon: "wand.and.stars", label: "Skills", action: onSkills)
+            DrawerMenuItem(icon: "doc.text", label: "Directory", action: onDirectory)
 
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)

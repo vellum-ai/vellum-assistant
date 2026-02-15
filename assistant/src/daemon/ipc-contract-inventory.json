@@ -4,6 +4,7 @@
     "AmbientObservation",
     "AppDataRequest",
     "AppOpenRequest",
+    "AppUpdatePreviewRequest",
     "AppsListRequest",
     "BundleAppRequest",
     "CancelRequest",
@@ -64,6 +65,7 @@
   "serverMessageTypes": [
     "AmbientResult",
     "AppDataResponse",
+    "AppUpdatePreviewResponse",
     "AppsListResponse",
     "AssistantTextDelta",
     "AssistantThinkingDelta",
@@ -132,6 +134,7 @@
     "ambient_observation",
     "app_data_request",
     "app_open_request",
+    "app_update_preview",
     "apps_list",
     "bundle_app",
     "cancel",
@@ -192,6 +195,7 @@
   "serverWireTypes": [
     "ambient_result",
     "app_data_response",
+    "app_update_preview_response",
     "apps_list_response",
     "assistant_text_delta",
     "assistant_thinking_delta",

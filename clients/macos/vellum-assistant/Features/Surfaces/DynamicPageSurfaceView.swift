@@ -41,6 +41,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     let appId: String?
     let onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
     let onCoordinatorReady: ((Coordinator) -> Void)?
+    /// Called with a base64-encoded PNG screenshot after the page finishes loading.
+    let onSnapshotCaptured: ((String) -> Void)?
     /// When true, blocks all network requests to external origins and restricts navigation.
     let sandboxMode: Bool
     let topContentInset: CGFloat
@@ -52,6 +54,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         appId: String? = nil,
         onDataRequest: ((String, String, String?, [String: Any]?) -> Void)? = nil,
         onCoordinatorReady: ((Coordinator) -> Void)? = nil,
+        onSnapshotCaptured: ((String) -> Void)? = nil,
         sandboxMode: Bool = false,
         topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0
@@ -61,13 +64,14 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         self.appId = appId
         self.onDataRequest = onDataRequest
         self.onCoordinatorReady = onCoordinatorReady
+        self.onSnapshotCaptured = onSnapshotCaptured
         self.sandboxMode = sandboxMode
         self.topContentInset = topContentInset
         self.bottomContentInset = bottomContentInset
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onAction: onAction, onDataRequest: onDataRequest, currentHTML: data.html, sandboxMode: sandboxMode)
+        Coordinator(onAction: onAction, onDataRequest: onDataRequest, onSnapshotCaptured: onSnapshotCaptured, currentHTML: data.html, sandboxMode: sandboxMode)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -378,6 +382,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var onAction: (String, Any?) -> Void
         var onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
+        var onSnapshotCaptured: ((String) -> Void)?
         var currentHTML: String
         let sandboxMode: Bool
         weak var webView: WKWebView?
@@ -385,15 +390,18 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var lastBottomInset: Int = 0
         var desiredTopInset: Int = 0
         var desiredBottomInset: Int = 0
+        private var hasCapturedSnapshot = false
 
         init(
             onAction: @escaping (String, Any?) -> Void,
             onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?,
+            onSnapshotCaptured: ((String) -> Void)?,
             currentHTML: String,
             sandboxMode: Bool = false
         ) {
             self.onAction = onAction
             self.onDataRequest = onDataRequest
+            self.onSnapshotCaptured = onSnapshotCaptured
             self.currentHTML = currentHTML
             self.sandboxMode = sandboxMode
         }
@@ -535,30 +543,87 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             }
         }
 
+        /// Captures a screenshot of the current WebView content as a base64-encoded PNG.
+        func captureSnapshot(completion: @escaping (String?) -> Void) {
+            guard let webView = webView else {
+                completion(nil)
+                return
+            }
+            let config = WKSnapshotConfiguration()
+            config.afterScreenUpdates = true
+            webView.takeSnapshot(with: config) { image, error in
+                if let error = error {
+                    log.error("Snapshot capture failed: \(error.localizedDescription, privacy: .public)")
+                    completion(nil)
+                    return
+                }
+                guard let image = image,
+                      let tiff = image.tiffRepresentation,
+                      let bitmap = NSBitmapImageRep(data: tiff) else {
+                    completion(nil)
+                    return
+                }
+                // Resize to a reasonable thumbnail (max 400px wide) to keep payload small
+                let maxWidth: CGFloat = 400
+                let scale = min(1.0, maxWidth / image.size.width)
+                let targetSize = NSSize(
+                    width: image.size.width * scale,
+                    height: image.size.height * scale
+                )
+                let resized = NSImage(size: targetSize)
+                resized.lockFocus()
+                image.draw(in: NSRect(origin: .zero, size: targetSize),
+                           from: NSRect(origin: .zero, size: image.size),
+                           operation: .copy,
+                           fraction: 1.0)
+                resized.unlockFocus()
+                guard let resizedTiff = resized.tiffRepresentation,
+                      let resizedBitmap = NSBitmapImageRep(data: resizedTiff),
+                      let pngData = resizedBitmap.representation(using: .png, properties: [.compressionFactor: 0.8]) else {
+                    completion(nil)
+                    return
+                }
+                completion(pngData.base64EncodedString())
+            }
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             // Re-inject content insets after page load completes. The WKUserScript from
             // makeNSView has creation-time values baked in, which may be stale if insets
             // changed since then (e.g. composer expanded). Apply the current desired values.
             let top = desiredTopInset
             let bottom = desiredBottomInset
-            guard top > 0 || bottom > 0 || lastTopInset > 0 || lastBottomInset > 0 else { return }
-            lastTopInset = top
-            lastBottomInset = bottom
-            let fadeHeight = bottom + 32
-            let js = """
-                (function() {
-                    var el = document.getElementById('vellum-content-insets');
-                    if (!el) { el = document.createElement('style'); el.id = 'vellum-content-insets'; (document.head || document.documentElement).appendChild(el); }
-                    el.textContent = 'body { padding-top: \(top)px; padding-bottom: \(bottom)px; }';
-                    var fade = document.getElementById('vellum-bottom-fade');
-                    if (fade) {
-                        fade.style.height = '\(fadeHeight)px';
-                        var bg = getComputedStyle(document.body).backgroundColor || 'rgba(0,0,0,0)';
-                        fade.style.background = 'linear-gradient(to bottom, transparent 0%, ' + bg + ' 100%)';
+            if top > 0 || bottom > 0 || lastTopInset > 0 || lastBottomInset > 0 {
+                lastTopInset = top
+                lastBottomInset = bottom
+                let fadeHeight = bottom + 32
+                let js = """
+                    (function() {
+                        var el = document.getElementById('vellum-content-insets');
+                        if (!el) { el = document.createElement('style'); el.id = 'vellum-content-insets'; (document.head || document.documentElement).appendChild(el); }
+                        el.textContent = 'body { padding-top: \(top)px; padding-bottom: \(bottom)px; }';
+                        var fade = document.getElementById('vellum-bottom-fade');
+                        if (fade) {
+                            fade.style.height = '\(fadeHeight)px';
+                            var bg = getComputedStyle(document.body).backgroundColor || 'rgba(0,0,0,0)';
+                            fade.style.background = 'linear-gradient(to bottom, transparent 0%, ' + bg + ' 100%)';
+                        }
+                    })();
+                    """
+                webView.evaluateJavaScript(js, completionHandler: nil)
+            }
+
+            // Capture a preview screenshot after the page has rendered (once per load).
+            if !hasCapturedSnapshot, let onSnapshotCaptured {
+                hasCapturedSnapshot = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    self?.captureSnapshot { base64 in
+                        if let base64 {
+                            onSnapshotCaptured(base64)
+                        }
                     }
-                })();
-                """
-            webView.evaluateJavaScript(js, completionHandler: nil)
+                }
+            }
         }
 
         func webView(

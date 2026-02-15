@@ -1332,3 +1332,19 @@ exports[`IPC message snapshots ServerMessage types reminders_list_response seria
   "type": "reminders_list_response",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types app_update_preview serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "preview": "base64-png-data",
+  "type": "app_update_preview",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types app_update_preview_response serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "success": true,
+  "type": "app_update_preview_response",
+}
+`;
