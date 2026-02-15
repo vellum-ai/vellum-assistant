@@ -11,7 +11,8 @@ struct MainWindowView: View {
     @State private var hasAPIKey = APIKeyManager.hasAnyKey()
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var selectedThreadId: UUID?
-    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
+    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
+    @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
     let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
     let onMicrophoneToggle: () -> Void
@@ -89,10 +90,6 @@ struct MainWindowView: View {
 
                             // Center: Chat + right panel
                             chatContentView(geometry: geometry)
-                                .background(VColor.backgroundSubtle)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                                .padding(.bottom, VSpacing.sm)
-                                .padding(.horizontal, VSpacing.sm)
                         }
                         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: columnVisibility)
                     }
@@ -219,6 +216,32 @@ struct MainWindowView: View {
                 }
                 .padding(.horizontal, VSpacing.sm)
             }
+
+            // Switch to tabs button
+            Button(action: {
+                useThreadDrawer = false
+            }) {
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "rectangle.3.group")
+                        .font(.system(size: 11))
+                    Text("Switch to tabs")
+                        .font(VFont.caption)
+                }
+                .foregroundColor(VColor.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, VSpacing.sm)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.pointingHand.set()
+                } else {
+                    NSCursor.arrow.set()
+                }
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.bottom, VSpacing.md)
         }
         .frame(width: 240)
         .background(VColor.backgroundSubtle)
@@ -236,7 +259,7 @@ struct MainWindowView: View {
                 daemonClient: daemonClient
             )
         } else {
-            VSplitView(panelWidth: geometry.size.width / zoomManager.zoomLevel * 0.5, showPanel: activePanel != nil, main: {
+            VSplitView(panelWidth: $sidePanelWidth, showPanel: activePanel != nil, main: {
                 if let viewModel = threadManager.activeViewModel {
                     ChatView(
                         messages: viewModel.messages,
