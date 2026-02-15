@@ -9,11 +9,6 @@ NC='\033[0m' # No Color
 
 echo "🔍 Checking for plain text keys and secrets..."
 
-# Check if there are any staged files
-if ! git diff --cached --name-only --diff-filter=ACM | grep -q .; then
-    exit 0
-fi
-
 # Patterns to check for sensitive information
 # Note: Using [[:space:]] instead of \s for grep -E compatibility
 declare -a PATTERNS=(
@@ -42,14 +37,14 @@ declare -a PATTERNS=(
     # Tokens
     "token['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-\.]{20,}['\"]"
     "bearer['\"]?[[:space:]]*[:=]?[[:space:]]*[a-zA-Z0-9_\-\.]{20,}"
-    "auth[_-]?token"
+    "auth[_-]?token['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-\.]{20,}['\"]"
 
     # Database URLs with credentials
     "://[a-zA-Z0-9]+:[a-zA-Z0-9]+@[a-zA-Z0-9]"
 
     # Generic secret patterns
     "['\"]?[a-z0-9_]*secret[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}['\"]"
-    "['\"]?[a-z0-9_]*key[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-]{16,}['\"]"
+    "['\"]?[a-z0-9_]*(api|access|private|secret|client)[a-z0-9_]*key[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-]{16,}['\"]"
 
     # Slack tokens
     "xox[baprs]-[0-9a-zA-Z]{10,}"
@@ -60,6 +55,44 @@ declare -a PATTERNS=(
     # Generic high entropy strings (likely keys)
     "['\"][a-zA-Z0-9+/]{40,}={0,2}['\"]"
 )
+
+matches_secret_pattern() {
+    local text="$1"
+    local pattern
+    for pattern in "${PATTERNS[@]}"; do
+        if printf '%s\n' "$text" | grep -niE -- "$pattern" >/dev/null 2>&1; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+    SAFE_ARCHITECTURE_LINE='PG_TOKENS["assistant_auth_tokens"]'
+    SAFE_DB_LINE="SELECT 1 FROM memory_checkpoints WHERE key = 'migration_job_deferrals'"
+    REAL_SECRET_LINE='api_key="sk_live_12345678901234567890"'
+
+    if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_DB_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} db migration key case still matches"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$REAL_SECRET_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} real secret seed did not match"
+        exit 1
+    fi
+
+    echo "✅ Secret scanner self-test passed"
+    exit 0
+fi
+
+# Check if there are any staged files
+if ! git diff --cached --name-only --diff-filter=ACM | grep -q .; then
+    exit 0
+fi
 
 FOUND_SECRETS=0
 CHECKED_FILES=0
