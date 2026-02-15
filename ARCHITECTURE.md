@@ -728,7 +728,6 @@ The daemon emits two distinct error message types over IPC:
 | `SESSION_ABORTED` | Non-user abort interrupted the request | Yes |
 | `SESSION_PROCESSING_FAILED` | Catch-all for unexpected processing failures | No |
 | `REGENERATE_FAILED` | Failed to regenerate a previous response | Yes |
-| `UNKNOWN` | Unclassified error | No |
 
 ### Error Classification
 
