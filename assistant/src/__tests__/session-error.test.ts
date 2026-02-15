@@ -12,17 +12,30 @@ describe('isUserCancellation', () => {
     expect(isUserCancellation(new Error('something'), ctx)).toBe(true);
   });
 
-  it('returns true for AbortError (DOMException-style)', () => {
+  it('returns true for AbortError (DOMException-style) when aborted', () => {
     const err = new DOMException('The operation was aborted', 'AbortError');
-    const ctx: ErrorContext = { phase: 'agent_loop', aborted: false };
+    const ctx: ErrorContext = { phase: 'agent_loop', aborted: true };
     expect(isUserCancellation(err, ctx)).toBe(true);
   });
 
-  it('returns true for AbortError (Error with name set)', () => {
+  it('returns true for AbortError (Error with name set) when aborted', () => {
+    const err = new Error('aborted');
+    err.name = 'AbortError';
+    const ctx: ErrorContext = { phase: 'agent_loop', aborted: true };
+    expect(isUserCancellation(err, ctx)).toBe(true);
+  });
+
+  it('returns false for AbortError (DOMException-style) when NOT aborted', () => {
+    const err = new DOMException('The operation was aborted', 'AbortError');
+    const ctx: ErrorContext = { phase: 'agent_loop', aborted: false };
+    expect(isUserCancellation(err, ctx)).toBe(false);
+  });
+
+  it('returns false for AbortError (Error with name set) when NOT aborted', () => {
     const err = new Error('aborted');
     err.name = 'AbortError';
     const ctx: ErrorContext = { phase: 'agent_loop', aborted: false };
-    expect(isUserCancellation(err, ctx)).toBe(true);
+    expect(isUserCancellation(err, ctx)).toBe(false);
   });
 
   it('returns false for non-abort errors without abort flag', () => {
@@ -167,10 +180,13 @@ describe('classifySessionError', () => {
       expect(isUserCancellation(new Error('The operation was aborted'), abortCtx)).toBe(true);
     });
 
-    it('DOMException AbortError is caught by isUserCancellation', () => {
+    it('DOMException AbortError is only caught when abort signal is active', () => {
       const err = new DOMException('The operation was aborted', 'AbortError');
-      const ctx: ErrorContext = { phase: 'agent_loop', aborted: false };
-      expect(isUserCancellation(err, ctx)).toBe(true);
+      const notAborted: ErrorContext = { phase: 'agent_loop', aborted: false };
+      expect(isUserCancellation(err, notAborted)).toBe(false);
+
+      const aborted: ErrorContext = { phase: 'agent_loop', aborted: true };
+      expect(isUserCancellation(err, aborted)).toBe(true);
     });
   });
 });
