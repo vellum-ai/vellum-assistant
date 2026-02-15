@@ -29,6 +29,12 @@ import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } f
 import { RiskLevel } from '../permissions/types.js';
 import { addRule, clearCache } from '../permissions/trust-store.js';
 
+// Import managed skill tools so they register in the tool registry.
+// Without this, classifyRisk falls through to RiskLevel.Medium (unknown tool)
+// instead of the declared RiskLevel.High — producing wrong test behavior.
+import '../tools/skills/scaffold-managed.js';
+import '../tools/skills/delete-managed.js';
+
 function writeSkill(skillId: string, name: string, description = 'Test skill'): void {
   const skillDir = join(checkerTestDir, 'skills', skillId);
   mkdirSync(skillDir, { recursive: true });
@@ -371,10 +377,11 @@ describe('Permission Checker', () => {
       expect(result.matchedRule?.id).toBe('default:ask-delete_managed_skill-global');
     });
 
-    test('allow rule for scaffold_managed_skill overrides default ask', async () => {
+    test('allow rule for scaffold_managed_skill still prompts (High risk)', async () => {
       addRule('scaffold_managed_skill', 'scaffold_managed_skill:my-skill', 'everywhere', 'allow', 2000);
       const result = await check('scaffold_managed_skill', { skill_id: 'my-skill' }, '/tmp');
-      expect(result.decision).toBe('allow');
+      // High-risk tools always prompt even with allow rules (checker.ts line 302)
+      expect(result.decision).toBe('prompt');
     });
 
     test('allow rule for scaffold_managed_skill does not match other skill ids', async () => {
@@ -383,10 +390,11 @@ describe('Permission Checker', () => {
       expect(result.decision).toBe('prompt');
     });
 
-    test('wildcard allow rule for delete_managed_skill covers all ids', async () => {
+    test('wildcard allow rule for delete_managed_skill still prompts (High risk)', async () => {
       addRule('delete_managed_skill', 'delete_managed_skill:*', 'everywhere', 'allow', 2000);
       const result = await check('delete_managed_skill', { skill_id: 'any-skill' }, '/tmp');
-      expect(result.decision).toBe('allow');
+      // High-risk tools always prompt even with allow rules (checker.ts line 302)
+      expect(result.decision).toBe('prompt');
     });
 
     test('cu_click prompts by default via computer-use ask rule', async () => {
