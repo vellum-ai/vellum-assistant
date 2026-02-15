@@ -620,7 +620,8 @@ export class Session {
       let pendingDirectiveDisplayBuffer = '';
       let lastAssistantMessageId: string | undefined;
       const runtimeConfig = getConfig();
-      const conflictConfig = runtimeConfig.memory?.conflicts;
+      const memoryEnabled = runtimeConfig.memory?.enabled !== false;
+      const conflictConfig = memoryEnabled ? runtimeConfig.memory?.conflicts : undefined;
       const conflictGate = conflictConfig
         ? await this.conflictGate.evaluate(content, conflictConfig)
         : null;
@@ -653,7 +654,7 @@ export class Session {
       const softConflictInstruction = conflictGate && !conflictGate.relevant
         ? conflictGate.question
         : null;
-      const profileConfig = runtimeConfig.memory?.profile;
+      const profileConfig = memoryEnabled ? runtimeConfig.memory?.profile : undefined;
       const dynamicProfile = profileConfig?.enabled
         ? compileDynamicProfile({
             scopeId: 'default',
