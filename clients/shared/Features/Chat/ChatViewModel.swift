@@ -664,6 +664,8 @@ public final class ChatViewModel: ObservableObject {
             if pendingQueuedCount == 0 {
                 isSending = false
             }
+            // Ingest assistant attachments before finalizing the message
+            ingestAssistantAttachments(complete.attachments)
             // Mark the current assistant message as complete
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -745,6 +747,8 @@ public final class ChatViewModel: ObservableObject {
         case .generationHandoff(let handoff):
             guard belongsToSession(handoff.sessionId) else { return }
             isThinking = false
+            // Ingest assistant attachments before finalizing the message
+            ingestAssistantAttachments(handoff.attachments)
             // Keep isSending = true — daemon is handing off to next queued message
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -1261,6 +1265,59 @@ public final class ChatViewModel: ObservableObject {
         } catch {
             log.error("Failed to send add_trust_rule: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    /// Map IPC attachment DTOs to ChatAttachment values, generating thumbnails for images.
+    private func mapIPCAttachments(_ ipcAttachments: [IPCUserMessageAttachment]) -> [ChatAttachment] {
+        ipcAttachments.compactMap { ipc in
+            let id = ipc.id ?? UUID().uuidString
+            let base64 = ipc.data
+            let dataLength = base64.count
+
+            var thumbnailData: Data?
+            #if os(macOS)
+            var thumbnailImage: NSImage?
+            #elseif os(iOS)
+            var thumbnailImage: UIImage?
+            #else
+            #error("Unsupported platform")
+            #endif
+
+            if ipc.mimeType.hasPrefix("image/"), let rawData = Data(base64Encoded: base64) {
+                thumbnailData = Self.generateThumbnail(from: rawData, maxDimension: 120)
+                #if os(macOS)
+                thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
+                #elseif os(iOS)
+                thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
+                #endif
+            }
+
+            return ChatAttachment(
+                id: id,
+                filename: ipc.filename,
+                mimeType: ipc.mimeType,
+                data: base64,
+                thumbnailData: thumbnailData,
+                dataLength: dataLength,
+                thumbnailImage: thumbnailImage
+            )
+        }
+    }
+
+    /// Ingest attachments from a completion/handoff event into the current or new assistant message.
+    private func ingestAssistantAttachments(_ ipcAttachments: [IPCUserMessageAttachment]?) {
+        guard let ipcAttachments, !ipcAttachments.isEmpty else { return }
+        let chatAttachments = mapIPCAttachments(ipcAttachments)
+        guard !chatAttachments.isEmpty else { return }
+
+        if let existingId = currentAssistantMessageId,
+           let index = messages.firstIndex(where: { $0.id == existingId }) {
+            messages[index].attachments.append(contentsOf: chatAttachments)
+        } else {
+            let msg = ChatMessage(role: .assistant, text: "", attachments: chatAttachments)
+            currentAssistantMessageId = msg.id
+            messages.append(msg)
         }
     }
 

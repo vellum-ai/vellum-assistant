@@ -1518,4 +1518,95 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.sessionError,
                       "generation_cancelled should not set sessionError")
     }
+
+    // MARK: - Assistant Attachment Ingestion
+
+    func testMessageCompleteWithAttachmentsAddsToExistingMessage() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Stream some text first
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Here is an image")))
+        XCTAssertEqual(viewModel.messages.count, 2) // greeting + assistant
+
+        // Complete with attachments
+        let attachment = IPCUserMessageAttachment(
+            id: "att-1", filename: "photo.png", mimeType: "image/png",
+            data: "iVBORw0KGgo=", extractedText: nil
+        )
+        viewModel.handleServerMessage(.messageComplete(
+            MessageCompleteMessage(sessionId: nil, attachments: [attachment])
+        ))
+
+        XCTAssertEqual(viewModel.messages.count, 2, "Should add attachments to existing message, not create new")
+        XCTAssertEqual(viewModel.messages[1].attachments.count, 1)
+        XCTAssertEqual(viewModel.messages[1].attachments[0].filename, "photo.png")
+        XCTAssertEqual(viewModel.messages[1].attachments[0].id, "att-1")
+        XCTAssertFalse(viewModel.messages[1].isStreaming)
+    }
+
+    func testMessageCompleteWithAttachmentsCreatesNewMessageWhenNoStreaming() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Complete with attachments but no prior text deltas (attachment-only turn)
+        let attachment = IPCUserMessageAttachment(
+            id: "att-1", filename: "report.pdf", mimeType: "application/pdf",
+            data: "JVBER", extractedText: nil
+        )
+        viewModel.handleServerMessage(.messageComplete(
+            MessageCompleteMessage(sessionId: nil, attachments: [attachment])
+        ))
+
+        XCTAssertEqual(viewModel.messages.count, 2, "Should create new assistant message for attachment-only turn")
+        XCTAssertEqual(viewModel.messages[1].role, .assistant)
+        XCTAssertEqual(viewModel.messages[1].attachments.count, 1)
+        XCTAssertEqual(viewModel.messages[1].attachments[0].filename, "report.pdf")
+    }
+
+    func testGenerationHandoffWithAttachmentsAddsToExistingMessage() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Stream some text
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Generated file")))
+
+        // Handoff with attachments
+        let attachment = IPCUserMessageAttachment(
+            id: "att-2", filename: "output.csv", mimeType: "text/csv",
+            data: "Y29sQQ==", extractedText: nil
+        )
+        viewModel.handleServerMessage(.generationHandoff(
+            GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1, attachments: [attachment])
+        ))
+
+        XCTAssertEqual(viewModel.messages[1].attachments.count, 1)
+        XCTAssertEqual(viewModel.messages[1].attachments[0].filename, "output.csv")
+        XCTAssertFalse(viewModel.messages[1].isStreaming)
+    }
+
+    func testMessageCompleteWithNilAttachmentsDoesNotCreateMessage() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Complete without attachments (nil)
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+
+        // Should just have the greeting — no extra empty assistant message
+        XCTAssertEqual(viewModel.messages.count, 1)
+    }
+
+    func testMessageCompleteWithEmptyAttachmentsDoesNotCreateMessage() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Complete with empty attachments array
+        viewModel.handleServerMessage(.messageComplete(
+            MessageCompleteMessage(sessionId: nil, attachments: [])
+        ))
+
+        // Should just have the greeting — no extra empty assistant message
+        XCTAssertEqual(viewModel.messages.count, 1)
+    }
 }
