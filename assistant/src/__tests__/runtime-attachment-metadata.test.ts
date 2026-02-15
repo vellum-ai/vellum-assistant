@@ -137,4 +137,52 @@ describe('Runtime attachment metadata', () => {
 
     await server.stop();
   });
+
+  test('GET /attachments/:id returns attachment with payload', async () => {
+    const assistantId = 'ast-test-3';
+    const stored = uploadAttachment(assistantId, 'report.pdf', 'application/pdf', 'JVBER');
+
+    const res = await fetch(
+      `http://localhost:${port}/v1/assistants/${assistantId}/attachments/${stored.id}`,
+    );
+    const body = await res.json() as {
+      id: string; filename: string; mimeType: string; sizeBytes: number; kind: string; data: string;
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.id).toBe(stored.id);
+    expect(body.filename).toBe('report.pdf');
+    expect(body.mimeType).toBe('application/pdf');
+    expect(body.kind).toBe('document');
+    expect(body.data).toBe('JVBER');
+    expect(body.sizeBytes).toBeGreaterThan(0);
+
+    await server.stop();
+  });
+
+  test('GET /attachments/:id returns 404 for wrong assistant', async () => {
+    const stored = uploadAttachment('ast-owner', 'secret.txt', 'text/plain', 'c2VjcmV0');
+
+    const res = await fetch(
+      `http://localhost:${port}/v1/assistants/ast-other/attachments/${stored.id}`,
+    );
+    const body = await res.json() as { error: string };
+
+    expect(res.status).toBe(404);
+    expect(body.error).toBe('Attachment not found');
+
+    await server.stop();
+  });
+
+  test('GET /attachments/:id returns 404 for nonexistent attachment', async () => {
+    const res = await fetch(
+      `http://localhost:${port}/v1/assistants/ast-test-4/attachments/nonexistent-id`,
+    );
+    const body = await res.json() as { error: string };
+
+    expect(res.status).toBe(404);
+    expect(body.error).toBe('Attachment not found');
+
+    await server.stop();
+  });
 });

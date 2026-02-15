@@ -141,6 +141,12 @@ export class RuntimeHttpServer {
         return await this.handleDeleteAttachment(assistantId, req);
       }
 
+      // Match attachments/:attachmentId
+      const attachmentMatch = endpoint.match(/^attachments\/([^/]+)$/);
+      if (attachmentMatch && req.method === 'GET') {
+        return this.handleGetAttachment(assistantId, attachmentMatch[1]);
+      }
+
       if (endpoint === 'suggestion' && req.method === 'GET') {
         return await this.handleGetSuggestion(assistantId, url);
       }
@@ -871,5 +877,23 @@ export class RuntimeHttpServer {
     }
 
     return new Response(null, { status: 204 });
+  }
+
+  // ── Attachment fetch endpoint ──────────────────────────────────────
+
+  private handleGetAttachment(assistantId: string, attachmentId: string): Response {
+    const attachment = attachmentsStore.getAttachmentById(assistantId, attachmentId);
+    if (!attachment) {
+      return Response.json({ error: 'Attachment not found' }, { status: 404 });
+    }
+
+    return Response.json({
+      id: attachment.id,
+      filename: attachment.originalFilename,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      kind: attachment.kind,
+      data: attachment.dataBase64,
+    });
   }
 }
