@@ -141,7 +141,7 @@ function buildDynamicUiSection(): string {
     '',
     '### Tool chaining',
     'After gathering data via tools (web search, browser, `get_weather`, APIs), synthesize results into a `dynamic_page` rather than displaying raw tool outputs.',
-    '- **Weather**: After `get_weather` returns data, call `ui_show` with `surface_type: "dynamic_page"` and the `data` object provided in the tool result (contains pre-built `html` and `preview`). Pass the data exactly as-is.',
+    '- **Weather**: `get_weather` automatically renders a dynamic page with a compact preview card. Do NOT call `ui_show` after `get_weather` — the weather surface is emitted directly. Just respond with a brief natural-language summary.',
     '- **Research → Render**: When using browser/web search to research something visual (flights, hotels, products, comparisons), gather the data first, then compose it into a polished `dynamic_page` with the appropriate component classes.',
   ].join('\n');
 }

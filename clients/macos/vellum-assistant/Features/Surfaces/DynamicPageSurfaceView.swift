@@ -43,6 +43,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     let onCoordinatorReady: ((Coordinator) -> Void)?
     /// When true, blocks all network requests to external origins and restricts navigation.
     let sandboxMode: Bool
+    let topContentInset: CGFloat
+    let bottomContentInset: CGFloat
 
     init(
         data: DynamicPageSurfaceData,
@@ -50,7 +52,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         appId: String? = nil,
         onDataRequest: ((String, String, String?, [String: Any]?) -> Void)? = nil,
         onCoordinatorReady: ((Coordinator) -> Void)? = nil,
-        sandboxMode: Bool = false
+        sandboxMode: Bool = false,
+        topContentInset: CGFloat = 0,
+        bottomContentInset: CGFloat = 0
     ) {
         self.data = data
         self.onAction = onAction
@@ -58,6 +62,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         self.onDataRequest = onDataRequest
         self.onCoordinatorReady = onCoordinatorReady
         self.sandboxMode = sandboxMode
+        self.topContentInset = topContentInset
+        self.bottomContentInset = bottomContentInset
     }
 
     func makeCoordinator() -> Coordinator {
@@ -253,6 +259,45 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             }
         }
 
+        // Inject CSS padding so HTML content doesn't get hidden behind floating overlays,
+        // plus a fixed-position fade overlay that uses the page's own background color.
+        if topContentInset > 0 || bottomContentInset > 0 {
+            let top = Int(topContentInset)
+            let bottom = Int(bottomContentInset)
+            let fadeHeight = bottom + 32
+            let insetScript = WKUserScript(
+                source: """
+                    (function() {
+                        var style = document.createElement('style');
+                        style.id = 'vellum-content-insets';
+                        style.textContent = 'body { padding-top: \(top)px; padding-bottom: \(bottom)px; }';
+                        (document.head || document.documentElement).appendChild(style);
+                        if (\(bottom) > 0) {
+                            function setupFade() {
+                                var fade = document.getElementById('vellum-bottom-fade');
+                                if (!fade) {
+                                    fade = document.createElement('div');
+                                    fade.id = 'vellum-bottom-fade';
+                                    fade.style.cssText = 'position:fixed;bottom:0;left:0;right:0;pointer-events:none;z-index:99999;';
+                                    document.body.appendChild(fade);
+                                }
+                                fade.style.height = '\(fadeHeight)px';
+                                requestAnimationFrame(function() {
+                                    var bg = getComputedStyle(document.body).backgroundColor || 'rgba(0,0,0,0)';
+                                    fade.style.background = 'linear-gradient(to bottom, transparent 0%, ' + bg + ' 100%)';
+                                });
+                            }
+                            if (document.body) setupFade();
+                            else document.addEventListener('DOMContentLoaded', setupFade);
+                        }
+                    })();
+                    """,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            )
+            contentController.addUserScript(insetScript)
+        }
+
         onCoordinatorReady?(context.coordinator)
         // Use a per-app origin so localStorage/sessionStorage work natively,
         // isolated per app. Non-app surfaces get a shared fallback origin.
@@ -272,6 +317,29 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             let origin = appId.map { "https://\($0).vellum.local/" } ?? "https://surface.vellum.local/"
             webView.loadHTMLString(data.html, baseURL: URL(string: origin))
         }
+
+        // Re-apply content insets and fade overlay when they change (e.g. composer expands).
+        let newTop = Int(topContentInset)
+        let newBottom = Int(bottomContentInset)
+        if newTop != context.coordinator.lastTopInset || newBottom != context.coordinator.lastBottomInset {
+            context.coordinator.lastTopInset = newTop
+            context.coordinator.lastBottomInset = newBottom
+            let fadeHeight = newBottom + 32
+            let js = """
+                (function() {
+                    var el = document.getElementById('vellum-content-insets');
+                    if (!el) { el = document.createElement('style'); el.id = 'vellum-content-insets'; (document.head || document.documentElement).appendChild(el); }
+                    el.textContent = 'body { padding-top: \(newTop)px; padding-bottom: \(newBottom)px; }';
+                    var fade = document.getElementById('vellum-bottom-fade');
+                    if (fade) {
+                        fade.style.height = '\(fadeHeight)px';
+                        var bg = getComputedStyle(document.body).backgroundColor || 'rgba(0,0,0,0)';
+                        fade.style.background = 'linear-gradient(to bottom, transparent 0%, ' + bg + ' 100%)';
+                    }
+                })();
+                """
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
@@ -286,6 +354,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var currentHTML: String
         let sandboxMode: Bool
         weak var webView: WKWebView?
+        var lastTopInset: Int = 0
+        var lastBottomInset: Int = 0
 
         init(
             onAction: @escaping (String, Any?) -> Void,

@@ -1,5 +1,5 @@
 import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import type { Tool, ToolContext, ToolExecutionResult, ProxyToolResolver } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { getLogger } from '../../util/logger.js';
@@ -229,6 +229,7 @@ type FetchFn = typeof globalThis.fetch;
 export async function executeGetWeather(
   input: Record<string, unknown>,
   fetchFn: FetchFn = globalThis.fetch,
+  proxyToolResolver?: ProxyToolResolver,
 ): Promise<ToolExecutionResult> {
   const location = input.location;
   if (typeof location !== 'string' || location.trim() === '') {
@@ -424,6 +425,22 @@ export async function executeGetWeather(
     },
   };
 
+  // Auto-emit the weather surface via proxy resolver (same pattern as app_create).
+  // This removes the need for the model to make a second ui_show call.
+  if (proxyToolResolver) {
+    try {
+      await proxyToolResolver('ui_show', {
+        surface_type: 'dynamic_page',
+        data: uiShowData,
+      });
+    } catch (err) {
+      log.warn({ err }, 'Failed to auto-emit weather surface');
+    }
+    // Return concise result — the surface is already displayed
+    return { content: lines.join('\n'), isError: false };
+  }
+
+  // Fallback for non-UI channels: include render instructions for the model
   lines.push('', '--- Render with ui_show ---');
   lines.push('Call ui_show with surface_type "dynamic_page" and the following data (pass exactly as-is):');
   lines.push(JSON.stringify(uiShowData));
@@ -463,8 +480,8 @@ class GetWeatherTool implements Tool {
     };
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeGetWeather(input);
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeGetWeather(input, globalThis.fetch, context.proxyToolResolver);
   }
 }
 
