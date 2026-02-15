@@ -52,9 +52,25 @@ declare -a PATTERNS=(
     # GitHub tokens
     "gh[pousr]_[0-9a-zA-Z]{36,}"
 
-    # Generic high entropy strings (likely keys)
-    "['\"][a-zA-Z0-9+/]{40,}={0,2}['\"]"
+    # High entropy values only when paired with secret-like identifiers
+    "([Tt]oken|[Ss]ecret|[Aa]pi[_-]?[Kk]ey|[Aa]ccess[_-]?[Kk]ey|[Pp]rivate[_-]?[Kk]ey)[^[:cntrl:]]{0,80}['\"][a-zA-Z0-9+/]{40,}={0,2}['\"]"
 )
+
+# Ignore deterministic checksum/hash fixtures that are not credentials.
+declare -a SAFE_LINE_PATTERNS=(
+    "[A-Za-z0-9_\"']*(sha256|SHA256|checksum|digest|hash|nonceSha256|observedNonceSha256)[A-Za-z0-9_\"']*[[:space:]]*[:=][[:space:]]*['\"][a-fA-F0-9]{32,}['\"]"
+)
+
+matches_safe_line_pattern() {
+    local text="$1"
+    local pattern
+    for pattern in "${SAFE_LINE_PATTERNS[@]}"; do
+        if printf '%s\n' "$text" | grep -niE -- "$pattern" >/dev/null 2>&1; then
+            return 0
+        fi
+    done
+    return 1
+}
 
 matches_secret_pattern() {
     local text="$1"
@@ -70,6 +86,7 @@ matches_secret_pattern() {
 if [ "${1:-}" = "--self-test" ]; then
     SAFE_ARCHITECTURE_LINE='PG_TOKENS["assistant_auth_tokens"]'
     SAFE_DB_LINE="SELECT 1 FROM memory_checkpoints WHERE key = 'migration_job_deferrals'"
+    SAFE_HASH_FIXTURE_LINE='"nonceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"'
     REAL_SECRET_LINE='api_key="sk_live_12345678901234567890"'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
@@ -78,6 +95,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_DB_LINE"; then
         echo -e "${RED}Self-test failed:${NC} db migration key case still matches"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_HASH_FIXTURE_LINE" && ! matches_safe_line_pattern "$SAFE_HASH_FIXTURE_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} hash fixture case still matches without safe-line bypass"
         exit 1
     fi
     if ! matches_secret_pattern "$REAL_SECRET_LINE"; then
@@ -121,6 +142,21 @@ while IFS= read -r -d '' FILE; do
         # Use git show to check the staged content, not the working directory
         # Use -- to indicate end of options for patterns starting with dashes
         MATCHES=$(git show ":$FILE" 2>/dev/null | grep -niE -- "$PATTERN" 2>/dev/null)
+
+        if [ ! -z "$MATCHES" ]; then
+            FILTERED_MATCHES=""
+            while IFS= read -r line; do
+                if [ -z "$line" ]; then
+                    continue
+                fi
+                CONTENT="${line#*:}"
+                if matches_safe_line_pattern "$CONTENT"; then
+                    continue
+                fi
+                FILTERED_MATCHES="${FILTERED_MATCHES}${line}"$'\n'
+            done <<< "$MATCHES"
+            MATCHES="$FILTERED_MATCHES"
+        fi
 
         if [ ! -z "$MATCHES" ]; then
             if [ $FOUND_SECRETS -eq 0 ]; then

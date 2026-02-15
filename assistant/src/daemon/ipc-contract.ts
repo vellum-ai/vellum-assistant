@@ -698,6 +698,13 @@ export interface MemoryStatus {
   reason?: string;
   provider?: string;
   model?: string;
+  conflictsPending: number;
+  conflictsResolved: number;
+  oldestPendingConflictAgeMs: number | null;
+  cleanupResolvedJobsPending: number;
+  cleanupSupersededJobsPending: number;
+  cleanupResolvedJobsCompleted24h: number;
+  cleanupSupersededJobsCompleted24h: number;
 }
 
 export interface CuAction {

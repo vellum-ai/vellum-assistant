@@ -373,6 +373,14 @@ exports[`IPC message snapshots ClientMessage types sessions_clear serializes to 
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types ipc_blob_probe serializes to expected JSON 1`] = `
+{
+  "nonceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "probeId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "type": "ipc_blob_probe",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
 {
   "sessionId": "sess-001",
@@ -698,9 +706,16 @@ exports[`IPC message snapshots ServerMessage types memory_recalled serializes to
 
 exports[`IPC message snapshots ServerMessage types memory_status serializes to expected JSON 1`] = `
 {
+  "cleanupResolvedJobsCompleted24h": 12,
+  "cleanupResolvedJobsPending": 1,
+  "cleanupSupersededJobsCompleted24h": 8,
+  "cleanupSupersededJobsPending": 0,
+  "conflictsPending": 2,
+  "conflictsResolved": 7,
   "degraded": false,
   "enabled": true,
   "model": "text-embedding-3-small",
+  "oldestPendingConflictAgeMs": 90000,
   "provider": "openai",
   "type": "memory_status",
 }
@@ -1082,14 +1097,6 @@ exports[`IPC message snapshots ServerMessage types trace_event serializes to exp
   "summary": "Running bash: ls -la",
   "timestampMs": 1700000000000,
   "type": "trace_event",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types ipc_blob_probe serializes to expected JSON 1`] = `
-{
-  "nonceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "probeId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-  "type": "ipc_blob_probe",
 }
 `;
 

@@ -455,6 +455,13 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     degraded: false,
     provider: 'openai',
     model: 'text-embedding-3-small',
+    conflictsPending: 2,
+    conflictsResolved: 7,
+    oldestPendingConflictAgeMs: 90_000,
+    cleanupResolvedJobsPending: 1,
+    cleanupSupersededJobsPending: 0,
+    cleanupResolvedJobsCompleted24h: 12,
+    cleanupSupersededJobsCompleted24h: 8,
   },
   cu_action: {
     type: 'cu_action',

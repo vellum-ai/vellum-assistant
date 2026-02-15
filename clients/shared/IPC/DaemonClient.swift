@@ -58,6 +58,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// `nil` means the HTTP server is not running.
     @Published public var httpPort: Int?
 
+    /// Latest memory health payload from daemon `memory_status` events.
+    @Published public var latestMemoryStatus: MemoryStatusMessage?
+
     /// Whether a TrustRulesView sheet is currently open from any settings surface.
     /// Used to prevent multiple trust rules sheets from racing on the shared callback.
     @Published public var isTrustRulesSheetOpen: Bool = false
@@ -676,6 +679,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         cuObservationSequenceBySession.removeAll()
         isConnected = false
         httpPort = nil
+        latestMemoryStatus = nil
 
         // Finish all subscriber streams so `for await` loops terminate
         // instead of hanging forever on disconnect.
@@ -817,6 +821,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSessionListResponse?(msg)
         case .historyResponse(let msg):
             onHistoryResponse?(msg)
+        case .memoryStatus(let msg):
+            latestMemoryStatus = msg
         case .traceEvent(let msg):
             onTraceEvent?(msg)
         case .error(let msg):

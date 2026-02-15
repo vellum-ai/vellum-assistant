@@ -552,6 +552,10 @@ memory
     } else {
       console.log('Oldest pending conflict age: n/a');
     }
+    console.log(`Cleanup backlog (resolved conflicts): ${status.cleanup.resolvedBacklog.toLocaleString()}`);
+    console.log(`Cleanup backlog (superseded items): ${status.cleanup.supersededBacklog.toLocaleString()}`);
+    console.log(`Cleanup throughput 24h (resolved conflicts): ${status.cleanup.resolvedCompleted24h.toLocaleString()}`);
+    console.log(`Cleanup throughput 24h (superseded items): ${status.cleanup.supersededCompleted24h.toLocaleString()}`);
     console.log('Jobs:');
     for (const [key, value] of Object.entries(status.jobs)) {
       console.log(`  ${key}: ${value}`);

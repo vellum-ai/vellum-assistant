@@ -32,7 +32,6 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   // Server-internal events not surfaced to macOS client
   'context_compacted',
   'memory_recalled',
-  'memory_status',
   'model_info',
   'secret_detected',
   'sessions_clear_response',

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct DebugPanel: View {
     @ObservedObject var traceStore: TraceStore
+    @ObservedObject var daemonClient: DaemonClient
     let activeSessionId: String?
     var onClose: () -> Void
 
@@ -78,6 +79,34 @@ struct DebugPanel: View {
                         color: Rose._500
                     )
                 }
+
+                if let memory = daemonClient.latestMemoryStatus {
+                    metric(
+                        icon: "memorychip",
+                        label: "Pending Conflicts",
+                        value: formatWhole(memory.conflictsPending)
+                    )
+                    metric(
+                        icon: "checkmark.seal",
+                        label: "Resolved Conflicts",
+                        value: formatWhole(memory.conflictsResolved)
+                    )
+                    metric(
+                        icon: "clock.arrow.circlepath",
+                        label: "Oldest Pending",
+                        value: formatDurationMs(memory.oldestPendingConflictAgeMs)
+                    )
+                    metric(
+                        icon: "tray.full",
+                        label: "Cleanup Backlog",
+                        value: "R \(formatWhole(memory.cleanupResolvedJobsPending)) / S \(formatWhole(memory.cleanupSupersededJobsPending))"
+                    )
+                    metric(
+                        icon: "sparkles",
+                        label: "Cleanup 24h",
+                        value: "R \(formatWhole(memory.cleanupResolvedJobsCompleted24h)) / S \(formatWhole(memory.cleanupSupersededJobsCompleted24h))"
+                    )
+                }
             }
             .padding(.horizontal, VSpacing.xl)
             .padding(.vertical, VSpacing.md)
@@ -118,8 +147,32 @@ struct DebugPanel: View {
         }
         return String(format: "%.0fms", ms)
     }
+
+    private func formatWhole(_ value: Int) -> String {
+        "\(value)"
+    }
+
+    private func formatWhole(_ value: Double) -> String {
+        "\(Int(value.rounded()))"
+    }
+
+    private func formatDurationMs(_ value: Int?) -> String {
+        guard let value else { return "n/a" }
+        return formatDurationMs(Double(value))
+    }
+
+    private func formatDurationMs(_ value: Double?) -> String {
+        guard let value else { return "n/a" }
+        if value < 60_000 {
+            return String(format: "%.0fs", value / 1000)
+        }
+        if value < 3_600_000 {
+            return String(format: "%.0fm", value / 60_000)
+        }
+        return String(format: "%.1fh", value / 3_600_000)
+    }
 }
 
 #Preview {
-    DebugPanel(traceStore: TraceStore(), activeSessionId: nil, onClose: {})
+    DebugPanel(traceStore: TraceStore(), daemonClient: DaemonClient(), activeSessionId: nil, onClose: {})
 }

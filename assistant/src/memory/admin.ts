@@ -29,6 +29,12 @@ export interface MemorySystemStatus {
     resolved: number;
     oldestPendingAgeMs: number | null;
   };
+  cleanup: {
+    resolvedBacklog: number;
+    supersededBacklog: number;
+    resolvedCompleted24h: number;
+    supersededCompleted24h: number;
+  };
   jobs: Record<string, number>;
 }
 
@@ -59,6 +65,32 @@ export function getMemorySystemStatus(): MemorySystemStatus {
   const oldestPendingAgeMs = oldestPendingCreatedAt === null
     ? null
     : Math.max(0, Date.now() - oldestPendingCreatedAt);
+  const throughputWindowStartMs = Date.now() - (24 * 60 * 60 * 1000);
+  const cleanupStats = raw.query(`
+    SELECT
+      SUM(CASE
+        WHEN type = 'cleanup_resolved_conflicts' AND status IN ('pending', 'running')
+        THEN 1 ELSE 0 END
+      ) AS resolved_backlog,
+      SUM(CASE
+        WHEN type = 'cleanup_stale_superseded_items' AND status IN ('pending', 'running')
+        THEN 1 ELSE 0 END
+      ) AS superseded_backlog,
+      SUM(CASE
+        WHEN type = 'cleanup_resolved_conflicts' AND status = 'completed' AND updated_at >= ?
+        THEN 1 ELSE 0 END
+      ) AS resolved_completed_24h,
+      SUM(CASE
+        WHEN type = 'cleanup_stale_superseded_items' AND status = 'completed' AND updated_at >= ?
+        THEN 1 ELSE 0 END
+      ) AS superseded_completed_24h
+    FROM memory_jobs
+  `).get(throughputWindowStartMs, throughputWindowStartMs) as {
+    resolved_backlog: number | null;
+    superseded_backlog: number | null;
+    resolved_completed_24h: number | null;
+    superseded_completed_24h: number | null;
+  } | null;
   return {
     enabled: backend.enabled,
     degraded: backend.degraded,
@@ -70,6 +102,12 @@ export function getMemorySystemStatus(): MemorySystemStatus {
       pending,
       resolved: conflictStats?.resolved_count ?? 0,
       oldestPendingAgeMs,
+    },
+    cleanup: {
+      resolvedBacklog: cleanupStats?.resolved_backlog ?? 0,
+      supersededBacklog: cleanupStats?.superseded_backlog ?? 0,
+      resolvedCompleted24h: cleanupStats?.resolved_completed_24h ?? 0,
+      supersededCompleted24h: cleanupStats?.superseded_completed_24h ?? 0,
     },
     jobs: getMemoryJobCounts(),
   };

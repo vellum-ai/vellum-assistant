@@ -436,6 +436,13 @@ public struct IPCMemoryStatus: Codable, Sendable {
     public let reason: String?
     public let provider: String?
     public let model: String?
+    public let conflictsPending: Double
+    public let conflictsResolved: Double
+    public let oldestPendingConflictAgeMs: Double?
+    public let cleanupResolvedJobsPending: Double
+    public let cleanupSupersededJobsPending: Double
+    public let cleanupResolvedJobsCompleted24h: Double
+    public let cleanupSupersededJobsCompleted24h: Double
 }
 
 public struct IPCMessageComplete: Codable, Sendable {

@@ -53,6 +53,7 @@ import { computeRecallBudget } from '../memory/retrieval-budget.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
 import { getApp } from '../memory/app-store.js';
 import { compileDynamicProfile } from '../memory/profile-compiler.js';
+import { getMemorySystemStatus } from '../memory/admin.js';
 import { ConflictGate } from './session-conflict-gate.js';
 import { injectDynamicProfileIntoUserMessage, stripDynamicProfileMessages } from './session-dynamic-profile.js';
 import { MessageQueue } from './session-queue-manager.js';
@@ -680,6 +681,7 @@ export class Session {
         signal: abortController.signal,
         maxInjectTokensOverride: recallBudget,
       });
+      const memoryStatus = getMemorySystemStatus();
 
       onEvent({
         type: 'memory_status',
@@ -688,6 +690,13 @@ export class Session {
         reason: recall.reason,
         provider: recall.provider,
         model: recall.model,
+        conflictsPending: memoryStatus.conflicts.pending,
+        conflictsResolved: memoryStatus.conflicts.resolved,
+        oldestPendingConflictAgeMs: memoryStatus.conflicts.oldestPendingAgeMs,
+        cleanupResolvedJobsPending: memoryStatus.cleanup.resolvedBacklog,
+        cleanupSupersededJobsPending: memoryStatus.cleanup.supersededBacklog,
+        cleanupResolvedJobsCompleted24h: memoryStatus.cleanup.resolvedCompleted24h,
+        cleanupSupersededJobsCompleted24h: memoryStatus.cleanup.supersededCompleted24h,
       });
 
       if (recall.injectedText.length > 0) {

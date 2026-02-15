@@ -583,6 +583,7 @@ struct MainWindowView: View {
             case .debug:
                 DebugPanel(
                     traceStore: traceStore,
+                    daemonClient: daemonClient,
                     activeSessionId: threadManager.activeViewModel?.sessionId,
                     onClose: { windowState.activePanel = nil }
                 )

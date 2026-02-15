@@ -1793,6 +1793,86 @@ describe('Memory regressions', () => {
     expect(status.conflicts.resolved).toBe(1);
     expect(status.conflicts.oldestPendingAgeMs).not.toBeNull();
     expect((status.conflicts.oldestPendingAgeMs ?? 0) >= 4_000).toBe(true);
+    expect(status.cleanup.resolvedBacklog).toBe(0);
+    expect(status.cleanup.supersededBacklog).toBe(0);
+    expect(status.cleanup.resolvedCompleted24h).toBe(0);
+    expect(status.cleanup.supersededCompleted24h).toBe(0);
+  });
+
+  test('memory admin status reports cleanup backlog and 24h throughput metrics', () => {
+    const db = getDb();
+    const now = Date.now();
+    const yesterday = now - 20 * 60 * 60 * 1000;
+    const old = now - 40 * 60 * 60 * 1000;
+
+    db.insert(memoryJobs).values([
+      {
+        id: 'cleanup-status-pending-resolved',
+        type: 'cleanup_resolved_conflicts',
+        payload: '{}',
+        status: 'pending',
+        attempts: 0,
+        deferrals: 0,
+        runAfter: now,
+        lastError: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'cleanup-status-running-superseded',
+        type: 'cleanup_stale_superseded_items',
+        payload: '{}',
+        status: 'running',
+        attempts: 0,
+        deferrals: 0,
+        runAfter: now,
+        lastError: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'cleanup-status-completed-resolved-recent',
+        type: 'cleanup_resolved_conflicts',
+        payload: '{}',
+        status: 'completed',
+        attempts: 1,
+        deferrals: 0,
+        runAfter: yesterday,
+        lastError: null,
+        createdAt: yesterday,
+        updatedAt: yesterday,
+      },
+      {
+        id: 'cleanup-status-completed-superseded-recent',
+        type: 'cleanup_stale_superseded_items',
+        payload: '{}',
+        status: 'completed',
+        attempts: 1,
+        deferrals: 0,
+        runAfter: yesterday,
+        lastError: null,
+        createdAt: yesterday,
+        updatedAt: yesterday,
+      },
+      {
+        id: 'cleanup-status-completed-resolved-old',
+        type: 'cleanup_resolved_conflicts',
+        payload: '{}',
+        status: 'completed',
+        attempts: 1,
+        deferrals: 0,
+        runAfter: old,
+        lastError: null,
+        createdAt: old,
+        updatedAt: old,
+      },
+    ]).run();
+
+    const status = getMemorySystemStatus();
+    expect(status.cleanup.resolvedBacklog).toBe(1);
+    expect(status.cleanup.supersededBacklog).toBe(1);
+    expect(status.cleanup.resolvedCompleted24h).toBe(1);
+    expect(status.cleanup.supersededCompleted24h).toBe(1);
   });
 
   test('requestMemoryCleanup queues both cleanup job types', () => {

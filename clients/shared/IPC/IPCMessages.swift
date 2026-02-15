@@ -1144,6 +1144,7 @@ public enum ServerMessage: Decodable, Sendable {
     case sessionInfo(SessionInfoMessage)
     case sessionListResponse(SessionListResponseMessage)
     case historyResponse(HistoryResponseMessage)
+    case memoryStatus(MemoryStatusMessage)
     case taskRouted(TaskRoutedMessage)
     case error(ErrorMessage)
     case ambientResult(AmbientResultMessage)
@@ -1221,6 +1222,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "history_response":
             let message = try HistoryResponseMessage(from: decoder)
             self = .historyResponse(message)
+        case "memory_status":
+            let message = try MemoryStatusMessage(from: decoder)
+            self = .memoryStatus(message)
         case "task_routed":
             let message = try TaskRoutedMessage(from: decoder)
             self = .taskRouted(message)
