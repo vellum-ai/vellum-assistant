@@ -1080,6 +1080,7 @@ public struct IPCUserMessage: Codable, Sendable {
     public let sessionId: String
     public let content: String?
     public let attachments: [IPCUserMessageAttachment]?
+    public let activeSurfaceId: String?
 }
 
 public struct IPCUserMessageAttachment: Codable, Sendable {

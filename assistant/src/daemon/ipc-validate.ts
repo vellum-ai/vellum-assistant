@@ -72,6 +72,9 @@ const HIGH_RISK_VALIDATORS: Record<string, PropertyValidator> = {
     if (obj.attachments !== undefined && !Array.isArray(obj.attachments)) {
       return 'user_message "attachments" must be an array when present';
     }
+    if (obj.activeSurfaceId !== undefined && typeof obj.activeSurfaceId !== 'string') {
+      return 'user_message "activeSurfaceId" must be a string when present';
+    }
     return null;
   },
 

@@ -461,7 +461,7 @@ async function handleUserMessage(
       attributes: { source: 'user_message' },
     });
 
-    const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId);
+    const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId, msg.activeSurfaceId);
     if (result.rejected) {
       rlog.warn('Message rejected — queue is full');
       session.traceEmitter.emit('request_error', 'Message rejected — queue is full', {
@@ -498,7 +498,7 @@ async function handleUserMessage(
     // Fire-and-forget: don't block the IPC handler so the connection can
     // continue receiving messages (e.g. cancel, confirmations, or
     // additional user_message that will be queued by the session).
-    session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId).catch((err) => {
+    session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId, msg.activeSurfaceId).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       rlog.error({ err }, 'Error processing user message (session or provider failure)');
       ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });

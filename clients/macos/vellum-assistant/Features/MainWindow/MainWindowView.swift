@@ -208,6 +208,14 @@ struct MainWindowView: View {
                 activeDynamicParsedSurface = nil
             }
         }
+        .onChange(of: isDynamicExpanded) { _, expanded in
+            threadManager.activeViewModel?.activeSurfaceId = expanded ? activeDynamicSurface?.surfaceId : nil
+        }
+        .onChange(of: activeDynamicSurface?.surfaceId) { _, surfaceId in
+            if isDynamicExpanded {
+                threadManager.activeViewModel?.activeSurfaceId = surfaceId
+            }
+        }
     }
 
     @ViewBuilder

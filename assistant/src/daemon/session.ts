@@ -87,6 +87,7 @@ interface QueuedMessage {
   attachments: UserMessageAttachment[];
   requestId: string;
   onEvent: (msg: ServerMessage) => void;
+  activeSurfaceId?: string;
 }
 
 export const MAX_QUEUE_DEPTH = 10;
@@ -138,6 +139,7 @@ export class Session {
   private conflictLastAskedTurn = new Map<string, number>();
   private hasNoClient = false;
   private messageQueue: QueuedMessage[] = [];
+  private currentActiveSurfaceId?: string;
   private pendingSurfaceActions = new Map<string, {
     surfaceType: SurfaceType;
   }>();
@@ -395,6 +397,7 @@ export class Session {
     attachments: UserMessageAttachment[],
     onEvent: (msg: ServerMessage) => void,
     requestId: string,
+    activeSurfaceId?: string,
   ): { queued: boolean; rejected?: boolean; requestId: string } {
     if (!this.processing) {
       return { queued: false, requestId };
@@ -404,7 +407,7 @@ export class Session {
       return { queued: false, rejected: true, requestId };
     }
 
-    this.messageQueue.push({ content, attachments, requestId, onEvent });
+    this.messageQueue.push({ content, attachments, requestId, onEvent, activeSurfaceId });
     return { queued: true, requestId };
   }
 
@@ -767,6 +770,21 @@ export class Session {
             ...runMessages.slice(0, -1),
             injectClarificationRequestIntoUserMessage(userTail, softConflictInstruction),
           ];
+        }
+      }
+
+      // Inject active surface context for workspace refinement
+      if (this.currentActiveSurfaceId) {
+        const stored = this.surfaceState.get(this.currentActiveSurfaceId);
+        if (stored && stored.surfaceType === 'dynamic_page') {
+          const html = (stored.data as DynamicPageSurfaceData).html;
+          const userTail = runMessages[runMessages.length - 1];
+          if (userTail && userTail.role === 'user') {
+            runMessages = [
+              ...runMessages.slice(0, -1),
+              injectActiveSurfaceContext(userTail, this.currentActiveSurfaceId, html),
+            ];
+          }
         }
       }
 
@@ -1182,6 +1200,7 @@ export class Session {
       this.abortController = null;
       this.processing = false;
       this.currentRequestId = undefined;
+      this.currentActiveSurfaceId = undefined;
 
       // Clean up completed/cancelled timers to prevent unbounded map growth
       pruneSessionTimers(this.conversationId);
@@ -1285,6 +1304,9 @@ export class Session {
       return;
     }
 
+    // Set the active surface for the dequeued message so runAgentLoop can inject context
+    this.currentActiveSurfaceId = next.activeSurfaceId;
+
     // Fire-and-forget: persistUserMessage set this.processing = true
     // so subsequent messages will still be enqueued. runAgentLoop's
     // finally block will call drainQueue when this run completes.
@@ -1304,7 +1326,10 @@ export class Session {
     attachments: UserMessageAttachment[],
     onEvent: (msg: ServerMessage) => void,
     requestId?: string,
+    activeSurfaceId?: string,
   ): Promise<string> {
+    this.currentActiveSurfaceId = activeSurfaceId;
+
     // Resolve slash commands before persistence
     const slashResult = this.resolveSlash(content);
 
@@ -2029,6 +2054,30 @@ function injectDynamicProfileIntoUserMessage(message: Message, profileText: stri
     content: [
       ...message.content,
       { type: 'text', text: `\n\n${block}` },
+    ],
+  };
+}
+
+function injectActiveSurfaceContext(message: Message, surfaceId: string, html: string): Message {
+  const MAX_HTML_LENGTH = 100_000;
+  const truncatedHtml = html.length > MAX_HTML_LENGTH
+    ? html.slice(0, MAX_HTML_LENGTH) + `\n<!-- truncated: original is ${html.length} characters -->`
+    : html;
+  const block = [
+    '<active_dynamic_page>',
+    `The user is viewing a dynamic page (surface_id: "${surfaceId}") in workspace mode.`,
+    `To modify this page, call ui_update with surface_id "${surfaceId}" and provide the complete updated HTML in data.html.`,
+    'Preserve all existing content, design tokens, and styling unless the user explicitly asks to change them.',
+    '',
+    'Current HTML:',
+    truncatedHtml,
+    '</active_dynamic_page>',
+  ].join('\n');
+  return {
+    ...message,
+    content: [
+      { type: 'text', text: block },
+      ...message.content,
     ],
   };
 }

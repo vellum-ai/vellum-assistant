@@ -155,6 +155,10 @@ public final class ChatViewModel: ObservableObject {
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false
 
+    /// Surface the user is currently viewing in workspace mode.
+    /// Set by MainWindowView when the dynamic workspace is expanded.
+    public var activeSurfaceId: String?
+
     public init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
     }
@@ -496,7 +500,8 @@ public final class ChatViewModel: ObservableObject {
             try daemonClient.send(UserMessageMessage(
                 sessionId: sessionId,
                 content: text,
-                attachments: attachments
+                attachments: attachments,
+                activeSurfaceId: activeSurfaceId
             ))
         } catch {
             log.error("Failed to send user_message: \(error.localizedDescription)")
@@ -617,7 +622,8 @@ public final class ChatViewModel: ObservableObject {
                         try daemonClient.send(UserMessageMessage(
                             sessionId: info.sessionId,
                             content: pending,
-                            attachments: attachments
+                            attachments: attachments,
+                            activeSurfaceId: activeSurfaceId
                         ))
                     } catch {
                         log.error("Failed to send queued user_message: \(error.localizedDescription)")

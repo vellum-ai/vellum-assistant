@@ -208,8 +208,8 @@ extension IPCSessionCreateRequest {
 public typealias UserMessageMessage = IPCUserMessage
 
 extension IPCUserMessage {
-    public init(sessionId: String, content: String, attachments: [IPCAttachment]?) {
-        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments)
+    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil) {
+        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId)
     }
 }
 

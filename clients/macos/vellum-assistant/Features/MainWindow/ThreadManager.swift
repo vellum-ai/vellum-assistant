@@ -1,4 +1,5 @@
 import Combine
+import SwiftUI
 import VellumAssistantShared
 import Foundation
 import os
@@ -7,6 +8,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 @MainActor
 final class ThreadManager: ObservableObject {
+    @AppStorage("restoreRecentThreads") private var restoreRecentThreads = false
     @Published var threads: [ThreadModel] = []
     @Published var activeThreadId: UUID? {
         didSet {
@@ -132,6 +134,7 @@ final class ThreadManager: ObservableObject {
     }
 
     private func handleSessionListResponse(_ response: SessionListResponseMessage) {
+        guard restoreRecentThreads else { return }
         guard !response.sessions.isEmpty else { return }
 
         // Load up to 5 most recent sessions (daemon returns them sorted by updatedAt DESC)

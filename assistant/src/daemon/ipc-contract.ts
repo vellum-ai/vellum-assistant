@@ -21,6 +21,7 @@ export interface UserMessage {
   sessionId: string;
   content?: string;
   attachments?: UserMessageAttachment[];
+  activeSurfaceId?: string;
 }
 
 export interface UserMessageAttachment {
