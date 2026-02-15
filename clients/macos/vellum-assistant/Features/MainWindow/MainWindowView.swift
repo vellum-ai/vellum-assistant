@@ -7,12 +7,13 @@ struct MainWindowView: View {
     var zoomManager: ZoomManager
     @ObservedObject var traceStore: TraceStore
     @ObservedObject var windowState: MainWindowState
-    @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
+    @State private var columnVisibility: NavigationSplitViewVisibility
     @State private var selectedThreadId: UUID?
     @State private var workspaceEditorContentHeight: CGFloat = 20
     @State private var showSharePicker = false
     @State private var isHoveredThread: UUID?
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
+    @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
     let daemonClient: DaemonClient
     let surfaceManager: SurfaceManager
@@ -30,6 +31,8 @@ struct MainWindowView: View {
         self.settingsStore = settingsStore
         self.windowState = windowState
         self.onMicrophoneToggle = onMicrophoneToggle
+        let savedSidebarOpen = UserDefaults.standard.bool(forKey: "sidebarOpen")
+        _columnVisibility = State(initialValue: savedSidebarOpen ? .all : .detailOnly)
     }
 
     // MARK: - Layout Constants
@@ -58,6 +61,7 @@ struct MainWindowView: View {
                                 VIconButton(label: "Threads", icon: "sidebar.left", isActive: columnVisibility != .detailOnly, iconOnly: true) {
                                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                         columnVisibility = (columnVisibility == .detailOnly) ? .all : .detailOnly
+                                        sidebarOpen = (columnVisibility != .detailOnly)
                                     }
                                 }
 
