@@ -583,63 +583,6 @@ public struct IPCOpenBundleResponseSignatureResult: Codable, Sendable {
     public let signerAccount: String?
 }
 
-public struct IPCPartial<CardSurfaceData>: Codable, Sendable {
-    public let title: String?
-    public let subtitle: String?
-    public let body: String?
-    public let metadata: [IPCPartial<CardSurfaceData>Metadata]?
-    /// Optional template name for specialized rendering (e.g. "weather_forecast").
-    public let template: String?
-    /// Arbitrary data consumed by the template renderer. Shape depends on template.
-    public let templateData: [String: AnyCodable]?
-}
-
-public struct IPCPartial<CardSurfaceData>Metadata: Codable, Sendable {
-    public let label: String
-    public let value: String
-}
-
-public struct IPCPartial<ConfirmationSurfaceData>: Codable, Sendable {
-    public let message: String?
-    public let detail: String?
-    public let confirmLabel: String?
-    public let cancelLabel: String?
-    public let destructive: Bool?
-}
-
-public struct IPCPartial<DynamicPageSurfaceData>: Codable, Sendable {
-    public let html: String?
-    public let width: Int?
-    public let height: Int?
-    public let appId: String?
-    public let preview: IPCDynamicPagePreview?
-}
-
-public struct IPCPartial<FileUploadSurfaceData>: Codable, Sendable {
-    public let prompt: String?
-    public let acceptedTypes: [String]?
-    public let maxFiles: Int?
-    public let maxSizeBytes: Int?
-}
-
-public struct IPCPartial<FormSurfaceData>: Codable, Sendable {
-    public let description: String?
-    public let fields: [IPCFormField]?
-    public let submitLabel: String?
-}
-
-public struct IPCPartial<ListSurfaceData>: Codable, Sendable {
-    public let items: [IPCListItem]?
-    public let selectionMode: String?
-}
-
-public struct IPCPartial<TableSurfaceData>: Codable, Sendable {
-    public let columns: [IPCTableColumn]?
-    public let rows: [IPCTableRow]?
-    public let selectionMode: String?
-    public let caption: String?
-}
-
 public struct IPCPingMessage: Codable, Sendable {
     public let type: String
 }
