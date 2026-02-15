@@ -1062,6 +1062,7 @@ public final class ChatViewModel: ObservableObject {
             pendingUserMessage = nil
             pendingUserAttachments = nil
             bootstrapCorrelationId = nil
+            isWorkspaceRefinementInFlight = false
             isThinking = false
             isSending = false
             return
@@ -1073,6 +1074,7 @@ public final class ChatViewModel: ObservableObject {
         // stuck isCancelling flag that would suppress future assistant deltas.
         guard daemonClient.isConnected else {
             log.warning("Cannot send cancel: daemon not connected")
+            isWorkspaceRefinementInFlight = false
             isSending = false
             isThinking = false
             isCancelling = false
@@ -1105,6 +1107,7 @@ public final class ChatViewModel: ObservableObject {
             // Cancel failed to send, so no generationCancelled or
             // messageComplete event will arrive from the daemon. Reset
             // all transient state now to avoid stuck UI.
+            isWorkspaceRefinementInFlight = false
             isSending = false
             isThinking = false
             isCancelling = false
@@ -1158,6 +1161,7 @@ public final class ChatViewModel: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             guard self.isCancelling else { return }
             log.warning("Cancel acknowledgment timed out after 5s — force-resetting UI state")
+            self.isWorkspaceRefinementInFlight = false
             self.isCancelling = false
             self.isSending = false
             self.currentAssistantMessageId = nil
