@@ -165,11 +165,8 @@ function startAction(input: Record<string, unknown>, sessionId: string): ToolExe
     status: 'running',
   };
 
-  scheduleCompletion(timer, sessionId, durationMs);
-
-  const sessionTimers = getOrCreateSessionTimers(sessionId);
-  sessionTimers.set(id, timer);
-
+  // Persist to DB before scheduling in memory so a failed insert
+  // doesn't leave a live in-memory timer with no DB row (split-brain).
   insertTimer({
     id,
     sessionId,
@@ -182,6 +179,11 @@ function startAction(input: Record<string, unknown>, sessionId: string): ToolExe
     createdAt: now,
     updatedAt: now,
   });
+
+  scheduleCompletion(timer, sessionId, durationMs);
+
+  const sessionTimers = getOrCreateSessionTimers(sessionId);
+  sessionTimers.set(id, timer);
 
   log.info({ id, label, durationMinutes, sessionId }, 'Pomodoro timer started');
 
