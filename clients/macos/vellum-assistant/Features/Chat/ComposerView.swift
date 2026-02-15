@@ -277,7 +277,10 @@ struct ComposerView: View {
                 .accessibilityLabel("Stop generation")
             } else {
                 if canSend {
-                    Button(action: onSend) {
+                    Button {
+                        shouldRefocusAfterSend = true
+                        onSend()
+                    } label: {
                         ZStack {
                             Circle()
                                 .fill(VColor.accent)
