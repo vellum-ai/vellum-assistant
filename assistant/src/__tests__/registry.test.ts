@@ -5,7 +5,8 @@ import type { ToolDefinition } from '../providers/types.js';
 
 // We cannot import the private LazyTool class directly, so we test through
 // registerLazyTool + getTool which exercise the same code path.
-import { registerLazyTool, getTool, getAllToolDefinitions, initializeTools } from '../tools/registry.js';
+import { registerLazyTool, getTool, getAllTools, getAllToolDefinitions, initializeTools } from '../tools/registry.js';
+import { eagerModules, lazyTools } from '../tools/tool-manifest.js';
 
 function makeFakeTool(name: string): Tool {
   return {
@@ -128,5 +129,34 @@ describe('tool registry dynamic-tools tools', () => {
     const tool = getTool('skill_load');
     expect(tool).toBeDefined();
     expect(tool?.defaultRiskLevel).toBe(RiskLevel.Low);
+  });
+});
+
+describe('tool manifest', () => {
+  test('all manifest lazy tools are registered after init', async () => {
+    await initializeTools();
+    const registered = new Set(getAllTools().map((t) => t.name));
+
+    for (const descriptor of lazyTools) {
+      expect(registered.has(descriptor.name)).toBe(true);
+    }
+  });
+
+  test('manifest declares expected core lazy tools', () => {
+    const lazyNames = new Set(lazyTools.map((t) => t.name));
+    expect(lazyNames.has('bash')).toBe(true);
+    expect(lazyNames.has('evaluate_typescript_code')).toBe(true);
+    expect(lazyNames.has('claude_code')).toBe(true);
+    expect(lazyNames.has('swarm_delegate')).toBe(true);
+  });
+
+  test('eager module list contains expected count', () => {
+    expect(eagerModules.length).toBe(19);
+  });
+
+  test('registered tool count is at least eager + lazy + host', async () => {
+    await initializeTools();
+    const tools = getAllTools();
+    expect(tools.length).toBeGreaterThanOrEqual(eagerModules.length + lazyTools.length);
   });
 });
