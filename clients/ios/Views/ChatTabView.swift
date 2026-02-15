@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import SwiftUI
 import VellumAssistantShared
 
@@ -93,3 +94,4 @@ struct ChatTabView: View {
         ChatTabView(daemonClient: daemonClient)
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import SwiftUI
 import VellumAssistantShared
 
@@ -163,3 +164,4 @@ extension Bundle {
 #Preview {
     SettingsView()
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import SwiftUI
 import VellumAssistantShared
 
@@ -162,3 +163,4 @@ struct MessageBubbleView: View {
     .padding()
     .background(VColor.background)
 }
+#endif

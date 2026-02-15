@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import SwiftUI
 import VellumAssistantShared
 
@@ -17,3 +18,11 @@ struct VellumAssistantApp: App {
         }
     }
 }
+#else
+// Stub entry point so the iOS executable target links on macOS
+// (all real code is UIKit-only and compiled out on this platform).
+@main
+struct VellumAssistantApp {
+    static func main() {}
+}
+#endif

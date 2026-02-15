@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import SwiftUI
 import VellumAssistantShared
 
@@ -59,3 +60,4 @@ struct InputBarView_Previews: PreviewProvider {
         PreviewWrapper()
     }
 }
+#endif

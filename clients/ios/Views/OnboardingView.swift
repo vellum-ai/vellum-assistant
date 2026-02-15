@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import SwiftUI
 import VellumAssistantShared
 
@@ -179,3 +180,4 @@ struct ReadyStep: View {
 #Preview {
     OnboardingView(isCompleted: .constant(false))
 }
+#endif

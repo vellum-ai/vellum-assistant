@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import UIKit
 import VellumAssistantShared
 
@@ -20,3 +21,4 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 }
+#endif

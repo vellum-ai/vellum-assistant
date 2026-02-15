@@ -1,6 +1,6 @@
 import XCTest
 @testable import VellumAssistantLib
-import VellumAssistantShared
+@testable import VellumAssistantShared
 
 @MainActor
 final class ChatViewModelTests: XCTestCase {

@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import SwiftUI
 import VellumAssistantShared
 
@@ -25,3 +26,4 @@ struct ContentView: View {
     ContentView()
         .environmentObject(DaemonClient(config: .default))
 }
+#endif
