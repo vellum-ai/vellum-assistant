@@ -7,7 +7,10 @@ struct TraceTimelineView: View {
     @ObservedObject var traceStore: TraceStore
     let sessionId: String
 
-    @State private var autoScrollPaused = false
+    /// Tracks whether the bottom anchor is visible — when true, new events
+    /// auto-scroll to the bottom. When the user scrolls up and the anchor
+    /// leaves the viewport, auto-scroll pauses until they return to the bottom.
+    @State private var isNearBottom = true
     @State private var expandedEventIds: Set<String> = []
 
     private var groupedEvents: [(key: String, events: [TraceStore.StoredEvent])] {
@@ -28,48 +31,51 @@ struct TraceTimelineView: View {
                         requestGroup(group.key, events: group.events)
                     }
 
-                    // Invisible anchor for auto-scroll
+                    // Invisible anchor for auto-scroll and bottom detection
                     Color.clear
                         .frame(height: 1)
                         .id("trace-bottom")
+                        .onAppear { isNearBottom = true }
+                        .onDisappear { isNearBottom = false }
                 }
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)
             }
             .onChange(of: traceStore.latestEventIdBySession[sessionId]) {
-                if !autoScrollPaused {
+                if isNearBottom {
                     withAnimation(VAnimation.fast) {
                         proxy.scrollTo("trace-bottom", anchor: .bottom)
                     }
                 }
             }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            autoScrollToggle
-        }
-    }
-
-    @ViewBuilder
-    private var autoScrollToggle: some View {
-        Button(action: { autoScrollPaused.toggle() }) {
-            HStack(spacing: VSpacing.xs) {
-                Image(systemName: autoScrollPaused ? "play.fill" : "pause.fill")
-                    .font(.system(size: 9))
-                Text(autoScrollPaused ? "Resume" : "Auto-scroll")
-                    .font(VFont.small)
+            .overlay(alignment: .bottomTrailing) {
+                if !isNearBottom {
+                    Button(action: {
+                        withAnimation(VAnimation.fast) {
+                            proxy.scrollTo("trace-bottom", anchor: .bottom)
+                        }
+                    }) {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.system(size: 9))
+                            Text("Jump to bottom")
+                                .font(VFont.small)
+                        }
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .foregroundColor(Amber._500)
+                        .background(Slate._800)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(VSpacing.sm)
+                }
             }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .foregroundColor(autoScrollPaused ? Amber._500 : VColor.textMuted)
-            .background(Slate._800)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
-            )
         }
-        .buttonStyle(.plain)
-        .padding(VSpacing.sm)
     }
 
     // MARK: - Request Group
