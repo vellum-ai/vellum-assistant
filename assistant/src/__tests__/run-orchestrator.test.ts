@@ -40,6 +40,7 @@ function makeSessionWithConfirmation(message: ServerMessage): Session {
     // Return undefined so createRun stores messageId as null and avoids
     // a foreign-key dependency on the conversation-store message table.
     persistUserMessage: () => undefined as unknown as string,
+    setAssistantId: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
     },
@@ -50,6 +51,78 @@ function makeSessionWithConfirmation(message: ServerMessage): Session {
     handleConfirmationResponse: () => {},
   } as unknown as Session;
 }
+
+/**
+ * Build a session whose runAgentLoop emits the given message via the onEvent
+ * callback and then resolves (simulating a completed agent loop).
+ */
+function makeSessionWithEvent(message: ServerMessage): Session {
+  return {
+    isProcessing: () => false,
+    persistUserMessage: () => undefined as unknown as string,
+    setAssistantId: () => {},
+    updateClient: () => {},
+    runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
+      onEvent(message);
+    },
+    handleConfirmationResponse: () => {},
+  } as unknown as Session;
+}
+
+describe('run failure detection', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run('DELETE FROM message_runs');
+    db.run('DELETE FROM messages');
+    db.run('DELETE FROM conversations');
+  });
+
+  test('session_error event marks the run as failed', async () => {
+    const conversation = createConversation('session error test');
+    const session = makeSessionWithEvent({
+      type: 'session_error',
+      sessionId: conversation.id,
+      code: 'PROVIDER_NETWORK',
+      userMessage: 'Unable to reach the AI provider.',
+      retryable: true,
+    });
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+    });
+
+    const run = await orchestrator.startRun('assistant-1', conversation.id, 'Hello');
+
+    // The agent loop fires asynchronously; give it a tick to settle.
+    await new Promise((r) => setTimeout(r, 50));
+
+    const stored = orchestrator.getRun(run.id);
+    expect(stored?.status).toBe('failed');
+    expect(stored?.error).toBe('Unable to reach the AI provider.');
+  });
+
+  test('generic error event still marks the run as failed', async () => {
+    const conversation = createConversation('generic error test');
+    const session = makeSessionWithEvent({
+      type: 'error',
+      message: 'Something went wrong',
+    });
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+    });
+
+    const run = await orchestrator.startRun('assistant-1', conversation.id, 'Hello');
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const stored = orchestrator.getRun(run.id);
+    expect(stored?.status).toBe('failed');
+    expect(stored?.error).toBe('Something went wrong');
+  });
+});
 
 describe('run approval state executionTarget', () => {
   beforeEach(() => {
