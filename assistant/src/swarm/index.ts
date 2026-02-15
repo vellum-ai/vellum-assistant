@@ -16,3 +16,17 @@ export {
   validateAndNormalizePlan,
   SwarmPlanValidationError,
 } from './plan-validator.js';
+
+export type {
+  WorkerProfile,
+  ProfilePolicy,
+  WorkerFailureReason,
+  SwarmWorkerBackendResult,
+  SwarmWorkerBackendInput,
+  SwarmWorkerBackend,
+} from './worker-backend.js';
+
+export {
+  roleToProfile,
+  getProfilePolicy,
+} from './worker-backend.js';

@@ -3,6 +3,8 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
+import { getProfilePolicy } from '../../swarm/worker-backend.js';
+import type { WorkerProfile } from '../../swarm/worker-backend.js';
 
 const log = getLogger('claude-code-tool');
 
@@ -15,7 +17,10 @@ const AUTO_APPROVE_TOOLS = new Set([
 // Tools that always require user approval via confirmation IPC
 const APPROVAL_REQUIRED_TOOLS = new Set([
   'Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit',
+
 ]);
+
+const VALID_PROFILES: readonly WorkerProfile[] = ['general', 'researcher', 'coder', 'reviewer'];
 
 export const claudeCodeTool: Tool = {
   name: 'claude_code',
@@ -46,6 +51,11 @@ export const claudeCodeTool: Tool = {
             type: 'string',
             description: 'Model to use (defaults to claude-sonnet-4-5-20250929)',
           },
+          profile: {
+            type: 'string',
+            enum: ['general', 'researcher', 'coder', 'reviewer'],
+            description: 'Worker profile that scopes tool access. Defaults to general (backward compatible).',
+          },
         },
         required: ['prompt'],
       },
@@ -57,6 +67,17 @@ export const claudeCodeTool: Tool = {
     const workingDir = (input.working_dir as string) || context.workingDir;
     const resumeSessionId = input.resume as string | undefined;
     const model = (input.model as string) || 'claude-sonnet-4-5-20250929';
+    const profileName = (input.profile as WorkerProfile | undefined) ?? 'general';
+
+    // Validate profile
+    if (!VALID_PROFILES.includes(profileName)) {
+      return {
+        content: `Error: Invalid profile "${profileName}". Valid profiles: ${VALID_PROFILES.join(', ')}.`,
+        isError: true,
+      };
+    }
+
+    const profilePolicy = getProfilePolicy(profileName);
 
     // Validate API key
     const config = getConfig();
@@ -85,16 +106,26 @@ export const claudeCodeTool: Tool = {
 
     log.info({ prompt: prompt.slice(0, 100), workingDir, model, resume: !!resumeSessionId }, 'Starting Claude Code session');
 
-    // Build the canUseTool callback
+    // Build the canUseTool callback, enforcing profile-based restrictions
     const canUseTool: import('@anthropic-ai/claude-agent-sdk').CanUseTool = async (toolName, toolInput, _options) => {
-      // Auto-approve safe read-only tools
+      // Profile hard-deny check first
+      if (profilePolicy.deny.has(toolName)) {
+        log.debug({ toolName, profile: profileName }, 'Tool denied by profile policy');
+        return { behavior: 'deny' as const, message: `Tool "${toolName}" is denied by profile "${profileName}"` };
+      }
+
+      // Profile explicit allow (auto-approve)
+      if (profilePolicy.allow.has(toolName)) {
+        return { behavior: 'allow' as const };
+      }
+
+      // Auto-approve safe read-only tools (backward compat for general profile)
       if (AUTO_APPROVE_TOOLS.has(toolName)) {
         return { behavior: 'allow' as const };
       }
 
       // For tools that need approval, bridge to Velly's confirmation flow
       if (!context.requestConfirmation) {
-        // No confirmation callback available -- deny by default for safety
         log.warn({ toolName }, 'Claude Code tool requires approval but no requestConfirmation callback available');
         return { behavior: 'deny' as const, message: 'Tool approval not available in this context' };
       }
@@ -110,7 +141,6 @@ export const claudeCodeTool: Tool = {
         }
         return { behavior: 'deny' as const, message: `User denied ${toolName}` };
       } catch (err) {
-        // Abort/dispose will reject the promise -- treat as deny
         log.debug({ err, toolName }, 'requestConfirmation rejected (likely abort)');
         return { behavior: 'deny' as const, message: 'Approval request cancelled' };
       }
