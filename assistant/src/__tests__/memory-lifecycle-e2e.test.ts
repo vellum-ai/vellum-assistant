@@ -35,6 +35,40 @@ mock.module('../memory/qdrant-client.js', () => ({
   initQdrantClient: () => {},
 }));
 
+// Mock clarification resolver to prevent real Anthropic API calls when
+// ANTHROPIC_API_KEY is set. Without this, resolveConflictClarification can
+// resolve conflicts via LLM before the test asserts on pending state.
+mock.module('../memory/clarification-resolver.js', () => ({
+  resolveConflictClarification: async (input: { userMessage: string }) => {
+    const msg = input.userMessage.toLowerCase();
+    // "Use the new renderer going forward" → keep candidate
+    if (msg.includes('new') || msg.includes('replace') || msg.includes('instead')) {
+      return {
+        resolution: 'keep_candidate' as const,
+        strategy: 'heuristic' as const,
+        resolvedStatement: null,
+        explanation: 'User response explicitly points to candidate/new statement.',
+      };
+    }
+    // "Keep the old runtime one" → keep existing
+    if (msg.includes('old') || msg.includes('existing') || msg.includes('still')) {
+      return {
+        resolution: 'keep_existing' as const,
+        strategy: 'heuristic' as const,
+        resolvedStatement: null,
+        explanation: 'User response explicitly points to existing/old statement.',
+      };
+    }
+    // Default: still_unclear (e.g. "Need react roadmap update today")
+    return {
+      resolution: 'still_unclear' as const,
+      strategy: 'heuristic' as const,
+      resolvedStatement: null,
+      explanation: 'No clear directional cue found in user message.',
+    };
+  },
+}));
+
 const TEST_CONFIG = {
   ...DEFAULT_CONFIG,
   memory: {
