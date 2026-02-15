@@ -229,6 +229,18 @@ public final class ChatViewModel: ObservableObject {
     public func addAttachmentFromPasteboard() {
         #if os(macOS)
         let pasteboard = NSPasteboard.general
+
+        // Prefer file URLs — preserves the original filename
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true,
+        ]) as? [URL], !urls.isEmpty {
+            for url in urls {
+                addAttachment(url: url)
+            }
+            return
+        }
+
+        // Fall back to raw image data (e.g. screenshot to clipboard)
         guard let imageData = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) else {
             return
         }

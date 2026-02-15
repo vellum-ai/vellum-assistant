@@ -713,7 +713,6 @@ struct ChatView: View {
                     attachmentChip(attachment)
                 }
             }
-            .padding(.horizontal, VSpacing.sm)
             .padding(.top, VSpacing.sm)
             .padding(.bottom, VSpacing.xs)
         }
