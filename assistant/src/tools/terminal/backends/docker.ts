@@ -3,27 +3,28 @@ import { realpathSync } from 'node:fs';
 import { resolve, relative, posix } from 'node:path';
 import { ToolError } from '../../../util/errors.js';
 import { getLogger } from '../../../util/logger.js';
+import type { DockerConfig } from '../../../config/types.js';
 import type { SandboxBackend, SandboxResult } from './types.js';
 
 const log = getLogger('docker-sandbox');
 
-export interface DockerConfig {
-  image?: string;
+/** DockerBackend-specific config extends the schema type with shell selection. */
+interface DockerBackendConfig extends DockerConfig {
   /** Shell binary used to interpret commands (default: 'sh' for POSIX portability). */
-  shell?: string;
-  cpus?: number;
-  memoryMb?: number;
-  pidsLimit?: number;
-  network?: string;
+  shell: string;
 }
 
-const DEFAULTS: Required<DockerConfig> = {
-  image: 'ubuntu:22.04',
-  shell: 'sh',
-  cpus: 2,
+/**
+ * Fallback defaults when DockerBackend is constructed without explicit config.
+ * Must stay in sync with DockerConfigSchema defaults in config/schema.ts.
+ */
+const DEFAULTS: DockerBackendConfig = {
+  image: 'node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9',
+  cpus: 1,
   memoryMb: 512,
   pidsLimit: 256,
   network: 'none',
+  shell: 'sh',
 };
 
 /**
@@ -142,13 +143,13 @@ function validatePathSafety(path: string, label: string): void {
  */
 export class DockerBackend implements SandboxBackend {
   private readonly sandboxRoot: string;
-  private readonly config: Required<DockerConfig>;
+  private readonly config: DockerBackendConfig;
   private readonly uid: number;
   private readonly gid: number;
 
   constructor(
     sandboxRoot: string,
-    config?: DockerConfig,
+    config?: Partial<DockerBackendConfig>,
     uid?: number,
     gid?: number,
   ) {

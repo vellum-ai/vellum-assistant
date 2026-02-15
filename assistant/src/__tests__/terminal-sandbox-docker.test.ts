@@ -26,6 +26,9 @@ const { DockerBackend, _resetDockerChecks } = await import(
   '../tools/terminal/backends/docker.js'
 );
 const { ToolError } = await import('../util/errors.js');
+const { DEFAULT_CONFIG } = await import('../config/defaults.js');
+
+const defaultImage = DEFAULT_CONFIG.sandbox.docker.image;
 
 // Use a real temp dir so realpathSync resolves correctly.
 const sandboxRoot = realpathSync('/tmp');
@@ -79,7 +82,7 @@ describe('DockerBackend — argument construction', () => {
   test('applies default resource limits', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     const result = backend.wrap('ls', sandboxRoot);
-    expect(result.args).toContain('--cpus=2');
+    expect(result.args).toContain('--cpus=1');
     expect(result.args).toContain('--memory=512m');
     expect(result.args).toContain('--pids-limit=256');
   });
@@ -102,10 +105,10 @@ describe('DockerBackend — argument construction', () => {
     );
   });
 
-  test('uses default image ubuntu:22.04', () => {
+  test('uses default image from config', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     const result = backend.wrap('ls', sandboxRoot);
-    expect(result.args).toContain('ubuntu:22.04');
+    expect(result.args).toContain(defaultImage);
   });
 
   test('wraps command with sh -c -- by default', () => {
@@ -137,7 +140,7 @@ describe('DockerBackend — read-only root and tmpfs', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     const result = backend.wrap('ls', sandboxRoot);
     const readOnlyIdx = result.args.indexOf('--read-only');
-    const imageIdx = result.args.indexOf('ubuntu:22.04');
+    const imageIdx = result.args.indexOf(defaultImage);
     expect(readOnlyIdx).toBeLessThan(imageIdx);
   });
 
@@ -145,7 +148,7 @@ describe('DockerBackend — read-only root and tmpfs', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     const result = backend.wrap('ls', sandboxRoot);
     const tmpfsIdx = result.args.indexOf('--tmpfs');
-    const imageIdx = result.args.indexOf('ubuntu:22.04');
+    const imageIdx = result.args.indexOf(defaultImage);
     expect(tmpfsIdx).toBeLessThan(imageIdx);
   });
 });
@@ -273,7 +276,7 @@ describe('DockerBackend — argv segment safety', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     const result = backend.wrap('ls', sandboxRoot);
     // None of the docker flag args (before the image) should contain ; | && etc.
-    const imageIdx = result.args.indexOf('ubuntu:22.04');
+    const imageIdx = result.args.indexOf(defaultImage);
     const flagArgs = result.args.slice(0, imageIdx);
     for (const arg of flagArgs) {
       expect(arg).not.toContain(';');
@@ -319,7 +322,7 @@ describe('DockerBackend — custom config', () => {
     );
     const result = backend.wrap('ls', sandboxRoot);
     expect(result.args).toContain('alpine:3.19');
-    expect(result.args).not.toContain('ubuntu:22.04');
+    expect(result.args).not.toContain(defaultImage);
   });
 
   test('accepts custom resource limits', () => {
@@ -454,7 +457,7 @@ describe('DockerBackend — preflight: image availability check', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     expect(() => backend.wrap('ls', sandboxRoot)).toThrow(ToolError);
     expect(() => backend.wrap('ls', sandboxRoot)).toThrow(
-      'docker pull ubuntu:22.04',
+      `docker pull ${defaultImage}`,
     );
   });
 
@@ -503,7 +506,7 @@ describe('DockerBackend — preflight: image availability check', () => {
     const argv = imageCalls[0]![1] as string[];
     expect(argv).toContain('image');
     expect(argv).toContain('inspect');
-    expect(argv).toContain('ubuntu:22.04');
+    expect(argv).toContain(defaultImage);
   });
 
   test('caches successful image check per image', () => {
@@ -725,7 +728,7 @@ describe('DockerBackend — complete hardening profile verification', () => {
   test('all security flags are present in correct order before image', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     const result = backend.wrap('ls', sandboxRoot);
-    const imageIdx = result.args.indexOf('ubuntu:22.04');
+    const imageIdx = result.args.indexOf(defaultImage);
 
     // All of these must appear before the image name
     const securityFlags = [
