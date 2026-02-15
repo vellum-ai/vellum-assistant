@@ -302,7 +302,7 @@ Available design tokens:
 | **Animation** | `--v-duration-fast` (0.15s) / `-standard` (0.25s) / `-slow` (0.4s) |
 | **Palettes** | `--v-slate-{950..50}`, `--v-emerald-*`, `--v-violet-*`, `--v-indigo-*`, `--v-rose-*`, `--v-amber-*` |
 
-Utility classes: `.v-button` (`.secondary`/`.danger`/`.ghost`), `.v-card`, `.v-list`/`.v-list-item`, `.v-badge` (`.success`/`.warning`/`.error`), `.v-input-row`, `.v-empty-state`, `.v-toggle`.
+Utility classes: `.v-button` (`.secondary`/`.danger`/`.ghost`), `.v-card`, `.v-list`/`.v-list-item`, `.v-badge` (`.success`/`.warning`/`.danger`), `.v-input-row`, `.v-empty-state`, `.v-toggle`.
 
 **Custom themes:** When the user wants a specific branded look, write complete CSS with hardcoded colors and `@media (prefers-color-scheme: dark)` for dark variants. Don't mix `--v-*` auto-switching variables with hardcoded colors in the same element.
 
@@ -586,6 +586,9 @@ document.getElementById('create-form').addEventListener('submit', async (e) => {
 </table>
 ```
 ```javascript
+// HTML-escape utility — use whenever rendering user data via innerHTML
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+
 async function loadDashboard() {
   const records = await window.vellum.data.query();
   // Compute and render metrics
@@ -598,9 +601,9 @@ async function loadDashboard() {
   vellum.widgets.barChart('chart', records.map(r => ({
     label: r.data.name, value: r.data.amount
   })));
-  // Populate table
+  // Populate table (escape user data to prevent XSS)
   document.querySelector('#details tbody').innerHTML = records.map(r =>
-    `<tr><td>${r.data.name}</td><td>${r.data.amount}</td></tr>`
+    `<tr><td>${esc(r.data.name)}</td><td>${esc(r.data.amount)}</td></tr>`
   ).join('');
   vellum.widgets.sortTable('details');
 }
@@ -767,41 +770,49 @@ async function loadWithSkeleton() {
 }
 ```
 
-### 4. Multi-Page Apps (Optional)
+**HTML escaping:** Always escape user-controlled data before inserting it into the DOM via `innerHTML`. Use this utility:
+```javascript
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+```
+Then wrap every user data interpolation: `` `<td>${esc(record.data.name)}</td>` ``. Alternatively, use `textContent` or DOM APIs to set text without innerHTML. Failing to escape leads to XSS vulnerabilities.
 
-For apps that benefit from separate views (e.g., list + settings, dashboard + detail), provide additional pages alongside the main `index.html`.
+### 4. Single-Page App Views
 
-#### When to use multi-page vs single-page
+Apps run inside a sandboxed WebView that blocks all navigation — standard `<a>` links will not work for in-app navigation. All apps are effectively single-page. When an app needs multiple views (e.g., list + detail, dashboard + settings), use JavaScript to swap content within the page.
 
-- **Single-page (default)**: Best for most apps. Use JS to show/hide sections. Simpler state management.
-- **Multi-page**: Best when views are truly independent (settings page, separate detail view, help page). Each page is standalone HTML.
+#### View switching pattern
 
-#### How it works
-
-- Pass additional pages via `pages`: `{"settings.html": "<html>...</html>"}`
-- Main app is always `html` (rendered as `index.html`)
-- Navigate with standard links: `<a href="settings.html">Settings</a>`
-- `localStorage` is shared across pages
-- `window.vellum.data` is available on every page
-
-#### Navigation patterns
-
-Use a shared nav bar across pages:
+Use a simple `showView()` function to toggle between sections:
 ```html
 <nav class="app-nav">
-  <a href="index.html" class="nav-link active">Home</a>
-  <a href="settings.html" class="nav-link">Settings</a>
+  <button class="nav-link active" onclick="showView('home')">Home</button>
+  <button class="nav-link" onclick="showView('settings')">Settings</button>
 </nav>
+
+<div id="view-home" class="view">
+  <!-- Home content -->
+</div>
+<div id="view-settings" class="view" hidden>
+  <!-- Settings content -->
+</div>
 
 <style>
 .app-nav { display: flex; gap: 4px; padding: 8px 12px; background: var(--v-surface); border-bottom: 1px solid var(--v-surface-border); }
-.nav-link { padding: 6px 14px; border-radius: 6px; text-decoration: none; color: var(--v-text-secondary); font-size: 13px; font-weight: 500; transition: all 150ms; }
+.nav-link { padding: 6px 14px; border-radius: 6px; border: none; background: none; color: var(--v-text-secondary); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 150ms; }
 .nav-link:hover { background: var(--v-surface-border); color: var(--v-text); }
 .nav-link.active { background: var(--v-accent); color: white; }
 </style>
 ```
+```javascript
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.hidden = true);
+  document.getElementById('view-' + name).hidden = false;
+  document.querySelectorAll('.nav-link').forEach(btn => btn.classList.remove('active'));
+  document.querySelector(`[onclick="showView('${name}')"]`).classList.add('active');
+}
+```
 
-Mark the current page's link as `active` in each page's HTML. For detail pages, use `<a href="index.html">&larr; Back</a>`.
+For detail pages, call `showView('detail')` and populate the detail section's content dynamically before showing it. Use a "Back" button that calls `showView('home')` to return to the list.
 
 ### 5. Create and Open the App
 
@@ -810,7 +821,6 @@ Call `app_create` with:
 - `description`: One-sentence summary
 - `schema_json`: JSON schema as string
 - `html`: Complete HTML document as string
-- `pages`: (optional) Additional pages as `Record<string, string>`
 - `auto_open`: (optional, defaults to `true`) Opens the app immediately
 
 Since `auto_open` defaults to `true`, you don't need to call `app_open` separately after `app_create`.
@@ -843,7 +853,7 @@ Preview fields: `title` (required), `subtitle`, `description`, `icon` (emoji), `
 ### 6. Handle Iteration
 
 If the user wants changes:
-- Use `app_update` with the `app_id` and updated fields (`html`, `schema_json`, `name`, `description`, or `pages`)
+- Use `app_update` with the `app_id` and updated fields (`html`, `schema_json`, `name`, or `description`)
 - Call `app_open` to refresh the view
 - If schema changes affect existing records, mention this
 
