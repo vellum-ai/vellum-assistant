@@ -6,44 +6,13 @@ struct ActivityPanel: View {
     let onClose: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("Activity")
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
-
-                Spacer()
-
-                Button {
-                    onClose()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
+        VSidePanel(title: "Activity", onClose: onClose) {
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                ForEach(toolCalls) { toolCall in
+                    ActivityStepView(toolCall: toolCall)
                 }
-                .buttonStyle(.plain)
-            }
-            .padding(VSpacing.lg)
-            .background(VColor.chatBackground)
-
-            Divider()
-                .background(VColor.surfaceBorder)
-
-            // Activity timeline
-            ScrollView {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    ForEach(toolCalls) { toolCall in
-                        ActivityStepView(toolCall: toolCall)
-                    }
-                }
-                .padding(VSpacing.lg)
             }
         }
-        .frame(width: 400)
-        .background(VColor.background)
     }
 }
 
