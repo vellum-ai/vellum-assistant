@@ -8,7 +8,7 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "Ip
 /// The daemon derives its blob dir from `BASE_DATA_DIR` (or `$HOME`), so the
 /// client must use the same root to ensure probe files land in the same directory.
 ///
-/// Resolution: `(BASE_DATA_DIR || $HOME) / .vellum / data / ipc-blobs`
+/// Resolution: `(BASE_DATA_DIR || $HOME) / .vellum / workspace / data / ipc-blobs`
 ///
 /// Returns a plain string path rather than a URL to avoid Foundation's URL
 /// layer normalizing or expanding tildes (both `URL(fileURLWithPath:)` and
@@ -22,7 +22,7 @@ func resolveBlobDir(environment: [String: String]? = nil) -> String {
     } else {
         root = NSHomeDirectory()
     }
-    return root + "/.vellum/data/ipc-blobs"
+    return root + "/.vellum/workspace/data/ipc-blobs"
 }
 
 /// Manages local blob files for zero-copy IPC transport.
