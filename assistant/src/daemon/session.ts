@@ -61,7 +61,7 @@ import {
 import { buildMemoryQuery } from '../memory/query-builder.js';
 import { computeRecallBudget } from '../memory/retrieval-budget.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
-import { getApp } from '../memory/app-store.js';
+import { getApp, updateApp } from '../memory/app-store.js';
 import { compileDynamicProfile } from '../memory/profile-compiler.js';
 import { getMemoryConflictAndCleanupStats } from '../memory/admin.js';
 import { ConflictGate } from './session-conflict-gate.js';
@@ -124,6 +124,9 @@ export class Session {
     surfaceType: SurfaceType;
   }>();
   private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
+  /** Per-surface undo stack: stores previous HTML strings for workspace refinement undo. */
+  private surfaceUndoStacks = new Map<string, string[]>();
+  private static readonly MAX_UNDO_DEPTH = 10;
   private onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
   public readonly traceEmitter: TraceEmitter;
 
@@ -1725,6 +1728,9 @@ export class Session {
       const data = stored.data as DynamicPageSurfaceData;
       if (data.appId !== appId) continue;
 
+      // Push current HTML onto the undo stack before overwriting
+      this.pushUndoState(surfaceId, data.html);
+
       // Update in-memory surface state so the next refinement gets fresh HTML
       const updatedData: DynamicPageSurfaceData = { ...data, html: app.htmlDefinition };
       stored.data = updatedData;
@@ -1739,6 +1745,78 @@ export class Session {
 
       log.info({ conversationId: this.conversationId, surfaceId, appId }, 'Auto-refreshed surface after app_update');
     }
+  }
+
+  private pushUndoState(surfaceId: string, html: string): void {
+    let stack = this.surfaceUndoStacks.get(surfaceId);
+    if (!stack) {
+      stack = [];
+      this.surfaceUndoStacks.set(surfaceId, stack);
+    }
+    stack.push(html);
+    if (stack.length > Session.MAX_UNDO_DEPTH) {
+      stack.shift();
+    }
+  }
+
+  handleSurfaceUndo(surfaceId: string): void {
+    const stack = this.surfaceUndoStacks.get(surfaceId);
+    if (!stack || stack.length === 0) {
+      this.sendToClient({
+        type: 'ui_surface_undo_result',
+        sessionId: this.conversationId,
+        surfaceId,
+        success: false,
+        remainingUndos: 0,
+      });
+      return;
+    }
+
+    const previousHtml = stack.pop()!;
+    const stored = this.surfaceState.get(surfaceId);
+    if (!stored || stored.surfaceType !== 'dynamic_page') {
+      this.sendToClient({
+        type: 'ui_surface_undo_result',
+        sessionId: this.conversationId,
+        surfaceId,
+        success: false,
+        remainingUndos: stack.length,
+      });
+      return;
+    }
+
+    const data = stored.data as DynamicPageSurfaceData;
+
+    // If app-backed, also revert the persisted app
+    if (data.appId) {
+      try {
+        updateApp(data.appId, { htmlDefinition: previousHtml });
+      } catch (err) {
+        log.error({ appId: data.appId, err }, 'Failed to revert app during undo');
+      }
+    }
+
+    // Update in-memory state
+    const revertedData: DynamicPageSurfaceData = { ...data, html: previousHtml };
+    stored.data = revertedData;
+
+    // Push reverted HTML to the client
+    this.sendToClient({
+      type: 'ui_surface_update',
+      sessionId: this.conversationId,
+      surfaceId,
+      data: revertedData,
+    });
+
+    this.sendToClient({
+      type: 'ui_surface_undo_result',
+      sessionId: this.conversationId,
+      surfaceId,
+      success: true,
+      remainingUndos: stack.length,
+    });
+
+    log.info({ conversationId: this.conversationId, surfaceId, remaining: stack.length }, 'Surface undo applied');
   }
 
   private async surfaceProxyResolver(
@@ -1836,6 +1914,11 @@ export class Session {
       const stored = this.surfaceState.get(surfaceId);
       let mergedData: SurfaceData;
       if (stored) {
+        // Push current HTML to undo stack for dynamic pages
+        if (stored.surfaceType === 'dynamic_page') {
+          const currentHtml = (stored.data as DynamicPageSurfaceData).html;
+          this.pushUndoState(surfaceId, currentHtml);
+        }
         mergedData = { ...stored.data, ...patch } as SurfaceData;
         stored.data = mergedData;
       } else {

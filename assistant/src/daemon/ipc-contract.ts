@@ -512,6 +512,12 @@ export interface UiSurfaceAction {
   data?: Record<string, unknown>;
 }
 
+export interface UiSurfaceUndoRequest {
+  type: 'ui_surface_undo';
+  sessionId: string;
+  surfaceId: string;
+}
+
 export type ClientMessage =
   | UserMessage
   | ConfirmationResponse
@@ -535,6 +541,7 @@ export type ClientMessage =
   | WatchObservation
   | TaskSubmit
   | UiSurfaceAction
+  | UiSurfaceUndoRequest
   | AppDataRequest
   | SkillsListRequest
   | SkillDetailRequest
@@ -1263,6 +1270,15 @@ export interface UiSurfaceDismiss {
   surfaceId: string;
 }
 
+export interface UiSurfaceUndoResult {
+  type: 'ui_surface_undo_result';
+  sessionId: string;
+  surfaceId: string;
+  success: boolean;
+  /** Number of remaining undo entries after this undo. */
+  remainingUndos: number;
+}
+
 export type ServerMessage =
   | AssistantTextDelta
   | AssistantThinkingDelta
@@ -1298,6 +1314,7 @@ export type ServerMessage =
   | UiSurfaceShow
   | UiSurfaceUpdate
   | UiSurfaceDismiss
+  | UiSurfaceUndoResult
   | AppDataResponse
   | SkillsListResponse
   | SkillDetailResponse

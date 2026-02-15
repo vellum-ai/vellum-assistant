@@ -273,6 +273,20 @@ extension IPCUiSurfaceAction {
     }
 }
 
+/// Sent when user requests undo on a workspace surface.
+/// Backed by generated `IPCUiSurfaceUndo`.
+public typealias UiSurfaceUndoMessage = IPCUiSurfaceUndo
+
+extension IPCUiSurfaceUndo {
+    public init(sessionId: String, surfaceId: String) {
+        self.init(type: "ui_surface_undo", sessionId: sessionId, surfaceId: surfaceId)
+    }
+}
+
+/// Result of a surface undo operation.
+/// Backed by generated `IPCUiSurfaceUndoResult`.
+public typealias UiSurfaceUndoResultMessage = IPCUiSurfaceUndoResult
+
 /// Sent when a persistent app's JS makes a data request via the RPC bridge.
 /// Backed by generated `IPCAppDataRequest`.
 public typealias AppDataRequestMessage = IPCAppDataRequest
@@ -1341,6 +1355,7 @@ public enum ServerMessage: Decodable, Sendable {
     case signBundlePayload(SignBundlePayloadMessage)
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
+    case uiSurfaceUndoResult(UiSurfaceUndoResultMessage)
     case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
     case getSigningIdentity
@@ -1509,6 +1524,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "sign_bundle_payload":
             let message = try SignBundlePayloadMessage(from: decoder)
             self = .signBundlePayload(message)
+        case "ui_surface_undo_result":
+            let message = try UiSurfaceUndoResultMessage(from: decoder)
+            self = .uiSurfaceUndoResult(message)
         case "ipc_blob_probe_result":
             let message = try IpcBlobProbeResultMessage(from: decoder)
             self = .ipcBlobProbeResult(message)
