@@ -160,6 +160,54 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
     );
     expect(browserSrc).not.toContain('getCredentialValue');
   });
+
+  test('getSecureKey is only imported by authorized modules', () => {
+    // Hard boundary: only these production files may import getSecureKey.
+    // Any new import must be reviewed for secret-leak risk and added here.
+    const ALLOWED_IMPORTERS = new Set([
+      'security/secure-keys.ts',       // self (re-export infrastructure)
+      'index.ts',                       // daemon startup / API key config
+      'config/loader.ts',              // config management (API keys)
+      'tools/credentials/vault.ts',    // credential store tool
+      'tools/credentials/broker.ts',   // brokered credential access
+      'tools/network/web-search.ts',   // web search API key lookup
+    ]);
+
+    const thisDir = dirname(fileURLToPath(import.meta.url));
+    const srcDir = resolve(thisDir, '..');
+    const { readdirSync, statSync } = require('node:fs');
+
+    // Recursively collect all .ts files in src/ (excluding __tests__)
+    function collectTsFiles(dir: string, files: string[] = []): string[] {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (entry === '__tests__' || entry === 'node_modules') continue;
+        const s = statSync(full);
+        if (s.isDirectory()) {
+          collectTsFiles(full, files);
+        } else if (entry.endsWith('.ts') && !entry.endsWith('.d.ts')) {
+          files.push(full);
+        }
+      }
+      return files;
+    }
+
+    const allFiles = collectTsFiles(srcDir);
+    const unauthorizedImporters: string[] = [];
+
+    for (const filePath of allFiles) {
+      const content = readFileSync(filePath, 'utf-8');
+      // Check for imports of getSecureKey (named import or namespace)
+      if (content.match(/\bgetSecureKey\b/) && content.match(/from\s+['"].*secure-keys/)) {
+        const relative = filePath.slice(srcDir.length + 1);
+        if (!ALLOWED_IMPORTERS.has(relative)) {
+          unauthorizedImporters.push(relative);
+        }
+      }
+    }
+
+    expect(unauthorizedImporters).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -199,32 +247,51 @@ describe('Invariant 3: secrets never logged in plaintext', () => {
         expect((redacted.nested as Record<string, unknown>).safe).toBe('this is fine');
       });
     } else if (tc.component === 'ipc_decode') {
-      // PR 24 — IPC decode log hygiene: the TS daemon's IPC parser must not
-      // log raw line content (which could contain secrets in malformed messages)
+      // PR 24 — IPC decode log hygiene: the TS daemon's IPC parser must
+      // not have any logging that could leak raw message content
       test(`${tc.label}`, () => {
         const thisDir = dirname(fileURLToPath(import.meta.url));
         const ipcSrc = readFileSync(
           resolve(thisDir, '../daemon/ipc-protocol.ts'),
           'utf-8',
         );
-        // The parser should not log raw line/chunk/buffer content
-        // (log.info/warn/error with the raw data would leak secrets)
-        const logCalls = ipcSrc.match(/log\.\w+\(.*?(line|chunk|raw|buffer)\b/g) ?? [];
-        expect(logCalls).toEqual([]);
+        // The IPC parser must not use a logger at all — it handles raw
+        // bytes that could contain secrets in malformed messages. Verify
+        // no getLogger import and no log.* calls exist in the source.
+        expect(ipcSrc).not.toContain('getLogger');
+        expect(ipcSrc).not.toMatch(/\blog\.\w+\(/);
       });
     } else {
-      // PR 25 — secret prompter log hygiene: the prompter must never log
-      // the resolved secret value
+      // PR 25 — secret prompter log hygiene: verify the prompter source
+      // never logs sensitive field values (value, secret, password, token)
       test(`${tc.label}`, () => {
         const thisDir = dirname(fileURLToPath(import.meta.url));
         const prompterSrc = readFileSync(
           resolve(thisDir, '../permissions/secret-prompter.ts'),
           'utf-8',
         );
-        // The prompter must not log the 'value' parameter
-        // Look for log calls that reference 'value' as a logged field
-        const valueLogCalls = prompterSrc.match(/log\.\w+\(\{[^}]*\bvalue\b/g) ?? [];
-        expect(valueLogCalls).toEqual([]);
+
+        // Extract all log.* call arguments: log.warn({...}, 'msg')
+        // The first argument is the structured data object that gets logged.
+        const logCallPattern = /log\.\w+\(\{([^}]*)}/g;
+        const loggedFields: string[] = [];
+        let match;
+        while ((match = logCallPattern.exec(prompterSrc)) !== null) {
+          // Collect field names from the structured log object
+          const fields = match[1].split(',').map(f => f.trim().split(':')[0].trim());
+          loggedFields.push(...fields);
+        }
+
+        // None of the logged fields should be sensitive credential fields
+        const sensitiveFields = ['value', 'secret', 'password', 'token', 'api_key', 'credentials'];
+        for (const field of loggedFields) {
+          expect(sensitiveFields).not.toContain(field);
+        }
+
+        // Additionally verify the resolveSecret method never logs its value parameter
+        // by checking that log calls in resolveSecret only reference requestId
+        const resolveBlock = prompterSrc.match(/resolveSecret[\s\S]*?^\s{2}\}/m)?.[0] ?? '';
+        expect(resolveBlock).not.toMatch(/log\.\w+\(.*\bvalue\b/);
       });
     }
   }
