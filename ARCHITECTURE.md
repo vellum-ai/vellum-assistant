@@ -519,7 +519,8 @@ graph TB
     end
 
     subgraph "Read Path (Memory Recall)"
-        QUERY["Recall Query"]
+        QUERY["Recall Query Builder<br/>User request + compacted context summary<br/>+ conversation summary + weekly summary"]
+        BUDGET["Dynamic Recall Budget<br/>computeRecallBudget()<br/>from prompt headroom"]
         LEX["Lexical Search<br/>FTS5 on memory_segment_fts"]
         SEM["Semantic Search<br/>Qdrant cosine similarity"]
         ENTITY_SEARCH["Entity Search<br/>Seed name/alias matching"]
@@ -527,13 +528,17 @@ graph TB
         DIRECT["Direct Item Search<br/>LIKE on subject/statement"]
         SCOPE["Scope Filter<br/>scope_id filtering<br/>(strict | global_fallback)"]
         MERGE["RRF Merge<br/>+ Trust Weighting<br/>+ Freshness Decay"]
+        CAPS["Source Caps<br/>bound per-source candidate count"]
         RERANK["LLM Re-ranking<br/>(Haiku, optional)"]
+        TRIM["Token Trim<br/>maxInjectTokens override<br/>or static fallback"]
         INJECT["Attention-ordered<br/>Injection into prompt"]
+        TELEMETRY["Emit memory_recalled<br/>hits + relation counters +<br/>ranking diagnostics"]
     end
 
     subgraph "Context Window Management"
         CTX["Session Context"]
         COMPACT["Compaction trigger<br/>(approaching token limit)"]
+        GUARDS["Cooldown + early-exit guards<br/>with severe-pressure override"]
         SUMMARIZE["Summarize old messages<br/>→ context_summary on conversation"]
         REPLACE["Replace old messages<br/>with summary in context<br/>(originals stay in DB)"]
     end
@@ -568,13 +573,55 @@ graph TB
     REL_EXPAND --> SCOPE
     DIRECT --> SCOPE
     SCOPE --> MERGE
-    MERGE --> RERANK
-    RERANK --> INJECT
+    MERGE --> CAPS
+    CAPS --> RERANK
+    RERANK --> TRIM
+    BUDGET --> TRIM
+    TRIM --> INJECT
+    INJECT --> TELEMETRY
 
     CTX --> COMPACT
-    COMPACT --> SUMMARIZE
+    COMPACT --> GUARDS
+    GUARDS --> SUMMARIZE
     SUMMARIZE --> REPLACE
 ```
+
+### Memory Retrieval Config Knobs (Defaults)
+
+| Config key | Default | Purpose |
+|---|---:|---|
+| `memory.retrieval.dynamicBudget.enabled` | `false` | Toggle per-turn recall budget calculation from live prompt headroom. |
+| `memory.retrieval.dynamicBudget.minInjectTokens` | `1200` | Lower clamp for computed recall injection budget. |
+| `memory.retrieval.dynamicBudget.maxInjectTokens` | `10000` | Upper clamp for computed recall injection budget. |
+| `memory.retrieval.dynamicBudget.targetHeadroomTokens` | `10000` | Reserved headroom to keep free for response generation/tool traces. |
+| `memory.entity.extractRelations.enabled` | `false` | Enable relation edge extraction and persistence in `memory_entity_relations`. |
+| `memory.entity.extractRelations.backfillBatchSize` | `200` | Batch size for checkpointed `backfill_entity_relations` jobs. |
+| `memory.entity.relationRetrieval.enabled` | `false` | Enable one-hop relation expansion from matched seed entities at recall time. |
+| `memory.entity.relationRetrieval.maxSeedEntities` | `8` | Maximum matched seed entities from the query. |
+| `memory.entity.relationRetrieval.maxNeighborEntities` | `20` | Maximum unique neighbor entities expanded from relation edges. |
+| `memory.entity.relationRetrieval.maxEdges` | `40` | Maximum relation edges traversed during expansion. |
+| `memory.entity.relationRetrieval.neighborScoreMultiplier` | `0.7` | Downweight multiplier for relation-expanded candidates vs direct entity hits. |
+
+### Memory Recall Debugging Playbook
+
+1. Run a recall-heavy turn and inspect `memory_recalled` events in the client trace stream.
+2. Validate baseline counters:
+   - `lexicalHits`, `semanticHits`, `recencyHits`, `entityHits`
+   - `relationSeedEntityCount`, `relationTraversedEdgeCount`, `relationNeighborEntityCount`, `relationExpandedItemCount`
+   - `mergedCount`, `selectedCount`, `injectedTokens`, `latencyMs`
+3. Cross-check context pressure with `context_compacted` events:
+   - `previousEstimatedInputTokens` vs `estimatedInputTokens`
+   - `summaryCalls`, `compactedMessages`
+4. If dynamic budget is enabled, verify `injectedTokens` stays within the configured min/max clamps for `dynamicBudget`.
+5. Before tuning ranking or relation settings, run:
+   - `cd assistant && bun test src/__tests__/context-memory-e2e.test.ts`
+   - `cd assistant && bun test src/__tests__/memory-context-benchmark.test.ts`
+   - `cd assistant && bun test src/__tests__/memory-recall-quality.test.ts`
+   - `cd assistant && bun test src/__tests__/memory-v2-regressions.test.ts -t "relation"`
+6. After tuning, rerun the same suite and compare:
+   - relation counters (coverage)
+   - selected count / injected tokens (budget safety)
+   - latency and ordering regressions via top candidate snapshots
 
 ---
 
@@ -699,7 +746,7 @@ graph LR
         S6["message_complete<br/>usage stats, attachments?"]
         S7["ambient_result<br/>decision, summary/suggestion"]
         S8["confirmation_request<br/>tool, risk_level,<br/>executionTarget"]
-        S9["memory_recalled<br/>context segments"]
+        S9["memory_recalled<br/>source hits + relation counters<br/>ranking/debug telemetry"]
         S10["usage_update / error"]
         S11["generation_cancelled"]
         S12["message_queued<br/>position in queue"]
