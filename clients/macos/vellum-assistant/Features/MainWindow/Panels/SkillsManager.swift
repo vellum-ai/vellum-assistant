@@ -12,9 +12,17 @@ final class SkillsManager: ObservableObject {
     @Published var isInspecting = false
     @Published var inspectError: String?
     @Published var installResult: InstallResult?
+    @Published var uninstallResult: UninstallResult?
+    @Published var isUninstalling = false
 
     struct InstallResult {
         let slug: String
+        let success: Bool
+        let error: String?
+    }
+
+    struct UninstallResult {
+        let name: String
         let success: Bool
         let error: String?
     }
@@ -178,6 +186,46 @@ final class SkillsManager: ObservableObject {
             if currentInspectSlug == slug {
                 isInspecting = false
             }
+        }
+    }
+
+    func uninstallSkill(name: String) {
+        guard !isUninstalling else { return }
+        isUninstalling = true
+        uninstallResult = nil
+
+        Task {
+            let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.uninstallSkill(name)
+            } catch {
+                isUninstalling = false
+                uninstallResult = UninstallResult(name: name, success: false, error: "Failed to connect")
+                return
+            }
+
+            for await message in stream {
+                if case .skillsOperationResponse(let response) = message,
+                   response.operation == "uninstall" {
+                    if response.success {
+                        uninstallResult = UninstallResult(name: name, success: true, error: nil)
+                        fetchSkills()
+                    } else {
+                        uninstallResult = UninstallResult(name: name, success: false, error: response.error)
+                    }
+                    isUninstalling = false
+                    // Auto-clear after 3 seconds
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        if self.uninstallResult?.name == name {
+                            self.uninstallResult = nil
+                        }
+                    }
+                    return
+                }
+            }
+            isUninstalling = false
         }
     }
 

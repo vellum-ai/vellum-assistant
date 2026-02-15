@@ -12,8 +12,10 @@ struct AgentPanel: View {
     @State private var expandedSkillId: String?
     @State private var hoveredInstalledUseSkillId: String?
     @State private var hoveredInstalledViewSkillId: String?
+    @State private var hoveredInstalledDeleteSkillId: String?
     @State private var selectedSkillSlug: String?
     @State private var hoveredDetailInstall = false
+    @State private var skillToDelete: SkillInfo?
 
     init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient) {
         self.onClose = onClose
@@ -36,6 +38,22 @@ struct AgentPanel: View {
         }
         .onAppear {
             skillsManager.fetchSkills()
+        }
+        .alert("Delete Skill", isPresented: Binding(
+            get: { skillToDelete != nil },
+            set: { if !$0 { skillToDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { skillToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let skill = skillToDelete {
+                    skillsManager.uninstallSkill(name: skill.name)
+                    skillToDelete = nil
+                }
+            }
+        } message: {
+            if let skill = skillToDelete {
+                Text("Are you sure you want to delete \"\(skill.name)\"? This will remove it from ~/.vellum/skills/.")
+            }
         }
     }
 
@@ -814,36 +832,64 @@ struct AgentPanel: View {
                         }
                     }
 
-                    Button(action: {
-                        withAnimation(VAnimation.standard) {
-                            if isExpanded {
-                                expandedSkillId = nil
-                            } else {
-                                expandedSkillId = skill.id
-                                skillsManager.fetchSkillBody(skillId: skill.id)
+                    HStack(spacing: VSpacing.sm) {
+                        Button(action: {
+                            withAnimation(VAnimation.standard) {
+                                if isExpanded {
+                                    expandedSkillId = nil
+                                } else {
+                                    expandedSkillId = skill.id
+                                    skillsManager.fetchSkillBody(skillId: skill.id)
+                                }
+                            }
+                        }) {
+                            HStack(spacing: VSpacing.sm) {
+                                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                    .font(.system(size: 9, weight: .semibold))
+                                Text(isExpanded ? "Hide" : "View")
+                                    .font(VFont.captionMedium)
+                            }
+                            .padding(.horizontal, VSpacing.md)
+                            .padding(.vertical, VSpacing.xs)
+                            .foregroundColor(viewHovered ? VColor.textPrimary : VColor.textMuted)
+                            .background(viewHovered ? Slate._700 : Slate._800)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .stroke(Slate._600.opacity(0.7), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            withAnimation(VAnimation.fast) {
+                                hoveredInstalledViewSkillId = hovering ? skill.id : nil
                             }
                         }
-                    }) {
-                        HStack(spacing: VSpacing.sm) {
-                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 9, weight: .semibold))
-                            Text(isExpanded ? "Hide" : "View")
-                                .font(VFont.captionMedium)
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.xs)
-                        .foregroundColor(viewHovered ? VColor.textPrimary : VColor.textMuted)
-                        .background(viewHovered ? Slate._700 : Slate._800)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(Slate._600.opacity(0.7), lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { hovering in
-                        withAnimation(VAnimation.fast) {
-                            hoveredInstalledViewSkillId = hovering ? skill.id : nil
+
+                        if skill.source == "managed" {
+                            let deleteHovered = hoveredInstalledDeleteSkillId == skill.id
+                            Button(action: {
+                                skillToDelete = skill
+                            }) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 10))
+                                    .padding(.horizontal, VSpacing.sm)
+                                    .padding(.vertical, VSpacing.xs)
+                                    .foregroundColor(deleteHovered ? Rose._400 : VColor.textMuted)
+                                    .background(deleteHovered ? Rose._400.opacity(0.15) : Slate._800)
+                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: VRadius.md)
+                                            .stroke(deleteHovered ? Rose._500.opacity(0.6) : Slate._600.opacity(0.7), lineWidth: 1)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .help("Delete managed skill")
+                            .onHover { hovering in
+                                withAnimation(VAnimation.fast) {
+                                    hoveredInstalledDeleteSkillId = hovering ? skill.id : nil
+                                }
+                            }
                         }
                     }
                 }
