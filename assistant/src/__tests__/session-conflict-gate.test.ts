@@ -473,6 +473,47 @@ describe('Session conflict soft gate', () => {
     expect(runCalls).toHaveLength(1);
   });
 
+  test('unrelated statement without question mark does not accidentally resolve conflict', async () => {
+    pendingConflicts = [{
+      id: 'conflict-unrelated-no-qmark',
+      scopeId: 'default',
+      existingItemId: 'existing-unrelated2',
+      candidateItemId: 'candidate-unrelated2',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Should I assume Postgres or MySQL?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use Postgres as the default database.',
+      candidateStatement: 'Use MySQL as the default database.',
+    }];
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // First turn: triggers clarification ask.
+    await session.processMessage('Should I assume Postgres or MySQL?', [], () => {});
+    expect(resolverCallCount).toBe(1);
+    expect(markAskedCalls).toEqual(['conflict-unrelated-no-qmark']);
+
+    resolverResult = {
+      resolution: 'keep_candidate',
+      strategy: 'heuristic',
+      resolvedStatement: null,
+      explanation: 'Directional clarification received.',
+    };
+
+    // Unrelated statement with cue word "new" but no question mark and > 4 words.
+    // Should NOT resolve the conflict.
+    await session.processMessage('I started a new project today', [], () => {});
+
+    expect(resolverCallCount).toBe(1);
+    expect(runCalls).toHaveLength(1);
+  });
+
   test('cooldown prevents repeated asks on subsequent turns', async () => {
     pendingConflicts = [{
       id: 'conflict-cooldown',
@@ -557,9 +598,23 @@ describe('looksLikeClarificationReply', () => {
     expect(looksLikeClarificationReply('use that')).toBe(true);
   });
 
-  test('rejects questions', () => {
+  test('rejects questions with question mark', () => {
     expect(looksLikeClarificationReply("what's new in Bun?")).toBe(false);
     expect(looksLikeClarificationReply('which option?')).toBe(false);
+  });
+
+  test('rejects questions without question mark', () => {
+    expect(looksLikeClarificationReply("what's new in Bun")).toBe(false);
+    expect(looksLikeClarificationReply('how do I use option A')).toBe(false);
+    expect(looksLikeClarificationReply('where is the new config')).toBe(false);
+  });
+
+  test('rejects longer direction-only messages (false-positive prevention)', () => {
+    // These contain directional cues but no action verb and are > 4 words,
+    // so they are likely unrelated statements, not clarification replies.
+    expect(looksLikeClarificationReply('try the old approach instead')).toBe(false);
+    expect(looksLikeClarificationReply('I started a new project today')).toBe(false);
+    expect(looksLikeClarificationReply('check out the latest release notes')).toBe(false);
   });
 
   test('rejects long statements', () => {
