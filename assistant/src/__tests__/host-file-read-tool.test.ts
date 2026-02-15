@@ -26,7 +26,7 @@ describe('host_file_read tool', () => {
   test('rejects relative paths', async () => {
     const result = await hostFileReadTool.execute({ path: 'relative.txt' }, makeContext());
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('path must be absolute');
+    expect(result.content).toContain('must be absolute');
   });
 
   test('reads file with line numbers', async () => {

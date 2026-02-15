@@ -26,7 +26,7 @@ describe('host_file_write tool', () => {
   test('rejects relative paths', async () => {
     const result = await hostFileWriteTool.execute({ path: 'relative.txt', content: 'hi' }, makeContext());
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('path must be absolute');
+    expect(result.content).toContain('must be absolute');
   });
 
   test('rejects non-string content', async () => {
