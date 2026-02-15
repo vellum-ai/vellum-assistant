@@ -60,6 +60,7 @@ struct MainWindowView: View {
 
     private func publishPage(html: String, title: String?) {
         guard !isPublishing else { return }
+        publishedUrl = nil
         isPublishing = true
 
         Task { @MainActor in
@@ -592,6 +593,7 @@ struct MainWindowView: View {
                     // "< Chat" pill button — single exit action
                     Button(action: {
                         showSharePicker = false
+                        publishedUrl = nil
                         windowState.closeDynamicPanel()
                     }) {
                         HStack(spacing: VSpacing.xs) {
