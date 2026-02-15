@@ -125,7 +125,7 @@ function generateSchemas(): Record<string, SchemaDef> {
   for (const schema of Object.values(result)) {
     if (!schema.definitions) continue;
     for (const [defName, defSchema] of Object.entries(schema.definitions)) {
-      if (!result[defName] && !SKIP_TYPES.has(defName)) {
+      if (!result[defName] && !SKIP_TYPES.has(defName) && !defName.includes('<')) {
         result[defName] = defSchema;
       }
     }
