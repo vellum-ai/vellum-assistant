@@ -316,6 +316,10 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             context.coordinator.currentHTML = data.html
             let origin = appId.map { "https://\($0).vellum.local/" } ?? "https://surface.vellum.local/"
             webView.loadHTMLString(data.html, baseURL: URL(string: origin))
+            // Reset cached insets so the check below re-injects the correct values
+            // after the page reloads (the WKUserScript from makeNSView has stale values).
+            context.coordinator.lastTopInset = 0
+            context.coordinator.lastBottomInset = 0
         }
 
         // Re-apply content insets and fade overlay when they change (e.g. composer expands).
