@@ -799,7 +799,7 @@ CU observations can carry large payloads (screenshots as JPEG, AX trees as UTF-8
 
 Blob transport is opt-in per connection. On macOS local socket connect, the client writes a random nonce file to the blob directory and sends an `ipc_blob_probe` message with the SHA-256 of the nonce. The daemon reads the file, computes the hash, and responds with `ipc_blob_probe_result`. If hashes match, the client sets `isBlobTransportAvailable = true` for that connection. The flag resets to `false` on disconnect or reconnect.
 
-On iOS or non-local (TCP/SSH-forwarded) connections, the probe is skipped and blob transport stays disabled — the client uses inline payloads as before.
+On iOS (TCP connections), the probe code is compiled out via `#if os(macOS)` — `isBlobTransportAvailable` stays `false` and inline payloads are always used. Over SSH-forwarded Unix sockets on macOS, the probe runs but fails because the client and daemon don't share a filesystem, so blob transport stays disabled and inline payloads are used transparently.
 
 ### Blob Directory
 
@@ -842,15 +842,16 @@ graph TB
 
 ### Daemon Hydration
 
-When the daemon receives a CU observation with blob refs, it hydrates them back to inline values before the CU session processes the observation:
+When the daemon receives a CU observation with blob refs, it attempts blob-first hydration before the CU session processes the observation:
 
-1. Validate blob `kind`, `encoding`, `byteLength`, and optional `sha256`.
-2. Read the blob file and verify actual size matches `byteLength`.
-3. For screenshots: base64-encode the bytes into the `screenshot` field.
-4. For AX trees: decode UTF-8 bytes into the `axTree` field.
-5. Delete the consumed blob file.
+1. Validate the blob ref's `kind` and `encoding` match the expected field (`axTreeBlob` must be `kind=ax_tree, encoding=utf8`; `screenshotBlob` must be `kind=screenshot_jpeg, encoding=binary`).
+2. Verify the blob file is a regular file (not a symlink) and its realpath stays within the blob directory.
+3. Read the blob file, verify actual size matches `byteLength`, and check optional `sha256`.
+4. For screenshots: base64-encode the bytes into the `screenshot` field.
+5. For AX trees: decode UTF-8 bytes into the `axTree` field.
+6. Delete the consumed blob file.
 
-If hydration fails and an inline fallback field exists, the inline value is used. If neither blob nor inline is present, the daemon sends a `cu_error`.
+**Fallback behavior**: If both a blob ref and an inline field are present and blob hydration succeeds, the blob value takes precedence. If blob hydration fails and an inline fallback exists, the inline value is used. If blob hydration fails and no inline fallback exists, the daemon sends a `cu_error` and does not forward the observation to the session.
 
 ### Cleanup
 

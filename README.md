@@ -237,6 +237,12 @@ ssh -L ~/.vellum/remote.sock:/home/user/.vellum/vellum.sock user@remote-host -N 
 VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock open -a Vellum
 ```
 
+### Blob Transport Behavior
+
+When the macOS client connects to a local daemon, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at `~/.vellum/data/ipc-blobs/` instead of being embedded inline in IPC JSON. On connect, the client probes whether client and daemon share the same blob directory. If the probe succeeds, large payloads are written as blob files and only lightweight references travel over the socket.
+
+Over SSH-forwarded sockets, the probe fails automatically (the filesystems don't overlap), so the client falls back to inline base64/text payloads transparently. On iOS (TCP connections), the probe is skipped entirely and inline payloads are always used. No configuration is needed.
+
 ### Troubleshooting
 
 | Symptom | Check |
