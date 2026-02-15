@@ -1619,7 +1619,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | Component | Location | What it stores |
 |-----------|----------|----------------|
 | Secret values | macOS Keychain | Encrypted credential values keyed as `credential:{service}:{field}` |
-| Credential metadata | `~/.vellum/data/db/assistant.db` | Service, field, label, policy (allowedTools, allowedDomains), timestamps |
+| Credential metadata | `~/.vellum/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps |
 | Config | `~/.vellum/config.*` | `secretDetection` settings: enabled, action, entropyThreshold, allowOneTimeSend |
 
 ### Key Files
@@ -1628,7 +1628,8 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 |------|------|
 | `assistant/src/tools/credentials/vault.ts` | `credential_store` tool — store, list, delete, prompt actions |
 | `assistant/src/security/secure-keys.ts` | Keychain read/write via `/usr/bin/security` CLI |
-| `assistant/src/tools/credentials/metadata-store.ts` | SQLite metadata CRUD for credential records |
+| `assistant/src/tools/credentials/metadata-store.ts` | JSON file metadata CRUD for credential records |
+| `assistant/src/tools/credentials/broker.ts` | Brokered credential access with policy enforcement and transient send |
 | `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation (allowedTools, allowedDomains) |
 | `assistant/src/permissions/secret-prompter.ts` | IPC secret_request/secret_response flow |
 | `assistant/src/security/secret-scanner.ts` | Regex + entropy-based secret detection |
@@ -1643,7 +1644,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 |------|-------|--------|-----------|-----------|
 | API key | macOS Keychain | Encrypted binary | `/usr/bin/security` CLI | Permanent |
 | Credential secrets | macOS Keychain | Encrypted binary | `secure-keys.ts` wrapper | Permanent (until deleted via tool) |
-| Credential metadata | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent (until deleted via tool) |
+| Credential metadata | `~/.vellum/data/credentials/metadata.json` | JSON | Atomic file write | Permanent (until deleted via tool) |
 | User preferences | UserDefaults | plist | Foundation | Permanent |
 | Ambient observations | `~/Library/.../knowledge.json` | JSON array | Swift Codable | Max 500 entries, FIFO |
 | Ambient insights | `~/Library/.../insights.json` | JSON array | Swift Codable | Max 50 entries, FIFO |
