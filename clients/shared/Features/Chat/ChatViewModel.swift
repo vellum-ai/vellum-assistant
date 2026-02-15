@@ -946,7 +946,8 @@ public final class ChatViewModel: ObservableObject {
                             surfaceType: updated.type,
                             title: updated.title,
                             data: updated.data,
-                            actions: updated.actions
+                            actions: updated.actions,
+                            surfaceMessage: existing.surfaceMessage
                         )
                     }
                     return
