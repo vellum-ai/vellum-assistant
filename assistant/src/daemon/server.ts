@@ -407,9 +407,9 @@ export class DaemonServer {
     socket.on('data', (data) => {
       const chunkReceivedAtMs = Date.now();
       const parseStartNs = process.hrtime.bigint();
-      let messages;
+      let parsed;
       try {
-        messages = parser.feed(data.toString());
+        parsed = parser.feedRaw(data.toString());
       } catch (err) {
         log.error({ err }, 'IPC parse error (malformed JSON or message exceeded size limit), dropping client');
         socket.write(serialize({ type: 'error', message: `IPC parse error: ${(err as Error).message}` }));
@@ -418,7 +418,7 @@ export class DaemonServer {
       }
       const parsedAtMs = Date.now();
       const parseDurationMs = Number(process.hrtime.bigint() - parseStartNs) / 1_000_000;
-      for (const msg of messages) {
+      for (const { msg, rawByteLength } of parsed) {
         if (typeof msg === 'object' && msg !== null && (msg as { type?: unknown }).type === 'cu_observation') {
           const maybeSessionId = (msg as { sessionId?: unknown }).sessionId;
           const sessionId = typeof maybeSessionId === 'string' ? maybeSessionId : 'unknown';
@@ -431,7 +431,7 @@ export class DaemonServer {
             chunkReceivedAtMs,
             parsedAtMs,
             parseDurationMs,
-            messageBytes: Buffer.byteLength(JSON.stringify(msg), 'utf8'),
+            messageBytes: rawByteLength,
           }, 'IPC_METRIC cu_observation_parse');
         }
         const result = validateClientMessage(msg);

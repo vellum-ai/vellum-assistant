@@ -18,34 +18,50 @@ export function serialize(msg: ClientMessage | ServerMessage): string {
   return JSON.stringify(msg) + '\n';
 }
 
+export interface ParsedMessage<T = ClientMessage | ServerMessage> {
+  msg: T;
+  rawByteLength: number;
+}
+
 export function createMessageParser(options?: { maxLineSize?: number }) {
   let buffer = '';
   const maxLineSize = options?.maxLineSize;
 
+  function parseLines(): Array<ParsedMessage> {
+    const lines = buffer.split('\n');
+    // Keep the last partial line in the buffer
+    buffer = lines.pop() ?? '';
+    const results: Array<ParsedMessage> = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed) {
+        try {
+          results.push({
+            msg: JSON.parse(trimmed),
+            rawByteLength: Buffer.byteLength(trimmed, 'utf8'),
+          });
+        } catch {
+          // Skip malformed messages
+        }
+      }
+    }
+    if (maxLineSize != null && buffer.length > maxLineSize) {
+      buffer = '';
+      throw new Error(
+        `IPC message exceeds maximum line size of ${maxLineSize} bytes. Message discarded.`,
+      );
+    }
+    return results;
+  }
+
   return {
     feed(data: string): Array<ClientMessage | ServerMessage> {
       buffer += data;
-      const messages: Array<ClientMessage | ServerMessage> = [];
-      const lines = buffer.split('\n');
-      // Keep the last partial line in the buffer
-      buffer = lines.pop() ?? '';
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed) {
-          try {
-            messages.push(JSON.parse(trimmed));
-          } catch {
-            // Skip malformed messages
-          }
-        }
-      }
-      if (maxLineSize != null && buffer.length > maxLineSize) {
-        buffer = '';
-        throw new Error(
-          `IPC message exceeds maximum line size of ${maxLineSize} bytes. Message discarded.`,
-        );
-      }
-      return messages;
+      return parseLines().map((r) => r.msg);
+    },
+    feedRaw(data: string): Array<ParsedMessage> {
+      buffer += data;
+      return parseLines();
     },
   };
 }
