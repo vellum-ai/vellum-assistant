@@ -550,6 +550,9 @@ struct MainWindowView: View {
                 onCoordinatorReady: data.appId != nil ? { coordinator in
                     surfaceManager.surfaceCoordinators[surface.id] = coordinator
                 } : nil,
+                onPageChanged: { page in
+                    threadManager.activeViewModel?.currentPage = page
+                },
                 onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
                     guard let appId = data.appId else { return }
                     try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)

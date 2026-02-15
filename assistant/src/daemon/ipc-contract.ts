@@ -24,6 +24,8 @@ export interface UserMessage {
   content?: string;
   attachments?: UserMessageAttachment[];
   activeSurfaceId?: string;
+  /** The page currently displayed in the WebView (e.g. "settings.html"). */
+  currentPage?: string;
 }
 
 export interface UserMessageAttachment {

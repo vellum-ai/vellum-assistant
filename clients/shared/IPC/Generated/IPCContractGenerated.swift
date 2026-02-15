@@ -1290,6 +1290,7 @@ public struct IPCUserMessage: Codable, Sendable {
     public let content: String?
     public let attachments: [IPCUserMessageAttachment]?
     public let activeSurfaceId: String?
+    public let currentPage: String?
 }
 
 public struct IPCUserMessageAttachment: Codable, Sendable {

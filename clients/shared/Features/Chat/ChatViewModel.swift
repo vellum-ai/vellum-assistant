@@ -200,9 +200,14 @@ public final class ChatViewModel: ObservableObject {
         didSet {
             if oldValue != activeSurfaceId {
                 surfaceUndoCount = 0
+                currentPage = nil
             }
         }
     }
+
+    /// The page currently displayed in the workspace WebView (e.g. "settings.html").
+    /// Set via the onPageChanged callback when the user navigates within a multi-page app.
+    public var currentPage: String?
 
     public init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -561,7 +566,8 @@ public final class ChatViewModel: ObservableObject {
                 sessionId: sessionId,
                 content: text,
                 attachments: attachments,
-                activeSurfaceId: activeSurfaceId
+                activeSurfaceId: activeSurfaceId,
+                currentPage: activeSurfaceId != nil ? currentPage : nil
             ))
         } catch {
             log.error("Failed to send user_message: \(error.localizedDescription)")
@@ -684,7 +690,8 @@ public final class ChatViewModel: ObservableObject {
                             sessionId: info.sessionId,
                             content: pending,
                             attachments: attachments,
-                            activeSurfaceId: activeSurfaceId
+                            activeSurfaceId: activeSurfaceId,
+                            currentPage: activeSurfaceId != nil ? currentPage : nil
                         ))
                     } catch {
                         log.error("Failed to send queued user_message: \(error.localizedDescription)")
