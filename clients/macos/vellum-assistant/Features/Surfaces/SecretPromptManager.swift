@@ -45,11 +45,8 @@ final class SecretPromptManager {
         let hostingController = NSHostingController(rootView: view)
         hostingController.sizingOptions = .preferredContentSize
 
-        let hasContext = message.purpose != nil
-            || !(message.allowedTools ?? []).isEmpty
-            || !(message.allowedDomains ?? []).isEmpty
-        let baseHeight: CGFloat = message.description != nil ? 270 : 230
-        let panelHeight: CGFloat = hasContext ? baseHeight + 100 : baseHeight
+        let preferredSize = hostingController.view.fittingSize
+        let panelHeight = min(max(preferredSize.height, 230), 600)
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
             styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow],
@@ -141,93 +138,96 @@ struct SecretPromptView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Header
-            HStack(spacing: VSpacing.md) {
-                Image(systemName: "lock.shield.fill")
-                    .font(.title2)
-                    .foregroundStyle(VColor.accent)
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
+                // Header
+                HStack(spacing: VSpacing.md) {
+                    Image(systemName: "lock.shield.fill")
+                        .font(.title2)
+                        .foregroundStyle(VColor.accent)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Secure Credential")
-                        .font(VFont.headline)
-                        .foregroundColor(VColor.textPrimary)
-                    Text(label)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Secure Credential")
+                            .font(VFont.headline)
+                            .foregroundColor(VColor.textPrimary)
+                        Text(label)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+
+                    Spacer()
+                }
+
+                // Description
+                if let description = description {
+                    Text(description)
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                 }
 
-                Spacer()
-            }
-
-            // Description
-            if let description = description {
-                Text(description)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-            }
-
-            // Usage context
-            if hasContext {
-                usageContextSection
-            }
-
-            // Secure input
-            SecureField(placeholder, text: $secretValue)
-                .textFieldStyle(.roundedBorder)
-                .font(VFont.mono)
-
-            // Safety explainer
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                safetyBullet(
-                    icon: "key.fill",
-                    text: "Stored in your Mac's Keychain, not sent to any server"
-                )
-                safetyBullet(
-                    icon: "eye.slash.fill",
-                    text: "The AI never sees this value — only your Mac can read it"
-                )
-            }
-
-            if saved {
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                    Text("Saved to Keychain")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.success)
-                }
-            } else {
-                // Buttons
-                HStack(spacing: VSpacing.lg) {
-                    Spacer()
-                    VButton(label: "Cancel", style: .ghost) {
-                        onCancel()
-                    }
-                    VButton(label: "Save", style: .primary) {
-                        guard !secretValue.isEmpty else { return }
-                        if onSave(secretValue) {
-                            withAnimation(VAnimation.standard) { saved = true }
-                        }
-                    }
-                    .disabled(secretValue.isEmpty)
+                // Usage context
+                if hasContext {
+                    usageContextSection
                 }
 
-                if allowOneTimeSend {
+                // Secure input
+                SecureField(placeholder, text: $secretValue)
+                    .textFieldStyle(.roundedBorder)
+                    .font(VFont.mono)
+
+                // Safety explainer
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    safetyBullet(
+                        icon: "key.fill",
+                        text: "Stored in your Mac's Keychain, not sent to any server"
+                    )
+                    safetyBullet(
+                        icon: "eye.slash.fill",
+                        text: "The AI never sees this value — only your Mac can read it"
+                    )
+                }
+
+                if saved {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(VColor.textMuted)
-                        Text("One-time send available (not yet enabled)")
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                        Text("Saved to Keychain")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                            .foregroundColor(VColor.success)
                     }
-                    .opacity(0.6)
+                } else {
+                    // Buttons
+                    HStack(spacing: VSpacing.lg) {
+                        Spacer()
+                        VButton(label: "Cancel", style: .ghost) {
+                            onCancel()
+                        }
+                        VButton(label: "Save", style: .primary) {
+                            guard !secretValue.isEmpty else { return }
+                            if onSave(secretValue) {
+                                withAnimation(VAnimation.standard) { saved = true }
+                            }
+                        }
+                        .disabled(secretValue.isEmpty)
+                    }
+
+                    if allowOneTimeSend {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(VColor.textMuted)
+                            Text("One-time send available (not yet enabled)")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        .opacity(0.6)
+                    }
                 }
             }
+            .padding(VSpacing.xl)
         }
-        .padding(VSpacing.xl)
         .frame(width: 400)
+        .frame(maxHeight: 600)
         .vPanelBackground()
     }
 
