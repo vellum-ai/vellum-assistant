@@ -528,6 +528,27 @@ struct MainWindowView: View {
 
                 Spacer()
 
+                // Workspace refinement indicator
+                if let viewModel = threadManager.activeViewModel, viewModel.isWorkspaceRefinementInFlight {
+                    HStack(spacing: VSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(VColor.accent)
+                        Text("Refining...")
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.sm)
+                    .background(
+                        Capsule()
+                            .fill(VColor.surface.opacity(0.9))
+                            .overlay(Capsule().stroke(VColor.surfaceBorder, lineWidth: 1))
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .animation(VAnimation.standard, value: viewModel.isWorkspaceRefinementInFlight)
+                }
+
                 // Floating composer — fade is handled inside the WebView via CSS
                 if let viewModel = threadManager.activeViewModel {
                     ComposerView(

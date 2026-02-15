@@ -623,11 +623,10 @@ private struct ChatBubble: View {
                     toolCallChips
                 }
 
-                // Inline surfaces render below the bubble as full-width cards
+                // Inline surfaces render below the bubble
                 if !message.inlineSurfaces.isEmpty {
                     ForEach(message.inlineSurfaces) { surface in
                         InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
 

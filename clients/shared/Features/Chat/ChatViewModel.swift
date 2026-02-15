@@ -106,6 +106,7 @@ public final class ChatViewModel: ObservableObject {
     @Published public var suggestion: String?
     @Published public var pendingAttachments: [ChatAttachment] = []
     @Published public var isRecording: Bool = false
+    @Published public var isWorkspaceRefinementInFlight: Bool = false
     @Published public var pendingSkillInvocation: SkillInvocationData?
 
     /// Maximum file size per attachment (20 MB).
@@ -398,19 +399,24 @@ public final class ChatViewModel: ObservableObject {
         let attachments = pendingAttachments
         pendingAttachments = []
 
-        // Append user message immediately for responsive UX
+        let isWorkspaceRefinement = activeSurfaceId != nil
+
+        // Append user message immediately for responsive UX —
+        // skip for workspace refinements to avoid leaking into the chat view.
         let willBeQueued = isSending && sessionId != nil
-        let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
-        let userMessage = ChatMessage(role: .user, text: text, status: status, skillInvocation: pendingSkillInvocation, attachments: attachments)
-        pendingSkillInvocation = nil
-        messages.append(userMessage)
-        // Only track in pendingMessageIds when the message will actually be
-        // queued by the daemon (i.e. sent while another message is processing).
-        // Messages processed immediately never receive a messageQueued event,
-        // so adding them would corrupt the FIFO mapping.
-        if willBeQueued {
-            pendingMessageIds.append(userMessage.id)
+        var queuedMessageId: UUID?
+        if !isWorkspaceRefinement {
+            let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
+            let userMessage = ChatMessage(role: .user, text: text, status: status, skillInvocation: pendingSkillInvocation, attachments: attachments)
+            messages.append(userMessage)
+            if willBeQueued {
+                pendingMessageIds.append(userMessage.id)
+                queuedMessageId = userMessage.id
+            }
+        } else {
+            isWorkspaceRefinementInFlight = true
         }
+        pendingSkillInvocation = nil
         inputText = ""
         suggestion = nil
         pendingSuggestionRequestId = nil
@@ -426,7 +432,7 @@ public final class ChatViewModel: ObservableObject {
             bootstrapSession(userMessage: text, attachments: ipcAttachments)
         } else {
             // Subsequent messages: send directly (daemon queues if busy)
-            sendUserMessage(text, attachments: ipcAttachments, queuedMessageId: willBeQueued ? userMessage.id : nil)
+            sendUserMessage(text, attachments: ipcAttachments, queuedMessageId: queuedMessageId)
         }
     }
 
@@ -640,8 +646,8 @@ public final class ChatViewModel: ObservableObject {
 
         case .assistantTextDelta(let delta):
             guard belongsToSession(delta.sessionId) else { return }
-            // Suppress late-arriving deltas after the user clicked stop.
             guard !isCancelling else { return }
+            guard !isWorkspaceRefinementInFlight else { return }
             isThinking = false
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -662,6 +668,8 @@ public final class ChatViewModel: ObservableObject {
 
         case .messageComplete(let complete):
             guard belongsToSession(complete.sessionId) else { return }
+            let wasRefinement = isWorkspaceRefinementInFlight
+            isWorkspaceRefinementInFlight = false
             cancelTimeoutTask?.cancel()
             cancelTimeoutTask = nil
             isCancelling = false
@@ -671,7 +679,9 @@ public final class ChatViewModel: ObservableObject {
                 isSending = false
             }
             // Must run before currentAssistantMessageId is cleared so attachments land on the right message
-            ingestAssistantAttachments(complete.attachments)
+            if !wasRefinement {
+                ingestAssistantAttachments(complete.attachments)
+            }
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
@@ -683,8 +693,8 @@ public final class ChatViewModel: ObservableObject {
                     messages[i].status = .sent
                 }
             }
-            // Fetch a follow-up suggestion when the turn is fully complete
-            if !isSending {
+            // Skip follow-up suggestions for workspace refinements
+            if !isSending && !wasRefinement {
                 fetchSuggestion()
             }
 
@@ -700,6 +710,7 @@ public final class ChatViewModel: ObservableObject {
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
+            isWorkspaceRefinementInFlight = false
             cancelTimeoutTask?.cancel()
             cancelTimeoutTask = nil
             let wasCancelling = isCancelling
@@ -780,6 +791,7 @@ public final class ChatViewModel: ObservableObject {
 
         case .error(let err):
             log.error("Server error: \(err.message)")
+            isWorkspaceRefinementInFlight = false
             isThinking = false
             let wasCancelling = isCancelling
             isCancelling = false
@@ -861,6 +873,7 @@ public final class ChatViewModel: ObservableObject {
         case .toolUseStart(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             guard !isCancelling else { return }
+            guard !isWorkspaceRefinementInFlight else { return }
             lastToolUseReceivedAt = Date()
             // Suppress ToolCallChip for ui_show — the inline surface widget replaces it.
             if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" || msg.toolName == "request_file" {
@@ -891,6 +904,7 @@ public final class ChatViewModel: ObservableObject {
         case .toolResult(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             guard !isCancelling else { return }
+            guard !isWorkspaceRefinementInFlight else { return }
             // Find the most recent pending (incomplete) tool call and mark it complete
             if let existingId = currentAssistantMessageId,
                let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
@@ -977,8 +991,7 @@ public final class ChatViewModel: ObservableObject {
         case .sessionError(let msg):
             guard sessionId != nil, belongsToSession(msg.sessionId) else { return }
             log.error("Session error [\(msg.code.rawValue)]: \(msg.userMessage)")
-            // Mirror the same UI reset as the generic .error handler so the
-            // chat doesn't get stuck in a sending/thinking state.
+            isWorkspaceRefinementInFlight = false
             isThinking = false
             let wasCancelling = isCancelling
             isCancelling = false
