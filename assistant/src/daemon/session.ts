@@ -11,6 +11,7 @@ import type { Provider } from '../providers/types.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { uploadAttachment, linkAttachmentToMessage } from '../memory/attachments-store.js';
+import { getApp } from '../memory/app-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
@@ -351,7 +352,7 @@ export class Session {
       // Clear queued messages and notify each caller with a session-scoped
       // cancel event so other sessions do not receive cross-thread errors.
       for (const queued of this.messageQueue) {
-        queued.onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
+        queued.onEvent({ type: 'generation_cancelled' });
       }
       this.messageQueue = [];
     }
@@ -1054,7 +1055,7 @@ export class Session {
           requestId: reqId,
           status: 'warning',
         });
-        onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
+        onEvent({ type: 'generation_cancelled' });
       } else {
         this.traceEmitter.emit('message_complete', 'Message processing complete', {
           requestId: reqId,
@@ -1082,7 +1083,7 @@ export class Session {
           requestId: reqId,
           status: 'warning',
         });
-        onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
+        onEvent({ type: 'generation_cancelled' });
       } else {
         const message = err instanceof Error ? err.message : String(err);
         const errorClass = err instanceof Error ? err.constructor.name : 'Error';

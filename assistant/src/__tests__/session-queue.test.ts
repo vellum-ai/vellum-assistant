@@ -387,10 +387,10 @@ describe('Session message queue', () => {
 
     // Both queued messages should receive session-scoped cancellation events.
     const cancel2 = events2.find((e) => e.type === 'generation_cancelled');
-    expect(cancel2).toEqual({ type: 'generation_cancelled', sessionId: 'conv-1' });
+    expect(cancel2).toEqual({ type: 'generation_cancelled' });
 
     const cancel3 = events3.find((e) => e.type === 'generation_cancelled');
-    expect(cancel3).toEqual({ type: 'generation_cancelled', sessionId: 'conv-1' });
+    expect(cancel3).toEqual({ type: 'generation_cancelled' });
 
     // abort() must NOT emit session_error or generic error for queued discards.
     const err2 = events2.find((e) => e.type === 'error');
