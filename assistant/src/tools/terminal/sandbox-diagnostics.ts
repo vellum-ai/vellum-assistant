@@ -1,5 +1,5 @@
 import { execSync, execFileSync } from 'node:child_process';
-import { isMacOS, isLinux } from '../../util/platform.js';
+import { isMacOS, isLinux, getSandboxRootDir } from '../../util/platform.js';
 import { getConfig } from '../../config/loader.js';
 import type { SandboxConfig } from '../../config/schema.js';
 
@@ -47,11 +47,16 @@ function checkDockerImage(image: string): SandboxCheckResult {
   }
 }
 
-function checkDockerRun(): SandboxCheckResult {
+function checkDockerRun(image: string): SandboxCheckResult {
+  const sandboxRoot = getSandboxRootDir();
   try {
     const out = execFileSync(
       'docker',
-      ['run', '--rm', 'ubuntu:22.04', 'echo', 'ok'],
+      [
+        'run', '--rm',
+        '--mount', `type=bind,src=${sandboxRoot},dst=/workspace`,
+        image, 'echo', 'ok',
+      ],
       { stdio: 'pipe', timeout: 15000, encoding: 'utf-8' },
     ).trim();
     if (out === 'ok') {
@@ -117,7 +122,7 @@ export function runSandboxDiagnostics(): SandboxDiagnostics {
 
     if (daemonResult.ok) {
       checks.push(checkDockerImage(sandboxConfig.docker.image));
-      checks.push(checkDockerRun());
+      checks.push(checkDockerRun(sandboxConfig.docker.image));
     }
   }
 

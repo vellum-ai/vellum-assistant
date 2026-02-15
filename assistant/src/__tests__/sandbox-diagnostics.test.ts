@@ -315,6 +315,20 @@ describe('runSandboxDiagnostics — Docker container execution check', () => {
     expect(runCheck!.ok).toBe(true);
   });
 
+  test('uses configured image and sandbox mount for container probe', () => {
+    mockSandboxConfig.docker.image = 'alpine:3.19';
+    runSandboxDiagnostics();
+    const runCall = execFileSyncMock.mock.calls.find(
+      (call: unknown[]) => call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('run'),
+    );
+    expect(runCall).toBeDefined();
+    const args = runCall![1] as string[];
+    expect(args).toContain('alpine:3.19');
+    expect(args).not.toContain('ubuntu:22.04');
+    const mountArg = args.find((a: string) => a.startsWith('type=bind'));
+    expect(mountArg).toContain('/tmp/vellum-test/sandbox');
+  });
+
   test('fails when container execution errors', () => {
     execFileSyncMock.mockImplementation(
       (file: string, args?: readonly string[]) => {
