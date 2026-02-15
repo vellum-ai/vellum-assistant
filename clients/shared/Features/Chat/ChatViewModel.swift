@@ -933,7 +933,9 @@ public final class ChatViewModel: ObservableObject {
             }
 
         case .sessionError(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            // Require a claimed session — sessionError always carries a sessionId,
+            // and accepting it before claiming would contaminate uncorrelated tabs.
+            guard let sessionId, msg.sessionId == sessionId else { return }
             let typedError = SessionError(from: msg)
             log.error("Session error [\(msg.code.rawValue)]: \(msg.userMessage)")
             sessionError = typedError
@@ -1140,6 +1142,7 @@ public final class ChatViewModel: ObservableObject {
     }
 
     public func dismissError() {
+        sessionError = nil
         errorText = nil
     }
 

@@ -217,10 +217,24 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking)
     }
 
-    func testDismissErrorClearsErrorText() {
+    func testDismissErrorClearsErrorTextAndSessionError() {
+        viewModel.sessionId = "sess-1"
         viewModel.errorText = "Some error"
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerApi,
+            userMessage: "API error",
+            retryable: false
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+        XCTAssertNotNil(viewModel.sessionError)
+        XCTAssertNotNil(viewModel.errorText)
+
         viewModel.dismissError()
+
         XCTAssertNil(viewModel.errorText)
+        XCTAssertNil(viewModel.sessionError,
+                      "dismissError() should also clear sessionError")
     }
 
     func testErrorFinalizesStreamingAssistantMessage() {
