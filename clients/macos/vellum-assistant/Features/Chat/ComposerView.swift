@@ -24,7 +24,9 @@ struct ComposerView: View {
     @Binding var isComposerExpanded: Bool
 
     @State private var composerScrollOffset: CGFloat = 0
-    @State private var shouldRefocusAfterSend = false
+    @State private var shouldRefocus = false
+    /// Where to place the cursor after re-focus. `nil` means end-of-text.
+    @State private var pendingCursorPosition: Int?
     @FocusState private var isComposerFocused: Bool
 
     /// The portion of the suggestion that extends beyond the current input.
@@ -97,19 +99,24 @@ struct ComposerView: View {
         .animation(VAnimation.fast, value: editorContentHeight)
         .onAppear { isComposerFocused = true }
         .onChange(of: isComposerFocused) { _, focused in
-            // Only re-focus after sending a message (Return key). Without
-            // the guard, every focus loss while the window is key would
-            // steal first responder from side-panel inputs (settings, etc.).
-            if !focused, shouldRefocusAfterSend {
-                shouldRefocusAfterSend = false
+            // Only re-focus when an action explicitly requests it (send or
+            // shift+enter). Without the guard, every focus loss while the
+            // window is key would steal first responder from side-panel
+            // inputs (settings, etc.).
+            if !focused, shouldRefocus {
+                shouldRefocus = false
+                let targetPos = pendingCursorPosition
+                pendingCursorPosition = nil
                 DispatchQueue.main.async {
                     isComposerFocused = true
                     // After re-focus, NSTextField selects all text by default.
-                    // Clear the selection and place the cursor at the end.
+                    // Clear the selection and place the cursor at the target
+                    // position (or end-of-text when nil).
                     DispatchQueue.main.async {
                         if let textView = NSApp.keyWindow?.firstResponder as? NSTextView {
                             let end = (textView.string as NSString).length
-                            textView.setSelectedRange(NSRange(location: end, length: 0))
+                            let pos = min(targetPos ?? end, end)
+                            textView.setSelectedRange(NSRange(location: pos, length: 0))
                         }
                     }
                 }
@@ -204,26 +211,23 @@ struct ComposerView: View {
         }
         .onKeyPress(.return, phases: .down) { keyPress in
             if keyPress.modifiers == .shift {
-                if let textView = NSApp.keyWindow?.firstResponder as? NSTextView,
-                   let window = NSApp.keyWindow {
-                    textView.insertNewlineIgnoringFieldEditor(nil)
-                    // Restore focus at the AppKit level if SwiftUI's re-render
-                    // resigns first responder. Using makeFirstResponder instead
-                    // of @FocusState avoids the select-all that SwiftUI applies
-                    // when re-focusing a TextField.
-                    let savedRange = textView.selectedRange()
-                    DispatchQueue.main.async {
-                        if !(window.firstResponder is NSTextView) {
-                            window.makeFirstResponder(textView)
-                        }
-                        if let tv = window.firstResponder as? NSTextView,
-                           tv.selectedRange() != savedRange {
-                            tv.setSelectedRange(savedRange)
-                        }
-                    }
+                let cursorLoc: Int
+                if let textView = NSApp.keyWindow?.firstResponder as? NSTextView {
+                    cursorLoc = textView.selectedRange().location
                 } else {
-                    inputText += "\n"
+                    cursorLoc = (inputText as NSString).length
                 }
+                // Insert through the binding so SwiftUI stays in sync.
+                let ns = inputText as NSString
+                let loc = min(cursorLoc, ns.length)
+                inputText = ns.replacingCharacters(
+                    in: NSRange(location: loc, length: 0),
+                    with: "\n"
+                ) as String
+                // If the text mutation causes a focus loss, the onChange
+                // handler will re-focus and place the cursor here.
+                shouldRefocus = true
+                pendingCursorPosition = loc + 1
                 return .handled
             }
             guard keyPress.modifiers.isEmpty else { return .ignored }
@@ -231,7 +235,7 @@ struct ComposerView: View {
                 of: "\\n$", with: "", options: .regularExpression
             )
             if canSend {
-                shouldRefocusAfterSend = true
+                shouldRefocus = true
                 onSend()
             }
             return .handled
@@ -293,7 +297,7 @@ struct ComposerView: View {
             } else {
                 if canSend {
                     Button {
-                        shouldRefocusAfterSend = true
+                        shouldRefocus = true
                         onSend()
                     } label: {
                         ZStack {
