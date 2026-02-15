@@ -47,6 +47,7 @@ import {
   injectMemoryRecallAsSeparateMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
+import { buildMemoryQuery } from '../memory/query-builder.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
 import type { UsageActor } from '../usage/actors.js';
 import { loadSkillCatalog } from '../config/skills.js';
@@ -1828,22 +1829,4 @@ const ORDERING_ERROR_PATTERNS = [
 
 function isProviderOrderingError(message: string): boolean {
   return ORDERING_ERROR_PATTERNS.some((pattern) => pattern.test(message));
-}
-
-function buildMemoryQuery(content: string, messages: Message[]): string {
-  const summaryText = messages
-    .map((message) => getSummaryFromContextMessage(message))
-    .find((summary): summary is string => summary !== null) ?? '';
-  const maxLen = 1200;
-  let compactSummary: string;
-  if (summaryText.length <= maxLen) {
-    compactSummary = summaryText;
-  } else {
-    const marker = '<truncated />';
-    const half = Math.floor((maxLen - marker.length) / 2);
-    compactSummary = summaryText.slice(0, half) + marker + summaryText.slice(-half);
-  }
-  return compactSummary.length > 0
-    ? `${content}\n\nContext summary:\n${compactSummary}`
-    : content;
 }
