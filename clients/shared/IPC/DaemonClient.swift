@@ -155,6 +155,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `publish_page_response` message.
     public var onPublishPageResponse: ((PublishPageResponseMessage) -> Void)?
 
+    /// Called when the daemon sends an `open_url` message.
+    public var onOpenUrl: ((OpenUrlMessage) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -700,6 +703,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(UnpublishPageRequestMessage(deploymentId: deploymentId))
     }
 
+    // MARK: - Link Open
+
+    /// Send a link_open_request to the daemon, requesting it open a URL externally.
+    public func sendLinkOpenRequest(url: String, metadata: [String: AnyCodable]?) throws {
+        try send(LinkOpenRequestMessage(url: url, metadata: metadata))
+    }
+
     // MARK: - Signing Identity (macOS only)
 
     #if os(macOS)
@@ -921,6 +931,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSlackWebhookConfigResponse?(msg)
         case .publishPageResponse(let msg):
             onPublishPageResponse?(msg)
+        case .openUrl(let msg):
+            onOpenUrl?(msg)
         case .unpublishPageResponse:
             break // Handled via specific callback if needed
         case .memoryStatus(let msg):
