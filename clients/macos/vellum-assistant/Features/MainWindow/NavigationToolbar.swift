@@ -10,9 +10,6 @@ struct NavigationToolbar: View {
                 Spacer()
 
                 // Right group — labeled buttons
-                VIconButton(label: "Dynamic", icon: "wand.and.stars", isActive: activePanel == .generated) {
-                    togglePanel(.generated)
-                }
                 VIconButton(label: "Agent", icon: "exclamationmark.triangle", isActive: activePanel == .agent) {
                     togglePanel(.agent)
                 }
