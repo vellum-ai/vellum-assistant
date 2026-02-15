@@ -268,6 +268,49 @@ describe('drainDirectiveDisplayBuffer', () => {
     expect(second.emitText).toBe(' done');
     expect(second.bufferedRemainder).toBe('');
   });
+
+  test('buffers trailing partial prefix "<" split across chunks', () => {
+    const result = drainDirectiveDisplayBuffer('Hello world<');
+    expect(result.emitText).toBe('Hello world');
+    expect(result.bufferedRemainder).toBe('<');
+  });
+
+  test('buffers trailing partial prefix "<vel" split across chunks', () => {
+    const result = drainDirectiveDisplayBuffer('Some text<vel');
+    expect(result.emitText).toBe('Some text');
+    expect(result.bufferedRemainder).toBe('<vel');
+  });
+
+  test('buffers trailing partial prefix "<vellum-attachmen" (one char short)', () => {
+    const result = drainDirectiveDisplayBuffer('Data <vellum-attachmen');
+    expect(result.emitText).toBe('Data ');
+    expect(result.bufferedRemainder).toBe('<vellum-attachmen');
+  });
+
+  test('does not buffer trailing "<" that is not a prefix of the tag', () => {
+    // "<x" does not match any prefix of "<vellum-attachment"
+    const result = drainDirectiveDisplayBuffer('Hello<x');
+    expect(result.emitText).toBe('Hello<x');
+    expect(result.bufferedRemainder).toBe('');
+  });
+
+  test('partial prefix reassembles into a complete directive across chunks', () => {
+    const first = drainDirectiveDisplayBuffer('Before <vellum-at');
+    expect(first.emitText).toBe('Before ');
+    expect(first.bufferedRemainder).toBe('<vellum-at');
+
+    const second = drainDirectiveDisplayBuffer(
+      first.bufferedRemainder + 'tachment path="out.png" /> After',
+    );
+    expect(second.emitText).toBe(' After');
+    expect(second.bufferedRemainder).toBe('');
+  });
+
+  test('emits everything when text has no partial prefix', () => {
+    const result = drainDirectiveDisplayBuffer('No special chars here');
+    expect(result.emitText).toBe('No special chars here');
+    expect(result.bufferedRemainder).toBe('');
+  });
 });
 
 // ---------------------------------------------------------------------------

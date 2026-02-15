@@ -246,15 +246,44 @@ export function parseDirectives(text: string): DirectiveParseResult {
  * - Incomplete directives are retained in `bufferedRemainder` until more
  *   text arrives.
  */
+const DIRECTIVE_TAG_PREFIX = '<vellum-attachment';
+
+/**
+ * Check whether `text` ends with a prefix of `tag` (e.g. "<", "<v", "<ve", …).
+ * Returns the safe-to-emit portion and any trailing partial prefix to buffer.
+ */
+function splitTrailingPrefix(
+  text: string,
+  tag: string,
+): { safe: string; trailing: string } {
+  // Scan backwards from the end for a '<' that could start a partial tag.
+  // We only need to check the last `tag.length - 1` characters — a full
+  // match would have been caught by indexOf above.
+  const searchStart = Math.max(0, text.length - tag.length + 1);
+  for (let i = text.length - 1; i >= searchStart; i--) {
+    if (text[i] === '<') {
+      const candidate = text.slice(i);
+      if (tag.startsWith(candidate)) {
+        return { safe: text.slice(0, i), trailing: candidate };
+      }
+    }
+  }
+  return { safe: text, trailing: '' };
+}
+
 export function drainDirectiveDisplayBuffer(buffer: string): DirectiveDisplayDrainResult {
   let emitText = '';
   let cursor = 0;
 
   while (cursor < buffer.length) {
-    const start = buffer.indexOf('<vellum-attachment', cursor);
+    const start = buffer.indexOf(DIRECTIVE_TAG_PREFIX, cursor);
     if (start === -1) {
-      emitText += buffer.slice(cursor);
-      return { emitText, bufferedRemainder: '' };
+      // No full tag-prefix match — but the remaining text might end with a
+      // partial prefix of "<vellum-attachment" split across streaming chunks.
+      const remaining = buffer.slice(cursor);
+      const split = splitTrailingPrefix(remaining, DIRECTIVE_TAG_PREFIX);
+      emitText += split.safe;
+      return { emitText, bufferedRemainder: split.trailing };
     }
 
     emitText += buffer.slice(cursor, start);
