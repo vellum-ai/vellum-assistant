@@ -5,13 +5,13 @@ import CryptoKit
 final class IpcBlobStoreTests: XCTestCase {
 
     private var tempDir: URL!
-    private var blobStore: TestableIpcBlobStore!
+    private var blobStore: IpcBlobStore!
 
     override func setUp() {
         super.setUp()
         tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        blobStore = TestableIpcBlobStore(blobDir: tempDir)
+        blobStore = IpcBlobStore(blobDir: tempDir)
     }
 
     override func tearDown() {
@@ -109,59 +109,34 @@ final class IpcBlobStoreTests: XCTestCase {
         let fileData = try Data(contentsOf: probePath)
         XCTAssertEqual(fileData.count, 32)
     }
-}
 
-// MARK: - Testable Subclass
+    // MARK: - resolveBlobDir
 
-/// A testable wrapper around IpcBlobStore that uses a custom blob directory
-/// instead of the hardcoded ~/.vellum/data/ipc-blobs/.
-private final class TestableIpcBlobStore {
-    private let blobDir: URL
-
-    init(blobDir: URL) {
-        self.blobDir = blobDir
+    func testResolveBlobDirDefaultsToHomeDotVellum() {
+        let resolved = resolveBlobDir(environment: [:])
+        let expected = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".vellum/data/ipc-blobs", isDirectory: true)
+        XCTAssertEqual(resolved, expected)
     }
 
-    func writeBlob(data: Data, kind: String, encoding: String) -> IPCIpcBlobRef? {
-        let id = UUID().uuidString.lowercased()
-        let targetURL = blobDir.appendingPathComponent("\(id).blob")
-        let tempURL = blobDir.appendingPathComponent("\(id).tmp")
-
-        do {
-            try data.write(to: tempURL)
-            try FileManager.default.moveItem(at: tempURL, to: targetURL)
-
-            let sha256 = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-
-            return IPCIpcBlobRef(
-                id: id,
-                kind: kind,
-                encoding: encoding,
-                byteLength: data.count,
-                sha256: sha256
-            )
-        } catch {
-            try? FileManager.default.removeItem(at: tempURL)
-            return nil
-        }
+    func testResolveBlobDirHonorsBaseDataDir() {
+        let resolved = resolveBlobDir(environment: ["BASE_DATA_DIR": "/tmp/custom-root"])
+        let expected = URL(fileURLWithPath: "/tmp/custom-root")
+            .appendingPathComponent(".vellum/data/ipc-blobs", isDirectory: true)
+        XCTAssertEqual(resolved, expected)
     }
 
-    func writeProbeFile() -> (probeId: String, nonceSha256: String)? {
-        let probeId = UUID().uuidString.lowercased()
-        let targetURL = blobDir.appendingPathComponent("\(probeId).blob")
+    func testResolveBlobDirIgnoresEmptyBaseDataDir() {
+        let resolved = resolveBlobDir(environment: ["BASE_DATA_DIR": "  "])
+        let expected = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".vellum/data/ipc-blobs", isDirectory: true)
+        XCTAssertEqual(resolved, expected)
+    }
 
-        var nonce = Data(count: 32)
-        let result = nonce.withUnsafeMutableBytes { ptr in
-            SecRandomCopyBytes(kSecRandomDefault, 32, ptr.baseAddress!)
-        }
-        guard result == errSecSuccess else { return nil }
-
-        do {
-            try nonce.write(to: targetURL)
-            let sha256 = SHA256.hash(data: nonce).map { String(format: "%02x", $0) }.joined()
-            return (probeId: probeId, nonceSha256: sha256)
-        } catch {
-            return nil
-        }
+    func testResolveBlobDirExpandsTildeInBaseDataDir() {
+        let resolved = resolveBlobDir(environment: ["BASE_DATA_DIR": "~/custom"])
+        let expected = URL(fileURLWithPath: NSHomeDirectory() + "/custom")
+            .appendingPathComponent(".vellum/data/ipc-blobs", isDirectory: true)
+        XCTAssertEqual(resolved, expected)
     }
 }

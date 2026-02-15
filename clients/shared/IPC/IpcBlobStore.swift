@@ -4,16 +4,44 @@ import os
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "IpcBlobStore")
 
+/// Resolve the IPC blob directory, mirroring the daemon's `getIpcBlobDir()`.
+/// The daemon derives its blob dir from `BASE_DATA_DIR` (or `$HOME`), so the
+/// client must use the same root to ensure probe files land in the same directory.
+///
+/// Resolution: `(BASE_DATA_DIR || $HOME) / .vellum / data / ipc-blobs`
+func resolveBlobDir(environment: [String: String]? = nil) -> URL {
+    let env = environment ?? ProcessInfo.processInfo.environment
+    let root: String
+    if let baseDataDir = env["BASE_DATA_DIR"], !baseDataDir.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let trimmed = baseDataDir.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("~/") {
+            root = NSHomeDirectory() + "/" + String(trimmed.dropFirst(2))
+        } else {
+            root = trimmed
+        }
+    } else {
+        root = NSHomeDirectory()
+    }
+    return URL(fileURLWithPath: root)
+        .appendingPathComponent(".vellum/data/ipc-blobs", isDirectory: true)
+}
+
 /// Manages local blob files for zero-copy IPC transport.
-/// Blobs are written atomically (temp file + rename) to ~/.vellum/data/ipc-blobs/.
+/// Blobs are written atomically (temp file + rename) to the directory resolved
+/// by `resolveBlobDir()`, which honors the `BASE_DATA_DIR` environment variable.
 public final class IpcBlobStore: Sendable {
     public static let shared = IpcBlobStore()
 
     private let blobDir: URL
 
+    /// Creates a blob store using the directory resolved from `BASE_DATA_DIR` / `$HOME`.
     private init() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        blobDir = home.appendingPathComponent(".vellum/data/ipc-blobs", isDirectory: true)
+        blobDir = resolveBlobDir()
+    }
+
+    /// Creates a blob store targeting a specific directory (for testing).
+    init(blobDir: URL) {
+        self.blobDir = blobDir
     }
 
     /// Ensure the blob directory exists.
