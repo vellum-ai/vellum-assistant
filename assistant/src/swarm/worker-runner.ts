@@ -21,6 +21,19 @@ export interface RunWorkerTaskOptions {
   signal?: AbortSignal;
 }
 
+function emitStatus(
+  onStatus: WorkerStatusCallback | undefined,
+  taskId: string,
+  status: WorkerStatusKind,
+): void {
+  if (!onStatus) return;
+  try {
+    onStatus(taskId, status);
+  } catch {
+    // Observer failures must not abort worker execution.
+  }
+}
+
 /**
  * Execute a single swarm worker task through the given backend.
  * Returns a normalized SwarmTaskResult regardless of success or failure.
@@ -42,11 +55,11 @@ export async function runWorkerTask(opts: RunWorkerTaskOptions): Promise<SwarmTa
     };
   }
 
-  onStatus?.(task.id, 'queued');
+  emitStatus(onStatus, task.id, 'queued');
 
   // Check backend availability
   if (!backend.isAvailable()) {
-    onStatus?.(task.id, 'failed');
+    emitStatus(onStatus, task.id, 'failed');
     return {
       taskId: task.id,
       status: 'failed',
@@ -60,7 +73,7 @@ export async function runWorkerTask(opts: RunWorkerTaskOptions): Promise<SwarmTa
     };
   }
 
-  onStatus?.(task.id, 'running');
+  emitStatus(onStatus, task.id, 'running');
 
   const prompt = buildWorkerPrompt({
     role: task.role,
@@ -91,7 +104,7 @@ export async function runWorkerTask(opts: RunWorkerTaskOptions): Promise<SwarmTa
     const raceResult = await Promise.race([backendPromise, timeoutPromise]);
 
     if (raceResult === 'timeout') {
-      onStatus?.(task.id, 'failed');
+      emitStatus(onStatus, task.id, 'failed');
       return {
         taskId: task.id,
         status: 'failed',
@@ -109,7 +122,7 @@ export async function runWorkerTask(opts: RunWorkerTaskOptions): Promise<SwarmTa
 
     if (result.success) {
       const parsed = parseWorkerOutput(result.output);
-      onStatus?.(task.id, 'completed');
+      emitStatus(onStatus, task.id, 'completed');
       return {
         taskId: task.id,
         status: 'completed',
@@ -121,7 +134,7 @@ export async function runWorkerTask(opts: RunWorkerTaskOptions): Promise<SwarmTa
     }
 
     // Backend returned a failure
-    onStatus?.(task.id, 'failed');
+    emitStatus(onStatus, task.id, 'failed');
     return {
       taskId: task.id,
       status: 'failed',
@@ -134,7 +147,7 @@ export async function runWorkerTask(opts: RunWorkerTaskOptions): Promise<SwarmTa
       retryCount: 0,
     };
   } catch (err) {
-    onStatus?.(task.id, 'failed');
+    emitStatus(onStatus, task.id, 'failed');
     const message = err instanceof Error ? err.message : String(err);
     return {
       taskId: task.id,

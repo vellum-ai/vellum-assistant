@@ -109,6 +109,20 @@ describe('runWorkerTask', () => {
     expect(statuses).toEqual(['queued', 'failed']);
   });
 
+  test('continues execution when onStatus callback throws', async () => {
+    const result = await runWorkerTask({
+      task: makeTask(),
+      backend: makeBackend(),
+      workingDir: '/tmp',
+      timeoutMs: 5000,
+      onStatus: () => {
+        throw new Error('status callback failed');
+      },
+    });
+    expect(result.status).toBe('completed');
+    expect(result.summary).toBe('Done');
+  });
+
   test('maps role to correct profile in prompt', async () => {
     let capturedInput: SwarmWorkerBackendInput | null = null;
     await runWorkerTask({
@@ -171,6 +185,23 @@ describe('parseWorkerOutput', () => {
     const raw = 'x'.repeat(1000);
     const result = parseWorkerOutput(raw);
     expect(result.summary.length).toBe(500);
+  });
+
+  test('uses the final fenced JSON block when multiple are present', () => {
+    const raw = [
+      '```json',
+      '{"summary":"intermediate","artifacts":["a.ts"],"issues":[],"nextSteps":[]}',
+      '```',
+      '',
+      '```json',
+      '{"summary":"final","artifacts":["b.ts"],"issues":["warn"],"nextSteps":["ship"]}',
+      '```',
+    ].join('\n');
+    const result = parseWorkerOutput(raw);
+    expect(result.summary).toBe('final');
+    expect(result.artifacts).toEqual(['b.ts']);
+    expect(result.issues).toEqual(['warn']);
+    expect(result.nextSteps).toEqual(['ship']);
   });
 });
 

@@ -49,7 +49,8 @@ If you cannot produce valid JSON, just write a plain-text summary.`;
  * Prefers a fenced JSON block; falls back to treating the entire output as a summary.
  */
 export function parseWorkerOutput(raw: string): Pick<SwarmTaskResult, 'summary' | 'artifacts' | 'issues' | 'nextSteps'> {
-  const jsonMatch = raw.match(/```json\s*\n([\s\S]*?)\n```/);
+  const jsonBlocks = Array.from(raw.matchAll(/```json\s*\n([\s\S]*?)\n```/g));
+  const jsonMatch = jsonBlocks.length > 0 ? jsonBlocks[jsonBlocks.length - 1] : null;
   if (jsonMatch) {
     try {
       const parsed = JSON.parse(jsonMatch[1]);
