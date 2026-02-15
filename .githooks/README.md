@@ -36,8 +36,12 @@ Automatically checks for plain text keys and secrets before allowing a commit.
 - ✅ Blocks commits containing potential secrets
 - ✅ Provides detailed feedback on what was detected and where
 - ✅ Allows clean commits to proceed without interruption
+- ✅ Avoids known false positives for architecture/db identifier strings like `assistant_auth_tokens` and migration checkpoint keys
 - ✅ When IPC contract files are staged, verifies the generated Swift models and inventory snapshot are up to date
 - ✅ Catches unstaged generated output files (e.g., regenerated but not `git add`-ed)
+
+**Verification:**
+- Run `.githooks/pre-commit --self-test` to verify safe architecture/db strings are allowed while seeded real secrets are still detected.
 
 **Bypass (not recommended):**
 If you need to bypass this check in exceptional cases:
