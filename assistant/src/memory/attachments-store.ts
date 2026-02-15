@@ -156,6 +156,52 @@ export function getAttachmentsForMessage(
 }
 
 /**
+ * Return metadata (no dataBase64) for all attachments linked to a message.
+ * Use this instead of getAttachmentsForMessage when you only need the
+ * id/filename/mimeType/sizeBytes/kind fields — avoids deserializing
+ * potentially large base64 blobs from the database.
+ */
+export function getAttachmentMetadataForMessage(
+  messageId: string,
+  assistantId: string,
+): StoredAttachment[] {
+  const db = getDb();
+  const links = db
+    .select({ attachmentId: messageAttachments.attachmentId })
+    .from(messageAttachments)
+    .where(eq(messageAttachments.messageId, messageId))
+    .orderBy(messageAttachments.position)
+    .all();
+
+  if (links.length === 0) return [];
+
+  const results: StoredAttachment[] = [];
+  for (const link of links) {
+    if (!link.attachmentId) continue;
+    const row = db
+      .select({
+        id: attachments.id,
+        assistantId: attachments.assistantId,
+        originalFilename: attachments.originalFilename,
+        mimeType: attachments.mimeType,
+        sizeBytes: attachments.sizeBytes,
+        kind: attachments.kind,
+        createdAt: attachments.createdAt,
+      })
+      .from(attachments)
+      .where(
+        and(
+          eq(attachments.id, link.attachmentId),
+          eq(attachments.assistantId, assistantId),
+        ),
+      )
+      .get();
+    if (row) results.push(row);
+  }
+  return results;
+}
+
+/**
  * Return all attachments linked to a message without assistant scoping.
  * Used by the desktop IPC history handler where tenant isolation is not needed.
  */
