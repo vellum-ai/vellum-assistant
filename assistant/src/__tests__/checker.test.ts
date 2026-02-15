@@ -357,6 +357,38 @@ describe('Permission Checker', () => {
       expect(result.matchedRule?.id).toBe('default:ask-host_bash-global');
     });
 
+    test('scaffold_managed_skill prompts by default via managed skill ask rule', async () => {
+      const result = await check('scaffold_managed_skill', { skill_id: 'my-skill' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-scaffold_managed_skill-global');
+    });
+
+    test('delete_managed_skill prompts by default via managed skill ask rule', async () => {
+      const result = await check('delete_managed_skill', { skill_id: 'my-skill' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-delete_managed_skill-global');
+    });
+
+    test('allow rule for scaffold_managed_skill overrides default ask', async () => {
+      addRule('scaffold_managed_skill', 'scaffold_managed_skill:my-skill', 'everywhere', 'allow', 2000);
+      const result = await check('scaffold_managed_skill', { skill_id: 'my-skill' }, '/tmp');
+      expect(result.decision).toBe('allow');
+    });
+
+    test('allow rule for scaffold_managed_skill does not match other skill ids', async () => {
+      addRule('scaffold_managed_skill', 'scaffold_managed_skill:my-skill', 'everywhere', 'allow', 2000);
+      const result = await check('scaffold_managed_skill', { skill_id: 'other-skill' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('wildcard allow rule for delete_managed_skill covers all ids', async () => {
+      addRule('delete_managed_skill', 'delete_managed_skill:*', 'everywhere', 'allow', 2000);
+      const result = await check('delete_managed_skill', { skill_id: 'any-skill' }, '/tmp');
+      expect(result.decision).toBe('allow');
+    });
+
     test('cu_click prompts by default via computer-use ask rule', async () => {
       const result = await check('cu_click', { reasoning: 'Click the save button' }, '/tmp');
       expect(result.decision).toBe('prompt');
@@ -740,6 +772,31 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(2);
       expect(options[0].pattern).toBe('web_fetch:/docs/getting-started');
       expect(options[1].pattern).toBe('web_fetch:*');
+    });
+
+    test('scaffold_managed_skill: generates per-skill and wildcard options', () => {
+      const options = generateAllowlistOptions('scaffold_managed_skill', { skill_id: 'my-tool' });
+      expect(options).toHaveLength(2);
+      expect(options[0].label).toBe('my-tool');
+      expect(options[0].pattern).toBe('scaffold_managed_skill:my-tool');
+      expect(options[0].description).toBe('This skill only');
+      expect(options[1].label).toBe('scaffold_managed_skill:*');
+      expect(options[1].pattern).toBe('scaffold_managed_skill:*');
+      expect(options[1].description).toBe('All managed skill scaffolds');
+    });
+
+    test('delete_managed_skill: generates per-skill and wildcard options', () => {
+      const options = generateAllowlistOptions('delete_managed_skill', { skill_id: 'doomed' });
+      expect(options).toHaveLength(2);
+      expect(options[0].pattern).toBe('delete_managed_skill:doomed');
+      expect(options[1].pattern).toBe('delete_managed_skill:*');
+      expect(options[1].description).toBe('All managed skill deletes');
+    });
+
+    test('scaffold_managed_skill with empty skill_id: only wildcard option', () => {
+      const options = generateAllowlistOptions('scaffold_managed_skill', { skill_id: '' });
+      expect(options).toHaveLength(1);
+      expect(options[0].pattern).toBe('scaffold_managed_skill:*');
     });
 
     test('web_fetch: escapes minimatch metacharacters in generated exact and origin patterns', () => {

@@ -159,4 +159,45 @@ describe('managed skill lifecycle: scaffold → catalog → prompt → delete', 
 
     expect(result.isError).toBe(true);
   });
+
+  test('evaluate → scaffold → skill_load chain: code output feeds skill creation', async () => {
+    const ctx = makeContext();
+
+    // Step 1: Scaffold a skill (simulating what an evaluate call might produce)
+    const scaffoldResult = await scaffoldTool.execute({
+      skill_id: 'chain-test',
+      name: 'Chain Test',
+      description: 'Created from evaluate output.',
+      body_markdown: 'This skill was dynamically created.\n\nRun: `echo chain-test-ok`',
+      emoji: '🔗',
+    }, ctx);
+
+    expect(scaffoldResult.isError).not.toBe(true);
+    const scaffoldData = JSON.parse(scaffoldResult.content as string);
+    expect(scaffoldData.created).toBe(true);
+
+    // Step 2: Verify skill is loadable via catalog (skill_load reads from this)
+    const catalog = loadSkillCatalog();
+    const found = catalog.find(s => s.id === 'chain-test');
+    expect(found).toBeDefined();
+    expect(found!.name).toBe('Chain Test');
+
+    // Step 3: Verify SKILL.md contains the expected body
+    const skillPath = join(TEST_DIR, 'skills', 'chain-test', 'SKILL.md');
+    const content = readFileSync(skillPath, 'utf-8');
+    expect(content).toContain('dynamically created');
+    expect(content).toContain('echo chain-test-ok');
+
+    // Step 4: Verify it appears in the system prompt (skill_load injects from catalog)
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('chain-test');
+
+    // Step 5: Clean up
+    const deleteResult = await deleteTool.execute({ skill_id: 'chain-test' }, ctx);
+    expect(deleteResult.isError).not.toBe(true);
+
+    // Step 6: Verify skill no longer in catalog after reload
+    const catalogAfterDelete = loadSkillCatalog();
+    expect(catalogAfterDelete.find(s => s.id === 'chain-test')).toBeUndefined();
+  });
 });

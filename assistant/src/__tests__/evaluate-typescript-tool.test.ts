@@ -214,6 +214,24 @@ describe('evaluate_typescript_code tool', () => {
     expect(result.content).toContain('code is required');
   });
 
+  test('oversized stdout is truncated', async () => {
+    const result = await tool.execute({
+      code: `export default function() {
+        // Generate output larger than max_output_chars
+        const big = 'x'.repeat(30000);
+        console.log(big);
+        return 'done';
+      }`,
+      max_output_chars: 1000,
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.truncated).toBe(true);
+    expect(parsed.stdout).toContain('[stdout truncated]');
+    expect(parsed.stdout.length).toBeLessThan(2000);
+  }, 10_000);
+
   test('async snippet works', async () => {
     const result = await tool.execute({
       code: 'export default async function(input: any) { return { async: true, got: input }; }',

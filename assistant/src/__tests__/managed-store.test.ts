@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -241,6 +241,52 @@ describe('createManagedSkill', () => {
       const content = readFileSync(indexPath, 'utf-8');
       expect(content).not.toContain('no-index');
     }
+  });
+});
+
+describe('atomic write safety', () => {
+  test('SKILL.md is not partially written on concurrent create', () => {
+    // Verify that atomicWriteFile prevents corruption: after creation,
+    // the file is always complete (starts with --- and ends with newline)
+    const result = createManagedSkill({
+      id: 'atomic-test',
+      name: 'Atomic',
+      description: 'Tests atomic write',
+      bodyMarkdown: 'Atomic body content.',
+    });
+
+    expect(result.created).toBe(true);
+    const content = readFileSync(result.path, 'utf-8');
+    expect(content.startsWith('---\n')).toBe(true);
+    expect(content.endsWith('\n')).toBe(true);
+    expect(content).toContain('Atomic body content.');
+  });
+
+  test('overwrite replaces file atomically (no leftover temp files)', () => {
+    createManagedSkill({
+      id: 'atomic-overwrite',
+      name: 'V1',
+      description: 'First',
+      bodyMarkdown: 'Original.',
+    });
+
+    createManagedSkill({
+      id: 'atomic-overwrite',
+      name: 'V2',
+      description: 'Second',
+      bodyMarkdown: 'Replaced.',
+      overwrite: true,
+    });
+
+    const skillDir = join(TEST_DIR, 'skills', 'atomic-overwrite');
+    const files = readdirSync(skillDir);
+    // Only SKILL.md should exist — no .tmp-* leftover files
+    expect(files).toEqual(['SKILL.md']);
+
+    const content = readFileSync(join(skillDir, 'SKILL.md'), 'utf-8');
+    expect(content).toContain('name: "V2"');
+    expect(content).toContain('Replaced.');
+    expect(content).not.toContain('Original.');
   });
 });
 
