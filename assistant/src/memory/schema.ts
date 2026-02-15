@@ -232,6 +232,21 @@ export const pomodoroTimers = sqliteTable('pomodoro_timers', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+// ── Reminders ────────────────────────────────────────────────────────
+
+export const reminders = sqliteTable('reminders', {
+  id: text('id').primaryKey(),
+  label: text('label').notNull(),
+  message: text('message').notNull(),
+  fireAt: integer('fire_at').notNull(),           // epoch ms, absolute timestamp
+  mode: text('mode').notNull(),                   // 'notify' | 'execute'
+  status: text('status').notNull(),               // 'pending' | 'fired' | 'cancelled'
+  firedAt: integer('fired_at'),
+  conversationId: text('conversation_id'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 // ── Cron / Deferred Tasks ────────────────────────────────────────────
 
 export const cronJobs = sqliteTable('cron_jobs', {

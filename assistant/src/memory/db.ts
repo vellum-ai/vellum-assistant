@@ -247,6 +247,21 @@ export function initializeDb(): void {
   `);
 
   database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS reminders (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      message TEXT NOT NULL,
+      fire_at INTEGER NOT NULL,
+      mode TEXT NOT NULL,
+      status TEXT NOT NULL,
+      fired_at INTEGER,
+      conversation_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS cron_jobs (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -473,6 +488,8 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_runs_conversation ON message_runs(conversation_id)`);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_pomodoro_timers_session_status ON pomodoro_timers(session_id, status)`);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_reminders_status_fire_at ON reminders(status, fire_at)`);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled_next_run ON cron_jobs(enabled, next_run_at)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_cron_runs_job_id ON cron_runs(job_id)`);
