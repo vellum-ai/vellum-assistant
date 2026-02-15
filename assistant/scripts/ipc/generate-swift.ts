@@ -125,6 +125,9 @@ function generateSchemas(): Record<string, SchemaDef> {
   for (const schema of Object.values(result)) {
     if (!schema.definitions) continue;
     for (const [defName, defSchema] of Object.entries(schema.definitions)) {
+      // Skip generic type references (e.g. Partial<CardSurfaceData>, Record<string,unknown>)
+      // — these produce invalid Swift struct names and are already handled as
+      // [String: AnyCodable] in schemaToSwiftType via the startsWith checks.
       if (!result[defName] && !SKIP_TYPES.has(defName) && !defName.includes('<')) {
         result[defName] = defSchema;
       }
