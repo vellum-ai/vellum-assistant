@@ -1,0 +1,72 @@
+/**
+ * Thin wrapper around the Vercel REST API for deploying static HTML pages.
+ */
+
+export async function deployHtmlToVercel(opts: {
+  html: string;
+  name: string;
+  token: string;
+}): Promise<{ url: string; deploymentId: string }> {
+  const slug = opts.name
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  const body = {
+    name: slug,
+    files: [
+      {
+        file: 'index.html',
+        data: Buffer.from(opts.html).toString('base64'),
+      },
+    ],
+    projectSettings: { framework: null },
+    target: 'production',
+  };
+
+  const response = await fetch('https://api.vercel.com/v13/deployments', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${opts.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Vercel deploy failed (${response.status}): ${text}`);
+  }
+
+  const data = (await response.json()) as { url: string; id: string };
+
+  let publicUrl = data.url;
+  if (!publicUrl.startsWith('https://')) {
+    publicUrl = `https://${publicUrl}`;
+  }
+
+  return { url: publicUrl, deploymentId: data.id };
+}
+
+export async function deleteVercelDeployment(
+  deploymentId: string,
+  token: string,
+): Promise<void> {
+  const response = await fetch(
+    `https://api.vercel.com/v13/deployments/${deploymentId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(
+      `Vercel delete deployment failed (${response.status}): ${text}`,
+    );
+  }
+}
