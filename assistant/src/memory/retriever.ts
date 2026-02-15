@@ -1090,6 +1090,13 @@ function mergeCandidates(
     if (candidate.text.length > existing.text.length) {
       existing.text = candidate.text;
     }
+    // Upgrade source to whichever has the higher weight so scoring and caps
+    // reflect the strongest retrieval signal for this candidate.
+    const existingWeight = SOURCE_WEIGHTS[existing.source] ?? 1.0;
+    const candidateWeight = SOURCE_WEIGHTS[candidate.source] ?? 1.0;
+    if (candidateWeight > existingWeight) {
+      existing.source = candidate.source;
+    }
   }
 
   // Build 1-based rank maps from each list (sorted by native score desc)

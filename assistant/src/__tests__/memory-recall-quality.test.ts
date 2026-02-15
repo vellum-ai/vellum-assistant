@@ -730,8 +730,8 @@ describe('Memory Recall Quality', () => {
         insertItem(db, {
           id: itemId,
           kind: 'fact',
-          subject: `atlas tool ${index}`,
-          statement: `AtlasTool${index} emits generic observability metrics`,
+          subject: `monitoring tool ${index}`,
+          statement: `ObservabilityTool${index} emits generic telemetry metrics`,
           importance: 0.35,
           firstSeenAt: now + index,
         });
