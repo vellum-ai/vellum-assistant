@@ -6,7 +6,7 @@ import { loadSkillBySelector } from '../../config/skills.js';
 
 export class SkillLoadTool implements Tool {
   name = 'skill_load';
-  description = 'Load full instructions for a configured skill from ~/.vellum/skills.';
+  description = 'Load full instructions for a configured skill from ~/.vellum/workspace/skills.';
   category = 'skills';
   defaultRiskLevel = RiskLevel.Low;
 

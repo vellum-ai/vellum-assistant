@@ -76,7 +76,7 @@ describe('skills catalog loading', () => {
     expect(catalog.map((skill) => skill.id)).toEqual(['lint', 'test']);
   });
 
-  test('rejects SKILLS.md entries that resolve outside ~/.vellum/skills', () => {
+  test('rejects SKILLS.md entries that resolve outside ~/.vellum/workspace/skills', () => {
     writeSkill('safe', 'Safe Skill', 'Safe skill');
     writeFileSync(
       join(TEST_DIR, 'skills', 'SKILLS.md'),
@@ -87,7 +87,7 @@ describe('skills catalog loading', () => {
     expect(catalog.map((skill) => skill.id)).toEqual(['safe']);
   });
 
-  test('rejects symlinked SKILLS.md entries that point outside ~/.vellum/skills', () => {
+  test('rejects symlinked SKILLS.md entries that point outside ~/.vellum/workspace/skills', () => {
     const externalSkillDir = join(TEST_DIR, 'outside', 'external-skill');
     mkdirSync(externalSkillDir, { recursive: true });
     writeFileSync(
@@ -102,7 +102,7 @@ describe('skills catalog loading', () => {
     expect(catalog).toHaveLength(0);
   });
 
-  test('rejects symlinked SKILL.md files that point outside ~/.vellum/skills', () => {
+  test('rejects symlinked SKILL.md files that point outside ~/.vellum/workspace/skills', () => {
     const linkedSkillDir = join(TEST_DIR, 'skills', 'linked-file-skill');
     mkdirSync(linkedSkillDir, { recursive: true });
 

@@ -82,7 +82,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 1000,
   }));
 
-  // Managed skill authoring tools — scaffold and delete modify ~/.vellum/skills/
+  // Managed skill authoring tools — scaffold and delete modify ~/.vellum/workspace/skills/
   // and should require explicit user approval.
   const MANAGED_SKILL_TOOLS = ['scaffold_managed_skill', 'delete_managed_skill'] as const;
   const managedSkillRules = MANAGED_SKILL_TOOLS.map((tool) => ({

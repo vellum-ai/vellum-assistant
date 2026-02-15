@@ -6,7 +6,7 @@ import { deleteManagedSkill } from '../../skills/managed-store.js';
 
 export class DeleteManagedSkillTool implements Tool {
   name = 'delete_managed_skill';
-  description = 'Delete a managed skill from ~/.vellum/skills and remove it from the SKILLS.md index.';
+  description = 'Delete a managed skill from ~/.vellum/workspace/skills and remove it from the SKILLS.md index.';
   category = 'skills';
   defaultRiskLevel = RiskLevel.High;
 

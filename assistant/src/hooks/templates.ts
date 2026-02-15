@@ -9,7 +9,7 @@ const log = getLogger('hooks-templates');
 
 /**
  * Install bundled hook templates into the user's hooks directory.
- * Templates are copied from `assistant/hook-templates/` to `~/.vellum/hooks/`.
+ * Templates are copied from `assistant/hook-templates/` to `~/.vellum/workspace/hooks/`.
  * - Never overwrites existing hooks (user modifications are preserved).
  * - Newly installed hooks are disabled by default.
  */

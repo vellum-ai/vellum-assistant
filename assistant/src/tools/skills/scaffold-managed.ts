@@ -11,7 +11,7 @@ function sanitizeFrontmatterValue(value: string): string {
 
 export class ScaffoldManagedSkillTool implements Tool {
   name = 'scaffold_managed_skill';
-  description = 'Create or update a managed skill in ~/.vellum/skills. The skill becomes available for skill_load immediately.';
+  description = 'Create or update a managed skill in ~/.vellum/workspace/skills. The skill becomes available for skill_load immediately.';
   category = 'skills';
   defaultRiskLevel = RiskLevel.High;
 

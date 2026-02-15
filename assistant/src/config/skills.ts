@@ -273,7 +273,7 @@ function readSkillFromDirectory(directoryPath: string, skillsDir: string, source
 
   try {
     if (isOutsideSkillsRoot(skillsDir, directoryPath)) {
-      log.warn({ directoryPath }, 'Skipping skill directory that resolves outside ~/.vellum/skills');
+      log.warn({ directoryPath }, 'Skipping skill directory that resolves outside ~/.vellum/workspace/skills');
       return null;
     }
 
@@ -284,7 +284,7 @@ function readSkillFromDirectory(directoryPath: string, skillsDir: string, source
     }
 
     if (isOutsideSkillsRoot(skillsDir, skillFilePath)) {
-      log.warn({ skillFilePath }, 'Skipping SKILL.md that resolves outside ~/.vellum/skills');
+      log.warn({ skillFilePath }, 'Skipping SKILL.md that resolves outside ~/.vellum/workspace/skills');
       return null;
     }
 
@@ -440,7 +440,7 @@ function resolveIndexEntryToDirectory(skillsDir: string, entry: string): string 
   if (isOutsideSkillsRoot(skillsDir, resolvedDirectory)) {
     log.warn(
       { entry, resolvedDirectory: getCanonicalPath(resolvedDirectory) },
-      'Skipping SKILLS.md entry that resolves outside ~/.vellum/skills',
+      'Skipping SKILLS.md entry that resolves outside ~/.vellum/workspace/skills',
     );
     return null;
   }
@@ -665,7 +665,7 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   if (skill.bundled) {
     loaded = readBundledSkillFromDirectory(skill.directoryPath);
   } else if (skill.source === 'workspace') {
-    // Workspace skills live outside ~/.vellum/skills, so use their parent
+    // Workspace skills live outside ~/.vellum/workspace/skills, so use their parent
     // directory as the root to avoid the isOutsideSkillsRoot rejection.
     loaded = readSkillFromDirectory(skill.directoryPath, dirname(skill.directoryPath), skill.source);
   } else {
@@ -687,7 +687,7 @@ export function resolveSkillSelector(selector: string, workspaceSkillsDir?: stri
 
   const catalog = loadSkillCatalog(workspaceSkillsDir);
   if (catalog.length === 0) {
-    return { error: 'No skills are available. Configure ~/.vellum/skills/SKILLS.md or add skill directories.' };
+    return { error: 'No skills are available. Configure ~/.vellum/workspace/skills/SKILLS.md or add skill directories.' };
   }
 
   const exactIdMatch = catalog.find((skill) => skill.id === needle);
