@@ -159,6 +159,36 @@ export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
 }
 
+/**
+ * Idempotent move: relocates source to destination for migration.
+ * - No-op if source is missing (already migrated or never existed).
+ * - No-op if destination already exists (avoids clobbering).
+ * - Creates destination parent directories as needed.
+ * - Logs warning on failure instead of throwing.
+ *
+ * Exported for testing; not intended for general use outside migrations.
+ */
+export function migratePath(source: string, destination: string): void {
+  if (!existsSync(source)) return;
+  if (existsSync(destination)) {
+    log.warn(
+      { source, destination },
+      'Migration skipped: destination already exists',
+    );
+    return;
+  }
+  const destDir = dirname(destination);
+  if (!existsSync(destDir)) {
+    mkdirSync(destDir, { recursive: true });
+  }
+  try {
+    renameSync(source, destination);
+    log.info({ from: source, to: destination }, 'Migrated path');
+  } catch (err) {
+    log.warn({ err, from: source, to: destination }, 'Failed to migrate path');
+  }
+}
+
 export function ensureDataDir(): void {
   const root = getRootDir();
   const data = getDataDir();
