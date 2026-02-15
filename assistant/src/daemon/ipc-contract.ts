@@ -542,6 +542,11 @@ export interface PongMessage {
   type: 'pong';
 }
 
+export interface DaemonStatusMessage {
+  type: 'daemon_status';
+  httpPort?: number;
+}
+
 export interface GenerationCancelled {
   type: 'generation_cancelled';
 }
@@ -1021,6 +1026,7 @@ export type ServerMessage =
   | SessionsClearResponse
   | ErrorMessage
   | PongMessage
+  | DaemonStatusMessage
   | GenerationCancelled
   | GenerationHandoff
   | ModelInfo

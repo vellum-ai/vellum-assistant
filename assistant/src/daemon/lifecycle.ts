@@ -227,6 +227,7 @@ export async function runDaemon(): Promise<void> {
       });
       try {
         await runtimeHttp.start();
+        server.setHttpPort(port);
       } catch (err) {
         log.warn({ err, port }, 'Failed to start runtime HTTP server, continuing without it');
         runtimeHttp = null;

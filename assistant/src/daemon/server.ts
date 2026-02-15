@@ -44,6 +44,7 @@ export class DaemonServer {
   // Shared across all sessions so maxRequestsPerMinute is enforced globally.
   private sharedRequestTimestamps: number[] = [];
   private socketPath: string;
+  private httpPort: number | undefined;
   private watchers: FSWatcher[] = [];
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private suppressConfigReload = false;
@@ -211,6 +212,14 @@ export class DaemonServer {
       contextWindow: config.contextWindow,
       apiKeys: config.apiKeys,
     });
+  }
+
+  /**
+   * Record the runtime HTTP server port so it can be communicated
+   * to newly connected clients via the `daemon_status` message.
+   */
+  setHttpPort(port: number): void {
+    this.httpPort = port;
   }
 
   /**
@@ -452,6 +461,11 @@ export class DaemonServer {
       type: 'session_info',
       sessionId: conversation.id,
       title: conversation.title ?? 'New Conversation',
+    });
+
+    this.send(socket, {
+      type: 'daemon_status',
+      httpPort: this.httpPort,
     });
   }
 

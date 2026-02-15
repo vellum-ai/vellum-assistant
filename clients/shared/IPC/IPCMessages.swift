@@ -539,6 +539,9 @@ public typealias TaskRoutedMessage = IPCTaskRouted
 /// Result from ambient observation analysis.
 public typealias AmbientResultMessage = IPCAmbientResult
 
+/// Daemon status sent on connect — includes runtime HTTP port when available.
+public typealias DaemonStatusMessage = IPCDaemonStatusMessage
+
 /// Surface show command from daemon.
 /// Wire type: `"ui_surface_show"`
 public struct UiSurfaceShowMessage: Decodable, Sendable {
@@ -1077,6 +1080,7 @@ public enum ServerMessage: Decodable, Sendable {
     case bundleAppResponse(BundleAppResponseMessage)
     case openBundleResponse(OpenBundleResponseMessage)
     case signBundlePayload(SignBundlePayloadMessage)
+    case daemonStatus(DaemonStatusMessage)
     case getSigningIdentity
     case pong
     case unknown(String)
@@ -1218,6 +1222,9 @@ public enum ServerMessage: Decodable, Sendable {
             self = .signBundlePayload(message)
         case "get_signing_identity":
             self = .getSigningIdentity
+        case "daemon_status":
+            let message = try DaemonStatusMessage(from: decoder)
+            self = .daemonStatus(message)
         case "pong":
             self = .pong
         default:

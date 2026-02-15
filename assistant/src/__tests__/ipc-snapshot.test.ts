@@ -339,6 +339,10 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   pong: {
     type: 'pong',
   },
+  daemon_status: {
+    type: 'daemon_status',
+    httpPort: 7821,
+  },
   generation_cancelled: {
     type: 'generation_cancelled',
   },

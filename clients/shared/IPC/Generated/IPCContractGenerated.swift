@@ -240,11 +240,30 @@ public struct IPCCuSessionCreate: Codable, Sendable {
     public let interactionType: String?
 }
 
+public struct IPCDaemonStatusMessage: Codable, Sendable {
+    public let type: String
+    public let httpPort: Double?
+}
+
+public struct IPCDynamicPagePreview: Codable, Sendable {
+    public let title: String
+    public let subtitle: String?
+    public let description: String?
+    public let icon: String?
+    public let metrics: [IPCDynamicPagePreviewMetric]?
+}
+
+public struct IPCDynamicPagePreviewMetric: Codable, Sendable {
+    public let label: String
+    public let value: String
+}
+
 public struct IPCDynamicPageSurfaceData: Codable, Sendable {
     public let html: String
     public let width: Int?
     public let height: Int?
     public let appId: String?
+    public let preview: IPCDynamicPagePreview?
 }
 
 public struct IPCErrorMessage: Codable, Sendable {

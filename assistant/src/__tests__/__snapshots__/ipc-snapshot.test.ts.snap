@@ -527,6 +527,13 @@ exports[`IPC message snapshots ServerMessage types pong serializes to expected J
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types daemon_status serializes to expected JSON 1`] = `
+{
+  "httpPort": 7821,
+  "type": "daemon_status",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types generation_cancelled serializes to expected JSON 1`] = `
 {
   "type": "generation_cancelled",

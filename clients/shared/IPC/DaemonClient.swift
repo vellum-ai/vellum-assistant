@@ -48,6 +48,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     @Published public var isConnected: Bool = false
 
+    /// The runtime HTTP server port, populated via `daemon_status` on connect.
+    /// `nil` means the HTTP server is not running.
+    @Published public var httpPort: Int?
+
     /// Whether a TrustRulesView sheet is currently open from any settings surface.
     /// Used to prevent multiple trust rules sheets from racing on the shared callback.
     @Published public var isTrustRulesSheetOpen: Bool = false
@@ -623,6 +627,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         receiveBuffer = Data()
         isConnected = false
+        httpPort = nil
 
         // Finish all subscriber streams so `for await` loops terminate
         // instead of hanging forever on disconnect.
@@ -703,6 +708,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             awaitingPong = false
             pongTimeoutTask?.cancel()
             pongTimeoutTask = nil
+        }
+
+        // Handle daemon status internally.
+        if case .daemonStatus(let status) = message {
+            httpPort = status.httpPort.flatMap { Int(exactly: $0) }
         }
 
         // Forward surface messages to registered callbacks.

@@ -42,12 +42,9 @@ struct MainWindowView: View {
     /// but requires complex window geometry inspection.
     private let trafficLightPadding: CGFloat = 78
 
-    private static var runtimeHttpPort: String {
-        ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
-    }
-
-    private static func pageURL(for appId: String) -> URL? {
-        URL(string: "http://localhost:\(runtimeHttpPort)/pages/\(appId)")
+    private func pageURL(for appId: String) -> URL? {
+        guard let port = daemonClient.httpPort else { return nil }
+        return URL(string: "http://localhost:\(port)/pages/\(appId)")
     }
 
     var body: some View {
@@ -450,7 +447,7 @@ struct MainWindowView: View {
                 Spacer()
 
                 // Share button — only shown when the runtime page server is active
-                if let appId = data.appId, let shareURL = Self.pageURL(for: appId) {
+                if let appId = data.appId, let shareURL = pageURL(for: appId) {
                     Menu {
                         Button {
                             NSPasteboard.general.clearContents()
