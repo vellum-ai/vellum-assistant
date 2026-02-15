@@ -394,6 +394,7 @@ async function resolvePendingConflictsForMessageJob(job: MemoryJob, config: Assi
       id: messages.id,
       role: messages.role,
       content: messages.content,
+      createdAt: messages.createdAt,
     })
     .from(messages)
     .where(eq(messages.id, messageId))
@@ -404,10 +405,11 @@ async function resolvePendingConflictsForMessageJob(job: MemoryJob, config: Assi
   if (userMessage.length === 0) return;
 
   const pending = listPendingConflictDetails(scopeId, 25);
-  if (pending.length === 0) return;
+  const eligible = pending.filter((conflict) => conflict.createdAt <= message.createdAt);
+  if (eligible.length === 0) return;
 
   let resolvedCount = 0;
-  for (const conflict of pending) {
+  for (const conflict of eligible) {
     const resolution = await resolveConflictClarification(
       {
         existingStatement: conflict.existingStatement,
@@ -430,6 +432,7 @@ async function resolvePendingConflictsForMessageJob(job: MemoryJob, config: Assi
     messageId,
     scopeId,
     pendingConflicts: pending.length,
+    eligibleConflicts: eligible.length,
     resolvedConflicts: resolvedCount,
   }, 'Processed pending conflict resolution job');
 }
