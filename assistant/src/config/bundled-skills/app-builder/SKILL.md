@@ -665,9 +665,11 @@ Call `app_create` with:
 
 Since `auto_open` defaults to `true`, the app will be displayed to the user as soon as it is created. You do **not** need to call `app_open` separately after `app_create` unless `auto_open` was explicitly set to `false`.
 
-#### Preview metadata
+#### Preview metadata (ui_show only)
 
 When calling `ui_show` with `surface_type: "dynamic_page"`, include a `preview` object in the `data` so that a compact preview card appears inline in chat. This lets the user see a summary of the app without switching to the workspace. The preview card includes a "View Output" button that opens the full page.
+
+Note: `preview` is a field in the `ui_show` data payload. It does not apply to `app_create` or `app_open`, which handle their own display logic and do not accept a `preview` argument.
 
 ```json
 {
@@ -695,7 +697,7 @@ Preview fields:
 - `icon` (optional): Single emoji representing the app
 - `metrics` (optional): Up to 3 key-value pills shown below the description (e.g., record counts, totals, status summaries). Only include metrics when the app has meaningful data to surface.
 
-Always include `preview` when creating or opening a dynamic page. Choose an icon and title that clearly communicate what the app is at a glance.
+Always include `preview` when calling `ui_show` with `surface_type: "dynamic_page"`. Choose an icon and title that clearly communicate what the app is at a glance.
 
 ### 5. Handle Iteration
 
