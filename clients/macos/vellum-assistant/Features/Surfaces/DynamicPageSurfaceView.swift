@@ -45,6 +45,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     let onPageChanged: ((String) -> Void)?
     /// Called with a base64-encoded PNG screenshot after the page finishes loading.
     let onSnapshotCaptured: ((String) -> Void)?
+    var onLinkOpen: ((String, [String: Any]?) -> Void)?
     /// When true, blocks all network requests to external origins and restricts navigation.
     let sandboxMode: Bool
     let topContentInset: CGFloat
@@ -58,6 +59,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         onCoordinatorReady: ((Coordinator) -> Void)? = nil,
         onPageChanged: ((String) -> Void)? = nil,
         onSnapshotCaptured: ((String) -> Void)? = nil,
+        onLinkOpen: ((String, [String: Any]?) -> Void)? = nil,
         sandboxMode: Bool = false,
         topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0
@@ -69,13 +71,18 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         self.onCoordinatorReady = onCoordinatorReady
         self.onPageChanged = onPageChanged
         self.onSnapshotCaptured = onSnapshotCaptured
+        self.onLinkOpen = onLinkOpen
         self.sandboxMode = sandboxMode
         self.topContentInset = topContentInset
         self.bottomContentInset = bottomContentInset
     }
 
     func makeCoordinator() -> Coordinator {
+<<<<<<< HEAD
         Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, currentHTML: data.html, sandboxMode: sandboxMode)
+=======
+        Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, onLinkOpen: onLinkOpen, currentHTML: data.html, sandboxMode: sandboxMode)
+>>>>>>> 96cab3e0 (feat: add vellum.openLink JS bridge and coordinator handler)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -124,6 +131,11 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 },
                 openExternal: function(url) {
                     window.webkit.messageHandlers.vellumBridge.postMessage({type: 'open_external', url: String(url)});
+                },
+                openLink: function(url, metadata) {
+                    window.webkit.messageHandlers.vellumBridge.postMessage({
+                        type: 'open_link', url: String(url), metadata: metadata || {}
+                    });
                 },
                 _confirmPending: {},
                 _confirmNextId: 1,
@@ -340,6 +352,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onAction = onAction
         context.coordinator.onDataRequest = onDataRequest
+        context.coordinator.onLinkOpen = onLinkOpen
 
         // Keep the coordinator's desired insets up-to-date so webView(_:didFinish:)
         // can re-inject the correct values after a page reload.
@@ -406,6 +419,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
         var onPageChanged: ((String) -> Void)?
         var onSnapshotCaptured: ((String) -> Void)?
+        var onLinkOpen: ((String, [String: Any]?) -> Void)?
         var currentHTML: String
         /// The page currently displayed in a multi-page app (e.g. "settings.html").
         var currentPage: String = "index.html"
@@ -424,6 +438,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?,
             onPageChanged: ((String) -> Void)?,
             onSnapshotCaptured: ((String) -> Void)?,
+            onLinkOpen: ((String, [String: Any]?) -> Void)? = nil,
             currentHTML: String,
             sandboxMode: Bool = false
         ) {
@@ -431,6 +446,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             self.onDataRequest = onDataRequest
             self.onPageChanged = onPageChanged
             self.onSnapshotCaptured = onSnapshotCaptured
+            self.onLinkOpen = onLinkOpen
             self.currentHTML = currentHTML
             self.sandboxMode = sandboxMode
         }
@@ -487,6 +503,20 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     return
                 }
                 NSWorkspace.shared.open(url)
+                return
+            }
+
+            // Handle openLink requests from the JS bridge.
+            if let type = body["type"] as? String, type == "open_link" {
+                guard let urlString = body["url"] as? String,
+                      let url = URL(string: urlString),
+                      let scheme = url.scheme?.lowercased(),
+                      ["http", "https"].contains(scheme) else {
+                    log.warning("open_link: invalid URL")
+                    return
+                }
+                let metadata = body["metadata"] as? [String: Any]
+                onLinkOpen?(urlString, metadata)
                 return
             }
 
