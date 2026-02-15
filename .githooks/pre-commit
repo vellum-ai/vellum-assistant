@@ -44,7 +44,7 @@ declare -a PATTERNS=(
 
     # Generic secret patterns
     "['\"]?[a-z0-9_]*secret[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}['\"]"
-    "['\"]?[a-z0-9_]*(api|access|private|secret|client|encryption|jwt|signing|auth|hmac|master|symmetric|asymmetric|verification|decryption|service|deploy|registry|webhook|database)[a-z0-9_]*key[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-]{16,}['\"]"
+    "['\"]?[a-z0-9_]*(api|access|private|secret|client|encryption|encrypt|jwt|signing|sign|auth|hmac|master|symmetric|asymmetric|shared|session|verification|verify|decryption|decrypt|service|deploy|registry|webhook|database|db)[a-z0-9_]*key[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-]{16,}['\"]"
 
     # Slack tokens
     "xox[baprs]-[0-9a-zA-Z]{10,}"
@@ -99,9 +99,17 @@ if [ "${1:-}" = "--self-test" ]; then
     SERVICE_KEY_LINE='service_key="svc_key_abcdefghij1234567890"'
     DATABASE_KEY_LINE='database_key="db_secret_key_1234567890abcde"'
 
+    # Short-form qualifiers that the longer forms (encryption, signing, etc.) do NOT cover
+    ENCRYPT_KEY_LINE='encrypt_key="ABCDEFGHIJKLMNOPQRSTUVWX"'
+    SIGN_KEY_LINE='sign_key="ab2c3d4e5f6g7h8i9j0klmnopqrst"'
+    VERIFY_KEY_LINE='verify_key="ab2c3d4e5f6g7h8i9j0klmnopqrst"'
+    DECRYPT_KEY_LINE='decrypt_key="ABCDEFGHIJKLMNOPQRSTUVWX"'
+    DB_KEY_LINE='db_key="db_secret_key_1234567890abcde"'
+    SESSION_KEY_LINE='session_key="session_abcdef123456789012"'
+    SHARED_KEY_LINE='shared_key="shared_abcdef12345678901"'
+
     # False-positive lines that must NOT match (plain identifiers, not secrets)
     SAFE_CACHE_KEY_LINE='redis.get("user_session_key_prefix")'
-    SAFE_SESSION_KEY_LINE='session_key = "user_session_key_prefix"'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -151,12 +159,36 @@ if [ "${1:-}" = "--self-test" ]; then
         echo -e "${RED}Self-test failed:${NC} database_key secret did not match"
         exit 1
     fi
-    if matches_secret_pattern "$SAFE_CACHE_KEY_LINE"; then
-        echo -e "${RED}Self-test failed:${NC} cache key identifier false positive"
+    if ! matches_secret_pattern "$ENCRYPT_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} encrypt_key secret did not match"
         exit 1
     fi
-    if matches_secret_pattern "$SAFE_SESSION_KEY_LINE"; then
-        echo -e "${RED}Self-test failed:${NC} session key assignment false positive"
+    if ! matches_secret_pattern "$SIGN_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} sign_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$VERIFY_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} verify_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$DECRYPT_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} decrypt_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$DB_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} db_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$SESSION_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} session_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$SHARED_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} shared_key secret did not match"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_CACHE_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} cache key identifier false positive"
         exit 1
     fi
 
