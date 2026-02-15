@@ -43,15 +43,7 @@ public struct InlineSurfaceRouter: View {
                 actionButtons
             }
         }
-        .padding(VSpacing.lg)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
-        )
+        .inlineWidgetCard()
         .overlay(alignment: .topTrailing) {
             if isDynamicPreview {
                 Button {
@@ -76,7 +68,6 @@ public struct InlineSurfaceRouter: View {
                 .padding(VSpacing.sm)
             }
         }
-        .vShadow(VShadow.sm)
         // Dynamic page previews should be compact, not stretch to fill.
         // Use maxWidth instead of fixedSize so narrow parent views still constrain the card.
         .frame(maxWidth: isDynamicPreview ? 350 : .infinity, alignment: .leading)
