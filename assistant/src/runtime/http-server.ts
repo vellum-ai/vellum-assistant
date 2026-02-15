@@ -5,6 +5,8 @@
  * `RUNTIME_HTTP_PORT` is set (default: disabled).
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { getLogger } from '../util/logger.js';
 import {
@@ -19,6 +21,10 @@ import { renderHistoryContent, mergeToolResults } from '../daemon/handlers.js';
 import { getConfig } from '../config/loader.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 import { addRule } from '../permissions/trust-store.js';
+import { getApp } from '../memory/app-store.js';
+import * as sharedAppLinksStore from '../memory/shared-app-links-store.js';
+import JSZip from 'jszip';
+import type { AppManifest } from '../bundler/manifest.js';
 
 const log = getLogger('runtime-http');
 
@@ -52,16 +58,31 @@ export interface RuntimeHttpServerOptions {
   runOrchestrator?: RunOrchestrator;
 }
 
+export interface RuntimeAttachmentMetadata {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  kind: string;
+}
+
 interface RuntimeMessagePayload {
   id: string;
   role: string;
   content: string;
   timestamp: string;
-  attachments: unknown[];
+  attachments: RuntimeAttachmentMetadata[];
   toolCalls?: Array<{ name: string; input: Record<string, unknown>; result?: string; isError?: boolean }>;
 }
 
 const SUGGESTION_CACHE_MAX = 100;
+
+const HTML_ESCAPE_MAP: Record<string, string> = {
+  '<': '&lt;',
+  '>': '&gt;',
+  '&': '&amp;',
+  '"': '&quot;',
+};
 
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
@@ -71,6 +92,7 @@ export class RuntimeHttpServer {
   private runOrchestrator?: RunOrchestrator;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
+  private designSystemCss: string | null = null;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
@@ -99,6 +121,58 @@ export class RuntimeHttpServer {
   private async handleRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
+
+    // Serve shareable app pages
+    const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
+    if (pagesMatch && req.method === 'GET') {
+      try {
+        return this.handleServePage(pagesMatch[1]);
+      } catch (err) {
+        log.error({ err, appId: pagesMatch[1] }, 'Runtime HTTP handler error serving page');
+        return Response.json({ error: 'Internal server error' }, { status: 500 });
+      }
+    }
+
+    // ── Cloud sharing endpoints ───────────────────────────────────────
+    if (path === '/v1/apps/share' && req.method === 'POST') {
+      try {
+        return await this.handleShareApp(req);
+      } catch (err) {
+        log.error({ err }, 'Runtime HTTP handler error sharing app');
+        return Response.json({ error: 'Internal server error' }, { status: 500 });
+      }
+    }
+
+    const sharedTokenMatch = path.match(/^\/v1\/apps\/shared\/([^/]+)$/);
+    if (sharedTokenMatch) {
+      const shareToken = sharedTokenMatch[1];
+      if (req.method === 'GET') {
+        try {
+          return this.handleDownloadSharedApp(shareToken);
+        } catch (err) {
+          log.error({ err, shareToken }, 'Runtime HTTP handler error downloading shared app');
+          return Response.json({ error: 'Internal server error' }, { status: 500 });
+        }
+      }
+      if (req.method === 'DELETE') {
+        try {
+          return this.handleDeleteSharedApp(shareToken);
+        } catch (err) {
+          log.error({ err, shareToken }, 'Runtime HTTP handler error deleting shared app');
+          return Response.json({ error: 'Internal server error' }, { status: 500 });
+        }
+      }
+    }
+
+    const sharedMetadataMatch = path.match(/^\/v1\/apps\/shared\/([^/]+)\/metadata$/);
+    if (sharedMetadataMatch && req.method === 'GET') {
+      try {
+        return this.handleGetSharedAppMetadata(sharedMetadataMatch[1]);
+      } catch (err) {
+        log.error({ err, shareToken: sharedMetadataMatch[1] }, 'Runtime HTTP handler error getting shared app metadata');
+        return Response.json({ error: 'Internal server error' }, { status: 500 });
+      }
+    }
 
     // Match /v1/assistants/:assistantId/<endpoint>
     const match = path.match(/^\/v1\/assistants\/([^/]+)\/(.+)$/);
@@ -131,6 +205,12 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'attachments' && req.method === 'DELETE') {
         return await this.handleDeleteAttachment(assistantId, req);
+      }
+
+      // Match attachments/:attachmentId
+      const attachmentMatch = endpoint.match(/^attachments\/([^/]+)$/);
+      if (attachmentMatch && req.method === 'GET') {
+        return this.handleGetAttachment(assistantId, attachmentMatch[1]);
       }
 
       if (endpoint === 'suggestion' && req.method === 'GET') {
@@ -214,6 +294,7 @@ export class RuntimeHttpServer {
         text: rendered.text,
         timestamp: msg.createdAt,
         toolCalls: rendered.toolCalls,
+        toolCallsBeforeText: rendered.toolCallsBeforeText,
         id: msg.id,
       };
     });
@@ -223,14 +304,29 @@ export class RuntimeHttpServer {
     // internal user messages from the visible history.
     const merged = mergeToolResults(parsed);
 
-    const messages: RuntimeMessagePayload[] = merged.map((m) => ({
-      id: m.id ?? '',
-      role: m.role,
-      content: m.text,
-      timestamp: new Date(m.timestamp).toISOString(),
-      attachments: [],
-      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
-    }));
+    const messages: RuntimeMessagePayload[] = merged.map((m) => {
+      let msgAttachments: RuntimeAttachmentMetadata[] = [];
+      if (m.role === 'assistant' && m.id) {
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id, assistantId);
+        if (linked.length > 0) {
+          msgAttachments = linked.map((a) => ({
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            sizeBytes: a.sizeBytes,
+            kind: a.kind,
+          }));
+        }
+      }
+      return {
+        id: m.id ?? '',
+        role: m.role,
+        content: m.text,
+        timestamp: new Date(m.timestamp).toISOString(),
+        attachments: msgAttachments,
+        ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
+      };
+    });
 
     return Response.json({ messages });
   }
@@ -784,13 +880,24 @@ export class RuntimeHttpServer {
           let parsed: unknown;
           try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
           const rendered = renderHistoryContent(parsed);
-          if (rendered.text) {
+
+          const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id, assistantId);
+          const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            sizeBytes: a.sizeBytes,
+            kind: a.kind,
+          }));
+
+          // Include the reply if it has text or attachments
+          if (rendered.text || replyAttachments.length > 0) {
             assistantMessage = {
               id: msgs[i].id,
               role: 'assistant',
               content: rendered.text,
               timestamp: new Date(msgs[i].createdAt).toISOString(),
-              attachments: [],
+              attachments: replyAttachments,
             };
           }
           break;
@@ -837,5 +944,152 @@ export class RuntimeHttpServer {
     }
 
     return new Response(null, { status: 204 });
+  }
+
+  // ── Shareable page endpoint ──────────────────────────────────────────
+
+  private loadDesignSystemCss(): string {
+    if (this.designSystemCss !== null) return this.designSystemCss;
+    try {
+      const cssPath = join(
+        import.meta.dirname ?? __dirname,
+        '../../../clients/macos/vellum-assistant/Resources/vellum-design-system.css',
+      );
+      this.designSystemCss = readFileSync(cssPath, 'utf-8');
+    } catch {
+      log.warn('Design system CSS not found, pages will render without styles');
+      this.designSystemCss = '';
+    }
+    return this.designSystemCss;
+  }
+
+  private handleServePage(appId: string): Response {
+    const app = getApp(appId);
+    if (!app) {
+      return Response.json({ error: 'App not found' }, { status: 404 });
+    }
+
+    const css = this.loadDesignSystemCss();
+    const escapedName = app.name.replace(/[<>&"]/g, (c) => HTML_ESCAPE_MAP[c] ?? c);
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapedName}</title>
+  <style>${css}</style>
+</head>
+<body>
+${app.htmlDefinition}
+</body>
+</html>`;
+
+    return new Response(html, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Security-Policy': "default-src 'self' 'unsafe-inline'; img-src * data:; font-src *;",
+      },
+    });
+  }
+
+  // ── Attachment fetch endpoint ──────────────────────────────────────
+
+  private handleGetAttachment(assistantId: string, attachmentId: string): Response {
+    const attachment = attachmentsStore.getAttachmentById(assistantId, attachmentId);
+    if (!attachment) {
+      return Response.json({ error: 'Attachment not found' }, { status: 404 });
+    }
+
+    return Response.json({
+      id: attachment.id,
+      filename: attachment.originalFilename,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      kind: attachment.kind,
+      data: attachment.dataBase64,
+    });
+  }
+
+  // ── Cloud sharing endpoints ──────────────────────────────────────
+
+  private async handleShareApp(req: Request): Promise<Response> {
+    const rawBody = await req.arrayBuffer();
+    const bundleData = Buffer.from(rawBody);
+
+    if (bundleData.length === 0) {
+      return Response.json({ error: 'Empty body' }, { status: 400 });
+    }
+
+    // Validate it's a valid zip with a manifest.json
+    let manifest: AppManifest;
+    try {
+      const zip = await JSZip.loadAsync(bundleData);
+      const manifestFile = zip.file('manifest.json');
+      if (!manifestFile) {
+        return Response.json({ error: 'Invalid bundle: missing manifest.json' }, { status: 400 });
+      }
+      const manifestText = await manifestFile.async('text');
+      manifest = JSON.parse(manifestText) as AppManifest;
+      if (!manifest.name || !manifest.entry) {
+        return Response.json({ error: 'Invalid manifest: missing required fields' }, { status: 400 });
+      }
+    } catch (err) {
+      if (err instanceof Response) throw err;
+      return Response.json({ error: 'Invalid zip file' }, { status: 400 });
+    }
+
+    const { shareToken } = sharedAppLinksStore.createSharedAppLink(bundleData, manifest);
+
+    return Response.json({
+      shareToken,
+      shareUrl: `/v1/apps/shared/${shareToken}`,
+      bundleSizeBytes: bundleData.length,
+    });
+  }
+
+  private handleDownloadSharedApp(shareToken: string): Response {
+    const record = sharedAppLinksStore.getSharedAppLink(shareToken);
+    if (!record) {
+      return Response.json({ error: 'Shared app not found' }, { status: 404 });
+    }
+
+    sharedAppLinksStore.incrementDownloadCount(shareToken);
+
+    return new Response(new Uint8Array(record.bundleData), {
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': 'attachment; filename="app.vellumapp"',
+      },
+    });
+  }
+
+  private handleGetSharedAppMetadata(shareToken: string): Response {
+    const record = sharedAppLinksStore.getSharedAppLink(shareToken);
+    if (!record) {
+      return Response.json({ error: 'Shared app not found' }, { status: 404 });
+    }
+
+    let manifest: AppManifest;
+    try {
+      manifest = JSON.parse(record.manifestJson) as AppManifest;
+    } catch {
+      return Response.json({ error: 'Corrupted manifest data' }, { status: 500 });
+    }
+
+    return Response.json({
+      name: manifest.name,
+      description: manifest.description,
+      icon: manifest.icon,
+      bundleSizeBytes: record.bundleSizeBytes,
+    });
+  }
+
+  private handleDeleteSharedApp(shareToken: string): Response {
+    const deleted = sharedAppLinksStore.deleteSharedAppLinkByToken(shareToken);
+    if (!deleted) {
+      return Response.json({ error: 'Shared app not found' }, { status: 404 });
+    }
+    return Response.json({ success: true });
   }
 }

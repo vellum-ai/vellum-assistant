@@ -61,6 +61,7 @@ struct TrustRulesView: View {
         }
         .frame(width: 600, height: 500)
         .onAppear {
+            daemonClient.isTrustRulesSheetOpen = true
             daemonClient.onTrustRulesListResponse = { items in
                 rules = items
                 isLoading = false
@@ -69,6 +70,7 @@ struct TrustRulesView: View {
         }
         .onDisappear {
             daemonClient.onTrustRulesListResponse = nil
+            daemonClient.isTrustRulesSheetOpen = false
         }
         .sheet(isPresented: $showingAddSheet) {
             TrustRuleFormView(daemonClient: daemonClient) {
@@ -147,7 +149,10 @@ private struct TrustRuleRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text(rule.scope == "" || rule.scope == "*" ? "Everywhere" : rule.scope)
+                HStack(spacing: 6) {
+                    Text(rule.scope == "" || rule.scope == "*" ? "everywhere" : rule.scope)
+                    Text("priority \(rule.priority)")
+                }
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)

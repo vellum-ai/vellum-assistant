@@ -1,7 +1,6 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
 import {
   createAccount,
   listAccounts,
@@ -125,4 +124,4 @@ class AccountManageTool implements Tool {
   }
 }
 
-registerTool(new AccountManageTool());
+export const accountManageTool = new AccountManageTool();

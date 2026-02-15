@@ -43,7 +43,9 @@ import { addRule, removeRule, updateRule, findMatchingRule, findDenyRule, findHi
 import { getDefaultRuleTemplates } from '../permissions/defaults.js';
 
 const trustPath = join(testDir, 'protected', 'trust.json');
-const NUM_DEFAULTS = getDefaultRuleTemplates().length;
+const DEFAULT_TEMPLATES = getDefaultRuleTemplates();
+const NUM_DEFAULTS = DEFAULT_TEMPLATES.length;
+const DEFAULT_PRIORITY_BY_ID = new Map(DEFAULT_TEMPLATES.map((t) => [t.id, t.priority]));
 
 describe('Trust Store', () => {
   beforeEach(() => {
@@ -108,8 +110,9 @@ describe('Trust Store', () => {
       addRule('bash', 'high *', '/tmp', 'allow', 2);
       addRule('bash', 'med *', '/tmp', 'allow', 1);
       const rules = getAllRules();
-      // Default deny rules are at priority 1000, then user rules
-      expect(rules[0].priority).toBe(1000);
+      // Default ask rules have higher priority than user rules
+      const maxDefaultPriority = Math.max(...DEFAULT_TEMPLATES.map((t) => t.priority));
+      expect(rules[0].priority).toBe(maxDefaultPriority);
       const userRules = rules.filter((r) => !r.id.startsWith('default:'));
       expect(userRules[0].priority).toBe(2);
       expect(userRules[1].priority).toBe(1);
@@ -576,19 +579,45 @@ describe('Trust Store', () => {
       expect(defaults).toHaveLength(NUM_DEFAULTS);
       for (const rule of defaults) {
         expect(rule.decision).toBe('ask');
-        expect(rule.priority).toBe(1000);
+        expect(rule.priority).toBe(DEFAULT_PRIORITY_BY_ID.get(rule.id)!);
         expect(rule.scope).toBe('everywhere');
+      }
+
+      const protectedDefaults = defaults.filter((rule) => rule.id.endsWith('-protected'));
+      expect(protectedDefaults).toHaveLength(3);
+      for (const rule of protectedDefaults) {
         expect(rule.pattern).toContain(`${testDir}/protected/`);
       }
     });
 
-    test('default rules cover file_read, file_write, and file_edit', () => {
+    test('default rules cover file, host file, and host shell tools', () => {
       const rules = getAllRules();
       const defaultTools = rules
         .filter((r) => r.id.startsWith('default:'))
         .map((r) => r.tool)
         .sort();
-      expect(defaultTools).toEqual(['file_edit', 'file_read', 'file_write']);
+      expect(defaultTools).toEqual([
+        'cu_click',
+        'cu_double_click',
+        'cu_drag',
+        'cu_key',
+        'cu_open_app',
+        'cu_right_click',
+        'cu_run_applescript',
+        'cu_scroll',
+        'cu_type_text',
+        'cu_wait',
+        'delete_managed_skill',
+        'file_edit',
+        'file_read',
+        'file_write',
+        'host_bash',
+        'host_file_edit',
+        'host_file_read',
+        'host_file_write',
+        'request_computer_control',
+        'scaffold_managed_skill',
+      ]);
     });
 
     test('default rules are not duplicated on reload', () => {
@@ -625,7 +654,7 @@ describe('Trust Store', () => {
       expect(rules.find((r) => r.id === 'v1-user-rule')!.priority).toBe(100);
       const defaults = rules.filter((r) => r.id.startsWith('default:'));
       expect(defaults).toHaveLength(NUM_DEFAULTS);
-      expect(defaults.every((r) => r.priority === 1000)).toBe(true);
+      expect(defaults.every((r) => r.priority === DEFAULT_PRIORITY_BY_ID.get(r.id))).toBe(true);
     });
 
     test('removed default rule is re-backfilled on next load', () => {
@@ -647,7 +676,7 @@ describe('Trust Store', () => {
       const match = findHighestPriorityRule('file_read', [`file_read:${protectedPath}`], '/tmp');
       expect(match).not.toBeNull();
       expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(1000);
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-file_read-protected')!);
     });
 
     test('findHighestPriorityRule matches default ask for protected file_write', () => {
@@ -662,6 +691,54 @@ describe('Trust Store', () => {
       const match = findHighestPriorityRule('file_edit', [`file_edit:${protectedPath}`], '/tmp');
       expect(match).not.toBeNull();
       expect(match!.decision).toBe('ask');
+    });
+
+    test('findHighestPriorityRule matches default ask for host_file_read', () => {
+      const match = findHighestPriorityRule('host_file_read', ['host_file_read:/etc/hosts'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-host_file_read-global');
+      expect(match!.decision).toBe('ask');
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-host_file_read-global')!);
+    });
+
+    test('findHighestPriorityRule matches default ask for host_file_write', () => {
+      const match = findHighestPriorityRule('host_file_write', ['host_file_write:/etc/hosts'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-host_file_write-global');
+      expect(match!.decision).toBe('ask');
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-host_file_write-global')!);
+    });
+
+    test('findHighestPriorityRule matches default ask for host_file_edit', () => {
+      const match = findHighestPriorityRule('host_file_edit', ['host_file_edit:/etc/hosts'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-host_file_edit-global');
+      expect(match!.decision).toBe('ask');
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-host_file_edit-global')!);
+    });
+
+    test('findHighestPriorityRule matches default ask for host_bash', () => {
+      const match = findHighestPriorityRule('host_bash', ['ls'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-host_bash-global');
+      expect(match!.decision).toBe('ask');
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-host_bash-global')!);
+    });
+
+    test('findHighestPriorityRule matches default ask for cu_click', () => {
+      const match = findHighestPriorityRule('cu_click', ['cu_click:'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-cu_click-global');
+      expect(match!.decision).toBe('ask');
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-cu_click-global')!);
+    });
+
+    test('findHighestPriorityRule matches default ask for request_computer_control', () => {
+      const match = findHighestPriorityRule('request_computer_control', ['request_computer_control:'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-request_computer_control-global');
+      expect(match!.decision).toBe('ask');
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-request_computer_control-global')!);
     });
 
     test('default ask does not affect files outside protected directory', () => {

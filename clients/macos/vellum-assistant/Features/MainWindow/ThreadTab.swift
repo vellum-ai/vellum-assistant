@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import SwiftUI
 
 /// A thread tab component that renders a tab with thread-specific styling.
@@ -39,6 +40,8 @@ struct ThreadTab: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(VColor.textMuted)
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close \(label)")

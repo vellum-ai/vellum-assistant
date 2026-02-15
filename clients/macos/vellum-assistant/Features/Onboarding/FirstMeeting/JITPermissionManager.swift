@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import Foundation
 import Speech
 import SwiftUI

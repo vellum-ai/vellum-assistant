@@ -19,6 +19,10 @@ let package = Package(
         .executable(
             name: "vellum-assistant",
             targets: ["vellum-assistant"]
+        ),
+        .executable(
+            name: "vellum-assistant-ios",
+            targets: ["vellum-assistant-ios"]
         )
     ],
     dependencies: [
@@ -50,7 +54,9 @@ let package = Package(
                 .process("Resources/background.png"),
                 .process("Resources/Fonts"),
                 .copy("Resources/Recipes"),
-                .process("Resources/Onboarding")
+                .process("Resources/Onboarding"),
+                .process("Resources/vellum-design-system.css"),
+                .process("Resources/vellum-widgets.js")
             ],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),
@@ -73,6 +79,19 @@ let package = Package(
             name: "vellum-assistantTests",
             dependencies: ["VellumAssistantLib"],
             path: "macos/vellum-assistantTests"
+        ),
+        .executableTarget(
+            name: "vellum-assistant-ios",
+            dependencies: ["VellumAssistantShared"],
+            path: "ios",
+            exclude: ["Resources/Info.plist"],
+            resources: [
+                .process("Resources/Assets.xcassets")
+            ],
+            linkerSettings: [
+                .linkedFramework("UIKit", .when(platforms: [.iOS])),
+                .linkedFramework("SwiftUI", .when(platforms: [.iOS]))
+            ]
         )
     ]
 )

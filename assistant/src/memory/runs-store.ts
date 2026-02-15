@@ -21,6 +21,7 @@ export interface PendingConfirmation {
   toolUseId: string;
   input: Record<string, unknown>;
   riskLevel: string;
+  executionTarget?: 'sandbox' | 'host';
   allowlistOptions?: Array<{ label: string; pattern: string }>;
   scopeOptions?: Array<{ label: string; scope: string }>;
 }

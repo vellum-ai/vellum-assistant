@@ -4,6 +4,8 @@ import { getDataDir } from '../util/platform.js';
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks'] as const;
 const VALID_SECRET_ACTIONS = ['redact', 'warn', 'block'] as const;
 const VALID_MEMORY_EMBEDDING_PROVIDERS = ['auto', 'local', 'openai', 'gemini', 'ollama'] as const;
+const VALID_SANDBOX_BACKENDS = ['native', 'docker'] as const;
+const VALID_DOCKER_NETWORKS = ['none', 'bridge'] as const;
 
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
@@ -23,10 +25,52 @@ export const TimeoutConfigSchema = z.object({
     .default(300),
 });
 
+export const DockerConfigSchema = z.object({
+  image: z
+    .string({ error: 'sandbox.docker.image must be a string' })
+    .default('node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687'),
+  shell: z
+    .string({ error: 'sandbox.docker.shell must be a string' })
+    .default('sh'),
+  cpus: z
+    .number({ error: 'sandbox.docker.cpus must be a number' })
+    .finite('sandbox.docker.cpus must be finite')
+    .positive('sandbox.docker.cpus must be a positive number')
+    .default(1),
+  memoryMb: z
+    .number({ error: 'sandbox.docker.memoryMb must be a number' })
+    .int('sandbox.docker.memoryMb must be an integer')
+    .positive('sandbox.docker.memoryMb must be a positive integer')
+    .default(512),
+  pidsLimit: z
+    .number({ error: 'sandbox.docker.pidsLimit must be a number' })
+    .int('sandbox.docker.pidsLimit must be an integer')
+    .positive('sandbox.docker.pidsLimit must be a positive integer')
+    .default(256),
+  network: z
+    .enum(VALID_DOCKER_NETWORKS, {
+      error: `sandbox.docker.network must be one of: ${VALID_DOCKER_NETWORKS.join(', ')}`,
+    })
+    .default('none'),
+});
+
 export const SandboxConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'sandbox.enabled must be a boolean' })
-    .default(false),
+    .default(true),
+  backend: z
+    .enum(VALID_SANDBOX_BACKENDS, {
+      error: `sandbox.backend must be one of: ${VALID_SANDBOX_BACKENDS.join(', ')}`,
+    })
+    .default('docker'),
+  docker: DockerConfigSchema.default({
+    image: 'node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687',
+    shell: 'sh',
+    cpus: 1,
+    memoryMb: 512,
+    pidsLimit: 256,
+    network: 'none',
+  }),
 });
 
 export const RateLimitConfigSchema = z.object({
@@ -175,6 +219,27 @@ export const MemoryRerankingConfigSchema = z.object({
     .default(20),
 });
 
+export const MemoryDynamicBudgetConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.retrieval.dynamicBudget.enabled must be a boolean' })
+    .default(true),
+  minInjectTokens: z
+    .number({ error: 'memory.retrieval.dynamicBudget.minInjectTokens must be a number' })
+    .int('memory.retrieval.dynamicBudget.minInjectTokens must be an integer')
+    .positive('memory.retrieval.dynamicBudget.minInjectTokens must be a positive integer')
+    .default(1200),
+  maxInjectTokens: z
+    .number({ error: 'memory.retrieval.dynamicBudget.maxInjectTokens must be a number' })
+    .int('memory.retrieval.dynamicBudget.maxInjectTokens must be an integer')
+    .positive('memory.retrieval.dynamicBudget.maxInjectTokens must be a positive integer')
+    .default(10000),
+  targetHeadroomTokens: z
+    .number({ error: 'memory.retrieval.dynamicBudget.targetHeadroomTokens must be a number' })
+    .int('memory.retrieval.dynamicBudget.targetHeadroomTokens must be an integer')
+    .positive('memory.retrieval.dynamicBudget.targetHeadroomTokens must be a positive integer')
+    .default(10000),
+});
+
 /**
  * Per-kind freshness windows (in days). Items older than their window
  * (based on lastSeenAt) are down-ranked unless recently reinforced.
@@ -269,6 +334,12 @@ export const MemoryRetrievalConfigSchema = z.object({
       error: 'memory.retrieval.scopePolicy must be "allow_global_fallback" or "strict"',
     })
     .default('allow_global_fallback'),
+  dynamicBudget: MemoryDynamicBudgetConfigSchema.default({
+    enabled: true,
+    minInjectTokens: 1200,
+    maxInjectTokens: 10000,
+    targetHeadroomTokens: 10000,
+  }),
 });
 
 export const MemorySegmentationConfigSchema = z.object({
@@ -298,6 +369,27 @@ export const MemoryRetentionConfigSchema = z.object({
     .default(true),
 });
 
+export const MemoryCleanupConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.cleanup.enabled must be a boolean' })
+    .default(true),
+  enqueueIntervalMs: z
+    .number({ error: 'memory.cleanup.enqueueIntervalMs must be a number' })
+    .int('memory.cleanup.enqueueIntervalMs must be an integer')
+    .positive('memory.cleanup.enqueueIntervalMs must be a positive integer')
+    .default(6 * 60 * 60 * 1000),
+  resolvedConflictRetentionMs: z
+    .number({ error: 'memory.cleanup.resolvedConflictRetentionMs must be a number' })
+    .int('memory.cleanup.resolvedConflictRetentionMs must be an integer')
+    .positive('memory.cleanup.resolvedConflictRetentionMs must be a positive integer')
+    .default(30 * 24 * 60 * 60 * 1000),
+  supersededItemRetentionMs: z
+    .number({ error: 'memory.cleanup.supersededItemRetentionMs must be a number' })
+    .int('memory.cleanup.supersededItemRetentionMs must be an integer')
+    .positive('memory.cleanup.supersededItemRetentionMs must be a positive integer')
+    .default(30 * 24 * 60 * 60 * 1000),
+});
+
 export const MemoryExtractionConfigSchema = z.object({
   useLLM: z
     .boolean({ error: 'memory.extraction.useLLM must be a boolean' })
@@ -317,6 +409,85 @@ export const MemoryEntityConfigSchema = z.object({
   model: z
     .string({ error: 'memory.entity.model must be a string' })
     .default('claude-haiku-4-5-20251001'),
+  extractRelations: z.object({
+    enabled: z
+      .boolean({ error: 'memory.entity.extractRelations.enabled must be a boolean' })
+      .default(true),
+    backfillBatchSize: z
+      .number({ error: 'memory.entity.extractRelations.backfillBatchSize must be a number' })
+      .int('memory.entity.extractRelations.backfillBatchSize must be an integer')
+      .positive('memory.entity.extractRelations.backfillBatchSize must be a positive integer')
+      .default(200),
+  }).default({
+    enabled: true,
+    backfillBatchSize: 200,
+  }),
+  relationRetrieval: z.object({
+    enabled: z
+      .boolean({ error: 'memory.entity.relationRetrieval.enabled must be a boolean' })
+      .default(true),
+    maxSeedEntities: z
+      .number({ error: 'memory.entity.relationRetrieval.maxSeedEntities must be a number' })
+      .int('memory.entity.relationRetrieval.maxSeedEntities must be an integer')
+      .positive('memory.entity.relationRetrieval.maxSeedEntities must be a positive integer')
+      .default(8),
+    maxNeighborEntities: z
+      .number({ error: 'memory.entity.relationRetrieval.maxNeighborEntities must be a number' })
+      .int('memory.entity.relationRetrieval.maxNeighborEntities must be an integer')
+      .positive('memory.entity.relationRetrieval.maxNeighborEntities must be a positive integer')
+      .default(20),
+    maxEdges: z
+      .number({ error: 'memory.entity.relationRetrieval.maxEdges must be a number' })
+      .int('memory.entity.relationRetrieval.maxEdges must be an integer')
+      .positive('memory.entity.relationRetrieval.maxEdges must be a positive integer')
+      .default(40),
+    neighborScoreMultiplier: z
+      .number({ error: 'memory.entity.relationRetrieval.neighborScoreMultiplier must be a number' })
+      .gt(0, 'memory.entity.relationRetrieval.neighborScoreMultiplier must be > 0')
+      .lte(1, 'memory.entity.relationRetrieval.neighborScoreMultiplier must be <= 1')
+      .default(0.7),
+  }).default({
+    enabled: true,
+    maxSeedEntities: 8,
+    maxNeighborEntities: 20,
+    maxEdges: 40,
+    neighborScoreMultiplier: 0.7,
+  }),
+});
+
+export const MemoryConflictsConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.conflicts.enabled must be a boolean' })
+    .default(true),
+  gateMode: z
+    .enum(['soft'], { error: 'memory.conflicts.gateMode must be "soft"' })
+    .default('soft'),
+  reaskCooldownTurns: z
+    .number({ error: 'memory.conflicts.reaskCooldownTurns must be a number' })
+    .int('memory.conflicts.reaskCooldownTurns must be an integer')
+    .positive('memory.conflicts.reaskCooldownTurns must be a positive integer')
+    .default(3),
+  resolverLlmTimeoutMs: z
+    .number({ error: 'memory.conflicts.resolverLlmTimeoutMs must be a number' })
+    .int('memory.conflicts.resolverLlmTimeoutMs must be an integer')
+    .positive('memory.conflicts.resolverLlmTimeoutMs must be a positive integer')
+    .default(12000),
+  relevanceThreshold: z
+    .number({ error: 'memory.conflicts.relevanceThreshold must be a number' })
+    .min(0, 'memory.conflicts.relevanceThreshold must be >= 0')
+    .max(1, 'memory.conflicts.relevanceThreshold must be <= 1')
+    .default(0.3),
+});
+
+export const MemoryProfileConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.profile.enabled must be a boolean' })
+    .default(true),
+  maxInjectTokens: z
+    .number({ error: 'memory.profile.maxInjectTokens must be a number' })
+    .int('memory.profile.maxInjectTokens must be an integer')
+    .positive('memory.profile.maxInjectTokens must be a positive integer')
+    .default(800),
 });
 
 export const MemorySummarizationConfigSchema = z.object({
@@ -365,6 +536,12 @@ export const MemoryConfigSchema = z.object({
       reinforcementShieldDays: 7,
     },
     scopePolicy: 'allow_global_fallback',
+    dynamicBudget: {
+      enabled: true,
+      minInjectTokens: 1200,
+      maxInjectTokens: 10000,
+      targetHeadroomTokens: 10000,
+    },
   }),
   segmentation: MemorySegmentationConfigSchema.default({
     targetTokens: 450,
@@ -375,6 +552,12 @@ export const MemoryConfigSchema = z.object({
   }),
   retention: MemoryRetentionConfigSchema.default({
     keepRawForever: true,
+  }),
+  cleanup: MemoryCleanupConfigSchema.default({
+    enabled: true,
+    enqueueIntervalMs: 6 * 60 * 60 * 1000,
+    resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
+    supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
   }),
   extraction: MemoryExtractionConfigSchema.default({
     useLLM: true,
@@ -388,6 +571,28 @@ export const MemoryConfigSchema = z.object({
   entity: MemoryEntityConfigSchema.default({
     enabled: true,
     model: 'claude-haiku-4-5-20251001',
+    extractRelations: {
+      enabled: true,
+      backfillBatchSize: 200,
+    },
+    relationRetrieval: {
+      enabled: true,
+      maxSeedEntities: 8,
+      maxNeighborEntities: 20,
+      maxEdges: 40,
+      neighborScoreMultiplier: 0.7,
+    },
+  }),
+  conflicts: MemoryConflictsConfigSchema.default({
+    enabled: true,
+    gateMode: 'soft',
+    reaskCooldownTurns: 3,
+    resolverLlmTimeoutMs: 12000,
+    relevanceThreshold: 0.3,
+  }),
+  profile: MemoryProfileConfigSchema.default({
+    enabled: true,
+    maxInjectTokens: 800,
   }),
 });
 
@@ -419,6 +624,41 @@ export const SkillsInstallConfigSchema = z.object({
   nodeManager: z.enum(['npm', 'pnpm', 'yarn', 'bun'], {
     error: 'skills.install.nodeManager must be one of: npm, pnpm, yarn, bun',
   }).default('npm'),
+});
+
+export const SwarmConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'swarm.enabled must be a boolean' })
+    .default(true),
+  maxWorkers: z
+    .number({ error: 'swarm.maxWorkers must be a number' })
+    .int('swarm.maxWorkers must be an integer')
+    .positive('swarm.maxWorkers must be a positive integer')
+    .max(6, 'swarm.maxWorkers must be at most 6')
+    .default(3),
+  maxTasks: z
+    .number({ error: 'swarm.maxTasks must be a number' })
+    .int('swarm.maxTasks must be an integer')
+    .positive('swarm.maxTasks must be a positive integer')
+    .max(20, 'swarm.maxTasks must be at most 20')
+    .default(8),
+  maxRetriesPerTask: z
+    .number({ error: 'swarm.maxRetriesPerTask must be a number' })
+    .int('swarm.maxRetriesPerTask must be an integer')
+    .nonnegative('swarm.maxRetriesPerTask must be a non-negative integer')
+    .max(3, 'swarm.maxRetriesPerTask must be at most 3')
+    .default(1),
+  workerTimeoutSec: z
+    .number({ error: 'swarm.workerTimeoutSec must be a number' })
+    .int('swarm.workerTimeoutSec must be an integer')
+    .positive('swarm.workerTimeoutSec must be a positive integer')
+    .default(900),
+  plannerModel: z
+    .string({ error: 'swarm.plannerModel must be a string' })
+    .default('claude-haiku-4-5-20251001'),
+  synthesizerModel: z
+    .string({ error: 'swarm.synthesizerModel must be a string' })
+    .default('claude-sonnet-4-5-20250929'),
 });
 
 export const SkillsConfigSchema = z.object({
@@ -493,6 +733,12 @@ export const AssistantConfigSchema = z.object({
         reinforcementShieldDays: 7,
       },
       scopePolicy: 'allow_global_fallback',
+      dynamicBudget: {
+        enabled: true,
+        minInjectTokens: 1200,
+        maxInjectTokens: 10000,
+        targetHeadroomTokens: 10000,
+      },
     },
     segmentation: {
       targetTokens: 450,
@@ -503,6 +749,12 @@ export const AssistantConfigSchema = z.object({
     },
     retention: {
       keepRawForever: true,
+    },
+    cleanup: {
+      enabled: true,
+      enqueueIntervalMs: 6 * 60 * 60 * 1000,
+      resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
+      supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
     },
     extraction: {
       useLLM: true,
@@ -516,6 +768,28 @@ export const AssistantConfigSchema = z.object({
     entity: {
       enabled: true,
       model: 'claude-haiku-4-5-20251001',
+      extractRelations: {
+        enabled: true,
+        backfillBatchSize: 200,
+      },
+      relationRetrieval: {
+        enabled: true,
+        maxSeedEntities: 8,
+        maxNeighborEntities: 20,
+        maxEdges: 40,
+        neighborScoreMultiplier: 0.7,
+      },
+    },
+    conflicts: {
+      enabled: true,
+      gateMode: 'soft',
+      reaskCooldownTurns: 3,
+      resolverLlmTimeoutMs: 12000,
+      relevanceThreshold: 0.3,
+    },
+    profile: {
+      enabled: true,
+      maxInjectTokens: 800,
     },
   }),
   dataDir: z
@@ -527,7 +801,16 @@ export const AssistantConfigSchema = z.object({
     permissionTimeoutSec: 300,
   }),
   sandbox: SandboxConfigSchema.default({
-    enabled: false,
+    enabled: true,
+    backend: 'docker',
+    docker: {
+      image: 'node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687',
+      shell: 'sh',
+      cpus: 1,
+      memoryMb: 512,
+      pidsLimit: 256,
+      network: 'none',
+    },
   }),
   rateLimit: RateLimitConfigSchema.default({
     maxRequestsPerMinute: 0,
@@ -544,6 +827,15 @@ export const AssistantConfigSchema = z.object({
   pricingOverrides: z
     .array(ModelPricingOverrideSchema)
     .default([]),
+  swarm: SwarmConfigSchema.default({
+    enabled: true,
+    maxWorkers: 3,
+    maxTasks: 8,
+    maxRetriesPerTask: 1,
+    workerTimeoutSec: 900,
+    plannerModel: 'claude-haiku-4-5-20251001',
+    synthesizerModel: 'claude-sonnet-4-5-20250929',
+  }),
   skills: SkillsConfigSchema.default({
     entries: {},
     load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
@@ -565,11 +857,19 @@ export const AssistantConfigSchema = z.object({
       message: 'memory.segmentation.overlapTokens must be less than memory.segmentation.targetTokens',
     });
   }
+  if (config.memory.retrieval.dynamicBudget.minInjectTokens > config.memory.retrieval.dynamicBudget.maxInjectTokens) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['memory', 'retrieval', 'dynamicBudget'],
+      message: 'memory.retrieval.dynamicBudget.minInjectTokens must be <= memory.retrieval.dynamicBudget.maxInjectTokens',
+    });
+  }
 });
 
 export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;
 export type TimeoutConfig = z.infer<typeof TimeoutConfigSchema>;
 export type SandboxConfig = z.infer<typeof SandboxConfigSchema>;
+export type DockerConfig = z.infer<typeof DockerConfigSchema>;
 export type RateLimitConfig = z.infer<typeof RateLimitConfigSchema>;
 export type SecretDetectionConfig = z.infer<typeof SecretDetectionConfigSchema>;
 export type AuditLogConfig = z.infer<typeof AuditLogConfigSchema>;
@@ -581,13 +881,17 @@ export type MemoryRetrievalConfig = z.infer<typeof MemoryRetrievalConfigSchema>;
 export type MemorySegmentationConfig = z.infer<typeof MemorySegmentationConfigSchema>;
 export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
 export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
+export type MemoryCleanupConfig = z.infer<typeof MemoryCleanupConfigSchema>;
 export type MemoryExtractionConfig = z.infer<typeof MemoryExtractionConfigSchema>;
 export type MemorySummarizationConfig = z.infer<typeof MemorySummarizationConfigSchema>;
 export type MemoryEntityConfig = z.infer<typeof MemoryEntityConfigSchema>;
+export type MemoryConflictsConfig = z.infer<typeof MemoryConflictsConfigSchema>;
+export type MemoryProfileConfig = z.infer<typeof MemoryProfileConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
 export type QdrantConfig = z.infer<typeof QdrantConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
 export type SkillEntryConfig = z.infer<typeof SkillEntryConfigSchema>;
 export type SkillsLoadConfig = z.infer<typeof SkillsLoadConfigSchema>;
 export type SkillsInstallConfig = z.infer<typeof SkillsInstallConfigSchema>;
+export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 export type SkillsConfig = z.infer<typeof SkillsConfigSchema>;

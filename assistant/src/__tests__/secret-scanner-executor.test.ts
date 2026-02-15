@@ -62,8 +62,9 @@ mock.module('../tools/registry.js', () => ({
   },
 }));
 
-mock.module('../tools/filesystem/path-guard.js', () => ({
-  validateFilePath: () => ({ ok: false }),
+mock.module('../tools/shared/filesystem/path-policy.js', () => ({
+  sandboxPolicy: () => ({ ok: false }),
+  hostPolicy: () => ({ ok: false }),
 }));
 mock.module('../tools/terminal/sandbox.js', () => ({
   wrapCommand: () => ({ command: '', sandboxed: false }),

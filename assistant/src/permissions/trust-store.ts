@@ -59,6 +59,38 @@ function backfillDefaults(rules: TrustRule[]): boolean {
     }
   }
 
+  // Remove default rules that are no longer in the template set (e.g.
+  // cu_done/cu_respond were removed from the computer-use ask-rule list
+  // because they are terminal signal tools that don't need approval).
+  const templateIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
+  for (let i = rules.length - 1; i >= 0; i--) {
+    const rule = rules[i];
+    if (rule.id.startsWith('default:') && !templateIds.has(rule.id)) {
+      rules.splice(i, 1);
+      existingIds.delete(rule.id);
+      changed = true;
+      log.info({ ruleId: rule.id }, 'Removed stale default trust rule');
+    }
+  }
+
+  // Migrate existing default rules whose priority or pattern has changed
+  // in the template (e.g. host_bash pattern changed from '*' to '**',
+  // host tool priorities changed from 1000 to 50).
+  for (const template of getDefaultRuleTemplates()) {
+    if (existingIds.has(template.id)) {
+      const rule = rules.find((r) => r.id === template.id);
+      if (rule && (rule.priority !== template.priority || rule.pattern !== template.pattern)) {
+        log.info(
+          { ruleId: rule.id, oldPriority: rule.priority, newPriority: template.priority, oldPattern: rule.pattern, newPattern: template.pattern },
+          'Migrated default rule to updated template values',
+        );
+        rule.priority = template.priority;
+        rule.pattern = template.pattern;
+        changed = true;
+      }
+    }
+  }
+
   for (const template of getDefaultRuleTemplates()) {
     if (!existingIds.has(template.id)) {
       rules.push({

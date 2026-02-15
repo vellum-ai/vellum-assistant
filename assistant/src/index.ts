@@ -53,6 +53,7 @@ import {
   getMemorySystemStatus,
   queryMemory,
   requestMemoryBackfill,
+  requestMemoryCleanup,
   requestMemoryRebuildIndex,
 } from './memory/admin.js';
 import { registerHooksCommand } from './hooks/cli.js';
@@ -72,7 +73,10 @@ function sendOneMessage(
     socket.on('data', (data) => {
       const messages = parser.feed(data.toString()) as ServerMessage[];
       for (const m of messages) {
-        // Skip the initial session_info that the server sends on connect
+        // Skip push messages that aren't responses to our request
+        if (m.type === 'daemon_status') {
+          continue;
+        }
         if (m.type === 'session_info' && msg.type !== 'session_create') {
           continue;
         }
@@ -101,12 +105,11 @@ program
   .name('vellum')
   .description('Local AI assistant')
   .version(version)
-  .option('--no-sandbox', 'Disable sandbox for this session (runtime override, not persisted)')
-  .action(async (opts: { sandbox?: boolean }) => {
+  .action(async () => {
     if (shouldAutoStartDaemon()) {
       await ensureDaemonRunning();
     }
-    await startCli({ noSandbox: opts.sandbox === false });
+    await startCli();
   });
 
 const daemon = program.command('daemon').description('Manage the daemon process');
@@ -314,6 +317,14 @@ sessions
     initializeDb();
     const result = clearAllConversations();
     console.log(`Cleared ${result.conversations} conversations, ${result.messages} messages`);
+
+    // Notify a running daemon to drop its in-memory sessions so it
+    // doesn't keep serving stale history from deleted conversation rows.
+    try {
+      await sendOneMessage({ type: 'sessions_clear' });
+    } catch {
+      // Daemon may not be running — that's fine, no sessions to invalidate.
+    }
 
     const config = getConfig();
     const qdrantUrl = process.env.QDRANT_URL?.trim() || config.memory.qdrant.url;
@@ -533,6 +544,18 @@ memory
     console.log(`Items: ${status.counts.items.toLocaleString()}`);
     console.log(`Summaries: ${status.counts.summaries.toLocaleString()}`);
     console.log(`Embeddings: ${status.counts.embeddings.toLocaleString()}`);
+    console.log(`Pending conflicts: ${status.conflicts.pending.toLocaleString()}`);
+    console.log(`Resolved conflicts: ${status.conflicts.resolved.toLocaleString()}`);
+    if (status.conflicts.oldestPendingAgeMs !== null) {
+      const oldestMinutes = Math.floor(status.conflicts.oldestPendingAgeMs / 60_000);
+      console.log(`Oldest pending conflict age: ${oldestMinutes} min`);
+    } else {
+      console.log('Oldest pending conflict age: n/a');
+    }
+    console.log(`Cleanup backlog (resolved conflicts): ${status.cleanup.resolvedBacklog.toLocaleString()}`);
+    console.log(`Cleanup backlog (superseded items): ${status.cleanup.supersededBacklog.toLocaleString()}`);
+    console.log(`Cleanup throughput 24h (resolved conflicts): ${status.cleanup.resolvedCompleted24h.toLocaleString()}`);
+    console.log(`Cleanup throughput 24h (superseded items): ${status.cleanup.supersededCompleted24h.toLocaleString()}`);
     console.log('Jobs:');
     for (const [key, value] of Object.entries(status.jobs)) {
       console.log(`  ${key}: ${value}`);
@@ -547,6 +570,18 @@ memory
     initializeDb();
     const jobId = requestMemoryBackfill(Boolean(opts?.force));
     console.log(`Queued backfill job: ${jobId}`);
+  });
+
+memory
+  .command('cleanup')
+  .description('Queue cleanup jobs for resolved conflicts and stale superseded items')
+  .option('--retention-ms <ms>', 'Optional retention threshold in milliseconds')
+  .action((opts: { retentionMs?: string }) => {
+    initializeDb();
+    const retentionMs = opts.retentionMs ? Number.parseInt(opts.retentionMs, 10) : undefined;
+    const jobs = requestMemoryCleanup(Number.isFinite(retentionMs) ? retentionMs : undefined);
+    console.log(`Queued cleanup_resolved_conflicts job: ${jobs.resolvedConflictsJobId}`);
+    console.log(`Queued cleanup_stale_superseded_items job: ${jobs.staleSupersededItemsJobId}`);
   });
 
 memory
@@ -891,6 +926,24 @@ program
     } else {
       fail('Browser runtime', browserStatus.error ?? 'Chromium not installed');
     }
+
+    // 13. Sandbox backend diagnostics
+    const { runSandboxDiagnostics } = await import('./tools/terminal/sandbox-diagnostics.js');
+    const sandbox = runSandboxDiagnostics();
+    console.log(`\n  Sandbox:   ${sandbox.config.enabled ? 'enabled' : 'disabled'}`);
+    console.log(`  Backend:   ${sandbox.config.backend}`);
+    console.log(`  Reason:    ${sandbox.activeBackendReason}`);
+    if (sandbox.config.backend === 'docker') {
+      console.log(`  Image:     ${sandbox.config.dockerImage}`);
+    }
+    console.log('');
+    for (const check of sandbox.checks) {
+      if (check.ok) {
+        pass(check.label);
+      } else {
+        fail(check.label, check.detail);
+      }
+    }
   });
 
 // --- Hooks commands ---
@@ -947,7 +1000,7 @@ _vellum_completions() {
     _init_completion || return
 
     if [[ $cword -eq 1 ]]; then
-        COMPREPLY=( $(compgen -W "${topLevel.join(' ')} --help --version --no-sandbox" -- "$cur") )
+        COMPREPLY=( $(compgen -W "${topLevel.join(' ')} --help --version" -- "$cur") )
         return
     fi
 
@@ -991,7 +1044,7 @@ _vellum() {
 
     if (( CURRENT == 2 )); then
         _describe 'command' commands
-        _arguments '--help[Show help]' '--version[Show version]' '--no-sandbox[Disable sandbox]'
+        _arguments '--help[Show help]' '--version[Show version]'
         return
     fi
 
@@ -1038,7 +1091,6 @@ function generateFishCompletion(
   }
   script += `complete -c vellum -n '__fish_use_subcommand' -l help -d 'Show help'\n`;
   script += `complete -c vellum -n '__fish_use_subcommand' -l version -d 'Show version'\n`;
-  script += `complete -c vellum -n '__fish_use_subcommand' -l no-sandbox -d 'Disable sandbox'\n`;
 
   // Subcommands
   for (const [cmd, subs] of Object.entries(subcommands)) {

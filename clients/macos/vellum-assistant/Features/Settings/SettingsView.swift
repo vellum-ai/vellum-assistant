@@ -3,24 +3,14 @@ import SwiftUI
 import VellumAssistantShared
 
 public struct SettingsView: View {
+    @ObservedObject var store: SettingsStore
     @State private var apiKeyText = ""
-    @State private var hasKey = APIKeyManager.getKey() != nil
-    @State private var isTrustRulesSheetOpen = false
     @State private var braveKeyText = ""
-    @State private var hasBraveKey = APIKeyManager.getKey(for: "brave") != nil
-    @State private var maxSteps: Double = {
-        let val = UserDefaults.standard.double(forKey: "maxStepsPerSession")
-        return val == 0 ? 50 : val
-    }()
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
-    @State private var ambientEnabled = UserDefaults.standard.bool(forKey: "ambientAgentEnabled")
-    @State private var ambientInterval: Double = {
-        let val = UserDefaults.standard.double(forKey: "ambientCaptureInterval")
-        return val == 0 ? 30 : val
-    }()
     @State private var showingPrivacy = false
     @State private var showingSkills = false
+    @State private var showingTrustRules = false
     @State private var skillsViewModel: SkillsSettingsViewModel?
     @State private var activationKey: ActivationKey = {
         let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
@@ -29,7 +19,8 @@ public struct SettingsView: View {
     var ambientAgent: AmbientAgent
     var daemonClient: DaemonClient?
 
-    public init(ambientAgent: AmbientAgent, daemonClient: DaemonClient? = nil) {
+    public init(store: SettingsStore, ambientAgent: AmbientAgent, daemonClient: DaemonClient? = nil) {
+        self.store = store
         self.ambientAgent = ambientAgent
         self.daemonClient = daemonClient
     }
@@ -40,14 +31,13 @@ public struct SettingsView: View {
     public var body: some View {
         Form {
             Section("Anthropic API Key") {
-                if hasKey {
+                if store.hasKey {
                     HStack {
                         Text("sk-ant-...configured")
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button("Clear") {
-                            APIKeyManager.deleteKey()
-                            hasKey = false
+                            store.clearAPIKey()
                             apiKeyText = ""
                         }
                         .tint(.red)
@@ -61,10 +51,7 @@ public struct SettingsView: View {
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button("Save") {
-                            let trimmed = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !trimmed.isEmpty else { return }
-                            APIKeyManager.setKey(trimmed)
-                            hasKey = true
+                            store.saveAPIKey(apiKeyText)
                             apiKeyText = ""
                         }
                         .disabled(apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -73,14 +60,13 @@ public struct SettingsView: View {
             }
 
             Section("Brave Search API Key") {
-                if hasBraveKey {
+                if store.hasBraveKey {
                     HStack {
                         Text("BSA...configured")
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button("Clear") {
-                            APIKeyManager.deleteKey(for: "brave")
-                            hasBraveKey = false
+                            store.clearBraveKey()
                             braveKeyText = ""
                         }
                         .tint(.red)
@@ -94,10 +80,7 @@ public struct SettingsView: View {
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button("Save") {
-                            let trimmed = braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !trimmed.isEmpty else { return }
-                            APIKeyManager.setKey(trimmed, for: "brave")
-                            hasBraveKey = true
+                            store.saveBraveKey(braveKeyText)
                             braveKeyText = ""
                         }
                         .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -109,14 +92,11 @@ public struct SettingsView: View {
                 HStack {
                     Text("Max steps per session")
                     Spacer()
-                    Text("\(Int(maxSteps))")
+                    Text("\(Int(store.maxSteps))")
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
-                Slider(value: $maxSteps, in: 10...100, step: 10)
-                    .onChange(of: maxSteps) { _, newValue in
-                        UserDefaults.standard.set(newValue, forKey: "maxStepsPerSession")
-                    }
+                Slider(value: $store.maxSteps, in: 10...100, step: 10)
             }
 
             Section("Voice Activation") {
@@ -135,25 +115,17 @@ public struct SettingsView: View {
             }
 
             Section("Ambient Agent") {
-                Toggle("Enable ambient screen watching", isOn: $ambientEnabled)
-                    .onChange(of: ambientEnabled) { _, newValue in
-                        UserDefaults.standard.set(newValue, forKey: "ambientAgentEnabled")
-                        ambientAgent.isEnabled = newValue
-                    }
+                Toggle("Enable ambient screen watching", isOn: $store.ambientEnabled)
 
-                if ambientEnabled {
+                if store.ambientEnabled {
                     HStack {
                         Text("Capture interval")
                         Spacer()
-                        Text("\(Int(ambientInterval))s")
+                        Text("\(Int(store.ambientInterval))s")
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                     }
-                    Slider(value: $ambientInterval, in: 10...120, step: 5)
-                        .onChange(of: ambientInterval) { _, newValue in
-                            UserDefaults.standard.set(newValue, forKey: "ambientCaptureInterval")
-                            ambientAgent.captureIntervalSeconds = newValue
-                        }
+                    Slider(value: $store.ambientInterval, in: 10...120, step: 5)
 
                     KnowledgeSection(store: ambientAgent.knowledgeStore)
 
@@ -219,8 +191,9 @@ public struct SettingsView: View {
                         Spacer()
                         Button("Manage Trust Rules...") {
                             daemonClient.isTrustRulesSheetOpen = true
+                            showingTrustRules = true
                         }
-                        .disabled(isTrustRulesSheetOpen)
+                        .disabled(store.isAnyTrustRulesSheetOpen)
                     }
                 }
             }
@@ -240,14 +213,11 @@ public struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 450, height: 700)
         .onAppear {
-            refreshAPIKeyState()
+            store.refreshAPIKeyState()
             checkPermissions()
         }
         .onReceive(permissionTimer) { _ in
             checkPermissions()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
-            refreshAPIKeyState()
         }
         .sheet(isPresented: $showingSkills, onDismiss: {
             skillsViewModel = nil
@@ -256,14 +226,7 @@ public struct SettingsView: View {
                 SkillsSettingsView(viewModel: vm)
             }
         }
-        .onReceive(
-            daemonClient.map { $0.$isTrustRulesSheetOpen.eraseToAnyPublisher() } ?? Empty().eraseToAnyPublisher()
-        ) { newValue in
-            isTrustRulesSheetOpen = newValue
-        }
-        .sheet(isPresented: $isTrustRulesSheetOpen, onDismiss: {
-            daemonClient?.isTrustRulesSheetOpen = false
-        }) {
+        .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
             }
@@ -279,10 +242,6 @@ public struct SettingsView: View {
         screenRecordingGranted = status == .granted
     }
 
-    private func refreshAPIKeyState() {
-        hasKey = APIKeyManager.getKey() != nil
-        hasBraveKey = APIKeyManager.getKey(for: "brave") != nil
-    }
 }
 
 // MARK: - Knowledge Section
@@ -615,5 +574,6 @@ private struct KnowledgeEntriesView: View {
 }
 
 #Preview {
-    SettingsView(ambientAgent: AmbientAgent())
+    let agent = AmbientAgent()
+    SettingsView(store: SettingsStore(ambientAgent: agent), ambientAgent: agent)
 }

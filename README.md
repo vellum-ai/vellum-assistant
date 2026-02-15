@@ -20,6 +20,10 @@ The platform has two main components:
 └── .github/           # GitHub Actions workflows
 ```
 
+## Prerequisites
+
+- **Docker** is required. The sandbox uses Docker as its default backend for container-level isolation. Install [Docker Desktop](https://docs.docker.com/get-docker/) (macOS/Windows) or Docker Engine (Linux) and ensure the daemon is running before starting the assistant.
+
 ## Local Development
 
 ```bash
@@ -48,6 +52,167 @@ bun install
 bun run src/index.ts daemon start
 ```
 
+## Sandbox and Host Access Model
+
+- Default tool workspace: `~/.vellum/data/sandbox/fs` (persistent global sandbox filesystem).
+- Sandbox-scoped tools: `file_read`, `file_write`, `file_edit`, and `bash`.
+- Explicit host tools: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` (absolute host paths only for host file tools).
+- Host/computer-use prompts: `host_*`, `request_computer_control`, and `cu_*` default to `ask` unless allowlisted/denylisted in trust rules.
+- Runtime override removal: CLI `--no-sandbox` is removed; legacy `sandbox_set` IPC messages are accepted but ignored (deprecated no-op).
+
+### Sandbox Backend Selection
+
+The `sandbox.backend` config option controls how the `bash` tool executes commands inside the sandbox. Two backends are available:
+
+| Backend | Value | Description |
+|---------|-------|-------------|
+| **Docker** | `"docker"` (default) | Runs each command in an ephemeral `docker run --rm` container with the sandbox filesystem bind-mounted to `/workspace`. Requires Docker Desktop or Docker Engine. |
+| **Native** | `"native"` | Uses OS-level sandboxing: `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. No extra dependencies on macOS. |
+
+The **Docker** backend is the default because it provides stronger container-level isolation with a hardened security posture (all capabilities dropped, read-only root filesystem, network disabled by default). Docker Desktop or Docker Engine must be installed and running. The native backend is available as a **fallback** for environments where Docker is not available.
+
+To switch to the native backend:
+
+```bash
+vellum config set sandbox.backend '"native"'
+```
+
+To switch back to Docker:
+
+```bash
+vellum config set sandbox.backend '"docker"'
+```
+
+### Docker Backend
+
+When `sandbox.backend` is set to `"docker"`, the daemon wraps every sandbox `bash` invocation in an ephemeral Docker container. The container is created with `docker run --rm` and destroyed after each command.
+
+**Prerequisites:**
+
+- Docker installed and the `docker` CLI available in `PATH`.
+- Docker daemon running (Docker Desktop on macOS/Windows, or `systemd` service on Linux).
+- The configured image pulled locally. The default image is pinned with a `sha256` digest for reproducibility:
+  ```
+  node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687
+  ```
+  Pull it with: `docker pull node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687`
+
+**Docker configuration options** (all under `sandbox.docker`):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `image` | `node:20-slim@sha256:...` | Container image (pinned with sha256 digest) |
+| `shell` | `"bash"` | Shell used to wrap commands inside the container |
+| `cpus` | `1` | CPU limit per container |
+| `memoryMb` | `512` | Memory limit in MB |
+| `pidsLimit` | `256` | Maximum number of processes |
+| `network` | `"none"` | Network mode (`"none"` or `"bridge"`) |
+
+**Container security posture:**
+
+- All capabilities dropped (`--cap-drop=ALL`)
+- No new privileges (`--security-opt=no-new-privileges`)
+- Read-only container root filesystem (`--read-only`)
+- Writable tmpfs for `/tmp` only
+- Network disabled by default (`--network=none`)
+- Host UID:GID forwarded to prevent permission drift
+
+**Fail-closed behavior:**
+
+If Docker is unavailable, commands fail immediately with actionable error messages rather than falling back to unsandboxed execution. The preflight checks run in dependency order:
+
+1. Docker CLI installed
+2. Docker daemon reachable
+3. Configured image available locally
+4. Bind-mount probe succeeds
+
+Positive preflight results are cached for the lifetime of the daemon process. Negative results are never cached, so installing or starting Docker mid-session takes effect without a daemon restart.
+
+### Host Tools
+
+Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) are unchanged regardless of which sandbox backend is active. They always execute directly on the host and are subject to trust rules and permission prompts.
+
+### Troubleshooting (Sandbox)
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `Docker CLI is not installed or not in PATH` | Docker is not installed | Install Docker: https://docs.docker.com/get-docker/ |
+| `Docker daemon is not running` | Docker Desktop is not started or systemd service is stopped | Start Docker Desktop, or run `sudo systemctl start docker` on Linux |
+| `Docker image "..." is not available locally` | The configured image has not been pulled | Run `docker pull <image>` with the full image reference including the sha256 digest |
+| `Cannot bind-mount the sandbox root into a Docker container` | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `~/.vellum/data/sandbox/fs` path (or your custom `dataDir` path) |
+| `bwrap is not available or cannot create namespaces` (native backend, Linux) | bubblewrap is not installed or user namespaces are disabled | Install bubblewrap: `apt install bubblewrap` (Debian/Ubuntu) or `dnf install bubblewrap` (Fedora) |
+
+Run `vellum doctor` for a full diagnostic check including sandbox backend status.
+
+## Dynamic Skill Authoring
+
+The assistant can create, test, and persist new skills at runtime. This is useful when no existing tool or skill covers a user's need.
+
+### Workflow
+
+1. **Evaluate**: The assistant drafts a TypeScript snippet and tests it in a sandbox via `evaluate_typescript_code`. Iterates until it passes.
+2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `~/.vellum/skills/<id>/`.
+3. **Load**: The assistant calls `skill_load` with the new skill ID to load its instructions.
+4. **Delete**: To remove a managed skill, use `delete_managed_skill`.
+
+### Tools
+
+| Tool | Risk Level | Description |
+|------|-----------|-------------|
+| `evaluate_typescript_code` | High | Run a TypeScript snippet in a sandbox. Returns structured JSON with `ok`, `exitCode`, `result`, `stdout`, `stderr`. |
+| `scaffold_managed_skill` | High | Write a managed skill to `~/.vellum/skills/<id>/`. Creates `SKILL.md` with frontmatter and updates `SKILLS.md` index. |
+| `delete_managed_skill` | High | Remove a managed skill directory and its index entry. |
+
+All three tools require explicit user approval before execution (Risk Level = High).
+
+### Constraints
+
+- Snippets must export a `default` or `run` function with signature `(input: unknown) => unknown | Promise<unknown>`.
+- If evaluation fails after 3 attempts, the assistant asks for user guidance instead of retrying.
+- After a skill is written or deleted, the file watcher triggers session eviction. The next turn runs in a fresh session.
+- Managed skills appear in the macOS Settings UI with Inspect and Delete controls.
+
+## Assistant Attachments
+
+The assistant can attach files and images to its replies. Attachments flow through three delivery channels:
+
+### Desktop (IPC)
+
+Attachments are sent inline (base64) in `message_complete`, `generation_handoff`, and `history_response` IPC messages. The macOS app renders thumbnails for images and displays file metadata for documents.
+
+### Runtime HTTP API
+
+The `GET /v1/assistants/:id/messages?conversationKey=<key>` endpoint returns attachment metadata on each message (the `conversationKey` query parameter is required):
+
+```json
+{
+  "id": "att_xxx",
+  "filename": "chart.png",
+  "mimeType": "image/png",
+  "sizeBytes": 12345,
+  "kind": "image"
+}
+```
+
+Fetch the full attachment payload (including base64-encoded data) via:
+
+```
+GET /v1/assistants/:assistantId/attachments/:attachmentId
+```
+
+### Telegram
+
+The gateway downloads attachments from the runtime API and delivers them via Telegram's `sendPhoto` (images) or `sendDocument` (other files). Oversized attachments (exceeding `GATEWAY_MAX_ATTACHMENT_BYTES`, default 20 MB) are skipped. Partial failures send a user-visible notice listing undelivered files.
+
+### Attachment Sources
+
+The assistant creates attachments from two sources:
+
+1. **Directives**: `<vellum-attachment source="sandbox|host" path="..." />` tags in response text. Sandbox paths are relative to the working directory; host paths require user approval.
+2. **Tool output**: Image and file content blocks from tool results are automatically converted into attachments.
+
+Limits: up to 5 attachments per turn, 20 MB each.
+
 ## Remote Access
 
 Access a remote assistant daemon from your local machine via SSH.
@@ -71,6 +236,12 @@ The macOS app also supports `VELLUM_DAEMON_SOCKET`. Launch it from the terminal:
 ssh -L ~/.vellum/remote.sock:/home/user/.vellum/vellum.sock user@remote-host -N &
 VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock open -a Vellum
 ```
+
+### Blob Transport Behavior
+
+When the macOS client connects to a local daemon, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at `~/.vellum/data/ipc-blobs/` instead of being embedded inline in IPC JSON. On connect, the client probes whether client and daemon share the same blob directory. If the probe succeeds, large payloads are written as blob files and only lightweight references travel over the socket.
+
+Over SSH-forwarded sockets, the probe fails automatically (the filesystems don't overlap), so the client falls back to inline base64/text payloads transparently. On iOS (TCP connections), the probe is skipped entirely and inline payloads are always used. No configuration is needed.
 
 ### Troubleshooting
 
@@ -136,7 +307,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 
 | Command | Purpose |
 |---------|---------|
-| `/check-reviews` | Checks for review feedback on unreviewed PRs and creates follow-up tasks. |
+| `/check-reviews` | Checks for review feedback on unreviewed PRs, assesses feedback contextually (valid, nonsensical, or regression risk), creates follow-up tasks for valid feedback, and halts for user decision on regression risks. |
 
 ### Typical flow
 

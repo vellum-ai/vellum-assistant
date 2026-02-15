@@ -11,6 +11,10 @@ const CHUNK_MIN_TOKENS = 1000;
 const MAX_BLOCK_PREVIEW_CHARS = 3000;
 const MAX_FALLBACK_SUMMARY_CHARS = 12000;
 const MAX_CONTEXT_SUMMARY_CHARS = 16000;
+const COMPACTION_COOLDOWN_MS = 2 * 60 * 1000;
+const MIN_GAIN_TOKENS_DURING_COOLDOWN = 1200;
+const SEVERE_PRESSURE_RATIO = 0.95;
+const MIN_COMPACTABLE_PERSISTED_MESSAGES = 2;
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
 const SUMMARY_SYSTEM_PROMPT = [
@@ -44,6 +48,10 @@ export interface ContextWindowResult {
   reason?: string;
 }
 
+export interface ContextWindowCompactOptions {
+  lastCompactedAt?: number;
+}
+
 export class ContextWindowManager {
   constructor(
     private readonly provider: Provider,
@@ -51,7 +59,11 @@ export class ContextWindowManager {
     private readonly config: ContextWindowConfig,
   ) {}
 
-  async maybeCompact(messages: Message[], signal?: AbortSignal): Promise<ContextWindowResult> {
+  async maybeCompact(
+    messages: Message[],
+    signal?: AbortSignal,
+    options?: ContextWindowCompactOptions,
+  ): Promise<ContextWindowResult> {
     const previousEstimatedInputTokens = estimatePromptTokens(
       messages,
       this.systemPrompt,
@@ -160,6 +172,63 @@ export class ContextWindowManager {
     }
 
     const compactedPersistedMessages = countPersistedMessages(compactableMessages);
+    const projectedMessages = [
+      createContextSummaryMessage(existingSummary ?? 'Projected summary'),
+      ...messages.slice(keepPlan.keepFromIndex),
+    ];
+    const projectedInputTokens = estimatePromptTokens(
+      projectedMessages,
+      this.systemPrompt,
+      { providerName: this.provider.name },
+    );
+    const projectedGainTokens = Math.max(0, previousEstimatedInputTokens - projectedInputTokens);
+    const severePressure = previousEstimatedInputTokens >= Math.floor(this.config.maxInputTokens * SEVERE_PRESSURE_RATIO);
+    const lastCompactedAt = options?.lastCompactedAt;
+    const withinCooldown = typeof lastCompactedAt === 'number'
+      && Date.now() - lastCompactedAt < COMPACTION_COOLDOWN_MS;
+
+    if (
+      withinCooldown
+      && projectedGainTokens < MIN_GAIN_TOKENS_DURING_COOLDOWN
+      && !severePressure
+    ) {
+      return {
+        messages,
+        compacted: false,
+        previousEstimatedInputTokens,
+        estimatedInputTokens: previousEstimatedInputTokens,
+        maxInputTokens: this.config.maxInputTokens,
+        thresholdTokens,
+        compactedMessages: 0,
+        compactedPersistedMessages: 0,
+        summaryCalls: 0,
+        summaryInputTokens: 0,
+        summaryOutputTokens: 0,
+        summaryModel: '',
+        summaryText: existingSummary ?? '',
+        reason: 'compaction cooldown active with low projected gain',
+      };
+    }
+
+    if (compactedPersistedMessages < MIN_COMPACTABLE_PERSISTED_MESSAGES && !severePressure) {
+      return {
+        messages,
+        compacted: false,
+        previousEstimatedInputTokens,
+        estimatedInputTokens: previousEstimatedInputTokens,
+        maxInputTokens: this.config.maxInputTokens,
+        thresholdTokens,
+        compactedMessages: 0,
+        compactedPersistedMessages: 0,
+        summaryCalls: 0,
+        summaryInputTokens: 0,
+        summaryOutputTokens: 0,
+        summaryModel: '',
+        summaryText: existingSummary ?? '',
+        reason: 'insufficient compactable persisted messages',
+      };
+    }
+
     const chunks = chunkMessages(compactableMessages, Math.max(this.config.chunkTokens, CHUNK_MIN_TOKENS));
     let summary = existingSummary ?? 'No previous summary.';
     let summaryInputTokens = 0;
@@ -285,7 +354,7 @@ function collectUserTurnStartIndexes(messages: Message[]): number[] {
     const message = messages[i];
     if (message.role !== 'user') continue;
     if (getSummaryFromContextMessage(message) !== null) continue;
-    if (message.content.some((block) => block.type === 'tool_result')) continue;
+    if (isToolResultOnly(message)) continue;
     starts.push(i);
   }
   return starts;
@@ -295,8 +364,14 @@ function countPersistedMessages(messages: Message[]): number {
   return messages.filter((message) => {
     if (message.role === 'assistant') return true;
     if (getSummaryFromContextMessage(message) !== null) return false;
-    return !message.content.some((block) => block.type === 'tool_result');
+    return !isToolResultOnly(message);
   }).length;
+}
+
+/** A user message that contains ONLY tool_result blocks (no text or other content). */
+function isToolResultOnly(message: Message): boolean {
+  return message.content.length > 0
+    && message.content.every((block) => block.type === 'tool_result');
 }
 
 export function getSummaryFromContextMessage(message: Message | undefined): string | null {
