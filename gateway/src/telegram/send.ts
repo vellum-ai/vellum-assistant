@@ -1,10 +1,13 @@
 import pino from "pino";
 import type { GatewayConfig } from "../config.js";
-import { callTelegramApi } from "./api.js";
+import { callTelegramApi, callTelegramApiMultipart } from "./api.js";
+import { downloadAttachment, type RuntimeAttachmentMeta } from "../runtime/client.js";
 
 const log = pino({ name: "gateway:telegram-send" });
 
 const TELEGRAM_MAX_MESSAGE_LEN = 4000;
+
+const IMAGE_MIME_PREFIXES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
 function splitText(text: string): string[] {
   if (text.length <= TELEGRAM_MAX_MESSAGE_LEN) {
@@ -40,6 +43,55 @@ export async function sendTelegramReply(
   }
 
   log.debug({ chatId, chunks: chunks.length }, "Telegram reply sent");
+}
+
+export async function sendTelegramAttachments(
+  config: GatewayConfig,
+  chatId: string,
+  assistantId: string,
+  attachments: RuntimeAttachmentMeta[],
+): Promise<void> {
+  const failures: string[] = [];
+
+  for (const meta of attachments) {
+    if (meta.sizeBytes > config.maxAttachmentBytes) {
+      log.warn({ attachmentId: meta.id, sizeBytes: meta.sizeBytes }, "Skipping oversized outbound attachment");
+      failures.push(meta.filename);
+      continue;
+    }
+
+    try {
+      const payload = await downloadAttachment(config, assistantId, meta.id);
+      const buffer = Buffer.from(payload.data, "base64");
+      const blob = new Blob([buffer], { type: meta.mimeType });
+
+      const form = new FormData();
+      form.set("chat_id", chatId);
+
+      const isImage = IMAGE_MIME_PREFIXES.some((p) => meta.mimeType.startsWith(p));
+      if (isImage) {
+        form.set("photo", blob, meta.filename);
+        await callTelegramApiMultipart(config, "sendPhoto", form);
+      } else {
+        form.set("document", blob, meta.filename);
+        await callTelegramApiMultipart(config, "sendDocument", form);
+      }
+
+      log.debug({ chatId, attachmentId: meta.id, filename: meta.filename }, "Attachment sent to Telegram");
+    } catch (err) {
+      log.error({ err, attachmentId: meta.id, filename: meta.filename }, "Failed to send attachment to Telegram");
+      failures.push(meta.filename);
+    }
+  }
+
+  if (failures.length > 0) {
+    const notice = `⚠️ ${failures.length} attachment(s) could not be delivered: ${failures.join(", ")}`;
+    try {
+      await sendTelegramReply(config, chatId, notice);
+    } catch (err) {
+      log.error({ err, chatId }, "Failed to send attachment failure notice");
+    }
+  }
 }
 
 export async function sendTypingIndicator(config: GatewayConfig, chatId: string): Promise<void> {
