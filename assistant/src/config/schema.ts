@@ -660,7 +660,7 @@ export const AssistantConfigSchema = z.object({
   if (config.memory.retrieval.dynamicBudget.minInjectTokens > config.memory.retrieval.dynamicBudget.maxInjectTokens) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['memory', 'retrieval', 'dynamicBudget', 'minInjectTokens'],
+      path: ['memory', 'retrieval', 'dynamicBudget'],
       message: 'memory.retrieval.dynamicBudget.minInjectTokens must be <= memory.retrieval.dynamicBudget.maxInjectTokens',
     });
   }
