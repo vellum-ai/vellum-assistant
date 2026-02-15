@@ -1239,7 +1239,7 @@ public struct IPCUiSurfaceUndoResult: Codable, Sendable {
     public let surfaceId: String
     public let success: Bool
     /// Number of remaining undo entries after this undo.
-    public let remainingUndos: Double
+    public let remainingUndos: Int
 }
 
 public struct IPCUiSurfaceUpdate: Codable, Sendable {

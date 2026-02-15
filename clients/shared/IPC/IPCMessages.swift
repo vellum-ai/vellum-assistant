@@ -274,10 +274,10 @@ extension IPCUiSurfaceAction {
 }
 
 /// Sent when user requests undo on a workspace surface.
-/// Backed by generated `IPCUiSurfaceUndo`.
-public typealias UiSurfaceUndoMessage = IPCUiSurfaceUndo
+/// Backed by generated `IPCUiSurfaceUndoRequest`.
+public typealias UiSurfaceUndoMessage = IPCUiSurfaceUndoRequest
 
-extension IPCUiSurfaceUndo {
+extension IPCUiSurfaceUndoRequest {
     public init(sessionId: String, surfaceId: String) {
         self.init(type: "ui_surface_undo", sessionId: sessionId, surfaceId: surfaceId)
     }
