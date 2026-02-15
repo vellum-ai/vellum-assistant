@@ -42,144 +42,19 @@ public struct ToolConfirmationBubble: View {
         }
     }
 
+    private var isDecided: Bool {
+        confirmation.state != .pending
+    }
+
     public var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Header row: icon + tool name + risk badge
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: isHighRisk ? "exclamationmark.triangle.fill" : "shield.checkered")
-                    .font(.system(size: 14))
-                    .foregroundStyle(isHighRisk ? VColor.error : VColor.warning)
-
-                Text(toolDisplayName)
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
-
-                Text(confirmation.riskLevel.lowercased())
-                    .font(VFont.caption)
-                    .foregroundColor(isHighRisk ? VColor.error : VColor.warning)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .fill((isHighRisk ? VColor.error : VColor.warning).opacity(0.15))
-                    )
-
-                if let executionTarget {
-                    Text(executionTarget)
-                        .font(VFont.caption)
-                        .foregroundColor(isHostTarget ? VColor.error : VColor.textSecondary)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xxs)
-                        .background(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
-                                .fill((isHostTarget ? VColor.error : VColor.surfaceBorder).opacity(0.15))
-                        )
-                }
-
-                Spacer()
-            }
-
-            // Command preview
-            if !confirmation.commandPreview.isEmpty {
-                Text(confirmation.commandPreview)
-                    .font(VFont.monoSmall)
-                    .foregroundColor(VColor.textPrimary)
-                    .padding(VSpacing.sm)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(VColor.backgroundSubtle)
-                    .cornerRadius(VRadius.md)
-            }
-
-            // Diff preview (if present)
-            if let diff = confirmation.diff {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(diff.filePath)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    if diff.isNewFile {
-                        Text("New file")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.success)
-                    }
-
-                    ScrollView {
-                        Text(String(diff.newContent.prefix(500)))
-                            .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxHeight: 120)
-                    .padding(VSpacing.sm)
-                    .background(VColor.backgroundSubtle)
-                    .cornerRadius(VRadius.md)
-                }
-            }
-
-            // Action buttons or decided state
-            switch confirmation.state {
-            case .pending:
-                HStack(spacing: VSpacing.md) {
-                    Spacer()
-                    VButton(label: "Deny", style: .ghost) {
-                        onDeny()
-                    }
-                    VButton(label: "Allow", style: isHighRisk ? .danger : .primary) {
-                        onAllow()
-                    }
-                }
-
-            case .approved, .denied:
-                decisionLabel
-
-                if hasRuleOptions && !ruleSaved {
-                    if showRulePicker {
-                        rulePickerView
-                    } else {
-                        HStack {
-                            Spacer()
-                            VButton(
-                                label: confirmation.state == .approved ? "Add to Allowlist" : "Add to Denylist",
-                                style: .ghost
-                            ) {
-                                if selectedPattern.isEmpty, let first = confirmation.allowlistOptions.first {
-                                    selectedPattern = first.pattern
-                                }
-                                if selectedScope.isEmpty, let first = confirmation.scopeOptions.first {
-                                    selectedScope = first.scope
-                                }
-                                withAnimation(VAnimation.standard) {
-                                    showRulePicker = true
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if ruleSaved {
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                        Text("Rule saved")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.success)
-                    }
-                    .transition(.opacity)
-                }
-
-            case .timedOut:
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "clock.fill")
-                        .foregroundColor(VColor.textMuted)
-                    Text("Timed out")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
+        VStack(alignment: .leading, spacing: isDecided ? VSpacing.sm : VSpacing.md) {
+            if isDecided {
+                collapsedContent
+            } else {
+                expandedContent
             }
         }
-        .padding(VSpacing.lg)
+        .padding(isDecided ? VSpacing.md : VSpacing.lg)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .fill(VColor.surface)
@@ -191,24 +66,174 @@ public struct ToolConfirmationBubble: View {
         .frame(maxWidth: 520)
     }
 
+    // MARK: - Expanded (pending)
+
     @ViewBuilder
-    private var decisionLabel: some View {
-        if confirmation.state == .approved {
+    private var expandedContent: some View {
+        // Header row: icon + tool name + risk badge
+        HStack(spacing: VSpacing.sm) {
+            Image(systemName: isHighRisk ? "exclamationmark.triangle.fill" : "shield.checkered")
+                .font(.system(size: 14))
+                .foregroundStyle(isHighRisk ? VColor.error : VColor.warning)
+
+            Text(toolDisplayName)
+                .font(VFont.headline)
+                .foregroundColor(VColor.textPrimary)
+
+            Text(confirmation.riskLevel.lowercased())
+                .font(VFont.caption)
+                .foregroundColor(isHighRisk ? VColor.error : VColor.warning)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xxs)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill((isHighRisk ? VColor.error : VColor.warning).opacity(0.15))
+                )
+
+            if let executionTarget {
+                Text(executionTarget)
+                    .font(VFont.caption)
+                    .foregroundColor(isHostTarget ? VColor.error : VColor.textSecondary)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xxs)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .fill((isHostTarget ? VColor.error : VColor.surfaceBorder).opacity(0.15))
+                    )
+            }
+
+            Spacer()
+        }
+
+        // Command preview
+        if !confirmation.commandPreview.isEmpty {
+            Text(confirmation.commandPreview)
+                .font(VFont.monoSmall)
+                .foregroundColor(VColor.textPrimary)
+                .padding(VSpacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(VColor.backgroundSubtle)
+                .cornerRadius(VRadius.md)
+        }
+
+        // Diff preview (if present)
+        if let diff = confirmation.diff {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text(diff.filePath)
+                    .font(VFont.monoSmall)
+                    .foregroundColor(VColor.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                if diff.isNewFile {
+                    Text("New file")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.success)
+                }
+
+                ScrollView {
+                    Text(String(diff.newContent.prefix(500)))
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 120)
+                .padding(VSpacing.sm)
+                .background(VColor.backgroundSubtle)
+                .cornerRadius(VRadius.md)
+            }
+        }
+
+        // Action buttons
+        HStack(spacing: VSpacing.md) {
+            Spacer()
+            VButton(label: "Deny", style: .ghost) {
+                onDeny()
+            }
+            VButton(label: "Allow", style: isHighRisk ? .danger : .primary) {
+                onAllow()
+            }
+        }
+    }
+
+    // MARK: - Collapsed (decided)
+
+    @ViewBuilder
+    private var collapsedContent: some View {
+        HStack(spacing: VSpacing.sm) {
+            Group {
+                switch confirmation.state {
+                case .approved:
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                case .denied:
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(VColor.error)
+                case .timedOut:
+                    Image(systemName: "clock.fill")
+                        .foregroundColor(VColor.textMuted)
+                default:
+                    EmptyView()
+                }
+            }
+            .font(.system(size: 12))
+
+            Text(toolDisplayName)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+
+            if !confirmation.commandPreview.isEmpty {
+                Text(confirmation.commandPreview)
+                    .font(VFont.monoSmall)
+                    .foregroundColor(VColor.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer()
+
+            Text(confirmation.state == .approved ? "Allowed" :
+                 confirmation.state == .denied ? "Denied" : "Timed out")
+                .font(VFont.caption)
+                .foregroundColor(
+                    confirmation.state == .approved ? VColor.success :
+                    confirmation.state == .denied ? VColor.error : VColor.textMuted
+                )
+        }
+
+        if (confirmation.state == .approved || confirmation.state == .denied) && hasRuleOptions && !ruleSaved {
+            if showRulePicker {
+                rulePickerView
+            } else {
+                HStack {
+                    Spacer()
+                    VButton(
+                        label: confirmation.state == .approved ? "Add to Allowlist" : "Add to Denylist",
+                        style: .ghost
+                    ) {
+                        if selectedPattern.isEmpty, let first = confirmation.allowlistOptions.first {
+                            selectedPattern = first.pattern
+                        }
+                        if selectedScope.isEmpty, let first = confirmation.scopeOptions.first {
+                            selectedScope = first.scope
+                        }
+                        withAnimation(VAnimation.standard) {
+                            showRulePicker = true
+                        }
+                    }
+                }
+            }
+        }
+
+        if ruleSaved {
             HStack(spacing: VSpacing.xs) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundColor(VColor.success)
-                Text("Allowed")
+                Text("Rule saved")
                     .font(VFont.caption)
                     .foregroundColor(VColor.success)
             }
-        } else {
-            HStack(spacing: VSpacing.xs) {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(VColor.error)
-                Text("Denied")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-            }
+            .transition(.opacity)
         }
     }
 
@@ -330,6 +355,7 @@ public struct ToolConfirmationBubble: View {
             onDeny: {},
             onAddTrustRule: { _, _, _, _ in true }
         )
+        // Collapsed: approved
         ToolConfirmationBubble(
             confirmation: ToolConfirmationData(
                 requestId: "test-3",
@@ -344,6 +370,20 @@ public struct ToolConfirmationBubble: View {
                     ConfirmationRequestMessage.ConfirmationScopeOption(label: "Everywhere", scope: "everywhere"),
                 ],
                 state: .approved
+            ),
+            onAllow: {},
+            onDeny: {},
+            onAddTrustRule: { _, _, _, _ in true }
+        )
+        // Collapsed: denied
+        ToolConfirmationBubble(
+            confirmation: ToolConfirmationData(
+                requestId: "test-4",
+                toolName: "bash",
+                input: ["command": AnyCodable("rm -rf /")],
+                riskLevel: "high",
+                diff: nil,
+                state: .denied
             ),
             onAllow: {},
             onDeny: {},
