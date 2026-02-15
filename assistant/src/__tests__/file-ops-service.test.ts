@@ -191,6 +191,23 @@ describe('FileSystemOps.editFileSafe', () => {
     expect(result.error.code).toBe('NOT_FOUND');
   });
 
+  test('returns IO_ERROR (not NOT_FOUND) when path is a directory', () => {
+    const dir = makeTempDir();
+    mkdirSync(join(dir, 'subdir'));
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+
+    const result = ops.editFileSafe({
+      path: 'subdir',
+      oldString: 'a',
+      newString: 'b',
+      replaceAll: false,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('IO_ERROR');
+    expect(result.error.message).toContain('EISDIR');
+  });
+
   test('returns MATCH_NOT_FOUND when old_string is absent', () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, 'file.txt'), 'hello world');
