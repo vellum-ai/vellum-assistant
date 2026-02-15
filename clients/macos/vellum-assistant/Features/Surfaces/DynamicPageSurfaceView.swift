@@ -21,6 +21,18 @@ extension DynamicPageSurfaceView {
             .replacingOccurrences(of: "${", with: "\\${")
             .replacingOccurrences(of: "\r", with: "")
     }()
+
+    /// Widget JS utilities loaded once from the resource bundle.
+    static let widgetJS: String = {
+        guard let url = ResourceBundle.bundle.url(
+            forResource: "vellum-widgets", withExtension: "js"
+        ), let js = try? String(contentsOf: url) else {
+            log.error("Failed to load vellum-widgets.js from resource bundle")
+            assertionFailure("vellum-widgets.js not found in resource bundle")
+            return ""
+        }
+        return js
+    }()
 }
 
 struct DynamicPageSurfaceView: NSViewRepresentable {
@@ -160,9 +172,18 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             forMainFrameOnly: true
         )
 
+        // Widget JS utilities (charts, formatting, interactive behaviors).
+        // Runs after the bridge script so window.vellum is already defined.
+        let widgetScript = WKUserScript(
+            source: Self.widgetJS,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+
         let contentController = WKUserContentController()
         contentController.addUserScript(userScript)
         contentController.addUserScript(designSystemScript)
+        contentController.addUserScript(widgetScript)
         contentController.add(context.coordinator, name: "vellumBridge")
 
         let configuration = WKWebViewConfiguration()
