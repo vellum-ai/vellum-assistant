@@ -297,7 +297,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 "properties": [
                     "title": [
                         "type": "string",
-                        "description": "A concise conversation title, 2-6 words. No quotes."
+                        "description": "A concise conversation title, 2-6 words. Sentence case. No quotes, no markdown."
                     ]
                 ]
             ]
@@ -307,7 +307,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             let result = try await client.sendToolUseRequest(
                 model: "claude-haiku-4-5-20251001",
                 maxTokens: 60,
-                system: "Generate a short, descriptive title (2-6 words) for this conversation based on the user's first message. Be specific and concise. Do not use quotes or markdown formatting.",
+                system: "Generate a short, descriptive title (2-6 words) for this conversation based on the user's first message. Use sentence case (only capitalize the first word and proper nouns). Be specific and concise. Never use quotes, asterisks, or any markdown formatting.",
                 tools: [tool],
                 toolChoice: ["type": "any"],
                 messages: [["role": "user", "content": userMessage]],
@@ -316,7 +316,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             if let raw = result.input["title"] as? String, !raw.isEmpty {
                 let title = raw.replacingOccurrences(of: "*", with: "")
                     .replacingOccurrences(of: "#", with: "")
-                    .replacingOccurrences(of: "_", with: " ")
+                    .replacingOccurrences(of: "\"", with: "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 updateThreadTitle(id: threadId, title: title)
             }
