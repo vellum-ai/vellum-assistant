@@ -151,6 +151,23 @@ describe('AssistantConfigSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  test('applies memory.cleanup defaults', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.memory.cleanup).toEqual({
+      enabled: true,
+      enqueueIntervalMs: 6 * 60 * 60 * 1000,
+      resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
+      supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
+    });
+  });
+
+  test('rejects invalid memory.cleanup.enqueueIntervalMs', () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { cleanup: { enqueueIntervalMs: 0 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
   test('rejects invalid provider', () => {
     const result = AssistantConfigSchema.safeParse({ provider: 'invalid' });
     expect(result.success).toBe(false);

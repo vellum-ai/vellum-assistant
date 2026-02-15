@@ -17,6 +17,8 @@ import {
   completeMemoryJob,
   deferMemoryJob,
   enqueueBackfillEntityRelationsJob,
+  enqueueCleanupResolvedConflictsJob,
+  enqueueCleanupStaleSupersededItemsJob,
   enqueueMemoryJob,
   failMemoryJob,
   type MemoryJob,
@@ -63,8 +65,6 @@ const RELATION_BACKFILL_CHECKPOINT_ID_KEY = 'memory:relation_backfill:last_messa
 
 const SUMMARY_LLM_TIMEOUT_MS = 20_000;
 const SUMMARY_MAX_TOKENS = 800;
-const DEFAULT_CONFLICT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-const DEFAULT_SUPERSEDED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const CLEANUP_BATCH_LIMIT = 250;
 
 const CONVERSATION_SUMMARY_SYSTEM_PROMPT = [
@@ -109,7 +109,7 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
     if (stopped || tickRunning) return;
     tickRunning = true;
     try {
-      await runMemoryJobsOnce();
+      await runMemoryJobsOnce({ enableScheduledCleanup: true });
     } catch (err) {
       log.error({ err }, 'Memory worker tick failed');
     } finally {
@@ -123,7 +123,7 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
 
   return {
     async runOnce(): Promise<number> {
-      return runMemoryJobsOnce();
+      return runMemoryJobsOnce({ enableScheduledCleanup: true });
     },
     stop(): void {
       stopped = true;
@@ -132,16 +132,24 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
   };
 }
 
-export async function runMemoryJobsOnce(): Promise<number> {
+export async function runMemoryJobsOnce(
+  options: { enableScheduledCleanup?: boolean } = {},
+): Promise<number> {
   const config = getConfig();
   if (!config.memory.enabled) return 0;
+  const enableScheduledCleanup = options.enableScheduledCleanup === true;
 
   // Periodic stale item sweep (throttled to at most once per hour)
   sweepStaleItems(config);
 
   const concurrency = Math.max(1, config.memory.jobs.workerConcurrency);
   const jobs = claimMemoryJobs(concurrency);
-  if (jobs.length === 0) return 0;
+  if (jobs.length === 0) {
+    if (enableScheduledCleanup) {
+      maybeEnqueueScheduledCleanupJobs(config);
+    }
+    return 0;
+  }
 
   let processed = 0;
   for (const job of jobs) {
@@ -164,6 +172,9 @@ export async function runMemoryJobsOnce(): Promise<number> {
         log.warn({ err, jobId: job.id, type: job.type }, 'Memory job failed');
       }
     }
+  }
+  if (enableScheduledCleanup) {
+    maybeEnqueueScheduledCleanupJobs(config);
   }
   return processed;
 }
@@ -189,10 +200,10 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
       await resolvePendingConflictsForMessageJob(job, config);
       return;
     case 'cleanup_resolved_conflicts':
-      cleanupResolvedConflictsJob(job);
+      cleanupResolvedConflictsJob(job, config);
       return;
     case 'cleanup_stale_superseded_items':
-      cleanupStaleSupersededItemsJob(job);
+      cleanupStaleSupersededItemsJob(job, config);
       return;
     case 'check_contradictions':
       await checkContradictionsJob(job);
@@ -435,9 +446,9 @@ async function resolvePendingConflictsForMessageJob(job: MemoryJob, config: Assi
   }, 'Processed pending conflict resolution job');
 }
 
-function cleanupResolvedConflictsJob(job: MemoryJob): void {
+function cleanupResolvedConflictsJob(job: MemoryJob, config: AssistantConfig): void {
   const db = getDb();
-  const retentionMs = asPositiveMs(job.payload.retentionMs) ?? DEFAULT_CONFLICT_RETENTION_MS;
+  const retentionMs = asPositiveMs(job.payload.retentionMs) ?? config.memory.cleanup.resolvedConflictRetentionMs;
   const cutoff = Date.now() - retentionMs;
   const stale = db
     .select({ id: memoryItemConflicts.id })
@@ -466,9 +477,9 @@ function cleanupResolvedConflictsJob(job: MemoryJob): void {
   }, 'Cleaned up resolved memory conflicts');
 }
 
-function cleanupStaleSupersededItemsJob(job: MemoryJob): void {
+function cleanupStaleSupersededItemsJob(job: MemoryJob, config: AssistantConfig): void {
   const db = getDb();
-  const retentionMs = asPositiveMs(job.payload.retentionMs) ?? DEFAULT_SUPERSEDED_RETENTION_MS;
+  const retentionMs = asPositiveMs(job.payload.retentionMs) ?? config.memory.cleanup.supersededItemRetentionMs;
   const cutoff = Date.now() - retentionMs;
   const stale = db
     .select({ id: memoryItems.id })
@@ -960,6 +971,37 @@ function weekNumber(date: Date): number {
   tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
   return Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+// ── Cleanup scheduling ─────────────────────────────────────────────
+
+let lastScheduledCleanupEnqueueMs = 0;
+
+/** Reset the cleanup enqueue throttle so tests can run deterministic checks. */
+export function resetCleanupScheduleThrottle(): void {
+  lastScheduledCleanupEnqueueMs = 0;
+}
+
+/**
+ * Enqueue periodic cleanup jobs using config-driven retention windows.
+ * Enqueue is deduped in jobs-store, so repeated calls remain safe.
+ */
+export function maybeEnqueueScheduledCleanupJobs(config: AssistantConfig, nowMs = Date.now()): boolean {
+  const cleanup = config.memory.cleanup;
+  if (!cleanup.enabled) return false;
+  if (nowMs - lastScheduledCleanupEnqueueMs < cleanup.enqueueIntervalMs) return false;
+
+  const resolvedConflictsJobId = enqueueCleanupResolvedConflictsJob(cleanup.resolvedConflictRetentionMs);
+  const staleSupersededItemsJobId = enqueueCleanupStaleSupersededItemsJob(cleanup.supersededItemRetentionMs);
+  lastScheduledCleanupEnqueueMs = nowMs;
+  log.debug({
+    resolvedConflictsJobId,
+    staleSupersededItemsJobId,
+    enqueueIntervalMs: cleanup.enqueueIntervalMs,
+    resolvedConflictRetentionMs: cleanup.resolvedConflictRetentionMs,
+    supersededItemRetentionMs: cleanup.supersededItemRetentionMs,
+  }, 'Enqueued scheduled memory cleanup jobs');
+  return true;
 }
 
 // ── Stale item sweep ───────────────────────────────────────────────

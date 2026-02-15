@@ -71,6 +71,12 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     retention: {
       keepRawForever: true,
     },
+    cleanup: {
+      enabled: true,
+      enqueueIntervalMs: 6 * 60 * 60 * 1000,
+      resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
+      supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
+    },
     extraction: {
       useLLM: true,
       model: 'claude-haiku-4-5-20251001',

@@ -131,11 +131,14 @@ export function enqueueCleanupResolvedConflictsJob(retentionMs?: number): string
   const existing = db
     .select()
     .from(memoryJobs)
-    .where(and(eq(memoryJobs.type, 'cleanup_resolved_conflicts'), eq(memoryJobs.status, 'pending')))
+    .where(and(
+      eq(memoryJobs.type, 'cleanup_resolved_conflicts'),
+      inArray(memoryJobs.status, ['pending', 'running']),
+    ))
     .orderBy(asc(memoryJobs.createdAt))
     .get();
   if (existing) {
-    if (typeof retentionMs === 'number' && Number.isFinite(retentionMs) && retentionMs > 0) {
+    if (existing.status === 'pending' && typeof retentionMs === 'number' && Number.isFinite(retentionMs) && retentionMs > 0) {
       let payload: Record<string, unknown> = {};
       try {
         payload = JSON.parse(existing.payload) as Record<string, unknown>;
@@ -166,11 +169,14 @@ export function enqueueCleanupStaleSupersededItemsJob(retentionMs?: number): str
   const existing = db
     .select()
     .from(memoryJobs)
-    .where(and(eq(memoryJobs.type, 'cleanup_stale_superseded_items'), eq(memoryJobs.status, 'pending')))
+    .where(and(
+      eq(memoryJobs.type, 'cleanup_stale_superseded_items'),
+      inArray(memoryJobs.status, ['pending', 'running']),
+    ))
     .orderBy(asc(memoryJobs.createdAt))
     .get();
   if (existing) {
-    if (typeof retentionMs === 'number' && Number.isFinite(retentionMs) && retentionMs > 0) {
+    if (existing.status === 'pending' && typeof retentionMs === 'number' && Number.isFinite(retentionMs) && retentionMs > 0) {
       let payload: Record<string, unknown> = {};
       try {
         payload = JSON.parse(existing.payload) as Record<string, unknown>;

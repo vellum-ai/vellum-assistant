@@ -61,7 +61,14 @@ import {
   enqueueMemoryJob,
   enqueueResolvePendingConflictsForMessageJob,
 } from '../memory/jobs-store.js';
-import { currentWeekWindow, resetStaleSweepThrottle, runMemoryJobsOnce, sweepStaleItems } from '../memory/jobs-worker.js';
+import {
+  currentWeekWindow,
+  maybeEnqueueScheduledCleanupJobs,
+  resetCleanupScheduleThrottle,
+  resetStaleSweepThrottle,
+  runMemoryJobsOnce,
+  sweepStaleItems,
+} from '../memory/jobs-worker.js';
 import {
   buildMemoryRecall,
   escapeXmlTags,
@@ -107,6 +114,7 @@ describe('Memory regressions', () => {
     db.run('DELETE FROM conversations');
     db.run('DELETE FROM memory_jobs');
     db.run('DELETE FROM memory_checkpoints');
+    resetCleanupScheduleThrottle();
     resetStaleSweepThrottle();
   });
 
@@ -1365,6 +1373,142 @@ describe('Memory regressions', () => {
     const supersededRow = db.select().from(memoryJobs).where(eq(memoryJobs.id, supersededFirst)).get();
     expect(JSON.parse(resolvedRow?.payload ?? '{}')).toMatchObject({ retentionMs: 12_345 });
     expect(JSON.parse(supersededRow?.payload ?? '{}')).toMatchObject({ retentionMs: 67_890 });
+  });
+
+  test('cleanup job enqueue dedupes against running jobs without mutating payload', () => {
+    const db = getDb();
+
+    const resolvedId = enqueueCleanupResolvedConflictsJob(10_000);
+    const supersededId = enqueueCleanupStaleSupersededItemsJob(20_000);
+
+    db.update(memoryJobs)
+      .set({ status: 'running' })
+      .where(eq(memoryJobs.id, resolvedId))
+      .run();
+    db.update(memoryJobs)
+      .set({ status: 'running' })
+      .where(eq(memoryJobs.id, supersededId))
+      .run();
+
+    const resolvedDedupedId = enqueueCleanupResolvedConflictsJob(11_111);
+    const supersededDedupedId = enqueueCleanupStaleSupersededItemsJob(22_222);
+    expect(resolvedDedupedId).toBe(resolvedId);
+    expect(supersededDedupedId).toBe(supersededId);
+
+    const resolvedRow = db.select().from(memoryJobs).where(eq(memoryJobs.id, resolvedId)).get();
+    const supersededRow = db.select().from(memoryJobs).where(eq(memoryJobs.id, supersededId)).get();
+    expect(JSON.parse(resolvedRow?.payload ?? '{}')).toMatchObject({ retentionMs: 10_000 });
+    expect(JSON.parse(supersededRow?.payload ?? '{}')).toMatchObject({ retentionMs: 20_000 });
+  });
+
+  test('scheduled cleanup enqueue respects throttle and config retention values', () => {
+    const db = getDb();
+    const originalCleanup = { ...TEST_CONFIG.memory.cleanup };
+    TEST_CONFIG.memory.cleanup.enabled = true;
+    TEST_CONFIG.memory.cleanup.enqueueIntervalMs = 1_000;
+    TEST_CONFIG.memory.cleanup.resolvedConflictRetentionMs = 12_345;
+    TEST_CONFIG.memory.cleanup.supersededItemRetentionMs = 67_890;
+
+    try {
+      const first = maybeEnqueueScheduledCleanupJobs(TEST_CONFIG, 5_000);
+      expect(first).toBe(true);
+
+      const tooSoon = maybeEnqueueScheduledCleanupJobs(TEST_CONFIG, 5_500);
+      expect(tooSoon).toBe(false);
+
+      const jobsAfterFirst = db.select().from(memoryJobs).all();
+      const resolvedJob = jobsAfterFirst.find((row) => row.type === 'cleanup_resolved_conflicts');
+      const supersededJob = jobsAfterFirst.find((row) => row.type === 'cleanup_stale_superseded_items');
+      expect(resolvedJob).toBeDefined();
+      expect(supersededJob).toBeDefined();
+      expect(JSON.parse(resolvedJob?.payload ?? '{}')).toMatchObject({ retentionMs: 12_345 });
+      expect(JSON.parse(supersededJob?.payload ?? '{}')).toMatchObject({ retentionMs: 67_890 });
+
+      const secondWindow = maybeEnqueueScheduledCleanupJobs(TEST_CONFIG, 6_500);
+      expect(secondWindow).toBe(true);
+      const jobsAfterSecond = db.select().from(memoryJobs).all();
+      expect(jobsAfterSecond.filter((row) => row.type === 'cleanup_resolved_conflicts').length).toBe(1);
+      expect(jobsAfterSecond.filter((row) => row.type === 'cleanup_stale_superseded_items').length).toBe(1);
+    } finally {
+      TEST_CONFIG.memory.cleanup = originalCleanup;
+    }
+  });
+
+  test('cleanup jobs use config retention defaults when payload retention is missing', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const originalCleanup = { ...TEST_CONFIG.memory.cleanup };
+    TEST_CONFIG.memory.cleanup.resolvedConflictRetentionMs = 10_000;
+    TEST_CONFIG.memory.cleanup.supersededItemRetentionMs = 10_000;
+
+    try {
+      db.insert(memoryItems).values([
+        {
+          id: 'cleanup-config-existing',
+          kind: 'fact',
+          subject: 'stack',
+          statement: 'Use Bun',
+          status: 'active',
+          confidence: 0.8,
+          fingerprint: 'fp-cleanup-config-existing',
+          verificationState: 'assistant_inferred',
+          scopeId: 'default',
+          firstSeenAt: now - 20_000,
+          lastSeenAt: now - 20_000,
+        },
+        {
+          id: 'cleanup-config-candidate',
+          kind: 'fact',
+          subject: 'stack',
+          statement: 'Use Node',
+          status: 'pending_clarification',
+          confidence: 0.8,
+          fingerprint: 'fp-cleanup-config-candidate',
+          verificationState: 'assistant_inferred',
+          scopeId: 'default',
+          firstSeenAt: now - 20_000,
+          lastSeenAt: now - 20_000,
+        },
+        {
+          id: 'cleanup-config-stale-item',
+          kind: 'decision',
+          subject: 'deploy strategy',
+          statement: 'Manual deploy Fridays.',
+          status: 'superseded',
+          confidence: 0.7,
+          fingerprint: 'fp-cleanup-config-stale-item',
+          verificationState: 'assistant_inferred',
+          scopeId: 'default',
+          firstSeenAt: now - 200_000,
+          lastSeenAt: now - 200_000,
+          invalidAt: now - 200_000,
+        },
+      ]).run();
+
+      const conflict = createOrUpdatePendingConflict({
+        existingItemId: 'cleanup-config-existing',
+        candidateItemId: 'cleanup-config-candidate',
+        relationship: 'ambiguous_contradiction',
+      });
+      resolveConflict(conflict.id, { status: 'resolved_keep_existing' });
+      db.run(`
+        UPDATE memory_item_conflicts
+        SET resolved_at = ${now - 100_000}, updated_at = ${now - 100_000}
+        WHERE id = '${conflict.id}'
+      `);
+
+      enqueueMemoryJob('cleanup_resolved_conflicts', {});
+      enqueueMemoryJob('cleanup_stale_superseded_items', {});
+      const processed = await runMemoryJobsOnce();
+      expect(processed).toBe(2);
+
+      const conflictRow = db.select().from(memoryItemConflicts).where(eq(memoryItemConflicts.id, conflict.id)).get();
+      const staleItem = db.select().from(memoryItems).where(eq(memoryItems.id, 'cleanup-config-stale-item')).get();
+      expect(conflictRow).toBeUndefined();
+      expect(staleItem).toBeUndefined();
+    } finally {
+      TEST_CONFIG.memory.cleanup = originalCleanup;
+    }
   });
 
   test('cleanup_resolved_conflicts removes stale resolved rows but keeps recent/pending', async () => {

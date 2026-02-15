@@ -369,6 +369,27 @@ export const MemoryRetentionConfigSchema = z.object({
     .default(true),
 });
 
+export const MemoryCleanupConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.cleanup.enabled must be a boolean' })
+    .default(true),
+  enqueueIntervalMs: z
+    .number({ error: 'memory.cleanup.enqueueIntervalMs must be a number' })
+    .int('memory.cleanup.enqueueIntervalMs must be an integer')
+    .positive('memory.cleanup.enqueueIntervalMs must be a positive integer')
+    .default(6 * 60 * 60 * 1000),
+  resolvedConflictRetentionMs: z
+    .number({ error: 'memory.cleanup.resolvedConflictRetentionMs must be a number' })
+    .int('memory.cleanup.resolvedConflictRetentionMs must be an integer')
+    .positive('memory.cleanup.resolvedConflictRetentionMs must be a positive integer')
+    .default(30 * 24 * 60 * 60 * 1000),
+  supersededItemRetentionMs: z
+    .number({ error: 'memory.cleanup.supersededItemRetentionMs must be a number' })
+    .int('memory.cleanup.supersededItemRetentionMs must be an integer')
+    .positive('memory.cleanup.supersededItemRetentionMs must be a positive integer')
+    .default(30 * 24 * 60 * 60 * 1000),
+});
+
 export const MemoryExtractionConfigSchema = z.object({
   useLLM: z
     .boolean({ error: 'memory.extraction.useLLM must be a boolean' })
@@ -531,6 +552,12 @@ export const MemoryConfigSchema = z.object({
   }),
   retention: MemoryRetentionConfigSchema.default({
     keepRawForever: true,
+  }),
+  cleanup: MemoryCleanupConfigSchema.default({
+    enabled: true,
+    enqueueIntervalMs: 6 * 60 * 60 * 1000,
+    resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
+    supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
   }),
   extraction: MemoryExtractionConfigSchema.default({
     useLLM: true,
@@ -723,6 +750,12 @@ export const AssistantConfigSchema = z.object({
     retention: {
       keepRawForever: true,
     },
+    cleanup: {
+      enabled: true,
+      enqueueIntervalMs: 6 * 60 * 60 * 1000,
+      resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
+      supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
+    },
     extraction: {
       useLLM: true,
       model: 'claude-haiku-4-5-20251001',
@@ -848,6 +881,7 @@ export type MemoryRetrievalConfig = z.infer<typeof MemoryRetrievalConfigSchema>;
 export type MemorySegmentationConfig = z.infer<typeof MemorySegmentationConfigSchema>;
 export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
 export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
+export type MemoryCleanupConfig = z.infer<typeof MemoryCleanupConfigSchema>;
 export type MemoryExtractionConfig = z.infer<typeof MemoryExtractionConfigSchema>;
 export type MemorySummarizationConfig = z.infer<typeof MemorySummarizationConfigSchema>;
 export type MemoryEntityConfig = z.infer<typeof MemoryEntityConfigSchema>;
