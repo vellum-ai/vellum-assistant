@@ -69,11 +69,12 @@ export function getSandboxRootDir(): string {
 }
 
 /**
- * Returns the default sandbox working directory (~/.vellum/data/sandbox/fs).
- * Tool working directories should use this path unless explicitly overridden.
+ * Returns the default sandbox working directory (~/.vellum/workspace).
+ * This is the workspace root — tool working directories should use this
+ * path unless explicitly overridden.
  */
 export function getSandboxWorkingDir(): string {
-  return join(getSandboxRootDir(), 'fs');
+  return getWorkspaceDir();
 }
 
 export function getInterfacesDir(): string {

@@ -25,7 +25,7 @@ mock.module('../util/platform.js', () => ({
   getDbPath: () => '/tmp/vellum-test/data/db/assistant.db',
   getLogPath: () => '/tmp/vellum-test/data/logs/daemon.log',
   getSandboxRootDir: () => '/tmp/vellum-test/sandbox',
-  getSandboxWorkingDir: () => '/tmp/vellum-test/sandbox/workspace',
+  getSandboxWorkingDir: () => '/tmp/vellum-test/workspace',
   ensureDataDir: () => {},
   getHistoryPath: () => '/tmp/vellum-test/data/history',
   getHooksDir: () => '/tmp/vellum-test/hooks',
@@ -330,7 +330,7 @@ describe('runSandboxDiagnostics — Docker mount writable check', () => {
     expect(args).toContain('alpine:3.19');
     // Mount source should be the sandbox working dir (getSandboxWorkingDir)
     const mountArg = args.find((a: string) => a.startsWith('type=bind'));
-    expect(mountArg).toContain('/tmp/vellum-test/sandbox/workspace');
+    expect(mountArg).toContain('/tmp/vellum-test/workspace');
     // Probe command should be 'test -w /workspace' matching runtime preflight
     expect(args).toContain('test');
     expect(args).toContain('-w');
