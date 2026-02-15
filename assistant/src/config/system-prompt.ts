@@ -139,11 +139,35 @@ function readPromptFile(path: string): string | null {
 
 function appendSkillsCatalog(basePrompt: string): string {
   const skills = loadSkillCatalog();
-  if (skills.length === 0) return basePrompt;
+
+  const sections: string[] = [basePrompt];
 
   const catalog = formatSkillsCatalog(skills);
-  if (!catalog) return basePrompt;
-  return `${basePrompt}\n\n${catalog}`;
+  if (catalog) sections.push(catalog);
+
+  sections.push(buildDynamicSkillWorkflowSection());
+
+  return sections.join('\n\n');
+}
+
+function buildDynamicSkillWorkflowSection(): string {
+  return [
+    '## Dynamic Skill Authoring Workflow',
+    '',
+    'When the user requests a capability that no existing tool or skill can satisfy, follow this exact procedure:',
+    '',
+    '1. **Validate the gap.** Confirm no existing tool or installed skill covers the need.',
+    '2. **Draft a TypeScript snippet.** Write a self-contained snippet that exports a `default` or `run` function with signature `(input: unknown) => unknown | Promise<unknown>`.',
+    '3. **Test with `evaluate_typescript_code`.** Call the tool to run the snippet in a sandbox. Iterate until it passes.',
+    '4. **Persist with `scaffold_managed_skill`.** Only after successful evaluation and explicit user consent, call `scaffold_managed_skill` to write the skill to `~/.vellum/skills/<id>/`.',
+    '5. **Load and use.** Call `skill_load` with the new skill ID before invoking the skill-driven flow.',
+    '',
+    'Important constraints:',
+    '- **Never persist or delete skills without explicit user confirmation.** Both operations require user approval.',
+    '- If evaluation fails after 3 attempts, summarize the failure and ask the user for guidance instead of continuing to retry.',
+    '- After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.',
+    '- To remove a managed skill, use `delete_managed_skill`.',
+  ].join('\n');
 }
 
 function escapeXml(str: string): string {
