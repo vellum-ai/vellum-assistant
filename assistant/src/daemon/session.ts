@@ -1829,6 +1829,23 @@ export class Session {
           data: revertedData,
         });
       }
+
+      // Sync sibling undo stacks: pop the top entry if it matches the HTML we
+      // just reverted to, preventing phantom no-op undo steps on siblings.
+      for (const [sid, s] of this.surfaceState.entries()) {
+        if (sid === surfaceId) continue;
+        if (s.surfaceType !== 'dynamic_page') continue;
+        const sData = s.data as DynamicPageSurfaceData;
+        if (sData.appId !== data.appId) continue;
+
+        const siblingStack = this.surfaceUndoStacks.get(sid);
+        if (siblingStack && siblingStack.length > 0) {
+          const top = siblingStack[siblingStack.length - 1];
+          if (top === previousHtml) {
+            siblingStack.pop();
+          }
+        }
+      }
     } else {
       // Ephemeral surface — update only the requesting surface
       const revertedData: DynamicPageSurfaceData = { ...data, html: previousHtml };
