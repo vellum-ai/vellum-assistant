@@ -32,17 +32,6 @@ Also fetch inline review comments if needed: `gh api repos/vellum-ai/vellum-assi
 - **Requested changes:** Left a PR review or inline comment with issues/findings (any review that does NOT say "No Issues Found")
 - **Pending:** No review from this user
 
-## Skipping slow reviewers (30-minute timeout)
-
-If a PR was created **30 or more minutes ago** (based on `createdAt`) and only **one** of Codex or Devin has reviewed it while the other is still pending, treat the pending reviewer as **skipped**. A skipped review counts as an implicit approval. If **neither** has reviewed after 30 minutes, do NOT skip — keep waiting (both still pending).
-
-**Exception — rate-limited Codex:** If Codex is rate-limited (not merely pending), it is NEVER skipped regardless of age. Instead, re-trigger the review by commenting `@codex review` on the PR and keep it in UNREVIEWED_PRS.md. The 30-minute skip only applies to reviewers that are truly pending (no response at all).
-
-When a reviewer is skipped:
-- The PR is considered "fully reviewed" (just like if both had responded).
-- The skipped reviewer's status should display as "Skipped" in the output table.
-- Apply the normal actions logic using the one real review plus the implicit approval from the skip.
-
 ## Contextual review assessment
 
 When a reviewer requests changes, don't blindly add the feedback to TODO. First assess whether the feedback actually makes sense:
@@ -79,13 +68,12 @@ Examples of feedback that would cause a regression:
 
 ## Actions
 
-- **Rate-limited Codex (overrides all other rules):** If Codex is rate-limited, re-trigger the review by commenting `@codex review` on the PR and keep the PR in UNREVIEWED_PRS.md regardless of age. Do NOT skip Codex and do NOT remove the PR. This takes priority over the 30-minute timeout and the "fully reviewed" removal rule below.
-- If either reviewer hasn't reviewed yet **and** the PR is less than 30 minutes old, keep the PR in UNREVIEWED_PRS.md for next time.
-- If the PR is 30+ minutes old and at least one reviewer has responded, treat any missing (non-rate-limited) reviewer as skipped (implicit approval) and proceed as fully reviewed.
-- If both have reviewed (or one reviewed + one skipped) and either **real** review requested changes with **valid feedback**, add `- Address the feedback on <link to PR>` to the **top** of .private/TODO.md (ordered by PR number, lowest first).
+- **Rate-limited Codex:** If Codex is rate-limited, re-trigger the review by commenting `@codex review` on the PR and keep the PR in UNREVIEWED_PRS.md. Do NOT remove the PR.
+- If either reviewer hasn't reviewed yet, keep the PR in UNREVIEWED_PRS.md for next time.
+- If both have reviewed and either review requested changes with **valid feedback**, add `- Address the feedback on <link to PR>` to the **top** of .private/TODO.md (ordered by PR number, lowest first).
 - If all feedback on a PR was classified as nonsensical, treat that reviewer as having approved.
 - If any feedback is classified as **regression risk**, do NOT add it to TODO. Instead, flag it to the user (see output section) and **stop processing further PRs**. Wait for the user to decide what to do.
-- If fully reviewed (both reviewed, or one reviewed + one skipped) **and** Codex is not rate-limited, remove the PR from .private/UNREVIEWED_PRS.md.
+- If fully reviewed (both have reviewed) and Codex is not rate-limited, remove the PR from .private/UNREVIEWED_PRS.md.
 
 ## Output
 
@@ -94,8 +82,8 @@ Display a table with these columns:
 | PR  | Age | Codex | Devin | Verdict | Added to TODO | Removed from Unreviewed |
 | --- | --- | ----- | ----- | ------- | ------------- | ----------------------- |
 
-- **Age**: How long ago the PR was created (e.g., "2h 15m", "45m"). Include a ⏰ marker if the 30-minute timeout triggered a skip.
-- **Codex/Devin columns**: Show "Approved", "Changes requested", "Pending", "Skipped", "Nonsensical" (feedback didn't apply), or "Rate-limited 🔄" (Codex only — re-triggered via `@codex review` comment).
+- **Age**: How long ago the PR was created (e.g., "2h 15m", "45m").
+- **Codex/Devin columns**: Show "Approved", "Changes requested", "Pending", "Nonsensical" (feedback didn't apply), or "Rate-limited 🔄" (Codex only — re-triggered via `@codex review` comment).
 - **Verdict**: The overall assessment — "Approved", "Valid feedback", "Regression risk ⚠️", or "Pending".
 
 ### Regression risk flagging
