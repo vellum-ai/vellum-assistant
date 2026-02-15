@@ -28,7 +28,6 @@ public struct InlineTableWidget: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(.horizontal, VSpacing.sm)
             .padding(.bottom, VSpacing.xxs)
 
             Divider()
@@ -78,7 +77,6 @@ public struct InlineTableWidget: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)

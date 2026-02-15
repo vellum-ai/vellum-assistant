@@ -53,7 +53,6 @@ public struct InlineListWidget: View {
                     .foregroundColor(isSelected ? VColor.accent : VColor.textMuted)
             }
         }
-        .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
