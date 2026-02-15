@@ -90,6 +90,7 @@ export class RuntimeHttpServer {
   private processMessage?: MessageProcessor;
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private runOrchestrator?: RunOrchestrator;
+  private interfaces = new Map<string, string>();
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
   private designSystemCss: string | null = null;
@@ -116,6 +117,14 @@ export class RuntimeHttpServer {
       this.server = null;
       log.info('Runtime HTTP server stopped');
     }
+  }
+
+  registerInterface(interfacePath: string, source: string): void {
+    this.interfaces.set(interfacePath, source);
+  }
+
+  unregisterInterface(interfacePath: string): void {
+    this.interfaces.delete(interfacePath);
   }
 
   private async handleRequest(req: Request): Promise<Response> {
@@ -243,6 +252,11 @@ export class RuntimeHttpServer {
         }
       }
 
+      const interfacesMatch = endpoint.match(/^interfaces\/(.+)$/);
+      if (interfacesMatch && req.method === 'GET') {
+        return this.handleGetInterface(interfacesMatch[1]);
+      }
+
       if (endpoint === 'channels/conversation' && req.method === 'DELETE') {
         return await this.handleDeleteConversation(assistantId, req);
       }
@@ -328,7 +342,11 @@ export class RuntimeHttpServer {
       };
     });
 
-    return Response.json({ messages });
+    const registeredInterfaces = Array.from(this.interfaces.keys());
+    return Response.json({
+      messages,
+      ...(registeredInterfaces.length > 0 ? { interfaces: registeredInterfaces } : {}),
+    });
   }
 
   private async handleGetSuggestion(assistantId: string, url: URL): Promise<Response> {
@@ -994,6 +1012,16 @@ ${app.htmlDefinition}
   }
 
   // ── Attachment fetch endpoint ──────────────────────────────────────
+
+  private handleGetInterface(interfacePath: string): Response {
+    const source = this.interfaces.get(interfacePath);
+    if (source === undefined) {
+      return Response.json({ error: 'Interface not found' }, { status: 404 });
+    }
+    return new Response(source, {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
 
   private handleGetAttachment(assistantId: string, attachmentId: string): Response {
     const attachment = attachmentsStore.getAttachmentById(assistantId, attachmentId);
