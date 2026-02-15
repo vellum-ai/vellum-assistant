@@ -42,15 +42,15 @@ describe('baseline path characterization (pre-migration)', () => {
     const base = join(tmpdir(), `platform-test-${randomBytes(4).toString('hex')}`);
     process.env.BASE_DATA_DIR = base;
     const root = join(base, '.vellum');
-    const data = join(root, 'data');
+    const data = join(root, 'workspace', 'data');
 
     // Root dir — stays as anchor for all paths
     expect(getRootDir()).toBe(root);
 
-    // WILL MOVE to ~/.vellum/workspace/data
-    expect(getDataDir()).toBe(join(root, 'data'));
+    // Now resolves under workspace/data
+    expect(getDataDir()).toBe(join(root, 'workspace', 'data'));
 
-    // WILL MOVE (under workspace/data)
+    // Sub-paths under workspace/data
     expect(getDbPath()).toBe(join(data, 'db', 'assistant.db'));
     expect(getLogPath()).toBe(join(data, 'logs', 'vellum.log'));
     expect(getHistoryPath()).toBe(join(data, 'history'));

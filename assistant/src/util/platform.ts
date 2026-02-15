@@ -45,11 +45,11 @@ export function getRootDir(): string {
 }
 
 /**
- * Returns the internal data directory (~/.vellum/data). Runtime databases,
- * logs, memory indices, and other internal state live here.
+ * Returns the internal data directory (~/.vellum/workspace/data). Runtime
+ * databases, logs, memory indices, and other internal state live here.
  */
 export function getDataDir(): string {
-  return join(getRootDir(), 'data');
+  return join(getWorkspaceDir(), 'data');
 }
 
 /**
