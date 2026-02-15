@@ -178,7 +178,7 @@ export async function runDaemon(): Promise<void> {
   migrateToDataLayout();
   ensureDataDir();
 
-  const seedDir = process.env.VELLUM_INTERFACES_SEED_DIR?.trim();
+  const seedDir = process.env.INTERFACES_SEED_DIR?.trim();
   if (seedDir && existsSync(seedDir)) {
     const interfacesDir = getInterfacesDir();
     cpSync(seedDir, interfacesDir, { recursive: true });
