@@ -209,11 +209,16 @@ export class EvaluateTypescriptTool implements Tool {
         let stderr = Buffer.concat(stderrChunks).toString();
         let truncated = false;
 
-        // Extract structured result from raw stdout before truncation
+        // Extract structured result from raw stdout before truncation.
+        // Scan from the end since the runner prints __eval_result last,
+        // so post-processing cost stays bounded regardless of output size.
         let result: unknown = undefined;
         if (code === 0) {
-          const lines = stdout.split('\n');
-          for (const line of lines) {
+          const searchRegion = stdout.slice(-4096);
+          const lines = searchRegion.split('\n');
+          for (let i = lines.length - 1; i >= 0; i--) {
+            const line = lines[i];
+            if (!line) continue;
             try {
               const parsed = JSON.parse(line);
               if (parsed && typeof parsed === 'object' && '__eval_result' in parsed) {
