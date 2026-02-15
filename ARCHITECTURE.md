@@ -96,6 +96,7 @@ graph TB
         GW_ROUTE["Route Resolver<br/>chat_id → user_id → default"]
         GW_FORWARD["Runtime Client<br/>POST /channels/inbound"]
         GW_REPLY["Send Reply<br/>Telegram sendMessage"]
+        GW_ATTACH["Send Attachments<br/>sendPhoto / sendDocument"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
         GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
     end
@@ -195,6 +196,7 @@ graph TB
     GW_ROUTE --> GW_FORWARD
     GW_FORWARD -->|"HTTP"| HTTP_SERVER
     GW_REPLY -->|"Telegram API"| GW_WEBHOOK
+    GW_ATTACH -->|"download from runtime<br/>+ upload to Telegram"| GW_WEBHOOK
 
     %% Gateway flow — Runtime proxy path (optional)
     GW_PROXY -->|"HTTP (forwarded)"| HTTP_SERVER
@@ -661,7 +663,7 @@ graph LR
         S3["cu_error<br/>message"]
         S4["assistant_text_delta<br/>streaming text"]
         S5["assistant_thinking_delta<br/>streaming thinking"]
-        S6["message_complete<br/>usage stats"]
+        S6["message_complete<br/>usage stats, attachments?"]
         S7["ambient_result<br/>decision, summary/suggestion"]
         S8["confirmation_request<br/>tool, risk_level,<br/>executionTarget"]
         S9["memory_recalled<br/>context segments"]
@@ -669,7 +671,7 @@ graph LR
         S11["generation_cancelled"]
         S12["message_queued<br/>position in queue"]
         S13["message_dequeued<br/>queue drained"]
-        S14["generation_handoff<br/>sessionId, requestId?,<br/>queuedCount"]
+        S14["generation_handoff<br/>sessionId, requestId?,<br/>queuedCount, attachments?"]
         S15["trace_event<br/>eventId, sessionId, requestId?,<br/>timestampMs, sequence, kind,<br/>status?, summary, attributes?"]
         S16["session_error<br/>sessionId, code,<br/>userMessage, retryable,<br/>debugDetails?"]
     end
