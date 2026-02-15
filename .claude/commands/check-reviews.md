@@ -23,6 +23,7 @@ Also fetch inline review comments if needed: `gh api repos/vellum-ai/vellum-assi
 
 - **Approved:** Left a `+1` reaction on the PR description (check the issues reactions endpoint)
 - **Requested changes:** Left a PR review or inline review comment with suggestions/issues (look for reviews or comments by `chatgpt-codex-connector[bot]`)
+- **Rate-limited:** The most recent comment from Codex mentions a rate limit was reached (e.g. "rate limit", "rate_limit", "too many requests"). This is NOT a review — treat it as **Pending**.
 - **Pending:** Neither of the above
 
 ### devin-ai-integration (appears as `devin-ai-integration[bot]`)
@@ -34,6 +35,8 @@ Also fetch inline review comments if needed: `gh api repos/vellum-ai/vellum-assi
 ## Skipping slow reviewers (30-minute timeout)
 
 If a PR was created **30 or more minutes ago** (based on `createdAt`) and only **one** of Codex or Devin has reviewed it while the other is still pending, treat the pending reviewer as **skipped**. A skipped review counts as an implicit approval. If **neither** has reviewed after 30 minutes, do NOT skip — keep waiting (both still pending).
+
+**Exception — rate-limited Codex:** If Codex is rate-limited (not merely pending), it is NEVER skipped regardless of age. Instead, re-trigger the review by commenting `@codex review` on the PR and keep it in UNREVIEWED_PRS.md. The 30-minute skip only applies to reviewers that are truly pending (no response at all).
 
 When a reviewer is skipped:
 - The PR is considered "fully reviewed" (just like if both had responded).
@@ -91,7 +94,7 @@ Display a table with these columns:
 | --- | --- | ----- | ----- | ------- | ------------- | ----------------------- |
 
 - **Age**: How long ago the PR was created (e.g., "2h 15m", "45m"). Include a ⏰ marker if the 30-minute timeout triggered a skip.
-- **Codex/Devin columns**: Show "Approved", "Changes requested", "Pending", "Skipped", or "Nonsensical" (feedback didn't apply).
+- **Codex/Devin columns**: Show "Approved", "Changes requested", "Pending", "Skipped", "Nonsensical" (feedback didn't apply), or "Rate-limited 🔄" (Codex only — re-triggered via `@codex review` comment).
 - **Verdict**: The overall assessment — "Approved", "Valid feedback", "Regression risk ⚠️", or "Pending".
 
 ### Regression risk flagging
