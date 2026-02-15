@@ -54,6 +54,12 @@ export const DEFAULT_CONFIG: AssistantConfig = {
         reinforcementShieldDays: 7,
       },
       scopePolicy: 'allow_global_fallback' as const,
+      dynamicBudget: {
+        enabled: true,
+        minInjectTokens: 1200,
+        maxInjectTokens: 10000,
+        targetHeadroomTokens: 10000,
+      },
     },
     segmentation: {
       targetTokens: 450,
@@ -64,6 +70,12 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     },
     retention: {
       keepRawForever: true,
+    },
+    cleanup: {
+      enabled: true,
+      enqueueIntervalMs: 6 * 60 * 60 * 1000,
+      resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
+      supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
     },
     extraction: {
       useLLM: true,
@@ -77,6 +89,28 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     entity: {
       enabled: true,
       model: 'claude-haiku-4-5-20251001',
+      extractRelations: {
+        enabled: true,
+        backfillBatchSize: 200,
+      },
+      relationRetrieval: {
+        enabled: true,
+        maxSeedEntities: 8,
+        maxNeighborEntities: 20,
+        maxEdges: 40,
+        neighborScoreMultiplier: 0.7,
+      },
+    },
+    conflicts: {
+      enabled: true,
+      gateMode: 'soft',
+      reaskCooldownTurns: 3,
+      resolverLlmTimeoutMs: 12000,
+      relevanceThreshold: 0.3,
+    },
+    profile: {
+      enabled: true,
+      maxInjectTokens: 800,
     },
   },
   dataDir: getDataDir(),
@@ -86,7 +120,20 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     permissionTimeoutSec: 300,
   },
   sandbox: {
-    enabled: false,
+    enabled: true,
+    // SANDBOX M11 cutover: Docker is now the default backend. It provides
+    // stronger container-level isolation via ephemeral containers. Docker
+    // Desktop/Engine must be installed and running. Users without Docker can
+    // opt into the native backend via `sandbox.backend = "native"`.
+    backend: 'docker',
+    docker: {
+      image: 'node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687',
+      shell: 'sh',
+      cpus: 1,
+      memoryMb: 512,
+      pidsLimit: 256,
+      network: 'none' as const,
+    },
   },
   rateLimit: {
     maxRequestsPerMinute: 0,
@@ -101,6 +148,15 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     retentionDays: 0,
   },
   pricingOverrides: [],
+  swarm: {
+    enabled: true,
+    maxWorkers: 3,
+    maxTasks: 8,
+    maxRetriesPerTask: 1,
+    workerTimeoutSec: 900,
+    plannerModel: 'claude-haiku-4-5-20251001',
+    synthesizerModel: 'claude-sonnet-4-5-20250929',
+  },
   skills: {
     entries: {},
     load: { extraDirs: [], watch: true, watchDebounceMs: 250 },

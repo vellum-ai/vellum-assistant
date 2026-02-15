@@ -7,7 +7,7 @@ struct VellumAssistantApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView(ambientAgent: appDelegate.ambientAgent, daemonClient: appDelegate.daemonClient)
+            SettingsView(store: appDelegate.services.settingsStore, ambientAgent: appDelegate.services.ambientAgent, daemonClient: appDelegate.services.daemonClient)
         }
     }
 }

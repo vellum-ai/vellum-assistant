@@ -9,7 +9,7 @@ import { createWriteStream } from 'node:fs';
 import { readFile, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import archiver from 'archiver';
 import JSZip from 'jszip';
 import { getApp } from '../memory/app-store.js';
@@ -21,11 +21,8 @@ import { getLogger } from '../util/logger.js';
 
 const bundlerLog = getLogger('app-bundler');
 
-/** Read the package version at import time. */
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const packageJson = require('../../package.json') as { version: string };
-const PACKAGE_VERSION = packageJson.version;
+import { APP_VERSION } from '../version.js';
+const PACKAGE_VERSION = APP_VERSION;
 
 const MAX_BUNDLE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 
@@ -53,14 +50,25 @@ export async function packageApp(
   }
 
   // Build manifest
+  const createdBy = `vellum-assistant/${PACKAGE_VERSION}`;
+  const version = app.version ?? '1.0.0';
+  const contentId = createHash('sha256')
+    .update(`${createdBy}:${app.name}`)
+    .digest('hex')
+    .slice(0, 16);
+
   const manifest: AppManifest = {
     format_version: 1,
     name: app.name,
     ...(app.description ? { description: app.description } : {}),
+    ...(app.icon ? { icon: app.icon } : {}),
+    ...(app.preview ? { preview: app.preview } : {}),
     created_at: new Date().toISOString(),
-    created_by: `vellum-assistant/${PACKAGE_VERSION}`,
+    created_by: createdBy,
     entry: 'index.html',
     capabilities: [],
+    version,
+    content_id: contentId,
   };
 
   // NOTE: Asset fetching is not yet implemented, so we keep the original HTML
@@ -93,6 +101,13 @@ export async function packageApp(
 
     // Add index.html at root level
     archive.append(rewrittenHtml, { name: 'index.html' });
+
+    // Add additional pages alongside index.html
+    if (app.pages) {
+      for (const [filename, content] of Object.entries(app.pages)) {
+        archive.append(content, { name: filename });
+      }
+    }
 
     // TODO: When asset downloading is implemented, fetch remote assets and
     // add them here: archive.append(buffer, { name: relativePath });

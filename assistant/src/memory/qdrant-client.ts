@@ -146,20 +146,43 @@ export class VellumQdrantClient {
     const existing = await this.findByTarget(targetType, targetId);
     const pointId = existing ?? uuid();
 
-    await this.client.upsert(this.collection, {
-      wait: true,
-      points: [
-        {
-          id: pointId,
-          vector,
-          payload: {
-            target_type: targetType,
-            target_id: targetId,
-            ...payload,
+    try {
+      await this.client.upsert(this.collection, {
+        wait: true,
+        points: [
+          {
+            id: pointId,
+            vector,
+            payload: {
+              target_type: targetType,
+              target_id: targetId,
+              ...payload,
+            },
           },
-        },
-      ],
-    });
+        ],
+      });
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        await this.ensureCollection();
+        await this.client.upsert(this.collection, {
+          wait: true,
+          points: [
+            {
+              id: pointId,
+              vector,
+              payload: {
+                target_type: targetType,
+                target_id: targetId,
+                ...payload,
+              },
+            },
+          ],
+        });
+      } else {
+        throw err;
+      }
+    }
 
     return pointId;
   }
@@ -171,13 +194,30 @@ export class VellumQdrantClient {
   ): Promise<QdrantSearchResult[]> {
     await this.ensureCollection();
 
-    const results = await this.client.search(this.collection, {
-      vector,
-      limit,
-      with_payload: true,
-      score_threshold: 0.0,
-      filter: filter as Parameters<QdrantRestClient['search']>[1]['filter'],
-    });
+    let results;
+    try {
+      results = await this.client.search(this.collection, {
+        vector,
+        limit,
+        with_payload: true,
+        score_threshold: 0.0,
+        filter: filter as Parameters<QdrantRestClient['search']>[1]['filter'],
+      });
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        await this.ensureCollection();
+        results = await this.client.search(this.collection, {
+          vector,
+          limit,
+          with_payload: true,
+          score_threshold: 0.0,
+          filter: filter as Parameters<QdrantRestClient['search']>[1]['filter'],
+        });
+      } else {
+        throw err;
+      }
+    }
 
     return results.map((result) => ({
       id: typeof result.id === 'string' ? result.id : String(result.id),
@@ -235,7 +275,7 @@ export class VellumQdrantClient {
   async deleteByTarget(targetType: string, targetId: string): Promise<void> {
     await this.ensureCollection();
 
-    await this.client.delete(this.collection, {
+    const doDelete = () => this.client.delete(this.collection, {
       wait: true,
       filter: {
         must: [
@@ -244,12 +284,35 @@ export class VellumQdrantClient {
         ],
       },
     });
+
+    try {
+      await doDelete();
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        await this.ensureCollection();
+        await doDelete();
+      } else {
+        throw err;
+      }
+    }
   }
 
   async count(): Promise<number> {
     await this.ensureCollection();
-    const result = await this.client.count(this.collection, { exact: false });
-    return result.count;
+
+    try {
+      const result = await this.client.count(this.collection, { exact: false });
+      return result.count;
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        await this.ensureCollection();
+        const result = await this.client.count(this.collection, { exact: false });
+        return result.count;
+      }
+      throw err;
+    }
   }
 
   async deleteCollection(): Promise<boolean> {
@@ -263,6 +326,19 @@ export class VellumQdrantClient {
       log.warn({ err, collection: this.collection }, 'Failed to delete Qdrant collection');
       return false;
     }
+  }
+
+  /**
+   * Detect "collection not found" errors from Qdrant so callers can
+   * reset collectionReady and retry after an external deletion
+   * (e.g. `vellum sessions clear`).
+   */
+  private isCollectionMissing(err: unknown): boolean {
+    if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 404) {
+      return true;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    return msg.includes('Not found') || msg.includes('doesn\'t exist') || msg.includes('not found');
   }
 
   private async findByTarget(targetType: string, targetId: string): Promise<string | null> {

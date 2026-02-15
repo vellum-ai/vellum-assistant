@@ -5,6 +5,36 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DynamicPage")
 
+extension DynamicPageSurfaceView {
+    /// CSS design system loaded once from the resource bundle and escaped for JS injection.
+    static let designSystemCSS: String = {
+        guard let url = ResourceBundle.bundle.url(
+            forResource: "vellum-design-system", withExtension: "css"
+        ), let css = try? String(contentsOf: url) else {
+            log.error("Failed to load vellum-design-system.css from resource bundle")
+            assertionFailure("vellum-design-system.css not found in resource bundle")
+            return ""
+        }
+        return css
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "${", with: "\\${")
+            .replacingOccurrences(of: "\r", with: "")
+    }()
+
+    /// Widget JS utilities loaded once from the resource bundle.
+    static let widgetJS: String = {
+        guard let url = ResourceBundle.bundle.url(
+            forResource: "vellum-widgets", withExtension: "js"
+        ), let js = try? String(contentsOf: url) else {
+            log.error("Failed to load vellum-widgets.js from resource bundle")
+            assertionFailure("vellum-widgets.js not found in resource bundle")
+            return ""
+        }
+        return js
+    }()
+}
+
 struct DynamicPageSurfaceView: NSViewRepresentable {
     let data: DynamicPageSurfaceData
     let onAction: (String, Any?) -> Void
@@ -13,6 +43,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     let onCoordinatorReady: ((Coordinator) -> Void)?
     /// When true, blocks all network requests to external origins and restricts navigation.
     let sandboxMode: Bool
+    let topContentInset: CGFloat
+    let bottomContentInset: CGFloat
 
     init(
         data: DynamicPageSurfaceData,
@@ -20,7 +52,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         appId: String? = nil,
         onDataRequest: ((String, String, String?, [String: Any]?) -> Void)? = nil,
         onCoordinatorReady: ((Coordinator) -> Void)? = nil,
-        sandboxMode: Bool = false
+        sandboxMode: Bool = false,
+        topContentInset: CGFloat = 0,
+        bottomContentInset: CGFloat = 0
     ) {
         self.data = data
         self.onAction = onAction
@@ -28,6 +62,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         self.onDataRequest = onDataRequest
         self.onCoordinatorReady = onCoordinatorReady
         self.sandboxMode = sandboxMode
+        self.topContentInset = topContentInset
+        self.bottomContentInset = bottomContentInset
     }
 
     func makeCoordinator() -> Coordinator {
@@ -77,6 +113,24 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             window.vellum = {
                 sendAction: function(actionId, data) {
                     window.webkit.messageHandlers.vellumBridge.postMessage({actionId: actionId, data: data});
+                },
+                openExternal: function(url) {
+                    window.webkit.messageHandlers.vellumBridge.postMessage({type: 'open_external', url: String(url)});
+                },
+                _confirmPending: {},
+                _confirmNextId: 1,
+                confirm: function(title, message) {
+                    return new Promise(function(resolve) {
+                        var confirmId = 'confirm_' + (window.vellum._confirmNextId++);
+                        window.vellum._confirmPending[confirmId] = resolve;
+                        window.webkit.messageHandlers.vellumBridge.postMessage({
+                            type: 'confirm', confirmId: confirmId, title: String(title || ''), message: String(message || '')
+                        });
+                    });
+                },
+                _resolveConfirm: function(confirmId, result) {
+                    var p = window.vellum._confirmPending[confirmId];
+                    if (p) { delete window.vellum._confirmPending[confirmId]; p(result); }
                 }
             };
             """
@@ -128,21 +182,54 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             forMainFrameOnly: true
         )
 
-        let centeringScript = WKUserScript(
+        // Inject CSS custom properties for light/dark theme support at document start.
+        let themeScript = WKUserScript(
             source: """
                 (function() {
                     var style = document.createElement('style');
-                    style.textContent = 'body { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; margin: 0; }';
+                    style.textContent = ':root { --bg: #ffffff; --bg-subtle: #f8f9fa; --text: #1a1a2e; --text-secondary: #6b7280; --border: #e5e7eb; --accent: #6366f1; --accent-text: #ffffff; --success: #10b981; --warning: #f59e0b; --error: #ef4444; } @media (prefers-color-scheme: dark) { :root { --bg: #0f172a; --bg-subtle: #1e293b; --text: #f1f5f9; --text-secondary: #94a3b8; --border: #334155; --accent: #818cf8; --accent-text: #ffffff; --success: #34d399; --warning: #fbbf24; --error: #f87171; } }';
                     (document.head || document.documentElement).appendChild(style);
+
+                    window.vellum.theme = {
+                        mode: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+                    };
+                    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+                        window.vellum.theme.mode = e.matches ? 'dark' : 'light';
+                        window.dispatchEvent(new CustomEvent('vellum-theme-change', { detail: window.vellum.theme }));
+                    });
                 })();
                 """,
-            injectionTime: .atDocumentEnd,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+
+        let designSystemScript = WKUserScript(
+            source: """
+                (function() {
+                    var style = document.createElement('style');
+                    style.id = 'vellum-design-system';
+                    style.textContent = `\(Self.designSystemCSS)`;
+                    var target = document.head || document.documentElement;
+                    target.insertBefore(style, target.firstChild);
+                })();
+                """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+
+        // Widget JS utilities (charts, formatting, interactive behaviors).
+        // Runs after the bridge script so window.vellum is already defined.
+        let widgetScript = WKUserScript(
+            source: Self.widgetJS,
+            injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         )
 
         let contentController = WKUserContentController()
         contentController.addUserScript(userScript)
-        contentController.addUserScript(centeringScript)
+        contentController.addUserScript(themeScript)
+        contentController.addUserScript(designSystemScript)
+        contentController.addUserScript(widgetScript)
         contentController.add(context.coordinator, name: "vellumBridge")
 
         let configuration = WKWebViewConfiguration()
@@ -194,6 +281,45 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             }
         }
 
+        // Inject CSS padding so HTML content doesn't get hidden behind floating overlays,
+        // plus a fixed-position fade overlay that uses the page's own background color.
+        if topContentInset > 0 || bottomContentInset > 0 {
+            let top = Int(topContentInset)
+            let bottom = Int(bottomContentInset)
+            let fadeHeight = bottom + 32
+            let insetScript = WKUserScript(
+                source: """
+                    (function() {
+                        var style = document.createElement('style');
+                        style.id = 'vellum-content-insets';
+                        style.textContent = 'body { padding-top: \(top)px; padding-bottom: \(bottom)px; }';
+                        (document.head || document.documentElement).appendChild(style);
+                        if (\(bottom) > 0) {
+                            function setupFade() {
+                                var fade = document.getElementById('vellum-bottom-fade');
+                                if (!fade) {
+                                    fade = document.createElement('div');
+                                    fade.id = 'vellum-bottom-fade';
+                                    fade.style.cssText = 'position:fixed;bottom:0;left:0;right:0;pointer-events:none;z-index:99999;';
+                                    document.body.appendChild(fade);
+                                }
+                                fade.style.height = '\(fadeHeight)px';
+                                requestAnimationFrame(function() {
+                                    var bg = getComputedStyle(document.body).backgroundColor || 'rgba(0,0,0,0)';
+                                    fade.style.background = 'linear-gradient(to bottom, transparent 0%, ' + bg + ' 100%)';
+                                });
+                            }
+                            if (document.body) setupFade();
+                            else document.addEventListener('DOMContentLoaded', setupFade);
+                        }
+                    })();
+                    """,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            )
+            contentController.addUserScript(insetScript)
+        }
+
         onCoordinatorReady?(context.coordinator)
         // Use a per-app origin so localStorage/sessionStorage work natively,
         // isolated per app. Non-app surfaces get a shared fallback origin.
@@ -207,11 +333,39 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         context.coordinator.onAction = onAction
         context.coordinator.onDataRequest = onDataRequest
 
+        // Keep the coordinator's desired insets up-to-date so webView(_:didFinish:)
+        // can re-inject the correct values after a page reload.
+        let newTop = Int(topContentInset)
+        let newBottom = Int(bottomContentInset)
+        context.coordinator.desiredTopInset = newTop
+        context.coordinator.desiredBottomInset = newBottom
+
         // Reload if the HTML content has changed.
         if data.html != context.coordinator.currentHTML {
             context.coordinator.currentHTML = data.html
             let origin = appId.map { "https://\($0).vellum.local/" } ?? "https://surface.vellum.local/"
             webView.loadHTMLString(data.html, baseURL: URL(string: origin))
+        }
+
+        // Re-apply content insets and fade overlay when they change (e.g. composer expands).
+        if newTop != context.coordinator.lastTopInset || newBottom != context.coordinator.lastBottomInset {
+            context.coordinator.lastTopInset = newTop
+            context.coordinator.lastBottomInset = newBottom
+            let fadeHeight = newBottom + 32
+            let js = """
+                (function() {
+                    var el = document.getElementById('vellum-content-insets');
+                    if (!el) { el = document.createElement('style'); el.id = 'vellum-content-insets'; (document.head || document.documentElement).appendChild(el); }
+                    el.textContent = 'body { padding-top: \(newTop)px; padding-bottom: \(newBottom)px; }';
+                    var fade = document.getElementById('vellum-bottom-fade');
+                    if (fade) {
+                        fade.style.height = '\(fadeHeight)px';
+                        var bg = getComputedStyle(document.body).backgroundColor || 'rgba(0,0,0,0)';
+                        fade.style.background = 'linear-gradient(to bottom, transparent 0%, ' + bg + ' 100%)';
+                    }
+                })();
+                """
+            webView.evaluateJavaScript(js, completionHandler: nil)
         }
     }
 
@@ -227,6 +381,10 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var currentHTML: String
         let sandboxMode: Bool
         weak var webView: WKWebView?
+        var lastTopInset: Int = 0
+        var lastBottomInset: Int = 0
+        var desiredTopInset: Int = 0
+        var desiredBottomInset: Int = 0
 
         init(
             onAction: @escaping (String, Any?) -> Void,
@@ -275,6 +433,53 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     log.error("data_request received but onDataRequest callback is nil — appId was likely not set")
                 }
                 onDataRequest?(callId, method, recordId, data)
+                return
+            }
+
+            // Handle openExternal requests from the JS bridge.
+            if let type = body["type"] as? String, type == "open_external" {
+                if sandboxMode {
+                    log.warning("open_external: blocked in sandbox mode")
+                    return
+                }
+                guard let urlString = body["url"] as? String,
+                      let url = URL(string: urlString),
+                      let scheme = url.scheme?.lowercased(),
+                      ["http", "https", "mailto"].contains(scheme) else {
+                    log.warning("open_external: blocked invalid or disallowed URL: \(body["url"] as? String ?? "nil", privacy: .public)")
+                    return
+                }
+                NSWorkspace.shared.open(url)
+                return
+            }
+
+            // Handle confirm dialog requests from the JS bridge.
+            if let type = body["type"] as? String, type == "confirm" {
+                guard let confirmId = body["confirmId"] as? String else {
+                    log.error("confirm: missing confirmId")
+                    return
+                }
+                let title = body["title"] as? String ?? ""
+                let msg = body["message"] as? String ?? ""
+                let alert = NSAlert()
+                alert.messageText = title
+                alert.informativeText = msg
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "OK")
+                alert.addButton(withTitle: "Cancel")
+                let response = alert.runModal()
+                let confirmed = response == .alertFirstButtonReturn
+                let safeId = confirmId
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "'", with: "\\'")
+                    .replacingOccurrences(of: "\n", with: "\\n")
+                    .replacingOccurrences(of: "\r", with: "\\r")
+                let js = "window.vellum._resolveConfirm('\(safeId)', \(confirmed))"
+                webView?.evaluateJavaScript(js) { _, error in
+                    if let error {
+                        log.error("confirm: JS eval error: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
                 return
             }
 
@@ -331,8 +536,29 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // No auto-resize — the panel opens at a fixed default size and the user can
-            // resize manually. Content scrolls if it overflows.
+            // Re-inject content insets after page load completes. The WKUserScript from
+            // makeNSView has creation-time values baked in, which may be stale if insets
+            // changed since then (e.g. composer expanded). Apply the current desired values.
+            let top = desiredTopInset
+            let bottom = desiredBottomInset
+            guard top > 0 || bottom > 0 || lastTopInset > 0 || lastBottomInset > 0 else { return }
+            lastTopInset = top
+            lastBottomInset = bottom
+            let fadeHeight = bottom + 32
+            let js = """
+                (function() {
+                    var el = document.getElementById('vellum-content-insets');
+                    if (!el) { el = document.createElement('style'); el.id = 'vellum-content-insets'; (document.head || document.documentElement).appendChild(el); }
+                    el.textContent = 'body { padding-top: \(top)px; padding-bottom: \(bottom)px; }';
+                    var fade = document.getElementById('vellum-bottom-fade');
+                    if (fade) {
+                        fade.style.height = '\(fadeHeight)px';
+                        var bg = getComputedStyle(document.body).backgroundColor || 'rgba(0,0,0,0)';
+                        fade.style.background = 'linear-gradient(to bottom, transparent 0%, ' + bg + ' 100%)';
+                    }
+                })();
+                """
+            webView.evaluateJavaScript(js, completionHandler: nil)
         }
 
         func webView(
@@ -359,6 +585,12 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             } else {
                 if navigationAction.navigationType == .other {
                     decisionHandler(.allow)
+                } else if navigationAction.navigationType == .linkActivated,
+                          let url = navigationAction.request.url,
+                          let scheme = url.scheme?.lowercased(),
+                          ["http", "https", "mailto"].contains(scheme) {
+                    NSWorkspace.shared.open(url)
+                    decisionHandler(.cancel)
                 } else {
                     decisionHandler(.cancel)
                 }

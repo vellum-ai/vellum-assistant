@@ -2,7 +2,6 @@ import crypto from 'node:crypto';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('pomodoro');
@@ -384,4 +383,4 @@ class PomodoroTool implements Tool {
   }
 }
 
-registerTool(new PomodoroTool());
+export const pomodoroTool = new PomodoroTool();

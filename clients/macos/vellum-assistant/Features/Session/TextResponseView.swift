@@ -1,8 +1,9 @@
+import VellumAssistantShared
 import SwiftUI
 
 struct TextResponseView: View {
     @ObservedObject var session: TextSession
-    @ObservedObject var inputState: ConversationInputState
+    @Bindable var inputState: ConversationInputState
     var onClose: (() -> Void)?
 
     /// Whether the session is actively processing (thinking or streaming).

@@ -7,10 +7,13 @@ private struct DisplayAppItem: Identifiable {
     let name: String
     let description: String?
     let icon: String?
+    let preview: String?
     let dateLabel: String
     let isShared: Bool
     let trustTier: String?
     let signerDisplayName: String?
+    let version: String?
+    let updateAvailable: Bool?
 
     /// For local apps: the app store ID used for bundling.
     let localAppId: String?
@@ -20,8 +23,12 @@ private struct DisplayAppItem: Identifiable {
 
 struct GeneratedPanel: View {
     var onClose: () -> Void
+    @Binding var isExpanded: Bool
     let daemonClient: DaemonClient
+    /// When set, app opens route to the workspace instead of a floating NSPanel.
+    var onOpenApp: ((UiSurfaceShowMessage) -> Void)?
 
+    @State private var searchText = ""
     @State private var displayItems: [DisplayAppItem] = []
     @State private var isLoading = false
     @State private var hoveredAppId: String?
@@ -34,37 +41,130 @@ struct GeneratedPanel: View {
     // Track how many list responses we're waiting for
     @State private var pendingResponses = 0
 
-    init(onClose: @escaping () -> Void, daemonClient: DaemonClient) {
+    // Slack sharing state
+    @State private var slackSharingAppId: String?
+    @State private var slackShareResult: (appId: String, success: Bool)?
+
+    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil) {
         self.onClose = onClose
+        self._isExpanded = isExpanded
         self.daemonClient = daemonClient
+        self.onOpenApp = onOpenApp
     }
 
     var body: some View {
-        VSidePanel(title: "Generated", onClose: onClose) {
-            if isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                    Spacer()
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                Button(action: { withAnimation(VAnimation.fast) { isExpanded.toggle() } }) {
+                    Image(systemName: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 28, height: 28, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
-                .frame(height: 250)
-            } else if displayItems.isEmpty {
-                VEmptyState(
-                    title: "No generated items",
-                    subtitle: "Items created by your assistant will appear here",
-                    icon: "wand.and.stars"
-                )
-            } else {
-                VStack(spacing: VSpacing.md) {
-                    ForEach(displayItems) { item in
-                        appRow(item)
+                .buttonStyle(.plain)
+                .accessibilityLabel(isExpanded ? "Exit full screen" : "Enter full screen")
+
+                Text("DYNAMIC")
+                    .font(VFont.panelTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
+
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close Dynamic")
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.vertical, VSpacing.lg)
+
+            Divider()
+                .background(VColor.surfaceBorder)
+
+            // Search bar
+            if !displayItems.isEmpty || !searchText.isEmpty {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12))
+                        .foregroundColor(VColor.textMuted)
+
+                    TextField("Filter pages...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+
+                    if !searchText.isEmpty {
+                        Button(action: { searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
+                .padding(VSpacing.md)
+                .background(Slate._800)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .padding(.horizontal, VSpacing.xl)
+                .padding(.top, VSpacing.md)
+            }
+
+            // Scrollable content
+            ScrollView {
+                Group {
+                    if isLoading {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .controlSize(.small)
+                            Spacer()
+                        }
+                        .frame(height: 250)
+                    } else if displayItems.isEmpty {
+                        VEmptyState(
+                            title: "No dynamic pages",
+                            subtitle: "Dynamic UIs generated by your assistant will appear here",
+                            icon: "wand.and.stars"
+                        )
+                    } else if filteredItems.isEmpty {
+                        VEmptyState(
+                            title: "No results",
+                            subtitle: "No pages matched \"\(searchText)\"",
+                            icon: "magnifyingglass"
+                        )
+                        .frame(height: 100)
+                    } else {
+                        VStack(spacing: VSpacing.md) {
+                            ForEach(filteredItems) { item in
+                                appRow(item)
+                            }
+                        }
+                    }
+                }
+                .padding(VSpacing.xl)
             }
         }
+        .background(VColor.backgroundSubtle)
         .onAppear {
             fetchApps()
+        }
+    }
+
+    private var filteredItems: [DisplayAppItem] {
+        guard !searchText.isEmpty else { return displayItems }
+        return displayItems.filter {
+            // Always keep the row being shared so its ShareSheetButton stays
+            // in the view tree even if the search text changes mid-bundle.
+            if let sharingAppId, $0.id == sharingAppId { return true }
+            return $0.name.localizedCaseInsensitiveContains(searchText) ||
+                ($0.description?.localizedCaseInsensitiveContains(searchText) ?? false)
         }
     }
 
@@ -75,10 +175,20 @@ struct GeneratedPanel: View {
         let isBundlingThis = sharingAppId == item.id && isBundling
 
         return HStack(spacing: VSpacing.md) {
-            // Icon
-            Text(item.icon ?? "\u{1F4F1}")
-                .font(.system(size: 20))
-                .frame(width: 28, height: 28)
+            // Icon / Preview thumbnail
+            if let preview = item.preview,
+               let data = Data(base64Encoded: preview),
+               let nsImage = NSImage(data: data) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            } else {
+                Text(item.icon ?? "\u{1F4F1}")
+                    .font(.system(size: 20))
+                    .frame(width: 28, height: 28)
+            }
 
             // Name + badges + description
             VStack(alignment: .leading, spacing: 2) {
@@ -88,12 +198,22 @@ struct GeneratedPanel: View {
                         .foregroundColor(VColor.textPrimary)
                         .lineLimit(1)
 
+                    if let version = item.version {
+                        Text("v\(version)")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+
                     if item.isShared {
                         sharedBadge
                     }
 
                     if let tier = item.trustTier {
                         trustBadge(tier: tier)
+                    }
+
+                    if item.updateAvailable == true {
+                        updateAvailableBadge
                     }
                 }
 
@@ -129,7 +249,12 @@ struct GeneratedPanel: View {
                     } else {
                         shareButton(for: item)
 
+                        if let localId = item.localAppId {
+                            slackShareButton(for: item, localAppId: localId)
+                        }
+
                         if item.isShared {
+                            forkButton(for: item)
                             deleteButton(for: item)
                         }
                     }
@@ -174,6 +299,20 @@ struct GeneratedPanel: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 
+    private var updateAvailableBadge: some View {
+        HStack(spacing: 2) {
+            Image(systemName: "arrow.up.circle.fill")
+                .font(.system(size: 8))
+            Text("Update available")
+                .font(VFont.small)
+        }
+        .foregroundColor(VColor.accent)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 1)
+        .background(VColor.accent.opacity(0.15))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+    }
+
     private func trustBadge(tier: String) -> some View {
         let (icon, color): (String, Color) = {
             switch tier {
@@ -205,7 +344,10 @@ struct GeneratedPanel: View {
                     items: shareFileURL != nil && sharingAppId == item.id ? [shareFileURL!] : [],
                     isPresented: Binding(
                         get: { showShareSheet && sharingAppId == item.id },
-                        set: { showShareSheet = $0 }
+                        set: { newValue in
+                            showShareSheet = newValue
+                            if !newValue { sharingAppId = nil }
+                        }
                     )
                 )
                 .frame(width: 0, height: 0)
@@ -221,7 +363,10 @@ struct GeneratedPanel: View {
                     items: shareFileURL != nil && sharingAppId == item.id ? [shareFileURL!] : [],
                     isPresented: Binding(
                         get: { showShareSheet && sharingAppId == item.id },
-                        set: { showShareSheet = $0 }
+                        set: { newValue in
+                            showShareSheet = newValue
+                            if !newValue { sharingAppId = nil }
+                        }
                     )
                 )
                 .frame(width: 0, height: 0)
@@ -234,9 +379,65 @@ struct GeneratedPanel: View {
         }
     }
 
+    private func forkButton(for item: DisplayAppItem) -> some View {
+        VIconButton(label: "Fork", icon: "arrow.triangle.branch", iconOnly: true) {
+            forkSharedApp(item)
+        }
+    }
+
     private func deleteButton(for item: DisplayAppItem) -> some View {
         VIconButton(label: "Delete", icon: "trash", iconOnly: true) {
             deleteSharedApp(item)
+        }
+    }
+
+    @ViewBuilder
+    private func slackShareButton(for item: DisplayAppItem, localAppId: String) -> some View {
+        let isSharing = slackSharingAppId == item.id
+        let result = slackShareResult.flatMap { $0.appId == item.id ? $0 : nil }
+
+        if isSharing {
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: 24, height: 24)
+        } else if let result = result {
+            Image(systemName: result.success ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .foregroundColor(result.success ? VColor.success : VColor.error)
+                .frame(width: 24, height: 24)
+        } else {
+            VIconButton(label: "Share to Slack", icon: "paperplane", iconOnly: true) {
+                shareToSlack(appId: localAppId, itemId: item.id)
+            }
+        }
+    }
+
+    private func shareToSlack(appId: String, itemId: String) {
+        slackSharingAppId = itemId
+
+        Task { @MainActor in
+            daemonClient.onShareToSlackResponse = { response in
+                self.slackSharingAppId = nil
+                self.slackShareResult = (appId: itemId, success: response.success)
+
+                // Clear the result indicator after 2 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    if self.slackShareResult?.appId == itemId {
+                        self.slackShareResult = nil
+                    }
+                }
+            }
+
+            do {
+                try daemonClient.sendShareToSlack(appId: appId)
+            } catch {
+                self.slackSharingAppId = nil
+                self.slackShareResult = (appId: itemId, success: false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    if self.slackShareResult?.appId == itemId {
+                        self.slackShareResult = nil
+                    }
+                }
+            }
         }
     }
 
@@ -314,10 +515,13 @@ struct GeneratedPanel: View {
                 name: app.name,
                 description: app.description,
                 icon: app.icon,
+                preview: app.preview,
                 dateLabel: formatDate(app.createdAt),
                 isShared: false,
                 trustTier: nil,
                 signerDisplayName: nil,
+                version: app.version,
+                updateAvailable: nil,
                 localAppId: app.id,
                 sharedUUID: nil
             ))
@@ -330,10 +534,13 @@ struct GeneratedPanel: View {
                 name: app.name,
                 description: app.description,
                 icon: app.icon,
+                preview: app.preview,
                 dateLabel: formatISO(app.installedAt),
                 isShared: true,
                 trustTier: app.trustTier,
                 signerDisplayName: app.signerDisplayName,
+                version: app.version,
+                updateAvailable: app.updateAvailable,
                 localAppId: nil,
                 sharedUUID: app.uuid
             ))
@@ -346,7 +553,9 @@ struct GeneratedPanel: View {
 
     private func openApp(_ item: DisplayAppItem) {
         if let localId = item.localAppId {
-            // Local apps: ask the daemon to open via ui_surface_show
+            // Local apps: ask the daemon to open via ui_surface_show.
+            // When onOpenApp is set, the daemon's response will be intercepted
+            // by SurfaceManager and routed to the workspace (see PR 5).
             try? daemonClient.sendAppOpen(appId: localId)
         } else if let uuid = item.sharedUUID {
             // Shared apps: construct surface from unpacked files on disk
@@ -372,7 +581,11 @@ struct GeneratedPanel: View {
                 actions: nil,
                 display: "panel"
             )
-            daemonClient.onSurfaceShow?(surfaceMsg)
+            if let onOpenApp {
+                onOpenApp(surfaceMsg)
+            } else {
+                daemonClient.onSurfaceShow?(surfaceMsg)
+            }
         }
     }
 
@@ -430,6 +643,26 @@ struct GeneratedPanel: View {
         }
     }
 
+    // MARK: - Fork Shared App
+
+    private func forkSharedApp(_ item: DisplayAppItem) {
+        guard let uuid = item.sharedUUID else { return }
+
+        Task { @MainActor in
+            daemonClient.onForkSharedAppResponse = { response in
+                if response.success {
+                    self.fetchApps()
+                }
+            }
+
+            do {
+                try daemonClient.sendForkSharedApp(uuid: uuid)
+            } catch {
+                // Silently fail
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func formatDate(_ epochMs: Int) -> String {
@@ -458,5 +691,5 @@ struct GeneratedPanel: View {
 }
 
 #Preview {
-    GeneratedPanel(onClose: {}, daemonClient: DaemonClient())
+    GeneratedPanel(onClose: {}, isExpanded: .constant(false), daemonClient: DaemonClient())
 }

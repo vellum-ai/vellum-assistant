@@ -3,7 +3,8 @@ import SwiftUI
 import VellumAssistantShared
 
 @MainActor
-final class BundleConfirmationViewModel: ObservableObject {
+@Observable
+final class BundleConfirmationViewModel {
     let manifest: OpenBundleResponseMessage.Manifest
     let scanResult: OpenBundleResponseMessage.ScanResult
     let signatureResult: OpenBundleResponseMessage.SignatureResult
@@ -13,8 +14,8 @@ final class BundleConfirmationViewModel: ObservableObject {
     var onConfirm: (() -> Void)?
     var onCancel: (() -> Void)?
 
-    @Published var showTamperedWarning = false
-    @Published var warningsExpanded = false
+    var showTamperedWarning = false
+    var warningsExpanded = false
 
     init(
         response: OpenBundleResponseMessage,

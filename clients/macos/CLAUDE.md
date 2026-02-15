@@ -51,6 +51,7 @@ All UI and feature code lives in `Features/`, organized by domain:
 | `MenuBar/` | NSStatusItem and popover lifecycle |
 | `Surfaces/` | Daemon surface rendering (HTML/JSON overlays) |
 | `TaskInput/` | Quick task input popover |
+| `MainWindow/Panels/` | Side panels including DebugPanel (real-time trace viewer with metrics + timeline) |
 
 **Main window layout** (`MainWindowView`):
 ```
@@ -84,7 +85,7 @@ Tests use `Mock*` versions defined in `SessionTests.swift`. Test pattern: `@Main
 
 All inference (both computer-use sessions and ambient analysis) goes through daemon IPC:
 - `DaemonClient` — `@MainActor`, Unix domain socket (`~/.vellum/vellum.sock`), auto-reconnect, ping/pong keepalive, `AsyncStream<ServerMessage>`
-- `IPCMessages.swift` — Codable structs mirroring `ipc-protocol.ts`: `cu_session_create`, `cu_observation`, `cu_action`, `cu_complete`, `cu_error`, `ambient_analyze`, etc.
+- `IPCMessages.swift` — Codable structs mirroring `ipc-protocol.ts`: `cu_session_create`, `cu_observation`, `cu_action`, `cu_complete`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
 
 `AnthropicClient` is the shared HTTP client with retry logic (exponential backoff for 429/5xx). Still used by `KnowledgeCron` for local insight analysis (direct Haiku calls, not through daemon).
 
@@ -99,6 +100,8 @@ A background screen-watching system that runs alongside the manual session loop:
 ### Voice Input
 
 `VoiceInputManager` — hold Fn (or Ctrl, configurable) for speech-to-text via `SFSpeechRecognizer`. Shows `VoiceTranscriptionWindow` during recording.
+
+**Keyboard shortcut detection:** Uses defense-in-depth to distinguish voice activation from keyboard shortcuts (Control+C, Fn+arrow). Timer starts on key press, but recording only begins if no other keys are pressed during the 300ms hold period. Flag check (`otherKeyPressedDuringHold`) handles cases where apps consume keyDown events (e.g., Terminal).
 
 ### App Lifecycle
 

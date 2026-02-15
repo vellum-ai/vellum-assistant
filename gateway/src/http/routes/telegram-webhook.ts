@@ -16,6 +16,7 @@ const MAX_TYPING_DURATION_MS = 60_000;
 export type OnReply = (
   chatId: string,
   result: InboundResult,
+  assistantId: string,
 ) => Promise<void>;
 
 export function createTelegramWebhookHandler(
@@ -176,8 +177,8 @@ export function createTelegramWebhookHandler(
     }
 
     // Fire reply asynchronously so webhook ack is not blocked by outbound send
-    if (onReply && !result.rejected && result.runtimeResponse?.assistantMessage) {
-      onReply(normalized.message.externalChatId, result).catch((err) => {
+    if (onReply && !isRejection(routing) && !result.rejected && result.runtimeResponse?.assistantMessage) {
+      onReply(normalized.message.externalChatId, result, routing.assistantId).catch((err) => {
         log.error({ err, updateId: payload.update_id }, "Failed to send reply");
       });
     }

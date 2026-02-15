@@ -230,6 +230,44 @@ describe('ContextWindowManager', () => {
     expect(result.compactedPersistedMessages).toBe(3);
   });
 
+  test('counts mixed tool_result+text user messages as persisted', async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: 'text', text: '## Goals\n- mixed summary' }],
+      model: 'mock-model',
+      usage: { inputTokens: 75, outputTokens: 20 },
+      stopReason: 'end_turn',
+    }));
+    const manager = new ContextWindowManager(
+      provider,
+      'system prompt',
+      makeConfig({ maxInputTokens: 320, targetInputTokens: 170, preserveRecentUserTurns: 1 }),
+    );
+    const long = 'k'.repeat(220);
+    // Simulates a merged user message (repairHistory merges consecutive same-role
+    // messages), resulting in a user turn with both tool_result and text blocks.
+    const history: Message[] = [
+      message('user', `u1 ${long}`),
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 't1', name: 'read_file', input: { path: '/tmp/a' } }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 't1', content: 'contents' },
+          { type: 'text', text: `follow-up question ${long}` },
+        ],
+      },
+      message('assistant', `a1 ${long}`),
+      message('user', `u2 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    // The mixed user message should be counted as persisted (4 = u1 + mixed + a_tooluse + a1)
+    expect(result.compactedPersistedMessages).toBe(4);
+  });
+
   test('parses legacy assistant-role context summary messages', () => {
     const legacySummary: Message = {
       role: 'assistant',
@@ -244,5 +282,56 @@ describe('ContextWindowManager', () => {
       content: [{ type: 'text', text: `${CONTEXT_SUMMARY_MARKER}\nI typed this prefix myself` }],
     };
     expect(getSummaryFromContextMessage(userMessage)).toBeNull();
+  });
+
+  test('skips compaction during cooldown when projected gain is too low', async () => {
+    const provider = createProvider(() => {
+      throw new Error('summarizer should not be called while cooldown skip is active');
+    });
+    const manager = new ContextWindowManager(
+      provider,
+      'system prompt',
+      makeConfig({ maxInputTokens: 260, targetInputTokens: 180, preserveRecentUserTurns: 1 }),
+    );
+    const long = 'c'.repeat(220);
+    const history: Message[] = [
+      message('user', `u1 ${long}`),
+      message('assistant', `a1 ${long}`),
+      message('user', `u2 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      lastCompactedAt: Date.now() - 30_000,
+    });
+    expect(result.compacted).toBe(false);
+    expect(result.reason).toBe('compaction cooldown active with low projected gain');
+  });
+
+  test('ignores cooldown and compacts under severe token pressure', async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: 'text', text: '## Goals\n- compacted under pressure' }],
+      model: 'mock-model',
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: 'end_turn',
+    }));
+    const manager = new ContextWindowManager(
+      provider,
+      'system prompt',
+      makeConfig({ maxInputTokens: 320, targetInputTokens: 180, preserveRecentUserTurns: 1 }),
+    );
+    const long = 'p'.repeat(340);
+    const history: Message[] = [
+      message('user', `u1 ${long}`),
+      message('assistant', `a1 ${long}`),
+      message('user', `u2 ${long}`),
+      message('assistant', `a2 ${long}`),
+      message('user', `u3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      lastCompactedAt: Date.now() - 30_000,
+    });
+    expect(result.compacted).toBe(true);
+    expect(result.reason).toBeUndefined();
   });
 });

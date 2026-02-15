@@ -15,6 +15,18 @@ export type RuntimeInboundPayload = {
   attachmentIds?: string[];
 };
 
+export type RuntimeAttachmentMeta = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  kind: string;
+};
+
+export type RuntimeAttachmentPayload = RuntimeAttachmentMeta & {
+  data: string; // base64-encoded
+};
+
 export type RuntimeInboundResponse = {
   accepted: boolean;
   duplicate: boolean;
@@ -24,7 +36,7 @@ export type RuntimeInboundResponse = {
     role: "assistant";
     content: string;
     timestamp: string;
-    attachments: unknown[];
+    attachments: RuntimeAttachmentMeta[];
   };
 };
 
@@ -125,6 +137,26 @@ export type UploadAttachmentInput = {
 export type UploadAttachmentResponse = {
   id: string;
 };
+
+export async function downloadAttachment(
+  config: GatewayConfig,
+  assistantId: string,
+  attachmentId: string,
+): Promise<RuntimeAttachmentPayload> {
+  const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/attachments/${encodeURIComponent(attachmentId)}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    signal: AbortSignal.timeout(config.runtimeTimeoutMs),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Attachment download failed (${response.status}): ${body}`);
+  }
+
+  return (await response.json()) as RuntimeAttachmentPayload;
+}
 
 export async function uploadAttachment(
   config: GatewayConfig,

@@ -8,12 +8,13 @@ import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { CheckpointDecision } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
-import { createUserMessage } from '../agent/message-types.js';
+import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { getApp } from '../memory/app-store.js';
+import { uploadAttachment, linkAttachmentToMessage } from '../memory/attachments-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
+import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { ToolLifecycleEventHandler, ToolExecutionResult } from '../tools/types.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
@@ -21,22 +22,25 @@ import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { allAppTools } from '../tools/apps/definitions.js';
 import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
 import type { UserDecision } from '../permissions/types.js';
-import { generateScopeOptions } from '../permissions/checker.js';
 import { getConfig } from '../config/loader.js';
 import { estimateCost, resolvePricing } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
+import { TraceEmitter } from './trace-emitter.js';
+import { classifySessionError, isUserCancellation, buildSessionErrorMessage } from './session-error.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
 import { registerTimerCompletionNotifier, unregisterTimerCompletionNotifier, pruneSessionTimers } from '../tools/timer/pomodoro.js';
 import { createToolDomainEventPublisher } from '../events/tool-domain-event-publisher.js';
 import { registerToolMetricsLoggingListener } from '../events/tool-metrics-listener.js';
 import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
+import { registerToolTraceListener } from '../events/tool-trace-listener.js';
 import { createToolAuditListener } from '../events/tool-audit-listener.js';
 import {
   ContextWindowManager,
   createContextSummaryMessage,
   getSummaryFromContextMessage,
 } from '../context/window-manager.js';
+import { estimatePromptTokens } from '../context/token-estimator.js';
 import { getHookManager } from '../hooks/manager.js';
 import {
   buildMemoryRecall,
@@ -44,35 +48,40 @@ import {
   injectMemoryRecallAsSeparateMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
+import { buildMemoryQuery } from '../memory/query-builder.js';
+import { computeRecallBudget } from '../memory/retrieval-budget.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
+import { getApp } from '../memory/app-store.js';
+import { compileDynamicProfile } from '../memory/profile-compiler.js';
+import { getMemoryConflictAndCleanupStats } from '../memory/admin.js';
+import { ConflictGate } from './session-conflict-gate.js';
+import { injectDynamicProfileIntoUserMessage, stripDynamicProfileMessages } from './session-dynamic-profile.js';
+import { MessageQueue } from './session-queue-manager.js';
+import type { QueueDrainReason } from './session-queue-manager.js';
+import { applyRuntimeInjections, stripActiveSurfaceContext } from './session-runtime-assembly.js';
 import type { UsageActor } from '../usage/actors.js';
+import { loadSkillCatalog } from '../config/skills.js';
+import { resolveSkillStates } from '../config/skill-state.js';
+import {
+  buildInvocableSlashCatalog,
+  resolveSlashSkillCommand,
+  rewriteKnownSlashCommandPrompt,
+} from '../skills/slash-commands.js';
+import {
+  cleanAssistantContent,
+  drainDirectiveDisplayBuffer,
+  resolveDirectives,
+  contentBlocksToDrafts,
+  deduplicateDrafts,
+  validateDrafts,
+  type DirectiveRequest,
+  type AssistantAttachmentDraft,
+  type ApproveHostRead,
+} from './assistant-attachments.js';
 
 const log = getLogger('session');
 
-interface QueuedMessage {
-  content: string;
-  attachments: UserMessageAttachment[];
-  requestId: string;
-  onEvent: (msg: ServerMessage) => void;
-}
-
-export const MAX_QUEUE_DEPTH = 10;
-
-/**
- * Describes why a queued message was promoted from the queue.
- * - `loop_complete`: the agent loop finished normally and the next message was drained.
- * - `checkpoint_handoff`: a turn-boundary checkpoint decided to yield to the queued message.
- */
-export type QueueDrainReason = 'loop_complete' | 'checkpoint_handoff';
-
-/**
- * Configuration for how/when checkpoint handoff is allowed.
- * When `checkpointHandoffEnabled` is true, the agent loop may yield at
- * a turn boundary if there are queued messages waiting.
- */
-export interface QueuePolicy {
-  checkpointHandoffEnabled: boolean;
-}
+export { MAX_QUEUE_DEPTH, type QueueDrainReason, type QueuePolicy } from './session-queue-manager.js';
 
 export class Session {
   public readonly conversationId: string;
@@ -90,15 +99,27 @@ export class Session {
   private workingDir: string;
   private sandboxOverride?: boolean;
   private usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+  private readonly systemPrompt: string;
   private contextWindowManager: ContextWindowManager;
   private contextCompactedMessageCount = 0;
+  private contextCompactedAt: number | null = null;
   private currentRequestId?: string;
-  private messageQueue: QueuedMessage[] = [];
+  private assistantId: string | null = null;
+  private conflictGate = new ConflictGate();
+  private hasNoClient = false;
+  private readonly queue = new MessageQueue();
+  private currentActiveSurfaceId?: string;
   private pendingSurfaceActions = new Map<string, {
     surfaceType: SurfaceType;
   }>();
   private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
   private onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
+  public readonly traceEmitter: TraceEmitter;
+
+  /** Resolved assistant attachment drafts from the most recent exchange. */
+  public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
+  /** Warnings from directive parsing/resolution for the most recent exchange. */
+  public lastAttachmentWarnings: string[] = [];
 
   constructor(
     conversationId: string,
@@ -109,9 +130,11 @@ export class Session {
     workingDir: string,
   ) {
     this.conversationId = conversationId;
+    this.systemPrompt = systemPrompt;
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
+    this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.secretPrompter = new SecretPrompter(sendToClient);
 
@@ -127,6 +150,7 @@ export class Session {
     this.executor = new ToolExecutor(this.prompter);
     registerToolMetricsLoggingListener(this.eventBus);
     registerToolNotificationListener(this.eventBus, (msg) => this.sendToClient(msg));
+    registerToolTraceListener(this.eventBus, this.traceEmitter);
     const auditToolLifecycleEvent = createToolAuditListener();
     const publishToolDomainEvent = createToolDomainEventPublisher(this.eventBus);
     const handleToolLifecycleEvent: ToolLifecycleEventHandler = (event) => {
@@ -148,6 +172,7 @@ export class Session {
         conversationId: this.conversationId,
         requestId: this.currentRequestId,
         onOutput,
+        signal: this.abortController?.signal,
         sandboxOverride: this.sandboxOverride,
         onToolLifecycleEvent: handleToolLifecycleEvent,
         proxyToolResolver: this.surfaceProxyResolver.bind(this),
@@ -226,6 +251,7 @@ export class Session {
       0,
       Math.min(conv?.contextCompactedMessageCount ?? 0, dbMessages.length),
     );
+    this.contextCompactedAt = conv?.contextCompactedAt ?? null;
 
     const parsedMessages: Message[] = dbMessages
       .slice(this.contextCompactedMessageCount)
@@ -263,10 +289,12 @@ export class Session {
     log.info({ conversationId: this.conversationId, count: this.messages.length }, 'Loaded messages from DB');
   }
 
-  updateClient(sendToClient: (msg: ServerMessage) => void): void {
+  updateClient(sendToClient: (msg: ServerMessage) => void, hasNoClient = false): void {
     this.sendToClient = sendToClient;
+    this.hasNoClient = hasNoClient;
     this.prompter.updateSender(sendToClient);
     this.secretPrompter.updateSender(sendToClient);
+    this.traceEmitter.updateSender(sendToClient);
   }
 
   setSandboxOverride(enabled: boolean | undefined): void {
@@ -308,11 +336,12 @@ export class Session {
       unregisterTimerCompletionNotifier(this.conversationId);
       pruneSessionTimers(this.conversationId);
 
-      // Clear queued messages and notify each caller
-      for (const queued of this.messageQueue) {
-        queued.onEvent({ type: 'error', message: 'Session aborted — queued message discarded' });
+      // Clear queued messages and notify each caller with a session-scoped
+      // cancel event so other sessions do not receive cross-thread errors.
+      for (const queued of this.queue) {
+        queued.onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
       }
-      this.messageQueue = [];
+      this.queue.clear();
     }
   }
 
@@ -337,28 +366,28 @@ export class Session {
     attachments: UserMessageAttachment[],
     onEvent: (msg: ServerMessage) => void,
     requestId: string,
+    activeSurfaceId?: string,
   ): { queued: boolean; rejected?: boolean; requestId: string } {
     if (!this.processing) {
       return { queued: false, requestId };
     }
 
-    if (this.messageQueue.length >= MAX_QUEUE_DEPTH) {
+    const pushed = this.queue.push({ content, attachments, requestId, onEvent, activeSurfaceId });
+    if (!pushed) {
       return { queued: false, rejected: true, requestId };
     }
-
-    this.messageQueue.push({ content, attachments, requestId, onEvent });
     return { queued: true, requestId };
   }
 
   getQueueDepth(): number {
-    return this.messageQueue.length;
+    return this.queue.length;
   }
 
   /**
    * Returns true if there are messages waiting in the queue.
    */
   hasQueuedMessages(): boolean {
-    return this.messageQueue.length > 0;
+    return !this.queue.isEmpty;
   }
 
   /**
@@ -381,6 +410,62 @@ export class Session {
 
   handleSecretResponse(requestId: string, value?: string): void {
     this.secretPrompter.resolveSecret(requestId, value);
+  }
+
+  /**
+   * Bind a runtime assistant ID to this session.
+   * IPC-only desktop sessions can leave this unset and use a local scope.
+   */
+  setAssistantId(assistantId: string): void {
+    this.assistantId = assistantId;
+  }
+
+  private async approveHostAttachmentRead(filePath: string): Promise<boolean> {
+    const toolName = 'host_file_read';
+    const input = { path: filePath };
+    const decision = await check(toolName, input, this.workingDir);
+
+    if (decision.decision === 'allow') {
+      return true;
+    }
+    if (decision.decision === 'deny') {
+      return false;
+    }
+
+    // HTTP-created sessions use a no-op sendToClient — prompting would
+    // block for the full permission timeout before auto-denying. Fail
+    // fast instead.
+    if (this.hasNoClient) {
+      log.info({ filePath }, 'Denying host attachment read: no interactive client connected');
+      return false;
+    }
+
+    const response = await this.prompter.prompt(
+      toolName,
+      input,
+      await classifyRisk(toolName, input),
+      generateAllowlistOptions(toolName, input),
+      generateScopeOptions(this.workingDir, toolName),
+      undefined,
+      undefined,
+      this.conversationId,
+      'host',
+    );
+
+    if (response.decision === 'always_allow' && response.selectedPattern && response.selectedScope) {
+      addRule(toolName, response.selectedPattern, response.selectedScope);
+    }
+    if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
+      addRule(toolName, response.selectedPattern, response.selectedScope, 'deny');
+    }
+
+    return response.decision === 'allow' || response.decision === 'always_allow';
+  }
+
+  private formatAttachmentWarnings(warnings: string[]): string | null {
+    if (warnings.length === 0) return null;
+    const lines = warnings.map((warning) => `Attachment warning: ${warning}`);
+    return `\n\n${lines.join('\n')}`;
   }
 
   /**
@@ -439,11 +524,17 @@ export class Session {
   /**
    * Run the agent loop after a user message has been persisted via
    * `persistUserMessage`. Clears the `processing` flag when done.
+   *
+   * @param options.skipPreMessageRollback - When true, the pre-message hook
+   *   blocked path will NOT delete the user message from in-memory history or
+   *   the DB. Used by `regenerate()` where the user message is the original
+   *   (not freshly persisted) and must be preserved.
    */
   async runAgentLoop(
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
+    options?: { skipPreMessageRollback?: boolean },
   ): Promise<void> {
     if (!this.abortController) {
       throw new Error('runAgentLoop called without prior persistUserMessage');
@@ -453,6 +544,11 @@ export class Session {
     const rlog = log.child({ conversationId: this.conversationId, requestId: reqId });
     let yieldedForHandoff = false;
 
+    // Reset attachment state so a failed exchange never retains stale data
+    // from a prior successful run.
+    this.lastAssistantAttachments = [];
+    this.lastAttachmentWarnings = [];
+
     try {
       const preMessageResult = await getHookManager().trigger('pre-message', {
         sessionId: this.conversationId,
@@ -460,12 +556,14 @@ export class Session {
       });
 
       if (preMessageResult.blocked) {
-        // Roll back the user message from both in-memory history and the DB.
-        // We use deleteMessageById (not deleteLastExchange) because it NULLs
-        // nullable FK references (message_runs, channel_inbound_events) before
-        // deleting the message row, so the run record survives.
-        this.messages.pop();
-        conversationStore.deleteMessageById(userMessageId);
+        if (!options?.skipPreMessageRollback) {
+          // Roll back the user message from both in-memory history and the DB.
+          // We use deleteMessageById (not deleteLastExchange) because it NULLs
+          // nullable FK references (message_runs, channel_inbound_events) before
+          // deleting the message row, so the run record survives.
+          this.messages.pop();
+          conversationStore.deleteMessageById(userMessageId);
+        }
         onEvent({ type: 'error', message: `Message blocked by hook "${preMessageResult.blockedBy}"` });
         return;
       }
@@ -475,10 +573,12 @@ export class Session {
       const compacted = await this.contextWindowManager.maybeCompact(
         this.messages,
         abortController.signal,
+        { lastCompactedAt: this.contextCompactedAt ?? undefined },
       );
       if (compacted.compacted) {
         this.messages = compacted.messages;
         this.contextCompactedMessageCount += compacted.compactedPersistedMessages;
+        this.contextCompactedAt = Date.now();
         conversationStore.updateConversationContextWindow(
           this.conversationId,
           compacted.summaryText,
@@ -502,6 +602,7 @@ export class Session {
           compacted.summaryModel,
           onEvent,
           'context_compactor',
+          reqId,
         );
       }
 
@@ -513,12 +614,75 @@ export class Session {
       let runMessages = this.messages;
       const pendingToolResults = new Map<string, { content: string; isError: boolean; contentBlocks?: ContentBlock[] }>();
       const persistedToolUseIds = new Set<string>();
+      const accumulatedDirectives: DirectiveRequest[] = [];
+      const accumulatedToolContentBlocks: ContentBlock[] = [];
+      const directiveWarnings: string[] = [];
+      let pendingDirectiveDisplayBuffer = '';
+      let lastAssistantMessageId: string | undefined;
       const runtimeConfig = getConfig();
+      const memoryEnabled = runtimeConfig.memory?.enabled !== false;
+      const conflictConfig = memoryEnabled ? runtimeConfig.memory?.conflicts : undefined;
+      const conflictGate = conflictConfig
+        ? await this.conflictGate.evaluate(content, conflictConfig)
+        : null;
+      if (conflictGate?.relevant) {
+        const clarificationOnlyResponse = [
+          conflictGate.question,
+          '',
+          'I need this clarification before I can give guidance that depends on that preference.',
+        ].join('\n');
+        const assistantMessage = createAssistantMessage(clarificationOnlyResponse);
+        conversationStore.addMessage(
+          this.conversationId,
+          'assistant',
+          JSON.stringify(assistantMessage.content),
+        );
+        this.messages.push(assistantMessage);
+        onEvent({
+          type: 'assistant_text_delta',
+          text: clarificationOnlyResponse,
+          sessionId: this.conversationId,
+        });
+        this.traceEmitter.emit('message_complete', 'Conflict clarification requested (relevant)', {
+          requestId: reqId,
+          status: 'info',
+          attributes: { conflictGate: 'relevant' },
+        });
+        onEvent({ type: 'message_complete', sessionId: this.conversationId });
+        return;
+      }
+      const softConflictInstruction = conflictGate && !conflictGate.relevant
+        ? conflictGate.question
+        : null;
+      const profileConfig = memoryEnabled ? runtimeConfig.memory?.profile : undefined;
+      const dynamicProfile = profileConfig?.enabled
+        ? compileDynamicProfile({
+            scopeId: 'default',
+            maxInjectTokensOverride: profileConfig.maxInjectTokens,
+          })
+        : { text: '' };
       const recallQuery = buildMemoryQuery(content, this.messages);
+      const recallInjectionStrategy = runtimeConfig.memory?.retrieval?.injectionStrategy ?? 'prepend_user_block';
+      const dynamicBudgetConfig = runtimeConfig.memory?.retrieval?.dynamicBudget;
+      const recallBudget = dynamicBudgetConfig?.enabled
+        ? computeRecallBudget({
+            estimatedPromptTokens: estimatePromptTokens(
+              this.messages,
+              this.systemPrompt,
+              { providerName: this.provider.name },
+            ),
+            maxInputTokens: runtimeConfig.contextWindow.maxInputTokens,
+            targetHeadroomTokens: dynamicBudgetConfig.targetHeadroomTokens,
+            minInjectTokens: dynamicBudgetConfig.minInjectTokens,
+            maxInjectTokens: dynamicBudgetConfig.maxInjectTokens,
+          })
+        : undefined;
       const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig, {
         excludeMessageIds: [userMessageId],
         signal: abortController.signal,
+        maxInjectTokensOverride: recallBudget,
       });
+      const memoryStatus = getMemoryConflictAndCleanupStats();
 
       onEvent({
         type: 'memory_status',
@@ -527,13 +691,19 @@ export class Session {
         reason: recall.reason,
         provider: recall.provider,
         model: recall.model,
+        conflictsPending: memoryStatus.conflicts.pending,
+        conflictsResolved: memoryStatus.conflicts.resolved,
+        oldestPendingConflictAgeMs: memoryStatus.conflicts.oldestPendingAgeMs,
+        cleanupResolvedJobsPending: memoryStatus.cleanup.resolvedBacklog,
+        cleanupSupersededJobsPending: memoryStatus.cleanup.supersededBacklog,
+        cleanupResolvedJobsCompleted24h: memoryStatus.cleanup.resolvedCompleted24h,
+        cleanupSupersededJobsCompleted24h: memoryStatus.cleanup.supersededCompleted24h,
       });
 
       if (recall.injectedText.length > 0) {
         const userTail = this.messages[this.messages.length - 1];
         if (userTail && userTail.role === 'user') {
-          const strategy = runtimeConfig.memory.retrieval.injectionStrategy;
-          if (strategy === 'separate_context_message') {
+          if (recallInjectionStrategy === 'separate_context_message') {
             runMessages = injectMemoryRecallAsSeparateMessage(this.messages, recall.injectedText);
           } else {
             runMessages = [
@@ -549,6 +719,10 @@ export class Session {
             semanticHits: recall.semanticHits,
             recencyHits: recall.recencyHits,
             entityHits: recall.entityHits,
+            relationSeedEntityCount: recall.relationSeedEntityCount,
+            relationTraversedEdgeCount: recall.relationTraversedEdgeCount,
+            relationNeighborEntityCount: recall.relationNeighborEntityCount,
+            relationExpandedItemCount: recall.relationExpandedItemCount,
             mergedCount: recall.mergedCount,
             selectedCount: recall.selectedCount,
             rerankApplied: recall.rerankApplied,
@@ -558,6 +732,32 @@ export class Session {
           });
         }
       }
+
+      if (dynamicProfile.text.length > 0) {
+        const userTail = runMessages[runMessages.length - 1];
+        if (userTail && userTail.role === 'user') {
+          runMessages = [
+            ...runMessages.slice(0, -1),
+            injectDynamicProfileIntoUserMessage(userTail, dynamicProfile.text),
+          ];
+        }
+      }
+
+      // Inject soft-conflict instruction and active surface context
+      let activeSurface: { surfaceId: string; html: string } | null = null;
+      if (this.currentActiveSurfaceId) {
+        const stored = this.surfaceState.get(this.currentActiveSurfaceId);
+        if (stored && stored.surfaceType === 'dynamic_page') {
+          activeSurface = {
+            surfaceId: this.currentActiveSurfaceId,
+            html: (stored.data as DynamicPageSurfaceData).html,
+          };
+        }
+      }
+      runMessages = applyRuntimeInjections(runMessages, {
+        softConflictInstruction,
+        activeSurface,
+      });
 
       // Pre-run repair: fix any message ordering issues before sending to provider.
       // Keep a reference to the original (un-repaired) messages so we can
@@ -576,13 +776,40 @@ export class Session {
       let deferredOrderingError: string | null = null;
       let preRunHistoryLength = runMessages.length;
 
+      // Track whether llm_call_started has been emitted for the current provider turn.
+      // Reset on each usage event (which marks the end of a provider call).
+      let llmCallStartedEmitted = false;
+
       const buildEventHandler = () => (event: import('../agent/loop.js').AgentEvent) => {
+        // Emit llm_call_started once per provider call. Called on first streaming
+        // token (text or thinking) or, for tool-only turns, right before the
+        // usage event so every llm_call_finished has a matching start.
+        const emitLlmCallStartedIfNeeded = () => {
+          if (llmCallStartedEmitted) return;
+          llmCallStartedEmitted = true;
+          this.traceEmitter.emit('llm_call_started', `LLM call to ${this.provider.name}`, {
+            requestId: reqId,
+            status: 'info',
+            attributes: { provider: this.provider.name, model: model || 'unknown' },
+          });
+        };
+
         switch (event.type) {
-          case 'text_delta':
-            onEvent({ type: 'assistant_text_delta', text: event.text, sessionId: this.conversationId });
-            if (isFirstMessage) firstAssistantText += event.text;
+          case 'text_delta': {
+            emitLlmCallStartedIfNeeded();
+            pendingDirectiveDisplayBuffer += event.text;
+            const drained = drainDirectiveDisplayBuffer(pendingDirectiveDisplayBuffer);
+            pendingDirectiveDisplayBuffer = drained.bufferedRemainder;
+            if (drained.emitText.length > 0) {
+              onEvent({ type: 'assistant_text_delta', text: drained.emitText, sessionId: this.conversationId });
+              if (isFirstMessage) firstAssistantText += drained.emitText;
+            }
             break;
+          }
           case 'thinking_delta':
+            // Thinking content itself is NOT included in traces to avoid leaking
+            // extended-thinking data.
+            emitLlmCallStartedIfNeeded();
             onEvent({ type: 'assistant_thinking_delta', thinking: event.thinking });
             break;
           case 'tool_use':
@@ -595,6 +822,14 @@ export class Session {
             const imageBlock = event.contentBlocks?.find((b): b is ImageContent => b.type === 'image');
             onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status, sessionId: this.conversationId, imageData: imageBlock?.source.data });
             pendingToolResults.set(event.toolUseId, { content: event.content, isError: event.isError, contentBlocks: event.contentBlocks });
+            // Collect image/file content blocks for assistant attachment conversion
+            if (event.contentBlocks) {
+              for (const cb of event.contentBlocks) {
+                if (cb.type === 'image' || cb.type === 'file') {
+                  accumulatedToolContentBlocks.push(cb);
+                }
+              }
+            }
             break;
           }
           case 'error':
@@ -603,10 +838,20 @@ export class Session {
               // Defer the error event — only forward if retry also fails
               deferredOrderingError = event.error.message;
             } else {
-              onEvent({ type: 'error', message: event.error.message });
+              const classified = classifySessionError(event.error, { phase: 'agent_loop' });
+              onEvent(buildSessionErrorMessage(this.conversationId, classified));
             }
             break;
           case 'message_complete': {
+            if (pendingDirectiveDisplayBuffer.length > 0) {
+              onEvent({
+                type: 'assistant_text_delta',
+                text: pendingDirectiveDisplayBuffer,
+                sessionId: this.conversationId,
+              });
+              if (isFirstMessage) firstAssistantText += pendingDirectiveDisplayBuffer;
+              pendingDirectiveDisplayBuffer = '';
+            }
             // Save pending tool results as a user message before the next assistant message.
             // tool_result blocks belong in user messages per the Anthropic API spec.
             if (pendingToolResults.size > 0) {
@@ -629,18 +874,60 @@ export class Session {
               }
               pendingToolResults.clear();
             }
-            // Save assistant message to DB
-            conversationStore.addMessage(
+            // Parse and strip attachment directives from assistant text
+            const { cleanedContent, directives: msgDirectives, warnings: msgWarnings } =
+              cleanAssistantContent(event.message.content);
+            accumulatedDirectives.push(...msgDirectives);
+            directiveWarnings.push(...msgWarnings);
+
+            // Save assistant message with cleaned content (tags stripped)
+            const assistantMsg = conversationStore.addMessage(
               this.conversationId,
               'assistant',
-              JSON.stringify(event.message.content),
+              JSON.stringify(cleanedContent),
             );
+            lastAssistantMessageId = assistantMsg.id;
+
+            // Emit assistant_message trace with content metrics.
+            // Char count only includes text blocks; thinking blocks are
+            // explicitly excluded from traces.
+            const charCount = cleanedContent
+              .filter((b) => (b as Record<string, unknown>).type === 'text')
+              .reduce((sum: number, b) => sum + ((b as { text?: string }).text?.length ?? 0), 0);
+            const toolUseCount = event.message.content
+              .filter((b) => b.type === 'tool_use')
+              .length;
+            this.traceEmitter.emit('assistant_message', 'Assistant message complete', {
+              requestId: reqId,
+              status: 'success',
+              attributes: { charCount, toolUseCount },
+            });
             break;
           }
           case 'usage':
             exchangeInputTokens += event.inputTokens;
             exchangeOutputTokens += event.outputTokens;
             model = event.model;
+
+            // Ensure llm_call_started is emitted even for tool-only turns
+            // (where no text_delta or thinking_delta events fire)
+            emitLlmCallStartedIfNeeded();
+
+            // Emit llm_call_finished trace with token and latency metrics
+            this.traceEmitter.emit('llm_call_finished', `LLM call to ${this.provider.name} finished`, {
+              requestId: reqId,
+              status: 'success',
+              attributes: {
+                provider: this.provider.name,
+                model: event.model,
+                inputTokens: event.inputTokens,
+                outputTokens: event.outputTokens,
+                latencyMs: event.providerDurationMs,
+              },
+            });
+            // Reset flag so the next provider call in this agent loop run
+            // gets its own llm_call_started trace
+            llmCallStartedEmitted = false;
             break;
         }
       };
@@ -693,7 +980,8 @@ export class Session {
 
       // Forward the deferred ordering error to the client if retry failed or was not attempted
       if (deferredOrderingError) {
-        onEvent({ type: 'error', message: deferredOrderingError });
+        const classified = classifySessionError(new Error(deferredOrderingError), { phase: 'agent_loop' });
+        onEvent(buildSessionErrorMessage(this.conversationId, classified));
       }
 
       // Reconcile synthesized cancellation tool_results from history tail.
@@ -737,27 +1025,113 @@ export class Session {
       // synthetic tool_result blocks from pre-run repair don't leak into
       // this.messages.  Only the new messages appended by the agent loop
       // (beyond the repaired prefix) are carried forward.
-      const newMessages = updatedHistory.slice(preRunHistoryLength);
+      //
+      // Strip directive tags from assistant messages so in-memory history
+      // matches the cleaned content persisted to the DB. Without this,
+      // subsequent turns would send raw <vellum-attachment /> tags to the
+      // LLM, wasting tokens and encouraging hallucinated directives.
+      const newMessages = updatedHistory.slice(preRunHistoryLength).map((msg) => {
+        if (msg.role !== 'assistant') return msg;
+        const { cleanedContent } = cleanAssistantContent(msg.content);
+        return { ...msg, content: cleanedContent as ContentBlock[] };
+      });
       const restoredHistory = [...preRepairMessages, ...newMessages];
-      this.messages = stripMemoryRecallMessages(restoredHistory, recall.injectedText, runtimeConfig.memory.retrieval.injectionStrategy);
+      const recallStripped = stripMemoryRecallMessages(restoredHistory, recall.injectedText, recallInjectionStrategy);
+      this.messages = stripActiveSurfaceContext(
+        stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
+      );
 
-      this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent');
+      this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent', reqId);
 
       void getHookManager().trigger('post-message', {
         sessionId: this.conversationId,
       });
 
+      // Resolve accumulated attachment directives and tool content blocks
+      let assistantAttachments: AssistantAttachmentDraft[] = [];
+      const emittedAttachments: UserMessageAttachment[] = [];
+      if (accumulatedDirectives.length > 0 || accumulatedToolContentBlocks.length > 0) {
+        const approveHostRead: ApproveHostRead = async (filePath) => this.approveHostAttachmentRead(filePath);
+
+        const directiveDrafts = accumulatedDirectives.length > 0
+          ? await resolveDirectives(accumulatedDirectives, this.workingDir, approveHostRead)
+          : { drafts: [], warnings: [] };
+        directiveWarnings.push(...directiveDrafts.warnings);
+
+        const toolDrafts = contentBlocksToDrafts(accumulatedToolContentBlocks);
+
+        const merged = deduplicateDrafts([...directiveDrafts.drafts, ...toolDrafts]);
+        const validated = validateDrafts(merged);
+        directiveWarnings.push(...validated.warnings);
+        assistantAttachments = validated.accepted;
+      }
+
+      // Persist resolved attachments and link to the last assistant message
+      if (assistantAttachments.length > 0 && lastAssistantMessageId) {
+        const attachmentScope = this.assistantId ?? 'local-assistant';
+        for (let i = 0; i < assistantAttachments.length; i++) {
+          const draft = assistantAttachments[i];
+          const stored = uploadAttachment(
+            attachmentScope,
+            draft.filename,
+            draft.mimeType,
+            draft.dataBase64,
+          );
+          linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
+          emittedAttachments.push({
+            id: stored.id,
+            filename: draft.filename,
+            mimeType: draft.mimeType,
+            data: draft.dataBase64,
+          });
+        }
+      } else if (assistantAttachments.length > 0) {
+        for (const draft of assistantAttachments) {
+          emittedAttachments.push({
+            filename: draft.filename,
+            mimeType: draft.mimeType,
+            data: draft.dataBase64,
+          });
+        }
+      }
+
+      this.lastAssistantAttachments = assistantAttachments;
+      this.lastAttachmentWarnings = directiveWarnings;
+
+      const warningText = this.formatAttachmentWarnings(directiveWarnings);
+      if (warningText) {
+        onEvent({ type: 'assistant_text_delta', text: warningText, sessionId: this.conversationId });
+      }
+
       if (yieldedForHandoff) {
+        this.traceEmitter.emit('generation_handoff', 'Handing off to next queued message', {
+          requestId: reqId,
+          status: 'info',
+          attributes: { queuedCount: this.getQueueDepth() },
+        });
         onEvent({
           type: 'generation_handoff',
           sessionId: this.conversationId,
           requestId: reqId,
           queuedCount: this.getQueueDepth(),
+          ...(emittedAttachments.length > 0 ? { attachments: emittedAttachments } : {}),
         });
       } else if (abortController.signal.aborted) {
-        onEvent({ type: 'generation_cancelled' });
+        this.traceEmitter.emit('generation_cancelled', 'Generation cancelled by user', {
+          requestId: reqId,
+          status: 'warning',
+        });
+        onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
       } else {
-        onEvent({ type: 'message_complete', sessionId: this.conversationId });
+        this.traceEmitter.emit('message_complete', 'Message processing complete', {
+          requestId: reqId,
+          status: 'success',
+        });
+        onEvent({
+          type: 'message_complete',
+          sessionId: this.conversationId,
+          ...(emittedAttachments.length > 0 ? { attachments: emittedAttachments } : {}),
+        });
       }
 
       // Auto-generate conversation title after first exchange
@@ -767,14 +1141,27 @@ export class Session {
         });
       }
     } catch (err) {
+      const errorCtx = { phase: 'agent_loop' as const, aborted: abortController.signal.aborted };
       // AbortError is expected when user cancels — don't treat as an error
-      if (abortController.signal.aborted) {
+      if (isUserCancellation(err, errorCtx)) {
         rlog.info('Generation cancelled by user');
-        onEvent({ type: 'generation_cancelled' });
+        this.traceEmitter.emit('generation_cancelled', 'Generation cancelled by user', {
+          requestId: reqId,
+          status: 'warning',
+        });
+        onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
       } else {
         const message = err instanceof Error ? err.message : String(err);
+        const errorClass = err instanceof Error ? err.constructor.name : 'Error';
         rlog.error({ err }, 'Session processing error');
+        this.traceEmitter.emit('request_error', message.slice(0, 200), {
+          requestId: reqId,
+          status: 'error',
+          attributes: { errorClass, message: message.slice(0, 500) },
+        });
         onEvent({ type: 'error', message: `Failed to process message: ${message}` });
+        const classified = classifySessionError(err, errorCtx);
+        onEvent(buildSessionErrorMessage(this.conversationId, classified));
         void getHookManager().trigger('on-error', {
           error: err instanceof Error ? err.name : 'Error',
           message,
@@ -786,6 +1173,7 @@ export class Session {
       this.abortController = null;
       this.processing = false;
       this.currentRequestId = undefined;
+      this.currentActiveSurfaceId = undefined;
 
       // Clean up completed/cancelled timers to prevent unbounded map growth
       pruneSessionTimers(this.conversationId);
@@ -806,15 +1194,67 @@ export class Session {
    * remaining queued messages would be stranded.
    */
   private drainQueue(reason: QueueDrainReason = 'loop_complete'): void {
-    const next = this.messageQueue.shift();
+    const next = this.queue.shift();
     if (!next) return;
 
     log.info({ conversationId: this.conversationId, requestId: next.requestId, reason }, 'Dequeuing message');
+    this.traceEmitter.emit('request_dequeued', `Message dequeued (${reason})`, {
+      requestId: next.requestId,
+      status: 'info',
+      attributes: { reason },
+    });
     next.onEvent({
       type: 'message_dequeued',
       sessionId: this.conversationId,
       requestId: next.requestId,
     });
+
+    // Resolve slash commands for queued messages
+    const slashResult = this.resolveSlash(next.content);
+
+    // Unknown slash — persist the exchange and continue draining.
+    // Persist each message before pushing to this.messages so that a
+    // failed write never leaves an unpersisted message in memory.
+    if (slashResult.kind === 'unknown') {
+      try {
+        const userMsg = createUserMessage(next.content, next.attachments);
+        conversationStore.addMessage(
+          this.conversationId,
+          'user',
+          JSON.stringify(userMsg.content),
+        );
+        this.messages.push(userMsg);
+
+        const assistantMsg = createAssistantMessage(slashResult.message);
+        conversationStore.addMessage(
+          this.conversationId,
+          'assistant',
+          JSON.stringify(assistantMsg.content),
+        );
+        this.messages.push(assistantMsg);
+
+        next.onEvent({ type: 'assistant_text_delta', text: slashResult.message });
+        this.traceEmitter.emit('message_complete', 'Unknown slash command handled', {
+          requestId: next.requestId,
+          status: 'success',
+        });
+        next.onEvent({ type: 'message_complete', sessionId: this.conversationId });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Failed to persist unknown-slash exchange');
+        this.traceEmitter.emit('request_error', `Unknown-slash persist failed: ${message}`, {
+          requestId: next.requestId,
+          status: 'error',
+          attributes: { reason: 'persist_failure' },
+        });
+        next.onEvent({ type: 'error', message });
+      }
+      // Continue draining regardless of success/failure
+      this.drainQueue();
+      return;
+    }
+
+    const resolvedContent = slashResult.content;
 
     // Try to persist and run the dequeued message. If persistUserMessage
     // succeeds, runAgentLoop is called and its finally block will drain
@@ -822,20 +1262,28 @@ export class Session {
     // resolves early (no runAgentLoop call), so we must continue draining.
     let userMessageId: string;
     try {
-      userMessageId = this.persistUserMessage(next.content, next.attachments, next.requestId);
+      userMessageId = this.persistUserMessage(resolvedContent, next.attachments, next.requestId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Failed to persist queued message');
+      this.traceEmitter.emit('request_error', `Queued message persist failed: ${message}`, {
+        requestId: next.requestId,
+        status: 'error',
+        attributes: { reason: 'persist_failure' },
+      });
       next.onEvent({ type: 'error', message });
       // Continue draining — don't strand remaining messages
       this.drainQueue();
       return;
     }
 
+    // Set the active surface for the dequeued message so runAgentLoop can inject context
+    this.currentActiveSurfaceId = next.activeSurfaceId;
+
     // Fire-and-forget: persistUserMessage set this.processing = true
     // so subsequent messages will still be enqueued. runAgentLoop's
     // finally block will call drainQueue when this run completes.
-    this.runAgentLoop(next.content, userMessageId, next.onEvent).catch((err) => {
+    this.runAgentLoop(resolvedContent, userMessageId, next.onEvent).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Error processing queued message');
       next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
@@ -851,18 +1299,86 @@ export class Session {
     attachments: UserMessageAttachment[],
     onEvent: (msg: ServerMessage) => void,
     requestId?: string,
+    activeSurfaceId?: string,
   ): Promise<string> {
+    this.currentActiveSurfaceId = activeSurfaceId;
+
+    // Resolve slash commands before persistence
+    const slashResult = this.resolveSlash(content);
+
+    // Unknown slash command — persist the exchange (user + assistant) so the
+    // messageId is real.  Persist each message before pushing to this.messages
+    // so that a failed write never leaves an unpersisted message in memory.
+    if (slashResult.kind === 'unknown') {
+      const userMsg = createUserMessage(content, attachments);
+      const persisted = conversationStore.addMessage(
+        this.conversationId,
+        'user',
+        JSON.stringify(userMsg.content),
+      );
+      this.messages.push(userMsg);
+
+      const assistantMsg = createAssistantMessage(slashResult.message);
+      conversationStore.addMessage(
+        this.conversationId,
+        'assistant',
+        JSON.stringify(assistantMsg.content),
+      );
+      this.messages.push(assistantMsg);
+
+      onEvent({ type: 'assistant_text_delta', text: slashResult.message });
+      this.traceEmitter.emit('message_complete', 'Unknown slash command handled', {
+        requestId,
+        status: 'success',
+      });
+      onEvent({ type: 'message_complete', sessionId: this.conversationId });
+      return persisted.id;
+    }
+
+    const resolvedContent = slashResult.content;
+
     let userMessageId: string;
     try {
-      userMessageId = this.persistUserMessage(content, attachments, requestId);
+      userMessageId = this.persistUserMessage(resolvedContent, attachments, requestId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       onEvent({ type: 'error', message });
       return '';
     }
 
-    await this.runAgentLoop(content, userMessageId, onEvent);
+    await this.runAgentLoop(resolvedContent, userMessageId, onEvent);
     return userMessageId;
+  }
+
+  /**
+   * Resolve slash commands against the current skill catalog.
+   * Returns `unknown` with a deterministic message, or the (possibly rewritten) content.
+   */
+  private resolveSlash(content: string): { kind: 'passthrough' | 'rewritten'; content: string } | { kind: 'unknown'; message: string } {
+    const config = getConfig();
+    const catalog = loadSkillCatalog();
+    const resolved = resolveSkillStates(catalog, config);
+    const invocable = buildInvocableSlashCatalog(catalog, resolved);
+    const resolution = resolveSlashSkillCommand(content, invocable);
+
+    if (resolution.kind === 'known') {
+      const skill = invocable.get(resolution.skillId.toLowerCase());
+      return {
+        kind: 'rewritten',
+        content: rewriteKnownSlashCommandPrompt({
+          rawInput: content,
+          skillId: resolution.skillId,
+          skillName: skill?.name ?? resolution.skillId,
+          trailingArgs: resolution.trailingArgs,
+        }),
+      };
+    }
+
+    if (resolution.kind === 'unknown') {
+      return { kind: 'unknown', message: resolution.message };
+    }
+
+    return { kind: 'passthrough', content };
   }
 
   handleSurfaceAction(surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
@@ -889,21 +1405,38 @@ export class Session {
     const requestId = uuid();
     const onEvent = (msg: ServerMessage) => this.sendToClient(msg);
 
+    this.traceEmitter.emit('request_received', 'Surface action received', {
+      requestId,
+      status: 'info',
+      attributes: { source: 'surface_action', surfaceId, actionId },
+    });
+
     const result = this.enqueueMessage(content, [], onEvent, requestId);
     if (result.queued) {
+      const position = this.getQueueDepth();
       this.pendingSurfaceActions.delete(surfaceId);
       log.info({ surfaceId, actionId, requestId }, 'Surface action queued (session busy)');
+      this.traceEmitter.emit('request_queued', `Surface action queued at position ${position}`, {
+        requestId,
+        status: 'info',
+        attributes: { position },
+      });
       onEvent({
         type: 'message_queued',
         sessionId: this.conversationId,
         requestId,
-        position: this.getQueueDepth(),
+        position,
       });
       return;
     }
 
     if (result.rejected) {
       log.error({ surfaceId, actionId }, 'Surface action rejected — queue full');
+      this.traceEmitter.emit('request_error', 'Surface action rejected — queue full', {
+        requestId,
+        status: 'error',
+        attributes: { reason: 'queue_full', source: 'surface_action' },
+      });
       onEvent({ type: 'error', message: 'Surface action rejected — session queue is full' });
       return;
     }
@@ -966,9 +1499,16 @@ export class Session {
    * (and any intermediate tool_result messages) from memory, DB, and
    * Qdrant, then re-run the agent loop with the same user message.
    */
-  async regenerate(onEvent: (msg: ServerMessage) => void): Promise<void> {
+  async regenerate(onEvent: (msg: ServerMessage) => void, requestId?: string): Promise<void> {
     if (this.processing) {
       onEvent({ type: 'error', message: 'Cannot regenerate while processing' });
+      if (requestId) {
+        this.traceEmitter.emit('request_error', 'Cannot regenerate while processing', {
+          requestId,
+          status: 'error',
+          attributes: { reason: 'already_processing' },
+        });
+      }
       return;
     }
 
@@ -977,12 +1517,26 @@ export class Session {
     const lastUserIdx = findLastUndoableUserMessageIndex(this.messages);
     if (lastUserIdx === -1) {
       onEvent({ type: 'error', message: 'No messages to regenerate' });
+      if (requestId) {
+        this.traceEmitter.emit('request_error', 'No messages to regenerate', {
+          requestId,
+          status: 'error',
+          attributes: { reason: 'no_messages' },
+        });
+      }
       return;
     }
 
     // There must be at least one message after the user message (the assistant reply).
     if (lastUserIdx >= this.messages.length - 1) {
       onEvent({ type: 'error', message: 'No assistant response to regenerate' });
+      if (requestId) {
+        this.traceEmitter.emit('request_error', 'No assistant response to regenerate', {
+          requestId,
+          status: 'error',
+          attributes: { reason: 'no_assistant_response' },
+        });
+      }
       return;
     }
 
@@ -1009,8 +1563,19 @@ export class Session {
 
     if (dbUserMsgIdx === -1) {
       onEvent({ type: 'error', message: 'No user message found in DB' });
+      if (requestId) {
+        this.traceEmitter.emit('request_error', 'No user message found in DB', {
+          requestId,
+          status: 'error',
+          attributes: { reason: 'no_db_user_message' },
+        });
+      }
       return;
     }
+
+    // Capture the existing DB user message ID so we can pass it to
+    // runAgentLoop without re-persisting the user message.
+    const existingUserMessageId = dbMessages[dbUserMsgIdx].id;
 
     // Everything after the user message needs to be deleted.
     const messagesToDelete = dbMessages.slice(dbUserMsgIdx + 1);
@@ -1030,6 +1595,8 @@ export class Session {
     });
 
     // Re-extract the user message content for the agent loop.
+    // Use all content blocks (text, image, file) so attachments are
+    // preserved — not just text blocks.
     const userMessage = this.messages[lastUserIdx];
     const textBlocks = userMessage.content.filter(
       (b) => b.type === 'text',
@@ -1039,10 +1606,16 @@ export class Session {
       .join('');
 
     // Notify client that the old response has been removed.
-    onEvent({ type: 'undo_complete', removedCount: messagesToDelete.length });
+    onEvent({ type: 'undo_complete', removedCount: messagesToDelete.length, sessionId: this.conversationId });
 
-    // Re-run the agent loop with the same user message.
-    await this.processMessage(content, [], onEvent);
+    // Set up processing state manually and call runAgentLoop directly,
+    // bypassing processMessage to avoid duplicating the user message
+    // in both this.messages and the DB.
+    this.processing = true;
+    this.abortController = new AbortController();
+    this.currentRequestId = requestId ?? uuid();
+
+    await this.runAgentLoop(content, existingUserMessageId, onEvent, { skipPreMessageRollback: true });
   }
 
   /**
@@ -1248,6 +1821,7 @@ export class Session {
     model: string,
     onEvent: (msg: ServerMessage) => void,
     actor: UsageActor,
+    requestId: string | null = null,
   ): void {
     if (inputTokens <= 0 && outputTokens <= 0) return;
 
@@ -1288,7 +1862,7 @@ export class Session {
           assistantId: null,
           conversationId: this.conversationId,
           runId: null,
-          requestId: null,
+          requestId,
         },
         pricing,
       );
@@ -1355,22 +1929,4 @@ const ORDERING_ERROR_PATTERNS = [
 
 function isProviderOrderingError(message: string): boolean {
   return ORDERING_ERROR_PATTERNS.some((pattern) => pattern.test(message));
-}
-
-function buildMemoryQuery(content: string, messages: Message[]): string {
-  const summaryText = messages
-    .map((message) => getSummaryFromContextMessage(message))
-    .find((summary): summary is string => summary !== null) ?? '';
-  const maxLen = 1200;
-  let compactSummary: string;
-  if (summaryText.length <= maxLen) {
-    compactSummary = summaryText;
-  } else {
-    const marker = '<truncated />';
-    const half = Math.floor((maxLen - marker.length) / 2);
-    compactSummary = summaryText.slice(0, half) + marker + summaryText.slice(-half);
-  }
-  return compactSummary.length > 0
-    ? `${content}\n\nContext summary:\n${compactSummary}`
-    : content;
 }

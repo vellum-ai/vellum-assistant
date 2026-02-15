@@ -18,8 +18,20 @@ enum CaptureError: LocalizedError {
     }
 }
 
+struct ScreenCaptureMetadata: Sendable {
+    let screenshotWidthPx: Int
+    let screenshotHeightPx: Int
+    let captureDisplayId: UInt32
+}
+
+struct ScreenCaptureResult: Sendable {
+    let jpegData: Data
+    let metadata: ScreenCaptureMetadata?
+}
+
 protocol ScreenCaptureProviding: Sendable {
     func captureScreen(maxWidth: Int, maxHeight: Int) async throws -> Data
+    func captureScreenWithMetadata(maxWidth: Int, maxHeight: Int) async throws -> ScreenCaptureResult
     func screenSize() -> CGSize
 }
 
@@ -27,10 +39,20 @@ extension ScreenCaptureProviding {
     func captureScreen() async throws -> Data {
         try await captureScreen(maxWidth: 1280, maxHeight: 720)
     }
+
+    func captureScreenWithMetadata(maxWidth: Int, maxHeight: Int) async throws -> ScreenCaptureResult {
+        let data = try await captureScreen(maxWidth: maxWidth, maxHeight: maxHeight)
+        return ScreenCaptureResult(jpegData: data, metadata: nil)
+    }
 }
 
 final class ScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
     func captureScreen(maxWidth: Int = 1280, maxHeight: Int = 720) async throws -> Data {
+        let result = try await captureScreenWithMetadata(maxWidth: maxWidth, maxHeight: maxHeight)
+        return result.jpegData
+    }
+
+    func captureScreenWithMetadata(maxWidth: Int = 1280, maxHeight: Int = 720) async throws -> ScreenCaptureResult {
         let content: SCShareableContent
         do {
             content = try await SCShareableContent.current
@@ -76,7 +98,14 @@ final class ScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
             throw CaptureError.conversionFailed
         }
 
-        return data as Data
+        return ScreenCaptureResult(
+            jpegData: data as Data,
+            metadata: ScreenCaptureMetadata(
+                screenshotWidthPx: image.width,
+                screenshotHeightPx: image.height,
+                captureDisplayId: display.displayID
+            )
+        )
     }
 
     /// Returns the main display size in logical points (same coordinate space as AX tree and CGEvent).

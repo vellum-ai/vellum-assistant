@@ -70,6 +70,9 @@ import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { buildMemoryRecall } from '../memory/retriever.js';
 import {
   conversations,
+  memoryEntities,
+  memoryEntityRelations,
+  memoryItemEntities,
   memoryItems,
   memoryItemSources,
   messages,
@@ -188,6 +191,9 @@ describe('Memory Recall Quality', () => {
   beforeEach(() => {
     const db = getDb();
     db.run('DELETE FROM memory_item_sources');
+    db.run('DELETE FROM memory_item_entities');
+    db.run('DELETE FROM memory_entity_relations');
+    db.run('DELETE FROM memory_entities');
     db.run('DELETE FROM memory_embeddings');
     db.run('DELETE FROM memory_summaries');
     db.run('DELETE FROM memory_items');
@@ -359,6 +365,59 @@ describe('Memory Recall Quality', () => {
 
       expect(recall.injectedText).toContain('PostgreSQL');
     });
+
+    test('pending clarification and invalidated items are excluded from direct item recall', async () => {
+      const db = getDb();
+      const now = 1_700_000_275_000;
+      insertConversation(db, 'conv-conflict-status', now);
+      insertMessage(
+        db,
+        'msg-conflict-status',
+        'conv-conflict-status',
+        'user',
+        'Framework preference is React for this codebase.',
+        now,
+      );
+
+      insertItem(db, {
+        id: 'item-framework-active',
+        kind: 'preference',
+        subject: 'framework preference',
+        statement: 'Framework preference is React for this codebase',
+        status: 'active',
+        importance: 0.9,
+        firstSeenAt: now,
+      });
+      insertItemSource(db, 'item-framework-active', 'msg-conflict-status', now);
+
+      insertItem(db, {
+        id: 'item-framework-pending',
+        kind: 'preference',
+        subject: 'framework preference',
+        statement: 'Framework preference is Vue for this codebase',
+        status: 'pending_clarification',
+        importance: 0.9,
+        firstSeenAt: now + 1,
+      });
+      insertItemSource(db, 'item-framework-pending', 'msg-conflict-status', now + 1);
+
+      insertItem(db, {
+        id: 'item-framework-invalid',
+        kind: 'preference',
+        subject: 'framework preference',
+        statement: 'Framework preference is Angular for this codebase',
+        status: 'active',
+        importance: 0.9,
+        firstSeenAt: now + 2,
+      });
+      db.run(`UPDATE memory_items SET invalid_at = ${now + 3} WHERE id = 'item-framework-invalid'`);
+      insertItemSource(db, 'item-framework-invalid', 'msg-conflict-status', now + 2);
+
+      const recall = await buildMemoryRecall('framework preference', 'conv-conflict-status', TEST_CONFIG);
+      expect(recall.injectedText).toContain('React');
+      expect(recall.injectedText).not.toContain('Vue');
+      expect(recall.injectedText).not.toContain('Angular');
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -468,6 +527,259 @@ describe('Memory Recall Quality', () => {
 
       expect(recall.injectedText).toBe('');
       expect(recall.injectedTokens).toBe(0);
+    });
+
+    test('entity alias matching recalls linked items on indirect query terms', async () => {
+      const db = getDb();
+      const now = 1_700_000_650_000;
+      insertConversation(db, 'conv-entity-alias', now);
+      insertMessage(
+        db,
+        'msg-entity-alias',
+        'conv-entity-alias',
+        'user',
+        'Our team standard editor is Visual Studio Code.',
+        now,
+      );
+
+      insertItem(db, {
+        id: 'item-editor-vscode',
+        kind: 'preference',
+        subject: 'editor preference',
+        statement: 'Team standard editor is Visual Studio Code',
+        importance: 0.8,
+        firstSeenAt: now,
+      });
+      insertItemSource(db, 'item-editor-vscode', 'msg-entity-alias', now);
+
+      db.insert(memoryEntities).values({
+        id: 'entity-vscode',
+        name: 'Visual Studio Code',
+        type: 'tool',
+        aliases: JSON.stringify(['vscode']),
+        description: null,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        mentionCount: 1,
+      }).run();
+      db.insert(memoryItemEntities).values({
+        memoryItemId: 'item-editor-vscode',
+        entityId: 'entity-vscode',
+      }).run();
+
+      const recall = await buildMemoryRecall('vscode debug setup', 'conv-entity-alias', TEST_CONFIG);
+      expect(recall.entityHits).toBeGreaterThan(0);
+      expect(recall.injectedText).toContain('Visual Studio Code');
+    });
+
+    test('relation expansion recalls neighbor-linked items when only seed entity is mentioned', async () => {
+      const db = getDb();
+      const now = 1_700_000_680_000;
+      insertConversation(db, 'conv-entity-rel', now);
+      insertMessage(
+        db,
+        'msg-entity-rel',
+        'conv-entity-rel',
+        'user',
+        'Project Atlas reliability playbook.',
+        now,
+      );
+
+      insertItem(db, {
+        id: 'item-k8s-hpa',
+        kind: 'fact',
+        subject: 'autoscaling strategy',
+        statement: 'Use Kubernetes horizontal pod autoscaling for sustained traffic spikes',
+        importance: 0.75,
+        firstSeenAt: now,
+      });
+      insertItemSource(db, 'item-k8s-hpa', 'msg-entity-rel', now);
+
+      db.insert(memoryEntities).values([
+        {
+          id: 'entity-atlas',
+          name: 'Project Atlas',
+          type: 'project',
+          aliases: JSON.stringify(['atlas']),
+          description: null,
+          firstSeenAt: now,
+          lastSeenAt: now,
+          mentionCount: 1,
+        },
+        {
+          id: 'entity-kubernetes',
+          name: 'Kubernetes',
+          type: 'tool',
+          aliases: JSON.stringify(['k8s']),
+          description: null,
+          firstSeenAt: now,
+          lastSeenAt: now,
+          mentionCount: 1,
+        },
+      ]).run();
+      db.insert(memoryEntityRelations).values({
+        id: 'rel-atlas-k8s',
+        sourceEntityId: 'entity-atlas',
+        targetEntityId: 'entity-kubernetes',
+        relation: 'uses',
+        evidence: 'Project Atlas runs on Kubernetes',
+        firstSeenAt: now,
+        lastSeenAt: now,
+      }).run();
+      db.insert(memoryItemEntities).values({
+        memoryItemId: 'item-k8s-hpa',
+        entityId: 'entity-kubernetes',
+      }).run();
+
+      const relationConfig = {
+        ...TEST_CONFIG,
+        memory: {
+          ...TEST_CONFIG.memory,
+          entity: {
+            ...TEST_CONFIG.memory.entity,
+            relationRetrieval: {
+              ...TEST_CONFIG.memory.entity.relationRetrieval,
+              enabled: true,
+              maxSeedEntities: 4,
+              maxNeighborEntities: 4,
+              maxEdges: 6,
+              neighborScoreMultiplier: 0.6,
+            },
+          },
+        },
+      };
+
+      const recall = await buildMemoryRecall(
+        'atlas reliability guidance',
+        'conv-entity-rel',
+        relationConfig,
+      );
+      expect(recall.entityHits).toBeGreaterThan(0);
+      expect(recall.injectedText).toContain('Kubernetes horizontal pod autoscaling');
+    });
+
+    test('direct preference evidence outranks weak relation-expanded noise', async () => {
+      const db = getDb();
+      const now = 1_700_000_690_000;
+      insertConversation(db, 'conv-rel-rank', now);
+      insertMessage(
+        db,
+        'msg-rel-rank',
+        'conv-rel-rank',
+        'user',
+        'For Project Atlas deployments, we prefer blue-green rollout strategy.',
+        now,
+      );
+      insertSegment(
+        db,
+        'seg-rel-rank',
+        'msg-rel-rank',
+        'conv-rel-rank',
+        'user',
+        'For Project Atlas deployments, we prefer blue-green rollout strategy.',
+        now,
+      );
+
+      insertItem(db, {
+        id: 'item-direct-pref',
+        kind: 'preference',
+        subject: 'deployment preference',
+        statement: 'Project Atlas deployment preference is blue-green rollouts',
+        importance: 0.95,
+        firstSeenAt: now,
+      });
+      insertItemSource(db, 'item-direct-pref', 'msg-rel-rank', now);
+
+      db.insert(memoryEntities).values({
+        id: 'entity-atlas-rank',
+        name: 'Project Atlas',
+        type: 'project',
+        aliases: JSON.stringify(['atlas']),
+        description: null,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        mentionCount: 1,
+      }).run();
+      db.insert(memoryItemEntities).values({
+        memoryItemId: 'item-direct-pref',
+        entityId: 'entity-atlas-rank',
+      }).run();
+
+      for (let index = 1; index <= 8; index++) {
+        const entityId = `entity-noise-${index}`;
+        const itemId = `item-rel-noise-${index}`;
+        db.insert(memoryEntities).values({
+          id: entityId,
+          name: `AtlasTool${index}`,
+          type: 'tool',
+          aliases: JSON.stringify([`atlas-tool-${index}`]),
+          description: null,
+          firstSeenAt: now + index,
+          lastSeenAt: now + index,
+          mentionCount: 1,
+        }).run();
+        db.insert(memoryEntityRelations).values({
+          id: `rel-atlas-noise-${index}`,
+          sourceEntityId: 'entity-atlas-rank',
+          targetEntityId: entityId,
+          relation: 'uses',
+          evidence: `Project Atlas uses AtlasTool${index}`,
+          firstSeenAt: now + index,
+          lastSeenAt: now + index,
+        }).run();
+        insertItem(db, {
+          id: itemId,
+          kind: 'fact',
+          subject: `monitoring tool ${index}`,
+          statement: `ObservabilityTool${index} emits generic telemetry metrics`,
+          importance: 0.35,
+          firstSeenAt: now + index,
+        });
+        insertItemSource(db, itemId, 'msg-rel-rank', now + index);
+        db.insert(memoryItemEntities).values({
+          memoryItemId: itemId,
+          entityId,
+        }).run();
+      }
+
+      const relationConfig = {
+        ...TEST_CONFIG,
+        memory: {
+          ...TEST_CONFIG.memory,
+          retrieval: {
+            ...TEST_CONFIG.memory.retrieval,
+            semanticTopK: 10,
+          },
+          entity: {
+            ...TEST_CONFIG.memory.entity,
+            relationRetrieval: {
+              ...TEST_CONFIG.memory.entity.relationRetrieval,
+              enabled: true,
+              maxSeedEntities: 6,
+              maxNeighborEntities: 20,
+              maxEdges: 20,
+              neighborScoreMultiplier: 0.7,
+            },
+          },
+        },
+      };
+
+      const recall = await buildMemoryRecall(
+        'atlas deployment preference strategy',
+        'conv-rel-rank',
+        relationConfig,
+      );
+      const orderedKeys = recall.topCandidates.map((candidate) => candidate.key);
+      const directIndex = orderedKeys.indexOf('item:item-direct-pref');
+      const noiseIndices = orderedKeys
+        .map((key, index) => ({ key, index }))
+        .filter(({ key }) => key.startsWith('item:item-rel-noise-'))
+        .map(({ index }) => index);
+
+      expect(directIndex).toBeGreaterThanOrEqual(0);
+      expect(noiseIndices.length).toBeGreaterThan(0);
+      expect(noiseIndices.every((index) => index > directIndex)).toBe(true);
+      expect(noiseIndices.length).toBeLessThanOrEqual(4);
     });
   });
 

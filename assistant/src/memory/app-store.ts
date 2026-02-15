@@ -26,8 +26,13 @@ export interface AppDefinition {
   id: string;
   name: string;
   description?: string;
+  icon?: string;
+  preview?: string;
   schemaJson: string;
   htmlDefinition: string;
+  version?: string;
+  /** Additional pages keyed by filename (e.g. "settings.html" → HTML content). */
+  pages?: Record<string, string>;
   createdAt: number;
   updatedAt: number;
 }
@@ -46,17 +51,61 @@ function validateId(id: string): void {
   }
 }
 
+/**
+ * Validate a page filename to prevent path traversal and ensure it is a safe
+ * relative filename (e.g. "settings.html").
+ */
+function validatePageFilename(filename: string): void {
+  if (
+    !filename ||
+    filename.includes('/') ||
+    filename.includes('\\') ||
+    filename.includes('..') ||
+    filename !== filename.trim() ||
+    filename === 'index.html'
+  ) {
+    throw new Error(`Invalid page filename: ${filename}`);
+  }
+}
+
 export function getAppsDir(): string {
   const dir = join(getDataDir(), 'apps');
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
+/** Persist pages as individual files under ~/.vellum/apps/{appId}/pages/. */
+function savePages(appId: string, pages: Record<string, string>): void {
+  const pagesDir = join(getAppsDir(), appId, 'pages');
+  mkdirSync(pagesDir, { recursive: true });
+  for (const [filename, content] of Object.entries(pages)) {
+    validatePageFilename(filename);
+    writeFileSync(join(pagesDir, filename), content, 'utf-8');
+  }
+}
+
+/** Load pages from disk. Returns undefined if no pages directory exists. */
+function loadPages(appId: string): Record<string, string> | undefined {
+  const pagesDir = join(getAppsDir(), appId, 'pages');
+  if (!existsSync(pagesDir)) return undefined;
+  const entries = readdirSync(pagesDir);
+  if (entries.length === 0) return undefined;
+  const pages: Record<string, string> = {};
+  for (const entry of entries) {
+    pages[entry] = readFileSync(join(pagesDir, entry), 'utf-8');
+  }
+  return pages;
+}
+
 export function createApp(params: {
   name: string;
   description?: string;
+  icon?: string;
+  preview?: string;
   schemaJson: string;
   htmlDefinition: string;
+  version?: string;
+  pages?: Record<string, string>;
 }): AppDefinition {
   const dir = getAppsDir();
   const now = Date.now();
@@ -64,12 +113,22 @@ export function createApp(params: {
     id: randomUUID(),
     name: params.name,
     description: params.description,
+    icon: params.icon,
+    preview: params.preview,
     schemaJson: params.schemaJson,
     htmlDefinition: params.htmlDefinition,
+    version: params.version,
     createdAt: now,
     updatedAt: now,
   };
   writeFileSync(join(dir, `${app.id}.json`), JSON.stringify(app, null, 2));
+
+  // Persist additional pages as separate files
+  if (params.pages && Object.keys(params.pages).length > 0) {
+    savePages(app.id, params.pages);
+    app.pages = params.pages;
+  }
+
   return app;
 }
 
@@ -78,7 +137,15 @@ export function getApp(id: string): AppDefinition | null {
   const filePath = join(getAppsDir(), `${id}.json`);
   if (!existsSync(filePath)) return null;
   const raw = readFileSync(filePath, 'utf-8');
-  return JSON.parse(raw) as AppDefinition;
+  const app = JSON.parse(raw) as AppDefinition;
+
+  // Load pages from disk
+  const pages = loadPages(id);
+  if (pages) {
+    app.pages = pages;
+  }
+
+  return app;
 }
 
 export function listApps(): AppDefinition[] {
@@ -101,17 +168,36 @@ export function listApps(): AppDefinition[] {
 
 export function updateApp(
   id: string,
-  updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'schemaJson' | 'htmlDefinition'>>,
+  updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'icon' | 'preview' | 'schemaJson' | 'htmlDefinition' | 'version' | 'pages'>>,
 ): AppDefinition {
   validateId(id);
   const existing = getApp(id);
   if (!existing) throw new Error(`App not found: ${id}`);
+
+  // Extract pages before spreading into the JSON-persisted definition
+  const { pages, ...jsonUpdates } = updates;
+
   const updated: AppDefinition = {
     ...existing,
-    ...updates,
+    ...jsonUpdates,
     updatedAt: Date.now(),
   };
-  writeFileSync(join(getAppsDir(), `${id}.json`), JSON.stringify(updated, null, 2));
+
+  // Don't persist pages in the JSON file — they live as separate files
+  const { pages: _existingPages, ...jsonDef } = updated;
+  writeFileSync(join(getAppsDir(), `${id}.json`), JSON.stringify(jsonDef, null, 2));
+
+  // Persist additional pages as separate files
+  if (pages && Object.keys(pages).length > 0) {
+    savePages(id, pages);
+  }
+
+  // Re-attach pages to the returned object
+  const loadedPages = loadPages(id);
+  if (loadedPages) {
+    updated.pages = loadedPages;
+  }
+
   return updated;
 }
 
