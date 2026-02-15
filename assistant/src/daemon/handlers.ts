@@ -77,6 +77,7 @@ import { removeSkillsIndexEntry, deleteManagedSkill, validateManagedSkillId } fr
 import { packageApp } from '../bundler/app-bundler.js';
 import { createSharedAppLink } from '../memory/shared-app-links-store.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
+import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId, validateBlobKindEncoding } from './ipc-blob-store.js';
 import { estimateBase64Bytes } from './assistant-attachments.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
@@ -488,6 +489,17 @@ async function handleUserMessage(
     }
 
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+
+    // Block inbound messages that contain secrets before they enter model context
+    const ingressCheck = checkIngressForSecrets(msg.content ?? '');
+    if (ingressCheck.blocked) {
+      rlog.warn({ detectedTypes: ingressCheck.detectedTypes }, 'Blocked user message containing secrets');
+      ctx.send(socket, {
+        type: 'error',
+        message: ingressCheck.userNotice!,
+      });
+      return;
+    }
 
     session.traceEmitter.emit('request_received', 'User message received', {
       requestId,
@@ -1409,6 +1421,17 @@ async function handleTaskSubmit(
   const rlog = log.child({ requestId });
 
   try {
+    // Block inbound tasks that contain secrets before they enter model context
+    const taskIngressCheck = checkIngressForSecrets(msg.task);
+    if (taskIngressCheck.blocked) {
+      rlog.warn({ detectedTypes: taskIngressCheck.detectedTypes }, 'Blocked task_submit containing secrets');
+      ctx.send(socket, {
+        type: 'error',
+        message: taskIngressCheck.userNotice!,
+      });
+      return;
+    }
+
     // Slash candidates always route to text_qa — bypass classifier
     const slashCandidate = parseSlashCandidate(msg.task);
     const interactionType = slashCandidate.kind === 'candidate'
