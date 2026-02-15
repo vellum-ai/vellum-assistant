@@ -111,4 +111,26 @@ describe('redactSensitiveFields', () => {
     expect(result.credentials).toBe('<redacted />');
     expect(result.apikey).toBe('<redacted />');
   });
+
+  test('redacts sensitive keys with object values', () => {
+    const input = { value: { raw: 'secret-data' }, name: 'test' };
+    const result = redactSensitiveFields(input);
+    expect(result.value).toBe('<redacted />');
+    expect(result.name).toBe('test');
+  });
+
+  test('redacts sensitive keys with array values', () => {
+    const input = { token: ['secret1', 'secret2'], name: 'test' };
+    const result = redactSensitiveFields(input);
+    expect(result.token).toBe('<redacted />');
+    expect(result.name).toBe('test');
+  });
+
+  test('redacts sensitive keys with deeply nested object values', () => {
+    const input = {
+      credentials: { user: 'admin', pass: 'hunter2', nested: { deep: true } },
+    };
+    const result = redactSensitiveFields(input);
+    expect(result.credentials).toBe('<redacted />');
+  });
 });

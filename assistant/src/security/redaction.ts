@@ -26,7 +26,7 @@ function isSensitiveKey(key: string): boolean {
 /**
  * Recursively redact sensitive fields from an object.
  *
- * - Replaces string/number/boolean values of sensitive keys with `<redacted />`
+ * - Replaces values of sensitive keys with `<redacted />` regardless of type
  * - Recurses into nested objects and arrays
  * - Returns a shallow copy — never mutates the original
  */
@@ -36,7 +36,7 @@ export function redactSensitiveFields(
   const result: Record<string, unknown> = {};
 
   for (const [key, val] of Object.entries(obj)) {
-    if (isSensitiveKey(key) && val != null && typeof val !== 'object') {
+    if (isSensitiveKey(key) && val != null) {
       result[key] = REDACTION_PLACEHOLDER;
     } else if (Array.isArray(val)) {
       result[key] = val.map((item) =>
