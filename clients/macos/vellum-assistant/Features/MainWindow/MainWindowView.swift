@@ -8,6 +8,7 @@ struct MainWindowView: View {
     @ObservedObject var traceStore: TraceStore
     @State private var activePanel: SidePanelType?
     @State private var isDynamicExpanded = false
+    @State private var activeDynamicSurface: UiSurfaceShowMessage?
     @State private var hasAPIKey = APIKeyManager.hasAnyKey()
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var selectedThreadId: UUID?
@@ -253,11 +254,19 @@ struct MainWindowView: View {
     @ViewBuilder
     private func chatContentView(geometry: GeometryProxy) -> some View {
         if isDynamicExpanded && activePanel == .generated {
-            GeneratedPanel(
-                onClose: { activePanel = nil; isDynamicExpanded = false },
-                isExpanded: $isDynamicExpanded,
-                daemonClient: daemonClient
-            )
+            if let surfaceMsg = activeDynamicSurface,
+               let surface = Surface.from(surfaceMsg),
+               case .dynamicPage(let dpData) = surface.data {
+                // Workspace mode: full-window dynamic page
+                dynamicWorkspaceView(surface: surface, data: dpData)
+            } else {
+                // Gallery mode: existing behavior
+                GeneratedPanel(
+                    onClose: { activePanel = nil; isDynamicExpanded = false },
+                    isExpanded: $isDynamicExpanded,
+                    daemonClient: daemonClient
+                )
+            }
         } else {
             VSplitView(panelWidth: $sidePanelWidth, showPanel: activePanel != nil, main: {
                 if let viewModel = threadManager.activeViewModel {
@@ -358,6 +367,52 @@ struct MainWindowView: View {
         } else {
             activePanel = panel
         }
+    }
+
+    // MARK: - Dynamic Workspace
+
+    @ViewBuilder
+    private func dynamicWorkspaceView(surface: Surface, data: DynamicPageSurfaceData) -> some View {
+        VStack(spacing: 0) {
+            // Toolbar
+            HStack {
+                Button(action: { activeDynamicSurface = nil }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back to gallery")
+
+                Text(surface.title ?? "App")
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
+
+                Button(action: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close workspace")
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.vertical, VSpacing.lg)
+
+            Divider().background(VColor.surfaceBorder)
+
+            // Dynamic page WebView fills remaining space
+            DynamicPageSurfaceView(
+                data: data,
+                onAction: { _, _ in },
+                appId: data.appId
+            )
+        }
+        .background(VColor.backgroundSubtle)
     }
 
     @ViewBuilder
