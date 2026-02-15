@@ -11,6 +11,9 @@
     "CuObservation",
     "CuSessionAbort",
     "CuSessionCreate",
+    "ForkSharedAppRequest",
+    "GalleryInstallRequest",
+    "GalleryListRequest",
     "GetSigningIdentityResponse",
     "HistoryRequest",
     "IpcBlobProbe",
@@ -26,6 +29,8 @@
     "SessionListRequest",
     "SessionSwitchRequest",
     "SessionsClearRequest",
+    "ShareAppCloudRequest",
+    "ShareToSlackRequest",
     "SharedAppDeleteRequest",
     "SharedAppsListRequest",
     "SignBundlePayloadResponse",
@@ -40,6 +45,7 @@
     "SkillsSearchRequest",
     "SkillsUninstallRequest",
     "SkillsUpdateRequest",
+    "SlackWebhookConfigRequest",
     "SuggestionRequest",
     "TaskSubmit",
     "TrustRulesList",
@@ -47,7 +53,8 @@
     "UndoRequest",
     "UpdateTrustRule",
     "UsageRequest",
-    "UserMessage"
+    "UserMessage",
+    "WatchObservation"
   ],
   "serverMessageTypes": [
     "AmbientResult",
@@ -63,6 +70,9 @@
     "CuError",
     "DaemonStatusMessage",
     "ErrorMessage",
+    "ForkSharedAppResponse",
+    "GalleryInstallResponse",
+    "GalleryListResponse",
     "GenerationCancelled",
     "GenerationHandoff",
     "GetSigningIdentityRequest",
@@ -82,6 +92,8 @@
     "SessionInfo",
     "SessionListResponse",
     "SessionsClearResponse",
+    "ShareAppCloudResponse",
+    "ShareToSlackResponse",
     "SharedAppDeleteResponse",
     "SharedAppsListResponse",
     "SignBundlePayloadRequest",
@@ -90,6 +102,7 @@
     "SkillsInspectResponse",
     "SkillsListResponse",
     "SkillsOperationResponse",
+    "SlackWebhookConfigResponse",
     "SuggestionResponse",
     "TaskRouted",
     "TimerCompleted",
@@ -103,7 +116,9 @@
     "UiSurfaceUpdate",
     "UndoComplete",
     "UsageResponse",
-    "UsageUpdate"
+    "UsageUpdate",
+    "WatchCompleteRequest",
+    "WatchStarted"
   ],
   "clientWireTypes": [
     "add_trust_rule",
@@ -117,6 +132,9 @@
     "cu_observation",
     "cu_session_abort",
     "cu_session_create",
+    "fork_shared_app",
+    "gallery_install",
+    "gallery_list",
     "get_signing_identity_response",
     "history_request",
     "ipc_blob_probe",
@@ -132,6 +150,8 @@
     "session_list",
     "session_switch",
     "sessions_clear",
+    "share_app_cloud",
+    "share_to_slack",
     "shared_app_delete",
     "shared_apps_list",
     "sign_bundle_payload_response",
@@ -146,6 +166,7 @@
     "skills_search",
     "skills_uninstall",
     "skills_update",
+    "slack_webhook_config",
     "suggestion_request",
     "task_submit",
     "trust_rules_list",
@@ -153,7 +174,8 @@
     "undo",
     "update_trust_rule",
     "usage_request",
-    "user_message"
+    "user_message",
+    "watch_observation"
   ],
   "serverWireTypes": [
     "ambient_result",
@@ -169,6 +191,9 @@
     "cu_error",
     "daemon_status",
     "error",
+    "fork_shared_app_response",
+    "gallery_install_response",
+    "gallery_list_response",
     "generation_cancelled",
     "generation_handoff",
     "get_signing_identity",
@@ -188,6 +213,8 @@
     "session_info",
     "session_list_response",
     "sessions_clear_response",
+    "share_app_cloud_response",
+    "share_to_slack_response",
     "shared_app_delete_response",
     "shared_apps_list_response",
     "sign_bundle_payload",
@@ -196,6 +223,7 @@
     "skills_list_response",
     "skills_operation_response",
     "skills_state_changed",
+    "slack_webhook_config_response",
     "suggestion_response",
     "task_routed",
     "timer_completed",
@@ -208,6 +236,8 @@
     "ui_surface_update",
     "undo_complete",
     "usage_response",
-    "usage_update"
+    "usage_update",
+    "watch_complete_request",
+    "watch_started"
   ]
 }

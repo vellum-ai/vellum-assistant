@@ -37,6 +37,10 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   'sessions_clear_response',
   'usage_response',
   'usage_update',
+  // Gallery and cloud sharing — not yet consumed by the macOS client
+  'gallery_install_response',
+  'gallery_list_response',
+  'share_app_cloud_response',
 ]);
 
 /**
