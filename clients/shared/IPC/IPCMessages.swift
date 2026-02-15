@@ -118,64 +118,32 @@ public struct CuSessionCreateMessage: Encodable, Sendable {
 }
 
 /// Sent after each perceive step with AX tree, screenshot, and execution results.
-/// Wire type: `"cu_observation"`
-public struct CuObservationMessage: Encodable, Sendable {
-    public let type: String = "cu_observation"
-    public let sessionId: String
-    public let axTree: String?
-    public let axDiff: String?
-    public let secondaryWindows: String?
-    public let screenshot: String?
-    public let executionResult: String?
-    public let executionError: String?
+/// Backed by generated `IPCCuObservation`.
+public typealias CuObservationMessage = IPCCuObservation
 
+extension IPCCuObservation {
     public init(sessionId: String, axTree: String?, axDiff: String?, secondaryWindows: String?, screenshot: String?, executionResult: String?, executionError: String?) {
-        self.sessionId = sessionId
-        self.axTree = axTree
-        self.axDiff = axDiff
-        self.secondaryWindows = secondaryWindows
-        self.screenshot = screenshot
-        self.executionResult = executionResult
-        self.executionError = executionError
+        self.init(type: "cu_observation", sessionId: sessionId, axTree: axTree, axDiff: axDiff, secondaryWindows: secondaryWindows, screenshot: screenshot, executionResult: executionResult, executionError: executionError)
     }
 }
 
 /// Sent by the ambient agent with OCR text from periodic screen captures.
-/// Wire type: `"ambient_observation"`
-public struct AmbientObservationMessage: Encodable, Sendable {
-    public let type: String = "ambient_observation"
-    public let requestId: String
-    public let ocrText: String
-    public let appName: String?
-    public let windowTitle: String?
-    public let timestamp: Double
+/// Backed by generated `IPCAmbientObservation`.
+public typealias AmbientObservationMessage = IPCAmbientObservation
 
+extension IPCAmbientObservation {
     public init(requestId: String, ocrText: String, appName: String?, windowTitle: String?, timestamp: Double) {
-        self.requestId = requestId
-        self.ocrText = ocrText
-        self.appName = appName
-        self.windowTitle = windowTitle
-        self.timestamp = timestamp
+        self.init(type: "ambient_observation", requestId: requestId, ocrText: ocrText, appName: appName, windowTitle: windowTitle, timestamp: timestamp)
     }
 }
 
 /// Sent to create a new Q&A session.
-/// Wire type: `"session_create"`
-public struct SessionCreateMessage: Encodable, Sendable {
-    public let type: String = "session_create"
-    public let title: String?
-    public let systemPromptOverride: String?
-    public let maxResponseTokens: Int?
-    /// Client-generated nonce echoed back in `session_info` so the caller can
-    /// correlate the response to its specific request. Prevents multiple
-    /// ChatViewModels sharing one DaemonClient from stealing each other's sessions.
-    public let correlationId: String?
+/// Backed by generated `IPCSessionCreateRequest`.
+public typealias SessionCreateMessage = IPCSessionCreateRequest
 
+extension IPCSessionCreateRequest {
     public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil) {
-        self.title = title
-        self.systemPromptOverride = systemPromptOverride
-        self.maxResponseTokens = maxResponseTokens
-        self.correlationId = correlationId
+        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId)
     }
 }
 
@@ -225,59 +193,42 @@ public struct CancelMessage: Encodable, Sendable {
 }
 
 /// Sent to abort a running computer-use session.
-/// Wire type: `"cu_session_abort"`
-public struct CuSessionAbortMessage: Encodable, Sendable {
-    public let type: String = "cu_session_abort"
-    public let sessionId: String
+/// Backed by generated `IPCCuSessionAbort`.
+public typealias CuSessionAbortMessage = IPCCuSessionAbort
 
+extension IPCCuSessionAbort {
     public init(sessionId: String) {
-        self.sessionId = sessionId
+        self.init(type: "cu_session_abort", sessionId: sessionId)
     }
 }
 
 /// Keepalive ping.
-/// Wire type: `"ping"`
-public struct PingMessage: Encodable, Sendable {
-    public let type: String = "ping"
+/// Backed by generated `IPCPingMessage`.
+public typealias PingMessage = IPCPingMessage
 
-    public init() {}
+extension IPCPingMessage {
+    public init() {
+        self.init(type: "ping")
+    }
 }
 
 /// Sent when user interacts with a surface.
-/// Wire type: `"ui_surface_action"`
-public struct UiSurfaceActionMessage: Encodable, Sendable {
-    public let type: String = "ui_surface_action"
-    public let sessionId: String
-    public let surfaceId: String
-    public let actionId: String
-    public let data: [String: AnyCodable]?
+/// Backed by generated `IPCUiSurfaceAction`.
+public typealias UiSurfaceActionMessage = IPCUiSurfaceAction
 
+extension IPCUiSurfaceAction {
     public init(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) {
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.actionId = actionId
-        self.data = data
+        self.init(type: "ui_surface_action", sessionId: sessionId, surfaceId: surfaceId, actionId: actionId, data: data)
     }
 }
 
 /// Sent when a persistent app's JS makes a data request via the RPC bridge.
-/// Wire type: `"app_data_request"`
-public struct AppDataRequestMessage: Encodable, Sendable {
-    public let type: String = "app_data_request"
-    public let surfaceId: String
-    public let callId: String
-    public let method: String
-    public let appId: String
-    public let recordId: String?
-    public let data: [String: AnyCodable]?
+/// Backed by generated `IPCAppDataRequest`.
+public typealias AppDataRequestMessage = IPCAppDataRequest
 
+extension IPCAppDataRequest {
     public init(surfaceId: String, callId: String, method: String, appId: String, recordId: String?, data: [String: AnyCodable]?) {
-        self.surfaceId = surfaceId
-        self.callId = callId
-        self.method = method
-        self.appId = appId
-        self.recordId = recordId
-        self.data = data
+        self.init(type: "app_data_request", surfaceId: surfaceId, callId: callId, method: method, appId: appId, recordId: recordId, data: data)
     }
 }
 
@@ -342,32 +293,32 @@ extension IPCOpenBundleRequest {
 }
 
 /// Sent to request the list of all past sessions/conversations.
-/// Wire type: `"session_list"`
-public struct SessionListRequestMessage: Encodable, Sendable {
-    public let type: String = "session_list"
+/// Backed by generated `IPCSessionListRequest`.
+public typealias SessionListRequestMessage = IPCSessionListRequest
 
-    public init() {}
+extension IPCSessionListRequest {
+    public init() {
+        self.init(type: "session_list")
+    }
 }
 
 /// Sent to regenerate the last assistant response.
-/// Wire type: `"regenerate"`
-public struct RegenerateMessage: Encodable, Sendable {
-    public let type: String = "regenerate"
-    public let sessionId: String
+/// Backed by generated `IPCRegenerateRequest`.
+public typealias RegenerateMessage = IPCRegenerateRequest
 
+extension IPCRegenerateRequest {
     public init(sessionId: String) {
-        self.sessionId = sessionId
+        self.init(type: "regenerate", sessionId: sessionId)
     }
 }
 
 /// Sent to request message history for a specific session.
-/// Wire type: `"history_request"`
-public struct HistoryRequestMessage: Encodable, Sendable {
-    public let type: String = "history_request"
-    public let sessionId: String
+/// Backed by generated `IPCHistoryRequest`.
+public typealias HistoryRequestMessage = IPCHistoryRequest
 
+extension IPCHistoryRequest {
     public init(sessionId: String) {
-        self.sessionId = sessionId
+        self.init(type: "history_request", sessionId: sessionId)
     }
 }
 
@@ -603,11 +554,9 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
     }
 }
 
-public struct SurfaceActionData: Decodable, Sendable {
-    public let id: String
-    public let label: String
-    public let style: String?
-}
+/// Surface action button data.
+/// Backed by generated `IPCSurfaceAction`.
+public typealias SurfaceActionData = IPCSurfaceAction
 
 /// Surface update command from daemon.
 /// Wire type: `"ui_surface_update"`
@@ -618,11 +567,8 @@ public struct UiSurfaceUpdateMessage: Decodable, Sendable {
 }
 
 /// Surface dismiss command from daemon.
-/// Wire type: `"ui_surface_dismiss"`
-public struct UiSurfaceDismissMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let surfaceId: String
-}
+/// Backed by generated `IPCUiSurfaceDismiss`.
+public typealias UiSurfaceDismissMessage = IPCUiSurfaceDismiss
 
 /// Confirms undo/regenerate removed messages.
 public typealias UndoCompleteMessage = IPCUndoComplete
@@ -917,13 +863,8 @@ public struct SessionErrorMessage: Decodable, Sendable {
 }
 
 /// Timer completed notification from daemon.
-/// Wire type: `"timer_completed"`
-public struct TimerCompletedMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let timerId: String
-    public let label: String
-    public let durationMinutes: Double
-}
+/// Backed by generated `IPCTimerCompleted`.
+public typealias TimerCompletedMessage = IPCTimerCompleted
 
 /// Tool execution started.
 /// Backed by generated `IPCToolUseStart`.
@@ -981,15 +922,12 @@ extension IPCConfirmationRequestDiff: Equatable {
 
 
 /// Request a follow-up suggestion for the current session.
-/// Wire type: `"suggestion_request"`
-public struct SuggestionRequestMessage: Encodable, Sendable {
-    public let type: String = "suggestion_request"
-    public let sessionId: String
-    public let requestId: String
+/// Backed by generated `IPCSuggestionRequest`.
+public typealias SuggestionRequestMessage = IPCSuggestionRequest
 
+extension IPCSuggestionRequest {
     public init(sessionId: String, requestId: String) {
-        self.sessionId = sessionId
-        self.requestId = requestId
+        self.init(type: "suggestion_request", sessionId: sessionId, requestId: requestId)
     }
 }
 
