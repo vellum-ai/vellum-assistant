@@ -137,22 +137,7 @@ final class SkillsSettingsViewModel: ObservableObject {
                    response.operation == operation {
                     if response.success {
                         if let index = skills.firstIndex(where: { $0.name == op.name }) {
-                            let updated = skills[index]
-                            skills[index] = SkillInfo(
-                                name: updated.name,
-                                description: updated.description,
-                                emoji: updated.emoji,
-                                homepage: updated.homepage,
-                                source: updated.source,
-                                state: newState,
-                                degraded: updated.degraded,
-                                missingRequirements: updated.missingRequirements,
-                                installedVersion: updated.installedVersion,
-                                latestVersion: updated.latestVersion,
-                                updateAvailable: updated.updateAvailable,
-                                userInvocable: updated.userInvocable,
-                                clawhub: updated.clawhub
-                            )
+                            skills[index] = skills[index].withState(newState)
                         }
                     }
                     return

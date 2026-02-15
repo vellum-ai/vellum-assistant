@@ -740,6 +740,11 @@ extension IPCSkillsListResponseSkill {
     public init(name: String, description: String, emoji: String?, homepage: String?, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements?, installedVersion: String?, latestVersion: String?, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub?) {
         self.init(id: name, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: state, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub)
     }
+
+    /// Returns a copy with a different `state`, preserving all other fields including `id`.
+    public func withState(_ newState: String) -> Self {
+        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub)
+    }
 }
 
 /// Backward-compatible alias for code referencing the old name.
