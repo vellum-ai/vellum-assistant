@@ -6,7 +6,7 @@ import type { ToolDefinition } from '../providers/types.js';
 // We cannot import the private LazyTool class directly, so we test through
 // registerLazyTool + getTool which exercise the same code path.
 import { registerLazyTool, getTool, getAllTools, getAllToolDefinitions, initializeTools } from '../tools/registry.js';
-import { eagerModules, lazyTools } from '../tools/tool-manifest.js';
+import { eagerModules, explicitTools, lazyTools } from '../tools/tool-manifest.js';
 
 function makeFakeTool(name: string): Tool {
   return {
@@ -151,7 +151,14 @@ describe('tool manifest', () => {
   });
 
   test('eager module list contains expected count', () => {
-    expect(eagerModules.length).toBe(19);
+    expect(eagerModules.length).toBe(18);
+  });
+
+  test('explicit tools list includes memory tools', () => {
+    const names = explicitTools.map((t) => t.name);
+    expect(names).toContain('memory_search');
+    expect(names).toContain('memory_save');
+    expect(names).toContain('memory_update');
   });
 
   test('registered tool count is at least eager + lazy + host', async () => {

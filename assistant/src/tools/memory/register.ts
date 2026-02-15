@@ -2,7 +2,6 @@ import { RiskLevel } from '../../permissions/types.js';
 import { getConfig } from '../../config/loader.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
 import { memorySearchDefinition, memorySaveDefinition, memoryUpdateDefinition } from './definitions.js';
 import { handleMemorySearch, handleMemorySave, handleMemoryUpdate } from './handlers.js';
 
@@ -60,8 +59,8 @@ class MemoryUpdateTool implements Tool {
   }
 }
 
-// ── Registration ─────────────────────────────────────────────────────
+// ── Exported tool instances ──────────────────────────────────────────
 
-registerTool(new MemorySearchTool());
-registerTool(new MemorySaveTool());
-registerTool(new MemoryUpdateTool());
+export const memorySearchTool = new MemorySearchTool();
+export const memorySaveTool = new MemorySaveTool();
+export const memoryUpdateTool = new MemoryUpdateTool();
