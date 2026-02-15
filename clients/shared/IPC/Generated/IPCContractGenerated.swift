@@ -297,19 +297,6 @@ public struct IPCFileUploadSurfaceData: Codable, Sendable {
     public let maxSizeBytes: Int?
 }
 
-public struct IPCForkSharedAppRequest: Codable, Sendable {
-    public let type: String
-    public let uuid: String
-}
-
-public struct IPCForkSharedAppResponse: Codable, Sendable {
-    public let type: String
-    public let success: Bool
-    public let appId: String?
-    public let name: String?
-    public let error: String?
-}
-
 public struct IPCFormField: Codable, Sendable {
     public let id: String
     public let type: String
@@ -329,28 +316,6 @@ public struct IPCFormSurfaceData: Codable, Sendable {
     public let description: String?
     public let fields: [IPCFormField]
     public let submitLabel: String?
-}
-
-public struct IPCGalleryInstallRequest: Codable, Sendable {
-    public let type: String
-    public let galleryAppId: String
-}
-
-public struct IPCGalleryInstallResponse: Codable, Sendable {
-    public let type: String
-    public let success: Bool
-    public let appId: String?
-    public let name: String?
-    public let error: String?
-}
-
-public struct IPCGalleryListRequest: Codable, Sendable {
-    public let type: String
-}
-
-public struct IPCGalleryListResponse: Codable, Sendable {
-    public let type: String
-    public let gallery: IPCGalleryManifest
 }
 
 public struct IPCGenerationCancelled: Codable, Sendable {
@@ -652,19 +617,6 @@ public struct IPCSessionsClearResponse: Codable, Sendable {
 public struct IPCSessionSwitchRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
-}
-
-public struct IPCShareAppCloudRequest: Codable, Sendable {
-    public let type: String
-    public let appId: String
-}
-
-public struct IPCShareAppCloudResponse: Codable, Sendable {
-    public let type: String
-    public let success: Bool
-    public let shareToken: String?
-    public let shareUrl: String?
-    public let error: String?
 }
 
 public struct IPCSharedAppDeleteRequest: Codable, Sendable {

@@ -5,8 +5,8 @@
  * `RUNTIME_HTTP_PORT` is set (default: disabled).
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { getLogger } from '../util/logger.js';
 import {
@@ -93,7 +93,6 @@ export class RuntimeHttpServer {
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private runOrchestrator?: RunOrchestrator;
   private interfacesDir: string | null;
-  private lastReportedMtimes = new Map<string, number>();
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
   private designSystemCss: string | null = null;
@@ -120,23 +119,6 @@ export class RuntimeHttpServer {
       this.server.stop(true);
       this.server = null;
       log.info('Runtime HTTP server stopped');
-    }
-  }
-
-  registerInterface(interfacePath: string, source: string): void {
-    if (!this.interfacesDir) return;
-    const fullPath = resolve(this.interfacesDir, interfacePath);
-    if (!fullPath.startsWith(this.interfacesDir)) return;
-    mkdirSync(dirname(fullPath), { recursive: true });
-    writeFileSync(fullPath, source);
-  }
-
-  unregisterInterface(interfacePath: string): void {
-    if (!this.interfacesDir) return;
-    const fullPath = resolve(this.interfacesDir, interfacePath);
-    if (!fullPath.startsWith(this.interfacesDir)) return;
-    if (existsSync(fullPath)) {
-      unlinkSync(fullPath);
     }
   }
 
@@ -331,6 +313,9 @@ export class RuntimeHttpServer {
     // internal user messages from the visible history.
     const merged = mergeToolResults(parsed);
 
+    const interfaceFiles = this.getInterfaceFilesWithMtimes();
+
+    let prevAssistantTimestamp = 0;
     const messages: RuntimeMessagePayload[] = merged.map((m) => {
       let msgAttachments: RuntimeAttachmentMetadata[] = [];
       if (m.role === 'assistant' && m.id) {
@@ -345,6 +330,19 @@ export class RuntimeHttpServer {
           }));
         }
       }
+
+      let interfaces: string[] | undefined;
+      if (m.role === 'assistant') {
+        const msgTimestamp = new Date(m.timestamp).getTime();
+        const dirtied = interfaceFiles
+          .filter((f) => f.mtimeMs > prevAssistantTimestamp && f.mtimeMs <= msgTimestamp)
+          .map((f) => f.path);
+        if (dirtied.length > 0) {
+          interfaces = dirtied;
+        }
+        prevAssistantTimestamp = msgTimestamp;
+      }
+
       return {
         id: m.id ?? '',
         role: m.role,
@@ -352,16 +350,11 @@ export class RuntimeHttpServer {
         timestamp: new Date(m.timestamp).toISOString(),
         attachments: msgAttachments,
         ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
+        ...(interfaces ? { interfaces } : {}),
       };
     });
 
-    const interfacePaths = this.scanInterfacesDir();
-    const dirtiedInterfaces = this.computeDirtiedInterfaces(interfacePaths);
-    return Response.json({
-      messages,
-      ...(interfacePaths.length > 0 ? { interfaces: interfacePaths } : {}),
-      ...(dirtiedInterfaces.length > 0 ? { dirtiedInterfaces } : {}),
-    });
+    return Response.json({ messages });
   }
 
   private async handleGetSuggestion(assistantId: string, url: URL): Promise<Response> {
@@ -1028,36 +1021,24 @@ ${app.htmlDefinition}
 
   // ── Attachment fetch endpoint ──────────────────────────────────────
 
-  private scanInterfacesDir(): string[] {
+  private getInterfaceFilesWithMtimes(): Array<{ path: string; mtimeMs: number }> {
     if (!this.interfacesDir || !existsSync(this.interfacesDir)) return [];
-    const results: string[] = [];
+    const results: Array<{ path: string; mtimeMs: number }> = [];
     const scan = (dir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const fullPath = join(dir, entry.name);
         if (entry.isDirectory()) {
           scan(fullPath);
         } else {
-          results.push(relative(this.interfacesDir!, fullPath));
+          results.push({
+            path: relative(this.interfacesDir!, fullPath),
+            mtimeMs: statSync(fullPath).mtimeMs,
+          });
         }
       }
     };
     scan(this.interfacesDir);
     return results;
-  }
-
-  private computeDirtiedInterfaces(interfacePaths: string[]): string[] {
-    if (!this.interfacesDir) return [];
-    const dirtied: string[] = [];
-    for (const p of interfacePaths) {
-      const fullPath = join(this.interfacesDir, p);
-      const mtime = statSync(fullPath).mtimeMs;
-      const lastMtime = this.lastReportedMtimes.get(p);
-      if (lastMtime !== undefined && mtime > lastMtime) {
-        dirtied.push(p);
-      }
-      this.lastReportedMtimes.set(p, mtime);
-    }
-    return dirtied;
   }
 
   private handleGetInterface(interfacePath: string): Response {

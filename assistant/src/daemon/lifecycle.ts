@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
+import { cpSync, readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
 
 import { resolve } from 'node:path';
 import * as Sentry from '@sentry/node';
@@ -177,6 +177,14 @@ export async function ensureDaemonRunning(): Promise<void> {
 export async function runDaemon(): Promise<void> {
   migrateToDataLayout();
   ensureDataDir();
+
+  const seedDir = process.env.VELLUM_INTERFACES_SEED_DIR?.trim();
+  if (seedDir && existsSync(seedDir)) {
+    const interfacesDir = getInterfacesDir();
+    cpSync(seedDir, interfacesDir, { recursive: true });
+    log.info({ seedDir, interfacesDir }, 'Seeded initial interface files');
+  }
+
   installTemplates();
   ensurePromptFiles();
   initializeDb();
