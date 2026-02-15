@@ -933,7 +933,7 @@ public final class ChatViewModel: ObservableObject {
             }
 
         case .sessionError(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
+            guard sessionId != nil, belongsToSession(msg.sessionId) else { return }
             let typedError = SessionError(from: msg)
             log.error("Session error [\(msg.code.rawValue)]: \(msg.userMessage)")
             sessionError = typedError
@@ -1140,6 +1140,7 @@ public final class ChatViewModel: ObservableObject {
     }
 
     public func dismissError() {
+        sessionError = nil
         errorText = nil
     }
 
