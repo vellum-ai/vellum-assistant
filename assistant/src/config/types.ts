@@ -24,5 +24,6 @@ export type {
   SkillEntryConfig,
   SkillsLoadConfig,
   SkillsInstallConfig,
+  SwarmConfig,
   SkillsConfig,
 } from './schema.js';
