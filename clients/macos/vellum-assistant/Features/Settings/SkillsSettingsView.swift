@@ -49,7 +49,7 @@ final class SkillsSettingsViewModel: ObservableObject {
         processNextOperation()
     }
 
-    func uninstallSkill(name: String) {
+    func uninstallSkill(id: String) {
         guard !isUninstalling else { return }
         isUninstalling = true
         uninstallError = nil
@@ -58,7 +58,7 @@ final class SkillsSettingsViewModel: ObservableObject {
             let stream = daemonClient.subscribe()
 
             do {
-                try daemonClient.uninstallSkill(name)
+                try daemonClient.uninstallSkill(id)
             } catch {
                 isUninstalling = false
                 uninstallError = "Failed to connect"
@@ -69,7 +69,7 @@ final class SkillsSettingsViewModel: ObservableObject {
                 if case .skillsOperationResponse(let response) = message,
                    response.operation == "uninstall" {
                     if response.success {
-                        skills.removeAll { $0.name == name }
+                        skills.removeAll { $0.id == id }
                     } else {
                         uninstallError = response.error ?? "Uninstall failed"
                     }
@@ -227,10 +227,38 @@ struct SkillsSettingsView: View {
                         }
                     }
 
-                    // Other installed skills (workspace, extra, clawhub)
-                    if !otherSkills.isEmpty {
-                        Section("Other Skills") {
-                            ForEach(otherSkills) { skill in
+                    // Workspace skills
+                    if !workspaceSkills.isEmpty {
+                        Section("Workspace Skills") {
+                            ForEach(workspaceSkills) { skill in
+                                SkillRow(
+                                    skill: skill,
+                                    onToggle: { enabled in
+                                        viewModel.toggleSkill(name: skill.name, enable: enabled)
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // ClaWHub skills
+                    if !clawhubSkills.isEmpty {
+                        Section("ClaWHub Skills") {
+                            ForEach(clawhubSkills) { skill in
+                                SkillRow(
+                                    skill: skill,
+                                    onToggle: { enabled in
+                                        viewModel.toggleSkill(name: skill.name, enable: enabled)
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // Extra skills
+                    if !extraSkills.isEmpty {
+                        Section("Extra Skills") {
+                            ForEach(extraSkills) { skill in
                                 SkillRow(
                                     skill: skill,
                                     onToggle: { enabled in
@@ -297,7 +325,7 @@ struct SkillsSettingsView: View {
             Button("Cancel", role: .cancel) { skillToDelete = nil }
             Button("Delete", role: .destructive) {
                 if let skill = skillToDelete {
-                    viewModel.uninstallSkill(name: skill.name)
+                    viewModel.uninstallSkill(id: skill.id)
                     skillToDelete = nil
                 }
             }
@@ -327,8 +355,16 @@ struct SkillsSettingsView: View {
         installedSkills.filter { $0.source == "bundled" }
     }
 
-    private var otherSkills: [SkillInfo] {
-        installedSkills.filter { $0.source != "managed" && $0.source != "bundled" }
+    private var workspaceSkills: [SkillInfo] {
+        installedSkills.filter { $0.source == "workspace" }
+    }
+
+    private var clawhubSkills: [SkillInfo] {
+        installedSkills.filter { $0.source == "clawhub" }
+    }
+
+    private var extraSkills: [SkillInfo] {
+        installedSkills.filter { $0.source == "extra" }
     }
 }
 

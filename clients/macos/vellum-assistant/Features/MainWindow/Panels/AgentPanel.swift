@@ -46,7 +46,7 @@ struct AgentPanel: View {
             Button("Cancel", role: .cancel) { skillToDelete = nil }
             Button("Delete", role: .destructive) {
                 if let skill = skillToDelete {
-                    skillsManager.uninstallSkill(name: skill.name)
+                    skillsManager.uninstallSkill(id: skill.id)
                     skillToDelete = nil
                 }
             }

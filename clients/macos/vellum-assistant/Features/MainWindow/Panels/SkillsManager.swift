@@ -22,7 +22,7 @@ final class SkillsManager: ObservableObject {
     }
 
     struct UninstallResult {
-        let name: String
+        let id: String
         let success: Bool
         let error: String?
     }
@@ -189,7 +189,7 @@ final class SkillsManager: ObservableObject {
         }
     }
 
-    func uninstallSkill(name: String) {
+    func uninstallSkill(id: String) {
         guard !isUninstalling else { return }
         isUninstalling = true
         uninstallResult = nil
@@ -198,10 +198,10 @@ final class SkillsManager: ObservableObject {
             let stream = daemonClient.subscribe()
 
             do {
-                try daemonClient.uninstallSkill(name)
+                try daemonClient.uninstallSkill(id)
             } catch {
                 isUninstalling = false
-                uninstallResult = UninstallResult(name: name, success: false, error: "Failed to connect")
+                uninstallResult = UninstallResult(id: id, success: false, error: "Failed to connect")
                 return
             }
 
@@ -209,16 +209,16 @@ final class SkillsManager: ObservableObject {
                 if case .skillsOperationResponse(let response) = message,
                    response.operation == "uninstall" {
                     if response.success {
-                        uninstallResult = UninstallResult(name: name, success: true, error: nil)
+                        uninstallResult = UninstallResult(id: id, success: true, error: nil)
                         fetchSkills()
                     } else {
-                        uninstallResult = UninstallResult(name: name, success: false, error: response.error)
+                        uninstallResult = UninstallResult(id: id, success: false, error: response.error)
                     }
                     isUninstalling = false
                     // Auto-clear after 3 seconds
                     Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 3_000_000_000)
-                        if self.uninstallResult?.name == name {
+                        if self.uninstallResult?.id == id {
                             self.uninstallResult = nil
                         }
                     }
