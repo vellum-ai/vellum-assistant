@@ -1,5 +1,14 @@
-import { describe, test, expect } from 'bun:test';
-import { parseDirectives } from '../daemon/assistant-attachments.js';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { join } from 'node:path';
+import { mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
+import { parseDirectives, resolveSandboxDirective, type DirectiveRequest } from '../daemon/assistant-attachments.js';
+
+import { tmpdir } from 'node:os';
+
+// Use realpath to avoid macOS /tmp → /private/tmp symlink mismatches
+const RAW_TEST_DIR = join(tmpdir(), `vellum-sandbox-test-${Date.now()}`);
+mkdirSync(RAW_TEST_DIR, { recursive: true });
+const TEST_DIR = realpathSync(RAW_TEST_DIR);
 
 // ---------------------------------------------------------------------------
 // parseDirectives
@@ -148,5 +157,117 @@ describe('parseDirectives', () => {
     expect(result.directiveRequests[0].source).toBe('host');
     expect(result.directiveRequests[0].path).toBe('/tmp/data.csv');
     expect(result.directiveRequests[0].mimeType).toBe('text/csv');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveSandboxDirective
+// ---------------------------------------------------------------------------
+
+describe('resolveSandboxDirective', () => {
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, 'sub'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(TEST_DIR, { recursive: true, force: true });
+  });
+
+  function makeDirective(overrides: Partial<DirectiveRequest> = {}): DirectiveRequest {
+    return {
+      source: 'sandbox',
+      path: 'hello.txt',
+      filename: undefined,
+      mimeType: undefined,
+      ...overrides,
+    };
+  }
+
+  test('resolves a valid sandbox file to a draft', () => {
+    const filePath = join(TEST_DIR, 'hello.txt');
+    writeFileSync(filePath, 'hello world');
+
+    const result = resolveSandboxDirective(makeDirective({ path: 'hello.txt' }), TEST_DIR);
+
+    expect(result.draft).not.toBeNull();
+    expect(result.warning).toBeNull();
+    expect(result.draft!.sourceType).toBe('sandbox_file');
+    expect(result.draft!.filename).toBe('hello.txt');
+    expect(result.draft!.mimeType).toBe('text/plain');
+    expect(result.draft!.sizeBytes).toBe(11);
+    expect(result.draft!.kind).toBe('document');
+  });
+
+  test('uses directive filename override when provided', () => {
+    writeFileSync(join(TEST_DIR, 'data.txt'), 'content');
+
+    const result = resolveSandboxDirective(
+      makeDirective({ path: 'data.txt', filename: 'custom-name.txt' }),
+      TEST_DIR,
+    );
+
+    expect(result.draft!.filename).toBe('custom-name.txt');
+  });
+
+  test('uses directive mimeType override when provided', () => {
+    writeFileSync(join(TEST_DIR, 'data.bin'), Buffer.from([1, 2, 3]));
+
+    const result = resolveSandboxDirective(
+      makeDirective({ path: 'data.bin', mimeType: 'application/x-custom' }),
+      TEST_DIR,
+    );
+
+    expect(result.draft!.mimeType).toBe('application/x-custom');
+  });
+
+  test('infers MIME type from extension', () => {
+    writeFileSync(join(TEST_DIR, 'image.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    const result = resolveSandboxDirective(makeDirective({ path: 'image.png' }), TEST_DIR);
+
+    expect(result.draft!.mimeType).toBe('image/png');
+    expect(result.draft!.kind).toBe('image');
+  });
+
+  test('rejects paths that escape sandbox boundary', () => {
+    const result = resolveSandboxDirective(makeDirective({ path: '../../etc/passwd' }), TEST_DIR);
+
+    expect(result.draft).toBeNull();
+    expect(result.warning).toContain('outside the working directory');
+  });
+
+  test('warns when file does not exist', () => {
+    const result = resolveSandboxDirective(makeDirective({ path: 'nonexistent.txt' }), TEST_DIR);
+
+    expect(result.draft).toBeNull();
+    expect(result.warning).toContain('file not found');
+  });
+
+  test('warns when path is a directory', () => {
+    const result = resolveSandboxDirective(makeDirective({ path: 'sub' }), TEST_DIR);
+
+    expect(result.draft).toBeNull();
+    expect(result.warning).toContain('not a regular file');
+  });
+
+  test('resolves relative subdirectory paths', () => {
+    writeFileSync(join(TEST_DIR, 'sub', 'nested.json'), '{"key":"value"}');
+
+    const result = resolveSandboxDirective(makeDirective({ path: 'sub/nested.json' }), TEST_DIR);
+
+    expect(result.draft).not.toBeNull();
+    expect(result.draft!.filename).toBe('nested.json');
+    expect(result.draft!.mimeType).toBe('application/json');
+  });
+
+  test('base64 encodes file content correctly', () => {
+    const content = 'test content';
+    writeFileSync(join(TEST_DIR, 'test.txt'), content);
+
+    const result = resolveSandboxDirective(makeDirective({ path: 'test.txt' }), TEST_DIR);
+
+    expect(result.draft).not.toBeNull();
+    const decoded = Buffer.from(result.draft!.dataBase64, 'base64').toString('utf-8');
+    expect(decoded).toBe(content);
   });
 });

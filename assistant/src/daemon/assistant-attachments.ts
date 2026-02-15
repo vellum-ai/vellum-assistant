@@ -5,6 +5,10 @@
  * directives, tool content blocks, and file reads.
  */
 
+import { basename } from 'node:path';
+import { readFileSync, statSync } from 'node:fs';
+import { sandboxPolicy } from '../tools/shared/filesystem/path-policy.js';
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -222,6 +226,86 @@ export function parseDirectives(text: string): DirectiveParseResult {
     cleanText: cleanText.replace(/\n{3,}/g, '\n\n').trim(),
     directiveRequests,
     parseWarnings,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Sandbox file resolution
+// ---------------------------------------------------------------------------
+
+export interface ResolveResult {
+  draft: AssistantAttachmentDraft | null;
+  warning: string | null;
+}
+
+/**
+ * Resolve a sandbox directive to a draft attachment.
+ *
+ * Validates the path stays within the sandbox boundary, reads the file,
+ * base64-encodes it, and enforces the per-attachment size cap.
+ */
+export function resolveSandboxDirective(
+  directive: DirectiveRequest,
+  workingDir: string,
+): ResolveResult {
+  const pathResult = sandboxPolicy(directive.path, workingDir);
+  if (!pathResult.ok) {
+    return {
+      draft: null,
+      warning: `Skipped sandbox attachment "${directive.path}": ${pathResult.error}`,
+    };
+  }
+
+  const resolved = pathResult.resolved;
+
+  let stat;
+  try {
+    stat = statSync(resolved);
+  } catch {
+    return {
+      draft: null,
+      warning: `Skipped sandbox attachment "${directive.path}": file not found.`,
+    };
+  }
+
+  if (!stat.isFile()) {
+    return {
+      draft: null,
+      warning: `Skipped sandbox attachment "${directive.path}": not a regular file.`,
+    };
+  }
+
+  if (stat.size > MAX_ASSISTANT_ATTACHMENT_BYTES) {
+    return {
+      draft: null,
+      warning: `Skipped sandbox attachment "${directive.path}": size ${formatBytes(stat.size)} exceeds ${formatBytes(MAX_ASSISTANT_ATTACHMENT_BYTES)} limit.`,
+    };
+  }
+
+  let data: Buffer;
+  try {
+    data = readFileSync(resolved);
+  } catch (err) {
+    return {
+      draft: null,
+      warning: `Skipped sandbox attachment "${directive.path}": read error: ${(err as Error).message}`,
+    };
+  }
+
+  const filename = directive.filename ?? basename(resolved);
+  const mimeType = directive.mimeType ?? inferMimeType(filename);
+  const dataBase64 = data.toString('base64');
+
+  return {
+    draft: {
+      sourceType: 'sandbox_file',
+      filename,
+      mimeType,
+      dataBase64,
+      sizeBytes: data.length,
+      kind: classifyKind(mimeType),
+    },
+    warning: null,
   };
 }
 
