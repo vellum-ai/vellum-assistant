@@ -608,19 +608,12 @@ private struct ChatBubble: View {
             if isUser { Spacer(minLength: 0) }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
-                // When tool calls arrived before text (e.g. the agent ran a command
-                // and then responded), render chips first to match chronological order.
-                if message.toolCallsBeforeText {
-                    toolCallChips
-                }
+                // Tool calls render above text to match chronological order:
+                // in the agent loop, tools execute before the final text response.
+                toolCallChips
 
                 if shouldShowBubble {
                     bubbleContent
-                }
-
-                // Tool calls that arrived after text render below the bubble.
-                if !message.toolCallsBeforeText {
-                    toolCallChips
                 }
 
                 // Inline surfaces render below the bubble as full-width cards

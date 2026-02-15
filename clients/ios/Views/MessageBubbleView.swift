@@ -30,8 +30,8 @@ struct MessageBubbleView: View {
                         }
                     )
                 } else {
-                    // When tool calls arrived before text, show them first
-                    if message.toolCallsBeforeText && !message.toolCalls.isEmpty {
+                    // Tool calls render above text to match chronological order
+                    if !message.toolCalls.isEmpty {
                         ForEach(message.toolCalls) { toolCall in
                             ToolCallChip(toolCall: toolCall)
                         }
@@ -49,13 +49,6 @@ struct MessageBubbleView: View {
                                     : VColor.surface
                             )
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                    }
-
-                    // Tool call chips (when text came first)
-                    if !message.toolCallsBeforeText && !message.toolCalls.isEmpty {
-                        ForEach(message.toolCalls) { toolCall in
-                            ToolCallChip(toolCall: toolCall)
-                        }
                     }
 
                     // Inline surfaces (cards, tables, interactive widgets)
