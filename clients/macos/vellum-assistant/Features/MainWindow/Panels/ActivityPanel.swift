@@ -7,22 +7,37 @@ struct ActivityPanel: View {
 
     var body: some View {
         VSidePanel(title: "Activity", onClose: onClose) {
-            ZStack(alignment: .leading) {
-                // Vertical timeline line aligned with center of status circles
-                Rectangle()
-                    .fill(VColor.surfaceBorder)
-                    .frame(width: 1)
-                    .padding(.leading, 11) // center of 24pt circle
+            ScrollViewReader { proxy in
+                ZStack(alignment: .leading) {
+                    // Vertical timeline line aligned with center of status circles
+                    Rectangle()
+                        .fill(VColor.surfaceBorder)
+                        .frame(width: 1)
+                        .padding(.leading, 11) // center of 24pt circle
 
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
-                        ActivityStepView(toolCall: toolCall)
-                            .padding(.vertical, VSpacing.sm)
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
+                            ActivityStepView(toolCall: toolCall)
+                                .id(toolCall.id)
+                                .padding(.vertical, VSpacing.sm)
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: .top).combined(with: .opacity),
+                                    removal: .opacity
+                                ))
 
-                        if index < toolCalls.count - 1 {
-                            Divider()
-                                .background(VColor.surfaceBorder)
-                                .padding(.leading, 32)
+                            if index < toolCalls.count - 1 {
+                                Divider()
+                                    .background(VColor.surfaceBorder)
+                                    .padding(.leading, 32)
+                            }
+                        }
+                    }
+                    .animation(VAnimation.standard, value: toolCalls.count)
+                }
+                .onChange(of: toolCalls.count) {
+                    if let lastId = toolCalls.last?.id {
+                        withAnimation(VAnimation.standard) {
+                            proxy.scrollTo(lastId, anchor: .bottom)
                         }
                     }
                 }
@@ -151,8 +166,10 @@ struct ActivityStepView: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
                 .padding(.leading, 32)
+                .transition(.opacity)
             }
         }
+        .animation(VAnimation.fast, value: toolCall.isComplete)
     }
 
     private var toolIcon: String {
