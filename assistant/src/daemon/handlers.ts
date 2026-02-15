@@ -1918,6 +1918,8 @@ async function handleCuObservation(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
+  const receiveTimestampMs = Date.now();
+
   // Hydrate blob refs to inline values before any other processing.
   // Strategy: blob-first, inline-fallback, cu_error if neither available.
   if (msg.axTreeBlob) {
@@ -1958,7 +1960,6 @@ async function handleCuObservation(
     }
   }
 
-  const receiveTimestampMs = Date.now();
   const previousSequence = cuObservationSequenceBySession.get(msg.sessionId) ?? 0;
   const sequence = previousSequence + 1;
   cuObservationSequenceBySession.set(msg.sessionId, sequence);
