@@ -2,7 +2,7 @@ import VellumAssistantShared
 import SwiftUI
 
 struct BundleConfirmationView: View {
-    @ObservedObject var viewModel: BundleConfirmationViewModel
+    var viewModel: BundleConfirmationViewModel
 
     var body: some View {
         VStack(spacing: 0) {

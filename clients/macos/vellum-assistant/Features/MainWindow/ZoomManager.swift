@@ -1,13 +1,14 @@
 import SwiftUI
 
 @MainActor
-final class ZoomManager: ObservableObject {
+@Observable
+final class ZoomManager {
     static let zoomSteps: [CGFloat] = [0.75, 0.80, 0.90, 1.00, 1.10, 1.25, 1.50, 1.75, 2.00]
 
-    @Published var zoomLevel: CGFloat {
+    var zoomLevel: CGFloat {
         didSet { UserDefaults.standard.set(zoomLevel, forKey: "windowZoomLevel") }
     }
-    @Published var showZoomIndicator = false
+    var showZoomIndicator = false
 
     private var dismissTask: Task<Void, Never>?
 
