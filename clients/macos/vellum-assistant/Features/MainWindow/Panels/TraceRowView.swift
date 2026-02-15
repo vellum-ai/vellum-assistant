@@ -32,30 +32,38 @@ struct TraceRowView: View {
 
     private var iconName: String {
         switch event.kind {
+        case "request_received":
+            return "play.circle"
+        case "request_queued":
+            return "tray.and.arrow.down"
+        case "request_dequeued":
+            return "tray.and.arrow.up"
         case "llm_call_started":
             return "brain"
         case "llm_call_finished":
             return "brain.head.profile"
+        case "assistant_message":
+            return "text.bubble"
         case "tool_started":
             return "wrench.and.screwdriver"
+        case "tool_permission_requested":
+            return "lock.shield"
+        case "tool_permission_decided":
+            return "lock.open"
         case "tool_finished":
             return "wrench.and.screwdriver.fill"
         case "tool_failed":
             return "exclamationmark.triangle.fill"
-        case "request_queued":
-            return "tray.and.arrow.down"
-        case "request_started":
-            return "play.circle"
+        case "secret_detected":
+            return "eye.trianglebadge.exclamationmark"
+        case "generation_handoff":
+            return "arrow.right.arrow.left.circle"
         case "message_complete":
             return "checkmark.circle"
         case "generation_cancelled":
             return "xmark.circle"
         case "request_error":
             return "exclamationmark.circle"
-        case "session_started":
-            return "bolt.circle"
-        case "session_ended":
-            return "stop.circle"
         default:
             return "circle.fill"
         }
