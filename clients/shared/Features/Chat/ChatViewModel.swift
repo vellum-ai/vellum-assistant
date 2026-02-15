@@ -899,13 +899,14 @@ public final class ChatViewModel: ObservableObject {
             guard let surface = Surface.from(msg) else { break }
 
             // On macOS, dynamic pages with no explicit display mode are routed
-            // to the workspace by SurfaceManager (which posts the notification).
-            // Suppress inline rendering here to avoid a duplicate widget.
+            // to the workspace by SurfaceManager. If the dynamic page has a
+            // preview, also render a compact preview card inline in chat.
             // On iOS there is no workspace, so dynamic pages always render inline.
             #if os(macOS)
-            if case .dynamicPage = surface.data, msg.display == nil {
+            if case .dynamicPage(let dpData) = surface.data, msg.display == nil {
                 isThinking = false
-                break
+                // Only render inline preview if the dynamic page has preview metadata
+                guard dpData.preview != nil else { break }
             }
             #endif
 
@@ -915,7 +916,8 @@ public final class ChatViewModel: ObservableObject {
                 surfaceType: surface.type,
                 title: surface.title,
                 data: surface.data,
-                actions: surface.actions
+                actions: surface.actions,
+                surfaceMessage: msg
             )
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
