@@ -2,6 +2,7 @@ import { NativeBackend } from './backends/native.js';
 import { DockerBackend } from './backends/docker.js';
 import type { SandboxResult } from './backends/types.js';
 import type { SandboxConfig } from '../../config/schema.js';
+import { getSandboxWorkingDir } from '../../util/platform.js';
 
 export type { SandboxResult, SandboxBackend } from './backends/types.js';
 
@@ -28,7 +29,11 @@ export function wrapCommand(
   }
 
   if (config.backend === 'docker') {
-    const backend = new DockerBackend(workingDir, config.docker);
+    // Always mount the canonical sandbox fs root, not whatever workingDir
+    // happens to be. workingDir may be a subdirectory; the mount source
+    // must be the fixed root so the entire sandbox filesystem is available.
+    const sandboxRoot = getSandboxWorkingDir();
+    const backend = new DockerBackend(sandboxRoot, config.docker);
     return backend.wrap(command, workingDir);
   }
 

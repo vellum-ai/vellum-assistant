@@ -12,6 +12,7 @@ const execSyncMock = mock((_command: string): unknown => {
 mock.module('../util/platform.js', () => ({
   isMacOS: () => platform === 'darwin',
   isLinux: () => platform === 'linux',
+  getSandboxWorkingDir: () => '/tmp/sandbox/fs',
 }));
 
 mock.module('../util/logger.js', () => ({
