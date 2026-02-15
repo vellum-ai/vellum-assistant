@@ -229,7 +229,9 @@ export function parseDirectives(text: string): DirectiveParseResult {
   });
 
   return {
-    cleanText: cleanText.replace(/\n{3,}/g, '\n\n').trim(),
+    cleanText: directiveRequests.length > 0
+      ? cleanText.replace(/\n{3,}/g, '\n\n').trim()
+      : cleanText,
     directiveRequests,
     parseWarnings,
   };
