@@ -156,6 +156,47 @@ export function getAttachmentsForMessage(
 }
 
 /**
+ * Return all attachments linked to a message without assistant scoping.
+ * Used by the desktop IPC history handler where tenant isolation is not needed.
+ */
+export function getAttachmentsForMessageUnscoped(
+  messageId: string,
+): Array<StoredAttachment & { dataBase64: string }> {
+  const db = getDb();
+  const links = db
+    .select({ attachmentId: messageAttachments.attachmentId, position: messageAttachments.position })
+    .from(messageAttachments)
+    .where(eq(messageAttachments.messageId, messageId))
+    .orderBy(messageAttachments.position)
+    .all();
+
+  if (links.length === 0) return [];
+
+  const results: Array<StoredAttachment & { dataBase64: string }> = [];
+  for (const link of links) {
+    if (!link.attachmentId) continue;
+    const row = db
+      .select()
+      .from(attachments)
+      .where(eq(attachments.id, link.attachmentId))
+      .get();
+    if (row) {
+      results.push({
+        id: row.id,
+        assistantId: row.assistantId,
+        originalFilename: row.originalFilename,
+        mimeType: row.mimeType,
+        sizeBytes: row.sizeBytes,
+        kind: row.kind,
+        dataBase64: row.dataBase64,
+        createdAt: row.createdAt,
+      });
+    }
+  }
+  return results;
+}
+
+/**
  * Retrieve a single attachment by ID, scoped to an assistant.
  */
 export function getAttachmentById(
