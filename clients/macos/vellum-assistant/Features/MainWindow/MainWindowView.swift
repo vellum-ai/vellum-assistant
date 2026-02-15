@@ -41,15 +41,17 @@ struct MainWindowView: View {
                                             .foregroundColor(thread.id == threadManager.activeThreadId ? VColor.accent : VColor.textPrimary)
                                         Spacer()
 
-                                        Button(action: { threadManager.closeThread(id: thread.id) }) {
-                                            Image(systemName: "xmark")
-                                                .font(.system(size: 10, weight: .bold))
-                                                .foregroundColor(VColor.textMuted)
-                                                .frame(width: 16, height: 16)
-                                                .contentShape(Rectangle())
+                                        if threadManager.threads.count > 1 {
+                                            Button(action: { threadManager.closeThread(id: thread.id) }) {
+                                                Image(systemName: "xmark")
+                                                    .font(.system(size: 10, weight: .bold))
+                                                    .foregroundColor(VColor.textMuted)
+                                                    .frame(width: 16, height: 16)
+                                                    .contentShape(Rectangle())
+                                            }
+                                            .buttonStyle(.plain)
+                                            .accessibilityLabel("Close \(thread.title)")
                                         }
-                                        .buttonStyle(.plain)
-                                        .accessibilityLabel("Close \(thread.title)")
                                     }
                                     .padding(.vertical, VSpacing.xxs)
                                     .tag(thread.id)
@@ -102,6 +104,10 @@ struct MainWindowView: View {
                                     }
                                 }
                             }
+                    }
+                    .transaction { transaction in
+                        // Disable toolbar animations during sidebar transitions
+                        transaction.animation = nil
                     }
                 } else {
                     // Tab mode: Traditional layout
@@ -156,7 +162,9 @@ struct MainWindowView: View {
 
             // Close thread drawer when opening a right-side panel to avoid cramped layout
             if useThreadDrawer && newPanel != nil {
-                columnVisibility = .detailOnly
+                withTransaction(Transaction(animation: nil)) {
+                    columnVisibility = .detailOnly
+                }
             }
         }
         .onChange(of: selectedThreadId) { _, newId in

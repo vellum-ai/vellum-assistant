@@ -19,7 +19,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                     .background(VColor.backgroundSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                     .padding(.vertical, VSpacing.sm)
-                    .padding(.leading, VSpacing.sm)
+                    .padding(.horizontal, VSpacing.sm)
                     .transition(.move(edge: .trailing))
             }
         }
