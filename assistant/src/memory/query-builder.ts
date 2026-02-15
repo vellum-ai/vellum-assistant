@@ -25,14 +25,14 @@ export function buildMemoryQuery(
     .map((message) => getSummaryFromContextMessage(message))
     .find((summary): summary is string => summary !== null);
 
-  const sections: string[] = [
-    `## User Request\n${requestText.length > 0 ? requestText : '(empty)'}`,
-  ];
+  const content = requestText.length > 0 ? requestText : '(empty)';
+
   if (sessionSummary && sessionSummary.trim().length > 0) {
-    sections.push(`## Session Context Summary\n${clampSection(sessionSummary.trim(), maxSessionSummaryChars)}`);
+    const compactSummary = clampSection(sessionSummary.trim(), maxSessionSummaryChars);
+    return `${content}\n\nContext summary:\n${compactSummary}`;
   }
 
-  return sections.join('\n\n');
+  return content;
 }
 
 function clampSection(value: string, maxChars: number): string {
