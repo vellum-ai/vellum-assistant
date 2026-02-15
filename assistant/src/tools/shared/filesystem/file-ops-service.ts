@@ -169,6 +169,10 @@ export class FileSystemOps {
       return { ok: false, error: Err.ioError(filePath, msg) };
     }
 
+    if (input.oldString.length === 0) {
+      return { ok: false, error: Err.matchNotFound(filePath) };
+    }
+
     const result = applyEdit(content, input.oldString, input.newString, input.replaceAll);
 
     if (!result.ok) {

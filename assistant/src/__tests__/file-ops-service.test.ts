@@ -277,6 +277,22 @@ describe('FileSystemOps.editFileSafe', () => {
     expect(result.value.filePath).toContain('file.txt');
   });
 
+  test('returns MATCH_NOT_FOUND for empty oldString', () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, 'file.txt'), 'hello world');
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+
+    const result = ops.editFileSafe({
+      path: 'file.txt',
+      oldString: '',
+      newString: 'injected',
+      replaceAll: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('MATCH_NOT_FOUND');
+  });
+
   test('returns INVALID_PATH for path outside sandbox', () => {
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
