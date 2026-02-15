@@ -206,3 +206,16 @@ export function getAttachmentById(
   const results = getAttachmentsByIds(assistantId, [attachmentId]);
   return results[0] ?? null;
 }
+
+/**
+ * Delete attachments that have no remaining links in message_attachments.
+ * Returns the number of orphaned attachments removed.
+ */
+export function deleteOrphanAttachments(): number {
+  const db = getDb();
+  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+  const result = raw.run(
+    'DELETE FROM attachments WHERE id NOT IN (SELECT attachment_id FROM message_attachments)',
+  );
+  return result.changes;
+}
