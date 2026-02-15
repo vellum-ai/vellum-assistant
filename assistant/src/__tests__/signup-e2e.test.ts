@@ -55,10 +55,10 @@ import {
 } from '../memory/account-store.js';
 import {
   setSecureKey,
+  getSecureKey,
   deleteSecureKey,
   listSecureKeys,
 } from '../security/secure-keys.js';
-import { getCredentialValue } from '../tools/credentials/vault.js';
 import { upsertCredentialMetadata, _setMetadataPath } from '../tools/credentials/metadata-store.js';
 import {
   executeBrowserNavigate,
@@ -130,7 +130,7 @@ describe('end-to-end signup flow', () => {
     const storeOk = setSecureKey(`credential:mockservice:password`, TEST_PASSWORD);
     expect(storeOk).toBe(true);
     upsertCredentialMetadata('mockservice', 'password');
-    expect(getCredentialValue('mockservice', 'password')).toBe(TEST_PASSWORD);
+    expect(getSecureKey('credential:mockservice:password')).toBe(TEST_PASSWORD);
 
     // Navigate to signup
     const navResult = await executeBrowserNavigate(

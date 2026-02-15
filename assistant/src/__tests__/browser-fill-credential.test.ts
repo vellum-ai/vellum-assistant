@@ -53,11 +53,17 @@ mock.module('../tools/network/url-safety.js', () => ({
   sanitizeUrlForOutput: (url: URL) => url.href,
 }));
 
-let mockGetCredentialValue: ReturnType<typeof mock>;
+let mockGetSecureKey: ReturnType<typeof mock>;
 let mockGetCredentialMetadata: ReturnType<typeof mock>;
 
-mock.module('../tools/credentials/vault.js', () => ({
-  getCredentialValue: (...args: unknown[]) => mockGetCredentialValue(...args),
+mock.module('../security/secure-keys.js', () => ({
+  getSecureKey: (...args: unknown[]) => mockGetSecureKey(...args),
+  setSecureKey: () => true,
+  deleteSecureKey: () => true,
+  listSecureKeys: () => [],
+  getBackendType: () => 'encrypted',
+  _resetBackend: () => {},
+  _setBackend: () => {},
 }));
 
 mock.module('../tools/credentials/metadata-store.js', () => ({
@@ -101,7 +107,7 @@ describe('executeBrowserFillCredential', () => {
   beforeEach(() => {
     resetMockPage();
     snapshotMaps.clear();
-    mockGetCredentialValue = mock(() => 'super-secret-password');
+    mockGetSecureKey = mock(() => 'super-secret-password');
     mockGetCredentialMetadata = mock((service: string, field: string) => defaultMetadata(service, field));
   });
 
@@ -114,7 +120,7 @@ describe('executeBrowserFillCredential', () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Filled password for gmail');
     expect(mockPage.fill).toHaveBeenCalledWith('[data-vellum-eid="e1"]', 'super-secret-password');
-    expect(mockGetCredentialValue).toHaveBeenCalledWith('gmail', 'password');
+    expect(mockGetSecureKey).toHaveBeenCalledWith('credential:gmail:password');
   });
 
   test('fills credential by CSS selector', async () => {
@@ -141,7 +147,7 @@ describe('executeBrowserFillCredential', () => {
   });
 
   test('returns error when metadata exists but no stored value', async () => {
-    mockGetCredentialValue = mock(() => undefined);
+    mockGetSecureKey = mock(() => undefined);
     snapshotMaps.set('test-session', new Map([['e1', '[data-vellum-eid="e1"]']]));
     const result = await executeBrowserFillCredential(
       { service: 'slack', field: 'api_key', element_id: 'e1' },
@@ -227,7 +233,7 @@ describe('executeBrowserFillCredential', () => {
       );
       // Broker checks metadata first, then reads the value
       expect(mockGetCredentialMetadata).toHaveBeenCalledWith('gmail', 'password');
-      expect(mockGetCredentialValue).toHaveBeenCalledWith('gmail', 'password');
+      expect(mockGetSecureKey).toHaveBeenCalledWith('credential:gmail:password');
     });
   });
 });

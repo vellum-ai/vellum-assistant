@@ -12,9 +12,9 @@ import { upsertCredentialMetadata, deleteCredentialMetadata } from './metadata-s
 
 /**
  * Retrieve the actual secret value for a credential.
- * Used internally (e.g. by browser_fill_credential) — never exposed as tool output.
+ * Internal to vault — callers must go through the CredentialBroker.
  */
-export function getCredentialValue(service: string, field: string): string | undefined {
+function getCredentialValue(service: string, field: string): string | undefined {
   return getSecureKey(`credential:${service}:${field}`);
 }
 

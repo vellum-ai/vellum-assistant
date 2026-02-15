@@ -45,7 +45,7 @@ mock.module('../tools/registry.js', () => ({
 // Import the module under test
 // ---------------------------------------------------------------------------
 
-import { getCredentialValue } from '../tools/credentials/vault.js';
+// getCredentialValue is no longer exported (sealed in PR 17) — use getSecureKey directly
 
 // We need to construct the tool directly for testing execute()
 import type { ToolContext } from '../tools/types.js';
@@ -336,32 +336,26 @@ describe('credential_store tool', () => {
   });
 
   // -----------------------------------------------------------------------
-  // getCredentialValue (internal API)
+  // Credential value access (sealed — only via secure-keys internally)
   // -----------------------------------------------------------------------
-  describe('getCredentialValue', () => {
-    test('returns the stored secret value', () => {
+  describe('credential value access', () => {
+    test('credential values are stored via secure keys', () => {
       setSecureKey('credential:github:token', 'ghp_abc123');
-      const value = getCredentialValue('github', 'token');
-      expect(value).toBe('ghp_abc123');
+      expect(getSecureKey('credential:github:token')).toBe('ghp_abc123');
     });
 
     test('returns undefined for non-existent credential', () => {
-      expect(getCredentialValue('nonexistent', 'field')).toBeUndefined();
+      expect(getSecureKey('credential:nonexistent:field')).toBeUndefined();
     });
   });
 
   // -----------------------------------------------------------------------
-  // Baseline characterization — freeze current contract before hardening
+  // Hardening verification — getCredentialValue is no longer exported
   // -----------------------------------------------------------------------
-  describe('baseline characterization', () => {
-    test('getCredentialValue is a public export that returns plaintext directly', () => {
-      // This documents that getCredentialValue returns the raw secret as a
-      // plain string with no wrapper, scope check, or access policy.
-      // PR 17 will change this to return an opaque handle instead.
-      setSecureKey('credential:acme:api_key', 'sk-live-abc123');
-      const result = getCredentialValue('acme', 'api_key');
-      expect(typeof result).toBe('string');
-      expect(result).toBe('sk-live-abc123');
+  describe('hardening verification', () => {
+    test('vault module does not export getCredentialValue', async () => {
+      const vaultModule = await import('../tools/credentials/vault.js');
+      expect('getCredentialValue' in vaultModule).toBe(false);
     });
 
     test('credential_store input schema has no policy or domain fields', () => {
@@ -412,16 +406,16 @@ describe('credential_store tool', () => {
       await executeVault({ action: 'store', service: 'gmail', field: 'password', value: 'gmail-pass' });
       await executeVault({ action: 'store', service: 'github', field: 'password', value: 'github-pass' });
 
-      expect(getCredentialValue('gmail', 'password')).toBe('gmail-pass');
-      expect(getCredentialValue('github', 'password')).toBe('github-pass');
+      expect(getSecureKey('credential:gmail:password')).toBe('gmail-pass');
+      expect(getSecureKey('credential:github:password')).toBe('github-pass');
     });
 
     test('same service with different fields do not collide', async () => {
       await executeVault({ action: 'store', service: 'gmail', field: 'password', value: 'pass123' });
       await executeVault({ action: 'store', service: 'gmail', field: 'recovery_email', value: 'backup@example.com' });
 
-      expect(getCredentialValue('gmail', 'password')).toBe('pass123');
-      expect(getCredentialValue('gmail', 'recovery_email')).toBe('backup@example.com');
+      expect(getSecureKey('credential:gmail:password')).toBe('pass123');
+      expect(getSecureKey('credential:gmail:recovery_email')).toBe('backup@example.com');
     });
   });
 });
