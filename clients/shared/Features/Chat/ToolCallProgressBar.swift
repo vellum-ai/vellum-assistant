@@ -1,0 +1,326 @@
+import SwiftUI
+
+/// A horizontal progress bar that displays tool calls as clickable steps.
+/// Each step can be expanded to show details like results and screenshots.
+public struct ToolCallProgressBar: View {
+    public let toolCalls: [ToolCallData]
+    @State private var expandedStepId: UUID?
+
+    public init(toolCalls: [ToolCallData]) {
+        self.toolCalls = toolCalls
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            // Progress bar with steps
+            VStack(spacing: VSpacing.xs) {
+                // Icons and lines row
+                HStack(spacing: 0) {
+                    ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
+                        // Step circle
+                        stepCircle(for: toolCall, index: index)
+
+                        // Connector line (skip for last item)
+                        if index < toolCalls.count - 1 {
+                            connectorLine(isComplete: toolCall.isComplete)
+                        }
+                    }
+                }
+
+                // Labels row (only show when 4 or fewer steps)
+                if toolCalls.count <= 4 {
+                    HStack(spacing: 0) {
+                        ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
+                            // Step label
+                            stepLabel(for: toolCall)
+                                .frame(width: labelWidth(index: index))
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, VSpacing.md)
+
+            // Expanded details (shown when a step is clicked)
+            if let expandedId = expandedStepId,
+               let expandedCall = toolCalls.first(where: { $0.id == expandedId }) {
+                expandedDetails(for: expandedCall)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.95).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+            }
+        }
+    }
+
+    // MARK: - Step Circle
+
+    @ViewBuilder
+    private func stepCircle(for toolCall: ToolCallData, index: Int) -> some View {
+        Button {
+            withAnimation(VAnimation.fast) {
+                // Toggle expansion when clicked
+                if expandedStepId == toolCall.id {
+                    expandedStepId = nil
+                } else if toolCall.isComplete {
+                    expandedStepId = toolCall.id
+                }
+            }
+        } label: {
+            ZStack {
+                if toolCall.isComplete {
+                    // Filled circle for completed steps
+                    Circle()
+                        .fill(toolCall.isError ? VColor.error : VColor.accent)
+                        .frame(width: 20, height: 20)
+
+                    if toolCall.isError {
+                        // Error icon
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.white)
+                    } else {
+                        // Checkmark
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                } else {
+                    // Outlined circle for in-progress
+                    Circle()
+                        .strokeBorder(VColor.accent, lineWidth: 2)
+                        .frame(width: 20, height: 20)
+
+                    // Loading spinner inside
+                    ProgressView()
+                        .scaleEffect(0.35)
+                        .tint(VColor.accent)
+                        .frame(width: 20, height: 20)
+                }
+            }
+            .frame(width: 20, height: 20)
+        }
+        .buttonStyle(.plain)
+        .disabled(!toolCall.isComplete)
+    }
+
+    // MARK: - Step Label
+
+    @ViewBuilder
+    private func stepLabel(for toolCall: ToolCallData) -> some View {
+        Text(toolCall.toolName)
+            .font(VFont.small)
+            .foregroundColor(stepTextColor(for: toolCall))
+            .lineLimit(1)
+            .multilineTextAlignment(.center)
+    }
+
+    // Calculate label width to align with circles and lines
+    private func labelWidth(index: Int) -> CGFloat {
+        let circleWidth: CGFloat = 20
+        let lineWidth: CGFloat = 32
+
+        if index == toolCalls.count - 1 {
+            // Last item: just the circle
+            return circleWidth
+        } else {
+            // Circle + line
+            return circleWidth + lineWidth
+        }
+    }
+
+    // MARK: - Connector Line
+
+    private func connectorLine(isComplete: Bool) -> some View {
+        Rectangle()
+            .fill(VColor.surfaceBorder)
+            .frame(width: 32, height: 2)
+    }
+
+    // MARK: - Expanded Details
+
+    @ViewBuilder
+    private func expandedDetails(for toolCall: ToolCallData) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Header
+            HStack {
+                Image(systemName: "terminal")
+                    .font(.system(size: 12))
+                    .foregroundColor(toolCall.isError ? VColor.error : VColor.accent)
+
+                Text(toolCall.toolName)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
+
+                Button {
+                    withAnimation(VAnimation.fast) {
+                        expandedStepId = nil
+                    }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Input summary
+            if !toolCall.inputSummary.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    Text("Input")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textMuted)
+
+                    Text(toolCall.inputSummary)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textSecondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            // Screenshot
+            if let cachedImage = toolCall.cachedImage {
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    Text("Screenshot")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textMuted)
+
+                    #if os(macOS)
+                    Image(nsImage: cachedImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    #elseif os(iOS)
+                    Image(uiImage: cachedImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    #endif
+                }
+            }
+
+            // Result
+            if let result = toolCall.result {
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    Text("Result")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textMuted)
+
+                    ScrollView {
+                        Text(result)
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxHeight: 200)
+                }
+            }
+        }
+        .padding(VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    // MARK: - Colors
+
+    private func stepBackgroundColor(for toolCall: ToolCallData) -> Color {
+        if toolCall.isError {
+            return VColor.error
+        } else if !toolCall.isComplete {
+            return VColor.accent
+        } else {
+            return VColor.accent
+        }
+    }
+
+    private func stepBorderColor(for toolCall: ToolCallData) -> Color {
+        if toolCall.isError {
+            return VColor.error
+        } else if !toolCall.isComplete {
+            return VColor.accent.opacity(0.5)
+        } else {
+            return VColor.accent.opacity(0.8)
+        }
+    }
+
+    private func stepTextColor(for toolCall: ToolCallData) -> Color {
+        if toolCall.isError {
+            return VColor.error
+        } else if !toolCall.isComplete {
+            return VColor.textSecondary
+        } else {
+            return VColor.textPrimary
+        }
+    }
+}
+
+// MARK: - Preview
+
+#if DEBUG
+#Preview("ToolCallProgressBar") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+
+        VStack(spacing: VSpacing.xl) {
+            // In progress example
+            ToolCallProgressBar(toolCalls: [
+                ToolCallData(
+                    toolName: "Web Search",
+                    inputSummary: "flights from New York to London next week",
+                    isComplete: true
+                ),
+                ToolCallData(
+                    toolName: "Browser Navigate",
+                    inputSummary: "https://www.google.com/travel/flights",
+                    result: "Navigated to Google Flights",
+                    isComplete: true
+                ),
+                ToolCallData(
+                    toolName: "Browser Screenshot",
+                    inputSummary: "",
+                    isComplete: true
+                ),
+                ToolCallData(
+                    toolName: "Browser Click",
+                    inputSummary: "[aria-label=\"Departure\"]",
+                    isComplete: false
+                )
+            ])
+
+            // Completed with error
+            ToolCallProgressBar(toolCalls: [
+                ToolCallData(
+                    toolName: "Web Search",
+                    inputSummary: "flights NYC to London",
+                    isComplete: true
+                ),
+                ToolCallData(
+                    toolName: "Browser Navigate",
+                    inputSummary: "https://www.google.com/travel/flights",
+                    isComplete: true
+                ),
+                ToolCallData(
+                    toolName: "Browser Click",
+                    inputSummary: "invalid selector",
+                    result: "Element not found",
+                    isError: true,
+                    isComplete: true
+                )
+            ])
+        }
+        .padding(VSpacing.xl)
+    }
+    .frame(width: 600, height: 500)
+}
+#endif

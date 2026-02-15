@@ -33,9 +33,7 @@ struct MessageBubbleView: View {
                     // Pre-text tool calls render above the bubble
                     let preTextCalls = message.toolCalls.filter { $0.arrivedBeforeText }
                     if !preTextCalls.isEmpty {
-                        ForEach(preTextCalls) { toolCall in
-                            ToolCallChip(toolCall: toolCall)
-                        }
+                        ToolCallProgressBar(toolCalls: preTextCalls)
                     }
 
                     // Message text (only shown for non-confirmation messages)
@@ -55,9 +53,7 @@ struct MessageBubbleView: View {
                     // Post-text tool calls render below the bubble
                     let postTextCalls = message.toolCalls.filter { !$0.arrivedBeforeText }
                     if !postTextCalls.isEmpty {
-                        ForEach(postTextCalls) { toolCall in
-                            ToolCallChip(toolCall: toolCall)
-                        }
+                        ToolCallProgressBar(toolCalls: postTextCalls)
                     }
 
                     // Inline surfaces (cards, tables, interactive widgets)

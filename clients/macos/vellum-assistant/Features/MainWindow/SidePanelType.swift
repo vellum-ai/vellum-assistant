@@ -5,4 +5,5 @@ enum SidePanelType: Hashable, CaseIterable {
     case directory
     case debug
     case doctor
+    case activity
 }

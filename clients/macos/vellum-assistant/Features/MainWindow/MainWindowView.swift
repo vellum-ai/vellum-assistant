@@ -381,7 +381,13 @@ struct MainWindowView: View {
                         onDismissSessionError: { viewModel.dismissSessionError() },
                         onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
                         watchSession: ambientAgent.activeWatchSession,
-                        onStopWatch: { viewModel.stopWatchSession() }
+                        onStopWatch: { viewModel.stopWatchSession() },
+                        onOpenActivity: { toolCalls in
+                            print("DEBUG: onOpenActivity called with \(toolCalls.count) tool calls")
+                            windowState.toggleActivityPanel(with: toolCalls)
+                            print("DEBUG: activePanel is now \(String(describing: windowState.activePanel))")
+                        },
+                        isActivityPanelOpen: windowState.activePanel == .activity
                     )
                 }
             }, panel: {
@@ -612,6 +618,11 @@ struct MainWindowView: View {
                 )
             case .doctor:
                 DoctorPanel(onClose: { windowState.activePanel = nil })
+            case .activity:
+                ActivityPanel(
+                    toolCalls: windowState.activityToolCalls,
+                    onClose: { windowState.activePanel = nil }
+                )
             }
         }
     }
