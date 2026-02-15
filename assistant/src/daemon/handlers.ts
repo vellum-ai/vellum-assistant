@@ -805,6 +805,11 @@ async function handleRegenerate(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, sessionId: msg.sessionId }, 'Error regenerating message');
+    session.traceEmitter.emit('request_error', message.slice(0, 200), {
+      requestId,
+      status: 'error',
+      attributes: { errorClass: err instanceof Error ? err.constructor.name : 'Error', message: message.slice(0, 500) },
+    });
     ctx.send(socket, { type: 'error', message: `Failed to regenerate: ${message}` });
     const classified = classifySessionError(err, { phase: 'regenerate' });
     ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
