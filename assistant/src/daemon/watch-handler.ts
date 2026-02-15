@@ -57,6 +57,7 @@ export async function handleWatchObservation(
 
     // 5. If session is completing, generate final summary
     if (session.status === 'completing') {
+      session.status = 'completed';
       await generateSummary(session);
     }
   } catch (err) {
@@ -156,12 +157,12 @@ async function generateSummary(session: WatchSession): Promise<void> {
       `Focus area: ${session.focusArea}`,
       `Observation period: ${elapsedMinutes} minute(s) (planned: ${expectedMinutes} minute(s))`,
       `Total observations: ${session.observations.length}`,
-      wasTruncated
-        ? `Note: Older observations were trimmed due to size. Showing the most recent ${observations.length} of ${session.observations.length} total.`
-        : '',
-      wasCancelled
-        ? 'Note: The observation period was ended early by the user. Provide your best analysis based on the data available.'
-        : '',
+      ...(wasTruncated
+        ? [`Note: Older observations were trimmed due to size. Showing the most recent ${observations.length} of ${session.observations.length} total.`]
+        : []),
+      ...(wasCancelled
+        ? ['Note: The observation period was ended early by the user. Provide your best analysis based on the data available.']
+        : []),
       '',
       '--- Observations ---',
       '',
@@ -169,9 +170,7 @@ async function generateSummary(session: WatchSession): Promise<void> {
         (obs) =>
           `[${new Date(obs.timestamp).toISOString()}] App: ${obs.appName ?? 'unknown'} | Window: ${obs.windowTitle ?? 'unknown'}\n${obs.ocrText}`,
       ),
-    ]
-      .filter(Boolean)
-      .join('\n\n');
+    ].join('\n\n');
 
     const systemPrompt = [
       'You are a productivity analyst reviewing a series of screen observations captured from a user\'s computer.',
@@ -199,12 +198,10 @@ async function generateSummary(session: WatchSession): Promise<void> {
       '- Base your analysis strictly on what you can see in the observations. Do not invent details.',
       '- Reference specific apps, window titles, and content when possible.',
       '- Keep the tone helpful and professional, not judgmental.',
-      wasCancelled
-        ? '- The observation period was cut short. Acknowledge this briefly and provide the best analysis you can with the available data.'
-        : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
+      ...(wasCancelled
+        ? ['- The observation period was cut short. Acknowledge this briefly and provide the best analysis you can with the available data.']
+        : []),
+    ].join('\n');
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5-20250929',
@@ -220,7 +217,6 @@ async function generateSummary(session: WatchSession): Promise<void> {
     if (summaryText) {
       lastSummaryBySession.set(session.sessionId, summaryText);
       fireWatchCompletionNotifier(session.sessionId, session);
-      session.status = 'completed';
     }
   } catch (err) {
     log.error({ err, watchId: session.watchId }, 'Error generating watch summary');
