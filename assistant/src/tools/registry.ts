@@ -100,27 +100,12 @@ export function getAllToolDefinitions(): ToolDefinition[] {
 }
 
 export async function initializeTools(): Promise<void> {
+  const { eagerModules, lazyTools } = await import('./tool-manifest.js');
+
   // Import tool modules to trigger registration side effects.
-  // Filesystem and network tools are cheap to load — import eagerly.
-  await import('./filesystem/read.js');
-  await import('./filesystem/write.js');
-  await import('./filesystem/edit.js');
-  await import('./network/web-search.js');
-  await import('./network/web-fetch.js');
-  await import('./skills/load.js');
-  await import('./skills/scaffold-managed.js');
-  await import('./skills/delete-managed.js');
-  await import('./browser/headless-browser.js');
-  await import('./weather/get-weather.js');
-  await import('./memory/register.js');
-  await import('./credentials/vault.js');
-  await import('./credentials/account-registry.js');
-  await import('./timer/pomodoro.js');
-  await import('./system/system-info.js');
-  await import('./schedule/create.js');
-  await import('./schedule/list.js');
-  await import('./schedule/update.js');
-  await import('./schedule/delete.js');
+  for (const modulePath of eagerModules) {
+    await import(modulePath);
+  }
 
   // Host tools are registered explicitly so host access stays opt-in until
   // this point in startup, rather than as module side effects.
@@ -136,165 +121,10 @@ export async function initializeTools(): Promise<void> {
   registerUiSurfaceTools();
   registerAppTools();
 
-  // evaluate_typescript_code — sandboxed TypeScript snippet runner.
-  // Lazy because it imports the sandbox module (same WASM dependency as bash).
-  registerLazyTool({
-    name: 'evaluate_typescript_code',
-    description: 'Evaluate a TypeScript snippet in an isolated sandbox. Use this to test code before persisting it as a managed skill.',
-    category: 'terminal',
-    defaultRiskLevel: RiskLevel.High,
-    definition: {
-      name: 'evaluate_typescript_code',
-      description: 'Evaluate a TypeScript snippet in an isolated sandbox. Use this to test code before persisting it as a managed skill.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          code: {
-            type: 'string',
-            description: 'The TypeScript source code to evaluate. Must export a `default` or `run` function.',
-          },
-          mock_input_json: {
-            type: 'string',
-            description: 'Optional JSON string to pass as input. Defaults to "{}".',
-          },
-          timeout_seconds: {
-            type: 'number',
-            description: 'Optional timeout in seconds (1-20). Defaults to 10.',
-          },
-          filename: {
-            type: 'string',
-            description: 'Optional filename for the snippet (default: "snippet.ts").',
-          },
-          entrypoint: {
-            type: 'string',
-            enum: ['default', 'run'],
-            description: 'Which export to call: "default" or "run". Defaults to "default".',
-          },
-          max_output_chars: {
-            type: 'number',
-            description: 'Optional max output characters (1-25000). Defaults to 25000.',
-          },
-        },
-        required: ['code'],
-      },
-    },
-    loader: async () => {
-      const mod = await import('./terminal/evaluate-typescript.js');
-      return mod.evaluateTypescriptTool;
-    },
-  });
-
-  // The bash tool loads web-tree-sitter WASM for command parsing, which is
-  // expensive.  Register it lazily so the WASM is only loaded on first use.
-  registerLazyTool({
-    name: 'bash',
-    description: 'Execute a shell command on the local machine',
-    category: 'terminal',
-    defaultRiskLevel: RiskLevel.Medium,
-    definition: {
-      name: 'bash',
-      description: 'Execute a shell command on the local machine',
-      input_schema: {
-        type: 'object',
-        properties: {
-          command: {
-            type: 'string',
-            description: 'The shell command to execute',
-          },
-          timeout_seconds: {
-            type: 'number',
-            description: 'Optional timeout in seconds. Defaults to the configured default (120s). Cannot exceed the configured maximum.',
-          },
-        },
-        required: ['command'],
-      },
-    },
-    loader: async () => {
-      // Dynamically import the shell module.  Its side-effect registerTool()
-      // call replaces the lazy wrapper in the map with the real tool.
-      const mod = await import('./terminal/shell.js');
-      return mod.shellTool;
-    },
-  });
-
-  // Claude Code tool — delegates coding tasks to Claude Code via the Agent SDK.
-  // Registered lazily since the SDK spawns a subprocess and is only needed on demand.
-  registerLazyTool({
-    name: 'claude_code',
-    description: 'Delegate a coding task to Claude Code, an AI-powered coding agent that can read, write, and edit files, run shell commands, and perform complex multi-step software engineering tasks autonomously.',
-    category: 'coding',
-    defaultRiskLevel: RiskLevel.Medium,
-    definition: {
-      name: 'claude_code',
-      description: 'Delegate a coding task to Claude Code, an AI-powered coding agent that can read, write, and edit files, run shell commands, and perform complex multi-step software engineering tasks autonomously.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          prompt: {
-            type: 'string',
-            description: 'The coding task or question for Claude Code to work on',
-          },
-          working_dir: {
-            type: 'string',
-            description: 'Working directory for Claude Code (defaults to session working directory)',
-          },
-          resume: {
-            type: 'string',
-            description: 'Claude Code session ID to resume a previous session',
-          },
-          model: {
-            type: 'string',
-            description: 'Model to use (defaults to claude-sonnet-4-5-20250929)',
-          },
-          profile: {
-            type: 'string',
-            enum: ['general', 'researcher', 'coder', 'reviewer'],
-            description: 'Worker profile that scopes tool access. Defaults to general (backward compatible).',
-          },
-        },
-        required: ['prompt'],
-      },
-    },
-    loader: async () => {
-      const mod = await import('./claude-code/claude-code.js');
-      return mod.claudeCodeTool;
-    },
-  });
-
-  // Swarm delegate tool — decomposes complex tasks into parallel specialist
-  // subtasks.  Registered lazily since it imports the swarm orchestrator.
-  registerLazyTool({
-    name: 'swarm_delegate',
-    description: 'Decompose a complex task into parallel specialist subtasks and execute them concurrently.',
-    category: 'orchestration',
-    defaultRiskLevel: RiskLevel.Medium,
-    definition: {
-      name: 'swarm_delegate',
-      description: 'Decompose a complex task into parallel specialist subtasks and execute them concurrently. Use this for multi-part tasks that benefit from parallel research, coding, and review.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          objective: {
-            type: 'string',
-            description: 'The complex task to decompose and execute in parallel',
-          },
-          context: {
-            type: 'string',
-            description: 'Optional additional context about the task or codebase',
-          },
-          max_workers: {
-            type: 'number',
-            description: 'Maximum concurrent workers (1-6, default from config)',
-          },
-        },
-        required: ['objective'],
-      },
-    },
-    loader: async () => {
-      const mod = await import('./swarm/delegate.js');
-      return mod.swarmDelegateTool;
-    },
-  });
+  // Lazy tools — defer module loading until first invocation.
+  for (const descriptor of lazyTools) {
+    registerLazyTool(descriptor);
+  }
 
   log.info({ count: tools.size }, 'Tools initialized');
 }
