@@ -468,6 +468,13 @@ exports[`IPC message snapshots ServerMessage types confirmation_request serializ
 
 exports[`IPC message snapshots ServerMessage types message_complete serializes to expected JSON 1`] = `
 {
+  "attachments": [
+    {
+      "data": "iVBORw0K",
+      "filename": "chart.png",
+      "mimeType": "image/png",
+    },
+  ],
   "sessionId": "sess-001",
   "type": "message_complete",
 }
@@ -528,6 +535,13 @@ exports[`IPC message snapshots ServerMessage types generation_cancelled serializ
 
 exports[`IPC message snapshots ServerMessage types generation_handoff serializes to expected JSON 1`] = `
 {
+  "attachments": [
+    {
+      "data": "JVBER",
+      "filename": "report.pdf",
+      "mimeType": "application/pdf",
+    },
+  ],
   "queuedCount": 2,
   "requestId": "req-handoff-001",
   "sessionId": "sess-001",
@@ -552,6 +566,13 @@ exports[`IPC message snapshots ServerMessage types history_response serializes t
       "timestamp": 1700000000,
     },
     {
+      "attachments": [
+        {
+          "data": "iVBORw0K",
+          "filename": "result.png",
+          "mimeType": "image/png",
+        },
+      ],
       "role": "assistant",
       "text": "Hi there!",
       "timestamp": 1700000001,

@@ -504,6 +504,7 @@ export interface SecretRequest {
 export interface MessageComplete {
   type: 'message_complete';
   sessionId?: string;
+  attachments?: UserMessageAttachment[];
 }
 
 export interface SessionInfo {
@@ -541,6 +542,7 @@ export interface GenerationHandoff {
   sessionId: string;
   requestId?: string;
   queuedCount: number;
+  attachments?: UserMessageAttachment[];
 }
 
 export interface ModelInfo {
@@ -566,6 +568,7 @@ export interface HistoryResponse {
     text: string;
     timestamp: number;
     toolCalls?: HistoryResponseToolCall[];
+    attachments?: UserMessageAttachment[];
   }>;
 }
 

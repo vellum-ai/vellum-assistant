@@ -311,6 +311,9 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   message_complete: {
     type: 'message_complete',
     sessionId: 'sess-001',
+    attachments: [
+      { filename: 'chart.png', mimeType: 'image/png', data: 'iVBORw0K' },
+    ],
   },
   session_info: {
     type: 'session_info',
@@ -344,6 +347,9 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: 'sess-001',
     requestId: 'req-handoff-001',
     queuedCount: 2,
+    attachments: [
+      { filename: 'report.pdf', mimeType: 'application/pdf', data: 'JVBER' },
+    ],
   },
   model_info: {
     type: 'model_info',
@@ -355,7 +361,14 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: 'sess-history-001',
     messages: [
       { role: 'user', text: 'Hello', timestamp: 1700000000 },
-      { role: 'assistant', text: 'Hi there!', timestamp: 1700000001 },
+      {
+        role: 'assistant',
+        text: 'Hi there!',
+        timestamp: 1700000001,
+        attachments: [
+          { filename: 'result.png', mimeType: 'image/png', data: 'iVBORw0K' },
+        ],
+      },
     ],
   },
   undo_complete: {
