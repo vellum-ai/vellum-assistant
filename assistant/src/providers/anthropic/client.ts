@@ -32,7 +32,9 @@ export class AnthropicProvider implements Provider {
         max_tokens: 64000,
         messages: messages.map((m) => ({
           role: m.role,
-          content: m.content.map((block) => this.toAnthropicBlock(block)),
+          content: m.content
+            .map((block) => this.toAnthropicBlock(block))
+            .filter((block) => !(block.type === 'text' && !(block as { text?: string }).text?.trim())),
         })),
         ...config,
       };
