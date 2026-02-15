@@ -367,6 +367,7 @@ describe('Memory lifecycle E2E regression', () => {
     ]).run();
 
     const gatedConflict = createOrUpdatePendingConflict({
+      scopeId: 'default',
       existingItemId: 'item-ui-existing',
       candidateItemId: 'item-ui-candidate',
       relationship: 'ambiguous_contradiction',
@@ -436,6 +437,7 @@ describe('Memory lifecycle E2E regression', () => {
     ]).run();
 
     const backgroundConflict = createOrUpdatePendingConflict({
+      scopeId: 'default',
       existingItemId: 'item-runtime-existing',
       candidateItemId: 'item-runtime-candidate',
       relationship: 'ambiguous_contradiction',

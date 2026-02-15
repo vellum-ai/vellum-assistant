@@ -1067,6 +1067,7 @@ describe('Memory regressions', () => {
       ]).run();
 
       const conflict = createOrUpdatePendingConflict({
+        scopeId: 'default',
         existingItemId: 'cleanup-config-existing',
         candidateItemId: 'cleanup-config-candidate',
         relationship: 'ambiguous_contradiction',
@@ -1178,16 +1179,19 @@ describe('Memory regressions', () => {
     ]).run();
 
     const staleResolved = createOrUpdatePendingConflict({
+      scopeId: 'default',
       existingItemId: 'cleanup-conflict-existing-a',
       candidateItemId: 'cleanup-conflict-candidate-a',
       relationship: 'ambiguous_contradiction',
     });
     const pendingConflict = createOrUpdatePendingConflict({
+      scopeId: 'default',
       existingItemId: 'cleanup-conflict-existing-b',
       candidateItemId: 'cleanup-conflict-candidate-b',
       relationship: 'ambiguous_contradiction',
     });
     const recentResolved = createOrUpdatePendingConflict({
+      scopeId: 'default',
       existingItemId: 'cleanup-conflict-existing-c',
       candidateItemId: 'cleanup-conflict-candidate-c',
       relationship: 'ambiguous_contradiction',
@@ -1377,11 +1381,13 @@ describe('Memory regressions', () => {
     ]).run();
 
     const pending = createOrUpdatePendingConflict({
+      scopeId: 'default',
       existingItemId: 'status-conflict-existing',
       candidateItemId: 'status-conflict-candidate',
       relationship: 'ambiguous_contradiction',
     });
     const resolved = createOrUpdatePendingConflict({
+      scopeId: 'default',
       existingItemId: 'status-conflict-existing-2',
       candidateItemId: 'status-conflict-candidate-2',
       relationship: 'ambiguous_contradiction',

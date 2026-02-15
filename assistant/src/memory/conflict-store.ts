@@ -35,7 +35,7 @@ export interface MemoryItemConflict {
 }
 
 export interface CreatePendingConflictInput {
-  scopeId?: string;
+  scopeId: string;
   existingItemId: string;
   candidateItemId: string;
   relationship: string;
@@ -64,14 +64,14 @@ export interface ApplyConflictResolutionInput {
 export function createOrUpdatePendingConflict(input: CreatePendingConflictInput): MemoryItemConflict {
   const db = getDb();
   const now = Date.now();
-  const scopeId = input.scopeId ?? 'default';
+  const scopeId = input.scopeId;
   const existing = getPendingConflictByPair(scopeId, input.existingItemId, input.candidateItemId);
 
   if (existing) {
     db.update(memoryItemConflicts)
       .set({
         relationship: input.relationship,
-        clarificationQuestion: input.clarificationQuestion ?? existing.clarificationQuestion,
+        clarificationQuestion: input.clarificationQuestion !== undefined ? input.clarificationQuestion : existing.clarificationQuestion,
         updatedAt: now,
       })
       .where(eq(memoryItemConflicts.id, existing.id))
@@ -235,7 +235,7 @@ export function resolveConflict(conflictId: string, input: ResolveConflictInput)
   db.update(memoryItemConflicts)
     .set({
       status: input.status,
-      resolutionNote: input.resolutionNote ?? existing.resolutionNote,
+      resolutionNote: input.resolutionNote !== undefined ? input.resolutionNote : existing.resolutionNote,
       resolvedAt: now,
       updatedAt: now,
     })

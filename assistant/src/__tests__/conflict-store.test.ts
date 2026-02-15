@@ -141,6 +141,7 @@ describe('conflict-store', () => {
   test('allows a new pending row for the same pair after resolution', () => {
     const pair = insertItemPair('reopen');
     const first = createOrUpdatePendingConflict({
+      scopeId: 'default',
       existingItemId: pair.existingItemId,
       candidateItemId: pair.candidateItemId,
       relationship: 'ambiguous_contradiction',
@@ -154,6 +155,7 @@ describe('conflict-store', () => {
     expect(typeof resolved?.resolvedAt).toBe('number');
 
     const reopened = createOrUpdatePendingConflict({
+      scopeId: 'default',
       existingItemId: pair.existingItemId,
       candidateItemId: pair.candidateItemId,
       relationship: 'ambiguous_contradiction',
@@ -203,6 +205,7 @@ describe('conflict-store', () => {
   test('markConflictAsked updates lastAskedAt', () => {
     const pair = insertItemPair('asked');
     const conflict = createOrUpdatePendingConflict({
+      scopeId: 'default',
       existingItemId: pair.existingItemId,
       candidateItemId: pair.candidateItemId,
       relationship: 'ambiguous_contradiction',
@@ -234,6 +237,7 @@ describe('conflict-store', () => {
   test('applyConflictResolution keeps candidate and resolves conflict row', () => {
     const pair = insertItemPair('apply-candidate');
     const conflict = createOrUpdatePendingConflict({
+      scopeId: 'default',
       existingItemId: pair.existingItemId,
       candidateItemId: pair.candidateItemId,
       relationship: 'ambiguous_contradiction',
@@ -259,6 +263,7 @@ describe('conflict-store', () => {
   test('applyConflictResolution merge updates existing item statement', () => {
     const pair = insertItemPair('apply-merge');
     const conflict = createOrUpdatePendingConflict({
+      scopeId: 'default',
       existingItemId: pair.existingItemId,
       candidateItemId: pair.candidateItemId,
       relationship: 'ambiguous_contradiction',
