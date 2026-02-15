@@ -3126,6 +3126,80 @@ describe('Memory regressions', () => {
     }
   });
 
+  test('backfill enqueues relation backfill when message count is exact multiple of 200', async () => {
+    const db = getDb();
+    const now = 1_700_004_000_000;
+    const originalEnabled = TEST_CONFIG.memory.entity.enabled;
+    const originalRelationsEnabled = TEST_CONFIG.memory.entity.extractRelations.enabled;
+    TEST_CONFIG.memory.entity.enabled = true;
+    TEST_CONFIG.memory.entity.extractRelations.enabled = true;
+
+    try {
+      db.insert(conversations).values({
+        id: 'conv-exact-200',
+        title: null,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      }).run();
+
+      // Insert exactly 200 messages so the first backfill batch is full
+      for (let i = 0; i < 200; i++) {
+        db.insert(messages).values({
+          id: `msg-exact-200-${String(i).padStart(4, '0')}`,
+          conversationId: 'conv-exact-200',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: `Message ${i}` }]),
+          createdAt: now + i + 1,
+        }).run();
+      }
+
+      // First backfill: processes 200 messages, should enqueue another backfill
+      enqueueMemoryJob('backfill', {});
+      await runMemoryJobsOnce();
+
+      // Should have enqueued a follow-up backfill (batch was full)
+      const followUpBackfill = db
+        .select()
+        .from(memoryJobs)
+        .where(and(eq(memoryJobs.type, 'backfill'), eq(memoryJobs.status, 'pending')))
+        .all();
+      expect(followUpBackfill).toHaveLength(1);
+
+      // No relation backfill yet (batch was full, more work expected)
+      const relationBefore = db
+        .select()
+        .from(memoryJobs)
+        .where(and(eq(memoryJobs.type, 'backfill_entity_relations'), eq(memoryJobs.status, 'pending')))
+        .all();
+      expect(relationBefore).toHaveLength(0);
+
+      // Clear all non-backfill pending jobs so the next runMemoryJobsOnce
+      // picks up the follow-up backfill job (claimMemoryJobs has a concurrency
+      // limit and processes jobs in creation order)
+      db.run(`DELETE FROM memory_jobs WHERE type != 'backfill' AND status = 'pending'`);
+
+      // Second backfill: reads 0 messages (terminal empty batch), should
+      // still enqueue the relation backfill
+      await runMemoryJobsOnce();
+
+      const relationAfter = db
+        .select()
+        .from(memoryJobs)
+        .where(and(eq(memoryJobs.type, 'backfill_entity_relations'), eq(memoryJobs.status, 'pending')))
+        .all();
+      expect(relationAfter).toHaveLength(1);
+    } finally {
+      TEST_CONFIG.memory.entity.enabled = originalEnabled;
+      TEST_CONFIG.memory.entity.extractRelations.enabled = originalRelationsEnabled;
+    }
+  });
+
   test('relation backfill respects extractFromAssistant=false config', async () => {
     const db = getDb();
     const now = 1_700_003_000_000;

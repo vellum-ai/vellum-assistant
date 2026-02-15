@@ -770,30 +770,31 @@ function backfillJob(job: MemoryJob, config: AssistantConfig): void {
     .orderBy(asc(messages.createdAt), asc(messages.id))
     .limit(200)
     .all();
-  if (batch.length === 0) return;
-  for (const message of batch) {
-    indexMessageNow({
-      messageId: message.id,
-      conversationId: message.conversationId,
-      role: message.role,
-      content: message.content,
-      createdAt: message.createdAt,
-    }, config.memory);
+
+  if (batch.length > 0) {
+    for (const message of batch) {
+      indexMessageNow({
+        messageId: message.id,
+        conversationId: message.conversationId,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+      }, config.memory);
+    }
+    const lastMessage = batch[batch.length - 1];
+    writeMessageCursorCheckpoint(BACKFILL_CHECKPOINT_KEY, BACKFILL_CHECKPOINT_ID_KEY, {
+      createdAt: lastMessage.createdAt,
+      messageId: lastMessage.id,
+    });
   }
-  const lastMessage = batch[batch.length - 1];
-  writeMessageCursorCheckpoint(BACKFILL_CHECKPOINT_KEY, BACKFILL_CHECKPOINT_ID_KEY, {
-    createdAt: lastMessage.createdAt,
-    messageId: lastMessage.id,
-  });
 
   if (batch.length === 200) {
     enqueueMemoryJob('backfill', {});
   } else if (config.memory.entity.enabled && config.memory.entity.extractRelations.enabled) {
-    // Enqueue only after the final batch so the relation backfill does not
+    // Enqueue after the terminal batch (including an empty batch when total
+    // messages are an exact multiple of 200) so the relation backfill does not
     // overlap with messages the normal backfill already covered via
-    // indexMessageNow → extract_items → extract_entities.  Never forward the
-    // force flag: the relation backfill's own checkpoint tracks which messages
-    // still need entity extraction independently of the normal backfill.
+    // indexMessageNow → extract_items → extract_entities.
     enqueueBackfillEntityRelationsJob();
   }
 }
