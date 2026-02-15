@@ -120,6 +120,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.appearance = NSAppearance(named: .darkAqua)
         registerBundledFonts()
 
+        // One-time migration: reset all users to list view (thread drawer)
+        if !UserDefaults.standard.bool(forKey: "didMigrateToListViewDefault") {
+            UserDefaults.standard.set(true, forKey: "useThreadDrawer")
+            UserDefaults.standard.set(true, forKey: "didMigrateToListViewDefault")
+        }
+
         #if DEBUG
         let skipOnboarding = CommandLine.arguments.contains("--skip-onboarding")
         #else
