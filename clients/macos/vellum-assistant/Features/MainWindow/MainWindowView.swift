@@ -218,86 +218,73 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
-        Button(action: { threadManager.selectThread(id: thread.id) }) {
-            HStack(spacing: VSpacing.sm) {
+        HStack(spacing: 0) {
+            Button(action: { threadManager.selectThread(id: thread.id) }) {
                 Text(thread.title)
-                    .font(VFont.body)
-                    .foregroundColor(thread.id == threadManager.activeThreadId ? VColor.accent : VColor.textPrimary)
-                Spacer()
-                // Reserve space for archive button
-                Spacer().frame(width: 16)
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.xs)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .overlay(alignment: .trailing) {
-            Button(action: { threadManager.archiveThread(id: thread.id) }) {
-                Image(systemName: "archivebox")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(VColor.textMuted)
-                    .frame(width: 16, height: 16)
+                    .font(.custom("Inter", size: 13))
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, VSpacing.xs)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Archive \(thread.title)")
-            .padding(.trailing, VSpacing.lg)
+
+            if threadManager.threads.count > 1 {
+                Menu {
+                    Button(role: .destructive, action: { threadManager.closeThread(id: thread.id) }) {
+                        Label("Delete", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 24)
+            }
         }
-        .background(thread.id == threadManager.activeThreadId ? VColor.surface : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        .padding(.horizontal, VSpacing.sm)
+        .background(thread.id == threadManager.activeThreadId ? Color.white.opacity(0.08) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .padding(.horizontal, VSpacing.sm)
     }
 
     @ViewBuilder
     private var threadDrawerView: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("THREADS")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-                VIconButton(label: "New Thread", icon: "plus", iconOnly: true) {
-                    threadManager.createThread()
-                }
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.top, VSpacing.lg)
-            .padding(.bottom, VSpacing.xs)
+            NewConversationButton(action: { threadManager.createThread() })
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.top, VSpacing.md)
+                .padding(.bottom, VSpacing.xl)
+
+            Text("Recents")
+                .font(.custom("Inter", size: 11))
+                .foregroundColor(VColor.textMuted)
+                .padding(.bottom, VSpacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, VSpacing.lg)
 
             ScrollView {
-                VStack(spacing: VSpacing.xs) {
-                    ForEach(threadManager.visibleThreads) { thread in
+                VStack(spacing: 2) {
+                    ForEach(threadManager.visibleThreads.filter { threadManager.threadHasMessages($0.id) }) { thread in
                         threadItem(thread)
                     }
                 }
-                .padding(.horizontal, VSpacing.sm)
             }
 
-            // Switch to tabs button
-            Button(action: {
-                useThreadDrawer = false
-            }) {
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "rectangle.3.group")
-                        .font(.system(size: 11))
-                    Text("Switch to tabs")
-                        .font(VFont.caption)
-                }
-                .foregroundColor(VColor.textSecondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, VSpacing.sm)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering {
-                    NSCursor.pointingHand.set()
-                } else {
-                    NSCursor.arrow.set()
-                }
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.bottom, VSpacing.md)
+            // Parental Controls
+            VColor.surfaceBorder.frame(height: 1)
+
+            ParentalControlsMenuButton(
+                onSettings: { windowState.togglePanel(.settings) },
+                onSkills: { windowState.togglePanel(.agent) },
+                onSwitchToTabs: { useThreadDrawer = false }
+            )
         }
         .frame(width: 240)
         .background(VColor.backgroundSubtle)
@@ -639,6 +626,157 @@ private struct ZoomIndicatorView: View {
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .stroke(VColor.surfaceBorder, lineWidth: 1)
             )
+    }
+}
+
+private struct NewConversationButton: View {
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.md) {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(isHovered ? VColor.textPrimary : VColor.textMuted)
+                    .frame(width: 22, height: 22)
+                    .overlay(
+                        Circle()
+                            .stroke(isHovered ? VColor.textMuted : VColor.textMuted.opacity(0.5), lineWidth: 1)
+                    )
+                Text("New conversation")
+                    .font(.custom("Inter-Medium", size: 13))
+            }
+            .foregroundColor(VColor.textPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.sm)
+            .background(VColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(isHovered ? VColor.surfaceBorder.opacity(0.8) : VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(VAnimation.fast) {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
+private struct ParentalControlsMenuButton: View {
+    let onSettings: () -> Void
+    let onSkills: () -> Void
+    let onSwitchToTabs: () -> Void
+    @State private var isHovered = false
+    @State private var showDrawer = false
+
+    var body: some View {
+        Button {
+            withAnimation(VAnimation.fast) {
+                showDrawer.toggle()
+            }
+        } label: {
+            HStack(spacing: VSpacing.md) {
+                Text("P")
+                    .font(.custom("Inter-SemiBold", size: 13))
+                    .foregroundColor(.white)
+                    .frame(width: 32, height: 32)
+                    .background(VColor.textMuted)
+                    .clipShape(Circle())
+
+                Text("Parental Controls")
+                    .font(.custom("Inter-Medium", size: 13))
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
+
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+            .background(isHovered || showDrawer ? Color.white.opacity(0.05) : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .overlay(alignment: .bottom) {
+            if showDrawer {
+                DrawerMenuView(
+                    onSettings: { showDrawer = false; onSettings() },
+                    onSkills: { showDrawer = false; onSkills() },
+                    onSwitchToTabs: { showDrawer = false; onSwitchToTabs() }
+                )
+                .offset(y: -68)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+    }
+}
+
+private struct DrawerMenuView: View {
+    let onSettings: () -> Void
+    let onSkills: () -> Void
+    let onSwitchToTabs: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
+            DrawerMenuItem(icon: "wand.and.stars", label: "Skills", action: onSkills)
+
+            VColor.surfaceBorder.frame(height: 1)
+                .padding(.vertical, VSpacing.xs)
+
+            DrawerMenuItem(icon: "rectangle.3.group", label: "Switch to tabs", action: onSwitchToTabs)
+        }
+        .padding(.vertical, VSpacing.sm)
+        .frame(maxWidth: .infinity)
+        .background(VColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 12, y: -4)
+        .padding(.horizontal, VSpacing.sm)
+    }
+}
+
+private struct DrawerMenuItem: View {
+    let icon: String
+    let label: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.md) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(VColor.textSecondary)
+                    .frame(width: 18)
+                Text(label)
+                    .font(.custom("Inter", size: 13))
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(isHovered ? Color.white.opacity(0.06) : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+        }
     }
 }
 

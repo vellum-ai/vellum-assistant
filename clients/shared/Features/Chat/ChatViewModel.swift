@@ -177,6 +177,10 @@ public final class ChatViewModel: ObservableObject {
     /// Used by ThreadManager to backfill ThreadModel.sessionId for new threads.
     public var onSessionCreated: ((String) -> Void)?
 
+    /// Called once when the first user message is sent, with the message text.
+    /// Used by ThreadManager to auto-title the thread.
+    public var onFirstUserMessage: ((String) -> Void)?
+
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false
 
@@ -412,6 +416,12 @@ public final class ChatViewModel: ObservableObject {
         let hasAttachments = !pendingAttachments.isEmpty
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
+
+        // Fire auto-title callback on the first user message
+        if !text.isEmpty, let callback = onFirstUserMessage {
+            onFirstUserMessage = nil
+            callback(text)
+        }
 
         // Block rapid-fire only when bootstrapping (no session yet)
         if isSending && sessionId == nil {
