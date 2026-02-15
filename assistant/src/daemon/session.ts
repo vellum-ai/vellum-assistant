@@ -1225,6 +1225,11 @@ export class Session {
 
     if (result.rejected) {
       log.error({ surfaceId, actionId }, 'Surface action rejected — queue full');
+      this.traceEmitter.emit('request_error', 'Surface action rejected — queue full', {
+        requestId,
+        status: 'error',
+        attributes: { reason: 'queue_full', source: 'surface_action' },
+      });
       onEvent({ type: 'error', message: 'Surface action rejected — session queue is full' });
       return;
     }
