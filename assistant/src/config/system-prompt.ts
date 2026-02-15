@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getRootDir } from '../util/platform.js';
+import { getWorkspaceDir, getWorkspacePromptPath } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 
@@ -13,11 +13,10 @@ const PROMPT_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md'] as const;
  * Called once during daemon startup so users always have discoverable files to edit.
  */
 export function ensurePromptFiles(): void {
-  const dataDir = getRootDir();
   const templatesDir = join(import.meta.dirname ?? __dirname, 'templates');
 
   for (const file of PROMPT_FILES) {
-    const dest = join(dataDir, file);
+    const dest = getWorkspacePromptPath(file);
     if (existsSync(dest)) continue;
 
     const src = join(templatesDir, file);
@@ -44,10 +43,9 @@ export function ensurePromptFiles(): void {
  *   3. Append skills catalog from ~/.vellum/skills
  */
 export function buildSystemPrompt(): string {
-  const baseDir = getRootDir();
-  const soulPath = join(baseDir, 'SOUL.md');
-  const identityPath = join(baseDir, 'IDENTITY.md');
-  const userPath = join(baseDir, 'USER.md');
+  const soulPath = getWorkspacePromptPath('SOUL.md');
+  const identityPath = getWorkspacePromptPath('IDENTITY.md');
+  const userPath = getWorkspacePromptPath('USER.md');
 
   const soul = readPromptFile(soulPath);
   const identity = readPromptFile(identityPath);
@@ -57,7 +55,7 @@ export function buildSystemPrompt(): string {
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
-  parts.push(buildConfigSection(baseDir));
+  parts.push(buildConfigSection(getWorkspaceDir()));
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
   parts.push(buildSwarmGuidanceSection());
