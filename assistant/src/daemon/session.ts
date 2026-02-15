@@ -55,6 +55,9 @@ import { getApp } from '../memory/app-store.js';
 import { compileDynamicProfile } from '../memory/profile-compiler.js';
 import { ConflictGate } from './session-conflict-gate.js';
 import { injectDynamicProfileIntoUserMessage, stripDynamicProfileMessages } from './session-dynamic-profile.js';
+import { MessageQueue } from './session-queue-manager.js';
+import type { QueueDrainReason } from './session-queue-manager.js';
+import { applyRuntimeInjections } from './session-runtime-assembly.js';
 import type { UsageActor } from '../usage/actors.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
@@ -77,31 +80,7 @@ import {
 
 const log = getLogger('session');
 
-interface QueuedMessage {
-  content: string;
-  attachments: UserMessageAttachment[];
-  requestId: string;
-  onEvent: (msg: ServerMessage) => void;
-  activeSurfaceId?: string;
-}
-
-export const MAX_QUEUE_DEPTH = 10;
-
-/**
- * Describes why a queued message was promoted from the queue.
- * - `loop_complete`: the agent loop finished normally and the next message was drained.
- * - `checkpoint_handoff`: a turn-boundary checkpoint decided to yield to the queued message.
- */
-export type QueueDrainReason = 'loop_complete' | 'checkpoint_handoff';
-
-/**
- * Configuration for how/when checkpoint handoff is allowed.
- * When `checkpointHandoffEnabled` is true, the agent loop may yield at
- * a turn boundary if there are queued messages waiting.
- */
-export interface QueuePolicy {
-  checkpointHandoffEnabled: boolean;
-}
+export { MAX_QUEUE_DEPTH, type QueueDrainReason, type QueuePolicy } from './session-queue-manager.js';
 
 export class Session {
   public readonly conversationId: string;
@@ -127,7 +106,7 @@ export class Session {
   private assistantId: string | null = null;
   private conflictGate = new ConflictGate();
   private hasNoClient = false;
-  private messageQueue: QueuedMessage[] = [];
+  private readonly queue = new MessageQueue();
   private currentActiveSurfaceId?: string;
   private pendingSurfaceActions = new Map<string, {
     surfaceType: SurfaceType;
@@ -358,10 +337,10 @@ export class Session {
 
       // Clear queued messages and notify each caller with a session-scoped
       // cancel event so other sessions do not receive cross-thread errors.
-      for (const queued of this.messageQueue) {
+      for (const queued of this.queue) {
         queued.onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
       }
-      this.messageQueue = [];
+      this.queue.clear();
     }
   }
 
@@ -392,23 +371,22 @@ export class Session {
       return { queued: false, requestId };
     }
 
-    if (this.messageQueue.length >= MAX_QUEUE_DEPTH) {
+    const pushed = this.queue.push({ content, attachments, requestId, onEvent, activeSurfaceId });
+    if (!pushed) {
       return { queued: false, rejected: true, requestId };
     }
-
-    this.messageQueue.push({ content, attachments, requestId, onEvent, activeSurfaceId });
     return { queued: true, requestId };
   }
 
   getQueueDepth(): number {
-    return this.messageQueue.length;
+    return this.queue.length;
   }
 
   /**
    * Returns true if there are messages waiting in the queue.
    */
   hasQueuedMessages(): boolean {
-    return this.messageQueue.length > 0;
+    return !this.queue.isEmpty;
   }
 
   /**
@@ -755,30 +733,21 @@ export class Session {
         }
       }
 
-      if (softConflictInstruction) {
-        const userTail = runMessages[runMessages.length - 1];
-        if (userTail && userTail.role === 'user') {
-          runMessages = [
-            ...runMessages.slice(0, -1),
-            injectClarificationRequestIntoUserMessage(userTail, softConflictInstruction),
-          ];
-        }
-      }
-
-      // Inject active surface context for workspace refinement
+      // Inject soft-conflict instruction and active surface context
+      let activeSurface: { surfaceId: string; html: string } | null = null;
       if (this.currentActiveSurfaceId) {
         const stored = this.surfaceState.get(this.currentActiveSurfaceId);
         if (stored && stored.surfaceType === 'dynamic_page') {
-          const html = (stored.data as DynamicPageSurfaceData).html;
-          const userTail = runMessages[runMessages.length - 1];
-          if (userTail && userTail.role === 'user') {
-            runMessages = [
-              ...runMessages.slice(0, -1),
-              injectActiveSurfaceContext(userTail, this.currentActiveSurfaceId, html),
-            ];
-          }
+          activeSurface = {
+            surfaceId: this.currentActiveSurfaceId,
+            html: (stored.data as DynamicPageSurfaceData).html,
+          };
         }
       }
+      runMessages = applyRuntimeInjections(runMessages, {
+        softConflictInstruction,
+        activeSurface,
+      });
 
       // Pre-run repair: fix any message ordering issues before sending to provider.
       // Keep a reference to the original (un-repaired) messages so we can
@@ -1213,7 +1182,7 @@ export class Session {
    * remaining queued messages would be stranded.
    */
   private drainQueue(reason: QueueDrainReason = 'loop_complete'): void {
-    const next = this.messageQueue.shift();
+    const next = this.queue.shift();
     if (!next) return;
 
     log.info({ conversationId: this.conversationId, requestId: next.requestId, reason }, 'Dequeuing message');
@@ -1936,45 +1905,6 @@ export function findLastUndoableUserMessageIndex(messages: Message[]): number {
     }
   }
   return -1;
-}
-
-function injectClarificationRequestIntoUserMessage(message: Message, question: string): Message {
-  const instruction = [
-    '[Memory clarification request]',
-    `Ask this once in your response: ${question}`,
-    'After asking, continue helping with the current request.',
-  ].join('\n');
-  return {
-    ...message,
-    content: [
-      ...message.content,
-      { type: 'text', text: `\n\n${instruction}` },
-    ],
-  };
-}
-
-function injectActiveSurfaceContext(message: Message, surfaceId: string, html: string): Message {
-  const MAX_HTML_LENGTH = 100_000;
-  const truncatedHtml = html.length > MAX_HTML_LENGTH
-    ? html.slice(0, MAX_HTML_LENGTH) + `\n<!-- truncated: original is ${html.length} characters -->`
-    : html;
-  const block = [
-    '<active_dynamic_page>',
-    `The user is viewing a dynamic page (surface_id: "${surfaceId}") in workspace mode.`,
-    `To modify this page, call ui_update with surface_id "${surfaceId}" and provide the complete updated HTML in data.html.`,
-    'Preserve all existing content, design tokens, and styling unless the user explicitly asks to change them.',
-    '',
-    'Current HTML:',
-    truncatedHtml,
-    '</active_dynamic_page>',
-  ].join('\n');
-  return {
-    ...message,
-    content: [
-      { type: 'text', text: block },
-      ...message.content,
-    ],
-  };
 }
 
 const ORDERING_ERROR_PATTERNS = [
