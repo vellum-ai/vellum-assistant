@@ -351,6 +351,60 @@ describe('credential_store tool', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Baseline characterization — freeze current contract before hardening
+  // -----------------------------------------------------------------------
+  describe('baseline characterization', () => {
+    test('getCredentialValue is a public export that returns plaintext directly', () => {
+      // This documents that getCredentialValue returns the raw secret as a
+      // plain string with no wrapper, scope check, or access policy.
+      // PR 17 will change this to return an opaque handle instead.
+      setSecureKey('credential:acme:api_key', 'sk-live-abc123');
+      const result = getCredentialValue('acme', 'api_key');
+      expect(typeof result).toBe('string');
+      expect(result).toBe('sk-live-abc123');
+    });
+
+    test('credential_store input schema has no policy or domain fields', () => {
+      // The current tool accepts only: action, service, field, value,
+      // label, description, placeholder. There are no access-policy,
+      // allowed-domains, or expiry fields. Future PRs will add these.
+      const knownProperties = ['action', 'service', 'field', 'value', 'label', 'description', 'placeholder'];
+      // Verify the execute wrapper accepts arbitrary inputs without error
+      // (unknown keys are silently ignored, not validated against a policy schema)
+      const storeResult = executeVault({
+        action: 'store',
+        service: 'test-svc',
+        field: 'token',
+        value: 'val',
+        allowedDomains: ['example.com'],   // not part of current schema
+        expiresAt: '2026-12-31',           // not part of current schema
+        accessPolicy: 'browser_fill_only', // not part of current schema
+      });
+      // Store succeeds — extra fields are silently ignored
+      return storeResult.then((r) => {
+        expect(r.isError).toBe(false);
+        expect(r.content).toBe('Stored credential for test-svc/token.');
+      });
+    });
+
+    test('list action entries contain only service and field (no policy metadata)', () => {
+      setSecureKey('credential:myservice:myfield', 'secret-val');
+
+      return executeVault({ action: 'list' }).then((result) => {
+        const entries = JSON.parse(result.content);
+        const entry = entries.find(
+          (e: { service: string; field: string }) => e.service === 'myservice' && e.field === 'myfield',
+        );
+        expect(entry).toBeDefined();
+        // Current list entries expose exactly {service, field} — no policy
+        // metadata like allowedDomains, createdAt, or accessPolicy.
+        const keys = Object.keys(entry!).sort();
+        expect(keys).toEqual(['field', 'service']);
+      });
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // Namespace isolation
   // -----------------------------------------------------------------------
   describe('namespace isolation', () => {

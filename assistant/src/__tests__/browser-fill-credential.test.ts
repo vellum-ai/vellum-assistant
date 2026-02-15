@@ -176,4 +176,48 @@ describe('executeBrowserFillCredential', () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('field is required');
   });
+
+  // -----------------------------------------------------------------------
+  // Baseline characterization — freeze current contract before hardening
+  // -----------------------------------------------------------------------
+  describe('baseline characterization', () => {
+    test('fill succeeds with no domain or tool-policy checks', async () => {
+      // Currently browser_fill_credential does not validate the page URL
+      // against any allowed-domains policy on the credential. It fills
+      // unconditionally as long as the credential exists and the element
+      // resolves. Future PRs will add domain-scoped credential policies.
+      snapshotMaps.set('test-session', new Map([['e1', '[data-vellum-eid="e1"]']]));
+      const result = await executeBrowserFillCredential(
+        {
+          service: 'gmail',
+          field: 'password',
+          element_id: 'e1',
+          // No domain or policy fields exist on the input schema today
+        },
+        ctx,
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('Filled password for gmail');
+      // The secret value must not appear in the output
+      expect(result.content).not.toContain('super-secret-password');
+    });
+
+    test('context has no credential access audit trail', async () => {
+      // The ToolContext passed to browser_fill_credential does not include
+      // any audit or logging callback for credential access. Calls to
+      // getCredentialValue are not tracked. Future PRs will add an audit
+      // hook on the context.
+      snapshotMaps.set('test-session', new Map([['e1', '[data-vellum-eid="e1"]']]));
+      await executeBrowserFillCredential(
+        { service: 'gmail', field: 'password', element_id: 'e1' },
+        ctx,
+      );
+      // Verify getCredentialValue was called with bare service/field and
+      // no additional context (no domain, no session provenance).
+      expect(mockGetCredentialValue).toHaveBeenCalledTimes(1);
+      expect(mockGetCredentialValue).toHaveBeenCalledWith('gmail', 'password');
+      // Only 2 arguments — no audit context parameter
+      expect(mockGetCredentialValue.mock.calls[0]).toHaveLength(2);
+    });
+  });
 });

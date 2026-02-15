@@ -842,6 +842,70 @@ describe('IPC message snapshots', () => {
     }
   });
 
+  // -----------------------------------------------------------------------
+  // Baseline characterization — freeze credential IPC contract before hardening
+  // -----------------------------------------------------------------------
+  describe('credential IPC baselines', () => {
+    test('secret_request has no policy context fields', () => {
+      // The current secret_request includes: type, requestId, service,
+      // field, label, description?, placeholder?, sessionId?.
+      // It has NO access-policy, allowed-domains, or credential-scope
+      // fields. Future PRs will add policy context to the IPC contract.
+      const req = serverMessages.secret_request;
+      const keys = Object.keys(req).sort();
+      expect(keys).toEqual([
+        'description',
+        'field',
+        'label',
+        'placeholder',
+        'requestId',
+        'service',
+        'sessionId',
+        'type',
+      ]);
+    });
+
+    test('secret_response has no audit or provenance fields', () => {
+      // The current secret_response includes: type, requestId, value?.
+      // It has NO provenance, audit-id, or encrypted-handle fields.
+      const resp = clientMessages.secret_response;
+      const keys = Object.keys(resp).sort();
+      expect(keys).toEqual(['requestId', 'type', 'value']);
+    });
+
+    test('secret_request round-trips with all optional fields populated', () => {
+      const req = serverMessages.secret_request;
+      const serialized = serialize(req);
+      const parsed = JSON.parse(serialized.trimEnd());
+      expect(parsed).toEqual(req);
+      // Verify the optional fields are present in the fixture
+      expect(parsed.description).toBeDefined();
+      expect(parsed.placeholder).toBeDefined();
+      expect(parsed.sessionId).toBeDefined();
+    });
+
+    test('secret_response round-trips with value present', () => {
+      const resp = clientMessages.secret_response;
+      const serialized = serialize(resp);
+      const parsed = JSON.parse(serialized.trimEnd());
+      expect(parsed).toEqual(resp);
+      expect(parsed.value).toBe('ghp_test_token_value');
+    });
+
+    test('secret_response round-trips with value absent (user cancelled)', () => {
+      const cancelled: typeof clientMessages.secret_response = {
+        type: 'secret_response',
+        requestId: 'req-cancel-001',
+        // value intentionally omitted — user cancelled the prompt
+      };
+      const serialized = serialize(cancelled);
+      const parsed = JSON.parse(serialized.trimEnd());
+      expect(parsed.type).toBe('secret_response');
+      expect(parsed.requestId).toBe('req-cancel-001');
+      expect(parsed.value).toBeUndefined();
+    });
+  });
+
   // Baseline assertions for error-related message contracts.
   // These document the current shape before error handling modernization.
   describe('error message baselines', () => {
