@@ -334,6 +334,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
               let index = threads.firstIndex(where: { $0.id == threadId }),
               threads[index].sessionId == nil else { return }
         threads[index].sessionId = sessionId
+        // If the thread was archived before the session ID arrived,
+        // persist the archive state now that we have a session ID.
+        if threads[index].isArchived {
+            var archived = archivedSessionIds
+            archived.insert(sessionId)
+            archivedSessionIds = archived
+        }
     }
 
     private var archivedSessionIds: Set<String> {
