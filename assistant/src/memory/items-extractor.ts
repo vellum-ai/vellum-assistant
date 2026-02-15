@@ -265,6 +265,8 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string): 
       .get();
 
     let memoryItemId: string;
+    // Preserve pending_clarification if this item has an unresolved conflict
+    let nextStatus: 'active' | 'pending_clarification' = 'active';
     if (existing) {
       memoryItemId = existing.id;
       // Promote verification state if re-seen from a more trusted source
@@ -272,10 +274,9 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string): 
         existing.verificationState === 'assistant_inferred' && verificationState === 'user_reported'
           ? 'user_reported'
           : existing.verificationState;
-      // Preserve pending_clarification if this item has an unresolved conflict
-      const nextStatus = existing.status === 'pending_clarification' && hasPendingConflict(existing.id)
-        ? 'pending_clarification'
-        : 'active';
+      if (existing.status === 'pending_clarification' && hasPendingConflict(existing.id)) {
+        nextStatus = 'pending_clarification';
+      }
       db.update(memoryItems)
         .set({
           status: nextStatus,
@@ -305,7 +306,9 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string): 
       upserted += 1;
     }
 
-    if (SUPERSEDE_KINDS.has(item.kind)) {
+    // Only supersede siblings when this item is active — a pending_clarification
+    // item shouldn't demote the current active item before the conflict is resolved.
+    if (SUPERSEDE_KINDS.has(item.kind) && nextStatus === 'active') {
       db.update(memoryItems)
         .set({ status: 'superseded' })
         .where(and(
