@@ -40,6 +40,12 @@ graph TB
             DEBUG_PANEL["DebugPanel UI<br/>metrics strip + timeline"]
         end
 
+        subgraph "Dynamic Workspace"
+            SURFACE_MGR["SurfaceManager<br/>route by display field"]
+            WORKSPACE["WorkspaceView<br/>toolbar + WKWebView + composer"]
+            DYN_PAGE["DynamicPageSurfaceView<br/>WKWebView + widget injection"]
+        end
+
         VOICE["VoiceInputManager<br/>Fn hold → SFSpeechRecognizer"]
         ATTACH["Attachment System<br/>images, PDFs, text<br/>drag/drop, paste, picker"]
         PERM["PermissionManager<br/>Accessibility, Screen Recording,<br/>Microphone"]
@@ -165,6 +171,12 @@ graph TB
     IPC_SERVER -->|"AmbientResult<br/>suggest"| UI
     KNOWLEDGE --> INSIGHT_CRON
     INSIGHT_CRON --> INSIGHT_STORE
+
+    %% Dynamic Workspace flow
+    IPC_SERVER -->|"ui_surface_show"| SURFACE_MGR
+    SURFACE_MGR -->|"display != inline<br/>.openDynamicWorkspace"| WORKSPACE
+    WORKSPACE --> DYN_PAGE
+    DYN_PAGE -->|"vellumBridge<br/>actions + data RPC"| IPC_SERVER
 
     %% Daemon internals
     IPC_SERVER --> HANDLERS
@@ -1029,6 +1041,88 @@ Events emitted during a session lifecycle:
 - **DaemonClient** (Swift, shared): Decodes `trace_event` IPC messages into `TraceEventMessage` structs and invokes the `onTraceEvent` callback.
 - **TraceStore** (Swift, macOS): `@MainActor ObservableObject` that ingests `TraceEventMessage` structs. Deduplicates by `eventId`, maintains stable sort order (sequence, then timestampMs, then insertion order), groups events by session and requestId, and enforces a retention cap of 5,000 events per session. Each request group is classified with a terminal status: `completed` (via `message_complete`), `cancelled` (via `generation_cancelled`), `handedOff` (via `generation_handoff`), `error` (via `request_error` or any event with `status == "error"`), or `active` (no terminal event yet).
 - **DebugPanel** (Swift, macOS): SwiftUI view that observes `TraceStore`. Displays a metrics strip (request count, LLM calls, total tokens, average latency, tool failures) and a `TraceTimelineView` showing events grouped by requestId with color-coded status indicators. The timeline auto-scrolls to new events while the user is at the bottom; scrolling up pauses auto-scroll and shows a "Jump to bottom" button that resumes it.
+
+---
+
+## Dynamic Workspace — Surface Routing and Layout
+
+The workspace is a full-window mode that replaces the chat UI with an interactive dynamic page (WKWebView) and a pinned composer for follow-up messages. It activates when the daemon sends a `ui_surface_show` message with `display != "inline"`.
+
+### Routing Flow (Chat → Workspace)
+
+```mermaid
+sequenceDiagram
+    participant Daemon as Daemon (IPC)
+    participant DC as DaemonClient
+    participant SM as SurfaceManager
+    participant AD as AppDelegate
+    participant MW as MainWindowView
+
+    Daemon->>DC: ui_surface_show (display != "inline")
+    DC->>SM: onSurfaceShow callback
+    SM->>SM: Check display field
+    alt display == "inline"
+        SM->>SM: Show floating NSPanel
+    else display != "inline" (workspace route)
+        SM->>SM: Add to workspaceRoutedSurfaces set
+        SM->>AD: onDynamicPageShow callback
+        AD->>AD: Post .openDynamicWorkspace notification
+        AD->>MW: Notification with UiSurfaceShowMessage
+        MW->>MW: Parse Surface from message
+        MW->>MW: Set activeDynamicSurface,<br/>activeDynamicParsedSurface,<br/>isDynamicExpanded = true
+        MW->>MW: Render dynamicWorkspaceView()<br/>instead of normal chat
+    end
+
+    Note over SM,MW: Updates and dismissals follow<br/>the same notification pattern:<br/>.updateDynamicWorkspace<br/>.dismissDynamicWorkspace
+```
+
+**Key types:** `SurfaceManager` routes surfaces by `display` field. `MainWindowView` listens for three notifications (`.openDynamicWorkspace`, `.updateDynamicWorkspace`, `.dismissDynamicWorkspace`) and manages `@State` properties to toggle between chat and workspace views.
+
+### Full-Window Workspace Layout
+
+```
+┌────────────────────────────────────────────────┐
+│  ← Back    App Title                     ✕     │  ← Toolbar (HStack)
+├────────────────────────────────────────────────┤
+│                                                │
+│                                                │
+│           DynamicPageSurfaceView               │  ← WKWebView (fills space)
+│              (interactive HTML)                 │
+│                                                │
+│                                                │
+├────────────────────────────────────────────────┤
+│  ComposerView (pinned at bottom)               │  ← Follow-up input
+└────────────────────────────────────────────────┘
+```
+
+The workspace is a `VStack(spacing: 0)` with `VColor.backgroundSubtle` background. The toolbar has back (returns to gallery) and close (exits workspace + panel) buttons. `DynamicPageSurfaceView` grows to fill remaining vertical space. `ComposerView` is pinned at the bottom, bound to the active `ChatViewModel` so users can send follow-up messages while the page is open.
+
+### Widget Injection Pipeline (CSS + JS into WKWebView)
+
+`DynamicPageSurfaceView` is an `NSViewRepresentable` that wraps a `WKWebView`. On creation, three `WKUserScript`s are injected at document start:
+
+```mermaid
+graph LR
+    subgraph "Injection (at document start)"
+        BRIDGE["1. Bridge Script<br/>───────────────<br/>window.vellum.sendAction()<br/>window.vellum.confirm()<br/>window.vellum.data.* (if appId)<br/>console forwarding"]
+        CSS["2. Design System CSS<br/>───────────────<br/>vellum-design-system.css<br/>Semantic tokens (--v-*)<br/>Element defaults<br/>Dark/light mode"]
+        WIDGETS["3. Widget Utilities JS<br/>───────────────<br/>vellum-widgets.js<br/>sparkline(), barChart()<br/>lineChart(), gauge()<br/>format() helpers"]
+    end
+
+    subgraph "Message Passing"
+        JS_CALL["JS: window.webkit.messageHandlers<br/>.vellumBridge.postMessage()"]
+        COORD["Coordinator<br/>(WKScriptMessageHandler)"]
+        DAEMON["AppDelegate → Daemon"]
+    end
+
+    BRIDGE --> JS_CALL
+    JS_CALL --> COORD
+    COORD --> DAEMON
+```
+
+**Per-app isolation:** Each app gets its own origin (`https://{appId}.vellum.local/`). The `VellumAppSchemeHandler` handles `vellumapp://` URLs for serving bundled app files from the sandbox directory. Sandbox mode blocks external network requests.
+
+**Data RPC flow:** App JS calls `window.vellum.data.query()` → Coordinator → AppDelegate → Daemon `app_data_request`. Daemon responds with `app_data_response` → `SurfaceManager.resolveDataResponse()` → Coordinator evaluates `window.vellum.data._resolve()` in the WebView.
 
 ---
 
