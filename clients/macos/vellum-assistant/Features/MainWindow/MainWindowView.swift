@@ -29,83 +29,62 @@ struct MainWindowView: View {
         GeometryReader { geometry in
             Group {
                 if useThreadDrawer {
-                    // Drawer mode: NavigationSplitView with toolbar
-                    NavigationSplitView(columnVisibility: $columnVisibility) {
-                        // Sidebar: Thread list with header
-                        List(selection: $selectedThreadId) {
-                            Section {
-                                ForEach(threadManager.threads) { thread in
-                                    HStack(spacing: VSpacing.sm) {
-                                        Text(thread.title)
-                                            .font(VFont.body)
-                                            .foregroundColor(thread.id == threadManager.activeThreadId ? VColor.accent : VColor.textPrimary)
-                                        Spacer()
+                    // Drawer mode: Custom split view (no NavigationSplitView)
+                    VStack(spacing: 0) {
+                        // Button bar (matches ThreadTabBar height and style)
+                        VStack(spacing: 0) {
+                            HStack(spacing: 0) {
+                                // Thread drawer toggle
+                                VIconButton(label: "Threads", icon: "list.bullet", isActive: columnVisibility != .detailOnly, iconOnly: true) {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                        columnVisibility = (columnVisibility == .detailOnly) ? .all : .detailOnly
+                                    }
+                                }
 
-                                        if threadManager.threads.count > 1 {
-                                            Button(action: { threadManager.closeThread(id: thread.id) }) {
-                                                Image(systemName: "xmark")
-                                                    .font(.system(size: 10, weight: .bold))
-                                                    .foregroundColor(VColor.textMuted)
-                                                    .frame(width: 16, height: 16)
-                                                    .contentShape(Rectangle())
-                                            }
-                                            .buttonStyle(.plain)
-                                            .accessibilityLabel("Close \(thread.title)")
-                                        }
+                                Spacer()
+
+                                // Panel toggle buttons
+                                HStack(spacing: VSpacing.sm) {
+                                    VIconButton(label: "Dynamic", icon: "wand.and.stars", isActive: activePanel == .generated, iconOnly: true) {
+                                        togglePanel(.generated)
                                     }
-                                    .padding(.vertical, VSpacing.xxs)
-                                    .tag(thread.id)
-                                }
-                            } header: {
-                                HStack {
-                                    Text("THREADS")
-                                        .font(VFont.sectionTitle)
-                                        .foregroundColor(VColor.textPrimary)
-                                    Spacer()
-                                    VIconButton(label: "New Thread", icon: "plus", iconOnly: true) {
-                                        threadManager.createThread()
+                                    VIconButton(label: "Skills", icon: "exclamationmark.triangle", isActive: activePanel == .agent, iconOnly: true) {
+                                        togglePanel(.agent)
+                                    }
+                                    VIconButton(label: "Settings", icon: "gearshape", isActive: activePanel == .settings, iconOnly: true) {
+                                        togglePanel(.settings)
+                                    }
+                                    VIconButton(label: "Directory", icon: "doc.text", isActive: activePanel == .directory, iconOnly: true) {
+                                        togglePanel(.directory)
+                                    }
+                                    VIconButton(label: "Debug", icon: "ant", isActive: activePanel == .debug, iconOnly: true) {
+                                        togglePanel(.debug)
+                                    }
+                                    VIconButton(label: "Doctor", icon: "stethoscope", isActive: activePanel == .doctor, iconOnly: true) {
+                                        togglePanel(.doctor)
                                     }
                                 }
-                                .padding(.bottom, VSpacing.xs)
                             }
+                            .padding(.leading, 78)
+                            .padding(.trailing, VSpacing.lg)
+                            .frame(height: 36)
+                            .background(VColor.background)
                         }
-                        .listStyle(.sidebar)
-                        .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
-                    } detail: {
-                        // Detail: Main content
-                        chatContentView(geometry: geometry)
-                            .toolbar(removing: .sidebarToggle)
-                            .toolbar {
-                                ToolbarItemGroup {
-                                    HStack(spacing: VSpacing.sm) {
-                                        VIconButton(label: "Dynamic", icon: "wand.and.stars", isActive: activePanel == .generated, iconOnly: true) {
-                                            togglePanel(.generated)
-                                        }
-                                        .id("toolbar-dynamic")
-                                        VIconButton(label: "Skills", icon: "exclamationmark.triangle", isActive: activePanel == .agent, iconOnly: true) {
-                                            togglePanel(.agent)
-                                        }
-                                        .id("toolbar-skills")
-                                        VIconButton(label: "Settings", icon: "gearshape", isActive: activePanel == .settings, iconOnly: true) {
-                                            togglePanel(.settings)
-                                        }
-                                        .id("toolbar-settings")
-                                        VIconButton(label: "Directory", icon: "doc.text", isActive: activePanel == .directory, iconOnly: true) {
-                                            togglePanel(.directory)
-                                        }
-                                        .id("toolbar-directory")
-                                        VIconButton(label: "Debug", icon: "ant", isActive: activePanel == .debug, iconOnly: true) {
-                                            togglePanel(.debug)
-                                        }
-                                        .id("toolbar-debug")
-                                        VIconButton(label: "Doctor", icon: "stethoscope", isActive: activePanel == .doctor, iconOnly: true) {
-                                            togglePanel(.doctor)
-                                        }
-                                        .id("toolbar-doctor")
-                                    }
-                                }
+
+                        // Content area with left drawer + chat + right panel
+                        HStack(spacing: 0) {
+                            // Left: Thread drawer (conditional)
+                            if columnVisibility != .detailOnly {
+                                threadDrawerView
+                                    .transition(.move(edge: .leading))
                             }
+
+                            // Center: Chat + right panel
+                            chatContentView(geometry: geometry)
+                        }
+                        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: columnVisibility)
                     }
+                    .ignoresSafeArea(edges: .top)
                 } else {
                     // Tab mode: Traditional layout
                     VStack(spacing: 0) {
@@ -180,6 +159,67 @@ struct MainWindowView: View {
     }
 
     @ViewBuilder
+    private func threadItem(_ thread: ThreadModel) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            Text(thread.title)
+                .font(VFont.body)
+                .foregroundColor(thread.id == threadManager.activeThreadId ? VColor.accent : VColor.textPrimary)
+            Spacer()
+
+            if threadManager.threads.count > 1 {
+                Button(action: { threadManager.closeThread(id: thread.id) }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close \(thread.title)")
+            }
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.xs)
+        .background(thread.id == threadManager.activeThreadId ? VColor.surface : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        .onTapGesture {
+            threadManager.selectThread(id: thread.id)
+        }
+    }
+
+    @ViewBuilder
+    private var threadDrawerView: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("THREADS")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                VIconButton(label: "New Thread", icon: "plus", iconOnly: true) {
+                    threadManager.createThread()
+                }
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.top, VSpacing.lg)
+            .padding(.bottom, VSpacing.xs)
+
+            ScrollView {
+                VStack(spacing: VSpacing.xs) {
+                    ForEach(threadManager.threads) { thread in
+                        threadItem(thread)
+                    }
+                }
+                .padding(.horizontal, VSpacing.sm)
+            }
+        }
+        .frame(width: 240)
+        .background(VColor.backgroundSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .padding(.bottom, VSpacing.sm)
+        .padding(.leading, VSpacing.sm)
+    }
+
+    @ViewBuilder
     private func chatContentView(geometry: GeometryProxy) -> some View {
         if isDynamicExpanded && activePanel == .generated {
             GeneratedPanel(
@@ -242,6 +282,10 @@ struct MainWindowView: View {
             }, panel: {
                 panelContent
             })
+            .background(VColor.backgroundSubtle)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+            .padding(.bottom, VSpacing.sm)
+            .padding(.horizontal, VSpacing.sm)
         }
     }
 
