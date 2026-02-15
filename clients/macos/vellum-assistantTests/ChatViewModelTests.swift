@@ -242,19 +242,16 @@ final class ChatViewModelTests: XCTestCase {
     func testErrorResetsProcessingMessagesToSent() {
         viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
 
-        // Send message A (direct)
-        viewModel.inputText = "Message A"
-        viewModel.sendMessage()
-
-        // Send message B (queued)
-        viewModel.inputText = "Message B"
-        viewModel.sendMessage()
-
-        // Daemon confirms B is queued, then dequeued (processing)
-        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
-        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response A")))
-        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
-        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        // Add user messages directly — tests don't have a real socket, so
+        // sendMessage() throws on daemonClient.send() and clears isSending,
+        // preventing the FIFO mapping that messageQueued/messageDequeued need.
+        let messageA = ChatMessage(role: .user, text: "Message A", status: .sent)
+        let messageB = ChatMessage(role: .user, text: "Message B", status: .processing)
+        viewModel.messages.append(messageA)
+        viewModel.messages.append(messageB)
+        viewModel.isSending = true
+        viewModel.isThinking = true
+        // greeting(0), A(1), B(2)
         XCTAssertEqual(viewModel.messages[2].status, .processing)
 
         // Error arrives while B is processing
@@ -414,14 +411,16 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sessionId = "test-session"
         viewModel.isSending = true
         viewModel.isThinking = true
-        daemonClient.isConnected = false
 
         // Start streaming
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
 
-        // Send a queued message to verify queue cleanup
-        viewModel.inputText = "Queued msg"
-        viewModel.sendMessage()
+        // Simulate a queued message — add it directly with queued status
+        // and bump the counter. Tests don't have a real socket so
+        // sendMessage() while disconnected bails before creating queue state.
+        let queuedMsg = ChatMessage(role: .user, text: "Queued msg", status: .queued(position: 1))
+        viewModel.messages.append(queuedMsg)
+        viewModel.pendingQueuedCount = 1
 
         // Now disconnect and stop
         daemonClient.isConnected = false
@@ -432,6 +431,8 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking, "Stop when disconnected should clear isThinking")
         XCTAssertEqual(viewModel.pendingQueuedCount, 0, "Stop when disconnected should clear queue count")
         XCTAssertFalse(viewModel.messages[1].isStreaming, "Stop when disconnected should finalize streaming")
+        // Queued message should be reset to .sent by stopGenerating
+        XCTAssertEqual(viewModel.messages[2].status, .sent, "Queued message should be reset to .sent")
     }
 
     func testMultipleSequentialErrorsUpdateErrorText() {
