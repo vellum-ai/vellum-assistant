@@ -676,6 +676,29 @@ graph TB
    - selected count / injected tokens (budget safety)
    - latency and ordering regressions via top candidate snapshots
 
+### Conflict Lifecycle and Profile Hygiene
+
+```mermaid
+stateDiagram-v2
+    [*] --> ActiveItems : extract_items/check_contradictions
+    ActiveItems --> PendingConflict : ambiguous_contradiction\n(candidate -> pending_clarification)
+    PendingConflict --> PendingConflict : soft gate ask once\n(reask cooldown + relevance)
+    PendingConflict --> ResolvedKeepExisting : clarification resolver\n+ applyConflictResolution
+    PendingConflict --> ResolvedKeepCandidate : clarification resolver\n+ applyConflictResolution
+    PendingConflict --> ResolvedMerge : clarification resolver\n+ applyConflictResolution
+    ResolvedKeepExisting --> CleanupConflicts : cleanup_resolved_conflicts
+    ResolvedKeepCandidate --> CleanupConflicts : cleanup_resolved_conflicts
+    ResolvedMerge --> CleanupConflicts : cleanup_resolved_conflicts
+    ResolvedKeepExisting --> SupersededItems : candidate superseded
+    ResolvedMerge --> SupersededItems : merged-from candidate superseded
+    SupersededItems --> CleanupItems : cleanup_stale_superseded_items
+```
+
+Runtime profile flow (per turn):
+1. `ProfileCompiler` builds a trusted profile block from active `profile` / `preference` / `constraint` / `instruction` items under strict token cap.
+2. Session injects that block only into runtime prompt state.
+3. Session strips the injected profile block before persisting conversation history, so dynamic profile context never pollutes durable message rows.
+
 ---
 
 ## Web Server — Connection Modes
