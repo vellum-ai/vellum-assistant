@@ -140,6 +140,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `history_response` message.
     public var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `share_to_slack_response` message.
+    public var onShareToSlackResponse: ((ShareToSlackResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `slack_webhook_config_response` message.
+    public var onSlackWebhookConfigResponse: ((SlackWebhookConfigResponseMessage) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -623,6 +629,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ForkSharedAppRequestMessage(uuid: uuid))
     }
 
+    /// Share a local app to Slack via configured webhook.
+    public func sendShareToSlack(appId: String) throws {
+        try send(ShareToSlackRequestMessage(appId: appId))
+    }
+
+    /// Get or set the Slack webhook URL configuration.
+    public func sendSlackWebhookConfig(action: String, webhookUrl: String? = nil) throws {
+        try send(SlackWebhookConfigRequestMessage(action: action, webhookUrl: webhookUrl))
+    }
+
     // MARK: - Signing Identity (macOS only)
 
     #if os(macOS)
@@ -831,6 +847,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSessionListResponse?(msg)
         case .historyResponse(let msg):
             onHistoryResponse?(msg)
+        case .shareToSlackResponse(let msg):
+            onShareToSlackResponse?(msg)
+        case .slackWebhookConfigResponse(let msg):
+            onSlackWebhookConfigResponse?(msg)
         case .memoryStatus(let msg):
             latestMemoryStatus = msg
         case .traceEvent(let msg):

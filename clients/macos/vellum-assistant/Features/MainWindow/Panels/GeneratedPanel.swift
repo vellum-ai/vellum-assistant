@@ -40,6 +40,10 @@ struct GeneratedPanel: View {
     // Track how many list responses we're waiting for
     @State private var pendingResponses = 0
 
+    // Slack sharing state
+    @State private var slackSharingAppId: String?
+    @State private var slackShareResult: (appId: String, success: Bool)?
+
     init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil) {
         self.onClose = onClose
         self._isExpanded = isExpanded
@@ -234,6 +238,10 @@ struct GeneratedPanel: View {
                     } else {
                         shareButton(for: item)
 
+                        if let localId = item.localAppId {
+                            slackShareButton(for: item, localAppId: localId)
+                        }
+
                         if item.isShared {
                             forkButton(for: item)
                             deleteButton(for: item)
@@ -369,6 +377,56 @@ struct GeneratedPanel: View {
     private func deleteButton(for item: DisplayAppItem) -> some View {
         VIconButton(label: "Delete", icon: "trash", iconOnly: true) {
             deleteSharedApp(item)
+        }
+    }
+
+    @ViewBuilder
+    private func slackShareButton(for item: DisplayAppItem, localAppId: String) -> some View {
+        let isSharing = slackSharingAppId == item.id
+        let result = slackShareResult.flatMap { $0.appId == item.id ? $0 : nil }
+
+        if isSharing {
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: 24, height: 24)
+        } else if let result = result {
+            Image(systemName: result.success ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .foregroundColor(result.success ? VColor.success : VColor.error)
+                .frame(width: 24, height: 24)
+        } else {
+            VIconButton(label: "Share to Slack", icon: "paperplane", iconOnly: true) {
+                shareToSlack(appId: localAppId, itemId: item.id)
+            }
+        }
+    }
+
+    private func shareToSlack(appId: String, itemId: String) {
+        slackSharingAppId = itemId
+
+        Task { @MainActor in
+            daemonClient.onShareToSlackResponse = { response in
+                self.slackSharingAppId = nil
+                self.slackShareResult = (appId: itemId, success: response.success)
+
+                // Clear the result indicator after 2 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    if self.slackShareResult?.appId == itemId {
+                        self.slackShareResult = nil
+                    }
+                }
+            }
+
+            do {
+                try daemonClient.sendShareToSlack(appId: appId)
+            } catch {
+                self.slackSharingAppId = nil
+                self.slackShareResult = (appId: itemId, success: false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    if self.slackShareResult?.appId == itemId {
+                        self.slackShareResult = nil
+                    }
+                }
+            }
         }
     }
 

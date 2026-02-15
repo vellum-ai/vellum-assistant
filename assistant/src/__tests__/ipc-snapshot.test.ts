@@ -263,6 +263,14 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'share_app_cloud',
     appId: 'app-001',
   },
+  share_to_slack: {
+    type: 'share_to_slack',
+    appId: 'app-001',
+  },
+  slack_webhook_config: {
+    type: 'slack_webhook_config',
+    action: 'get',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -753,6 +761,15 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     shareToken: 'abc123def456',
     shareUrl: 'http://localhost:7821/v1/apps/shared/abc123def456',
+  },
+  share_to_slack_response: {
+    type: 'share_to_slack_response',
+    success: true,
+  },
+  slack_webhook_config_response: {
+    type: 'slack_webhook_config_response',
+    webhookUrl: 'https://hooks.slack.com/services/T00/B00/xxx',
+    success: true,
   },
 };
 

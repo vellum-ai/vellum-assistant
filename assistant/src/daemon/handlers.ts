@@ -50,7 +50,10 @@ import type {
   IpcBlobProbe,
   GalleryListRequest,
   GalleryInstallRequest,
+  ShareToSlackRequest,
+  SlackWebhookConfigRequest,
 } from './ipc-protocol.js';
+import { postToSlackWebhook } from '../slack/slack-webhook.js';
 import { createHash } from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
@@ -423,6 +426,8 @@ const handlers: DispatchMap = {
   },
   gallery_list: (_msg, socket, ctx) => handleGalleryList(socket, ctx),
   gallery_install: handleGalleryInstall,
+  share_to_slack: handleShareToSlack,
+  slack_webhook_config: handleSlackWebhookConfig,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ipc_blob_probe: handleIpcBlobProbe,
   ui_surface_action: (msg, _socket, ctx) => {
@@ -2053,6 +2058,108 @@ function handleGalleryInstall(
     log.error({ err, galleryAppId: msg.galleryAppId }, 'Failed to install gallery app');
     ctx.send(socket, {
       type: 'gallery_install_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
+// ─── Slack handlers ─────────────────────────────────────────────────────────
+
+function getVellumConfigPath(): string {
+  return join(homedir(), '.vellum', 'config.json');
+}
+
+function readVellumConfig(): Record<string, unknown> {
+  const configPath = getVellumConfigPath();
+  if (!existsSync(configPath)) return {};
+  try {
+    return JSON.parse(readFileSync(configPath, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeVellumConfig(config: Record<string, unknown>): void {
+  const { writeFileSync, mkdirSync } = require('node:fs') as typeof import('node:fs');
+  const configPath = getVellumConfigPath();
+  const dir = join(configPath, '..');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2));
+}
+
+async function handleShareToSlack(
+  msg: ShareToSlackRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const config = readVellumConfig();
+    const webhookUrl = config.slackWebhookUrl as string | undefined;
+    if (!webhookUrl) {
+      ctx.send(socket, {
+        type: 'share_to_slack_response',
+        success: false,
+        error: 'No Slack webhook URL configured. Set one in Settings.',
+      });
+      return;
+    }
+
+    const app = getApp(msg.appId);
+    if (!app) {
+      ctx.send(socket, {
+        type: 'share_to_slack_response',
+        success: false,
+        error: `App not found: ${msg.appId}`,
+      });
+      return;
+    }
+
+    await postToSlackWebhook(
+      webhookUrl,
+      app.name,
+      app.description ?? '',
+      '\u{1F4F1}',
+    );
+
+    ctx.send(socket, { type: 'share_to_slack_response', success: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, appId: msg.appId }, 'Failed to share app to Slack');
+    ctx.send(socket, {
+      type: 'share_to_slack_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
+function handleSlackWebhookConfig(
+  msg: SlackWebhookConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const config = readVellumConfig();
+    if (msg.action === 'get') {
+      ctx.send(socket, {
+        type: 'slack_webhook_config_response',
+        webhookUrl: (config.slackWebhookUrl as string) ?? undefined,
+        success: true,
+      });
+    } else {
+      config.slackWebhookUrl = msg.webhookUrl ?? '';
+      writeVellumConfig(config);
+      ctx.send(socket, {
+        type: 'slack_webhook_config_response',
+        success: true,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to handle Slack webhook config');
+    ctx.send(socket, {
+      type: 'slack_webhook_config_response',
       success: false,
       error: message,
     });
