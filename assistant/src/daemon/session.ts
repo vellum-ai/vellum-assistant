@@ -678,7 +678,8 @@ export class Session {
               // Defer the error event — only forward if retry also fails
               deferredOrderingError = event.error.message;
             } else {
-              onEvent({ type: 'error', message: event.error.message });
+              const classified = classifySessionError(event.error, { phase: 'agent_loop' });
+              onEvent(buildSessionErrorMessage(this.conversationId, classified));
             }
             break;
           case 'message_complete': {
@@ -810,7 +811,8 @@ export class Session {
 
       // Forward the deferred ordering error to the client if retry failed or was not attempted
       if (deferredOrderingError) {
-        onEvent({ type: 'error', message: deferredOrderingError });
+        const classified = classifySessionError(new Error(deferredOrderingError), { phase: 'agent_loop' });
+        onEvent(buildSessionErrorMessage(this.conversationId, classified));
       }
 
       // Reconcile synthesized cancellation tool_results from history tail.
