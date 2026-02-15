@@ -72,7 +72,7 @@ export async function runWorkerTask(opts: RunWorkerTaskOptions): Promise<SwarmTa
   const profile = roleToProfile(task.role);
 
   try {
-    const result = await backend.runTask({
+    const backendPromise = backend.runTask({
       prompt,
       profile,
       workingDir,
@@ -80,6 +80,32 @@ export async function runWorkerTask(opts: RunWorkerTaskOptions): Promise<SwarmTa
       timeoutMs,
       signal,
     });
+
+    // Enforce timeout via Promise.race
+    const timeoutPromise = new Promise<'timeout'>((resolve) => {
+      const timer = setTimeout(() => resolve('timeout'), timeoutMs);
+      // Don't keep the process alive just for this timer
+      if (typeof timer === 'object' && 'unref' in timer) timer.unref();
+    });
+
+    const raceResult = await Promise.race([backendPromise, timeoutPromise]);
+
+    if (raceResult === 'timeout') {
+      onStatus?.(task.id, 'failed');
+      return {
+        taskId: task.id,
+        status: 'failed',
+        summary: `Worker timed out after ${timeoutMs}ms`,
+        artifacts: [],
+        issues: ['timeout'],
+        nextSteps: [],
+        rawOutput: '',
+        durationMs: timeoutMs,
+        retryCount: 0,
+      };
+    }
+
+    const result = raceResult;
 
     if (result.success) {
       const parsed = parseWorkerOutput(result.output);
