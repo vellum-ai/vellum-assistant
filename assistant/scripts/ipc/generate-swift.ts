@@ -98,15 +98,26 @@ function generateSchemas(): Record<string, SchemaDef> {
   const symbols = generator.getMainFileSymbols(program, [CONTRACT_PATH]);
   const result: Record<string, SchemaDef> = {};
 
+  const skipped: string[] = [];
+
   for (const symbol of symbols) {
     if (SKIP_TYPES.has(symbol)) continue;
     try {
       const schema = generator.getSchemaForSymbol(symbol) as SchemaDef | null;
       if (schema) {
         result[symbol] = schema;
+      } else {
+        skipped.push(symbol);
       }
     } catch {
-      // const values or complex type aliases may not produce schemas
+      skipped.push(symbol);
+    }
+  }
+
+  if (skipped.length > 0) {
+    console.warn(`Warning: skipped ${skipped.length} symbol(s) that could not produce schemas:`);
+    for (const s of skipped) {
+      console.warn(`  - ${s}`);
     }
   }
 
@@ -263,7 +274,7 @@ function capitalize(s: string): string {
 function singularize(s: string): string {
   // Crude singularization for array item names
   if (s.endsWith('ies')) return s.slice(0, -3) + 'y';
-  if (s.endsWith('ses') || s.endsWith('xes') || s.endsWith('zes')) return s.slice(0, -2);
+  if (s.endsWith('ches') || s.endsWith('shes') || s.endsWith('ses') || s.endsWith('xes') || s.endsWith('zes')) return s.slice(0, -2);
   if (s.endsWith('s') && !s.endsWith('ss')) return s.slice(0, -1);
   return s;
 }
@@ -311,8 +322,6 @@ function buildAllStructs(
 
   for (const [name, def] of Object.entries(allDefs).sort(([a], [b]) => a.localeCompare(b))) {
     if (def.type !== 'object' || !def.properties) continue;
-    // Skip pure string enum definitions
-    if (def.type === 'string' && def.enum) continue;
 
     const ipcName = `IPC${name}`;
     const required = new Set(def.required ?? []);
