@@ -1,6 +1,6 @@
 # Refactor Plan — Closeout Report
 
-**Plan:** `.private/plans/REFACTOR.md` (18 PRs across 5 phases)
+**Plan:** 18 PRs across 5 phases (baseline, dead code removal, daemon refactors, macOS state refactors, cleanup)
 **Completed:** 2026-02-15
 
 ---
