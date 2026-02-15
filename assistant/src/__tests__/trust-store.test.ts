@@ -607,6 +607,7 @@ describe('Trust Store', () => {
         'cu_scroll',
         'cu_type_text',
         'cu_wait',
+        'delete_managed_skill',
         'file_edit',
         'file_read',
         'file_write',
@@ -615,6 +616,7 @@ describe('Trust Store', () => {
         'host_file_read',
         'host_file_write',
         'request_computer_control',
+        'scaffold_managed_skill',
       ]);
     });
 
