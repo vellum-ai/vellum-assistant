@@ -1,9 +1,17 @@
 import { mkdirSync, existsSync, statSync, unlinkSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
-import { getLogger } from './logger.js';
-
-const log = getLogger('platform');
+/**
+ * Stderr-only logger for migration code. Using the pino logger during
+ * migration is unsafe because pino initialization calls ensureDataDir(),
+ * which pre-creates workspace destination directories and causes migration
+ * moves to no-op.
+ */
+function migrationLog(level: 'info' | 'warn', msg: string, data?: Record<string, unknown>): void {
+  const prefix = level === 'warn' ? 'WARN' : 'INFO';
+  const extra = data ? ' ' + JSON.stringify(data) : '';
+  process.stderr.write(`[migration] ${prefix}: ${msg}${extra}\n`);
+}
 
 export function isMacOS(): boolean {
   return process.platform === 'darwin';
@@ -172,10 +180,7 @@ export function getWorkspacePromptPath(file: string): string {
 export function migratePath(source: string, destination: string): void {
   if (!existsSync(source)) return;
   if (existsSync(destination)) {
-    log.warn(
-      { source, destination },
-      'Migration skipped: destination already exists',
-    );
+    migrationLog('warn', 'Migration skipped: destination already exists', { source, destination });
     return;
   }
   const destDir = dirname(destination);
@@ -184,9 +189,9 @@ export function migratePath(source: string, destination: string): void {
   }
   try {
     renameSync(source, destination);
-    log.info({ from: source, to: destination }, 'Migrated path');
+    migrationLog('info', 'Migrated path', { from: source, to: destination });
   } catch (err) {
-    log.warn({ err, from: source, to: destination }, 'Failed to migrate path');
+    migrationLog('warn', 'Failed to migrate path', { err: String(err), from: source, to: destination });
   }
 }
 
@@ -213,9 +218,9 @@ export function migrateToWorkspaceLayout(): void {
     if (existsSync(sandboxFs)) {
       try {
         renameSync(sandboxFs, ws);
-        log.info({ from: sandboxFs, to: ws }, 'Extracted sandbox/fs as workspace root');
+        migrationLog('info', 'Extracted sandbox/fs as workspace root', { from: sandboxFs, to: ws });
       } catch (err) {
-        log.warn({ err, from: sandboxFs, to: ws }, 'Failed to extract sandbox/fs');
+        migrationLog('warn', 'Failed to extract sandbox/fs', { err: String(err), from: sandboxFs, to: ws });
       }
     }
   }
@@ -281,9 +286,9 @@ export function migrateToDataLayout(): void {
     }
     try {
       renameSync(oldPath, newPath);
-      log.info({ from: oldPath, to: newPath }, 'Migrated path');
+      migrationLog('info', 'Migrated path', { from: oldPath, to: newPath });
     } catch (err) {
-      log.warn({ err, from: oldPath, to: newPath }, 'Failed to migrate path');
+      migrationLog('warn', 'Failed to migrate path', { err: String(err), from: oldPath, to: newPath });
     }
   }
 

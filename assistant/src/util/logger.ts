@@ -1,6 +1,6 @@
 import pino from 'pino';
 import pinoPretty from 'pino-pretty';
-import { getLogPath, ensureDataDir } from './platform.js';
+import { getLogPath } from './platform.js';
 
 let rootLogger: pino.Logger | null = null;
 
@@ -19,7 +19,6 @@ function getRootLogger(): pino.Logger {
     }
 
     try {
-      ensureDataDir();
       const fileStream = pino.destination({ dest: getLogPath(), sync: false, mkdir: true });
 
       if (process.env.VELLUM_DEBUG === '1') {
