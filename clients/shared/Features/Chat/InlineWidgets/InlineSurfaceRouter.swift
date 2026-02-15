@@ -52,6 +52,21 @@ public struct InlineSurfaceRouter: View {
         switch surface.data {
         case .card(let data):
             InlineCardWidget(data: data)
+        case .dynamicPage(let data):
+            if let preview = data.preview {
+                InlineDynamicPagePreview(preview: preview) {
+                    // Post notification to open (or re-open) the workspace
+                    if let msg = surface.surfaceMessage {
+                        NotificationCenter.default.post(
+                            name: Notification.Name("MainWindow.openDynamicWorkspace"),
+                            object: nil,
+                            userInfo: ["surfaceMessage": msg]
+                        )
+                    }
+                }
+            } else {
+                InlineFallbackChip(surfaceType: surface.surfaceType)
+            }
         case .table(let data):
             InlineTableWidget(data: data) { actionId, payload in
                 if actionId == "selection_changed" {

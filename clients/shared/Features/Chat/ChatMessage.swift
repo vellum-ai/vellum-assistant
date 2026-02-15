@@ -146,17 +146,20 @@ public struct InlineSurfaceData: Identifiable, Equatable {
     public let title: String?
     public let data: SurfaceData
     public let actions: [SurfaceActionButton]
+    /// Original IPC message for dynamic pages, used to re-open the workspace.
+    public let surfaceMessage: UiSurfaceShowMessage?
 
     public static func == (lhs: InlineSurfaceData, rhs: InlineSurfaceData) -> Bool {
         lhs.id == rhs.id
     }
 
-    public init(id: String, surfaceType: SurfaceType, title: String?, data: SurfaceData, actions: [SurfaceActionButton]) {
+    public init(id: String, surfaceType: SurfaceType, title: String?, data: SurfaceData, actions: [SurfaceActionButton], surfaceMessage: UiSurfaceShowMessage? = nil) {
         self.id = id
         self.surfaceType = surfaceType
         self.title = title
         self.data = data
         self.actions = actions
+        self.surfaceMessage = surfaceMessage
     }
 }
 
