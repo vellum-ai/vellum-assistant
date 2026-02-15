@@ -132,19 +132,33 @@ describe('entity extractor helpers', () => {
   });
 
   test('resolveEntityName prefers exact canonical name over alias match', () => {
-    // Entity A has "React" as an alias
-    const aliasEntityId = upsertEntity({
+    const db = getDb();
+    const now = Date.now();
+
+    // Insert two distinct entities directly to avoid upsertEntity dedupe.
+    const aliasEntityId = crypto.randomUUID();
+    db.insert(memoryEntities).values({
+      id: aliasEntityId,
       name: 'React Native',
       type: 'tool',
-      aliases: ['React', 'RN'],
-    });
+      aliases: JSON.stringify(['React', 'RN']),
+      description: null,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      mentionCount: 1,
+    }).run();
 
-    // Entity B has "React" as its canonical name
-    const canonicalEntityId = upsertEntity({
+    const canonicalEntityId = crypto.randomUUID();
+    db.insert(memoryEntities).values({
+      id: canonicalEntityId,
       name: 'React',
       type: 'tool',
-      aliases: ['ReactJS'],
-    });
+      aliases: JSON.stringify(['ReactJS']),
+      description: null,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      mentionCount: 1,
+    }).run();
 
     // resolveEntityName("React") should return the entity whose canonical
     // name is "React", not the one that merely lists it as an alias.
