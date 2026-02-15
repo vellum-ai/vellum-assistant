@@ -530,6 +530,7 @@ export class Session {
           compacted.summaryModel,
           onEvent,
           'context_compactor',
+          reqId,
         );
       }
 
@@ -825,7 +826,7 @@ export class Session {
       const restoredHistory = [...preRepairMessages, ...newMessages];
       this.messages = stripMemoryRecallMessages(restoredHistory, recall.injectedText, runtimeConfig.memory.retrieval.injectionStrategy);
 
-      this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent');
+      this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent', reqId);
 
       void getHookManager().trigger('post-message', {
         sessionId: this.conversationId,
@@ -1522,6 +1523,7 @@ export class Session {
     model: string,
     onEvent: (msg: ServerMessage) => void,
     actor: UsageActor,
+    requestId: string | null = null,
   ): void {
     if (inputTokens <= 0 && outputTokens <= 0) return;
 
@@ -1562,7 +1564,7 @@ export class Session {
           assistantId: null,
           conversationId: this.conversationId,
           runId: null,
-          requestId: null,
+          requestId,
         },
         pricing,
       );
