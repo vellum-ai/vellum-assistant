@@ -7,9 +7,14 @@ import {
 import type { ErrorContext } from '../daemon/session-error.js';
 
 describe('isUserCancellation', () => {
-  it('returns true when abort flag is set', () => {
+  it('returns false for non-AbortError even when abort flag is set', () => {
     const ctx: ErrorContext = { phase: 'agent_loop', aborted: true };
-    expect(isUserCancellation(new Error('something'), ctx)).toBe(true);
+    expect(isUserCancellation(new Error('something'), ctx)).toBe(false);
+  });
+
+  it('returns false for non-AbortError network failure during abort', () => {
+    const ctx: ErrorContext = { phase: 'agent_loop', aborted: true };
+    expect(isUserCancellation(new Error('ECONNREFUSED'), ctx)).toBe(false);
   });
 
   it('returns true for AbortError (DOMException-style) when aborted', () => {
@@ -173,11 +178,13 @@ describe('classifySessionError', () => {
   });
 
   describe('cancel/abort should NOT produce false-positive session errors', () => {
-    it('user-initiated cancel should be caught by isUserCancellation, not classifySessionError', () => {
-      // If aborted flag is set, isUserCancellation returns true and
-      // classifySessionError should not be called. Verify the guard works.
+    it('user-initiated cancel requires both AbortError and active abort signal', () => {
+      const abortErr = new DOMException('The operation was aborted', 'AbortError');
       const abortCtx: ErrorContext = { phase: 'agent_loop', aborted: true };
-      expect(isUserCancellation(new Error('The operation was aborted'), abortCtx)).toBe(true);
+      expect(isUserCancellation(abortErr, abortCtx)).toBe(true);
+
+      // Non-AbortError during abort should NOT be treated as user cancellation
+      expect(isUserCancellation(new Error('ECONNRESET'), abortCtx)).toBe(false);
     });
 
     it('DOMException AbortError is only caught when abort signal is active', () => {

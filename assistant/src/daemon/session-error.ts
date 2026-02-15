@@ -64,9 +64,9 @@ export interface ErrorContext {
  * instead of `session_error`.
  */
 export function isUserCancellation(error: unknown, ctx: ErrorContext): boolean {
-  if (ctx.aborted) return true;
-  if (error instanceof DOMException && error.name === 'AbortError' && ctx.aborted) return true;
-  if (error instanceof Error && error.name === 'AbortError' && ctx.aborted) return true;
+  if (!ctx.aborted) return false;
+  if (error instanceof DOMException && error.name === 'AbortError') return true;
+  if (error instanceof Error && error.name === 'AbortError') return true;
   return false;
 }
 
