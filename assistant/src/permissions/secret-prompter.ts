@@ -31,6 +31,13 @@ export class SecretPrompter {
     this.sendToClient = sendToClient;
   }
 
+  /**
+   * Send a secret_request to the client and wait for the response.
+   *
+   * SECURITY: Logs only metadata (requestId, service, field) — never the
+   * returned secret value. The timeout path also returns a null value
+   * without logging anything sensitive.
+   */
   async prompt(
     service: string,
     field: string,
@@ -64,6 +71,13 @@ export class SecretPrompter {
     });
   }
 
+  /**
+   * Resolve a pending secret prompt with the user-supplied value.
+   *
+   * SECURITY: This method intentionally never logs `value`. All log
+   * statements must use metadata-only fields (requestId, service, field).
+   * Any future change that adds logging here must be audited for leaks.
+   */
   resolveSecret(requestId: string, value?: string, delivery?: SecretDelivery): void {
     const pending = this.pending.get(requestId);
     if (!pending) {
