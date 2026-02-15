@@ -54,12 +54,13 @@ final class OnboardingState {
         }
         switch currentStep {
         case 0: return hasHatched ? 0.15 : 0.0
-        case 1: return 0.25
-        case 2: return 0.35
-        case 3: return speechGranted ? 0.55 : 0.40
-        case 4: return accessibilityGranted ? 0.75 : 0.60
-        case 5: return screenGranted ? 0.95 : 0.80
-        case 6: return 1.0
+        case 1: return 0.20
+        case 2: return 0.30
+        case 3: return 0.40
+        case 4: return speechGranted ? 0.55 : 0.45
+        case 5: return accessibilityGranted ? 0.75 : 0.60
+        case 6: return screenGranted ? 0.95 : 0.80
+        case 7: return 1.0
         default: return 1.0
         }
     }
@@ -85,9 +86,9 @@ final class OnboardingState {
         firstMeetingCrackProgress = CGFloat(UserDefaults.standard.double(forKey: "onboarding.firstMeetingCrackProgress"))
 
         // Clamp restored step to the variant's maximum to prevent out-of-range
-        // rendering (e.g. a step saved from the 7-step default flow would be
+        // rendering (e.g. a step saved from the 8-step default flow would be
         // invalid for the 5-step first-meeting flow).
-        let maxStep = onboardingVariant == .firstMeeting ? 4 : 6
+        let maxStep = onboardingVariant == .firstMeeting ? 4 : 7
         if currentStep > maxStep {
             currentStep = maxStep
         }

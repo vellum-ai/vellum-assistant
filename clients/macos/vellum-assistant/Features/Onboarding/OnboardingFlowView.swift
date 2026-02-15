@@ -23,8 +23,8 @@ struct OnboardingFlowView: View {
                 .opacity(0.25)
                 .allowsHitTesting(false)
 
-                if state.currentStep <= 6 {
-                    // Vertical card layout (steps 0-6)
+                if state.currentStep <= 7 {
+                    // Vertical card layout (steps 0-7)
                     VStack(spacing: 0) {
                         // TOP: Meadow background + stage image
                         ZStack {
@@ -46,14 +46,16 @@ struct OnboardingFlowView: View {
                                 case 1:
                                     NamingStepView(state: state)
                                 case 2:
-                                    FnKeyStepView(state: state)
+                                    APIKeyStepView(state: state)
                                 case 3:
-                                    SpeechPermissionStepView(state: state)
+                                    FnKeyStepView(state: state)
                                 case 4:
-                                    AccessibilityPermissionStepView(state: state)
+                                    SpeechPermissionStepView(state: state)
                                 case 5:
-                                    ScreenPermissionStepView(state: state)
+                                    AccessibilityPermissionStepView(state: state)
                                 case 6:
+                                    ScreenPermissionStepView(state: state)
+                                case 7:
                                     AliveStepView(
                                         state: state,
                                         onComplete: onComplete,
@@ -96,7 +98,7 @@ struct OnboardingFlowView: View {
                     .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
                     .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
                 } else {
-                    // Step 7: Interview — manages its own layout
+                    // Step 8: Interview — manages its own layout
                     InterviewStepView(
                         state: state,
                         daemonClient: daemonClient,
