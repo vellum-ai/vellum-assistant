@@ -201,10 +201,12 @@ export function looksLikeClarificationReply(userMessage: string): boolean {
   const normalized = words.map((w) => w.replace(/[^a-z]/g, ''));
 
   // Reject messages that start with a question word (even without '?').
-  // Use startsWith to handle contractions like "what's", "where's", etc.
+  // Match exact question words or contractions (e.g. "what's", "where's"),
+  // but not words that merely share a prefix (e.g. "whichever", "however").
   const firstWord = words[0];
+  const firstNorm = normalized[0];
   for (const qw of QUESTION_WORD_PREFIXES) {
-    if (firstWord.startsWith(qw)) return false;
+    if (firstNorm === qw || (firstWord.startsWith(qw) && firstWord[qw.length] === "'")) return false;
   }
 
   const hasAction = normalized.some((w) => ACTION_CUES.has(w));

@@ -702,6 +702,17 @@ public struct IPCSharedAppsListResponseApp: Codable, Sendable {
     public let updateAvailable: Bool?
 }
 
+public struct IPCShareToSlackRequest: Codable, Sendable {
+    public let type: String
+    public let appId: String
+}
+
+public struct IPCShareToSlackResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+}
+
 public struct IPCSignBundlePayloadRequest: Codable, Sendable {
     public let type: String
     public let payload: String
@@ -875,6 +886,19 @@ public struct IPCSkillsUninstallRequest: Codable, Sendable {
 public struct IPCSkillsUpdateRequest: Codable, Sendable {
     public let type: String
     public let name: String
+}
+
+public struct IPCSlackWebhookConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let webhookUrl: String?
+}
+
+public struct IPCSlackWebhookConfigResponse: Codable, Sendable {
+    public let type: String
+    public let webhookUrl: String?
+    public let success: Bool
+    public let error: String?
 }
 
 public struct IPCSuggestionRequest: Codable, Sendable {
@@ -1172,8 +1196,8 @@ public struct IPCWatchObservation: Codable, Sendable {
     public let windowTitle: String?
     public let bundleIdentifier: String?
     public let timestamp: Double
-    public let captureIndex: Double
-    public let totalExpected: Double
+    public let captureIndex: Int
+    public let totalExpected: Int
 }
 
 public struct IPCWatchStarted: Codable, Sendable {

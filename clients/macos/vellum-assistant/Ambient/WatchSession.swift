@@ -84,7 +84,7 @@ public final class WatchSession: ObservableObject {
                 }
                 screenContent = await ocr.recognizeText(from: screenshotData)
                 appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Unknown"
-                windowTitle = NSWorkspace.shared.frontmostApplication?.localizedName
+                windowTitle = currentWindowTitle()
                 bundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
             }
 
@@ -117,8 +117,8 @@ public final class WatchSession: ObservableObject {
                 windowTitle: windowTitle,
                 bundleIdentifier: bundleIdentifier,
                 timestamp: Date().timeIntervalSince1970 * 1000,
-                captureIndex: Double(captureCount),
-                totalExpected: Double(totalExpected)
+                captureIndex: captureCount,
+                totalExpected: totalExpected
             )
 
             do {
@@ -136,5 +136,20 @@ public final class WatchSession: ObservableObject {
             state = .complete
             log.info("Watch session complete: watchId=\(self.watchId) captures=\(self.captureCount)")
         }
+    }
+
+    private func currentWindowTitle() -> String? {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        let appRef = AXUIElementCreateApplication(app.processIdentifier)
+        var value: AnyObject?
+        guard AXUIElementCopyAttributeValue(appRef, kAXFocusedWindowAttribute as CFString, &value) == .success else {
+            return nil
+        }
+        let window = value as! AXUIElement
+        var titleValue: AnyObject?
+        guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue) == .success else {
+            return nil
+        }
+        return titleValue as? String
     }
 }

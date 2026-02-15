@@ -609,6 +609,13 @@ describe('looksLikeClarificationReply', () => {
     expect(looksLikeClarificationReply('where is the new config')).toBe(false);
   });
 
+  test('accepts words that share a question-word prefix but are not questions', () => {
+    // "whichever" starts with "which", "however" starts with "how", etc.
+    // These should NOT be rejected by the question-word gate.
+    expect(looksLikeClarificationReply('whichever option')).toBe(true);
+    expect(looksLikeClarificationReply('however you want')).toBe(true);
+  });
+
   test('rejects longer direction-only messages (false-positive prevention)', () => {
     // These contain directional cues but no action verb and are > 4 words,
     // so they are likely unrelated statements, not clarification replies.
