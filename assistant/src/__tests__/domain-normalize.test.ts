@@ -40,6 +40,13 @@ describe('normalizeDomain', () => {
     expect(result!.hostname).toBe('example.com');
   });
 
+  test('strips port from bare hostname', () => {
+    const result = normalizeDomain('example.com:8080');
+    expect(result).not.toBeNull();
+    expect(result!.hostname).toBe('example.com');
+    expect(result!.registrableDomain).toBe('example.com');
+  });
+
   // ── Normalization ───────────────────────────────────────────────────
 
   test('lowercases hostname', () => {

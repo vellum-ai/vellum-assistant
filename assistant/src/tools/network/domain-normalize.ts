@@ -44,6 +44,12 @@ export function normalizeDomain(input: string): DomainInfo | null {
     hostname = input;
   }
 
+  // Strip trailing port from bare hostnames (no scheme).
+  // Without this, "example.com:8080" is misidentified as IPv6 by isIPAddress.
+  if (!input.includes('://')) {
+    hostname = hostname.replace(/:\d+$/, '');
+  }
+
   // Normalize: lowercase, strip trailing dot
   hostname = hostname.toLowerCase().replace(/\.$/, '');
 
