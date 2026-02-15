@@ -42,6 +42,7 @@ struct ChatView: View {
 
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
+    @State private var isComposerExpanded = false
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
 
     var body: some View {
@@ -95,7 +96,7 @@ struct ChatView: View {
     private var composerReservedHeight: CGFloat {
         let editorClamped = min(max(editorContentHeight, 14), 200)
         let contentHeight = max(editorClamped, 28)
-        let expanded = contentHeight > 28
+        let expanded = isComposerExpanded
         let topPad: CGFloat = expanded ? VSpacing.lg : VSpacing.sm
         let buttonRow: CGFloat = expanded ? 28 + VSpacing.xs : 0
         let base: CGFloat = VSpacing.md + 18 + topPad + VSpacing.sm + contentHeight + buttonRow
@@ -127,7 +128,8 @@ struct ChatView: View {
                 onRemoveAttachment: onRemoveAttachment,
                 onPaste: onPaste,
                 onMicrophoneToggle: onMicrophoneToggle,
-                editorContentHeight: $editorContentHeight
+                editorContentHeight: $editorContentHeight,
+                isComposerExpanded: $isComposerExpanded
             )
         }
         .background(
