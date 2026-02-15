@@ -117,7 +117,7 @@ export const swarmDelegateTool: Tool = {
         limits,
         backend,
         workingDir: context.workingDir,
-        model: config.swarm.plannerModel,
+        model: config.swarm.synthesizerModel,
         synthesisProvider,
         synthesisModel: config.swarm.synthesizerModel,
         signal: context.signal,
