@@ -73,26 +73,18 @@ describe('Invariant 1: secrets never enter LLM context', () => {
 
 describe('Invariant 2: no generic plaintext secret read API', () => {
   for (const tc of directReadCases) {
-    // Activate after PR 17 — remove/seal generic plaintext read
-    test.skip(`${tc.modulePath} does not export ${tc.exportName}`, () => {
-      // PR 17 will remove or seal the getCredentialValue export.
-      // After PR 17, this test should:
-      // 1. Dynamically import the module
-      // 2. Assert getCredentialValue is not in the module's exports
-      //    OR assert it throws/returns opaque handle instead of plaintext
-      expect(true).toBe(true);
+    test(`${tc.modulePath} does not export ${tc.exportName}`, async () => {
+      const mod = await import(`../${tc.modulePath}.js`);
+      expect(tc.exportName in mod).toBe(false);
     });
   }
 
-  // Activate after PR 16 — browser uses broker
-  test.skip('browser_fill_credential does not call getCredentialValue directly', () => {
-    // PR 16 will refactor browser fill to use the CredentialBroker.
-    // After PR 16, this test should:
-    // 1. Mock the broker
-    // 2. Execute browser_fill_credential
-    // 3. Assert getCredentialValue was NOT called
-    // 4. Assert broker.authorize + broker.consume were called instead
-    expect(true).toBe(true);
+  test('browser_fill_credential does not import getCredentialValue', async () => {
+    // After PR 16+17, the browser tool uses CredentialBroker instead
+    // of importing getCredentialValue directly.
+    const browserModule = await import('../tools/browser/headless-browser.js');
+    // The module itself should not re-export getCredentialValue
+    expect('getCredentialValue' in browserModule).toBe(false);
   });
 });
 

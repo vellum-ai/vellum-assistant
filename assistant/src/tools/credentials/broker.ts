@@ -8,7 +8,7 @@ import type {
   UsageToken,
 } from './broker-types.js';
 import { getCredentialMetadata } from './metadata-store.js';
-import { getCredentialValue } from './vault.js';
+import { getSecureKey } from '../../security/secure-keys.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('credential-broker');
@@ -119,7 +119,7 @@ export class CredentialBroker {
     // Policy check stubs — full enforcement in PRs 19-20
     // For now, always allow if metadata exists.
 
-    const value = getCredentialValue(request.service, request.field);
+    const value = getSecureKey(`credential:${request.service}:${request.field}`);
     if (!value) {
       return {
         success: false,
