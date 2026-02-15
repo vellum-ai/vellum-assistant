@@ -642,6 +642,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     label: 'Focus time',
     durationMinutes: 25,
   },
+  reminder_fired: {
+    type: 'reminder_fired',
+    reminderId: 'rem-001',
+    label: 'Call Sidd',
+    message: 'Remember to call Sidd about the project',
+  },
   watch_started: {
     type: 'watch_started',
     sessionId: 'sess-001',
