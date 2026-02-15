@@ -55,7 +55,7 @@ export function getProfilePolicy(profile: WorkerProfile): ProfilePolicy {
     case 'researcher':
       return {
         allow: new Set(READ_ONLY_TOOLS),
-        deny: new Set(WRITE_TOOLS),
+        deny: new Set([...WRITE_TOOLS, 'Bash']),
         approvalRequired: new Set(),
       };
 

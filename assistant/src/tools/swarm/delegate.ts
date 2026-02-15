@@ -8,6 +8,7 @@ import { resolveSwarmLimits } from '../../swarm/limits.js';
 import { generatePlan } from '../../swarm/router-planner.js';
 import { executeSwarm } from '../../swarm/orchestrator.js';
 import type { SwarmWorkerBackend, SwarmWorkerBackendInput } from '../../swarm/worker-backend.js';
+import { getProfilePolicy } from '../../swarm/worker-backend.js';
 
 const log = getLogger('swarm-delegate');
 
@@ -15,8 +16,8 @@ const log = getLogger('swarm-delegate');
 let swarmActive = false;
 
 /**
- * Minimal claude_code worker backend adapter for swarm workers.
- * Delegates to the claude_code tool's backend machinery.
+ * Claude Code worker backend adapter that enforces profile-based tool policies.
+ * Uses the same canUseTool pattern as the claude_code tool.
  */
 function createClaudeCodeBackend(): SwarmWorkerBackend {
   return {
@@ -31,7 +32,6 @@ function createClaudeCodeBackend(): SwarmWorkerBackend {
     async runTask(input: SwarmWorkerBackendInput) {
       const start = Date.now();
       try {
-        // Dynamic import to avoid loading the SDK unless needed
         const { query } = await import('@anthropic-ai/claude-agent-sdk');
         const config = getConfig();
         const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
@@ -39,11 +39,25 @@ function createClaudeCodeBackend(): SwarmWorkerBackend {
           return { success: false, output: 'No API key', failureReason: 'backend_unavailable' as const, durationMs: 0 };
         }
 
+        const profilePolicy = getProfilePolicy(input.profile);
+
+        // Enforce profile restrictions — swarm workers run autonomously so
+        // there is no user to prompt; denied tools are blocked, everything
+        // else is allowed.
+        const canUseTool: import('@anthropic-ai/claude-agent-sdk').CanUseTool = async (toolName) => {
+          if (profilePolicy.deny.has(toolName)) {
+            log.debug({ toolName, profile: input.profile }, 'Swarm worker tool denied by profile');
+            return { behavior: 'deny' as const, message: `Tool "${toolName}" is denied by profile "${input.profile}"` };
+          }
+          return { behavior: 'allow' as const };
+        };
+
         const conversation = query({
           prompt: input.prompt,
           options: {
             cwd: input.workingDir,
             model: input.model ?? 'claude-sonnet-4-5-20250929',
+            canUseTool,
             permissionMode: 'default',
             maxTurns: 30,
             env: { ...process.env, ANTHROPIC_API_KEY: apiKey },
