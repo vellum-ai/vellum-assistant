@@ -31,11 +31,10 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Trust Rules Coordination
 
-    @Published var isTrustRulesSheetOpen = false
-    @Published var trustRulesOpenElsewhere = false
-
-    /// Whether the trust rules button should be disabled.
-    var isTrustRulesDisabled: Bool { isTrustRulesSheetOpen || trustRulesOpenElsewhere }
+    /// Whether any settings surface currently has a trust rules sheet open.
+    /// Sourced from `DaemonClient.isTrustRulesSheetOpen` so each view can
+    /// disable its button when the other surface is showing trust rules.
+    @Published var isAnyTrustRulesSheetOpen = false
 
     // MARK: - Private
 
@@ -63,14 +62,10 @@ public final class SettingsStore: ObservableObject {
             .sink { [weak self] _ in self?.refreshAPIKeyState() }
             .store(in: &cancellables)
 
-        // Track whether trust rules are open elsewhere
+        // Mirror DaemonClient's trust-rules-open flag so views can disable their buttons
         daemonClient?.$isTrustRulesSheetOpen
             .receive(on: RunLoop.main)
-            .sink { [weak self] isOpen in
-                guard let self else { return }
-                self.trustRulesOpenElsewhere = isOpen && !self.isTrustRulesSheetOpen
-            }
-            .store(in: &cancellables)
+            .assign(to: &$isAnyTrustRulesSheetOpen)
     }
 
     // MARK: - API Key Actions
