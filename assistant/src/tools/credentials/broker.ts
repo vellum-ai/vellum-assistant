@@ -171,12 +171,14 @@ export class CredentialBroker {
       );
       return { success: true };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      // Log the raw error for debugging but never return it — the callback
+      // error text may embed the credential value, leaking plaintext outside
+      // the broker's trust boundary.
       log.error(
         { err, service: request.service, field: request.field },
         'Browser fill failed',
       );
-      return { success: false, reason: `Fill operation failed: ${msg}` };
+      return { success: false, reason: 'Fill operation failed' };
     }
   }
 
