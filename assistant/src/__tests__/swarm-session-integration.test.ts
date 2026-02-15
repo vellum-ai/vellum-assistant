@@ -210,19 +210,27 @@ describe('swarm regression tests', () => {
   });
 
   test('recursion guard blocks concurrent invocation', async () => {
-    // Start a swarm that resolves instantly (via mock)
-    const result1 = await swarmDelegateTool.execute(
-      { objective: 'First' },
-      makeContext(),
-    );
+    const ctx = makeContext();
+
+    // Start first swarm without awaiting — execute runs synchronously up to
+    // its first internal `await`, which adds the sessionKey to activeSessions
+    // before yielding back to us.
+    const first = swarmDelegateTool.execute({ objective: 'First' }, ctx);
+
+    // While the first call is still in-flight, a second call on the same
+    // session should be rejected by the recursion guard.
+    const result2 = await swarmDelegateTool.execute({ objective: 'Second' }, ctx);
+    expect(result2.isError).toBe(true);
+    expect(result2.content).toContain('already executing');
+
+    // Let the first call finish and verify it succeeded
+    const result1 = await first;
     expect(result1.isError).toBeFalsy();
 
-    // After first completes, second should also succeed (flag reset)
-    const result2 = await swarmDelegateTool.execute(
-      { objective: 'Second' },
-      makeContext(),
-    );
-    expect(result2.isError).toBeFalsy();
+    // After the first call completes, the guard should be released —
+    // a subsequent call must succeed.
+    const result3 = await swarmDelegateTool.execute({ objective: 'Third' }, ctx);
+    expect(result3.isError).toBeFalsy();
   });
 
   test('worker backend reports unavailable when no API key', async () => {
