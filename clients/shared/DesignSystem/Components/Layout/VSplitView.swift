@@ -87,6 +87,11 @@ public struct VSplitView<Main: View, Panel: View>: View {
                         dragStartAvailableWidth = nil
                     }
             )
+            .onDisappear {
+                // Reset drag state if view is removed mid-drag (e.g., panel closed)
+                dragStartWidth = nil
+                dragStartAvailableWidth = nil
+            }
     }
 
     public init(
