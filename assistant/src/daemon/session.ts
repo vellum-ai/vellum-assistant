@@ -1949,6 +1949,8 @@ export class Session {
     const textBlock = response.content.find((b) => b.type === 'text');
     if (textBlock && textBlock.type === 'text') {
       let title = textBlock.text.trim().replace(/^["']|["']$/g, '');
+      const words = title.split(/\s+/);
+      if (words.length > 5) title = words.slice(0, 5).join(' ');
       if (title.length > 40) title = title.slice(0, 40).trimEnd();
       conversationStore.updateConversationTitle(this.conversationId, title);
       log.info({ conversationId: this.conversationId, title }, 'Auto-generated conversation title');
