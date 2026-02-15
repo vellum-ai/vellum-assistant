@@ -574,7 +574,7 @@ struct ChatView: View {
                         .accessibilityHidden(true)
                 }
             }
-            .frame(minHeight: 28, maxHeight: .infinity, alignment: .center)
+            .frame(minHeight: min(max(editorContentHeight, 28), 200), maxHeight: .infinity, alignment: .center)
 
             // Invisible anchor for auto-scroll
             Color.clear
@@ -595,6 +595,12 @@ struct ChatView: View {
             return .ignored
         }
         .onKeyPress(.return, phases: .down) { keyPress in
+            if keyPress.modifiers.contains(.shift) {
+                if let textView = NSApp.keyWindow?.firstResponder as? NSTextView {
+                    textView.insertNewlineIgnoringFieldEditor(nil)
+                }
+                return .handled
+            }
             guard keyPress.modifiers.isEmpty else { return .ignored }
             inputText = inputText.replacingOccurrences(
                 of: "\\n$", with: "", options: .regularExpression
