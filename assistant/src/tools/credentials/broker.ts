@@ -43,12 +43,13 @@ export class CredentialBroker {
 
     // Tool policy enforcement — deny if tool is not in the credential's allowed list
     if (!isToolAllowed(request.toolName, metadata.allowedTools)) {
+      const tools = metadata.allowedTools ?? [];
       return {
         authorized: false,
         reason: `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
-          (metadata.allowedTools.length === 0
+          (tools.length === 0
             ? 'No tools are currently allowed — update the credential with allowed_tools via credential_store.'
-            : `Allowed tools: ${metadata.allowedTools.join(', ')}.`),
+            : `Allowed tools: ${tools.join(', ')}.`),
       };
     }
 
@@ -128,12 +129,13 @@ export class CredentialBroker {
 
     // Tool policy enforcement — deny if tool is not in the credential's allowed list
     if (!isToolAllowed(request.toolName, metadata.allowedTools)) {
+      const tools = metadata.allowedTools ?? [];
       return {
         success: false,
         reason: `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
-          (metadata.allowedTools.length === 0
+          (tools.length === 0
             ? 'No tools are currently allowed — update the credential with allowed_tools via credential_store.'
-            : `Allowed tools: ${metadata.allowedTools.join(', ')}.`),
+            : `Allowed tools: ${tools.join(', ')}.`),
       };
     }
 
