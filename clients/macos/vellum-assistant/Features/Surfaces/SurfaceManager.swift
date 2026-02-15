@@ -15,6 +15,7 @@ final class SurfaceViewModel: ObservableObject {
     let appId: String?
     let onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
     let onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)?
+    let sandboxMode: Bool
 
     init(
         surface: Surface,
@@ -22,7 +23,8 @@ final class SurfaceViewModel: ObservableObject {
         onDismiss: @escaping () -> Void,
         appId: String? = nil,
         onDataRequest: ((String, String, String?, [String: Any]?) -> Void)? = nil,
-        onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)? = nil
+        onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)? = nil,
+        sandboxMode: Bool = false
     ) {
         self.surface = surface
         self.onAction = onAction
@@ -30,6 +32,7 @@ final class SurfaceViewModel: ObservableObject {
         self.appId = appId
         self.onDataRequest = onDataRequest
         self.onCoordinatorReady = onCoordinatorReady
+        self.sandboxMode = sandboxMode
     }
 }
 
@@ -124,6 +127,7 @@ final class SurfaceManager: ObservableObject {
         }
 
         let appId = surfaceAppIds[surface.id]
+        let isSandboxed = message.sessionId == "shared-app"
 
         let viewModel = SurfaceViewModel(
             surface: surface,
@@ -148,7 +152,8 @@ final class SurfaceManager: ObservableObject {
             } : nil,
             onCoordinatorReady: appId != nil ? { [weak self] coordinator in
                 self?.surfaceCoordinators[surface.id] = coordinator
-            } : nil
+            } : nil,
+            sandboxMode: isSandboxed
         )
         viewModels[surface.id] = viewModel
 
