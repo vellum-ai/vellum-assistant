@@ -658,6 +658,38 @@ Call `app_create` with:
 
 Since `auto_open` defaults to `true`, the app will be displayed to the user as soon as it is created. You do **not** need to call `app_open` separately after `app_create` unless `auto_open` was explicitly set to `false`.
 
+#### Preview metadata
+
+When calling `ui_show` with `surface_type: "dynamic_page"`, include a `preview` object in the `data` so that a compact preview card appears inline in chat. This lets the user see a summary of the app without switching to the workspace. The preview card includes a "View Output" button that opens the full page.
+
+```json
+{
+  "surface_type": "dynamic_page",
+  "data": {
+    "html": "...",
+    "preview": {
+      "title": "Expense Tracker",
+      "subtitle": "Personal Finance App",
+      "description": "Track your daily expenses with category breakdowns and monthly summaries.",
+      "icon": "💰",
+      "metrics": [
+        { "label": "Records", "value": "24" },
+        { "label": "Categories", "value": "8" }
+      ]
+    }
+  }
+}
+```
+
+Preview fields:
+- `title` (required): Short app name
+- `subtitle` (optional): Category or tagline
+- `description` (optional): One-sentence summary of what the app does
+- `icon` (optional): Single emoji representing the app
+- `metrics` (optional): Up to 3 key-value pills shown below the description (e.g., record counts, totals, status summaries). Only include metrics when the app has meaningful data to surface.
+
+Always include `preview` when creating or opening a dynamic page. Choose an icon and title that clearly communicate what the app is at a glance.
+
 ### 5. Handle Iteration
 
 If the user wants changes after seeing the app:
