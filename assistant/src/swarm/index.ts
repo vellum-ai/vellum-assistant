@@ -37,3 +37,8 @@ export type { WorkerStatusKind, WorkerStatusCallback, RunWorkerTaskOptions } fro
 export { runWorkerTask } from './worker-runner.js';
 
 export { generatePlan, parsePlanJSON, makeFallbackPlan } from './router-planner.js';
+
+export type { OrchestratorEventKind, OrchestratorEvent, OrchestratorStatusCallback, ExecuteSwarmOptions } from './orchestrator.js';
+export { executeSwarm } from './orchestrator.js';
+
+export { synthesizeResults } from './synthesizer.js';
