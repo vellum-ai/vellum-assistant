@@ -232,6 +232,46 @@ describe('evaluate_typescript_code tool', () => {
     expect(parsed.stdout.length).toBeLessThan(2000);
   }, 10_000);
 
+  test('filename "__runner.ts" is rejected to avoid collision with harness', async () => {
+    const result = await tool.execute({
+      code: 'export default function() { return "safe"; }',
+      filename: '__runner.ts',
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.result).toBe('safe');
+  });
+
+  test('filename "__runner" (no extension) is rejected to avoid collision', async () => {
+    const result = await tool.execute({
+      code: 'export default function() { return "safe"; }',
+      filename: '__runner',
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.result).toBe('safe');
+  });
+
+  test('result is preserved even when stdout is truncated', async () => {
+    const result = await tool.execute({
+      code: `export default function() {
+        // Fill stdout so it exceeds max_output_chars
+        for (let i = 0; i < 200; i++) console.log('x'.repeat(100));
+        return { preserved: true };
+      }`,
+      max_output_chars: 500,
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.truncated).toBe(true);
+    expect(parsed.result).toEqual({ preserved: true });
+  }, 10_000);
+
   test('async snippet works', async () => {
     const result = await tool.execute({
       code: 'export default async function(input: any) { return { async: true, got: input }; }',

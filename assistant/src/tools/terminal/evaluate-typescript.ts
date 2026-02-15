@@ -34,6 +34,7 @@ interface EvalResult {
 function sanitizeFilename(raw: string): string {
   const base = basename(raw).replace(/[^a-zA-Z0-9._-]/g, '_');
   if (!base || base.startsWith('.')) return 'snippet.ts';
+  if (base === '__runner.ts' || base === '__runner') return 'snippet.ts';
   if (!base.endsWith('.ts')) return base + '.ts';
   return base;
 }
@@ -208,14 +209,7 @@ export class EvaluateTypescriptTool implements Tool {
         let stderr = Buffer.concat(stderrChunks).toString();
         let truncated = false;
 
-        if (stdout.length + stderr.length > maxOutputChars) {
-          truncated = true;
-          const halfMax = Math.floor(maxOutputChars / 2);
-          if (stdout.length > halfMax) stdout = stdout.slice(0, halfMax) + '\n[stdout truncated]';
-          if (stderr.length > halfMax) stderr = stderr.slice(0, halfMax) + '\n[stderr truncated]';
-        }
-
-        // Extract structured result from stdout
+        // Extract structured result from raw stdout before truncation
         let result: unknown = undefined;
         if (code === 0) {
           const lines = stdout.split('\n');
@@ -230,6 +224,13 @@ export class EvaluateTypescriptTool implements Tool {
               // not the result line
             }
           }
+        }
+
+        if (stdout.length + stderr.length > maxOutputChars) {
+          truncated = true;
+          const halfMax = Math.floor(maxOutputChars / 2);
+          if (stdout.length > halfMax) stdout = stdout.slice(0, halfMax) + '\n[stdout truncated]';
+          if (stderr.length > halfMax) stderr = stderr.slice(0, halfMax) + '\n[stderr truncated]';
         }
 
         resolve({
