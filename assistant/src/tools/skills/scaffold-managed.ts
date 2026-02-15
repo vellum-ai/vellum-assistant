@@ -4,6 +4,11 @@ import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { createManagedSkill } from '../../skills/managed-store.js';
 
+/** Strip embedded newlines/carriage returns to prevent YAML frontmatter injection. */
+function sanitizeFrontmatterValue(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim();
+}
+
 export class ScaffoldManagedSkillTool implements Tool {
   name = 'scaffold_managed_skill';
   description = 'Create or update a managed skill in ~/.vellum/skills. The skill becomes available for skill_load immediately.';
@@ -82,10 +87,10 @@ export class ScaffoldManagedSkillTool implements Tool {
 
     const result = createManagedSkill({
       id: skillId.trim(),
-      name: name.trim(),
-      description: description.trim(),
+      name: sanitizeFrontmatterValue(name),
+      description: sanitizeFrontmatterValue(description),
       bodyMarkdown: bodyMarkdown,
-      emoji: typeof input.emoji === 'string' ? input.emoji : undefined,
+      emoji: typeof input.emoji === 'string' ? sanitizeFrontmatterValue(input.emoji) : undefined,
       userInvocable: typeof input.user_invocable === 'boolean' ? input.user_invocable : undefined,
       disableModelInvocation: typeof input.disable_model_invocation === 'boolean' ? input.disable_model_invocation : undefined,
       overwrite: input.overwrite === true,
