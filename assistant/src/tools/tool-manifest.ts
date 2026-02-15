@@ -13,6 +13,7 @@ import { memorySearchTool, memorySaveTool, memoryUpdateTool } from './memory/reg
 import { credentialStoreTool } from './credentials/vault.js';
 import { accountManageTool } from './credentials/account-registry.js';
 import { pomodoroTool } from './timer/pomodoro.js';
+import { screenWatchTool } from './watch/screen-watch.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // Importing these modules triggers a top-level `registerTool()` call.
@@ -46,6 +47,7 @@ export const explicitTools: Tool[] = [
   credentialStoreTool,
   accountManageTool,
   pomodoroTool,
+  screenWatchTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────
