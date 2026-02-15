@@ -1,4 +1,4 @@
-import type { ContentBlock, Message } from "../providers/types.js";
+import type { ContentBlock } from "../providers/types.js";
 
 export interface MessageAttachmentInput {
   id?: string;
@@ -32,14 +32,4 @@ export function attachmentsToContentBlocks(attachments: MessageAttachmentInput[]
       extracted_text: attachment.extractedText,
     } as ContentBlock;
   });
-}
-
-export function createUserMessageWithAttachments(text: string, attachments: MessageAttachmentInput[]): Message {
-  const contentBlocks: ContentBlock[] = [];
-  const trimmed = text.trim();
-  if (trimmed.length > 0) {
-    contentBlocks.push({ type: "text", text: trimmed });
-  }
-  contentBlocks.push(...attachmentsToContentBlocks(attachments));
-  return { role: "user", content: contentBlocks };
 }

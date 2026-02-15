@@ -135,6 +135,12 @@ describe('buildSystemPrompt', () => {
     expect(result.indexOf('Soul content')).toBeLessThan(result.indexOf('## Available Skills'));
   });
 
+  test('includes swarm guidance section', () => {
+    const result = buildSystemPrompt();
+    expect(result).toContain('## Parallel Task Orchestration');
+    expect(result).toContain('swarm_delegate');
+  });
+
   test('omits user skills from catalog when none are configured', () => {
     const result = buildSystemPrompt();
     // No user skill directories exist, so no user skills should appear.

@@ -294,6 +294,26 @@ async function scanHtmlEntry(
     }
   }
 
+  // --- Block-level: iframe srcdoc ---
+  if (/srcdoc\s*=/i.test(html)) {
+    findings.push({
+      category: "html",
+      code: "iframe_srcdoc",
+      message: "iframe srcdoc attribute can embed executable HTML",
+      level: "block",
+    });
+  }
+
+  // --- Block-level: formaction attribute ---
+  if (/formaction\s*=\s*["']https?:\/\//i.test(html)) {
+    findings.push({
+      category: "html",
+      code: "formaction_external",
+      message: "formaction attribute with external URL bypasses form restrictions",
+      level: "block",
+    });
+  }
+
   // --- Warn-level: suspicious JS patterns ---
 
   const warnPatterns: { pattern: RegExp; code: string; message: string }[] = [
@@ -319,6 +339,31 @@ async function scanHtmlEntry(
       pattern: /\bwindow\.location\s*=/g,
       code: "window_location_assign",
       message: "Assignment to window.location detected",
+    },
+    {
+      pattern: /\bon(?:error|load|focus|blur|mouseover|mouseout|click|dblclick|submit|input|change|keydown|keyup|keypress)\s*=/g,
+      code: "html_event_handler",
+      message: "HTML event handler attribute detected",
+    },
+    {
+      pattern: /@import\s+(?:url\s*\(|['"]https?:\/\/)/g,
+      code: "css_import",
+      message: "CSS @import with external URL detected",
+    },
+    {
+      pattern: /url\s*\(\s*['"]?https?:\/\//g,
+      code: "css_external_url",
+      message: "CSS url() with external URL detected (potential tracking pixel)",
+    },
+    {
+      pattern: /(?:src|href)\s*=\s*["']data:/g,
+      code: "data_uri",
+      message: "data: URI in src/href attribute detected",
+    },
+    {
+      pattern: /(?:href|src|action)\s*=\s*["']javascript:/g,
+      code: "javascript_uri",
+      message: "javascript: URI detected",
     },
   ];
 
@@ -434,6 +479,26 @@ async function scanAssets(zip: JSZip, findings: ScanFinding[], manifestEntry?: s
           code: "magic_bytes_mismatch",
           message: `File ${name} has extension .svg but does not appear to be valid SVG`,
           level: "block",
+        });
+      }
+
+      // SVG <script> tags — block-level
+      if (/<script/i.test(data)) {
+        findings.push({
+          category: "asset",
+          code: "svg_script",
+          message: `SVG file contains <script> tag: ${name}`,
+          level: "block",
+        });
+      }
+
+      // SVG event handlers — warn-level
+      if (/\bon\w+\s*=/i.test(data)) {
+        findings.push({
+          category: "asset",
+          code: "svg_event_handler",
+          message: `SVG file contains event handler attribute: ${name}`,
+          level: "warn",
         });
       }
     }

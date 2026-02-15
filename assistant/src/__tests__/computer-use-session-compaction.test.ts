@@ -61,7 +61,7 @@ describe('ComputerUseSession.compactHistory', () => {
     const firstToolResult = compacted[1].content[0];
     expect(firstToolResult.type).toBe('tool_result');
     if (firstToolResult.type === 'tool_result') {
-      expect(firstToolResult.content).toContain('[Previous screen state omitted for brevity]');
+      expect(firstToolResult.content).toContain('<ax_tree_omitted />');
       expect(firstToolResult.content).not.toContain('<ax-tree>');
     }
 
@@ -98,7 +98,7 @@ describe('ComputerUseSession.compactHistory', () => {
     const firstToolResult = compacted[1].content[0];
     if (firstToolResult.type === 'tool_result') {
       expect(firstToolResult.content).not.toContain('<ax-tree>');
-      expect(firstToolResult.content).toContain('[Previous screen state omitted for brevity]');
+      expect(firstToolResult.content).toContain('<ax_tree_omitted />');
     }
   });
 

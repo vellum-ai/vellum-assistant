@@ -92,6 +92,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     axDiff: '+ new element',
     secondaryWindows: 'Finder, Terminal',
     screenshot: 'base64-screenshot-data',
+    screenshotWidthPx: 1280,
+    screenshotHeightPx: 720,
+    screenWidthPt: 1920,
+    screenHeightPt: 1080,
+    coordinateOrigin: 'top_left',
+    captureDisplayId: 69734112,
     executionResult: 'click completed',
   },
   ambient_observation: {
@@ -214,6 +220,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'shared_app_delete',
     uuid: 'abc-123-def',
   },
+  fork_shared_app: {
+    type: 'fork_shared_app',
+    uuid: 'abc-123-def',
+  },
   open_bundle: {
     type: 'open_bundle',
     filePath: '/tmp/My_App.vellumapp',
@@ -233,6 +243,25 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'secret_response',
     requestId: 'req-secret-001',
     value: 'ghp_test_token_value',
+  },
+  sessions_clear: {
+    type: 'sessions_clear',
+  },
+  ipc_blob_probe: {
+    type: 'ipc_blob_probe',
+    probeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    nonceSha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+  },
+  gallery_list: {
+    type: 'gallery_list',
+  },
+  gallery_install: {
+    type: 'gallery_install',
+    galleryAppId: 'gallery-pomodoro-timer',
+  },
+  share_app_cloud: {
+    type: 'share_app_cloud',
+    appId: 'app-001',
   },
 };
 
@@ -289,6 +318,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     toolName: 'bash',
     input: { command: 'rm -rf /tmp/test' },
     riskLevel: 'high',
+    executionTarget: 'sandbox',
     allowlistOptions: [
       { label: 'Allow rm commands', description: 'Allow rm commands', pattern: 'bash:rm *' },
     ],
@@ -307,6 +337,9 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   message_complete: {
     type: 'message_complete',
     sessionId: 'sess-001',
+    attachments: [
+      { filename: 'chart.png', mimeType: 'image/png', data: 'iVBORw0K' },
+    ],
   },
   session_info: {
     type: 'session_info',
@@ -321,12 +354,20 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       { id: 'sess-002', title: 'Second session', updatedAt: 1700001000 },
     ],
   },
+  sessions_clear_response: {
+    type: 'sessions_clear_response',
+    cleared: 3,
+  },
   error: {
     type: 'error',
     message: 'Something went wrong',
   },
   pong: {
     type: 'pong',
+  },
+  daemon_status: {
+    type: 'daemon_status',
+    httpPort: 7821,
   },
   generation_cancelled: {
     type: 'generation_cancelled',
@@ -336,6 +377,9 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: 'sess-001',
     requestId: 'req-handoff-001',
     queuedCount: 2,
+    attachments: [
+      { filename: 'report.pdf', mimeType: 'application/pdf', data: 'JVBER' },
+    ],
   },
   model_info: {
     type: 'model_info',
@@ -347,12 +391,20 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: 'sess-history-001',
     messages: [
       { role: 'user', text: 'Hello', timestamp: 1700000000 },
-      { role: 'assistant', text: 'Hi there!', timestamp: 1700000001 },
+      {
+        role: 'assistant',
+        text: 'Hi there!',
+        timestamp: 1700000001,
+        attachments: [
+          { filename: 'result.png', mimeType: 'image/png', data: 'iVBORw0K' },
+        ],
+      },
     ],
   },
   undo_complete: {
     type: 'undo_complete',
     removedCount: 2,
+    sessionId: 'session-abc',
   },
   usage_update: {
     type: 'usage_update',
@@ -398,6 +450,10 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     semanticHits: 8,
     recencyHits: 6,
     entityHits: 3,
+    relationSeedEntityCount: 2,
+    relationTraversedEdgeCount: 5,
+    relationNeighborEntityCount: 3,
+    relationExpandedItemCount: 4,
     mergedCount: 18,
     selectedCount: 10,
     rerankApplied: false,
@@ -414,6 +470,13 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     degraded: false,
     provider: 'openai',
     model: 'text-embedding-3-small',
+    conflictsPending: 2,
+    conflictsResolved: 7,
+    oldestPendingConflictAgeMs: 90_000,
+    cleanupResolvedJobsPending: 1,
+    cleanupSupersededJobsPending: 0,
+    cleanupResolvedJobsCompleted24h: 12,
+    cleanupSupersededJobsCompleted24h: 8,
   },
   cu_action: {
     type: 'cu_action',
@@ -607,6 +670,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'shared_app_delete_response',
     success: true,
   },
+  fork_shared_app_response: {
+    type: 'fork_shared_app_response',
+    success: true,
+    appId: 'new-app-id',
+    name: 'My App (Fork)',
+  },
   open_bundle_response: {
     type: 'open_bundle_response',
     manifest: {
@@ -637,6 +706,53 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   get_signing_identity: {
     type: 'get_signing_identity',
+  },
+  session_error: {
+    type: 'session_error',
+    sessionId: 'sess-001',
+    code: 'PROVIDER_NETWORK',
+    userMessage: 'Unable to reach the AI provider. Please try again.',
+    retryable: true,
+    debugDetails: 'ETIMEDOUT after 30000ms',
+  },
+  trace_event: {
+    type: 'trace_event',
+    eventId: 'evt-001',
+    sessionId: 'sess-001',
+    requestId: 'req-001',
+    timestampMs: 1700000000000,
+    sequence: 1,
+    kind: 'tool_started',
+    status: 'info',
+    summary: 'Running bash: ls -la',
+    attributes: { toolName: 'bash', command: 'ls -la', riskLevel: 'low', sandboxed: true },
+  },
+  ipc_blob_probe_result: {
+    type: 'ipc_blob_probe_result',
+    probeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    ok: true,
+    observedNonceSha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+  },
+  gallery_list_response: {
+    type: 'gallery_list_response',
+    gallery: {
+      version: 1,
+      updatedAt: '2026-02-15T00:00:00Z',
+      categories: [{ id: 'productivity', name: 'Productivity', icon: '\u{1F4CB}' }],
+      apps: [],
+    },
+  },
+  gallery_install_response: {
+    type: 'gallery_install_response',
+    success: true,
+    appId: 'app-new-001',
+    name: 'Pomodoro Timer',
+  },
+  share_app_cloud_response: {
+    type: 'share_app_cloud_response',
+    success: true,
+    shareToken: 'abc123def456',
+    shareUrl: 'http://localhost:7821/v1/apps/shared/abc123def456',
   },
 };
 
@@ -680,5 +796,40 @@ describe('IPC message snapshots', () => {
       const parsed = JSON.parse(serialized.trimEnd());
       expect(parsed).toEqual(msg);
     }
+  });
+
+  // Baseline assertions for error-related message contracts.
+  // These document the current shape before error handling modernization.
+  describe('error message baselines', () => {
+    test('error message has exactly type and message fields', () => {
+      const keys = Object.keys(serverMessages.error).sort();
+      expect(keys).toEqual(['message', 'type']);
+    });
+
+    test('cu_error message has exactly type, sessionId, and message fields', () => {
+      const keys = Object.keys(serverMessages.cu_error).sort();
+      expect(keys).toEqual(['message', 'sessionId', 'type']);
+    });
+
+    test('tool_result isError field is optional boolean', () => {
+      const withError = { ...serverMessages.tool_result, isError: true };
+      const withoutError = { ...serverMessages.tool_result };
+      delete (withoutError as Record<string, unknown>).isError;
+
+      // Both shapes must round-trip cleanly
+      expect(JSON.parse(serialize(withError).trimEnd()).isError).toBe(true);
+      const parsed = JSON.parse(serialize(withoutError).trimEnd());
+      expect(parsed.isError).toBeUndefined();
+    });
+
+    test('generation_cancelled has type field and optional sessionId', () => {
+      const cancelled = serverMessages.generation_cancelled;
+      expect(cancelled.type).toBe('generation_cancelled');
+    });
+
+    test('message_complete has type field and optional sessionId', () => {
+      const complete = serverMessages.message_complete;
+      expect(complete.type).toBe('message_complete');
+    });
   });
 });

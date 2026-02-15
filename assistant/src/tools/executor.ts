@@ -1,15 +1,15 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { getTool, getAllTools } from './registry.js';
-import type { ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
+import type { ExecutionTarget, ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
 import { RiskLevel } from '../permissions/types.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { addRule } from '../permissions/trust-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { ToolError, PermissionDeniedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
-import { findAllMatches, adjustIndentation } from './filesystem/fuzzy-match.js';
-import { validateFilePath } from './filesystem/path-guard.js';
-import { MAX_FILE_SIZE_BYTES } from './filesystem/size-guard.js';
+import { sandboxPolicy } from './shared/filesystem/path-policy.js';
+import { MAX_FILE_SIZE_BYTES } from './shared/filesystem/size-guard.js';
+import { applyEdit } from './shared/filesystem/edit-engine.js';
 import { wrapCommand } from './terminal/sandbox.js';
 import { getConfig } from '../config/loader.js';
 import { scanText, redactSecrets } from '../security/secret-scanner.js';
@@ -32,10 +32,12 @@ export class ToolExecutor {
     const startTime = Date.now();
     let decision = 'allow';
     let riskLevel: string = RiskLevel.Low;
+    const executionTarget = resolveExecutionTarget(name);
 
     emitLifecycleEvent(context, {
       type: 'start',
       toolName: name,
+      executionTarget,
       input,
       workingDir: context.workingDir,
       sessionId: context.sessionId,
@@ -52,6 +54,7 @@ export class ToolExecutor {
       emitLifecycleEvent(context, {
         type: 'error',
         toolName: name,
+        executionTarget,
         input,
         workingDir: context.workingDir,
         sessionId: context.sessionId,
@@ -78,6 +81,7 @@ export class ToolExecutor {
         emitLifecycleEvent(context, {
           type: 'permission_denied',
           toolName: name,
+          executionTarget,
           input,
           workingDir: context.workingDir,
           sessionId: context.sessionId,
@@ -94,21 +98,25 @@ export class ToolExecutor {
       if (result.decision === 'prompt') {
         // Need user approval
         const allowlistOptions = generateAllowlistOptions(name, input);
-        const scopeOptions = generateScopeOptions(context.workingDir);
+        const scopeOptions = generateScopeOptions(context.workingDir, name);
 
         // Compute preview diff for file tools so the user sees what will change
         const previewDiff = computePreviewDiff(name, input, context.workingDir);
 
         let sandboxed: boolean | undefined;
         if (name === 'bash' && typeof input.command === 'string') {
-          const sandboxEnabled = context.sandboxOverride ?? getConfig().sandbox.enabled;
-          const wrapped = wrapCommand(input.command, context.workingDir, sandboxEnabled);
+          const cfg = getConfig();
+          const sandboxConfig = context.sandboxOverride != null
+            ? { ...cfg.sandbox, enabled: context.sandboxOverride }
+            : cfg.sandbox;
+          const wrapped = wrapCommand(input.command, context.workingDir, sandboxConfig);
           sandboxed = wrapped.sandboxed;
         }
 
         emitLifecycleEvent(context, {
           type: 'permission_prompt',
           toolName: name,
+          executionTarget,
           input,
           workingDir: context.workingDir,
           sessionId: context.sessionId,
@@ -138,6 +146,7 @@ export class ToolExecutor {
           previewDiff,
           sandboxed,
           context.conversationId,
+          executionTarget,
         );
 
         decision = response.decision;
@@ -154,6 +163,7 @@ export class ToolExecutor {
           emitLifecycleEvent(context, {
             type: 'permission_denied',
             toolName: name,
+            executionTarget,
             input,
             workingDir: context.workingDir,
             sessionId: context.sessionId,
@@ -176,6 +186,7 @@ export class ToolExecutor {
           emitLifecycleEvent(context, {
             type: 'permission_denied',
             toolName: name,
+            executionTarget,
             input,
             workingDir: context.workingDir,
             sessionId: context.sessionId,
@@ -209,6 +220,7 @@ export class ToolExecutor {
         emitLifecycleEvent(context, {
           type: 'error',
           toolName: name,
+          executionTarget,
           input,
           workingDir: context.workingDir,
           sessionId: context.sessionId,
@@ -232,6 +244,7 @@ export class ToolExecutor {
           emitLifecycleEvent(context, {
             type: 'error',
             toolName: name,
+            executionTarget,
             input,
             workingDir: context.workingDir,
             sessionId: context.sessionId,
@@ -269,6 +282,7 @@ export class ToolExecutor {
           emitLifecycleEvent(context, {
             type: 'secret_detected',
             toolName: name,
+            executionTarget,
             input,
             workingDir: context.workingDir,
             sessionId: context.sessionId,
@@ -298,6 +312,7 @@ export class ToolExecutor {
             emitLifecycleEvent(context, {
               type: 'executed',
               toolName: name,
+              executionTarget,
               input,
               workingDir: context.workingDir,
               sessionId: context.sessionId,
@@ -327,6 +342,7 @@ export class ToolExecutor {
       emitLifecycleEvent(context, {
         type: 'executed',
         toolName: name,
+        executionTarget,
         input,
         workingDir: context.workingDir,
         sessionId: context.sessionId,
@@ -356,6 +372,7 @@ export class ToolExecutor {
       emitLifecycleEvent(context, {
         type: 'error',
         toolName: name,
+        executionTarget,
         input,
         workingDir: context.workingDir,
         sessionId: context.sessionId,
@@ -385,6 +402,19 @@ export class ToolExecutor {
       return { content: `Tool "${name}" encountered an unexpected error: ${msg}`, isError: true };
     }
   }
+}
+
+function resolveExecutionTarget(toolName: string): ExecutionTarget {
+  if (toolName.startsWith('host_') || toolName.startsWith('cu_') || toolName === 'request_computer_control') {
+    return 'host';
+  }
+  // Check the tool's executionMode metadata — proxy tools run on the connected
+  // client (host), not inside the sandbox.
+  const tool = getTool(toolName);
+  if (tool?.executionMode === 'proxy') {
+    return 'host';
+  }
+  return 'sandbox';
 }
 
 /**
@@ -439,7 +469,7 @@ function computePreviewDiff(
       const rawPath = input.path as string;
       const content = input.content as string;
       if (!rawPath || typeof content !== 'string') return undefined;
-      const pathCheck = validateFilePath(rawPath, workingDir, { mustExist: false });
+      const pathCheck = sandboxPolicy(rawPath, workingDir, { mustExist: false });
       if (!pathCheck.ok) return undefined;
       const filePath = pathCheck.resolved;
       const isNewFile = !existsSync(filePath);
@@ -456,7 +486,7 @@ function computePreviewDiff(
       const oldString = input.old_string as string;
       const newString = input.new_string as string;
       if (!rawPath || typeof oldString !== 'string' || typeof newString !== 'string' || oldString.length === 0) return undefined;
-      const pathCheck = validateFilePath(rawPath, workingDir);
+      const pathCheck = sandboxPolicy(rawPath, workingDir);
       if (!pathCheck.ok) return undefined;
       const filePath = pathCheck.resolved;
       if (!existsSync(filePath)) return undefined;
@@ -464,20 +494,9 @@ function computePreviewDiff(
       if (stat.size > MAX_FILE_SIZE_BYTES) return undefined;
       const content = readFileSync(filePath, 'utf-8');
       const replaceAll = input.replace_all === true;
-      let updated: string;
-      if (replaceAll) {
-        if (!content.includes(oldString)) return undefined;
-        updated = content.split(oldString).join(newString);
-      } else {
-        const matches = findAllMatches(content, oldString);
-        if (matches.length !== 1) return undefined;
-        const match = matches[0];
-        const adjustedNewString = match.method !== 'exact'
-          ? adjustIndentation(oldString, match.matched, newString)
-          : newString;
-        updated = content.slice(0, match.start) + adjustedNewString + content.slice(match.end);
-      }
-      return { filePath, oldContent: content, newContent: updated, isNewFile: false };
+      const result = applyEdit(content, oldString, newString, replaceAll);
+      if (!result.ok) return undefined;
+      return { filePath, oldContent: content, newContent: result.updatedContent, isNewFile: false };
     }
   } catch {
     // Preview is best-effort — don't block the prompt on errors

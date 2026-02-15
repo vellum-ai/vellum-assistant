@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import SwiftUI
 
 /// Compact dark frosted glass card for onboarding step content.

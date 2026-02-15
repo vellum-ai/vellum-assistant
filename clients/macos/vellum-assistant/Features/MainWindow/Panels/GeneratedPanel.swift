@@ -22,8 +22,12 @@ private struct DisplayAppItem: Identifiable {
 
 struct GeneratedPanel: View {
     var onClose: () -> Void
+    @Binding var isExpanded: Bool
     let daemonClient: DaemonClient
+    /// When set, app opens route to the workspace instead of a floating NSPanel.
+    var onOpenApp: ((UiSurfaceShowMessage) -> Void)?
 
+    @State private var searchText = ""
     @State private var displayItems: [DisplayAppItem] = []
     @State private var isLoading = false
     @State private var hoveredAppId: String?
@@ -36,37 +40,126 @@ struct GeneratedPanel: View {
     // Track how many list responses we're waiting for
     @State private var pendingResponses = 0
 
-    init(onClose: @escaping () -> Void, daemonClient: DaemonClient) {
+    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil) {
         self.onClose = onClose
+        self._isExpanded = isExpanded
         self.daemonClient = daemonClient
+        self.onOpenApp = onOpenApp
     }
 
     var body: some View {
-        VSidePanel(title: "Generated", onClose: onClose) {
-            if isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                    Spacer()
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                Button(action: { withAnimation(VAnimation.fast) { isExpanded.toggle() } }) {
+                    Image(systemName: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 28, height: 28, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
-                .frame(height: 250)
-            } else if displayItems.isEmpty {
-                VEmptyState(
-                    title: "No generated items",
-                    subtitle: "Items created by your assistant will appear here",
-                    icon: "wand.and.stars"
-                )
-            } else {
-                VStack(spacing: VSpacing.md) {
-                    ForEach(displayItems) { item in
-                        appRow(item)
+                .buttonStyle(.plain)
+                .accessibilityLabel(isExpanded ? "Exit full screen" : "Enter full screen")
+
+                Text("DYNAMIC")
+                    .font(VFont.panelTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
+
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close Dynamic")
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.vertical, VSpacing.lg)
+
+            Divider()
+                .background(VColor.surfaceBorder)
+
+            // Search bar
+            if !displayItems.isEmpty || !searchText.isEmpty {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12))
+                        .foregroundColor(VColor.textMuted)
+
+                    TextField("Filter pages...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+
+                    if !searchText.isEmpty {
+                        Button(action: { searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
+                .padding(VSpacing.md)
+                .background(Slate._800)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .padding(.horizontal, VSpacing.xl)
+                .padding(.top, VSpacing.md)
+            }
+
+            // Scrollable content
+            ScrollView {
+                Group {
+                    if isLoading {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .controlSize(.small)
+                            Spacer()
+                        }
+                        .frame(height: 250)
+                    } else if displayItems.isEmpty {
+                        VEmptyState(
+                            title: "No dynamic pages",
+                            subtitle: "Dynamic UIs generated by your assistant will appear here",
+                            icon: "wand.and.stars"
+                        )
+                    } else if filteredItems.isEmpty {
+                        VEmptyState(
+                            title: "No results",
+                            subtitle: "No pages matched \"\(searchText)\"",
+                            icon: "magnifyingglass"
+                        )
+                        .frame(height: 100)
+                    } else {
+                        VStack(spacing: VSpacing.md) {
+                            ForEach(filteredItems) { item in
+                                appRow(item)
+                            }
+                        }
+                    }
+                }
+                .padding(VSpacing.xl)
             }
         }
+        .background(VColor.backgroundSubtle)
         .onAppear {
             fetchApps()
+        }
+    }
+
+    private var filteredItems: [DisplayAppItem] {
+        guard !searchText.isEmpty else { return displayItems }
+        return displayItems.filter {
+            // Always keep the row being shared so its ShareSheetButton stays
+            // in the view tree even if the search text changes mid-bundle.
+            if let sharingAppId, $0.id == sharingAppId { return true }
+            return $0.name.localizedCaseInsensitiveContains(searchText) ||
+                ($0.description?.localizedCaseInsensitiveContains(searchText) ?? false)
         }
     }
 
@@ -142,6 +235,7 @@ struct GeneratedPanel: View {
                         shareButton(for: item)
 
                         if item.isShared {
+                            forkButton(for: item)
                             deleteButton(for: item)
                         }
                     }
@@ -231,7 +325,10 @@ struct GeneratedPanel: View {
                     items: shareFileURL != nil && sharingAppId == item.id ? [shareFileURL!] : [],
                     isPresented: Binding(
                         get: { showShareSheet && sharingAppId == item.id },
-                        set: { showShareSheet = $0 }
+                        set: { newValue in
+                            showShareSheet = newValue
+                            if !newValue { sharingAppId = nil }
+                        }
                     )
                 )
                 .frame(width: 0, height: 0)
@@ -247,7 +344,10 @@ struct GeneratedPanel: View {
                     items: shareFileURL != nil && sharingAppId == item.id ? [shareFileURL!] : [],
                     isPresented: Binding(
                         get: { showShareSheet && sharingAppId == item.id },
-                        set: { showShareSheet = $0 }
+                        set: { newValue in
+                            showShareSheet = newValue
+                            if !newValue { sharingAppId = nil }
+                        }
                     )
                 )
                 .frame(width: 0, height: 0)
@@ -257,6 +357,12 @@ struct GeneratedPanel: View {
                     reshareApp(uuid: uuid, itemId: item.id)
                 }
             }
+        }
+    }
+
+    private func forkButton(for item: DisplayAppItem) -> some View {
+        VIconButton(label: "Fork", icon: "arrow.triangle.branch", iconOnly: true) {
+            forkSharedApp(item)
         }
     }
 
@@ -376,7 +482,9 @@ struct GeneratedPanel: View {
 
     private func openApp(_ item: DisplayAppItem) {
         if let localId = item.localAppId {
-            // Local apps: ask the daemon to open via ui_surface_show
+            // Local apps: ask the daemon to open via ui_surface_show.
+            // When onOpenApp is set, the daemon's response will be intercepted
+            // by SurfaceManager and routed to the workspace (see PR 5).
             try? daemonClient.sendAppOpen(appId: localId)
         } else if let uuid = item.sharedUUID {
             // Shared apps: construct surface from unpacked files on disk
@@ -402,7 +510,11 @@ struct GeneratedPanel: View {
                 actions: nil,
                 display: "panel"
             )
-            daemonClient.onSurfaceShow?(surfaceMsg)
+            if let onOpenApp {
+                onOpenApp(surfaceMsg)
+            } else {
+                daemonClient.onSurfaceShow?(surfaceMsg)
+            }
         }
     }
 
@@ -460,6 +572,26 @@ struct GeneratedPanel: View {
         }
     }
 
+    // MARK: - Fork Shared App
+
+    private func forkSharedApp(_ item: DisplayAppItem) {
+        guard let uuid = item.sharedUUID else { return }
+
+        Task { @MainActor in
+            daemonClient.onForkSharedAppResponse = { response in
+                if response.success {
+                    self.fetchApps()
+                }
+            }
+
+            do {
+                try daemonClient.sendForkSharedApp(uuid: uuid)
+            } catch {
+                // Silently fail
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func formatDate(_ epochMs: Int) -> String {
@@ -488,5 +620,5 @@ struct GeneratedPanel: View {
 }
 
 #Preview {
-    GeneratedPanel(onClose: {}, daemonClient: DaemonClient())
+    GeneratedPanel(onClose: {}, isExpanded: .constant(false), daemonClient: DaemonClient())
 }

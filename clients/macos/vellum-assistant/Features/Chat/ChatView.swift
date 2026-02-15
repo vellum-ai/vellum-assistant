@@ -21,6 +21,7 @@ struct ChatView: View {
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
     let onDropFiles: ([URL]) -> Void
+    let onDropImageData: (Data, String?) -> Void
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
     let onConfirmationAllow: (String) -> Void
@@ -28,17 +29,10 @@ struct ChatView: View {
     let onAddTrustRule: (String, String, String, String) -> Bool
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onRegenerate: () -> Void
-
-    /// The portion of the suggestion that extends beyond the current input.
-    private var ghostSuffix: String? {
-        guard let suggestion else { return nil }
-        if suggestion.hasPrefix(inputText) {
-            let suffix = String(suggestion.dropFirst(inputText.count))
-            return suffix.isEmpty ? nil : suffix
-        }
-        if inputText.isEmpty { return suggestion }
-        return nil
-    }
+    let sessionError: SessionError?
+    let onRetry: () -> Void
+    let onDismissSessionError: () -> Void
+    let onCopyDebugInfo: () -> Void
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
@@ -46,20 +40,111 @@ struct ChatView: View {
         return (last?.text.count ?? 0) + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
 
+    @State private var isDropTargeted = false
+    @State private var editorContentHeight: CGFloat = 20
+    @State private var isComposerExpanded = false
+    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
+
     var body: some View {
+        ZStack {
+            VStack(spacing: 0) {
+                apiKeyBanner
+                ZStack(alignment: .bottom) {
+                    messageList
+                        .safeAreaInset(edge: .bottom) {
+                            Color.clear.frame(height: composerReservedHeight)
+                                .animation(VAnimation.fast, value: editorContentHeight)
+                        }
+
+                    composerOverlay
+                }
+            }
+            .background(alignment: .bottom) {
+                chatBackground
+            }
+            .background(VColor.chatBackground)
+
+            // Drop target overlay
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(VColor.accent, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .fill(VColor.accent.opacity(0.08))
+                    )
+                    .overlay {
+                        VStack(spacing: VSpacing.sm) {
+                            Image(systemName: "arrow.down.doc.fill")
+                                .font(.system(size: 28, weight: .medium))
+                                .foregroundColor(VColor.accent)
+                            Text("Drop files here")
+                                .font(VFont.bodyMedium)
+                                .foregroundColor(VColor.accent)
+                        }
+                    }
+                    .padding(VSpacing.lg)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
+        .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
+            handleDrop(providers: providers)
+        }
+    }
+
+    /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
+    private var composerReservedHeight: CGFloat {
+        let editorClamped = min(max(editorContentHeight, 14), 200)
+        let contentHeight = max(editorClamped, 28)
+        let expanded = isComposerExpanded
+        let topPad: CGFloat = expanded ? VSpacing.lg : VSpacing.sm
+        let buttonRow: CGFloat = expanded ? 28 + VSpacing.xs : 0
+        let base: CGFloat = VSpacing.md + 18 + topPad + VSpacing.sm + contentHeight + buttonRow
+        let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 44
+        let error: CGFloat = sessionError != nil ? 60 : (errorText != nil ? 36 : 0)
+        let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
+        return base + attachments + error + queue
+    }
+
+    private var composerOverlay: some View {
         VStack(spacing: 0) {
-            apiKeyBanner
-            messageList
-            if let errorText {
+            if let sessionError {
+                sessionErrorToast(sessionError)
+            } else if let errorText {
                 errorBanner(errorText)
             }
             queueSummary
-            composerArea
+            ComposerView(
+                inputText: $inputText,
+                hasAPIKey: hasAPIKey,
+                isSending: isSending,
+                isRecording: isRecording,
+                suggestion: suggestion,
+                pendingAttachments: pendingAttachments,
+                onSend: onSend,
+                onStop: onStop,
+                onAcceptSuggestion: onAcceptSuggestion,
+                onAttach: onAttach,
+                onRemoveAttachment: onRemoveAttachment,
+                onPaste: onPaste,
+                onMicrophoneToggle: onMicrophoneToggle,
+                editorContentHeight: $editorContentHeight,
+                isComposerExpanded: $isComposerExpanded
+            )
         }
-        .background(alignment: .bottom) {
-            chatBackground
-        }
-        .background(VColor.chatBackground)
+        .background(
+            // Gentle fade that never becomes fully opaque — background stays visible
+            LinearGradient(
+                stops: [
+                    .init(color: VColor.chatBackground.opacity(0), location: 0),
+                    .init(color: VColor.chatBackground.opacity(0.5), location: 0.5),
+                    .init(color: VColor.chatBackground.opacity(0.65), location: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .allowsHitTesting(false)
+        )
     }
 
     @ViewBuilder
@@ -73,7 +158,97 @@ struct ChatView: View {
         }
     }
 
+    /// Handle dropped items — supports both file URLs and raw image data.
+    /// File URLs are preferred (preserves original filenames); raw image data
+    /// is used as a fallback for providers without a backing file (e.g. screenshot
+    /// thumbnails or images dragged from certain apps).
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        var urls: [URL] = []
+        var imageDataItems: [NSItemProvider] = []
+        let group = DispatchGroup()
+
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                let hasImageFallback = provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+                    || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
+                    || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier)
+                group.enter()
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    DispatchQueue.main.async {
+                        if let url, FileManager.default.fileExists(atPath: url.path) {
+                            urls.append(url)
+                            group.leave()
+                        } else if hasImageFallback {
+                            // File URL failed (e.g. screenshot not saved yet) — load raw image data instead
+                            let typeIdentifier: String
+                            if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
+                                typeIdentifier = UTType.png.identifier
+                            } else if provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
+                                typeIdentifier = UTType.tiff.identifier
+                            } else {
+                                typeIdentifier = UTType.image.identifier
+                            }
+                            let suggestedName = provider.suggestedName
+                            provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
+                                DispatchQueue.main.async {
+                                    if let data {
+                                        onDropImageData(data, suggestedName)
+                                    }
+                                    group.leave()
+                                }
+                            }
+                        } else {
+                            group.leave()
+                        }
+                    }
+                }
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+                        || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
+                        || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
+                imageDataItems.append(provider)
+            }
+        }
+
+        for provider in imageDataItems {
+            let typeIdentifier: String
+            if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
+                typeIdentifier = UTType.png.identifier
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
+                typeIdentifier = UTType.tiff.identifier
+            } else {
+                typeIdentifier = UTType.image.identifier
+            }
+
+            let suggestedName = provider.suggestedName
+            group.enter()
+            provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
+                DispatchQueue.main.async {
+                    if let data {
+                        onDropImageData(data, suggestedName)
+                    }
+                    group.leave()
+                }
+            }
+        }
+
+        group.notify(queue: .main) {
+            if !urls.isEmpty { onDropFiles(urls) }
+        }
+        return true
+    }
+
     // MARK: - Message List
+
+    /// Check if the next assistant message after `index` has inline surfaces,
+    /// meaning tool call chips at `index` should be hidden.
+    private func nextAssistantHasSurfaces(after index: Int) -> Bool {
+        for i in (index + 1)..<messages.count {
+            let m = messages[i]
+            if m.role == .user { break }
+            if !m.inlineSurfaces.isEmpty { return true }
+        }
+        return false
+    }
 
     private func shouldShowTimestamp(at index: Int) -> Bool {
         if index == 0 { return true }
@@ -88,7 +263,7 @@ struct ChatView: View {
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: VSpacing.lg) {
+                LazyVStack(alignment: .leading, spacing: VSpacing.lg) {
                     ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                         if shouldShowTimestamp(at: index) {
                             TimestampDivider(date: message.timestamp)
@@ -104,7 +279,11 @@ struct ChatView: View {
                             .id(message.id)
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                         } else {
-                            ChatBubble(message: message, onSurfaceAction: onSurfaceAction)
+                            ChatBubble(
+                                message: message,
+                                hideToolCalls: nextAssistantHasSurfaces(after: index),
+                                onSurfaceAction: onSurfaceAction
+                            )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
@@ -136,11 +315,13 @@ struct ChatView: View {
                     }
                 }
                 .padding(.horizontal, VSpacing.xl)
-                .padding(.vertical, VSpacing.md)
+                .padding(.top, useThreadDrawer ? VSpacing.xs : VSpacing.md)
+                .padding(.bottom, VSpacing.md)
                 .frame(maxWidth: 700)
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
+            .scrollDisabled(messages.isEmpty && !isThinking)
             .onChange(of: messages.count) {
                 withAnimation(VAnimation.standard) {
                     if let lastMessage = messages.last {
@@ -193,6 +374,123 @@ struct ChatView: View {
         .background(VColor.error)
     }
 
+    // MARK: - Session Error Toast
+
+    private func sessionErrorToast(_ error: SessionError) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            Image(systemName: sessionErrorIcon(error.category))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(sessionErrorAccent(error.category))
+
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                Text(error.message)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(2)
+
+                Text(error.recoverySuggestion)
+                    .font(VFont.small)
+                    .foregroundColor(VColor.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if error.isRetryable {
+                Button(action: onRetry) {
+                    Text(sessionErrorActionLabel(error.category))
+                        .font(VFont.captionMedium)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(sessionErrorAccent(error.category))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(sessionErrorActionLabel(error.category))
+            }
+
+            if error.debugDetails != nil {
+                Button(action: onCopyDebugInfo) {
+                    Image(systemName: "doc.on.clipboard")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Copy debug info")
+            }
+
+            Button {
+                onDismissSessionError()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss error")
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+        .background(sessionErrorAccent(error.category).opacity(0.1))
+        .overlay(
+            Rectangle()
+                .fill(sessionErrorAccent(error.category))
+                .frame(width: 3),
+            alignment: .leading
+        )
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// SF Symbol icon appropriate for each error category.
+    private func sessionErrorIcon(_ category: SessionErrorCategory) -> String {
+        switch category {
+        case .providerNetwork:
+            return "wifi.exclamationmark"
+        case .rateLimit:
+            return "clock.badge.exclamationmark"
+        case .providerApi:
+            return "exclamationmark.icloud.fill"
+        case .queueFull:
+            return "tray.full.fill"
+        case .sessionAborted:
+            return "stop.circle.fill"
+        case .processingFailed, .regenerateFailed:
+            return "arrow.triangle.2.circlepath"
+        case .unknown:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    /// Accent color for each error category -- warm for transient/retryable,
+    /// red for hard failures.
+    private func sessionErrorAccent(_ category: SessionErrorCategory) -> Color {
+        switch category {
+        case .rateLimit, .queueFull:
+            return VColor.warning
+        case .providerNetwork:
+            return Amber._500
+        case .sessionAborted:
+            return VColor.textSecondary
+        default:
+            return VColor.error
+        }
+    }
+
+    /// Action button label tailored to the error category.
+    private func sessionErrorActionLabel(_ category: SessionErrorCategory) -> String {
+        switch category {
+        case .rateLimit:
+            return "Retry"
+        case .regenerateFailed:
+            return "Retry"
+        case .providerNetwork:
+            return "Retry"
+        default:
+            return "Retry"
+        }
+    }
+
     // MARK: - Queue Summary
 
     @ViewBuilder
@@ -211,235 +509,6 @@ struct ChatView: View {
             .padding(.vertical, VSpacing.xs)
             .transition(.opacity)
         }
-    }
-
-    // MARK: - Composer Area
-
-    private var composerArea: some View {
-        VStack(spacing: 0) {
-            if !pendingAttachments.isEmpty {
-                attachmentStrip
-            }
-
-            HStack(spacing: VSpacing.sm) {
-                // Text field with ghost suffix overlay
-                ZStack(alignment: .leading) {
-                    TextField("", text: $inputText, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineLimit(1...3)
-                        .disabled(!hasAPIKey)
-                        .accessibilityLabel("Message")
-                        .onKeyPress(.tab, phases: .down) { keyPress in
-                            if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
-                                onAcceptSuggestion()
-                                return .handled
-                            }
-                            return .ignored
-                        }
-                        .onKeyPress(.return, phases: .down) { keyPress in
-                            if keyPress.modifiers.contains(.shift) { return .ignored }
-                            if canSend { onSend() }
-                            return .handled
-                        }
-                        .onKeyPress(characters: CharacterSet(charactersIn: "v"), phases: .down) { keyPress in
-                            if keyPress.modifiers.contains(.command) {
-                                onPaste()
-                                return .ignored
-                            }
-                            return .ignored
-                        }
-                        .onSubmit { if canSend { onSend() } }
-
-                    if let ghostSuffix {
-                        Text(inputText + ghostSuffix)
-                            .font(VFont.body)
-                            .foregroundColor(.clear)
-                            .lineLimit(1...3)
-                            .overlay(alignment: .leading) {
-                                HStack(spacing: 0) {
-                                    Text(inputText)
-                                        .font(VFont.body)
-                                        .foregroundColor(.clear)
-                                    Text(ghostSuffix)
-                                        .font(VFont.body)
-                                        .foregroundColor(VColor.textMuted.opacity(0.5))
-                                }
-                            }
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
-                }
-
-                // Attachment / Stop button
-                if isSending {
-                    Button(action: onStop) {
-                        Image(systemName: "stop.circle.fill")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(VColor.error)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Stop generation")
-                } else {
-                    MicrophoneButton(isRecording: isRecording, action: onMicrophoneToggle)
-                        .disabled(!hasAPIKey)
-
-                    Button(action: onAttach) {
-                        Image(systemName: "paperclip")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .padding(6)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Attach file")
-                    .disabled(!hasAPIKey)
-                }
-            }
-        }
-        .padding(.horizontal, VSpacing.xl)
-        .padding(.vertical, VSpacing.sm)
-        .background(VColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.pill)
-                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-        )
-        .padding(.horizontal, VSpacing.xl)
-        .padding(.vertical, VSpacing.lg)
-        .frame(maxWidth: 700)
-        .frame(maxWidth: .infinity)
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-            var urls: [URL] = []
-            let group = DispatchGroup()
-            for provider in providers {
-                group.enter()
-                _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    DispatchQueue.main.async {
-                        if let url { urls.append(url) }
-                        group.leave()
-                    }
-                }
-            }
-            group.notify(queue: .main) {
-                if !urls.isEmpty { onDropFiles(urls) }
-            }
-            return true
-        }
-    }
-
-    // MARK: - Attachment Preview Strip
-
-    private var attachmentStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: VSpacing.sm) {
-                ForEach(pendingAttachments) { attachment in
-                    attachmentChip(attachment)
-                }
-            }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.top, VSpacing.sm)
-            .padding(.bottom, VSpacing.xs)
-        }
-    }
-
-    private func attachmentChip(_ attachment: ChatAttachment) -> some View {
-        let fileSize = formattedFileSize(base64Length: attachment.dataLength)
-        let isImage = attachment.mimeType.hasPrefix("image/")
-
-        return VStack(spacing: VSpacing.xxs) {
-            ZStack(alignment: .topTrailing) {
-                if isImage, let nsImage = attachment.thumbnailImage {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 48, height: 48)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                } else {
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(VColor.surfaceBorder.opacity(0.5))
-                        .frame(width: 48, height: 48)
-                        .overlay {
-                            VStack(spacing: VSpacing.xxs) {
-                                Image(systemName: iconForMimeType(attachment.mimeType, filename: attachment.filename))
-                                    .font(.system(size: 16))
-                                    .foregroundColor(VColor.textSecondary)
-                                Text(fileExtension(attachment.filename))
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
-                                    .lineLimit(1)
-                            }
-                        }
-                }
-
-                Button {
-                    onRemoveAttachment(attachment.id)
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(VColor.textSecondary)
-                        .background(Circle().fill(VColor.surface))
-                }
-                .buttonStyle(.plain)
-                .offset(x: 4, y: -4)
-                .accessibilityLabel("Remove \(attachment.filename)")
-            }
-
-            Text(truncatedFilename(attachment.filename))
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .lineLimit(1)
-                .frame(width: 56)
-
-            Text(fileSize)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-        }
-    }
-
-    // MARK: - Attachment Helpers
-
-    private func formattedFileSize(base64Length: Int) -> String {
-        let bytes = base64Length * 3 / 4
-        if bytes < 1024 {
-            return "\(bytes) B"
-        } else if bytes < 1024 * 1024 {
-            return "\(bytes / 1024) KB"
-        } else {
-            let mb = Double(bytes) / (1024 * 1024)
-            return String(format: "%.1f MB", mb)
-        }
-    }
-
-    private func truncatedFilename(_ name: String) -> String {
-        if name.count <= 8 { return name }
-        let ext = fileExtension(name)
-        let base = String(name.prefix(name.count - ext.count - (ext.isEmpty ? 0 : 1)))
-        let truncBase = String(base.prefix(5))
-        return ext.isEmpty ? truncBase + "..." : truncBase + "..." + ext
-    }
-
-    private func fileExtension(_ filename: String) -> String {
-        let parts = filename.split(separator: ".")
-        guard parts.count > 1, let last = parts.last else { return "" }
-        return String(last).uppercased()
-    }
-
-    private func iconForMimeType(_ mimeType: String, filename: String) -> String {
-        if mimeType == "application/pdf" { return "doc.fill" }
-        if mimeType.hasPrefix("text/") { return "doc.text.fill" }
-        if mimeType.hasPrefix("image/") { return "photo" }
-        let ext = filename.split(separator: ".").last.map(String.init) ?? ""
-        switch ext.lowercased() {
-        case "pdf": return "doc.fill"
-        case "csv": return "tablecells"
-        case "md", "txt": return "doc.text.fill"
-        default: return "doc.fill"
-        }
-    }
-
-    private var canSend: Bool {
-        hasAPIKey && (!inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty)
     }
 
     @ViewBuilder
@@ -467,6 +536,8 @@ struct ChatView: View {
 
 private struct ChatBubble: View {
     let message: ChatMessage
+    /// When true, tool call chips are suppressed because a nearby message has inline surfaces.
+    let hideToolCalls: Bool
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
 
     private var isUser: Bool { message.role == .user }
@@ -518,18 +589,28 @@ private struct ChatBubble: View {
         }
     }
 
-    /// Whether the bubble chrome should be rendered.
-    /// Hides the bubble when an inline surface widget is present (the widget
-    /// replaces the text), and during streaming when only tool-call chips
-    /// exist (the thinking indicator already signals progress).
+    /// Whether the text/attachment bubble should be rendered.
+    /// Tool calls for assistant messages render outside the bubble as separate chips,
+    /// so only show the bubble when there's actual text or attachment content.
+    ///
+    /// NOTE: When inline surfaces are present, the bubble is intentionally hidden
+    /// even if the message also contains text. This is by design — the assistant's
+    /// text in these cases is typically a preamble (e.g. "Here's what I built:")
+    /// that should not appear above the rendered dynamic UI surface.
     private var shouldShowBubble: Bool {
         if isUser { return true }
-        if hasText || !message.attachments.isEmpty { return true }
         if !message.inlineSurfaces.isEmpty { return false }
-        // During streaming, hide tool-call-only bubbles so the thinking
-        // indicator stays visible instead of showing raw tool progress.
-        if message.isStreaming { return false }
-        return !message.toolCalls.isEmpty
+        return hasText || !message.attachments.isEmpty
+    }
+
+    /// Tool calls that arrived before any text content in the message.
+    private var toolCallsBeforeText: [ToolCallData] {
+        message.toolCalls.filter { $0.arrivedBeforeText }
+    }
+
+    /// Tool calls that arrived after text content started streaming.
+    private var toolCallsAfterText: [ToolCallData] {
+        message.toolCalls.filter { !$0.arrivedBeforeText }
     }
 
     var body: some View {
@@ -537,15 +618,20 @@ private struct ChatBubble: View {
             if isUser { Spacer(minLength: 0) }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
+                // Pre-text tool calls render above the bubble
+                toolCallChips(toolCallsBeforeText)
+
                 if shouldShowBubble {
                     bubbleContent
                 }
+
+                // Post-text tool calls render below the bubble
+                toolCallChips(toolCallsAfterText)
 
                 // Inline surfaces render below the bubble as full-width cards
                 if !message.inlineSurfaces.isEmpty {
                     ForEach(message.inlineSurfaces) { surface in
                         InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
 
@@ -557,6 +643,20 @@ private struct ChatBubble: View {
             }
 
             if !isUser { Spacer(minLength: 0) }
+        }
+    }
+
+    /// Tool call chips rendered outside the bubble.
+    /// Hidden for user messages, when there are no tool calls, or when inline surfaces are present.
+    @ViewBuilder
+    private func toolCallChips(_ calls: [ToolCallData]) -> some View {
+        if !isUser && !calls.isEmpty && message.inlineSurfaces.isEmpty && !hideToolCalls {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                ForEach(calls) { toolCall in
+                    ToolCallChip(toolCall: toolCall)
+                }
+            }
+            .frame(maxWidth: 520, alignment: .leading)
         }
     }
 
@@ -601,7 +701,6 @@ private struct ChatBubble: View {
                     .tint(isUser ? .white : VColor.accent)
                     .textSelection(.enabled)
             } else if !message.attachments.isEmpty {
-                // Show attachment summary when no text is provided
                 Text(attachmentSummary)
                     .font(VFont.caption)
                     .foregroundColor(isUser ? .white.opacity(0.8) : VColor.textSecondary)
@@ -619,7 +718,8 @@ private struct ChatBubble: View {
                 }
             }
 
-            if !message.toolCalls.isEmpty {
+            // User messages keep tool calls inside the bubble
+            if isUser && !message.toolCalls.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     ForEach(message.toolCalls) { toolCall in
                         ToolCallChip(toolCall: toolCall)
@@ -716,11 +816,12 @@ private struct ChatBubble: View {
     }
 
     private var markdownText: AttributedString {
+        let trimmed = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        return (try? AttributedString(markdown: message.text, options: options))
-            ?? AttributedString(message.text)
+        return (try? AttributedString(markdown: trimmed, options: options))
+            ?? AttributedString(trimmed)
     }
 
     private func ordinal(_ n: Int) -> String {
@@ -818,42 +919,6 @@ private struct TimestampDivider: View {
     }
 }
 
-// MARK: - Microphone Button
-
-private struct MicrophoneButton: View {
-    let isRecording: Bool
-    let action: () -> Void
-    @State private var isPulsing = false
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                if isRecording {
-                    Circle()
-                        .fill(VColor.error.opacity(0.2))
-                        .frame(width: 30, height: 30)
-                        .scaleEffect(isPulsing ? 1.3 : 1.0)
-                        .opacity(isPulsing ? 0.0 : 1.0)
-                        .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: false), value: isPulsing)
-                }
-
-                Image(systemName: isRecording ? "mic.fill" : "mic")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(isRecording ? VColor.error : VColor.textSecondary)
-                    .padding(6)
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(isRecording ? "Stop recording" : "Start voice input")
-        .onChange(of: isRecording) {
-            isPulsing = isRecording
-        }
-        .onAppear {
-            isPulsing = isRecording
-        }
-    }
-}
-
 // MARK: - Preview
 
 #if DEBUG
@@ -900,13 +965,18 @@ private struct ChatViewPreviewWrapper: View {
                 onAttach: {},
                 onRemoveAttachment: { _ in },
                 onDropFiles: { _ in },
+                onDropImageData: { _, _ in },
                 onPaste: {},
                 onMicrophoneToggle: {},
                 onConfirmationAllow: { _ in },
                 onConfirmationDeny: { _ in },
                 onAddTrustRule: { _, _, _, _ in true },
                 onSurfaceAction: { _, _, _ in },
-                onRegenerate: {}
+                onRegenerate: {},
+                sessionError: nil,
+                onRetry: {},
+                onDismissSessionError: {},
+                onCopyDebugInfo: {}
             )
         }
     }

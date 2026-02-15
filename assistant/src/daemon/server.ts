@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 import { existsSync, chmodSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
-import { getSocketPath, getRootDir, removeSocketFile } from '../util/platform.js';
+import { getSocketPath, getRootDir, getSandboxWorkingDir, removeSocketFile } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
@@ -20,8 +20,10 @@ import {
   type ClientMessage,
   type ServerMessage,
 } from './ipc-protocol.js';
+import { validateClientMessage } from './ipc-validate.js';
 import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
+import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
 
 const log = getLogger('server');
 
@@ -33,6 +35,7 @@ export class DaemonServer {
   private socketToCuSession = new Map<net.Socket, Set<string>>();
   private connectedSockets = new Set<net.Socket>();
   private socketSandboxOverride = new Map<net.Socket, boolean>();
+  private cuObservationParseSequence = new Map<string, number>();
   // Persisted session options (e.g. systemPromptOverride, maxResponseTokens)
   // so that evicted sessions can be recreated with the same overrides.
   private sessionOptions = new Map<string, SessionCreateOptions>();
@@ -43,11 +46,13 @@ export class DaemonServer {
   // Shared across all sessions so maxRequestsPerMinute is enforced globally.
   private sharedRequestTimestamps: number[] = [];
   private socketPath: string;
+  private httpPort: number | undefined;
   private watchers: FSWatcher[] = [];
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private suppressConfigReload = false;
   private lastConfigFingerprint = '';
   private lastConfigRefreshTime = 0;
+  private blobSweepTimer: ReturnType<typeof setInterval> | null = null;
   private static readonly CONFIG_REFRESH_INTERVAL_MS = 30_000;
 
   constructor() {
@@ -64,6 +69,13 @@ export class DaemonServer {
     const config = getConfig();
     initializeProviders(config);
     this.lastConfigFingerprint = this.configFingerprint(config);
+
+    ensureBlobDir();
+    this.blobSweepTimer = setInterval(() => {
+      sweepStaleBlobs(30 * 60 * 1000).catch((err) => {
+        log.warn({ err }, 'Blob sweep failed');
+      });
+    }, 5 * 60 * 1000);
 
     this.startFileWatchers();
 
@@ -95,6 +107,10 @@ export class DaemonServer {
   }
 
   async stop(): Promise<void> {
+    if (this.blobSweepTimer) {
+      clearInterval(this.blobSweepTimer);
+      this.blobSweepTimer = null;
+    }
     this.stopFileWatchers();
 
     // 1. Stop accepting new connections first. server.close() prevents new
@@ -135,6 +151,7 @@ export class DaemonServer {
     this.connectedSockets.clear();
     this.socketToSession.clear();
     this.socketSandboxOverride.clear();
+    this.cuObservationParseSequence.clear();
 
     await serverClosed;
     log.info('Daemon server stopped');
@@ -210,6 +227,36 @@ export class DaemonServer {
       contextWindow: config.contextWindow,
       apiKeys: config.apiKeys,
     });
+  }
+
+  /**
+   * Record the runtime HTTP server port and broadcast it to all
+   * connected clients so they can enable the share UI immediately.
+   */
+  setHttpPort(port: number): void {
+    this.httpPort = port;
+    // Clients that connected before the HTTP server started received
+    // daemon_status with no httpPort. Broadcast the updated port so
+    // they can enable the share UI without reconnecting.
+    this.broadcast({
+      type: 'daemon_status',
+      httpPort: port,
+    });
+  }
+
+  /**
+   * Dispose and remove all in-memory sessions unconditionally.
+   * Called after `sessions clear` wipes the database so that stale
+   * sessions don't reference deleted conversation rows.
+   */
+  clearAllSessions(): number {
+    const count = this.sessions.size;
+    for (const session of this.sessions.values()) {
+      session.dispose();
+    }
+    this.sessions.clear();
+    this.sessionOptions.clear();
+    return count;
   }
 
   private evictSessionsForReload(): void {
@@ -358,6 +405,8 @@ export class DaemonServer {
     });
 
     socket.on('data', (data) => {
+      const chunkReceivedAtMs = Date.now();
+      const parseStartNs = process.hrtime.bigint();
       let messages;
       try {
         messages = parser.feed(data.toString());
@@ -367,8 +416,32 @@ export class DaemonServer {
         socket.destroy();
         return;
       }
+      const parsedAtMs = Date.now();
+      const parseDurationMs = Number(process.hrtime.bigint() - parseStartNs) / 1_000_000;
       for (const msg of messages) {
-        this.dispatchMessage(msg as ClientMessage, socket);
+        if (typeof msg === 'object' && msg !== null && (msg as { type?: unknown }).type === 'cu_observation') {
+          const maybeSessionId = (msg as { sessionId?: unknown }).sessionId;
+          const sessionId = typeof maybeSessionId === 'string' ? maybeSessionId : 'unknown';
+          const previousSequence = this.cuObservationParseSequence.get(sessionId) ?? 0;
+          const sequence = previousSequence + 1;
+          this.cuObservationParseSequence.set(sessionId, sequence);
+          log.info({
+            sessionId,
+            sequence,
+            chunkReceivedAtMs,
+            parsedAtMs,
+            parseDurationMs,
+            messageBytes: Buffer.byteLength(JSON.stringify(msg), 'utf8'),
+          }, 'IPC_METRIC cu_observation_parse');
+        }
+        const result = validateClientMessage(msg);
+        if (!result.valid) {
+          log.warn({ reason: result.reason }, 'Invalid IPC message, dropping client');
+          socket.write(serialize({ type: 'error', message: `Invalid message: ${result.reason}` }));
+          socket.destroy();
+          return;
+        }
+        this.dispatchMessage(result.message, socket);
       }
     });
 
@@ -386,6 +459,7 @@ export class DaemonServer {
       const cuSessionIds = this.socketToCuSession.get(socket);
       if (cuSessionIds) {
         for (const cuSessionId of cuSessionIds) {
+          this.cuObservationParseSequence.delete(cuSessionId);
           const cuSession = this.cuSessions.get(cuSessionId);
           if (cuSession) {
             cuSession.abort();
@@ -429,6 +503,11 @@ export class DaemonServer {
       type: 'session_info',
       sessionId: conversation.id,
       title: conversation.title ?? 'New Conversation',
+    });
+
+    this.send(socket, {
+      type: 'daemon_status',
+      httpPort: this.httpPort,
     });
   }
 
@@ -483,7 +562,7 @@ export class DaemonServer {
         if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
           provider = new RateLimitProvider(provider, rateLimit, this.sharedRequestTimestamps);
         }
-        const workingDir = process.cwd();
+        const workingDir = getSandboxWorkingDir();
 
         const systemPrompt = storedOptions?.systemPromptOverride ?? buildSystemPrompt();
         const maxTokens = storedOptions?.maxResponseTokens ?? config.maxTokens;
@@ -496,6 +575,12 @@ export class DaemonServer {
           rebindClient ? sendToClient : () => {},
           workingDir,
         );
+        // When created without a socket (HTTP path), mark the session
+        // so interactive prompts (e.g. host attachment reads) can fail
+        // fast instead of waiting for a timeout with no client to respond.
+        if (!socket) {
+          newSession.updateClient(sendToClient, true);
+        }
         await newSession.loadFromDb();
         if (rebindClient && socket) {
           newSession.setSandboxOverride(this.socketSandboxOverride.get(socket));
@@ -523,6 +608,7 @@ export class DaemonServer {
       socketToSession: this.socketToSession,
       cuSessions: this.cuSessions,
       socketToCuSession: this.socketToCuSession,
+      cuObservationParseSequence: this.cuObservationParseSequence,
       socketSandboxOverride: this.socketSandboxOverride,
       sharedRequestTimestamps: this.sharedRequestTimestamps,
       debounceTimers: this.debounceTimers,
@@ -534,6 +620,7 @@ export class DaemonServer {
       },
       send: (socket, msg) => this.send(socket, msg),
       broadcast: (msg) => this.broadcast(msg),
+      clearAllSessions: () => this.clearAllSessions(),
       getOrCreateSession: (id, socket?, rebind?, options?) =>
         this.getOrCreateSession(id, socket, rebind, options),
     };
@@ -574,6 +661,10 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
+    // Set assistantId AFTER the isProcessing check so a rejected request
+    // doesn't mutate the session state visible to an in-flight request.
+    session.setAssistantId(assistantId);
+
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds
       ? attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds).map((a) => ({
@@ -613,6 +704,10 @@ export class DaemonServer {
     if (session.isProcessing()) {
       throw new Error('Session is already processing a message');
     }
+
+    // Set assistantId AFTER the isProcessing check so a rejected request
+    // doesn't mutate the session state visible to an in-flight request.
+    session.setAssistantId(assistantId);
 
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds

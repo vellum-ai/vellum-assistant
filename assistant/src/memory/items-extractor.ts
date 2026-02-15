@@ -8,7 +8,7 @@ import { getLogger } from '../util/logger.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
 import { getDb } from './db.js';
-import { memoryItems, memoryItemSources, messages } from './schema.js';
+import { memoryItemConflicts, memoryItems, memoryItemSources, messages } from './schema.js';
 
 const log = getLogger('memory-items-extractor');
 
@@ -265,6 +265,7 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string): 
       .get();
 
     let memoryItemId: string;
+    let effectiveStatus: string = 'active';
     if (existing) {
       memoryItemId = existing.id;
       // Promote verification state if re-seen from a more trusted source
@@ -272,9 +273,13 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string): 
         existing.verificationState === 'assistant_inferred' && verificationState === 'user_reported'
           ? 'user_reported'
           : existing.verificationState;
+      // Preserve pending_clarification if this item has an unresolved conflict
+      effectiveStatus = existing.status === 'pending_clarification' && hasPendingConflict(existing.id)
+        ? 'pending_clarification'
+        : 'active';
       db.update(memoryItems)
         .set({
-          status: 'active',
+          status: effectiveStatus,
           confidence: Math.max(existing.confidence, item.confidence),
           importance: Math.max(existing.importance ?? 0, item.importance),
           lastSeenAt: Math.max(existing.lastSeenAt, seenAt),
@@ -301,7 +306,11 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string): 
       upserted += 1;
     }
 
-    if (SUPERSEDE_KINDS.has(item.kind)) {
+    // Only supersede other items when this item is active — a
+    // pending_clarification item should not demote the existing active
+    // item, since that would leave no retrievable memory until manual
+    // conflict resolution occurs.
+    if (SUPERSEDE_KINDS.has(item.kind) && effectiveStatus === 'active') {
       db.update(memoryItems)
         .set({ status: 'superseded' })
         .where(and(
@@ -426,4 +435,19 @@ function parseScore(value: unknown, fallback: number): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+/** Returns true if the given memory item is the candidate in an unresolved conflict. */
+function hasPendingConflict(itemId: string): boolean {
+  const db = getDb();
+  const row = db
+    .select({ id: memoryItemConflicts.id })
+    .from(memoryItemConflicts)
+    .where(and(
+      eq(memoryItemConflicts.candidateItemId, itemId),
+      eq(memoryItemConflicts.status, 'pending_clarification'),
+    ))
+    .limit(1)
+    .get();
+  return row != null;
 }

@@ -5,7 +5,8 @@ import type { ToolDefinition } from '../providers/types.js';
 
 // We cannot import the private LazyTool class directly, so we test through
 // registerLazyTool + getTool which exercise the same code path.
-import { registerLazyTool, getTool } from '../tools/registry.js';
+import { registerLazyTool, getTool, getAllTools, getAllToolDefinitions, initializeTools } from '../tools/registry.js';
+import { eagerModules, explicitTools, lazyTools } from '../tools/tool-manifest.js';
 
 function makeFakeTool(name: string): Tool {
   return {
@@ -63,5 +64,109 @@ describe('LazyTool', () => {
     expect(result.content).toBe('ok');
     expect(result.isError).toBe(false);
     expect(callCount).toBe(2);
+  });
+});
+
+describe('tool registry host tools', () => {
+  test('registers host tools and exposes them in tool definitions', async () => {
+    await initializeTools();
+
+    const hostToolNames = ['host_file_read', 'host_file_write', 'host_file_edit', 'host_bash'] as const;
+
+    for (const toolName of hostToolNames) {
+      const tool = getTool(toolName);
+      expect(tool).toBeDefined();
+      expect(tool?.defaultRiskLevel).toBe(RiskLevel.Medium);
+    }
+
+    const definitionNames = getAllToolDefinitions().map((def) => def.name);
+    for (const toolName of hostToolNames) {
+      expect(definitionNames).toContain(toolName);
+    }
+  });
+});
+
+describe('tool registry dynamic-tools tools', () => {
+  test('registers evaluate, scaffold, delete, and skill_load tools', async () => {
+    await initializeTools();
+
+    const dynamicToolNames = [
+      'evaluate_typescript_code',
+      'scaffold_managed_skill',
+      'delete_managed_skill',
+      'skill_load',
+    ] as const;
+
+    for (const toolName of dynamicToolNames) {
+      const tool = getTool(toolName);
+      expect(tool).toBeDefined();
+    }
+
+    const definitionNames = getAllToolDefinitions().map((def) => def.name);
+    for (const toolName of dynamicToolNames) {
+      expect(definitionNames).toContain(toolName);
+    }
+  });
+
+  test('evaluate_typescript_code is registered as High risk', async () => {
+    await initializeTools();
+    const tool = getTool('evaluate_typescript_code');
+    expect(tool).toBeDefined();
+    expect(tool?.defaultRiskLevel).toBe(RiskLevel.High);
+  });
+
+  test('scaffold and delete are registered as High risk', async () => {
+    await initializeTools();
+    for (const name of ['scaffold_managed_skill', 'delete_managed_skill']) {
+      const tool = getTool(name);
+      expect(tool).toBeDefined();
+      expect(tool?.defaultRiskLevel).toBe(RiskLevel.High);
+    }
+  });
+
+  test('skill_load is registered as Low risk', async () => {
+    await initializeTools();
+    const tool = getTool('skill_load');
+    expect(tool).toBeDefined();
+    expect(tool?.defaultRiskLevel).toBe(RiskLevel.Low);
+  });
+});
+
+describe('tool manifest', () => {
+  test('all manifest lazy tools are registered after init', async () => {
+    await initializeTools();
+    const registered = new Set(getAllTools().map((t) => t.name));
+
+    for (const descriptor of lazyTools) {
+      expect(registered.has(descriptor.name)).toBe(true);
+    }
+  });
+
+  test('manifest declares expected core lazy tools', () => {
+    const lazyNames = new Set(lazyTools.map((t) => t.name));
+    expect(lazyNames.has('bash')).toBe(true);
+    expect(lazyNames.has('evaluate_typescript_code')).toBe(true);
+    expect(lazyNames.has('claude_code')).toBe(true);
+    expect(lazyNames.has('swarm_delegate')).toBe(true);
+  });
+
+  test('eager module list contains expected count', () => {
+    expect(eagerModules.length).toBe(15);
+  });
+
+  test('explicit tools list includes memory, credential, and timer tools', () => {
+    const names = explicitTools.map((t) => t.name);
+    expect(names).toContain('memory_search');
+    expect(names).toContain('memory_save');
+    expect(names).toContain('memory_update');
+    expect(names).toContain('credential_store');
+    expect(names).toContain('account_manage');
+    expect(names).toContain('pomodoro');
+  });
+
+  test('registered tool count is at least eager + lazy + host', async () => {
+    await initializeTools();
+    const tools = getAllTools();
+    expect(tools.length).toBeGreaterThanOrEqual(eagerModules.length + lazyTools.length);
   });
 });

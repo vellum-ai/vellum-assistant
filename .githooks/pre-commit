@@ -9,11 +9,6 @@ NC='\033[0m' # No Color
 
 echo "🔍 Checking for plain text keys and secrets..."
 
-# Check if there are any staged files
-if ! git diff --cached --name-only --diff-filter=ACM | grep -q .; then
-    exit 0
-fi
-
 # Patterns to check for sensitive information
 # Note: Using [[:space:]] instead of \s for grep -E compatibility
 declare -a PATTERNS=(
@@ -42,14 +37,14 @@ declare -a PATTERNS=(
     # Tokens
     "token['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-\.]{20,}['\"]"
     "bearer['\"]?[[:space:]]*[:=]?[[:space:]]*[a-zA-Z0-9_\-\.]{20,}"
-    "auth[_-]?token"
+    "auth[_-]?token['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-\.]{20,}['\"]"
 
     # Database URLs with credentials
     "://[a-zA-Z0-9]+:[a-zA-Z0-9]+@[a-zA-Z0-9]"
 
     # Generic secret patterns
     "['\"]?[a-z0-9_]*secret[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}['\"]"
-    "['\"]?[a-z0-9_]*key[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-]{16,}['\"]"
+    "['\"]?[a-z0-9_]*(api|access|private|secret|client|encryption|jwt|signing|auth|hmac|master|symmetric|asymmetric|verification|decryption|service|deploy|registry|webhook|database)[a-z0-9_]*key[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-]{16,}['\"]"
 
     # Slack tokens
     "xox[baprs]-[0-9a-zA-Z]{10,}"
@@ -57,9 +52,122 @@ declare -a PATTERNS=(
     # GitHub tokens
     "gh[pousr]_[0-9a-zA-Z]{36,}"
 
-    # Generic high entropy strings (likely keys)
-    "['\"][a-zA-Z0-9+/]{40,}={0,2}['\"]"
+    # High entropy values only when paired with secret-like identifiers
+    "([Tt]oken|[Ss]ecret|[Aa]pi[_-]?[Kk]ey|[Aa]ccess[_-]?[Kk]ey|[Pp]rivate[_-]?[Kk]ey)[^[:cntrl:]]{0,80}['\"][a-zA-Z0-9+/]{40,}={0,2}['\"]"
 )
+
+# Ignore deterministic checksum/hash fixtures that are not credentials.
+declare -a SAFE_LINE_PATTERNS=(
+    "[A-Za-z0-9_\"']*(sha256|SHA256|checksum|digest|hash|nonceSha256|observedNonceSha256)[A-Za-z0-9_\"']*[[:space:]]*[:=][[:space:]]*['\"][a-fA-F0-9]{32,}['\"]"
+)
+
+matches_safe_line_pattern() {
+    local text="$1"
+    local pattern
+    for pattern in "${SAFE_LINE_PATTERNS[@]}"; do
+        if printf '%s\n' "$text" | grep -niE -- "$pattern" >/dev/null 2>&1; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+matches_secret_pattern() {
+    local text="$1"
+    local pattern
+    for pattern in "${PATTERNS[@]}"; do
+        if printf '%s\n' "$text" | grep -niE -- "$pattern" >/dev/null 2>&1; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+    SAFE_ARCHITECTURE_LINE='PG_TOKENS["assistant_auth_tokens"]'
+    SAFE_DB_LINE="SELECT 1 FROM memory_checkpoints WHERE key = 'migration_job_deferrals'"
+    SAFE_HASH_FIXTURE_LINE='"nonceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"'
+    REAL_SECRET_LINE='api_key="sk_live_12345678901234567890"'
+
+    # Additional real-secret lines that the widened qualifier list must catch
+    ENCRYPTION_KEY_LINE='encryption_key="ABCDEFGHIJKLMNOPQRSTUVWX"'
+    JWT_KEY_LINE='jwt_key="supersecretjwtkey1234567890abcdef"'
+    SIGNING_KEY_LINE='signing_key="ab2c3d4e5f6g7h8i9j0klmnopqrst"'
+    AUTH_KEY_LINE='auth_key="myAuthKeyValue12345678"'
+    HMAC_KEY_LINE='hmac_key="hmac_secret_value_1234567890ab"'
+    MASTER_KEY_LINE='master_key="master_12345678901234567890"'
+    SERVICE_KEY_LINE='service_key="svc_key_abcdefghij1234567890"'
+    DATABASE_KEY_LINE='database_key="db_secret_key_1234567890abcde"'
+
+    # False-positive lines that must NOT match (plain identifiers, not secrets)
+    SAFE_CACHE_KEY_LINE='redis.get("user_session_key_prefix")'
+    SAFE_SESSION_KEY_LINE='session_key = "user_session_key_prefix"'
+
+    if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_DB_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} db migration key case still matches"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_HASH_FIXTURE_LINE" && ! matches_safe_line_pattern "$SAFE_HASH_FIXTURE_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} hash fixture case still matches without safe-line bypass"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$REAL_SECRET_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} real secret seed did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$ENCRYPTION_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} encryption_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$JWT_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} jwt_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$SIGNING_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} signing_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$AUTH_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} auth_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$HMAC_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} hmac_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$MASTER_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} master_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$SERVICE_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} service_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$DATABASE_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} database_key secret did not match"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_CACHE_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} cache key identifier false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SESSION_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} session key assignment false positive"
+        exit 1
+    fi
+
+    echo "✅ Secret scanner self-test passed"
+    exit 0
+fi
+
+# Check if there are any staged files
+if ! git diff --cached --name-only --diff-filter=ACM | grep -q .; then
+    exit 0
+fi
 
 FOUND_SECRETS=0
 CHECKED_FILES=0
@@ -88,6 +196,29 @@ while IFS= read -r -d '' FILE; do
         # Use git show to check the staged content, not the working directory
         # Use -- to indicate end of options for patterns starting with dashes
         MATCHES=$(git show ":$FILE" 2>/dev/null | grep -niE -- "$PATTERN" 2>/dev/null)
+
+        if [ ! -z "$MATCHES" ]; then
+            FILTERED_MATCHES=""
+            while IFS= read -r line; do
+                if [ -z "$line" ]; then
+                    continue
+                fi
+                CONTENT="${line#*:}"
+                if matches_safe_line_pattern "$CONTENT"; then
+                    # Strip safe-line portions and re-check: a real secret
+                    # on the same line (e.g. minified JSON) must not be masked.
+                    STRIPPED="$CONTENT"
+                    for sp in "${SAFE_LINE_PATTERNS[@]}"; do
+                        STRIPPED=$(printf '%s\n' "$STRIPPED" | sed -E "s/$sp//g" 2>/dev/null || printf '%s\n' "$STRIPPED")
+                    done
+                    if ! printf '%s\n' "$STRIPPED" | grep -iE -- "$PATTERN" >/dev/null 2>&1; then
+                        continue
+                    fi
+                fi
+                FILTERED_MATCHES="${FILTERED_MATCHES}${line}"$'\n'
+            done <<< "$MATCHES"
+            MATCHES="$FILTERED_MATCHES"
+        fi
 
         if [ ! -z "$MATCHES" ]; then
             if [ $FOUND_SECRETS -eq 0 ]; then
@@ -120,4 +251,100 @@ if [ $FOUND_SECRETS -eq 1 ]; then
 fi
 
 echo "✅ No plain text keys detected in $CHECKED_FILES files"
+
+# --- IPC contract generation check ---
+# When contract source files are staged, verify generated output is up to date.
+
+IPC_CONTRACT_FILES=(
+    "assistant/src/daemon/ipc-contract.ts"
+    "assistant/src/daemon/ipc-contract-inventory.ts"
+    "assistant/scripts/ipc/generate-swift.ts"
+    "assistant/scripts/ipc/check-contract-inventory.ts"
+    "assistant/scripts/ipc/check-swift-decoder-drift.ts"
+    "assistant/src/daemon/ipc-contract-inventory.json"
+    "clients/shared/IPC/Generated/IPCContractGenerated.swift"
+    "clients/shared/IPC/IPCMessages.swift"
+)
+
+IPC_CHANGED=0
+while IFS= read -r -d '' FILE; do
+    for CONTRACT_FILE in "${IPC_CONTRACT_FILES[@]}"; do
+        if [ "$FILE" = "$CONTRACT_FILE" ]; then
+            IPC_CHANGED=1
+            break 2
+        fi
+    done
+done < <(git diff --cached --name-only -z)
+
+if [ $IPC_CHANGED -eq 1 ]; then
+    echo "🔍 IPC contract files changed — checking generated code is up to date..."
+
+    # Detect bun location
+    BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
+    if [ ! -x "$BUN" ]; then
+        echo -e "${YELLOW}⚠️  bun not found — skipping IPC generation check${NC}"
+        echo "  Install bun or run 'cd assistant && bun run generate:ipc' manually."
+    else
+        if ! (cd assistant && "$BUN" run check:ipc-generated) 2>/dev/null; then
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}Generated IPC Swift models are out of date!${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo "Run: cd assistant && bun run generate:ipc"
+            echo "Then stage the updated file and commit again."
+            exit 1
+        fi
+        echo "✅ Generated IPC Swift models are up to date"
+
+        if ! (cd assistant && "$BUN" run ipc:inventory) 2>/dev/null; then
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}IPC contract inventory snapshot is out of date!${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo "Run: cd assistant && bun run ipc:inventory:update"
+            echo "Then stage the updated file and commit again."
+            exit 1
+        fi
+        echo "✅ IPC contract inventory is up to date"
+
+        if ! (cd assistant && "$BUN" run ipc:check-swift-drift) 2>/dev/null; then
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}Swift decoder is out of sync with the IPC contract!${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo "Update IPCMessages.swift decode cases or the drift checker allowlist."
+            exit 1
+        fi
+        echo "✅ Swift decoder is in sync with the contract"
+
+        # Verify generated output files are staged (not just regenerated on disk).
+        # The checks above compare against the working tree, so if a developer
+        # regenerates but forgets to `git add`, the hook would pass while the
+        # commit still contains stale content.
+        IPC_OUTPUT_FILES=(
+            "clients/shared/IPC/Generated/IPCContractGenerated.swift"
+            "assistant/src/daemon/ipc-contract-inventory.json"
+        )
+        UNSTAGED=0
+        for OUTPUT_FILE in "${IPC_OUTPUT_FILES[@]}"; do
+            if git diff --name-only -- "$OUTPUT_FILE" | grep -q .; then
+                if [ $UNSTAGED -eq 0 ]; then
+                    echo ""
+                    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                    echo -e "${RED}Generated IPC files have unstaged changes!${NC}"
+                    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                fi
+                echo -e "  ${YELLOW}$OUTPUT_FILE${NC} differs between index and working tree"
+                UNSTAGED=1
+            fi
+        done
+        if [ $UNSTAGED -eq 1 ]; then
+            echo ""
+            echo "Stage the updated files with: git add ${IPC_OUTPUT_FILES[*]}"
+            echo "Then commit again."
+            exit 1
+        fi
+    fi
+fi
+
 exit 0

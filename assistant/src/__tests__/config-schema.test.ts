@@ -44,6 +44,7 @@ import { _setStorePath } from '../security/encrypted-store.js';
 import { _setBackend } from '../security/secure-keys.js';
 import { loadConfig, invalidateConfigCache } from '../config/loader.js';
 import { AssistantConfigSchema } from '../config/schema.js';
+import { DEFAULT_CONFIG } from '../config/defaults.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -79,7 +80,18 @@ describe('AssistantConfigSchema', () => {
       shellMaxTimeoutSec: 600,
       permissionTimeoutSec: 300,
     });
-    expect(result.sandbox).toEqual({ enabled: false });
+    expect(result.sandbox).toEqual({
+      enabled: true,
+      backend: 'docker',
+      docker: {
+        image: 'node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687',
+        shell: 'sh',
+        cpus: 1,
+        memoryMb: 512,
+        pidsLimit: 256,
+        network: 'none',
+      },
+    });
     expect(result.rateLimit).toEqual({ maxRequestsPerMinute: 0, maxTokensPerSession: 0 });
     expect(result.secretDetection).toEqual({ enabled: true, action: 'warn', entropyThreshold: 4.0 });
     expect(result.auditLog).toEqual({ retentionDays: 0 });
@@ -104,6 +116,77 @@ describe('AssistantConfigSchema', () => {
     expect(result.maxTokens).toBe(4096);
     expect(result.thinking.enabled).toBe(true);
     expect(result.secretDetection.action).toBe('block');
+  });
+
+  test('applies memory.conflicts defaults', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.memory.conflicts).toEqual({
+      enabled: true,
+      gateMode: 'soft',
+      reaskCooldownTurns: 3,
+      resolverLlmTimeoutMs: 12000,
+      relevanceThreshold: 0.3,
+    });
+  });
+
+  test('rejects invalid memory.conflicts.relevanceThreshold', () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { conflicts: { relevanceThreshold: 2 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('applies memory.profile defaults', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.memory.profile).toEqual({
+      enabled: true,
+      maxInjectTokens: 800,
+    });
+  });
+
+  test('rejects invalid memory.profile.maxInjectTokens', () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { profile: { maxInjectTokens: 0 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('applies rollout defaults for dynamic budget and entity relation features', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.memory.retrieval.dynamicBudget).toEqual({
+      enabled: true,
+      minInjectTokens: 1200,
+      maxInjectTokens: 10000,
+      targetHeadroomTokens: 10000,
+    });
+    expect(result.memory.entity.extractRelations).toEqual({
+      enabled: true,
+      backfillBatchSize: 200,
+    });
+    expect(result.memory.entity.relationRetrieval).toEqual({
+      enabled: true,
+      maxSeedEntities: 8,
+      maxNeighborEntities: 20,
+      maxEdges: 40,
+      neighborScoreMultiplier: 0.7,
+    });
+  });
+
+  test('applies memory.cleanup defaults', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.memory.cleanup).toEqual({
+      enabled: true,
+      enqueueIntervalMs: 6 * 60 * 60 * 1000,
+      resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
+      supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
+    });
+  });
+
+  test('rejects invalid memory.cleanup.enqueueIntervalMs', () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { cleanup: { enqueueIntervalMs: 0 } },
+    });
+    expect(result.success).toBe(false);
   });
 
   test('rejects invalid provider', () => {
@@ -269,6 +352,113 @@ describe('AssistantConfigSchema', () => {
       expect(messages.some(m => m.includes('redact') && m.includes('warn') && m.includes('block'))).toBe(true);
     }
   });
+
+  // SANDBOX M11 cutover: Docker is now the default backend for stronger
+  // container-level isolation. Native is available as opt-in fallback.
+  test('default sandbox backend is docker', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.sandbox.backend).toBe('docker');
+  });
+
+  test('DEFAULT_CONFIG sandbox backend is docker', () => {
+    expect(DEFAULT_CONFIG.sandbox.backend).toBe('docker');
+  });
+
+  test('backward compatibility: sandbox with only enabled still parses', () => {
+    const result = AssistantConfigSchema.parse({ sandbox: { enabled: false } });
+    expect(result.sandbox.enabled).toBe(false);
+    expect(result.sandbox.backend).toBe('docker');
+    expect(result.sandbox.docker.memoryMb).toBe(512);
+  });
+
+  test('accepts docker backend with custom limits', () => {
+    const result = AssistantConfigSchema.parse({
+      sandbox: {
+        enabled: true,
+        backend: 'docker',
+        docker: {
+          image: 'ubuntu:22.04',
+          cpus: 2,
+          memoryMb: 1024,
+          pidsLimit: 512,
+          network: 'bridge',
+        },
+      },
+    });
+    expect(result.sandbox.backend).toBe('docker');
+    expect(result.sandbox.docker.image).toBe('ubuntu:22.04');
+    expect(result.sandbox.docker.cpus).toBe(2);
+    expect(result.sandbox.docker.memoryMb).toBe(1024);
+    expect(result.sandbox.docker.pidsLimit).toBe(512);
+    expect(result.sandbox.docker.network).toBe('bridge');
+  });
+
+  test('applies docker defaults when backend is docker but docker config omitted', () => {
+    const result = AssistantConfigSchema.parse({
+      sandbox: { backend: 'docker' },
+    });
+    expect(result.sandbox.backend).toBe('docker');
+    expect(result.sandbox.docker.cpus).toBe(1);
+    expect(result.sandbox.docker.memoryMb).toBe(512);
+    expect(result.sandbox.docker.pidsLimit).toBe(256);
+    expect(result.sandbox.docker.network).toBe('none');
+  });
+
+  test('accepts partial docker config with defaults for missing fields', () => {
+    const result = AssistantConfigSchema.parse({
+      sandbox: {
+        backend: 'docker',
+        docker: { memoryMb: 2048 },
+      },
+    });
+    expect(result.sandbox.docker.memoryMb).toBe(2048);
+    expect(result.sandbox.docker.cpus).toBe(1);
+    expect(result.sandbox.docker.pidsLimit).toBe(256);
+    expect(result.sandbox.docker.network).toBe('none');
+  });
+
+  test('rejects invalid sandbox.backend', () => {
+    const result = AssistantConfigSchema.safeParse({
+      sandbox: { backend: 'podman' },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map(i => i.message);
+      expect(msgs.some(m => m.includes('sandbox.backend'))).toBe(true);
+    }
+  });
+
+  test('rejects invalid docker.network', () => {
+    const result = AssistantConfigSchema.safeParse({
+      sandbox: { docker: { network: 'host' } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map(i => i.message);
+      expect(msgs.some(m => m.includes('sandbox.docker.network'))).toBe(true);
+    }
+  });
+
+  test('rejects non-positive docker.memoryMb', () => {
+    const result = AssistantConfigSchema.safeParse({
+      sandbox: { docker: { memoryMb: 0 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects non-integer docker.pidsLimit', () => {
+    const result = AssistantConfigSchema.safeParse({
+      sandbox: { docker: { pidsLimit: 3.5 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects negative docker.cpus', () => {
+    const result = AssistantConfigSchema.safeParse({
+      sandbox: { docker: { cpus: -1 } },
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -397,7 +587,35 @@ describe('loadConfig with schema validation', () => {
   test('falls back for invalid sandbox.enabled', () => {
     writeConfig({ sandbox: { enabled: 'yes' } });
     const config = loadConfig();
+    expect(config.sandbox.enabled).toBe(true);
+  });
+
+  test('loads sandbox with only enabled (backward compatibility)', () => {
+    writeConfig({ sandbox: { enabled: false } });
+    const config = loadConfig();
     expect(config.sandbox.enabled).toBe(false);
+    expect(config.sandbox.backend).toBe('docker');
+    expect(config.sandbox.docker.memoryMb).toBe(512);
+  });
+
+  test('loads sandbox docker backend config', () => {
+    writeConfig({
+      sandbox: {
+        backend: 'docker',
+        docker: { memoryMb: 2048, network: 'bridge' },
+      },
+    });
+    const config = loadConfig();
+    expect(config.sandbox.backend).toBe('docker');
+    expect(config.sandbox.docker.memoryMb).toBe(2048);
+    expect(config.sandbox.docker.network).toBe('bridge');
+    expect(config.sandbox.docker.cpus).toBe(1);
+  });
+
+  test('falls back for invalid sandbox.backend', () => {
+    writeConfig({ sandbox: { backend: 'podman' } });
+    const config = loadConfig();
+    expect(config.sandbox.backend).toBe('docker');
   });
 
   test('falls back for invalid contextWindow relationship', () => {

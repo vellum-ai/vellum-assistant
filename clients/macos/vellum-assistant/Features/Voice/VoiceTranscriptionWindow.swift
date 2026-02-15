@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import AppKit
 import Combine
 import SwiftUI

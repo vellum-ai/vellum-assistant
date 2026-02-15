@@ -1,6 +1,6 @@
 import XCTest
 @testable import VellumAssistantLib
-import VellumAssistantShared
+@testable import VellumAssistantShared
 
 @MainActor
 final class ChatViewModelTests: XCTestCase {
@@ -14,6 +14,8 @@ final class ChatViewModelTests: XCTestCase {
         // Mark as connected so send-path tests don't hit the disconnected guard.
         // Tests that verify disconnected behaviour explicitly set isConnected = false.
         daemonClient.isConnected = true
+        // Override send() so messages are silently accepted without a real socket.
+        daemonClient.sendOverride = { _ in }
         viewModel = ChatViewModel(daemonClient: daemonClient)
     }
 
@@ -25,10 +27,8 @@ final class ChatViewModelTests: XCTestCase {
 
     // MARK: - Initialization
 
-    func testInitCreatesGreetingMessage() {
-        XCTAssertEqual(viewModel.messages.count, 1)
-        XCTAssertEqual(viewModel.messages[0].role, .assistant)
-        XCTAssertTrue(viewModel.messages[0].text.contains("How can I help"))
+    func testInitStartsWithEmptyMessages() {
+        XCTAssertEqual(viewModel.messages.count, 0)
     }
 
     func testInitStartsWithEmptyInput() {
@@ -53,10 +53,10 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.inputText = "Hello world"
         viewModel.sendMessage()
 
-        // Should have greeting + user message
-        XCTAssertEqual(viewModel.messages.count, 2)
-        XCTAssertEqual(viewModel.messages[1].role, .user)
-        XCTAssertEqual(viewModel.messages[1].text, "Hello world")
+        // Should have user message only
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].role, .user)
+        XCTAssertEqual(viewModel.messages[0].text, "Hello world")
     }
 
     func testSendMessageClearsInput() {
@@ -68,7 +68,7 @@ final class ChatViewModelTests: XCTestCase {
     func testSendEmptyMessageDoesNothing() {
         viewModel.inputText = "   "
         viewModel.sendMessage()
-        XCTAssertEqual(viewModel.messages.count, 1) // Just greeting
+        XCTAssertEqual(viewModel.messages.count, 0) // No messages added
     }
 
     func testSendWhileBootstrappingDoesNothing() {
@@ -79,7 +79,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.inputText = "Second"
         viewModel.sendMessage() // Should be ignored since isSending is set by bootstrapSession and sessionId is nil
 
-        XCTAssertEqual(viewModel.messages.count, 2) // greeting + first only
+        XCTAssertEqual(viewModel.messages.count, 1) // first message only
     }
 
     func testSendWhileSendingWithSessionAppendsMessage() {
@@ -90,11 +90,11 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.inputText = "Queued message"
         viewModel.sendMessage()
 
-        XCTAssertEqual(viewModel.messages.count, 2) // greeting + queued message
-        XCTAssertEqual(viewModel.messages[1].role, .user)
-        XCTAssertEqual(viewModel.messages[1].text, "Queued message")
+        XCTAssertEqual(viewModel.messages.count, 1) // queued message only
+        XCTAssertEqual(viewModel.messages[0].role, .user)
+        XCTAssertEqual(viewModel.messages[0].text, "Queued message")
         // Message should have queued status since isSending was true
-        if case .queued = viewModel.messages[1].status {
+        if case .queued = viewModel.messages[0].status {
             // Expected
         } else {
             XCTFail("Expected message to have queued status")
@@ -129,11 +129,11 @@ final class ChatViewModelTests: XCTestCase {
         let delta = AssistantTextDeltaMessage(text: "Hello")
         viewModel.handleServerMessage(.assistantTextDelta(delta))
 
-        // Should have greeting + new assistant message
-        XCTAssertEqual(viewModel.messages.count, 2)
-        XCTAssertEqual(viewModel.messages[1].role, .assistant)
-        XCTAssertEqual(viewModel.messages[1].text, "Hello")
-        XCTAssertTrue(viewModel.messages[1].isStreaming)
+        // Should have new assistant message only
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].role, .assistant)
+        XCTAssertEqual(viewModel.messages[0].text, "Hello")
+        XCTAssertTrue(viewModel.messages[0].isStreaming)
     }
 
     func testTextDeltaClearsThinkingState() {
@@ -147,9 +147,9 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "lo ")))
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "world")))
 
-        XCTAssertEqual(viewModel.messages.count, 2) // greeting + 1 assistant
-        XCTAssertEqual(viewModel.messages[1].text, "Hello world")
-        XCTAssertTrue(viewModel.messages[1].isStreaming)
+        XCTAssertEqual(viewModel.messages.count, 1) // 1 assistant
+        XCTAssertEqual(viewModel.messages[0].text, "Hello world")
+        XCTAssertTrue(viewModel.messages[0].isStreaming)
     }
 
     // MARK: - Message Complete
@@ -166,7 +166,7 @@ final class ChatViewModelTests: XCTestCase {
 
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
-        XCTAssertFalse(viewModel.messages[1].isStreaming)
+        XCTAssertFalse(viewModel.messages[0].isStreaming)
     }
 
     func testMessageCompleteWithoutStreamingMessage() {
@@ -191,7 +191,7 @@ final class ChatViewModelTests: XCTestCase {
 
         XCTAssertFalse(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
-        XCTAssertFalse(viewModel.messages[1].isStreaming)
+        XCTAssertFalse(viewModel.messages[0].isStreaming)
     }
 
     func testGenerationCancelledWithoutStreamingMessage() {
@@ -223,6 +223,284 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.errorText)
     }
 
+    func testDismissErrorAlsoClearsSessionError() {
+        viewModel.sessionId = "sess-1"
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerApi,
+            userMessage: "API error",
+            retryable: false
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+        XCTAssertNotNil(viewModel.sessionError)
+        XCTAssertNotNil(viewModel.errorText)
+
+        viewModel.dismissError()
+
+        XCTAssertNil(viewModel.sessionError,
+                      "dismissError() should also clear sessionError")
+        XCTAssertNil(viewModel.errorText)
+    }
+
+    func testErrorFinalizesStreamingAssistantMessage() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Start streaming an assistant message
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial response")))
+        XCTAssertTrue(viewModel.messages[0].isStreaming)
+
+        // Error arrives
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Provider error")))
+
+        // Streaming message should be finalized (not left hanging)
+        XCTAssertFalse(viewModel.messages[0].isStreaming, "Error should finalize the streaming assistant message")
+        XCTAssertEqual(viewModel.messages[0].text, "Partial response", "Partial text should be preserved")
+    }
+
+    func testErrorResetsProcessingMessagesToSent() {
+        // Set up state directly because DaemonClient.send() throws in tests
+        // (no real socket), which prevents sendMessage() from establishing
+        // queue bookkeeping.
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Add user messages directly — tests don't have a real socket, so
+        // sendMessage() throws on daemonClient.send() and clears isSending,
+        // preventing the FIFO mapping that messageQueued/messageDequeued need.
+        let messageA = ChatMessage(role: .user, text: "Message A", status: .sent)
+        let messageB = ChatMessage(role: .user, text: "Message B", status: .processing)
+        viewModel.messages.append(messageA)
+        viewModel.messages.append(messageB)
+        // A(0), B(1)
+        XCTAssertEqual(viewModel.messages[1].status, .processing)
+
+        // Error arrives while B is processing
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Provider failed")))
+
+        // Processing message should be reset to .sent
+        XCTAssertEqual(viewModel.messages[1].status, .sent, "Error should reset processing messages to .sent")
+    }
+
+    func testErrorDuringCancellationClearsQueueState() {
+        // Set up state directly because DaemonClient.send() throws in tests.
+        // Simulate the state after a successful cancel send: isCancelling is
+        // true, isSending stays true, isThinking is false.
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.isSending = true
+        viewModel.isThinking = false
+        viewModel.isCancelling = true
+
+        let messageA = ChatMessage(role: .user, text: "Message A", status: .sent)
+        let messageB = ChatMessage(role: .user, text: "Message B", status: .queued(position: 1))
+        let messageC = ChatMessage(role: .user, text: "Message C", status: .queued(position: 2))
+        viewModel.messages.append(messageA)
+        viewModel.messages.append(messageB)
+        viewModel.messages.append(messageC)
+        viewModel.pendingQueuedCount = 2
+
+        // Daemon sends error events for queued messages during cancellation
+        // (abort drops queue without sending message_dequeued events). The
+        // error handler's wasCancelling branch force-clears all queue state.
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Request cancelled")))
+
+        XCTAssertFalse(viewModel.isSending, "Error during cancellation should clear isSending")
+        XCTAssertEqual(viewModel.pendingQueuedCount, 0, "Error during cancellation should reset pendingQueuedCount")
+        // Queued messages should be reset to .sent
+        if case .sent = viewModel.messages[1].status {
+            // expected
+        } else {
+            XCTFail("Queued message B should be reset to .sent after cancellation, got \(viewModel.messages[1].status)")
+        }
+        if case .sent = viewModel.messages[2].status {
+            // expected
+        } else {
+            XCTFail("Queued message C should be reset to .sent after cancellation, got \(viewModel.messages[2].status)")
+        }
+    }
+
+    func testErrorWithPendingQueuePreservesQueueBookkeeping() {
+        // Set up state directly because DaemonClient.send() throws in tests.
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Manually add user messages
+        let messageA = ChatMessage(role: .user, text: "Message A", status: .sent)
+        let messageB = ChatMessage(role: .user, text: "Message B", status: .queued(position: 1))
+        viewModel.messages.append(messageA)
+        viewModel.messages.append(messageB)
+        viewModel.pendingQueuedCount = 1
+
+        // Non-cancellation error while B is still queued
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Provider error for A")))
+
+        // Queue should be preserved so daemon can still drain it
+        XCTAssertEqual(viewModel.pendingQueuedCount, 1, "Non-cancellation error should preserve queue when messages are pending")
+        XCTAssertTrue(viewModel.isSending, "isSending should stay true when messages are still queued")
+    }
+
+    func testErrorWithEmptyQueueClearsAllBookkeeping() {
+        // Set up state directly because DaemonClient.send() throws in tests.
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Add a user message (simulates a successfully sent message)
+        let message = ChatMessage(role: .user, text: "Hello", status: .sent)
+        viewModel.messages.append(message)
+
+        // Error with no queued messages
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Network error")))
+
+        XCTAssertFalse(viewModel.isSending, "Error with empty queue should clear isSending")
+        XCTAssertFalse(viewModel.isThinking, "Error should clear isThinking")
+        XCTAssertEqual(viewModel.errorText, "Network error")
+    }
+
+    func testErrorDuringCancellationSuppressesErrorText() {
+        // Simulate the state after a successful cancel send so we can test
+        // the error handler's isCancelling suppression branch.
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.isSending = true
+        viewModel.isThinking = false
+        viewModel.isCancelling = true
+
+        let message = ChatMessage(role: .user, text: "Hello", status: .sent)
+        viewModel.messages.append(message)
+
+        // Daemon sends error as part of cancellation cleanup
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Request cancelled")))
+
+        // Error text should NOT be shown when the user intentionally cancelled
+        XCTAssertNil(viewModel.errorText, "Error during cancellation should not display error text to user")
+    }
+
+    func testSendMessageClearsExistingErrorBeforeSend() {
+        // Verify that sendMessage() clears any existing errorText at the
+        // start of its execution. We test without a sessionId so it goes
+        // through the bootstrapSession path (which is async), preventing
+        // the synchronous sendUserMessage throw from re-setting errorText.
+        viewModel.errorText = "Previous network error"
+        viewModel.inputText = "Retry"
+        viewModel.sendMessage()
+        XCTAssertNil(viewModel.errorText, "Sending a new message should clear previous error")
+    }
+
+    func testSendUserMessageWhenDisconnectedShowsErrorAndClearsState() {
+        // Baseline: existing behavior when daemon disconnects between turns
+        viewModel.sessionId = "test-session"
+        daemonClient.isConnected = false
+
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+
+        // User message should appear in the list
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].role, .user)
+
+        // But sending state should NOT be set
+        XCTAssertFalse(viewModel.isSending, "Disconnected send should not set isSending")
+        XCTAssertFalse(viewModel.isThinking, "Disconnected send should not set isThinking")
+
+        // Error should mention the daemon
+        XCTAssertNotNil(viewModel.errorText)
+        XCTAssertTrue(viewModel.errorText?.contains("daemon") == true,
+                       "Disconnected error should mention daemon")
+    }
+
+    func testRegenerateWhenDisconnectedShowsError() {
+        viewModel.sessionId = "test-session"
+        daemonClient.isConnected = false
+
+        viewModel.regenerateLastMessage()
+
+        XCTAssertNotNil(viewModel.errorText, "Regenerate when disconnected should show error")
+        XCTAssertTrue(viewModel.errorText?.contains("daemon") == true)
+        XCTAssertFalse(viewModel.isSending, "Regenerate should not set isSending when disconnected")
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    func testRegenerateWhileSendingIsBlocked() {
+        viewModel.sessionId = "test-session"
+        viewModel.isSending = true
+
+        viewModel.regenerateLastMessage()
+
+        // Should do nothing — guard blocks it
+        XCTAssertNil(viewModel.errorText, "Regenerate while sending should silently do nothing")
+    }
+
+    func testRegenerateClearsStaleSessionError() {
+        viewModel.sessionId = "sess-1"
+        daemonClient.isConnected = true
+
+        // Simulate a stale session error from a previous failure
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerApi,
+            userMessage: "Stale error",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+        XCTAssertNotNil(viewModel.sessionError)
+        XCTAssertNotNil(viewModel.errorText)
+
+        viewModel.regenerateLastMessage()
+
+        XCTAssertNil(viewModel.sessionError, "Regenerate should clear stale session error")
+        // errorText is re-set by the catch block because connection is nil
+        // in the test environment, but the original stale error must be gone.
+        XCTAssertNotEqual(viewModel.errorText, "Stale error",
+                          "Regenerate should clear stale error text")
+    }
+
+    func testStopGeneratingWhenDisconnectedResetsAllState() {
+        // Set up state directly to establish meaningful queue state, since
+        // DaemonClient.send() throws when connection is nil.
+        viewModel.sessionId = "test-session"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Start streaming
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
+
+        // Add a queued message directly — sendMessage() while disconnected
+        // bails before creating queue state.
+        let queuedMsg = ChatMessage(role: .user, text: "Queued msg", status: .queued(position: 1))
+        viewModel.messages.append(queuedMsg)
+        viewModel.pendingQueuedCount = 1
+
+        // Disconnect and stop
+        daemonClient.isConnected = false
+        viewModel.stopGenerating()
+
+        // Everything should be reset since cancel can't reach daemon
+        XCTAssertFalse(viewModel.isSending, "Stop when disconnected should clear isSending")
+        XCTAssertFalse(viewModel.isThinking, "Stop when disconnected should clear isThinking")
+        XCTAssertEqual(viewModel.pendingQueuedCount, 0, "Stop when disconnected should clear queue count")
+        XCTAssertFalse(viewModel.messages[0].isStreaming, "Stop when disconnected should finalize streaming")
+        // Queued message should be reset to .sent by stopGenerating
+        XCTAssertEqual(viewModel.messages[1].status, .sent, "Queued message should be reset to .sent")
+    }
+
+    func testMultipleSequentialErrorsUpdateErrorText() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "First error")))
+        XCTAssertEqual(viewModel.errorText, "First error")
+
+        // Simulate another send cycle (set state directly)
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Second error replaces the first
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Second error")))
+        XCTAssertEqual(viewModel.errorText, "Second error", "Latest error should replace previous error text")
+    }
+
     // MARK: - Stop Generating
 
     func testStopGeneratingKeepsSendingUntilAcknowledged() {
@@ -237,7 +515,7 @@ final class ChatViewModelTests: XCTestCase {
         // isSending stays true until daemon acknowledges
         XCTAssertTrue(viewModel.isSending)
         XCTAssertFalse(viewModel.isThinking)
-        XCTAssertFalse(viewModel.messages[1].isStreaming)
+        XCTAssertFalse(viewModel.messages[0].isStreaming)
 
         // Daemon acknowledges cancellation
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
@@ -256,8 +534,8 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " late text")))
 
         // Should still only have the original partial text, no new message
-        XCTAssertEqual(viewModel.messages.count, 2) // greeting + 1 assistant
-        XCTAssertEqual(viewModel.messages[1].text, "Partial")
+        XCTAssertEqual(viewModel.messages.count, 1) // 1 assistant
+        XCTAssertEqual(viewModel.messages[0].text, "Partial")
 
         // Daemon acknowledges cancellation — clears isCancelling
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
@@ -266,8 +544,8 @@ final class ChatViewModelTests: XCTestCase {
         // After acknowledgment, new deltas should work normally
         viewModel.isSending = true
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "New response")))
-        XCTAssertEqual(viewModel.messages.count, 3)
-        XCTAssertEqual(viewModel.messages[2].text, "New response")
+        XCTAssertEqual(viewModel.messages.count, 2)
+        XCTAssertEqual(viewModel.messages[1].text, "New response")
     }
 
     func testStopGeneratingSuppressedByMessageComplete() {
@@ -283,7 +561,7 @@ final class ChatViewModelTests: XCTestCase {
 
         // Late delta suppressed
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " extra")))
-        XCTAssertEqual(viewModel.messages[1].text, "Response")
+        XCTAssertEqual(viewModel.messages[0].text, "Response")
 
         // message_complete arrives instead of generation_cancelled
         viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
@@ -328,7 +606,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testThinkingDeltaDoesNotCreateMessage() {
         viewModel.handleServerMessage(.assistantThinkingDelta(AssistantThinkingDeltaMessage(thinking: "Hmm...")))
-        XCTAssertEqual(viewModel.messages.count, 1) // Only the greeting
+        XCTAssertEqual(viewModel.messages.count, 0) // No messages created
     }
 
     // MARK: - Message Queue
@@ -377,7 +655,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.messageQueued(queued))
 
         // The user message should have its position updated
-        if case .queued(let position) = viewModel.messages[1].status {
+        if case .queued(let position) = viewModel.messages[0].status {
             XCTAssertEqual(position, 2)
         } else {
             XCTFail("Expected message to have queued status with position 2")
@@ -398,7 +676,7 @@ final class ChatViewModelTests: XCTestCase {
         let dequeued = MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-1")
         viewModel.handleServerMessage(.messageDequeued(dequeued))
 
-        XCTAssertEqual(viewModel.messages[1].status, .processing)
+        XCTAssertEqual(viewModel.messages[0].status, .processing)
     }
 
     func testMessageDequeuedRestoresSendingAndThinkingState() {
@@ -429,13 +707,13 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
         viewModel.inputText = "Message A"
         viewModel.sendMessage()
-        // greeting(0), A(1)
+        // A(0)
 
         // Send message B while busy (will be queued)
         viewModel.inputText = "Message B"
         viewModel.sendMessage()
-        // greeting(0), A(1), B(2)
-        XCTAssertEqual(viewModel.messages.count, 3)
+        // A(0), B(1)
+        XCTAssertEqual(viewModel.messages.count, 2)
 
         // Daemon confirms B is queued
         viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
@@ -446,14 +724,14 @@ final class ChatViewModelTests: XCTestCase {
 
         // Daemon dequeues B — status becomes .processing
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
-        XCTAssertEqual(viewModel.messages[2].status, .processing, "Message B should be processing after dequeue")
+        XCTAssertEqual(viewModel.messages[1].status, .processing, "Message B should be processing after dequeue")
 
         // Assistant responds to B, then message_complete
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to B")))
         viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
 
         // After message_complete, the processing user message should be reset to .sent
-        XCTAssertEqual(viewModel.messages[2].status, .sent, "Message B should be .sent after messageComplete, not .processing")
+        XCTAssertEqual(viewModel.messages[1].status, .sent, "Message B should be .sent after messageComplete, not .processing")
     }
 
     func testProcessingStatusResetToSentOnGenerationCancelled() {
@@ -469,12 +747,12 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
         viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
-        XCTAssertEqual(viewModel.messages[2].status, .processing)
+        XCTAssertEqual(viewModel.messages[1].status, .processing)
 
         // Generation is cancelled
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
 
-        XCTAssertEqual(viewModel.messages[2].status, .sent, "Message B should be .sent after generationCancelled, not .processing")
+        XCTAssertEqual(viewModel.messages[1].status, .sent, "Message B should be .sent after generationCancelled, not .processing")
     }
 
     func testProcessingStatusResetToSentOnGenerationHandoff() {
@@ -496,14 +774,14 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
         viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 2)))
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
-        XCTAssertEqual(viewModel.messages[2].status, .processing)
+        XCTAssertEqual(viewModel.messages[1].status, .processing)
 
         // B completes via handoff (C is still queued)
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to B")))
         viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
 
         // B should be reset to .sent after generationHandoff
-        XCTAssertEqual(viewModel.messages[2].status, .sent, "Message B should be .sent after generationHandoff, not .processing")
+        XCTAssertEqual(viewModel.messages[1].status, .sent, "Message B should be .sent after generationHandoff, not .processing")
     }
 
     // MARK: - Generation Handoff
@@ -521,7 +799,7 @@ final class ChatViewModelTests: XCTestCase {
 
         XCTAssertTrue(viewModel.isSending, "isSending must stay true during handoff")
         XCTAssertFalse(viewModel.isThinking)
-        XCTAssertFalse(viewModel.messages[1].isStreaming, "Streaming message should be finalized")
+        XCTAssertFalse(viewModel.messages[0].isStreaming, "Streaming message should be finalized")
     }
 
     func testGenerationHandoffWithoutStreamingMessage() {
@@ -542,16 +820,16 @@ final class ChatViewModelTests: XCTestCase {
 
         // First text delta creates assistant message
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "First response")))
-        XCTAssertEqual(viewModel.messages.count, 2) // greeting + first assistant
+        XCTAssertEqual(viewModel.messages.count, 1) // first assistant only
 
         // Handoff clears currentAssistantMessageId
         viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
 
         // Second text delta should create a NEW assistant message
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Second response")))
-        XCTAssertEqual(viewModel.messages.count, 3, "Second delta should create a new message, not append to first")
-        XCTAssertEqual(viewModel.messages[1].text, "First response")
-        XCTAssertEqual(viewModel.messages[2].text, "Second response")
+        XCTAssertEqual(viewModel.messages.count, 2, "Second delta should create a new message, not append to first")
+        XCTAssertEqual(viewModel.messages[0].text, "First response")
+        XCTAssertEqual(viewModel.messages[1].text, "Second response")
     }
 
     func testThreeMessageBurstWithHandoffTransitions() {
@@ -585,8 +863,6 @@ final class ChatViewModelTests: XCTestCase {
 
         // Let's restart with a cleaner approach using sendMessage for B and C
         viewModel.messages.removeAll()
-        let greeting = ChatMessage(role: .assistant, text: "Hello!")
-        viewModel.messages.append(greeting)
 
         // Message A: sent while not busy (direct processing)
         viewModel.isSending = false
@@ -601,14 +877,14 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.inputText = "Message C"
         viewModel.sendMessage()
 
-        // greeting(0), A(1), B(2), C(3)
-        XCTAssertEqual(viewModel.messages.count, 4)
+        // A(0), B(1), C(2)
+        XCTAssertEqual(viewModel.messages.count, 3)
 
         // 4. Daemon sends messageQueued for B (position 1) and C (position 2)
         viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
         viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-C", position: 2)))
         XCTAssertEqual(viewModel.pendingQueuedCount, 2)
-        if case .queued(let pos) = viewModel.messages[2].status {
+        if case .queued(let pos) = viewModel.messages[1].status {
             XCTAssertEqual(pos, 1)
         } else {
             XCTFail("Message B should be queued")
@@ -621,11 +897,11 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isSending, "isSending stays true after handoff")
         XCTAssertFalse(viewModel.isThinking, "isThinking cleared after handoff")
         // Assistant message for A should be finalized
-        XCTAssertFalse(viewModel.messages[4].isStreaming, "First assistant message should be finalized")
+        XCTAssertFalse(viewModel.messages[3].isStreaming, "First assistant message should be finalized")
 
         // 6. Daemon dequeues B
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
-        XCTAssertEqual(viewModel.messages[2].status, .processing, "Message B should be processing")
+        XCTAssertEqual(viewModel.messages[1].status, .processing, "Message B should be processing")
         XCTAssertTrue(viewModel.isThinking, "isThinking restored after dequeue")
         XCTAssertTrue(viewModel.isSending)
         XCTAssertEqual(viewModel.pendingQueuedCount, 1)
@@ -635,12 +911,12 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
 
         // Second assistant message finalized
-        XCTAssertFalse(viewModel.messages[5].isStreaming, "Second assistant message should be finalized")
+        XCTAssertFalse(viewModel.messages[4].isStreaming, "Second assistant message should be finalized")
         XCTAssertTrue(viewModel.isSending, "isSending stays true — C is still queued")
 
         // 8. Daemon dequeues C
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-C")))
-        XCTAssertEqual(viewModel.messages[3].status, .processing, "Message C should be processing")
+        XCTAssertEqual(viewModel.messages[2].status, .processing, "Message C should be processing")
         XCTAssertEqual(viewModel.pendingQueuedCount, 0)
 
         // 9. Text delta for C, then message_complete
@@ -648,7 +924,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
 
         XCTAssertFalse(viewModel.isSending, "isSending should be false — no more queued messages")
-        XCTAssertFalse(viewModel.messages[6].isStreaming, "Third assistant message should be finalized")
+        XCTAssertFalse(viewModel.messages[5].isStreaming, "Third assistant message should be finalized")
     }
 
     // MARK: - Queue Badges / Status Transitions (handoff → dequeue → complete)
@@ -660,8 +936,8 @@ final class ChatViewModelTests: XCTestCase {
         // Send message A (direct — not queued)
         viewModel.inputText = "Message A"
         viewModel.sendMessage()
-        // greeting(0), A(1)
-        XCTAssertEqual(viewModel.messages.count, 2)
+        // A(0)
+        XCTAssertEqual(viewModel.messages.count, 1)
         XCTAssertTrue(viewModel.isSending)
         XCTAssertTrue(viewModel.isThinking)
 
@@ -670,16 +946,16 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sendMessage()
         viewModel.inputText = "Message C"
         viewModel.sendMessage()
-        // greeting(0), A(1), B(2), C(3)
-        XCTAssertEqual(viewModel.messages.count, 4)
+        // A(0), B(1), C(2)
+        XCTAssertEqual(viewModel.messages.count, 3)
 
         // Both B and C should have .queued status (position 0 initially)
-        if case .queued = viewModel.messages[2].status {
+        if case .queued = viewModel.messages[1].status {
             // expected
         } else {
             XCTFail("Message B should have queued status")
         }
-        if case .queued = viewModel.messages[3].status {
+        if case .queued = viewModel.messages[2].status {
             // expected
         } else {
             XCTFail("Message C should have queued status")
@@ -691,12 +967,12 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.pendingQueuedCount, 2)
 
         // Verify positions were updated
-        if case .queued(let pos) = viewModel.messages[2].status {
+        if case .queued(let pos) = viewModel.messages[1].status {
             XCTAssertEqual(pos, 1)
         } else {
             XCTFail("Message B should be queued at position 1")
         }
-        if case .queued(let pos) = viewModel.messages[3].status {
+        if case .queued(let pos) = viewModel.messages[2].status {
             XCTAssertEqual(pos, 2)
         } else {
             XCTFail("Message C should be queued at position 2")
@@ -704,22 +980,22 @@ final class ChatViewModelTests: XCTestCase {
 
         // Assistant responds to A with text delta, then generation_handoff
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
-        // greeting(0), A(1), B(2), C(3), assistantA(4)
-        XCTAssertEqual(viewModel.messages.count, 5)
+        // A(0), B(1), C(2), assistantA(3)
+        XCTAssertEqual(viewModel.messages.count, 4)
 
         viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 2)))
 
         // After handoff: isSending stays true, isThinking cleared, streaming finalized
         XCTAssertTrue(viewModel.isSending, "isSending must stay true during handoff")
         XCTAssertFalse(viewModel.isThinking, "isThinking cleared after handoff")
-        XCTAssertFalse(viewModel.messages[4].isStreaming, "Assistant message for A should be finalized")
+        XCTAssertFalse(viewModel.messages[3].isStreaming, "Assistant message for A should be finalized")
 
         // B and C remain queued
         XCTAssertEqual(viewModel.pendingQueuedCount, 2)
 
         // Simulate messageDequeued for B — first queued goes to .processing
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
-        XCTAssertEqual(viewModel.messages[2].status, .processing, "Message B should now be processing")
+        XCTAssertEqual(viewModel.messages[1].status, .processing, "Message B should now be processing")
         XCTAssertTrue(viewModel.isSending)
         XCTAssertTrue(viewModel.isThinking, "isThinking restored after dequeue")
         XCTAssertEqual(viewModel.pendingQueuedCount, 1)
@@ -731,7 +1007,7 @@ final class ChatViewModelTests: XCTestCase {
 
         // Simulate messageDequeued for C
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-C")))
-        XCTAssertEqual(viewModel.messages[3].status, .processing, "Message C should now be processing")
+        XCTAssertEqual(viewModel.messages[2].status, .processing, "Message C should now be processing")
         XCTAssertEqual(viewModel.pendingQueuedCount, 0)
 
         // Assistant responds to C, then message_complete (no more queued)
@@ -751,7 +1027,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "foreign", sessionId: "other-session")))
         // Should still be thinking — delta was ignored
         XCTAssertTrue(viewModel.isThinking)
-        XCTAssertEqual(viewModel.messages.count, 1) // Only greeting
+        XCTAssertEqual(viewModel.messages.count, 0) // No messages
     }
 
     func testTextDeltaFromSameSessionIsAccepted() {
@@ -759,8 +1035,8 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isThinking = true
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", sessionId: "my-session")))
         XCTAssertFalse(viewModel.isThinking)
-        XCTAssertEqual(viewModel.messages.count, 2)
-        XCTAssertEqual(viewModel.messages[1].text, "hello")
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].text, "hello")
     }
 
     func testTextDeltaWithNilSessionIdIsAccepted() {
@@ -768,7 +1044,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isThinking = true
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "hello", sessionId: nil)))
         XCTAssertFalse(viewModel.isThinking)
-        XCTAssertEqual(viewModel.messages.count, 2)
+        XCTAssertEqual(viewModel.messages.count, 1)
     }
 
     func testMessageCompleteFromDifferentSessionIsIgnored() {
@@ -801,8 +1077,8 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sendMessage()
 
         // User message should still appear in the list
-        XCTAssertEqual(viewModel.messages.count, 2)
-        XCTAssertEqual(viewModel.messages[1].role, .user)
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].role, .user)
 
         // But isSending/isThinking should NOT be set since the send was rejected
         XCTAssertFalse(viewModel.isSending)
@@ -830,13 +1106,13 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "The answer")))
         XCTAssertFalse(viewModel.isThinking) // Thinking cleared on first text delta
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " is 42.")))
-        XCTAssertEqual(viewModel.messages[1].text, "The answer is 42.")
-        XCTAssertTrue(viewModel.messages[1].isStreaming)
+        XCTAssertEqual(viewModel.messages[0].text, "The answer is 42.")
+        XCTAssertTrue(viewModel.messages[0].isStreaming)
 
         // Message completes
         viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
         XCTAssertFalse(viewModel.isSending)
-        XCTAssertFalse(viewModel.messages[1].isStreaming)
+        XCTAssertFalse(viewModel.messages[0].isStreaming)
     }
 
     // MARK: - Session Isolation (Correlation ID)
@@ -882,5 +1158,503 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.sessionInfo(info))
 
         XCTAssertEqual(viewModel.sessionId, "test-session", "Should accept session_info when no correlationId was set")
+    }
+
+    // MARK: - Session Error (Typed Error State)
+
+    func testSessionErrorSetsTypedErrorState() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerRateLimit,
+            userMessage: "Rate limit exceeded",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertNotNil(viewModel.sessionError)
+        XCTAssertEqual(viewModel.sessionError?.category, .rateLimit)
+        XCTAssertEqual(viewModel.sessionError?.message, "Rate limit exceeded")
+        XCTAssertTrue(viewModel.sessionError?.isRetryable == true)
+        XCTAssertEqual(viewModel.sessionError?.sessionId, "sess-1")
+    }
+
+    func testSessionErrorSetsRecoverySuggestion() {
+        viewModel.sessionId = "sess-1"
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerNetwork,
+            userMessage: "Connection failed",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertNotNil(viewModel.sessionError?.recoverySuggestion)
+        XCTAssertTrue(viewModel.sessionError!.recoverySuggestion.contains("internet"),
+                       "Network error should suggest checking internet connection")
+    }
+
+    func testSessionErrorClearsThinkingAndSendingState() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerApi,
+            userMessage: "API error",
+            retryable: false
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertFalse(viewModel.isThinking)
+        XCTAssertFalse(viewModel.isSending)
+    }
+
+    func testSessionErrorAlsoSetsErrorText() {
+        viewModel.sessionId = "sess-1"
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerApi,
+            userMessage: "Provider returned 500",
+            retryable: false
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertEqual(viewModel.errorText, "Provider returned 500",
+                       "session_error should populate errorText for backward compatibility")
+    }
+
+    func testSessionErrorFromDifferentSessionIsIgnored() {
+        viewModel.sessionId = "sess-1"
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-other",
+            code: .providerNetwork,
+            userMessage: "Connection failed",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertNil(viewModel.sessionError,
+                      "session_error from a different session should be ignored")
+        XCTAssertNil(viewModel.errorText)
+    }
+
+    func testSessionErrorIgnoredBeforeSessionClaimed() {
+        // sessionId is nil — no session claimed yet
+        XCTAssertNil(viewModel.sessionId)
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-other",
+            code: .providerNetwork,
+            userMessage: "Connection failed",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertNil(viewModel.sessionError,
+                      "session_error should be ignored before session is claimed")
+        XCTAssertNil(viewModel.errorText)
+    }
+
+    func testSessionErrorFinalizesStreamingMessage() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
+        XCTAssertTrue(viewModel.messages[0].isStreaming)
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .sessionProcessingFailed,
+            userMessage: "Processing failed",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertFalse(viewModel.messages[0].isStreaming,
+                        "session_error should finalize streaming assistant message")
+        XCTAssertEqual(viewModel.messages[0].text, "Partial",
+                        "Partial text should be preserved")
+    }
+
+    func testSessionErrorResetsProcessingMessagesToSent() {
+        // Set up state directly because DaemonClient.send() throws in tests.
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        let messageA = ChatMessage(role: .user, text: "Message A", status: .sent)
+        let messageB = ChatMessage(role: .user, text: "Message B", status: .processing)
+        viewModel.messages.append(messageA)
+        viewModel.messages.append(messageB)
+        XCTAssertEqual(viewModel.messages[1].status, .processing)
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .sessionProcessingFailed,
+            userMessage: "Processing failed",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertEqual(viewModel.messages[1].status, .sent,
+                        "session_error should reset processing messages to .sent")
+    }
+
+    func testDismissSessionErrorClearsBothErrorStates() {
+        viewModel.sessionId = "sess-1"
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerRateLimit,
+            userMessage: "Rate limited",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertNotNil(viewModel.sessionError)
+        XCTAssertNotNil(viewModel.errorText)
+
+        viewModel.dismissSessionError()
+
+        XCTAssertNil(viewModel.sessionError)
+        XCTAssertNil(viewModel.errorText)
+    }
+
+    func testSendMessageClearsSessionError() {
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerApi,
+            userMessage: "API error",
+            retryable: false
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+        XCTAssertNotNil(viewModel.sessionError)
+
+        viewModel.inputText = "Retry"
+        viewModel.sendMessage()
+
+        XCTAssertNil(viewModel.sessionError,
+                      "Sending a new message should clear the session error")
+    }
+
+    func testAllErrorCategoriesHaveRecoverySuggestions() {
+        // Every SessionErrorCode should produce a non-empty recovery suggestion
+        for code in SessionErrorCode.allCases {
+            let category = SessionErrorCategory(from: code)
+            XCTAssertFalse(category.recoverySuggestion.isEmpty,
+                           "\(code) should produce a non-empty recovery suggestion")
+        }
+    }
+
+    func testSessionErrorDuringCancellationSuppressesErrorText() {
+        // Simulate the state after a successful cancel send so we can test
+        // the sessionError handler's isCancelling suppression branch.
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.isSending = true
+        viewModel.isThinking = false
+        viewModel.isCancelling = true
+
+        let message = ChatMessage(role: .user, text: "Hello", status: .sent)
+        viewModel.messages.append(message)
+
+        // Daemon sends session error as part of cancellation cleanup
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .sessionAborted,
+            userMessage: "Session aborted",
+            retryable: false
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        // Both errorText and sessionError should be suppressed during cancellation
+        // (user-initiated cancel should only show generation_cancelled, never a toast)
+        XCTAssertNil(viewModel.errorText,
+                      "Session error during cancellation should not display errorText")
+        XCTAssertNil(viewModel.sessionError,
+                      "Session error during cancellation should not set typed sessionError")
+    }
+
+    func testSessionErrorNonRetryableFlag() {
+        viewModel.sessionId = "sess-1"
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .queueFull,
+            userMessage: "Queue is full",
+            retryable: false
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertEqual(viewModel.sessionError?.isRetryable, false)
+        XCTAssertEqual(viewModel.sessionError?.category, .queueFull)
+    }
+
+    func testSessionErrorReplacedBySubsequentError() {
+        viewModel.sessionId = "sess-1"
+
+        let firstError = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerNetwork,
+            userMessage: "Network error",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(firstError))
+        XCTAssertEqual(viewModel.sessionError?.category, .providerNetwork)
+
+        let secondError = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerRateLimit,
+            userMessage: "Rate limited",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(secondError))
+        XCTAssertEqual(viewModel.sessionError?.category, .rateLimit,
+                        "Latest session_error should replace previous one")
+        XCTAssertEqual(viewModel.sessionError?.message, "Rate limited")
+    }
+
+    func testDebugDetailsPassedToSessionError() {
+        viewModel.sessionId = "sess-1"
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerApi,
+            userMessage: "Provider error",
+            retryable: true,
+            debugDetails: "Error: 500 Internal Server Error\n  at handler.ts:42"
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertEqual(viewModel.sessionError?.debugDetails,
+                        "Error: 500 Internal Server Error\n  at handler.ts:42",
+                        "debugDetails should be passed through from IPC message")
+    }
+
+    func testDebugDetailsNilWhenNotProvided() {
+        viewModel.sessionId = "sess-1"
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerNetwork,
+            userMessage: "Network error",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertNil(viewModel.sessionError?.debugDetails,
+                      "debugDetails should be nil when not provided in IPC message")
+    }
+
+    // MARK: - Regression: Cancel semantics and error channel split
+
+    func testCancelSuppressesAllSessionErrorFields() {
+        // Regression: cancel must suppress both errorText AND typed sessionError
+        viewModel.sessionId = "sess-1"
+        viewModel.isCancelling = true
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerApi,
+            userMessage: "Server error",
+            retryable: true,
+            debugDetails: "stack trace here"
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertNil(viewModel.sessionError,
+                      "Typed sessionError must be nil during cancel")
+        XCTAssertNil(viewModel.errorText,
+                      "errorText must be nil during cancel")
+    }
+
+    func testSessionErrorDeliveredViaStreamNotCallback() {
+        // Regression: session errors arrive through handleServerMessage (stream),
+        // not through a singleton callback on DaemonClient.
+        viewModel.sessionId = "sess-1"
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerRateLimit,
+            userMessage: "Rate limited",
+            retryable: true
+        )
+
+        // Deliver via the same path the subscribe() stream uses
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertNotNil(viewModel.sessionError,
+                         "sessionError should be set via handleServerMessage")
+        XCTAssertEqual(viewModel.sessionError?.category, .rateLimit)
+        XCTAssertEqual(viewModel.sessionError?.isRetryable, true)
+    }
+
+    func testGenerationCancelledClearsThinkingState() {
+        // Regression: generation_cancelled should clear thinking/sending state
+        viewModel.sessionId = "sess-1"
+        viewModel.isThinking = true
+        viewModel.isSending = true
+
+        viewModel.handleServerMessage(.generationCancelled(
+            GenerationCancelledMessage(sessionId: "sess-1")
+        ))
+
+        XCTAssertFalse(viewModel.isThinking,
+                        "generation_cancelled should clear isThinking")
+        XCTAssertFalse(viewModel.isSending,
+                        "generation_cancelled should clear isSending")
+        XCTAssertNil(viewModel.sessionError,
+                      "generation_cancelled should not set sessionError")
+    }
+
+    // MARK: - Assistant Attachment Ingestion
+
+    func testMessageCompleteWithAttachmentsAddsToExistingMessage() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Stream some text first
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Here is an image")))
+        XCTAssertEqual(viewModel.messages.count, 1) // assistant only
+
+        // Complete with attachments
+        let attachment = IPCUserMessageAttachment(
+            id: "att-1", filename: "photo.png", mimeType: "image/png",
+            data: "iVBORw0KGgo=", extractedText: nil
+        )
+        viewModel.handleServerMessage(.messageComplete(
+            MessageCompleteMessage(sessionId: nil, attachments: [attachment])
+        ))
+
+        XCTAssertEqual(viewModel.messages.count, 1, "Should add attachments to existing message, not create new")
+        XCTAssertEqual(viewModel.messages[0].attachments.count, 1)
+        XCTAssertEqual(viewModel.messages[0].attachments[0].filename, "photo.png")
+        XCTAssertEqual(viewModel.messages[0].attachments[0].id, "att-1")
+        XCTAssertFalse(viewModel.messages[0].isStreaming)
+    }
+
+    func testMessageCompleteWithAttachmentsCreatesNewMessageWhenNoStreaming() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Complete with attachments but no prior text deltas (attachment-only turn)
+        let attachment = IPCUserMessageAttachment(
+            id: "att-1", filename: "report.pdf", mimeType: "application/pdf",
+            data: "JVBER", extractedText: nil
+        )
+        viewModel.handleServerMessage(.messageComplete(
+            MessageCompleteMessage(sessionId: nil, attachments: [attachment])
+        ))
+
+        XCTAssertEqual(viewModel.messages.count, 1, "Should create new assistant message for attachment-only turn")
+        XCTAssertEqual(viewModel.messages[0].role, .assistant)
+        XCTAssertEqual(viewModel.messages[0].attachments.count, 1)
+        XCTAssertEqual(viewModel.messages[0].attachments[0].filename, "report.pdf")
+    }
+
+    func testGenerationHandoffWithAttachmentsAddsToExistingMessage() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Stream some text
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Generated file")))
+
+        // Handoff with attachments
+        let attachment = IPCUserMessageAttachment(
+            id: "att-2", filename: "output.csv", mimeType: "text/csv",
+            data: "Y29sQQ==", extractedText: nil
+        )
+        viewModel.handleServerMessage(.generationHandoff(
+            GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1, attachments: [attachment])
+        ))
+
+        XCTAssertEqual(viewModel.messages[0].attachments.count, 1)
+        XCTAssertEqual(viewModel.messages[0].attachments[0].filename, "output.csv")
+        XCTAssertFalse(viewModel.messages[0].isStreaming)
+    }
+
+    func testMessageCompleteWithNilAttachmentsDoesNotCreateMessage() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Complete without attachments (nil)
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+
+        // Should have no messages — no extra empty assistant message
+        XCTAssertEqual(viewModel.messages.count, 0)
+    }
+
+    func testMessageCompleteWithEmptyAttachmentsDoesNotCreateMessage() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Complete with empty attachments array
+        viewModel.handleServerMessage(.messageComplete(
+            MessageCompleteMessage(sessionId: nil, attachments: [])
+        ))
+
+        // Should have no messages — no extra empty assistant message
+        XCTAssertEqual(viewModel.messages.count, 0)
+    }
+
+    // MARK: - History Attachment Hydration
+
+    func testPopulateFromHistoryHydratesAssistantAttachments() {
+        let attachment = IPCUserMessageAttachment(
+            id: "hist-att-1", filename: "chart.png", mimeType: "image/png",
+            data: "iVBORw0KGgo=", extractedText: nil
+        )
+        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+            IPCHistoryResponseMessage(role: "user", text: "Show me a chart", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil),
+            IPCHistoryResponseMessage(role: "assistant", text: "Here is your chart", timestamp: 2000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment]),
+        ]
+
+        viewModel.populateFromHistory(historyItems)
+
+        XCTAssertEqual(viewModel.messages.count, 2)
+        XCTAssertEqual(viewModel.messages[1].role, .assistant)
+        XCTAssertEqual(viewModel.messages[1].attachments.count, 1)
+        XCTAssertEqual(viewModel.messages[1].attachments[0].filename, "chart.png")
+        XCTAssertEqual(viewModel.messages[1].attachments[0].id, "hist-att-1")
+    }
+
+    func testPopulateFromHistoryIncludesAttachmentOnlyMessages() {
+        let attachment = IPCUserMessageAttachment(
+            id: "hist-att-2", filename: "report.pdf", mimeType: "application/pdf",
+            data: "JVBER", extractedText: nil
+        )
+        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+            IPCHistoryResponseMessage(role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment]),
+        ]
+
+        viewModel.populateFromHistory(historyItems)
+
+        // Attachment-only message (empty text, no tool calls) should NOT be skipped
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].role, .assistant)
+        XCTAssertEqual(viewModel.messages[0].attachments.count, 1)
+        XCTAssertEqual(viewModel.messages[0].attachments[0].filename, "report.pdf")
+    }
+
+    func testPopulateFromHistorySkipsEmptyMessagesWithNoAttachments() {
+        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+            IPCHistoryResponseMessage(role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil),
+        ]
+
+        viewModel.populateFromHistory(historyItems)
+
+        // Empty message with no text, no tool calls, no attachments should be skipped
+        XCTAssertEqual(viewModel.messages.count, 0)
     }
 }

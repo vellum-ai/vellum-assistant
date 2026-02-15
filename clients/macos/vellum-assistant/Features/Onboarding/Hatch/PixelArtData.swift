@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import Foundation
 
 /// Static pixel-art grids for egg and dino, stored as 2D arrays of UInt32? hex colors.

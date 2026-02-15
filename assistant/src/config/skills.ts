@@ -193,6 +193,13 @@ function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontma
       (value.startsWith('\'') && value.endsWith('\''))
     ) {
       value = value.slice(1, -1);
+      // Unescape sequences produced by buildSkillMarkdown's esc().
+      // Single-pass to avoid misinterpreting \\n (escaped backslash + n) as a newline.
+      value = value.replace(/\\(["\\nr])/g, (_, ch) => {
+        if (ch === 'n') return '\n';
+        if (ch === 'r') return '\r';
+        return ch; // handles \\ → \ and \" → "
+      });
     }
     fields[key] = value;
   }
