@@ -1132,6 +1132,7 @@ public final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
                 for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
                     messages[index].toolCalls[j].isComplete = true
+                    messages[index].toolCalls[j].completedAt = Date()
                 }
             }
             currentAssistantMessageId = nil
@@ -1167,6 +1168,7 @@ public final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
                 for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
                     messages[index].toolCalls[j].isComplete = true
+                    messages[index].toolCalls[j].completedAt = Date()
                 }
             }
             currentAssistantMessageId = nil
@@ -1201,6 +1203,7 @@ public final class ChatViewModel: ObservableObject {
             messages[index].isStreaming = false
             for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
                 messages[index].toolCalls[j].isComplete = true
+                messages[index].toolCalls[j].completedAt = Date()
             }
         }
 
