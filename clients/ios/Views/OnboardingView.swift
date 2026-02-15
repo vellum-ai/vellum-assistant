@@ -87,6 +87,8 @@ struct PermissionsStep: View {
 struct DaemonSetupStep: View {
     @State private var hostname = "localhost"
     @State private var port = "8765"
+    @State private var showingAlert = false
+    @State private var alertMessage = ""
 
     var body: some View {
         VStack(spacing: VSpacing.xl) {
@@ -116,16 +118,26 @@ struct DaemonSetupStep: View {
             .padding(VSpacing.xl)
 
             Button("Save") {
-                UserDefaults.standard.set(hostname, forKey: "daemon_hostname")
-                if let portInt = Int(port) {
-                    UserDefaults.standard.set(portInt, forKey: "daemon_port")
+                guard let portInt = Int(port), portInt > 0, portInt <= 65535 else {
+                    alertMessage = "Port must be a valid number between 1 and 65535"
+                    showingAlert = true
+                    return
                 }
+                UserDefaults.standard.set(hostname, forKey: "daemon_hostname")
+                UserDefaults.standard.set(portInt, forKey: "daemon_port")
+                alertMessage = "Settings saved successfully"
+                showingAlert = true
             }
             .buttonStyle(.borderedProminent)
 
             Spacer()
         }
         .padding(VSpacing.xl)
+        .alert("Daemon Setup", isPresented: $showingAlert) {
+            Button("OK") {}
+        } message: {
+            Text(alertMessage)
+        }
         .onAppear {
             hostname = UserDefaults.standard.string(forKey: "daemon_hostname") ?? "localhost"
             let portValue = UserDefaults.standard.integer(forKey: "daemon_port")

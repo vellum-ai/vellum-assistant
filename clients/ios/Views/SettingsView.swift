@@ -8,6 +8,8 @@ struct SettingsView: View {
     @State private var showingAPIKeyAlert = false
     @State private var apiKeyAlertMessage = ""
     @State private var apiKeyAlertTitle = ""
+    @State private var showingDaemonAlert = false
+    @State private var daemonAlertMessage = ""
 
     var body: some View {
         NavigationStack {
@@ -45,12 +47,22 @@ struct SettingsView: View {
                         .keyboardType(.numberPad)
 
                     Button("Update") {
-                        UserDefaults.standard.set(daemonHostname, forKey: "daemon_hostname")
-                        if let port = Int(daemonPort) {
-                            UserDefaults.standard.set(port, forKey: "daemon_port")
+                        guard let port = Int(daemonPort), port > 0, port <= 65535 else {
+                            daemonAlertMessage = "Port must be a valid number between 1 and 65535"
+                            showingDaemonAlert = true
+                            return
                         }
+                        UserDefaults.standard.set(daemonHostname, forKey: "daemon_hostname")
+                        UserDefaults.standard.set(port, forKey: "daemon_port")
+                        daemonAlertMessage = "Daemon connection settings updated"
+                        showingDaemonAlert = true
                     }
                     .disabled(daemonHostname.isEmpty || daemonPort.isEmpty)
+                }
+                .alert("Daemon Settings", isPresented: $showingDaemonAlert) {
+                    Button("OK") {}
+                } message: {
+                    Text(daemonAlertMessage)
                 }
 
                 Section("Permissions") {
@@ -86,11 +98,17 @@ struct PermissionRowView: View {
             Text(permissionName)
             Spacer()
             statusIcon
-            if status != .granted {
+            if status == .notDetermined {
                 Button("Grant") {
                     Task {
                         let granted = await PermissionManager.shared.request(permission)
                         status = granted ? .granted : .denied
+                    }
+                }
+            } else if status == .denied {
+                Button("Open Settings") {
+                    if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(settingsUrl)
                     }
                 }
             }
