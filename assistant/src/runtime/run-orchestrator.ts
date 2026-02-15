@@ -81,9 +81,14 @@ export class RunOrchestrator {
     const messageId = session.persistUserMessage(content, attachments, requestId);
     const run = runsStore.createRun(assistantId, conversationId, messageId);
 
+    // Set the assistant ID so attachments are scoped correctly.
+    session.setAssistantId(assistantId);
+
     // Hook into session to intercept confirmation_request events.
     // When the prompter sends a confirmation_request, we record it in the
     // run store so the web UI can poll and submit a decision.
+    // Pass hasNoClient=true so interactive-only prompts (e.g. host
+    // attachment reads) fail fast instead of waiting for a timeout.
     let lastError: string | null = null;
     session.updateClient((msg: ServerMessage) => {
       if (msg.type === 'confirmation_request') {
@@ -101,14 +106,14 @@ export class RunOrchestrator {
           session,
         });
       }
-    });
+    }, true);
 
     // Fire-and-forget the agent loop
     const cleanup = () => {
       this.pending.delete(run.id);
       // Reset the session's client callback to a no-op so the stale
       // closure doesn't intercept events from future runs on the same session.
-      session.updateClient(() => {});
+      session.updateClient(() => {}, true);
     };
 
     session.runAgentLoop(content, messageId, (msg: ServerMessage) => {

@@ -519,6 +519,12 @@ export class DaemonServer {
           rebindClient ? sendToClient : () => {},
           workingDir,
         );
+        // When created without a socket (HTTP path), mark the session
+        // so interactive prompts (e.g. host attachment reads) can fail
+        // fast instead of waiting for a timeout with no client to respond.
+        if (!socket) {
+          newSession.updateClient(sendToClient, true);
+        }
         await newSession.loadFromDb();
         if (rebindClient && socket) {
           newSession.setSandboxOverride(this.socketSandboxOverride.get(socket));
@@ -591,13 +597,16 @@ export class DaemonServer {
     attachmentIds?: string[],
   ): Promise<{ messageId: string }> {
     const session = await this.getOrCreateSession(conversationId);
-    session.setAssistantId(assistantId);
 
     // Reject concurrent requests upfront. The HTTP path should never use
     // the message queue — it returns 409 to the caller instead.
     if (session.isProcessing()) {
       throw new Error('Session is already processing a message');
     }
+
+    // Set assistantId AFTER the isProcessing check so a rejected request
+    // doesn't mutate the session state visible to an in-flight request.
+    session.setAssistantId(assistantId);
 
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds
@@ -634,11 +643,14 @@ export class DaemonServer {
     attachmentIds?: string[],
   ): Promise<{ messageId: string }> {
     const session = await this.getOrCreateSession(conversationId);
-    session.setAssistantId(assistantId);
 
     if (session.isProcessing()) {
       throw new Error('Session is already processing a message');
     }
+
+    // Set assistantId AFTER the isProcessing check so a rejected request
+    // doesn't mutate the session state visible to an in-flight request.
+    session.setAssistantId(assistantId);
 
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds

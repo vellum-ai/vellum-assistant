@@ -115,6 +115,7 @@ export class Session {
   private contextCompactedMessageCount = 0;
   private currentRequestId?: string;
   private assistantId: string | null = null;
+  private hasNoClient = false;
   private messageQueue: QueuedMessage[] = [];
   private pendingSurfaceActions = new Map<string, {
     surfaceType: SurfaceType;
@@ -293,8 +294,9 @@ export class Session {
     log.info({ conversationId: this.conversationId, count: this.messages.length }, 'Loaded messages from DB');
   }
 
-  updateClient(sendToClient: (msg: ServerMessage) => void): void {
+  updateClient(sendToClient: (msg: ServerMessage) => void, hasNoClient = false): void {
     this.sendToClient = sendToClient;
+    this.hasNoClient = hasNoClient;
     this.prompter.updateSender(sendToClient);
     this.secretPrompter.updateSender(sendToClient);
     this.traceEmitter.updateSender(sendToClient);
@@ -432,6 +434,14 @@ export class Session {
       return true;
     }
     if (decision.decision === 'deny') {
+      return false;
+    }
+
+    // HTTP-created sessions use a no-op sendToClient — prompting would
+    // block for the full permission timeout before auto-denying. Fail
+    // fast instead.
+    if (this.hasNoClient) {
+      log.info({ filePath }, 'Denying host attachment read: no interactive client connected');
       return false;
     }
 
