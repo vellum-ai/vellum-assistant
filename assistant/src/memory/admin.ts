@@ -42,7 +42,7 @@ export function getMemorySystemStatus(): MemorySystemStatus {
   const config = getConfig();
   const backend = getMemoryBackendStatus(config);
   const db = getDb();
-  const raw = (db as unknown as { $client: { query: (q: string) => { get: () => unknown } } }).$client;
+  const raw = (db as unknown as { $client: { query: (q: string) => { get: (...args: unknown[]) => unknown } } }).$client;
   const counts = {
     segments: countTable('memory_segments'),
     items: countTable('memory_items'),

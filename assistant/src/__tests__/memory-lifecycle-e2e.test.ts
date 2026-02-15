@@ -113,7 +113,7 @@ const TEST_CONFIG = {
     conflicts: {
       ...DEFAULT_CONFIG.memory.conflicts,
       enabled: true,
-      gateMode: 'soft',
+      gateMode: 'soft' as const,
       relevanceThreshold: 0.2,
       reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 250,
