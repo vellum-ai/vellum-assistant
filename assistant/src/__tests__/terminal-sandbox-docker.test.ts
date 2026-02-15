@@ -111,13 +111,13 @@ describe('DockerBackend — argument construction', () => {
     expect(result.args).toContain(defaultImage);
   });
 
-  test('wraps command with bash -c by default', () => {
+  test('wraps command with sh -c by default', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     const cmd = 'cat /etc/passwd | wc -l';
     const result = backend.wrap(cmd, sandboxRoot);
-    const bashIdx = result.args.indexOf('bash');
-    expect(bashIdx).toBeGreaterThan(0);
-    expect(result.args.slice(bashIdx)).toEqual(['bash', '-c', cmd]);
+    const shIdx = result.args.indexOf('sh');
+    expect(shIdx).toBeGreaterThan(0);
+    expect(result.args.slice(shIdx)).toEqual(['sh', '-c', cmd]);
   });
 });
 

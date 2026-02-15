@@ -31,7 +31,7 @@ export const DockerConfigSchema = z.object({
     .default('node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687'),
   shell: z
     .string({ error: 'sandbox.docker.shell must be a string' })
-    .default('bash'),
+    .default('sh'),
   cpus: z
     .number({ error: 'sandbox.docker.cpus must be a number' })
     .finite('sandbox.docker.cpus must be finite')
@@ -65,7 +65,7 @@ export const SandboxConfigSchema = z.object({
     .default('docker'),
   docker: DockerConfigSchema.default({
     image: 'node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687',
-    shell: 'bash',
+    shell: 'sh',
     cpus: 1,
     memoryMb: 512,
     pidsLimit: 256,
@@ -575,7 +575,7 @@ export const AssistantConfigSchema = z.object({
     backend: 'docker',
     docker: {
       image: 'node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687',
-      shell: 'bash',
+      shell: 'sh',
       cpus: 1,
       memoryMb: 512,
       pidsLimit: 256,
