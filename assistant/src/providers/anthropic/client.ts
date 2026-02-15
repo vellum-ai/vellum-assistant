@@ -35,7 +35,7 @@ export class AnthropicProvider implements Provider {
           content: m.content
             .map((block) => this.toAnthropicBlock(block))
             .filter((block) => !(block.type === 'text' && !(block as { text?: string }).text?.trim())),
-        })),
+        })).filter((m) => m.content.length > 0),
         ...config,
       };
 

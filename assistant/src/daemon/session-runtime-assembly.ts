@@ -71,8 +71,9 @@ export function stripActiveSurfaceContext(messages: Message[]): Message[] {
       return !block.text.startsWith('<active_dynamic_page>');
     });
     if (nextContent.length === message.content.length) return message;
+    if (nextContent.length === 0) return null;
     return { ...message, content: nextContent };
-  });
+  }).filter((message): message is NonNullable<typeof message> => message !== null);
 }
 
 /**

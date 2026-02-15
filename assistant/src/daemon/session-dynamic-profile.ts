@@ -50,6 +50,11 @@ export function stripDynamicProfileMessages(messages: Message[], profileText: st
     return stripped.length > 0 ? { ...block, text: stripped } : null;
   }).filter((block): block is NonNullable<typeof block> => block !== null);
   if (!changed) return messages;
+  // If stripping removed all content blocks, drop the message entirely
+  // to avoid sending an empty content array to the provider.
+  if (nextContent.length === 0) {
+    return [...messages.slice(0, lastUserIdx), ...messages.slice(lastUserIdx + 1)];
+  }
   return [
     ...messages.slice(0, lastUserIdx),
     { ...message, content: nextContent },
