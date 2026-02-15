@@ -98,7 +98,28 @@ describe('registerToolTraceListener', () => {
     expect(traces).toHaveLength(1);
     expect(traces[0].kind).toBe('tool_finished');
     expect(traces[0].summary).toBe('Tool file_read finished in 42ms');
-    expect(traces[0].opts?.attributes).toEqual({ toolName: 'file_read', durationMs: 42 });
+    expect(traces[0].opts?.status).toBeUndefined();
+    expect(traces[0].opts?.attributes).toEqual({ toolName: 'file_read', durationMs: 42, isError: false });
+  });
+
+  test('emits tool_finished trace with error status when isError is true', async () => {
+    await bus.emit('tool.execution.finished', {
+      conversationId: 'conv-1',
+      sessionId: 'sess-1',
+      requestId: 'req-4b',
+      toolName: 'bash',
+      decision: 'allow',
+      riskLevel: 'low',
+      isError: true,
+      durationMs: 55,
+      finishedAtMs: 4055,
+    });
+
+    expect(traces).toHaveLength(1);
+    expect(traces[0].kind).toBe('tool_finished');
+    expect(traces[0].summary).toBe('Tool bash finished in 55ms');
+    expect(traces[0].opts?.status).toBe('error');
+    expect(traces[0].opts?.attributes).toEqual({ toolName: 'bash', durationMs: 55, isError: true });
   });
 
   test('emits tool_failed trace with error status', async () => {
