@@ -819,6 +819,7 @@ public final class ChatViewModel: ObservableObject {
         case .error(let err):
             log.error("Server error: \(err.message)")
             isWorkspaceRefinementInFlight = false
+            cancelledDuringRefinement = false
             isThinking = false
             let wasCancelling = isCancelling
             isCancelling = false
@@ -1017,6 +1018,7 @@ public final class ChatViewModel: ObservableObject {
             guard sessionId != nil, belongsToSession(msg.sessionId) else { return }
             log.error("Session error [\(msg.code.rawValue)]: \(msg.userMessage)")
             isWorkspaceRefinementInFlight = false
+            cancelledDuringRefinement = false
             isThinking = false
             let wasCancelling = isCancelling
             isCancelling = false
