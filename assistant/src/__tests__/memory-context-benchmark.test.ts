@@ -4,7 +4,7 @@
  * Baseline (first green run target ranges):
  * - compaction.summaryCalls: 2-6
  * - compaction.estimatedInputTokens: < previousEstimatedInputTokens
- * - recall.injectedTokens: <= retrieval.maxInjectTokens
+ * - recall.injectedTokens: <= computed dynamic budget
  * - recall.lexicalHits: > 0
  * - recall.recencyHits: > 0
  */
@@ -15,8 +15,10 @@ import { join } from 'node:path';
 
 import { DEFAULT_CONFIG } from '../config/defaults.js';
 import { ContextWindowManager } from '../context/window-manager.js';
+import { estimatePromptTokens } from '../context/token-estimator.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { buildMemoryRecall } from '../memory/retriever.js';
+import { computeRecallBudget } from '../memory/retrieval-budget.js';
 import { conversations, memorySegments, messages } from '../memory/schema.js';
 import type { Message, Provider } from '../providers/types.js';
 
@@ -191,21 +193,42 @@ describe('Memory context benchmark', () => {
           semanticTopK: 20,
           maxInjectTokens: 750,
           reranking: { ...DEFAULT_CONFIG.memory.retrieval.reranking, enabled: false },
+          dynamicBudget: {
+            enabled: true,
+            minInjectTokens: 160,
+            maxInjectTokens: 750,
+            targetHeadroomTokens: 900,
+          },
         },
       },
     };
+
+    const recallBudget = computeRecallBudget({
+      estimatedPromptTokens: estimatePromptTokens(
+        compacted.messages,
+        'system prompt for compaction benchmark',
+        { providerName: 'mock' },
+      ),
+      maxInputTokens: recallConfig.contextWindow.maxInputTokens,
+      targetHeadroomTokens: recallConfig.memory.retrieval.dynamicBudget.targetHeadroomTokens,
+      minInjectTokens: recallConfig.memory.retrieval.dynamicBudget.minInjectTokens,
+      maxInjectTokens: recallConfig.memory.retrieval.dynamicBudget.maxInjectTokens,
+    });
 
     const recall = await buildMemoryRecall(
       'What decisions did we make about Bun tests and retrieval diagnostics?',
       conversationId,
       recallConfig,
+      { maxInjectTokensOverride: recallBudget },
     );
 
     expect(recall.degraded).toBe(false);
     expect(recall.lexicalHits).toBeGreaterThan(0);
     expect(recall.recencyHits).toBeGreaterThan(0);
     expect(recall.selectedCount).toBeGreaterThan(0);
-    expect(recall.injectedTokens).toBeLessThanOrEqual(recallConfig.memory.retrieval.maxInjectTokens);
+    expect(recall.injectedTokens).toBeLessThanOrEqual(recallBudget);
+    expect(recallBudget).toBeGreaterThanOrEqual(recallConfig.memory.retrieval.dynamicBudget.minInjectTokens);
+    expect(recallBudget).toBeLessThanOrEqual(recallConfig.memory.retrieval.dynamicBudget.maxInjectTokens);
     expect(recall.injectedText).toContain('Bun test fixtures');
   });
 });
