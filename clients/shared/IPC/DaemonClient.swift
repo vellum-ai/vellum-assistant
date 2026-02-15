@@ -460,6 +460,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(message)
     }
 
+    // MARK: - Surface Undo
+
+    /// Send a surface undo request to revert the last refinement on a workspace surface.
+    public func sendSurfaceUndo(sessionId: String, surfaceId: String) throws {
+        let message = UiSurfaceUndoMessage(sessionId: sessionId, surfaceId: surfaceId)
+        try send(message)
+    }
+
     // MARK: - Confirmation Response
 
     /// Send a confirmation response for a tool permission request.

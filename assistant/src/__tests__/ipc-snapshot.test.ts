@@ -308,6 +308,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'slack_webhook_config',
     action: 'get',
   },
+  ui_surface_undo: {
+    type: 'ui_surface_undo',
+    sessionId: 'sess-001',
+    surfaceId: 'surface-001',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -862,6 +867,13 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'app_update_preview_response',
     success: true,
     appId: 'app-001',
+  },
+  ui_surface_undo_result: {
+    type: 'ui_surface_undo_result',
+    sessionId: 'sess-001',
+    surfaceId: 'surface-001',
+    success: true,
+    remainingUndos: 3,
   },
 };
 

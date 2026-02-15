@@ -587,6 +587,28 @@ struct MainWindowView: View {
 
                     Spacer()
 
+                    // Undo button — revert the last refinement on this surface
+                    if let viewModel = threadManager.activeViewModel,
+                       viewModel.surfaceUndoCount > 0 {
+                        Button(action: {
+                            viewModel.undoSurfaceRefinement()
+                        }) {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(VColor.textPrimary)
+                                .frame(width: 32, height: 32)
+                                .background(
+                                    Circle()
+                                        .fill(VColor.surface.opacity(0.85))
+                                        .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Undo")
+                        .transition(.opacity)
+                        .animation(VAnimation.standard, value: viewModel.surfaceUndoCount)
+                    }
+
                     // Share button — bundle app and share via system share sheet
                     if let appId = data.appId {
                         Button(action: {

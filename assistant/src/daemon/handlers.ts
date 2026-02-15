@@ -458,6 +458,14 @@ const handlers: DispatchMap = {
     }
     log.warn({ sessionId: msg.sessionId, surfaceId: msg.surfaceId }, 'No session found for surface action');
   },
+  ui_surface_undo: (msg, _socket, ctx) => {
+    const session = ctx.sessions.get(msg.sessionId);
+    if (session) {
+      session.handleSurfaceUndo(msg.surfaceId);
+      return;
+    }
+    log.warn({ sessionId: msg.sessionId, surfaceId: msg.surfaceId }, 'No session found for surface undo');
+  },
 };
 
 export function handleMessage(

@@ -119,6 +119,8 @@ public final class ChatViewModel: ObservableObject {
     /// after a refinement that produced no surface update.
     @Published public var refinementFailureText: String?
     private var refinementFailureDismissTask: Task<Void, Never>?
+    /// Number of undo steps available for the active workspace surface.
+    @Published public var surfaceUndoCount: Int = 0
     @Published public var pendingSkillInvocation: SkillInvocationData?
     @Published public var isWatchSessionActive: Bool = false
 
@@ -194,7 +196,9 @@ public final class ChatViewModel: ObservableObject {
 
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
-    public var activeSurfaceId: String?
+    public var activeSurfaceId: String? {
+        didSet { surfaceUndoCount = 0 }
+    }
 
     public init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -1032,10 +1036,17 @@ public final class ChatViewModel: ObservableObject {
                 messages.append(newMsg)
             }
 
+        case .uiSurfaceUndoResult(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            surfaceUndoCount = msg.remainingUndos
+
         case .uiSurfaceUpdate(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             if isWorkspaceRefinementInFlight {
                 refinementReceivedSurfaceUpdate = true
+            }
+            if msg.surfaceId == activeSurfaceId {
+                surfaceUndoCount += 1
             }
             // Find the inline surface across all messages and update its data
             for msgIndex in messages.indices {
@@ -1299,6 +1310,17 @@ public final class ChatViewModel: ObservableObject {
             isSending = false
             isThinking = false
             errorText = "Failed to regenerate message."
+        }
+    }
+
+    /// Revert the last refinement on the active workspace surface.
+    public func undoSurfaceRefinement() {
+        guard let sessionId, let surfaceId = activeSurfaceId else { return }
+        guard surfaceUndoCount > 0 else { return }
+        do {
+            try daemonClient.sendSurfaceUndo(sessionId: sessionId, surfaceId: surfaceId)
+        } catch {
+            log.error("Failed to send surface undo: \(error.localizedDescription)")
         }
     }
 

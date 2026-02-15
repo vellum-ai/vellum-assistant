@@ -1213,6 +1213,20 @@ public struct IPCUiSurfaceShowTable: Codable, Sendable {
     public let display: String?
 }
 
+public struct IPCUiSurfaceUndo: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+}
+
+public struct IPCUiSurfaceUndoResult: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let success: Bool
+    public let remainingUndos: Int
+}
+
 public struct IPCUiSurfaceUpdate: Codable, Sendable {
     public let type: String
     public let sessionId: String
