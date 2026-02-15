@@ -44,6 +44,7 @@ import type {
   UpdateTrustRule,
   ScheduleToggle,
   ScheduleRemove,
+  ReminderCancel,
   BundleAppRequest,
   SharedAppDeleteRequest,
   ForkSharedAppRequest,
@@ -63,6 +64,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { addRule, removeRule, updateRule, getAllRules } from '../permissions/trust-store.js';
 import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../schedule/schedule-store.js';
+import { listReminders, cancelReminder } from '../tools/reminder/reminder-store.js';
 import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
@@ -415,6 +417,8 @@ const handlers: DispatchMap = {
   schedules_list: (_msg, socket, ctx) => handleSchedulesList(socket, ctx),
   schedule_toggle: handleScheduleToggle,
   schedule_remove: handleScheduleRemove,
+  reminders_list: (_msg, socket, ctx) => handleRemindersList(socket, ctx),
+  reminder_cancel: handleReminderCancel,
   share_app_cloud: handleShareAppCloud,
   bundle_app: handleBundleApp,
   open_bundle: handleOpenBundle,
@@ -1598,6 +1602,43 @@ function handleScheduleRemove(
     log.error({ err }, 'Failed to remove schedule');
   }
   handleSchedulesList(socket, ctx);
+}
+
+// ─── Reminder handlers ──────────────────────────────────────────────────────
+
+function handleRemindersList(socket: net.Socket, ctx: HandlerContext): void {
+  const items = listReminders();
+  ctx.send(socket, {
+    type: 'reminders_list_response',
+    reminders: items.map((r) => ({
+      id: r.id,
+      label: r.label,
+      message: r.message,
+      fireAt: r.fireAt,
+      mode: r.mode,
+      status: r.status,
+      firedAt: r.firedAt,
+      createdAt: r.createdAt,
+    })),
+  });
+}
+
+function handleReminderCancel(
+  msg: ReminderCancel,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const cancelled = cancelReminder(msg.id);
+    if (!cancelled) {
+      log.warn({ id: msg.id }, 'Reminder not found or already fired/cancelled');
+    } else {
+      log.info({ id: msg.id }, 'Reminder cancelled via client');
+    }
+  } catch (err) {
+    log.error({ err }, 'Failed to cancel reminder');
+  }
+  handleRemindersList(socket, ctx);
 }
 
 // ─── Suggestion handler ─────────────────────────────────────────────────────

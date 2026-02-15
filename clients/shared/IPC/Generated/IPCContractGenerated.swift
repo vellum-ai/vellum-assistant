@@ -596,11 +596,36 @@ public struct IPCRegenerateRequest: Codable, Sendable {
     public let sessionId: String
 }
 
+public struct IPCReminderCancel: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
 public struct IPCReminderFired: Codable, Sendable {
     public let type: String
     public let reminderId: String
     public let label: String
     public let message: String
+}
+
+public struct IPCRemindersList: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCRemindersListResponse: Codable, Sendable {
+    public let type: String
+    public let reminders: [IPCRemindersListResponseReminder]
+}
+
+public struct IPCRemindersListResponseReminder: Codable, Sendable {
+    public let id: String
+    public let label: String
+    public let message: String
+    public let fireAt: Int
+    public let mode: String
+    public let status: String
+    public let firedAt: Int?
+    public let createdAt: Int
 }
 
 public struct IPCRemoveTrustRule: Codable, Sendable {

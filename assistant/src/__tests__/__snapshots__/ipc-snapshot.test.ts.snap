@@ -1301,3 +1301,34 @@ exports[`IPC message snapshots ServerMessage types slack_webhook_config_response
   "webhookUrl": "https://hooks.slack.com/services/T00/B00/xxx",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types reminders_list serializes to expected JSON 1`] = `
+{
+  "type": "reminders_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types reminder_cancel serializes to expected JSON 1`] = `
+{
+  "id": "rem-001",
+  "type": "reminder_cancel",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types reminders_list_response serializes to expected JSON 1`] = `
+{
+  "reminders": [
+    {
+      "createdAt": 1700000000000,
+      "fireAt": 1700100000000,
+      "firedAt": null,
+      "id": "rem-001",
+      "label": "Call Sidd",
+      "message": "Remember to call Sidd about the project",
+      "mode": "notify",
+      "status": "pending",
+    },
+  ],
+  "type": "reminders_list_response",
+}
+`;

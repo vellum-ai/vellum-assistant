@@ -289,6 +289,15 @@ export interface SchedulesList {
   type: 'schedules_list';
 }
 
+export interface RemindersList {
+  type: 'reminders_list';
+}
+
+export interface ReminderCancel {
+  type: 'reminder_cancel';
+  id: string;
+}
+
 export interface ScheduleToggle {
   type: 'schedule_toggle';
   id: string;
@@ -533,6 +542,8 @@ export type ClientMessage =
   | SchedulesList
   | ScheduleToggle
   | ScheduleRemove
+  | RemindersList
+  | ReminderCancel
   | BundleAppRequest
   | AppsListRequest
   | AppOpenRequest
@@ -965,6 +976,20 @@ export interface SchedulesListResponse {
   }>;
 }
 
+export interface RemindersListResponse {
+  type: 'reminders_list_response';
+  reminders: Array<{
+    id: string;
+    label: string;
+    message: string;
+    fireAt: number;
+    mode: string;
+    status: string;
+    firedAt: number | null;
+    createdAt: number;
+  }>;
+}
+
 export interface AppsListResponse {
   type: 'apps_list_response';
   apps: Array<{
@@ -1273,6 +1298,7 @@ export type ServerMessage =
   | WatchCompleteRequest
   | TrustRulesListResponse
   | SchedulesListResponse
+  | RemindersListResponse
   | BundleAppResponse
   | AppsListResponse
   | SharedAppsListResponse

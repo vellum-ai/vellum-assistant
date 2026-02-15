@@ -12,6 +12,7 @@ struct SettingsPanel: View {
     @State private var braveKeyText: String = ""
     @State private var showingTrustRules = false
     @State private var showingScheduledTasks = false
+    @State private var showingReminders = false
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
 
     var body: some View {
@@ -267,6 +268,32 @@ struct SettingsPanel: View {
                     .vCard(background: Slate._900)
                 }
 
+                // REMINDERS section
+                if daemonClient != nil {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("REMINDERS")
+                            .font(VFont.sectionTitle)
+                            .foregroundColor(VColor.textPrimary)
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Manage Reminders")
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.textSecondary)
+                                Text("View and manage one-shot reminders created by the assistant")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            Spacer()
+                            VButton(label: "Manage...", style: .ghost) {
+                                showingReminders = true
+                            }
+                        }
+                    }
+                    .padding(VSpacing.lg)
+                    .vCard(background: Slate._900)
+                }
+
                 // TRUST RULES section
                 if daemonClient != nil {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -326,6 +353,11 @@ struct SettingsPanel: View {
         .sheet(isPresented: $showingScheduledTasks) {
             if let daemonClient {
                 ScheduledTasksView(daemonClient: daemonClient)
+            }
+        }
+        .sheet(isPresented: $showingReminders) {
+            if let daemonClient {
+                RemindersView(daemonClient: daemonClient)
             }
         }
     }
