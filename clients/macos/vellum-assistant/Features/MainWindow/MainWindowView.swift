@@ -137,9 +137,14 @@ struct MainWindowView: View {
             }
 
             // Close thread drawer when opening a right-side panel to avoid cramped layout
+            // Reopen drawer when closing the panel
             if useThreadDrawer && newPanel != nil {
                 withTransaction(Transaction(animation: nil)) {
                     columnVisibility = .detailOnly
+                }
+            } else if useThreadDrawer && newPanel == nil {
+                withTransaction(Transaction(animation: nil)) {
+                    columnVisibility = .all
                 }
             }
         }
