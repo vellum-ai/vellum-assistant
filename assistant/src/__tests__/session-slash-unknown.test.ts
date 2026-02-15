@@ -91,6 +91,13 @@ mock.module('../memory/retriever.js', () => ({
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 
+mock.module('../memory/admin.js', () => ({
+  getMemoryConflictAndCleanupStats: () => ({
+    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
+    cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
+  }),
+}));
+
 mock.module('../context/window-manager.js', () => ({
   ContextWindowManager: class {
     constructor() {}
