@@ -1,10 +1,12 @@
 import SwiftUI
 
 /// Compact preview card for dynamic pages shown inline in chat.
-/// Displays icon, title, subtitle, description, metric pills, and a "View Output" button.
+/// The entire card is clickable to open the workspace panel.
 public struct InlineDynamicPagePreview: View {
     public let preview: DynamicPagePreview
     public let onViewOutput: () -> Void
+
+    @State private var isHovered: Bool = false
 
     public init(preview: DynamicPagePreview, onViewOutput: @escaping () -> Void) {
         self.preview = preview
@@ -12,69 +14,71 @@ public struct InlineDynamicPagePreview: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            HStack(alignment: .top, spacing: VSpacing.sm) {
-                if let icon = preview.icon {
-                    Text(icon)
-                        .font(.system(size: 24))
+        Button {
+            onViewOutput()
+        } label: {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                HStack(alignment: .top, spacing: VSpacing.sm) {
+                    if let icon = preview.icon {
+                        Text(icon)
+                            .font(.system(size: 24))
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                        Text(preview.title)
+                            .font(VFont.headline)
+                            .foregroundColor(VColor.textPrimary)
+                            .lineLimit(2)
+
+                        if let subtitle = preview.subtitle {
+                            Text(subtitle)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textSecondary)
+                                .lineLimit(1)
+                        }
+                    }
                 }
 
-                VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                    Text(preview.title)
-                        .font(VFont.headline)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineLimit(2)
+                if let description = preview.description, !description.isEmpty {
+                    Text(description)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                        .lineLimit(3)
+                }
 
-                    if let subtitle = preview.subtitle {
-                        Text(subtitle)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                            .lineLimit(1)
+                if let metrics = preview.metrics, !metrics.isEmpty {
+                    HStack(spacing: VSpacing.sm) {
+                        ForEach(Array(metrics.prefix(3).enumerated()), id: \.offset) { _, metric in
+                            metricPill(label: metric.label, value: metric.value)
+                        }
                     }
                 }
             }
-
-            if let description = preview.description, !description.isEmpty {
-                Text(description)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-                    .lineLimit(3)
-            }
-
-            if let metrics = preview.metrics, !metrics.isEmpty {
-                HStack(spacing: VSpacing.sm) {
-                    ForEach(Array(metrics.prefix(3).enumerated()), id: \.offset) { _, metric in
-                        metricPill(label: metric.label, value: metric.value)
-                    }
-                }
-            }
-
-            #if os(macOS)
-            HStack {
-                Spacer()
-                Button {
-                    onViewOutput()
-                } label: {
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "arrow.up.right.square")
-                            .font(VFont.caption)
-                        Text("View Output")
-                            .font(VFont.bodyMedium)
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.vertical, VSpacing.sm)
+            .overlay(alignment: .topTrailing) {
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
+                    .padding(VSpacing.xs)
                     .background(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .fill(VColor.accent)
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .fill(VColor.surfaceBorder.opacity(isHovered ? 0.6 : 0.3))
                     )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("View Output")
             }
-            #endif
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .frame(maxWidth: 350)
+        .onHover { hovering in
+            #if os(macOS)
+            if hovering { NSCursor.pointingHand.set() }
+            else { NSCursor.arrow.set() }
+            #endif
+            isHovered = hovering
+        }
+        .scaleEffect(isHovered ? 1.015 : 1.0)
+        .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .accessibilityLabel("View output: \(preview.title)")
+        .accessibilityAddTraits(.isButton)
     }
 
     private func metricPill(label: String, value: String) -> some View {
