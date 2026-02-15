@@ -15,7 +15,9 @@
     "check:ipc-generated": "bun run scripts/ipc/generate-swift.ts --check",
     "ipc:check-swift-drift": "bun run scripts/ipc/check-swift-decoder-drift.ts",
     "lint": "eslint",
+    "typecheck": "bunx tsc --noEmit",
     "test": "bash scripts/test.sh",
+    "test:stable": "EXCLUDE_EXPERIMENTAL=true bash scripts/test.sh",
     "test:filesystem-tools": "bash scripts/test-filesystem-tools.sh"
   },
   "dependencies": {
