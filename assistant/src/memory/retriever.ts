@@ -61,6 +61,10 @@ export interface MemoryRecallResult {
   semanticHits: number;
   recencyHits: number;
   entityHits: number;
+  relationSeedEntityCount: number;
+  relationTraversedEdgeCount: number;
+  relationNeighborEntityCount: number;
+  relationExpandedItemCount: number;
   mergedCount: number;
   selectedCount: number;
   rerankApplied: boolean;
@@ -409,6 +413,10 @@ export async function buildMemoryRecall(
     semanticHits: semanticCandidates.length,
     recencyHits: recencyCandidates.length,
     entityHits: entityCandidates.length,
+    relationSeedEntityCount,
+    relationTraversedEdgeCount,
+    relationNeighborEntityCount,
+    relationExpandedItemCount,
     mergedCount,
     selectedCount: selected.length,
     rerankApplied,
@@ -1567,6 +1575,10 @@ function emptyResult(
     semanticHits: 0,
     recencyHits: 0,
     entityHits: 0,
+    relationSeedEntityCount: 0,
+    relationTraversedEdgeCount: 0,
+    relationNeighborEntityCount: 0,
+    relationExpandedItemCount: 0,
     mergedCount: 0,
     selectedCount: 0,
     rerankApplied: false,

@@ -370,6 +370,10 @@ public struct IPCMemoryRecalled: Codable, Sendable {
     public let semanticHits: Double
     public let recencyHits: Double
     public let entityHits: Double
+    public let relationSeedEntityCount: Int?
+    public let relationTraversedEdgeCount: Int?
+    public let relationNeighborEntityCount: Int?
+    public let relationExpandedItemCount: Int?
     public let mergedCount: Int
     public let selectedCount: Int
     public let rerankApplied: Bool

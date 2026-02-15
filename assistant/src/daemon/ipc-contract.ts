@@ -648,6 +648,10 @@ export interface MemoryRecalled {
   semanticHits: number;
   recencyHits: number;
   entityHits: number;
+  relationSeedEntityCount?: number;
+  relationTraversedEdgeCount?: number;
+  relationNeighborEntityCount?: number;
+  relationExpandedItemCount?: number;
   mergedCount: number;
   selectedCount: number;
   rerankApplied: boolean;

@@ -533,6 +533,55 @@ extension IPCSessionInfo {
     }
 }
 
+/// Memory recall telemetry event.
+/// Backed by generated `IPCMemoryRecalled`.
+public typealias MemoryRecalledMessage = IPCMemoryRecalled
+
+extension IPCMemoryRecalled {
+    public init(
+        provider: String,
+        model: String,
+        lexicalHits: Double,
+        semanticHits: Double,
+        recencyHits: Double,
+        entityHits: Double,
+        relationSeedEntityCount: Double? = nil,
+        relationTraversedEdgeCount: Double? = nil,
+        relationNeighborEntityCount: Double? = nil,
+        relationExpandedItemCount: Double? = nil,
+        mergedCount: Int,
+        selectedCount: Int,
+        rerankApplied: Bool,
+        injectedTokens: Int,
+        latencyMs: Double,
+        topCandidates: [IPCMemoryRecalledCandidateDebug]
+    ) {
+        self.init(
+            type: "memory_recalled",
+            provider: provider,
+            model: model,
+            lexicalHits: lexicalHits,
+            semanticHits: semanticHits,
+            recencyHits: recencyHits,
+            entityHits: entityHits,
+            relationSeedEntityCount: relationSeedEntityCount,
+            relationTraversedEdgeCount: relationTraversedEdgeCount,
+            relationNeighborEntityCount: relationNeighborEntityCount,
+            relationExpandedItemCount: relationExpandedItemCount,
+            mergedCount: mergedCount,
+            selectedCount: selectedCount,
+            rerankApplied: rerankApplied,
+            injectedTokens: injectedTokens,
+            latencyMs: latencyMs,
+            topCandidates: topCandidates
+        )
+    }
+}
+
+/// Memory availability/degradation status event.
+/// Backed by generated `IPCMemoryStatus`.
+public typealias MemoryStatusMessage = IPCMemoryStatus
+
 /// Daemon response after classifying and routing a task_submit.
 public typealias TaskRoutedMessage = IPCTaskRouted
 
