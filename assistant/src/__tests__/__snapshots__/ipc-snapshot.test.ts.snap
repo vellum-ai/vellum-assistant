@@ -145,6 +145,21 @@ exports[`IPC message snapshots ClientMessage types ambient_observation serialize
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types watch_observation serializes to expected JSON 1`] = `
+{
+  "appName": "Xcode",
+  "bundleIdentifier": "com.apple.dt.Xcode",
+  "captureIndex": 0,
+  "ocrText": "Screen text captured during watch",
+  "sessionId": "sess-001",
+  "timestamp": 1700000000,
+  "totalExpected": 10,
+  "type": "watch_observation",
+  "watchId": "watch-001",
+  "windowTitle": "Project.swift",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types task_submit serializes to expected JSON 1`] = `
 {
   "screenHeight": 1080,
@@ -992,6 +1007,24 @@ exports[`IPC message snapshots ServerMessage types timer_completed serializes to
   "sessionId": "sess-001",
   "timerId": "tmr-001",
   "type": "timer_completed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types watch_started serializes to expected JSON 1`] = `
+{
+  "durationSeconds": 300,
+  "intervalSeconds": 5,
+  "sessionId": "sess-001",
+  "type": "watch_started",
+  "watchId": "watch-001",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types watch_complete_request serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "type": "watch_complete_request",
+  "watchId": "watch-001",
 }
 `;
 
