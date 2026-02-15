@@ -173,8 +173,11 @@ describe('CredentialBroker.browserFill', () => {
     expect(filled.password).toBe('hunter2');
   });
 
-  test('accepts optional domain parameter', async () => {
-    upsertCredentialMetadata('github', 'token', { allowedTools: ['browser_fill_credential'] });
+  test('allows fill when domain matches allowedDomains', async () => {
+    upsertCredentialMetadata('github', 'token', {
+      allowedTools: ['browser_fill_credential'],
+      allowedDomains: ['github.com'],
+    });
     setSecureKey('credential:github:token', 'ghp_secret123');
 
     const result = await broker.browserFill({
@@ -185,7 +188,78 @@ describe('CredentialBroker.browserFill', () => {
       fill: async () => {},
     });
 
-    // Domain policy enforcement is a stub — should still succeed
+    expect(result.success).toBe(true);
+  });
+
+  test('allows fill on subdomain when registrable domain matches', async () => {
+    upsertCredentialMetadata('github', 'token', {
+      allowedTools: ['browser_fill_credential'],
+      allowedDomains: ['github.com'],
+    });
+    setSecureKey('credential:github:token', 'ghp_secret123');
+
+    const result = await broker.browserFill({
+      service: 'github',
+      field: 'token',
+      toolName: 'browser_fill_credential',
+      domain: 'login.github.com',
+      fill: async () => {},
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  test('denies fill when domain does not match allowedDomains', async () => {
+    upsertCredentialMetadata('github', 'token', {
+      allowedTools: ['browser_fill_credential'],
+      allowedDomains: ['github.com'],
+    });
+    setSecureKey('credential:github:token', 'ghp_secret123');
+
+    const result = await broker.browserFill({
+      service: 'github',
+      field: 'token',
+      toolName: 'browser_fill_credential',
+      domain: 'evil.com',
+      fill: async () => { throw new Error('should not be called'); },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.reason).toContain('not allowed');
+    expect(result.reason).toContain('evil.com');
+    expect(result.reason).toContain('github.com');
+  });
+
+  test('denies fill when domain policy exists but no domain provided', async () => {
+    upsertCredentialMetadata('github', 'token', {
+      allowedTools: ['browser_fill_credential'],
+      allowedDomains: ['github.com'],
+    });
+    setSecureKey('credential:github:token', 'ghp_secret123');
+
+    const result = await broker.browserFill({
+      service: 'github',
+      field: 'token',
+      toolName: 'browser_fill_credential',
+      fill: async () => { throw new Error('should not be called'); },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.reason).toContain('no page domain was provided');
+  });
+
+  test('skips domain check when allowedDomains is empty', async () => {
+    upsertCredentialMetadata('github', 'token', { allowedTools: ['browser_fill_credential'] });
+    setSecureKey('credential:github:token', 'ghp_secret123');
+
+    // No domain provided and no allowedDomains policy — should succeed
+    const result = await broker.browserFill({
+      service: 'github',
+      field: 'token',
+      toolName: 'browser_fill_credential',
+      fill: async () => {},
+    });
+
     expect(result.success).toBe(true);
   });
 

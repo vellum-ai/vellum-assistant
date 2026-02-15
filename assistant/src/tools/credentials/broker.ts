@@ -9,6 +9,7 @@ import type {
 } from './broker-types.js';
 import { getCredentialMetadata } from './metadata-store.js';
 import { isToolAllowed } from './tool-policy.js';
+import { isDomainAllowed } from './domain-policy.js';
 import { getSecureKey } from '../../security/secure-keys.js';
 import { getLogger } from '../../util/logger.js';
 
@@ -22,7 +23,7 @@ const log = getLogger('credential-broker');
  * 2. Issues a single-use token for the authorized usage
  * 3. On consumption, returns the storage key so the caller can read the secret internally
  *
- * Tool policy is enforced at authorize/fill time; domain policy enforcement comes in PR 20.
+ * Tool policy is enforced at authorize/fill time; domain policy is enforced at fill time.
  */
 export class CredentialBroker {
   private tokens = new Map<string, UsageToken>();
@@ -134,6 +135,24 @@ export class CredentialBroker {
             ? 'No tools are currently allowed — update the credential with allowed_tools via credential_store.'
             : `Allowed tools: ${metadata.allowedTools.join(', ')}.`),
       };
+    }
+
+    // Domain policy enforcement — deny if the page domain is not in the credential's allowed list
+    if (metadata.allowedDomains.length > 0) {
+      if (!request.domain) {
+        return {
+          success: false,
+          reason: `Credential ${request.service}/${request.field} has a domain policy but no page domain was provided. ` +
+            `Allowed domains: ${metadata.allowedDomains.join(', ')}.`,
+        };
+      }
+      if (!isDomainAllowed(request.domain, metadata.allowedDomains)) {
+        return {
+          success: false,
+          reason: `Domain "${request.domain}" is not allowed for credential ${request.service}/${request.field}. ` +
+            `Allowed domains: ${metadata.allowedDomains.join(', ')}.`,
+        };
+      }
     }
 
     const value = getSecureKey(`credential:${request.service}:${request.field}`);
