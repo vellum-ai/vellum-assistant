@@ -148,7 +148,7 @@ Run `vellum doctor` for a full diagnostic check including sandbox backend status
 
 The assistant can store and use credentials (API keys, tokens, passwords) without exposing secret values to the LLM or logs.
 
-- **Storage**: Secret values are stored in the macOS Keychain via `secure-keys.ts`. Metadata (service, field, label, usage policy) is stored in SQLite.
+- **Storage**: Secret values are stored in the macOS Keychain via `secure-keys.ts`. Metadata (service, field, label, usage policy) is stored in a JSON file at `~/.vellum/data/credentials/metadata.json`.
 - **Secret prompt**: When a credential is needed, a floating `SecretPromptView` panel appears. The user enters the value in a `SecureField` — the LLM never sees it.
 - **Ingress blocking**: Inbound user messages are scanned for secrets (regex + entropy). If `secretDetection.action` is `block` (the default), messages containing secrets are rejected with a notice to use the secure prompt instead.
 - **Usage policy**: Each credential can specify `allowedTools` and `allowedDomains`. The `CredentialBroker` enforces these policies at use time.
