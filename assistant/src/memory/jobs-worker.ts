@@ -41,6 +41,7 @@ import { getQdrantClient } from './qdrant-client.js';
 import {
   memoryEmbeddings,
   memoryItemConflicts,
+  memoryItemEntities,
   memoryItems,
   memoryItemSources,
   memorySegments,
@@ -494,6 +495,9 @@ function cleanupStaleSupersededItemsJob(job: MemoryJob, config: AssistantConfig)
   if (stale.length === 0) return;
 
   const ids = stale.map((row) => row.id);
+  db.delete(memoryItemEntities)
+    .where(inArray(memoryItemEntities.memoryItemId, ids))
+    .run();
   db.delete(memoryEmbeddings)
     .where(and(
       eq(memoryEmbeddings.targetType, 'item'),

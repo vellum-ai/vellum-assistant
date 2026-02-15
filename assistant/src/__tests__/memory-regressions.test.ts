@@ -1220,7 +1220,7 @@ describe('Memory regressions', () => {
     expect(recentRow?.status).toBe('resolved_keep_candidate');
   });
 
-  test('cleanup_stale_superseded_items removes stale superseded rows and embeddings', async () => {
+  test('cleanup_stale_superseded_items removes stale superseded rows, embeddings, and entity links', async () => {
     const db = getDb();
     const now = Date.now();
 
@@ -1280,6 +1280,22 @@ describe('Memory regressions', () => {
       },
     ]).run();
 
+    // Create entity links for both items (no FK cascade on this table)
+    db.insert(memoryEntities).values({
+      id: 'cleanup-entity',
+      name: 'Deployment',
+      type: 'concept',
+      aliases: JSON.stringify([]),
+      description: null,
+      firstSeenAt: now - 200_000,
+      lastSeenAt: now - 200_000,
+      mentionCount: 2,
+    }).run();
+    db.insert(memoryItemEntities).values([
+      { memoryItemId: 'cleanup-stale-item', entityId: 'cleanup-entity' },
+      { memoryItemId: 'cleanup-recent-item', entityId: 'cleanup-entity' },
+    ]).run();
+
     enqueueMemoryJob('cleanup_stale_superseded_items', { retentionMs: 10_000 });
     const processed = await runMemoryJobsOnce();
     expect(processed).toBe(1);
@@ -1289,10 +1305,16 @@ describe('Memory regressions', () => {
     const staleEmbedding = db.select().from(memoryEmbeddings).where(eq(memoryEmbeddings.id, 'cleanup-embed-stale')).get();
     const recentEmbedding = db.select().from(memoryEmbeddings).where(eq(memoryEmbeddings.id, 'cleanup-embed-recent')).get();
 
+    // Entity links for stale item should be removed; recent item's links should remain
+    const staleEntityLinks = db.select().from(memoryItemEntities).where(eq(memoryItemEntities.memoryItemId, 'cleanup-stale-item')).all();
+    const recentEntityLinks = db.select().from(memoryItemEntities).where(eq(memoryItemEntities.memoryItemId, 'cleanup-recent-item')).all();
+
     expect(staleItem).toBeUndefined();
     expect(recentItem).toBeDefined();
     expect(staleEmbedding).toBeUndefined();
     expect(recentEmbedding).toBeDefined();
+    expect(staleEntityLinks).toHaveLength(0);
+    expect(recentEntityLinks).toHaveLength(1);
   });
 
   test('memory admin status reports pending/resolved conflicts and oldest pending age', () => {
