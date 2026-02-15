@@ -161,6 +161,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Maximum line size: 96 MB (for screenshots with base64).
     private let maxLineSize = 96 * 1024 * 1024
 
+    /// Monotonic per-session sequence for CU observation sends.
+    private var cuObservationSequenceBySession: [String: Int] = [:]
+
     /// Whether we should attempt to reconnect on disconnect.
     private var shouldReconnect = true
 
@@ -377,6 +380,19 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         var data = try encoder.encode(message)
         data.append(contentsOf: [0x0A]) // newline byte
+
+        if let observation = message as? CuObservationMessage {
+            let previousSequence = cuObservationSequenceBySession[observation.sessionId] ?? 0
+            let sequence = previousSequence + 1
+            cuObservationSequenceBySession[observation.sessionId] = sequence
+            let payloadJSONBytes = max(0, data.count - 1)
+            let screenshotBase64Bytes = observation.screenshot?.utf8.count ?? 0
+            let axTreeBytes = observation.axTree?.utf8.count ?? 0
+            let sendTimestampMs = Int(Date().timeIntervalSince1970 * 1_000)
+            log.info(
+                "IPC_METRIC cu_observation_send sessionId=\(observation.sessionId) sequence=\(sequence) sendTsMs=\(sendTimestampMs) payloadJsonBytes=\(payloadJSONBytes) screenshotBase64Bytes=\(screenshotBase64Bytes) axTreeBytes=\(axTreeBytes)"
+            )
+        }
 
         conn.send(content: data, completion: .contentProcessed { error in
             if let error {
@@ -626,6 +642,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         receiveBuffer = Data()
+        cuObservationSequenceBySession.removeAll()
         isConnected = false
         httpPort = nil
 
