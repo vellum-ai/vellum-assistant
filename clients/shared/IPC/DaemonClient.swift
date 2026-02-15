@@ -152,6 +152,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `slack_webhook_config_response` message.
     public var onSlackWebhookConfigResponse: ((SlackWebhookConfigResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `publish_page_response` message.
+    public var onPublishPageResponse: ((PublishPageResponseMessage) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -687,6 +690,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(SlackWebhookConfigRequestMessage(action: action, webhookUrl: webhookUrl))
     }
 
+    /// Publish a static page to Vercel.
+    public func sendPublishPage(html: String, title: String? = nil) throws {
+        try send(PublishPageRequestMessage(html: html, title: title))
+    }
+
+    /// Unpublish a page and delete its Vercel deployment.
+    public func sendUnpublishPage(deploymentId: String) throws {
+        try send(UnpublishPageRequestMessage(deploymentId: deploymentId))
+    }
+
     // MARK: - Signing Identity (macOS only)
 
     #if os(macOS)
@@ -906,6 +919,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onShareToSlackResponse?(msg)
         case .slackWebhookConfigResponse(let msg):
             onSlackWebhookConfigResponse?(msg)
+        case .publishPageResponse(let msg):
+            onPublishPageResponse?(msg)
+        case .unpublishPageResponse:
+            break // Handled via specific callback if needed
         case .memoryStatus(let msg):
             latestMemoryStatus = msg
         case .traceEvent(let msg):

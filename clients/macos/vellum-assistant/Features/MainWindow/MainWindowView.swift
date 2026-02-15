@@ -13,6 +13,8 @@ struct MainWindowView: View {
     @State private var showSharePicker = false
     @State private var isBundling = false
     @State private var shareFileURL: URL?
+    @State private var isPublishing = false
+    @State private var publishedUrl: String?
     @State private var isHoveredThread: UUID?
     @State private var threadMenuOpenId: UUID?
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
@@ -54,6 +56,28 @@ struct MainWindowView: View {
     private func pageURL(for appId: String) -> URL? {
         guard let port = daemonClient.httpPort else { return nil }
         return URL(string: "http://localhost:\(port)/pages/\(appId)")
+    }
+
+    private func publishPage(html: String, title: String?) {
+        guard !isPublishing else { return }
+        isPublishing = true
+
+        Task { @MainActor in
+            daemonClient.onPublishPageResponse = { response in
+                isPublishing = false
+                if response.success, let url = response.publicUrl {
+                    publishedUrl = url
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url, forType: .string)
+                }
+            }
+
+            do {
+                try daemonClient.sendPublishPage(html: html, title: title)
+            } catch {
+                isPublishing = false
+            }
+        }
     }
 
     private func bundleAndShare(appId: String) {
@@ -651,6 +675,63 @@ struct MainWindowView: View {
                             )
                             .frame(width: 1, height: 1)
                         )
+                    } else {
+                        // Publish button for static pages
+                        Button(action: {
+                            publishPage(html: data.html, title: data.preview?.title)
+                        }) {
+                            Group {
+                                if isPublishing {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .scaleEffect(0.7)
+                                } else if publishedUrl != nil {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 12, weight: .medium))
+                                } else {
+                                    Image(systemName: "globe")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                            }
+                            .foregroundColor(publishedUrl != nil ? VColor.success : VColor.textPrimary)
+                            .frame(width: 32, height: 32)
+                            .background(
+                                Circle()
+                                    .fill(VColor.surface.opacity(0.85))
+                                    .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isPublishing)
+                        .accessibilityLabel(publishedUrl != nil ? "Published" : "Publish")
+
+                        // Show URL pill after publishing
+                        if let url = publishedUrl {
+                            Button(action: {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(url, forType: .string)
+                            }) {
+                                HStack(spacing: VSpacing.xs) {
+                                    Image(systemName: "doc.on.doc")
+                                        .font(.system(size: 10, weight: .medium))
+                                    Text(url)
+                                        .font(VFont.caption)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                .foregroundColor(VColor.textSecondary)
+                                .padding(.horizontal, VSpacing.sm)
+                                .padding(.vertical, VSpacing.xs)
+                                .background(
+                                    Capsule()
+                                        .fill(VColor.surface.opacity(0.85))
+                                        .overlay(Capsule().stroke(VColor.surfaceBorder, lineWidth: 1))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Copy published URL")
+                            .frame(maxWidth: 200)
+                        }
                     }
                 }
                 .padding(.horizontal, VSpacing.xl)

@@ -1266,6 +1266,36 @@ extension IPCOpenBundleResponseManifest {
 }
 
 
+// MARK: - Publish / Unpublish Page Messages
+
+/// Sent to publish a static page via Vercel.
+/// Backed by generated `IPCPublishPageRequest`.
+public typealias PublishPageRequestMessage = IPCPublishPageRequest
+
+extension IPCPublishPageRequest {
+    public init(html: String, title: String? = nil) {
+        self.init(type: "publish_page", html: html, title: title)
+    }
+}
+
+/// Response from publishing a static page.
+/// Backed by generated `IPCPublishPageResponse`.
+public typealias PublishPageResponseMessage = IPCPublishPageResponse
+
+/// Sent to unpublish a page and delete its Vercel deployment.
+/// Backed by generated `IPCUnpublishPageRequest`.
+public typealias UnpublishPageRequestMessage = IPCUnpublishPageRequest
+
+extension IPCUnpublishPageRequest {
+    public init(deploymentId: String) {
+        self.init(type: "unpublish_page", deploymentId: deploymentId)
+    }
+}
+
+/// Response from unpublishing a page.
+/// Backed by generated `IPCUnpublishPageResponse`.
+public typealias UnpublishPageResponseMessage = IPCUnpublishPageResponse
+
 // MARK: - Slack Webhook Messages (Manual)
 
 public struct ShareToSlackRequestMessage: Encodable, Sendable {
@@ -1355,6 +1385,8 @@ public enum ServerMessage: Decodable, Sendable {
     case signBundlePayload(SignBundlePayloadMessage)
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
+    case publishPageResponse(PublishPageResponseMessage)
+    case unpublishPageResponse(UnpublishPageResponseMessage)
     case uiSurfaceUndoResult(UiSurfaceUndoResultMessage)
     case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
@@ -1535,6 +1567,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "daemon_status":
             let message = try DaemonStatusMessage(from: decoder)
             self = .daemonStatus(message)
+        case "publish_page_response":
+            let message = try PublishPageResponseMessage(from: decoder)
+            self = .publishPageResponse(message)
+        case "unpublish_page_response":
+            let message = try UnpublishPageResponseMessage(from: decoder)
+            self = .unpublishPageResponse(message)
         case "pong":
             self = .pong
         default:
