@@ -1303,8 +1303,8 @@ sequenceDiagram
 
 ### Key design decisions
 
-- **Recursion guard**: Only one swarm can execute per session. Nested invocations return an error.
-- **Abort signal**: The tool checks `context.signal?.aborted` before planning and before execution.
+- **Recursion guard**: A module-level `Set<sessionId>` prevents concurrent swarms within the same session while allowing independent sessions to run their own swarms in parallel.
+- **Abort signal**: The tool checks `context.signal?.aborted` before planning and before execution. The signal is also forwarded into `executeSwarm` and the worker backend, enabling cooperative cancellation of in-flight workers.
 - **DAG scheduling**: Tasks with dependencies are topologically ordered. Independent tasks run in parallel up to `maxWorkers`.
 - **Per-task retries**: Failed tasks retry up to `maxRetriesPerTask` before being marked failed. Dependents are transitively blocked.
 - **Role-scoped profiles**: Workers run with restricted tool access based on their role (coder, researcher, reviewer, general).

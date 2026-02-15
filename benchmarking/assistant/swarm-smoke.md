@@ -90,7 +90,7 @@ Ensure `config.swarm.enabled = true` and a valid Anthropic API key is configured
 
 **Expected behavior**:
 - Tool returns `{ content: 'Cancelled', isError: true }` or the abort races through the agent loop
-- No hanging workers
+- Workers observe the abort signal cooperatively; in-flight LLM calls may finish their current turn before exiting
 - Session can accept new messages after cancel
 
 ## Recording Results
