@@ -32,6 +32,7 @@ export interface ExecuteSwarmOptions {
   synthesisProvider?: Provider;
   synthesisModel?: string;
   onStatus?: OrchestratorStatusCallback;
+  signal?: AbortSignal;
 }
 
 /**
@@ -39,7 +40,7 @@ export interface ExecuteSwarmOptions {
  * bounded concurrency, and per-task retries.
  */
 export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExecutionSummary> {
-  const { plan, limits, backend, workingDir, model, onStatus } = opts;
+  const { plan, limits, backend, workingDir, model, onStatus, signal } = opts;
   const startTime = Date.now();
 
   onStatus?.({ kind: 'plan_created', message: `Plan with ${plan.tasks.length} tasks` });
@@ -74,6 +75,8 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
 
   // Process tasks with bounded concurrency
   while (ready.length > 0 || isAnyRunning()) {
+    if (signal?.aborted) break;
+
     // Launch up to maxWorkers tasks
     const batch = ready.splice(0, limits.maxWorkers);
 
@@ -95,6 +98,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
         workingDir,
         model,
         timeoutMs: limits.workerTimeoutSec * 1000,
+        signal,
       });
 
       // Retry loop

@@ -105,6 +105,7 @@ export interface SwarmWorkerBackendInput {
   workingDir: string;
   model?: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 /**

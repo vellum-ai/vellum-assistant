@@ -66,6 +66,7 @@ function createClaudeCodeBackend(): SwarmWorkerBackend {
 
         let resultText = '';
         for await (const message of conversation) {
+          if (input.signal?.aborted) break;
           if (message.type === 'assistant' && message.message?.content) {
             for (const block of message.message.content) {
               if (block.type === 'text') resultText += block.text;
@@ -191,6 +192,7 @@ export const swarmDelegateTool: Tool = {
         model: config.swarm.plannerModel,
         synthesisProvider,
         synthesisModel: config.swarm.synthesizerModel,
+        signal: context.signal,
         onStatus: (event) => {
           switch (event.kind) {
             case 'task_started':

@@ -18,6 +18,7 @@ export interface RunWorkerTaskOptions {
   model?: string;
   timeoutMs: number;
   onStatus?: WorkerStatusCallback;
+  signal?: AbortSignal;
 }
 
 /**
@@ -25,7 +26,21 @@ export interface RunWorkerTaskOptions {
  * Returns a normalized SwarmTaskResult regardless of success or failure.
  */
 export async function runWorkerTask(opts: RunWorkerTaskOptions): Promise<SwarmTaskResult> {
-  const { task, backend, workingDir, timeoutMs, onStatus } = opts;
+  const { task, backend, workingDir, timeoutMs, onStatus, signal } = opts;
+
+  if (signal?.aborted) {
+    return {
+      taskId: task.id,
+      status: 'failed',
+      summary: 'Cancelled',
+      artifacts: [],
+      issues: ['aborted'],
+      nextSteps: [],
+      rawOutput: '',
+      durationMs: 0,
+      retryCount: 0,
+    };
+  }
 
   onStatus?.(task.id, 'queued');
 
@@ -63,6 +78,7 @@ export async function runWorkerTask(opts: RunWorkerTaskOptions): Promise<SwarmTa
       workingDir,
       model: opts.model,
       timeoutMs,
+      signal,
     });
 
     if (result.success) {
