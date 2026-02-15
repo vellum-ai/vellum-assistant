@@ -45,7 +45,9 @@ import type {
   BundleAppRequest,
   SharedAppDeleteRequest,
   UiSurfaceShow,
+  IpcBlobProbe,
 } from './ipc-protocol.js';
+import { createHash } from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -62,6 +64,7 @@ import { parseSlashCandidate } from '../skills/slash-commands.js';
 import { removeSkillsIndexEntry } from '../skills/managed-store.js';
 import { packageApp } from '../bundler/app-bundler.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
+import { resolveBlobPath, deleteBlob, isValidBlobId } from './ipc-blob-store.js';
 import { estimateBase64Bytes } from './assistant-attachments.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
 import { getAttachmentsForMessageUnscoped } from '../memory/attachments-store.js';
@@ -400,6 +403,7 @@ const handlers: DispatchMap = {
     // satisfy the exhaustive dispatch map; signing is invoked via SigningCallback.
   },
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
+  ipc_blob_probe: handleIpcBlobProbe,
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
     if (cuSession) {
@@ -1734,6 +1738,73 @@ async function handleBundleApp(
     log.error({ err, appId: msg.appId }, 'Failed to bundle app');
     ctx.send(socket, { type: 'error', message: `Failed to bundle app: ${message}` });
   }
+}
+
+// ─── IPC blob probe handler ─────────────────────────────────────────────────
+
+function handleIpcBlobProbe(
+  msg: IpcBlobProbe,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  if (!isValidBlobId(msg.probeId)) {
+    ctx.send(socket, {
+      type: 'ipc_blob_probe_result',
+      probeId: msg.probeId,
+      ok: false,
+      reason: 'invalid_probe_id',
+    });
+    return;
+  }
+
+  let filePath: string;
+  try {
+    filePath = resolveBlobPath(msg.probeId);
+  } catch {
+    ctx.send(socket, {
+      type: 'ipc_blob_probe_result',
+      probeId: msg.probeId,
+      ok: false,
+      reason: 'invalid_probe_id',
+    });
+    return;
+  }
+
+  let content: Buffer;
+  try {
+    content = readFileSync(filePath);
+  } catch {
+    ctx.send(socket, {
+      type: 'ipc_blob_probe_result',
+      probeId: msg.probeId,
+      ok: false,
+      reason: 'missing_probe_file',
+    });
+    return;
+  }
+
+  const observedHash = createHash('sha256').update(content).digest('hex');
+
+  // Best-effort cleanup regardless of match outcome
+  deleteBlob(msg.probeId);
+
+  if (observedHash !== msg.nonceSha256) {
+    ctx.send(socket, {
+      type: 'ipc_blob_probe_result',
+      probeId: msg.probeId,
+      ok: false,
+      observedNonceSha256: observedHash,
+      reason: 'hash_mismatch',
+    });
+    return;
+  }
+
+  ctx.send(socket, {
+    type: 'ipc_blob_probe_result',
+    probeId: msg.probeId,
+    ok: true,
+    observedNonceSha256: observedHash,
+  });
 }
 
 // ─── Computer-use handlers ──────────────────────────────────────────────────
