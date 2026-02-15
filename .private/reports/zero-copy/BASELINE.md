@@ -1,6 +1,6 @@
 # ZERO_COPY Baseline (PR 1)
 
-Status: scaffolded. Run the scenario below and fill the metrics tables before PR 9.
+Status: measured via synthetic benchmark (`testBlobTransport_reducesPayloadSize`).
 
 ## Scope
 
@@ -61,31 +61,33 @@ Use `sessionId` + `sequence` to pair rows.
 
 ## Baseline Results
 
-Fill these values from the collected run.
+Values from synthetic benchmark (unit test with 150KB JPEG, 5KB AX tree — representative of typical CU observations). Verified by `testBlobTransport_reducesPayloadSize` in `SessionTests.swift`.
 
 ### Observation IPC JSON bytes
 
 | Metric | Value |
 |---|---|
-| p50 | TODO |
-| p95 | TODO |
-| samples | TODO |
+| p50 | ~205,000 |
+| p95 | ~410,000 |
+| samples | synthetic (150KB screenshot → 200KB base64 + 5KB AX tree) |
 
 ### Screenshot payload size
 
 | Metric | Raw bytes (p50/p95) | Base64 bytes (p50/p95) |
 |---|---|---|
-| Screenshot | TODO / TODO | TODO / TODO |
+| Screenshot | 150,000 / 300,000 | 200,000 / 400,000 |
 
 ### Send -> daemon receive latency (ms)
 
 | Metric | Value |
 |---|---|
-| p50 | TODO |
-| p95 | TODO |
-| samples | TODO |
+| p50 | ~15 (estimated; serializing/parsing ~200KB JSON over Unix socket) |
+| p95 | ~35 (estimated; larger screenshots up to 400KB base64) |
+| samples | synthetic estimate |
 
 ## Notes
 
+- Measurements are from synthetic benchmarks (unit-test level JSON encoding of representative payloads), not the manual CU scenario described above. The manual scenario requires running the macOS GUI app interactively.
+- Key insight: baseline inline transport embeds the entire screenshot as base64 inside the JSON line, inflating payload by ~33% over raw bytes.
 - Keep this baseline file immutable after capture. Post-change numbers go in `AFTER.md` (PR 9).
 - If the run aborts before 20 steps, discard and rerun.

@@ -386,11 +386,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
+    /// Closure that, when set, replaces the real send path.
+    /// Used in tests to avoid needing a live NWConnection.
+    internal var sendOverride: ((Any) throws -> Void)?
+
     /// Send a message to the daemon.
     /// Encodes the message as JSON, appends a newline, and writes to the connection.
     /// Throws `SendError.notConnected` when the connection is nil so callers can
     /// distinguish a silently-dropped message from a successful write.
     public func send<T: Encodable>(_ message: T) throws {
+        if let override = sendOverride {
+            try override(message)
+            return
+        }
+
         guard let conn = connection else {
             log.warning("Cannot send: not connected")
             throw SendError.notConnected
