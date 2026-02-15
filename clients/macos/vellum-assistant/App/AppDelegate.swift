@@ -279,6 +279,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         daemonClient.onAppDataResponse = { [weak self] msg in
             self?.surfaceManager.resolveDataResponse(surfaceId: msg.surfaceId, response: msg)
         }
+
+        // Route dynamic pages to workspace
+        surfaceManager.onDynamicPageShow = { [weak self] msg in
+            guard let self else { return }
+            self.showMainWindow()
+            NotificationCenter.default.post(
+                name: .openDynamicWorkspace,
+                object: nil,
+                userInfo: ["surfaceMessage": msg]
+            )
+        }
     }
 
     private func setupToolConfirmationManager() {

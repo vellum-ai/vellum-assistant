@@ -155,6 +155,13 @@ struct MainWindowView: View {
             // Sync activeThreadId changes back to selectedThreadId to keep sidebar selection in sync
             selectedThreadId = newId
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
+            if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
+                activeDynamicSurface = msg
+                activePanel = .generated
+                isDynamicExpanded = true
+            }
+        }
     }
 
     @ViewBuilder

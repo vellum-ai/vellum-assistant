@@ -78,11 +78,23 @@ final class SurfaceManager: ObservableObject {
     /// Parameters: surfaceId, callId, method, appId, recordId, data.
     var onDataRequest: ((String, String, String, String, String?, [String: Any]?) -> Void)?
 
+    /// When set, dynamic pages with `display != "inline"` route to the full-window
+    /// workspace instead of opening as floating NSPanels.
+    var onDynamicPageShow: ((UiSurfaceShowMessage) -> Void)?
+
     // MARK: - Show
 
     func showSurface(_ message: UiSurfaceShowMessage) {
         guard let surface = Surface.from(message) else {
             log.error("Failed to parse surface from message: surfaceId=\(message.surfaceId), type=\(message.surfaceType)")
+            return
+        }
+
+        // Route dynamic pages to workspace if callback is set
+        if case .dynamicPage = surface.data,
+           message.display != "inline",
+           let onDynamicPageShow {
+            onDynamicPageShow(message)
             return
         }
 

@@ -3,6 +3,7 @@ import Security
 
 extension Notification.Name {
     static let apiKeyManagerDidChange = Notification.Name("APIKeyManager.didChange")
+    static let openDynamicWorkspace = Notification.Name("MainWindow.openDynamicWorkspace")
 }
 
 /// Manages API keys in the macOS login keychain.
