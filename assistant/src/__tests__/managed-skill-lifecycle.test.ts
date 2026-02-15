@@ -6,6 +6,23 @@ import { tmpdir } from 'node:os';
 
 let TEST_DIR = '';
 
+const mockConfig = {
+  provider: 'anthropic',
+  model: 'test',
+  apiKeys: {},
+  maxTokens: 4096,
+  dataDir: '/tmp',
+  timeouts: {
+    shellDefaultTimeoutSec: 120,
+    shellMaxTimeoutSec: 600,
+    permissionTimeoutSec: 300,
+  },
+  sandbox: { enabled: false },
+  rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+  secretDetection: { enabled: true, action: 'warn' as const, entropyThreshold: 4.0 },
+  auditLog: { retentionDays: 0 },
+};
+
 mock.module('../util/platform.js', () => ({
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
@@ -29,9 +46,29 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+mock.module('../config/loader.js', () => ({
+  getConfig: () => mockConfig,
+  loadConfig: () => mockConfig,
+  invalidateConfigCache: () => {},
+  saveConfig: () => {},
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+}));
+
+mock.module('../tools/terminal/sandbox.js', () => ({
+  wrapCommand: (command: string, _workingDir: string, _config: unknown) => ({
+    command: 'bash',
+    args: ['-c', '--', command],
+    sandboxed: false,
+  }),
+}));
+
 import { ScaffoldManagedSkillTool } from '../tools/skills/scaffold-managed.js';
 import { DeleteManagedSkillTool } from '../tools/skills/delete-managed.js';
-import { loadSkillCatalog } from '../config/skills.js';
+import { EvaluateTypescriptTool } from '../tools/terminal/evaluate-typescript.js';
+import { loadSkillCatalog, loadSkillBySelector } from '../config/skills.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
 import type { ToolContext } from '../tools/types.js';
 
@@ -160,44 +197,52 @@ describe('managed skill lifecycle: scaffold → catalog → prompt → delete', 
     expect(result.isError).toBe(true);
   });
 
-  test('evaluate → scaffold → skill_load chain: code output feeds skill creation', async () => {
+  test('evaluate → scaffold → skill_load chain: literal tool execution', async () => {
     const ctx = makeContext();
+    const evalTool = new (EvaluateTypescriptTool as any)() as InstanceType<typeof EvaluateTypescriptTool>;
 
-    // Step 1: Scaffold a skill (simulating what an evaluate call might produce)
+    // Step 1: Run evaluate_typescript_code with code that returns skill metadata
+    const code = `export default () => ({
+  name: 'Chain Test',
+  description: 'Created from evaluate output.',
+  body: 'This skill was dynamically created.\\n\\nRun: \\\`echo chain-test-ok\\\`',
+});`;
+
+    const evalResult = await evalTool.execute({ code }, ctx);
+    expect(evalResult.isError).not.toBe(true);
+
+    const evalData = JSON.parse(evalResult.content as string);
+    expect(evalData.ok).toBe(true);
+    expect(evalData.result).toBeDefined();
+    expect(evalData.result.name).toBe('Chain Test');
+
+    // Step 2: Feed evaluate output into scaffold_managed_skill
+    const meta = evalData.result;
     const scaffoldResult = await scaffoldTool.execute({
       skill_id: 'chain-test',
-      name: 'Chain Test',
-      description: 'Created from evaluate output.',
-      body_markdown: 'This skill was dynamically created.\n\nRun: `echo chain-test-ok`',
-      emoji: '🔗',
+      name: meta.name,
+      description: meta.description,
+      body_markdown: meta.body,
     }, ctx);
 
     expect(scaffoldResult.isError).not.toBe(true);
     const scaffoldData = JSON.parse(scaffoldResult.content as string);
     expect(scaffoldData.created).toBe(true);
 
-    // Step 2: Verify skill is loadable via catalog (skill_load reads from this)
-    const catalog = loadSkillCatalog();
-    const found = catalog.find(s => s.id === 'chain-test');
-    expect(found).toBeDefined();
-    expect(found!.name).toBe('Chain Test');
+    // Step 3: Use loadSkillBySelector (the function skill_load calls) to load the skill
+    const loaded = loadSkillBySelector('chain-test');
+    expect(loaded.skill).toBeDefined();
+    expect(loaded.skill!.name).toBe('Chain Test');
+    expect(loaded.skill!.description).toBe('Created from evaluate output.');
+    expect(loaded.skill!.body).toContain('dynamically created');
+    expect(loaded.skill!.body).toContain('echo chain-test-ok');
 
-    // Step 3: Verify SKILL.md contains the expected body
-    const skillPath = join(TEST_DIR, 'skills', 'chain-test', 'SKILL.md');
-    const content = readFileSync(skillPath, 'utf-8');
-    expect(content).toContain('dynamically created');
-    expect(content).toContain('echo chain-test-ok');
-
-    // Step 4: Verify it appears in the system prompt (skill_load injects from catalog)
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('chain-test');
-
-    // Step 5: Clean up
+    // Step 4: Clean up
     const deleteResult = await deleteTool.execute({ skill_id: 'chain-test' }, ctx);
     expect(deleteResult.isError).not.toBe(true);
 
-    // Step 6: Verify skill no longer in catalog after reload
-    const catalogAfterDelete = loadSkillCatalog();
-    expect(catalogAfterDelete.find(s => s.id === 'chain-test')).toBeUndefined();
+    // Step 5: Verify skill_load no longer finds the deleted skill
+    const loadedAfter = loadSkillBySelector('chain-test');
+    expect(loadedAfter.skill).toBeUndefined();
   });
 });

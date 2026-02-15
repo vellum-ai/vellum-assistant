@@ -84,3 +84,49 @@ describe('tool registry host tools', () => {
     }
   });
 });
+
+describe('tool registry dynamic-tools tools', () => {
+  test('registers evaluate, scaffold, delete, and skill_load tools', async () => {
+    await initializeTools();
+
+    const dynamicToolNames = [
+      'evaluate_typescript_code',
+      'scaffold_managed_skill',
+      'delete_managed_skill',
+      'skill_load',
+    ] as const;
+
+    for (const toolName of dynamicToolNames) {
+      const tool = getTool(toolName);
+      expect(tool).toBeDefined();
+    }
+
+    const definitionNames = getAllToolDefinitions().map((def) => def.name);
+    for (const toolName of dynamicToolNames) {
+      expect(definitionNames).toContain(toolName);
+    }
+  });
+
+  test('evaluate_typescript_code is registered as High risk', async () => {
+    await initializeTools();
+    const tool = getTool('evaluate_typescript_code');
+    expect(tool).toBeDefined();
+    expect(tool?.defaultRiskLevel).toBe(RiskLevel.High);
+  });
+
+  test('scaffold and delete are registered as High risk', async () => {
+    await initializeTools();
+    for (const name of ['scaffold_managed_skill', 'delete_managed_skill']) {
+      const tool = getTool(name);
+      expect(tool).toBeDefined();
+      expect(tool?.defaultRiskLevel).toBe(RiskLevel.High);
+    }
+  });
+
+  test('skill_load is registered as Low risk', async () => {
+    await initializeTools();
+    const tool = getTool('skill_load');
+    expect(tool).toBeDefined();
+    expect(tool?.defaultRiskLevel).toBe(RiskLevel.Low);
+  });
+});

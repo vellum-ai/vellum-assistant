@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -287,6 +287,34 @@ describe('atomic write safety', () => {
     expect(content).toContain('name: "V2"');
     expect(content).toContain('Replaced.');
     expect(content).not.toContain('Original.');
+  });
+});
+
+describe('atomic write failure', () => {
+  test('read-only directory prevents skill creation and leaves no partial files', () => {
+    const skillsDir = join(TEST_DIR, 'skills');
+    const targetDir = join(skillsDir, 'fail-write');
+    mkdirSync(targetDir, { recursive: true });
+    // Make the skill directory read-only so writeFileSync fails
+    chmodSync(targetDir, 0o555);
+
+    try {
+      expect(() => {
+        createManagedSkill({
+          id: 'fail-write',
+          name: 'Should Fail',
+          description: 'This should not be written',
+          bodyMarkdown: 'Unreachable.',
+        });
+      }).toThrow();
+
+      // Verify no SKILL.md or temp files were left behind
+      const files = readdirSync(targetDir);
+      expect(files.filter(f => f.endsWith('.md') || f.startsWith('.tmp-'))).toEqual([]);
+    } finally {
+      // Restore permissions so afterEach cleanup can remove the directory
+      chmodSync(targetDir, 0o755);
+    }
   });
 });
 
