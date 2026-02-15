@@ -74,19 +74,25 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
     if (pageNames.length > 0) {
       lines.push(`- Additional pages: ${pageNames.join(', ')}`);
       lines.push('  To modify additional pages, include the `pages` parameter in `app_update`.');
-      lines.push('  To add a new page, include it in `pages` with its HTML content.');
+      lines.push('  IMPORTANT: The `pages` parameter is a full replacement — always include ALL');
+      lines.push('  existing pages (with their current content) alongside any modified or new pages.');
     } else {
       lines.push('- Additional pages: none');
     }
     const schema = ctx.appSchemaJson;
+    const MAX_SCHEMA_LENGTH = 10_000;
     if (schema && schema !== '"{}"' && schema !== '{}') {
-      lines.push(`- Data schema: ${schema}`);
+      const truncatedSchema = schema.length > MAX_SCHEMA_LENGTH
+        ? schema.slice(0, MAX_SCHEMA_LENGTH) + '… (truncated)'
+        : schema;
+      lines.push(`- Data schema: ${truncatedSchema}`);
     } else {
       lines.push('- Data schema: none (display-only)');
     }
 
-    // Main page HTML — reserve budget for additional pages
-    let mainBudget = MAX_CONTEXT_LENGTH;
+    // Main page HTML — reserve budget for additional pages (and schema)
+    const schemaSize = schema ? Math.min(schema.length, MAX_SCHEMA_LENGTH) : 0;
+    let mainBudget = MAX_CONTEXT_LENGTH - schemaSize;
     const additionalPageBlocks: string[] = [];
 
     if (ctx.appPages && pageNames.length > 0) {
