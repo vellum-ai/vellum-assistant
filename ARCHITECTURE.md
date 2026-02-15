@@ -586,6 +586,53 @@ graph TB
 
 ---
 
+## IPC Contract — Source of Truth and Code Generation
+
+The TypeScript file `assistant/src/daemon/ipc-contract.ts` is the **single source of truth** for all IPC message types. Swift client models are auto-generated from it. See [assistant/docs/ipc-contract.md](./assistant/docs/ipc-contract.md) for the full developer guide.
+
+```mermaid
+graph LR
+    subgraph "Source of Truth"
+        CONTRACT["ipc-contract.ts<br/>───────────────<br/>All message interfaces<br/>ClientMessage union<br/>ServerMessage union"]
+    end
+
+    subgraph "Generation Pipeline"
+        TJS["typescript-json-schema<br/>───────────────<br/>TS → JSON Schema"]
+        GEN["generate-swift.ts<br/>───────────────<br/>JSON Schema → Swift<br/>Codable structs"]
+    end
+
+    subgraph "Generated Output"
+        SWIFT["IPCContractGenerated.swift<br/>───────────────<br/>clients/shared/IPC/Generated/<br/>IPC-prefixed Codable structs"]
+    end
+
+    subgraph "Hand-Written Swift"
+        ENUMS["IPCMessages.swift<br/>───────────────<br/>ClientMessage / ServerMessage<br/>discriminated union enums<br/>(custom Decodable init)"]
+    end
+
+    subgraph "Inventory Tracking"
+        INV_SRC["ipc-contract-inventory.ts<br/>───────────────<br/>AST parser for union members"]
+        INV_SNAP["ipc-contract-inventory.json<br/>───────────────<br/>Checked-in snapshot"]
+    end
+
+    subgraph "Enforcement"
+        CI["CI (GitHub Actions)<br/>bun run check:ipc-generated<br/>bun run ipc:inventory"]
+        HOOK["Pre-commit hook<br/>same checks on staged<br/>IPC files"]
+    end
+
+    CONTRACT --> TJS
+    TJS --> GEN
+    GEN --> SWIFT
+    SWIFT --> ENUMS
+
+    CONTRACT --> INV_SRC
+    INV_SRC --> INV_SNAP
+
+    CONTRACT --> CI
+    CONTRACT --> HOOK
+```
+
+---
+
 ## IPC Protocol — Message Types
 
 ```mermaid
