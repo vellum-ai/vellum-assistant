@@ -664,9 +664,8 @@ public final class ChatViewModel: ObservableObject {
             if pendingQueuedCount == 0 {
                 isSending = false
             }
-            // Ingest assistant attachments before finalizing the message
+            // Must run before currentAssistantMessageId is cleared so attachments land on the right message
             ingestAssistantAttachments(complete.attachments)
-            // Mark the current assistant message as complete
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
@@ -758,7 +757,7 @@ public final class ChatViewModel: ObservableObject {
         case .generationHandoff(let handoff):
             guard belongsToSession(handoff.sessionId) else { return }
             isThinking = false
-            // Ingest assistant attachments before finalizing the message
+            // Must run before currentAssistantMessageId is cleared so attachments land on the right message
             ingestAssistantAttachments(handoff.attachments)
             // Keep isSending = true — daemon is handing off to next queued message
             if let existingId = currentAssistantMessageId,
