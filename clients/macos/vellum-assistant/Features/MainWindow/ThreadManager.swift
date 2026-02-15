@@ -5,6 +5,7 @@ import Foundation
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadManager")
+private let archivedSessionsKey = "archivedSessionIds"
 
 @MainActor
 final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
@@ -87,6 +88,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         chatViewModels[id]?.stopGenerating()
         threads[index].isArchived = true
 
+        if let sessionId = threads[index].sessionId {
+            var archived = archivedSessionIds
+            archived.insert(sessionId)
+            archivedSessionIds = archived
+        }
+
         // If the archived thread was active, switch to the nearest visible thread
         // or create a new one if none remain.
         if activeThreadId == id {
@@ -98,6 +105,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
 
         log.info("Archived thread \(id)")
+    }
+
+    func isSessionArchived(_ sessionId: String) -> Bool {
+        archivedSessionIds.contains(sessionId)
     }
 
     /// Clear the `activeSurfaceId` on a specific thread's ChatViewModel.
@@ -189,6 +200,15 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     // MARK: - Private
+
+    private var archivedSessionIds: Set<String> {
+        get {
+            Set(UserDefaults.standard.stringArray(forKey: archivedSessionsKey) ?? [])
+        }
+        set {
+            UserDefaults.standard.set(Array(newValue), forKey: archivedSessionsKey)
+        }
+    }
 
     /// Subscribe to the active ChatViewModel's objectWillChange so that
     /// SwiftUI re-evaluates views when the nested view model publishes

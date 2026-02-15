@@ -16,6 +16,7 @@ protocol ThreadRestorerDelegate: AnyObject {
     func removeChatViewModel(for threadId: UUID)
     func makeViewModel() -> ChatViewModel
     func activateThread(_ id: UUID)
+    func isSessionArchived(_ sessionId: String) -> Bool
 }
 
 /// Handles daemon session restoration: fetching the session list on connect,
@@ -88,7 +89,8 @@ final class ThreadSessionRestorer {
             let thread = ThreadModel(
                 title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
-                sessionId: session.id
+                sessionId: session.id,
+                isArchived: delegate.isSessionArchived(session.id)
             )
             let viewModel = delegate.makeViewModel()
             viewModel.sessionId = session.id
@@ -105,8 +107,8 @@ final class ThreadSessionRestorer {
             delegate.threads = restoredThreads + delegate.threads
         }
 
-        if let firstThread = restoredThreads.first {
-            delegate.activateThread(firstThread.id)
+        if let firstVisible = restoredThreads.first(where: { !$0.isArchived }) {
+            delegate.activateThread(firstVisible.id)
         }
 
         log.info("Restored \(restoredThreads.count) threads from daemon")
