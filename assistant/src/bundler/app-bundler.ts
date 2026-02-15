@@ -94,6 +94,13 @@ export async function packageApp(
     // Add index.html at root level
     archive.append(rewrittenHtml, { name: 'index.html' });
 
+    // Add additional pages alongside index.html
+    if (app.pages) {
+      for (const [filename, content] of Object.entries(app.pages)) {
+        archive.append(content, { name: filename });
+      }
+    }
+
     // TODO: When asset downloading is implemented, fetch remote assets and
     // add them here: archive.append(buffer, { name: relativePath });
 

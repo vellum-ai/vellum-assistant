@@ -53,7 +53,15 @@ export const appCreateTool: Tool = {
           },
           html: {
             type: 'string',
-            description: 'HTML definition for rendering the app',
+            description: 'HTML definition for rendering the app (main index.html page)',
+          },
+          pages: {
+            type: 'object',
+            description:
+              'Optional additional pages as a mapping of filename to HTML content ' +
+              '(e.g. {"settings.html": "<html>...</html>"}). Navigate between pages ' +
+              'with <a href="settings.html">. Do not include index.html here — use the html parameter instead.',
+            additionalProperties: { type: 'string' },
           },
           auto_open: {
             type: 'boolean',
@@ -73,9 +81,10 @@ export const appCreateTool: Tool = {
     const description = input.description as string | undefined;
     const schemaJson = input.schema_json as string;
     const htmlDefinition = input.html as string;
+    const pages = input.pages as Record<string, string> | undefined;
     const autoOpen = input.auto_open !== false; // default true
 
-    const app = appStore.createApp({ name, description, schemaJson, htmlDefinition });
+    const app = appStore.createApp({ name, description, schemaJson, htmlDefinition, pages });
 
     // Auto-open the app via the proxy resolver if available
     if (autoOpen && context.proxyToolResolver) {
@@ -245,6 +254,12 @@ export const appUpdateTool: Tool = {
             type: 'string',
             description: 'Updated HTML definition',
           },
+          pages: {
+            type: 'object',
+            description:
+              'Updated additional pages as a mapping of filename to HTML content.',
+            additionalProperties: { type: 'string' },
+          },
         },
         required: ['app_id'],
       },
@@ -253,11 +268,12 @@ export const appUpdateTool: Tool = {
 
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
     const appId = input.app_id as string;
-    const updates: Partial<Pick<appStore.AppDefinition, 'name' | 'description' | 'schemaJson' | 'htmlDefinition'>> = {};
+    const updates: Partial<Pick<appStore.AppDefinition, 'name' | 'description' | 'schemaJson' | 'htmlDefinition' | 'pages'>> = {};
     if (typeof input.name === 'string') updates.name = input.name;
     if (typeof input.description === 'string') updates.description = input.description;
     if (typeof input.schema_json === 'string') updates.schemaJson = input.schema_json;
     if (typeof input.html === 'string') updates.htmlDefinition = input.html;
+    if (input.pages && typeof input.pages === 'object') updates.pages = input.pages as Record<string, string>;
 
     const app = appStore.updateApp(appId, updates);
     return { content: JSON.stringify(app), isError: false };
