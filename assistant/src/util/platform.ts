@@ -130,6 +130,35 @@ export function getHooksDir(): string {
   return join(getRootDir(), 'hooks');
 }
 
+// --- Workspace path primitives ---
+// These will become the canonical paths after workspace migration.
+// Currently not used by call-sites; wired in later PRs.
+
+/** Returns ~/.vellum/workspace — the workspace root for user-facing state. */
+export function getWorkspaceDir(): string {
+  return join(getRootDir(), 'workspace');
+}
+
+/** Returns ~/.vellum/workspace/config.json */
+export function getWorkspaceConfigPath(): string {
+  return join(getWorkspaceDir(), 'config.json');
+}
+
+/** Returns ~/.vellum/workspace/skills */
+export function getWorkspaceSkillsDir(): string {
+  return join(getWorkspaceDir(), 'skills');
+}
+
+/** Returns ~/.vellum/workspace/hooks */
+export function getWorkspaceHooksDir(): string {
+  return join(getWorkspaceDir(), 'hooks');
+}
+
+/** Returns the workspace path for a prompt file (e.g. IDENTITY.md, SOUL.md, USER.md). */
+export function getWorkspacePromptPath(file: string): string {
+  return join(getWorkspaceDir(), file);
+}
+
 export function ensureDataDir(): void {
   const root = getRootDir();
   const data = getDataDir();

@@ -17,6 +17,11 @@ import {
   getRootDir,
   getSandboxRootDir,
   getSandboxWorkingDir,
+  getWorkspaceConfigPath,
+  getWorkspaceDir,
+  getWorkspaceHooksDir,
+  getWorkspacePromptPath,
+  getWorkspaceSkillsDir,
 } from '../util/platform.js';
 
 const originalBaseDataDir = process.env.BASE_DATA_DIR;
@@ -91,5 +96,27 @@ describe('baseline path characterization (pre-migration)', () => {
     expect(existsSync(getInterfacesDir())).toBe(true);
 
     rmSync(rootDir, { recursive: true, force: true });
+  });
+});
+
+describe('workspace path primitives', () => {
+  test('workspace helpers resolve under getRootDir()/workspace', () => {
+    const base = join(tmpdir(), `platform-test-${randomBytes(4).toString('hex')}`);
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    expect(getWorkspaceDir()).toBe(ws);
+    expect(getWorkspaceConfigPath()).toBe(join(ws, 'config.json'));
+    expect(getWorkspaceSkillsDir()).toBe(join(ws, 'skills'));
+    expect(getWorkspaceHooksDir()).toBe(join(ws, 'hooks'));
+    expect(getWorkspacePromptPath('IDENTITY.md')).toBe(join(ws, 'IDENTITY.md'));
+    expect(getWorkspacePromptPath('SOUL.md')).toBe(join(ws, 'SOUL.md'));
+    expect(getWorkspacePromptPath('USER.md')).toBe(join(ws, 'USER.md'));
+  });
+
+  test('workspace helpers honor BASE_DATA_DIR', () => {
+    process.env.BASE_DATA_DIR = '/tmp/custom-base';
+    expect(getWorkspaceDir()).toBe('/tmp/custom-base/.vellum/workspace');
   });
 });
