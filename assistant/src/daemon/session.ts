@@ -68,7 +68,7 @@ import { ConflictGate } from './session-conflict-gate.js';
 import { injectDynamicProfileIntoUserMessage, stripDynamicProfileMessages } from './session-dynamic-profile.js';
 import { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
-import { applyRuntimeInjections, stripActiveSurfaceContext, stripWorkspaceTopLevelContext } from './session-runtime-assembly.js';
+import { applyRuntimeInjections, stripActiveSurfaceContext } from './session-runtime-assembly.js';
 import { scanTopLevelDirectories } from '../workspace/top-level-scanner.js';
 import { renderWorkspaceTopLevelContext } from '../workspace/top-level-renderer.js';
 import type { ActiveSurfaceContext } from './session-runtime-assembly.js';

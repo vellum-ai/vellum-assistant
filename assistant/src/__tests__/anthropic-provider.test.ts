@@ -6,7 +6,7 @@ import type { Message, ToolDefinition } from '../providers/types.js';
 // ---------------------------------------------------------------------------
 
 let lastStreamParams: Record<string, unknown> | null = null;
-let lastStreamOptions: Record<string, unknown> | null = null;
+let _lastStreamOptions: Record<string, unknown> | null = null;
 
 const fakeResponse = {
   content: [{ type: 'text', text: 'Hello' }],
@@ -36,7 +36,7 @@ mock.module('@anthropic-ai/sdk', () => ({
     messages = {
       stream: (params: Record<string, unknown>, options?: Record<string, unknown>) => {
         lastStreamParams = JSON.parse(JSON.stringify(params));
-        lastStreamOptions = options ?? null;
+        _lastStreamOptions = options ?? null;
         const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
         return {
           on(event: string, cb: (...args: unknown[]) => void) {
@@ -98,7 +98,7 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
 
   beforeEach(() => {
     lastStreamParams = null;
-    lastStreamOptions = null;
+    _lastStreamOptions = null;
     provider = new AnthropicProvider('sk-ant-test', 'claude-sonnet-4-5-20250929');
   });
 
