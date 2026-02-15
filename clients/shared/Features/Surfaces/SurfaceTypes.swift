@@ -172,7 +172,7 @@ public struct ConfirmationSurfaceData: Sendable {
     }
 }
 
-public struct DynamicPagePreview: Sendable {
+public struct DynamicPagePreview: Sendable, Equatable {
     public let title: String
     public let subtitle: String?
     public let description: String?
@@ -185,6 +185,21 @@ public struct DynamicPagePreview: Sendable {
         self.description = description
         self.icon = icon
         self.metrics = metrics
+    }
+
+    public static func == (lhs: DynamicPagePreview, rhs: DynamicPagePreview) -> Bool {
+        guard lhs.title == rhs.title,
+              lhs.subtitle == rhs.subtitle,
+              lhs.description == rhs.description,
+              lhs.icon == rhs.icon else { return false }
+        switch (lhs.metrics, rhs.metrics) {
+        case (.none, .none):
+            return true
+        case let (.some(l), .some(r)):
+            return l.count == r.count && zip(l, r).allSatisfy { $0.label == $1.label && $0.value == $1.value }
+        default:
+            return false
+        }
     }
 }
 
