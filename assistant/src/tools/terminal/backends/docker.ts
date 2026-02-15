@@ -38,6 +38,8 @@ let dockerCliAvailable = false;
 let dockerDaemonReachable = false;
 const imageAvailableCache = new Set<string>();
 const mountProbeCache = new Set<string>();
+/** Maps image → resolved shell path (e.g. 'bash' → 'bash', or fell back to 'sh'). */
+const shellResolvedCache = new Map<string, string>();
 
 /** Exported for tests to reset cached state between runs. */
 export function _resetDockerChecks(): void {
@@ -45,6 +47,7 @@ export function _resetDockerChecks(): void {
   dockerDaemonReachable = false;
   imageAvailableCache.clear();
   mountProbeCache.clear();
+  shellResolvedCache.clear();
 }
 
 function checkDockerCli(): void {
@@ -111,6 +114,52 @@ function checkMountProbe(sandboxRoot: string, image: string): void {
 }
 
 /**
+ * Verify the configured shell exists in the image.  If the requested shell
+ * (e.g. 'bash') is missing, fall back to 'sh' which is available on virtually
+ * every Linux image.  If neither exists the image is too minimal to use.
+ */
+function resolveShell(image: string, shell: string): string {
+  const cacheKey = `${image}\0${shell}`;
+  const cached = shellResolvedCache.get(cacheKey);
+  if (cached) return cached;
+
+  // Try the configured shell first.
+  try {
+    execFileSync('docker', ['run', '--rm', image, shell, '-c', 'true'], {
+      stdio: 'ignore',
+      timeout: 15000,
+    });
+    shellResolvedCache.set(cacheKey, shell);
+    return shell;
+  } catch {
+    // configured shell not available — try sh fallback
+  }
+
+  if (shell === 'sh') {
+    throw new ToolError(
+      `Shell "sh" is not available in Docker image "${image}". The image may be too minimal for sandbox use.`,
+      'bash',
+    );
+  }
+
+  try {
+    execFileSync('docker', ['run', '--rm', image, 'sh', '-c', 'true'], {
+      stdio: 'ignore',
+      timeout: 15000,
+    });
+    log.warn(`Shell "${shell}" not found in image "${image}", falling back to "sh"`);
+    shellResolvedCache.set(cacheKey, 'sh');
+    return 'sh';
+  } catch {
+    throw new ToolError(
+      `Neither "${shell}" nor "sh" is available in Docker image "${image}". ` +
+      'Choose a different image or set sandbox.docker.shell to a shell that exists in the image.',
+      'bash',
+    );
+  }
+}
+
+/**
  * Validate that a path is safe to use in Docker mount arguments.
  * Rejects paths containing null bytes, newlines, or carriage returns which
  * could cause argument injection or parsing issues.
@@ -168,18 +217,20 @@ export class DockerBackend implements SandboxBackend {
 
   /**
    * Run preflight checks in dependency order. Each check is cached
-   * on success; failures re-check on every call.
+   * on success; failures re-check on every call.  Returns the resolved
+   * shell (may differ from config if the configured shell is missing).
    */
-  preflight(): void {
+  preflight(): string {
     checkDockerCli();
     checkDockerDaemon();
     checkImageAvailable(this.config.image);
     checkMountProbe(this.sandboxRoot, this.config.image);
+    return resolveShell(this.config.image, this.config.shell);
   }
 
   wrap(command: string, workingDir: string): SandboxResult {
     // Preflight: fail closed if Docker is not usable.
-    this.preflight();
+    const shell = this.preflight();
 
     // Resolve + follow symlinks for the working directory.
     const resolved = resolve(workingDir);
@@ -205,7 +256,7 @@ export class DockerBackend implements SandboxBackend {
     const containerWorkDir =
       relPath === '' ? '/workspace' : posix.join('/workspace', relPath);
 
-    const { image, shell, cpus, memoryMb, pidsLimit, network } = this.config;
+    const { image, cpus, memoryMb, pidsLimit, network } = this.config;
 
     // Every flag is a separate argv segment — no shell interpolation occurs.
     const args: string[] = [
