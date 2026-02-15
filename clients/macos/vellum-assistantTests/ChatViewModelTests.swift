@@ -1425,4 +1425,36 @@ final class ChatViewModelTests: XCTestCase {
                         "Latest session_error should replace previous one")
         XCTAssertEqual(viewModel.sessionError?.message, "Rate limited")
     }
+
+    func testDebugDetailsPassedToSessionError() {
+        viewModel.sessionId = "sess-1"
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerApi,
+            userMessage: "Provider error",
+            retryable: true,
+            debugDetails: "Error: 500 Internal Server Error\n  at handler.ts:42"
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertEqual(viewModel.sessionError?.debugDetails,
+                        "Error: 500 Internal Server Error\n  at handler.ts:42",
+                        "debugDetails should be passed through from IPC message")
+    }
+
+    func testDebugDetailsNilWhenNotProvided() {
+        viewModel.sessionId = "sess-1"
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerNetwork,
+            userMessage: "Network error",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertNil(viewModel.sessionError?.debugDetails,
+                      "debugDetails should be nil when not provided in IPC message")
+    }
 }

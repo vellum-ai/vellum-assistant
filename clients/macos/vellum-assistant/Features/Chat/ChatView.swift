@@ -32,6 +32,7 @@ struct ChatView: View {
     let sessionError: SessionError?
     let onRetry: () -> Void
     let onDismissSessionError: () -> Void
+    let onCopyDebugInfo: () -> Void
 
     /// The portion of the suggestion that extends beyond the current input.
     /// Returns nil when the composer content exceeds the max height (200pt) because
@@ -379,6 +380,16 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(sessionErrorActionLabel(error.category))
+            }
+
+            if error.debugDetails != nil {
+                Button(action: onCopyDebugInfo) {
+                    Image(systemName: "doc.on.clipboard")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Copy debug info")
             }
 
             Button {
@@ -1297,7 +1308,8 @@ private struct ChatViewPreviewWrapper: View {
                 onRegenerate: {},
                 sessionError: nil,
                 onRetry: {},
-                onDismissSessionError: {}
+                onDismissSessionError: {},
+                onCopyDebugInfo: {}
             )
         }
     }

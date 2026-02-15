@@ -73,6 +73,7 @@ public struct SessionError: Equatable {
     public let isRetryable: Bool
     public let recoverySuggestion: String
     public let sessionId: String
+    public let debugDetails: String?
 
     public init(from msg: SessionErrorMessage) {
         self.category = SessionErrorCategory(from: msg.code)
@@ -80,14 +81,16 @@ public struct SessionError: Equatable {
         self.isRetryable = msg.retryable
         self.recoverySuggestion = self.category.recoverySuggestion
         self.sessionId = msg.sessionId
+        self.debugDetails = msg.debugDetails
     }
 
-    public init(category: SessionErrorCategory, message: String, isRetryable: Bool, sessionId: String) {
+    public init(category: SessionErrorCategory, message: String, isRetryable: Bool, sessionId: String, debugDetails: String? = nil) {
         self.category = category
         self.message = message
         self.isRetryable = isRetryable
         self.recoverySuggestion = category.recoverySuggestion
         self.sessionId = sessionId
+        self.debugDetails = debugDetails
     }
 }
 
@@ -1159,12 +1162,15 @@ public final class ChatViewModel: ObservableObject {
     /// Copy session error details to the clipboard for debugging.
     public func copySessionErrorDebugDetails() {
         guard let error = sessionError else { return }
-        let details = """
+        var details = """
         Error: \(error.message)
         Category: \(error.category)
         Session: \(error.sessionId)
         Retryable: \(error.isRetryable)
         """
+        if let debugDetails = error.debugDetails {
+            details += "\n\nDebug Details:\n\(debugDetails)"
+        }
         #if os(macOS)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(details, forType: .string)
