@@ -5,6 +5,8 @@ import type {
   BrowserFillRequest,
   BrowserFillResult,
   ConsumeResult,
+  ServerUseRequest,
+  ServerUseResult,
   UsageToken,
 } from './broker-types.js';
 import { getCredentialMetadata } from './metadata-store.js';
@@ -206,6 +208,62 @@ export class CredentialBroker {
         'Browser fill failed',
       );
       return { success: false, reason: 'Fill operation failed' };
+    }
+  }
+
+  /**
+   * Use a credential server-side without exposing plaintext to the caller.
+   *
+   * Like browserFill, the broker reads the secret internally and passes it
+   * to the provided callback. The return value contains only the callback's
+   * result — the plaintext never leaves this method's scope.
+   */
+  async serverUse<T>(request: ServerUseRequest<T>): Promise<ServerUseResult<T>> {
+    const metadata = getCredentialMetadata(request.service, request.field);
+    if (!metadata) {
+      return {
+        success: false,
+        reason: `No credential found for ${request.service}/${request.field}`,
+      };
+    }
+
+    if (!isToolAllowed(request.toolName, metadata.allowedTools)) {
+      const tools = metadata.allowedTools ?? [];
+      return {
+        success: false,
+        reason: `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
+          (tools.length === 0
+            ? 'No tools are currently allowed — update the credential with allowed_tools via credential_store.'
+            : `Allowed tools: ${tools.join(', ')}.`),
+      };
+    }
+
+    const storageKey = `credential:${request.service}:${request.field}`;
+    const transient = this.transientValues.get(storageKey);
+    const value = transient ?? getSecureKey(storageKey);
+    if (transient !== undefined) {
+      this.transientValues.delete(storageKey);
+    }
+    if (!value) {
+      return {
+        success: false,
+        reason: `Credential metadata exists but no stored value for ${request.service}/${request.field}`,
+      };
+    }
+
+    try {
+      const result = await request.execute(value);
+      log.info(
+        { service: request.service, field: request.field, tool: request.toolName },
+        'Server-side credential use completed',
+      );
+      return { success: true, result };
+    } catch (err) {
+      log.error(
+        { err, service: request.service, field: request.field },
+        'Server-side credential use failed',
+      );
+      return { success: false, reason: 'Credential use failed' };
     }
   }
 
