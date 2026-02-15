@@ -102,6 +102,10 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
     },
+    profile: {
+      enabled: false,
+      maxInjectTokens: 800,
+    },
   },
   dataDir: getDataDir(),
   timeouts: {

@@ -69,6 +69,7 @@ graph TB
             RECALL["Memory Recall<br/>FTS5 + Qdrant + Entity Graph + RRF<br/>Trust + Freshness + Scope"]
             CONFLICT_STORE["ConflictStore<br/>pending/resolved clarification state"]
             CLARIFICATION_RESOLVER["ClarificationResolver<br/>heuristics + timeout-bounded LLM fallback"]
+            PROFILE_COMPILER["ProfileCompiler<br/>canonical trusted profile<br/>strict token-cap trimming"]
             JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s"]
         end
 
@@ -618,6 +619,8 @@ graph TB
 | `memory.conflicts.reaskCooldownTurns` | `3` | Minimum turn distance before re-asking the same conflict clarification. |
 | `memory.conflicts.resolverLlmTimeoutMs` | `12000` | Timeout bound for clarification resolver LLM fallback. |
 | `memory.conflicts.relevanceThreshold` | `0.3` | Similarity threshold for deciding whether a pending conflict is relevant to the current request. |
+| `memory.profile.enabled` | `false` | Enable dynamic profile compilation from active trusted profile/preference/constraint/instruction memories. |
+| `memory.profile.maxInjectTokens` | `800` | Hard token cap enforced by `ProfileCompiler` when generating the runtime profile block. |
 
 ### Memory Recall Debugging Playbook
 

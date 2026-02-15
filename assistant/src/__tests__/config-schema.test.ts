@@ -136,6 +136,21 @@ describe('AssistantConfigSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  test('applies memory.profile defaults', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.memory.profile).toEqual({
+      enabled: false,
+      maxInjectTokens: 800,
+    });
+  });
+
+  test('rejects invalid memory.profile.maxInjectTokens', () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { profile: { maxInjectTokens: 0 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
   test('rejects invalid provider', () => {
     const result = AssistantConfigSchema.safeParse({ provider: 'invalid' });
     expect(result.success).toBe(false);

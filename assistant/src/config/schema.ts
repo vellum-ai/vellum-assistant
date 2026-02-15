@@ -458,6 +458,17 @@ export const MemoryConflictsConfigSchema = z.object({
     .default(0.3),
 });
 
+export const MemoryProfileConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.profile.enabled must be a boolean' })
+    .default(false),
+  maxInjectTokens: z
+    .number({ error: 'memory.profile.maxInjectTokens must be a number' })
+    .int('memory.profile.maxInjectTokens must be an integer')
+    .positive('memory.profile.maxInjectTokens must be a positive integer')
+    .default(800),
+});
+
 export const MemorySummarizationConfigSchema = z.object({
   useLLM: z
     .boolean({ error: 'memory.summarization.useLLM must be a boolean' })
@@ -551,6 +562,10 @@ export const MemoryConfigSchema = z.object({
     reaskCooldownTurns: 3,
     resolverLlmTimeoutMs: 12000,
     relevanceThreshold: 0.3,
+  }),
+  profile: MemoryProfileConfigSchema.default({
+    enabled: false,
+    maxInjectTokens: 800,
   }),
 });
 
@@ -739,6 +754,10 @@ export const AssistantConfigSchema = z.object({
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
     },
+    profile: {
+      enabled: false,
+      maxInjectTokens: 800,
+    },
   }),
   dataDir: z
     .string({ error: 'dataDir must be a string' })
@@ -833,6 +852,7 @@ export type MemoryExtractionConfig = z.infer<typeof MemoryExtractionConfigSchema
 export type MemorySummarizationConfig = z.infer<typeof MemorySummarizationConfigSchema>;
 export type MemoryEntityConfig = z.infer<typeof MemoryEntityConfigSchema>;
 export type MemoryConflictsConfig = z.infer<typeof MemoryConflictsConfigSchema>;
+export type MemoryProfileConfig = z.infer<typeof MemoryProfileConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
 export type QdrantConfig = z.infer<typeof QdrantConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
