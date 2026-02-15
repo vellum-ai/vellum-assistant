@@ -82,7 +82,7 @@ describe('AssistantConfigSchema', () => {
     });
     expect(result.sandbox).toEqual({
       enabled: true,
-      backend: 'native',
+      backend: 'docker',
       docker: {
         image: 'node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9',
         cpus: 1,
@@ -281,21 +281,21 @@ describe('AssistantConfigSchema', () => {
     }
   });
 
-  // SANDBOX M11: native is the deliberate default — Docker is opt-in hardening.
-  // These tests guard against an accidental cutover.
-  test('default sandbox backend is native (not docker)', () => {
+  // SANDBOX M11 cutover: Docker is now the default backend for stronger
+  // container-level isolation. Native is available as opt-in fallback.
+  test('default sandbox backend is docker', () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.sandbox.backend).toBe('native');
+    expect(result.sandbox.backend).toBe('docker');
   });
 
-  test('DEFAULT_CONFIG sandbox backend is native', () => {
-    expect(DEFAULT_CONFIG.sandbox.backend).toBe('native');
+  test('DEFAULT_CONFIG sandbox backend is docker', () => {
+    expect(DEFAULT_CONFIG.sandbox.backend).toBe('docker');
   });
 
   test('backward compatibility: sandbox with only enabled still parses', () => {
     const result = AssistantConfigSchema.parse({ sandbox: { enabled: false } });
     expect(result.sandbox.enabled).toBe(false);
-    expect(result.sandbox.backend).toBe('native');
+    expect(result.sandbox.backend).toBe('docker');
     expect(result.sandbox.docker.memoryMb).toBe(512);
   });
 
@@ -522,7 +522,7 @@ describe('loadConfig with schema validation', () => {
     writeConfig({ sandbox: { enabled: false } });
     const config = loadConfig();
     expect(config.sandbox.enabled).toBe(false);
-    expect(config.sandbox.backend).toBe('native');
+    expect(config.sandbox.backend).toBe('docker');
     expect(config.sandbox.docker.memoryMb).toBe(512);
   });
 
@@ -543,7 +543,7 @@ describe('loadConfig with schema validation', () => {
   test('falls back for invalid sandbox.backend', () => {
     writeConfig({ sandbox: { backend: 'podman' } });
     const config = loadConfig();
-    expect(config.sandbox.backend).toBe('native');
+    expect(config.sandbox.backend).toBe('docker');
   });
 
   test('falls back for invalid contextWindow relationship', () => {

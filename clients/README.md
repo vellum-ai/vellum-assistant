@@ -28,9 +28,12 @@ clients/
 **Purpose**: Platform-agnostic code shared between macOS and iOS apps
 
 **Contains**:
-- **IPC layer** (`DaemonClient`, `IPCMessages`) - Network communication with daemon
+- **IPC layer** (`DaemonClient`, `IPCMessages`, `Generated/IPCContractGenerated`) - Network communication with daemon
   - macOS: Unix domain socket (`~/.vellum/vellum.sock`)
   - iOS: TCP connection (configurable hostname:port)
+  - Wire types are auto-generated from the TS IPC contract; `IPCMessages.swift` provides
+    typealiases, convenience inits, the `ServerMessage` routing enum, and a few hand-maintained
+    types that need Swift-specific logic (e.g. typed enums, polymorphic `AnyCodable` data)
 - **Shared utilities** (signing, configuration)
 
 **Dependencies**: None (only system frameworks: Network)

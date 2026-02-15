@@ -298,9 +298,12 @@ Inference/            AI action selection
   ToolDefinitions     Tool schemas for function calling
 IPC/                  Daemon communication
   DaemonClient        Unix domain socket IPC client (auto-reconnect, ping/pong)
-  IPCMessages         Codable structs mirroring ipc-protocol.ts
-                      Includes: message_queued, message_dequeued,
-                      generation_handoff (sessionId, requestId?, queuedCount)
+  Generated/
+    IPCContractGenerated  Auto-generated Codable DTOs from the TS IPC contract
+  IPCMessages         Typealiases to generated types, convenience inits,
+                      ServerMessage routing enum, and a few hand-maintained
+                      types that require Swift-specific logic (SessionErrorCode
+                      enum, polymorphic surface data, typed ClaWHub wrappers)
 Ambient/              Background screen-watching agent
   AmbientAgent        Periodic capture → OCR → analyze via daemon IPC
   AmbientAnalyzer     Type definitions (AmbientDecision, AmbientAnalysisResult)

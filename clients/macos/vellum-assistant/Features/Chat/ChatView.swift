@@ -57,6 +57,7 @@ struct ChatView: View {
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
+    @State private var composerScrollOffset: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -532,6 +533,7 @@ struct ChatView: View {
     }
 
     private var composerTextField: some View {
+        ScrollViewReader { proxy in
         ScrollView(.vertical, showsIndicators: false) {
             ZStack(alignment: .leading) {
                 TextField(
@@ -569,15 +571,38 @@ struct ChatView: View {
                         .lineSpacing(4)
                         .lineLimit(1...)
                         .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxHeight: min(max(editorContentHeight, 28), 200), alignment: isComposerExpanded ? .topLeading : .leading)
+                        .frame(maxHeight: min(max(editorContentHeight, 28), 200), alignment: .topLeading)
                         .clipped()
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
             }
-            .frame(minHeight: 28)
+            .frame(minHeight: min(max(editorContentHeight, 28), 200), maxHeight: .infinity, alignment: .center)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: ComposerScrollOffsetKey.self,
+                        value: -geo.frame(in: .named("composerScroll")).minY
+                    )
+                }
+            )
+
+            // Invisible anchor for auto-scroll
+            Color.clear
+                .frame(height: 1)
+                .id("composer-bottom")
+        }
+        .coordinateSpace(name: "composerScroll")
+        .onPreferenceChange(ComposerScrollOffsetKey.self) { composerScrollOffset = $0 }
+        .overlay(alignment: .topTrailing) {
+            composerScrollIndicator
         }
         .scrollBounceBehavior(.basedOnSize)
+        .onChange(of: inputText) {
+            if editorContentHeight > 200 {
+                proxy.scrollTo("composer-bottom", anchor: .bottom)
+            }
+        }
         .onKeyPress(.tab, phases: .down) { keyPress in
             if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
                 onAcceptSuggestion()
@@ -586,6 +611,10 @@ struct ChatView: View {
             return .ignored
         }
         .onKeyPress(.return, phases: .down) { keyPress in
+            if keyPress.modifiers.contains(.shift) {
+                inputText += "\n"
+                return .handled
+            }
             guard keyPress.modifiers.isEmpty else { return .ignored }
             inputText = inputText.replacingOccurrences(
                 of: "\\n$", with: "", options: .regularExpression
@@ -601,6 +630,34 @@ struct ChatView: View {
                 return .ignored
             }
             return .ignored
+        }
+        } // ScrollViewReader
+    }
+
+    @ViewBuilder
+    private var composerScrollIndicator: some View {
+        let visibleHeight = min(max(editorContentHeight, 28), 200)
+        let totalHeight = editorContentHeight
+
+        if totalHeight > visibleHeight {
+            let thumbRatio = visibleHeight / totalHeight
+            let thumbHeight = max(thumbRatio * visibleHeight, 20)
+            let maxScrollOffset = totalHeight - visibleHeight
+            let progress = maxScrollOffset > 0
+                ? min(max(composerScrollOffset / maxScrollOffset, 0), 1)
+                : 0
+            let thumbTravel = visibleHeight - thumbHeight - 4 // 2pt inset top+bottom
+            let yOffset = 2 + progress * thumbTravel
+
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Violet._400.opacity(0.35))
+                .frame(width: 4, height: thumbHeight)
+                .padding(.top, yOffset)
+                .padding(.trailing, 6)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .animation(VAnimation.fast, value: composerScrollOffset)
         }
     }
 
@@ -1247,3 +1304,12 @@ private struct ChatViewPreviewWrapper: View {
     }
 }
 #endif
+
+// MARK: - Composer Scroll Tracking
+
+private struct ComposerScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}

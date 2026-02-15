@@ -91,7 +91,6 @@ function getActiveBackendReason(sandboxConfig: SandboxConfig): string {
   if (sandboxConfig.backend === 'docker') {
     return 'Docker backend selected in configuration (sandbox.backend = "docker")';
   }
-  // native is the default
   return 'Native backend selected in configuration (sandbox.backend = "native")';
 }
 
@@ -105,7 +104,7 @@ export function runSandboxDiagnostics(): SandboxDiagnostics {
 
   const checks: SandboxCheckResult[] = [];
 
-  // Always check native backend since it is the default
+  // Always check native backend availability as a diagnostic signal
   checks.push(checkNativeBackend());
 
   // Docker checks: CLI, daemon, image, container execution

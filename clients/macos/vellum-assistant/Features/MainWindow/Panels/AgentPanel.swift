@@ -588,7 +588,7 @@ struct AgentPanel: View {
         }
 
         // SKILL.md content
-        if let md = data.skillMdContent, !md.isEmpty {
+        if let md = data.skillMdContentString, !md.isEmpty {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("README")
                     .font(VFont.captionMedium)

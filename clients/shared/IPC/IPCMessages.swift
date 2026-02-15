@@ -81,435 +81,343 @@ public struct AnyCodable: Codable, Equatable, @unchecked Sendable {
 
 // MARK: - Client → Server Messages (Encodable)
 
-/// Attachment payload sent inline as base64. Mirrors `UserMessageAttachment` from ipc-protocol.ts.
-public struct IPCAttachment: Codable, Sendable {
-    public let filename: String
-    public let mimeType: String
-    public let data: String
-    public let extractedText: String?
+/// Attachment payload sent inline as base64.
+/// Backed by generated `IPCUserMessageAttachment`.
+public typealias IPCAttachment = IPCUserMessageAttachment
 
+extension IPCUserMessageAttachment {
     public init(filename: String, mimeType: String, data: String, extractedText: String?) {
-        self.filename = filename
-        self.mimeType = mimeType
-        self.data = data
-        self.extractedText = extractedText
+        self.init(id: nil, filename: filename, mimeType: mimeType, data: data, extractedText: extractedText)
     }
 }
 
 /// Sent to create a new computer-use session.
-/// Wire type: `"cu_session_create"`
-public struct CuSessionCreateMessage: Encodable, Sendable {
-    public let type: String = "cu_session_create"
-    public let sessionId: String
-    public let task: String
-    public let screenWidth: Int
-    public let screenHeight: Int
-    public let attachments: [IPCAttachment]?
-    public let interactionType: String?
+/// Backed by generated `IPCCuSessionCreate`.
+public typealias CuSessionCreateMessage = IPCCuSessionCreate
 
+extension IPCCuSessionCreate {
     public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, interactionType: String?) {
-        self.sessionId = sessionId
-        self.task = task
-        self.screenWidth = screenWidth
-        self.screenHeight = screenHeight
-        self.attachments = attachments
-        self.interactionType = interactionType
+        self.init(type: "cu_session_create", sessionId: sessionId, task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, interactionType: interactionType)
     }
 }
 
 /// Sent after each perceive step with AX tree, screenshot, and execution results.
-/// Wire type: `"cu_observation"`
-public struct CuObservationMessage: Encodable, Sendable {
-    public let type: String = "cu_observation"
-    public let sessionId: String
-    public let axTree: String?
-    public let axDiff: String?
-    public let secondaryWindows: String?
-    public let screenshot: String?
-    public let executionResult: String?
-    public let executionError: String?
+/// Backed by generated `IPCCuObservation`.
+public typealias CuObservationMessage = IPCCuObservation
 
+extension IPCCuObservation {
     public init(sessionId: String, axTree: String?, axDiff: String?, secondaryWindows: String?, screenshot: String?, executionResult: String?, executionError: String?) {
-        self.sessionId = sessionId
-        self.axTree = axTree
-        self.axDiff = axDiff
-        self.secondaryWindows = secondaryWindows
-        self.screenshot = screenshot
-        self.executionResult = executionResult
-        self.executionError = executionError
+        self.init(type: "cu_observation", sessionId: sessionId, axTree: axTree, axDiff: axDiff, secondaryWindows: secondaryWindows, screenshot: screenshot, executionResult: executionResult, executionError: executionError)
     }
 }
 
 /// Sent by the ambient agent with OCR text from periodic screen captures.
-/// Wire type: `"ambient_observation"`
-public struct AmbientObservationMessage: Encodable, Sendable {
-    public let type: String = "ambient_observation"
-    public let requestId: String
-    public let ocrText: String
-    public let appName: String?
-    public let windowTitle: String?
-    public let timestamp: Double
+/// Backed by generated `IPCAmbientObservation`.
+public typealias AmbientObservationMessage = IPCAmbientObservation
 
+extension IPCAmbientObservation {
     public init(requestId: String, ocrText: String, appName: String?, windowTitle: String?, timestamp: Double) {
-        self.requestId = requestId
-        self.ocrText = ocrText
-        self.appName = appName
-        self.windowTitle = windowTitle
-        self.timestamp = timestamp
+        self.init(type: "ambient_observation", requestId: requestId, ocrText: ocrText, appName: appName, windowTitle: windowTitle, timestamp: timestamp)
     }
 }
 
 /// Sent to create a new Q&A session.
-/// Wire type: `"session_create"`
-public struct SessionCreateMessage: Encodable, Sendable {
-    public let type: String = "session_create"
-    public let title: String?
-    public let systemPromptOverride: String?
-    public let maxResponseTokens: Int?
-    /// Client-generated nonce echoed back in `session_info` so the caller can
-    /// correlate the response to its specific request. Prevents multiple
-    /// ChatViewModels sharing one DaemonClient from stealing each other's sessions.
-    public let correlationId: String?
+/// Backed by generated `IPCSessionCreateRequest`.
+public typealias SessionCreateMessage = IPCSessionCreateRequest
 
+extension IPCSessionCreateRequest {
     public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil) {
-        self.title = title
-        self.systemPromptOverride = systemPromptOverride
-        self.maxResponseTokens = maxResponseTokens
-        self.correlationId = correlationId
+        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId)
     }
 }
 
 /// Sent to add a user message to an existing Q&A session.
-/// Wire type: `"user_message"`
-public struct UserMessageMessage: Encodable, Sendable {
-    public let type: String = "user_message"
-    public let sessionId: String
-    public let content: String
-    public let attachments: [IPCAttachment]?
+/// Backed by generated `IPCUserMessage`.
+public typealias UserMessageMessage = IPCUserMessage
 
+extension IPCUserMessage {
     public init(sessionId: String, content: String, attachments: [IPCAttachment]?) {
-        self.sessionId = sessionId
-        self.content = content
-        self.attachments = attachments
+        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments)
     }
 }
 
 /// Sent to request daemon-side classification and session creation.
-/// Wire type: `"task_submit"`
-public struct TaskSubmitMessage: Encodable, Sendable {
-    public let type: String = "task_submit"
-    public let task: String
-    public let screenWidth: Int
-    public let screenHeight: Int
-    public let attachments: [IPCAttachment]?
-    public let source: String?
+/// Backed by generated `IPCTaskSubmit`.
+public typealias TaskSubmitMessage = IPCTaskSubmit
 
+extension IPCTaskSubmit {
     public init(task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, source: String?) {
-        self.task = task
-        self.screenWidth = screenWidth
-        self.screenHeight = screenHeight
-        self.attachments = attachments
-        self.source = source
+        self.init(type: "task_submit", task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, source: source)
     }
 }
 
 /// Sent to cancel the active generation.
-/// Wire type: `"cancel"`
-public struct CancelMessage: Encodable, Sendable {
-    public let type: String = "cancel"
-    public let sessionId: String
+/// Backed by generated `IPCCancelRequest`.
+public typealias CancelMessage = IPCCancelRequest
 
+extension IPCCancelRequest {
     public init(sessionId: String) {
-        self.sessionId = sessionId
+        self.init(type: "cancel", sessionId: sessionId)
     }
 }
 
 /// Sent to abort a running computer-use session.
-/// Wire type: `"cu_session_abort"`
-public struct CuSessionAbortMessage: Encodable, Sendable {
-    public let type: String = "cu_session_abort"
-    public let sessionId: String
+/// Backed by generated `IPCCuSessionAbort`.
+public typealias CuSessionAbortMessage = IPCCuSessionAbort
 
+extension IPCCuSessionAbort {
     public init(sessionId: String) {
-        self.sessionId = sessionId
+        self.init(type: "cu_session_abort", sessionId: sessionId)
     }
 }
 
 /// Keepalive ping.
-/// Wire type: `"ping"`
-public struct PingMessage: Encodable, Sendable {
-    public let type: String = "ping"
+/// Backed by generated `IPCPingMessage`.
+public typealias PingMessage = IPCPingMessage
 
-    public init() {}
+extension IPCPingMessage {
+    public init() {
+        self.init(type: "ping")
+    }
 }
 
 /// Sent when user interacts with a surface.
-/// Wire type: `"ui_surface_action"`
-public struct UiSurfaceActionMessage: Encodable, Sendable {
-    public let type: String = "ui_surface_action"
-    public let sessionId: String
-    public let surfaceId: String
-    public let actionId: String
-    public let data: [String: AnyCodable]?
+/// Backed by generated `IPCUiSurfaceAction`.
+public typealias UiSurfaceActionMessage = IPCUiSurfaceAction
 
+extension IPCUiSurfaceAction {
     public init(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) {
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.actionId = actionId
-        self.data = data
+        self.init(type: "ui_surface_action", sessionId: sessionId, surfaceId: surfaceId, actionId: actionId, data: data)
     }
 }
 
 /// Sent when a persistent app's JS makes a data request via the RPC bridge.
-/// Wire type: `"app_data_request"`
-public struct AppDataRequestMessage: Encodable, Sendable {
-    public let type: String = "app_data_request"
-    public let surfaceId: String
-    public let callId: String
-    public let method: String
-    public let appId: String
-    public let recordId: String?
-    public let data: [String: AnyCodable]?
+/// Backed by generated `IPCAppDataRequest`.
+public typealias AppDataRequestMessage = IPCAppDataRequest
 
+extension IPCAppDataRequest {
     public init(surfaceId: String, callId: String, method: String, appId: String, recordId: String?, data: [String: AnyCodable]?) {
-        self.surfaceId = surfaceId
-        self.callId = callId
-        self.method = method
-        self.appId = appId
-        self.recordId = recordId
-        self.data = data
+        self.init(type: "app_data_request", surfaceId: surfaceId, callId: callId, method: method, appId: appId, recordId: recordId, data: data)
     }
 }
 
 /// Sent to request opening an app by ID.
-/// Wire type: `"app_open_request"`
-public struct AppOpenRequestMessage: Encodable, Sendable {
-    public let type: String = "app_open_request"
-    public let appId: String
+/// Backed by generated `IPCAppOpenRequest`.
+public typealias AppOpenRequestMessage = IPCAppOpenRequest
 
+extension IPCAppOpenRequest {
     public init(appId: String) {
-        self.appId = appId
+        self.init(type: "app_open_request", appId: appId)
     }
 }
 
 /// Sent to request the list of all apps.
-/// Wire type: `"apps_list"`
-public struct AppsListRequestMessage: Encodable, Sendable {
-    public let type: String = "apps_list"
+/// Backed by generated `IPCAppsListRequest`.
+public typealias AppsListRequestMessage = IPCAppsListRequest
 
-    public init() {}
+extension IPCAppsListRequest {
+    public init() {
+        self.init(type: "apps_list")
+    }
 }
 
 /// Sent to request the list of shared/received apps.
-/// Wire type: `"shared_apps_list"`
-public struct SharedAppsListRequestMessage: Encodable, Sendable {
-    public let type: String = "shared_apps_list"
+/// Backed by generated `IPCSharedAppsListRequest`.
+public typealias SharedAppsListRequestMessage = IPCSharedAppsListRequest
 
-    public init() {}
+extension IPCSharedAppsListRequest {
+    public init() {
+        self.init(type: "shared_apps_list")
+    }
 }
 
 /// Sent to delete a shared app by UUID.
-/// Wire type: `"shared_app_delete"`
-public struct SharedAppDeleteRequestMessage: Encodable, Sendable {
-    public let type: String = "shared_app_delete"
-    public let uuid: String
+/// Backed by generated `IPCSharedAppDeleteRequest`.
+public typealias SharedAppDeleteRequestMessage = IPCSharedAppDeleteRequest
 
+extension IPCSharedAppDeleteRequest {
     public init(uuid: String) {
-        self.uuid = uuid
+        self.init(type: "shared_app_delete", uuid: uuid)
     }
 }
 
 /// Sent to request bundling an app for sharing.
-/// Wire type: `"bundle_app"`
-public struct BundleAppRequestMessage: Encodable, Sendable {
-    public let type: String = "bundle_app"
-    public let appId: String
+/// Backed by generated `IPCBundleAppRequest`.
+public typealias BundleAppRequestMessage = IPCBundleAppRequest
 
+extension IPCBundleAppRequest {
     public init(appId: String) {
-        self.appId = appId
+        self.init(type: "bundle_app", appId: appId)
     }
 }
 
 /// Sent to open and scan a .vellumapp bundle.
-/// Wire type: `"open_bundle"`
-public struct OpenBundleMessage: Encodable, Sendable {
-    public let type: String = "open_bundle"
-    public let filePath: String
+/// Backed by generated `IPCOpenBundleRequest`.
+public typealias OpenBundleMessage = IPCOpenBundleRequest
 
+extension IPCOpenBundleRequest {
     public init(filePath: String) {
-        self.filePath = filePath
+        self.init(type: "open_bundle", filePath: filePath)
     }
 }
 
 /// Sent to request the list of all past sessions/conversations.
-/// Wire type: `"session_list"`
-public struct SessionListRequestMessage: Encodable, Sendable {
-    public let type: String = "session_list"
+/// Backed by generated `IPCSessionListRequest`.
+public typealias SessionListRequestMessage = IPCSessionListRequest
 
-    public init() {}
+extension IPCSessionListRequest {
+    public init() {
+        self.init(type: "session_list")
+    }
 }
 
 /// Sent to regenerate the last assistant response.
-/// Wire type: `"regenerate"`
-public struct RegenerateMessage: Encodable, Sendable {
-    public let type: String = "regenerate"
-    public let sessionId: String
+/// Backed by generated `IPCRegenerateRequest`.
+public typealias RegenerateMessage = IPCRegenerateRequest
 
+extension IPCRegenerateRequest {
     public init(sessionId: String) {
-        self.sessionId = sessionId
+        self.init(type: "regenerate", sessionId: sessionId)
     }
 }
 
 /// Sent to request message history for a specific session.
-/// Wire type: `"history_request"`
-public struct HistoryRequestMessage: Encodable, Sendable {
-    public let type: String = "history_request"
-    public let sessionId: String
+/// Backed by generated `IPCHistoryRequest`.
+public typealias HistoryRequestMessage = IPCHistoryRequest
 
+extension IPCHistoryRequest {
     public init(sessionId: String) {
-        self.sessionId = sessionId
+        self.init(type: "history_request", sessionId: sessionId)
     }
 }
 
 /// Sent to request the list of available skills.
-/// Wire type: `"skills_list"`
-public struct SkillsListRequestMessage: Encodable, Sendable {
-    public let type: String = "skills_list"
+/// Backed by generated `IPCSkillsListRequest`.
+public typealias SkillsListRequestMessage = IPCSkillsListRequest
 
-    public init() {}
+extension IPCSkillsListRequest {
+    public init() {
+        self.init(type: "skills_list")
+    }
 }
 
 /// Sent to request the full body of a specific skill.
-/// Wire type: `"skill_detail"`
-public struct SkillDetailRequestMessage: Encodable, Sendable {
-    public let type: String = "skill_detail"
-    public let skillId: String
+/// Backed by generated `IPCSkillDetailRequest`.
+public typealias SkillDetailRequestMessage = IPCSkillDetailRequest
 
+extension IPCSkillDetailRequest {
     public init(skillId: String) {
-        self.skillId = skillId
+        self.init(type: "skill_detail", skillId: skillId)
     }
 }
 
-/// Enable a skill. Wire type: "skills_enable"
-public struct SkillsEnableMessage: Encodable, Sendable {
-    public let type: String = "skills_enable"
-    public let name: String
+/// Enable a skill.
+/// Backed by generated `IPCSkillsEnableRequest`.
+public typealias SkillsEnableMessage = IPCSkillsEnableRequest
 
+extension IPCSkillsEnableRequest {
     public init(name: String) {
-        self.name = name
+        self.init(type: "skills_enable", name: name)
     }
 }
 
-/// Disable a skill. Wire type: "skills_disable"
-public struct SkillsDisableMessage: Encodable, Sendable {
-    public let type: String = "skills_disable"
-    public let name: String
+/// Disable a skill.
+/// Backed by generated `IPCSkillsDisableRequest`.
+public typealias SkillsDisableMessage = IPCSkillsDisableRequest
 
+extension IPCSkillsDisableRequest {
     public init(name: String) {
-        self.name = name
+        self.init(type: "skills_disable", name: name)
     }
 }
 
-/// Configure a skill's env/apiKey/config. Wire type: "skills_configure"
-public struct SkillsConfigureMessage: Encodable, Sendable {
-    public let type: String = "skills_configure"
-    public let name: String
-    public let env: [String: String]?
-    public let apiKey: String?
-    public let config: [String: AnyCodable]?
+/// Configure a skill's env/apiKey/config.
+/// Backed by generated `IPCSkillsConfigureRequest`.
+public typealias SkillsConfigureMessage = IPCSkillsConfigureRequest
 
+extension IPCSkillsConfigureRequest {
     public init(name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) {
-        self.name = name
-        self.env = env
-        self.apiKey = apiKey
-        self.config = config
+        self.init(type: "skills_configure", name: name, env: env, apiKey: apiKey, config: config)
     }
 }
 
-/// Install a skill from ClaWHub. Wire type: "skills_install"
-public struct SkillsInstallMessage: Encodable, Sendable {
-    public let type: String = "skills_install"
-    public let slug: String
-    public let version: String?
+/// Install a skill from ClaWHub.
+/// Backed by generated `IPCSkillsInstallRequest`.
+public typealias SkillsInstallMessage = IPCSkillsInstallRequest
 
+extension IPCSkillsInstallRequest {
     public init(slug: String, version: String? = nil) {
-        self.slug = slug
-        self.version = version
+        self.init(type: "skills_install", slug: slug, version: version)
     }
 }
 
-/// Uninstall a skill. Wire type: "skills_uninstall"
-public struct SkillsUninstallMessage: Encodable, Sendable {
-    public let type: String = "skills_uninstall"
-    public let name: String
+/// Uninstall a skill.
+/// Backed by generated `IPCSkillsUninstallRequest`.
+public typealias SkillsUninstallMessage = IPCSkillsUninstallRequest
 
+extension IPCSkillsUninstallRequest {
     public init(name: String) {
-        self.name = name
+        self.init(type: "skills_uninstall", name: name)
     }
 }
 
-/// Update a skill. Wire type: "skills_update"
-public struct SkillsUpdateMessage: Encodable, Sendable {
-    public let type: String = "skills_update"
-    public let name: String
+/// Update a skill.
+/// Backed by generated `IPCSkillsUpdateRequest`.
+public typealias SkillsUpdateMessage = IPCSkillsUpdateRequest
 
+extension IPCSkillsUpdateRequest {
     public init(name: String) {
-        self.name = name
+        self.init(type: "skills_update", name: name)
     }
 }
 
-/// Check for skill updates. Wire type: "skills_check_updates"
-public struct SkillsCheckUpdatesMessage: Encodable, Sendable {
-    public let type: String = "skills_check_updates"
+/// Check for skill updates.
+/// Backed by generated `IPCSkillsCheckUpdatesRequest`.
+public typealias SkillsCheckUpdatesMessage = IPCSkillsCheckUpdatesRequest
 
-    public init() {}
+extension IPCSkillsCheckUpdatesRequest {
+    public init() {
+        self.init(type: "skills_check_updates")
+    }
 }
 
-/// Search for skills on ClaWHub. Wire type: "skills_search"
-public struct SkillsSearchMessage: Encodable, Sendable {
-    public let type: String = "skills_search"
-    public let query: String
+/// Search for skills on ClaWHub.
+/// Backed by generated `IPCSkillsSearchRequest`.
+public typealias SkillsSearchMessage = IPCSkillsSearchRequest
 
+extension IPCSkillsSearchRequest {
     public init(query: String) {
-        self.query = query
+        self.init(type: "skills_search", query: query)
     }
 }
 
-/// Inspect a ClaWHub skill for detailed info. Wire type: "skills_inspect"
-public struct SkillsInspectMessage: Encodable, Sendable {
-    public let type: String = "skills_inspect"
-    public let slug: String
+/// Inspect a ClaWHub skill for detailed info.
+/// Backed by generated `IPCSkillsInspectRequest`.
+public typealias SkillsInspectMessage = IPCSkillsInspectRequest
 
+extension IPCSkillsInspectRequest {
     public init(slug: String) {
-        self.slug = slug
+        self.init(type: "skills_inspect", slug: slug)
     }
 }
 
 /// Response to a sign_bundle_payload request from the daemon.
-/// Wire type: `"sign_bundle_payload_response"`
-public struct SignBundlePayloadResponseMessage: Encodable, Sendable {
-    public let type: String = "sign_bundle_payload_response"
-    public let signature: String
-    public let keyId: String
-    public let publicKey: String
+/// Backed by generated `IPCSignBundlePayloadResponse`.
+public typealias SignBundlePayloadResponseMessage = IPCSignBundlePayloadResponse
 
+extension IPCSignBundlePayloadResponse {
     public init(signature: String, keyId: String, publicKey: String) {
-        self.signature = signature
-        self.keyId = keyId
-        self.publicKey = publicKey
+        self.init(type: "sign_bundle_payload_response", signature: signature, keyId: keyId, publicKey: publicKey)
     }
 }
 
 /// Response to a get_signing_identity request from the daemon.
-/// Wire type: `"get_signing_identity_response"`
-public struct GetSigningIdentityResponseMessage: Encodable, Sendable {
-    public let type: String = "get_signing_identity_response"
-    public let keyId: String
-    public let publicKey: String
+/// Backed by generated `IPCGetSigningIdentityResponse`.
+public typealias GetSigningIdentityResponseMessage = IPCGetSigningIdentityResponse
 
+extension IPCGetSigningIdentityResponse {
     public init(keyId: String, publicKey: String) {
-        self.keyId = keyId
-        self.publicKey = publicKey
+        self.init(type: "get_signing_identity_response", keyId: keyId, publicKey: publicKey)
     }
 }
 
@@ -615,11 +523,9 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
     }
 }
 
-public struct SurfaceActionData: Decodable, Sendable {
-    public let id: String
-    public let label: String
-    public let style: String?
-}
+/// Surface action button data.
+/// Backed by generated `IPCSurfaceAction`.
+public typealias SurfaceActionData = IPCSurfaceAction
 
 /// Surface update command from daemon.
 /// Wire type: `"ui_surface_update"`
@@ -630,18 +536,15 @@ public struct UiSurfaceUpdateMessage: Decodable, Sendable {
 }
 
 /// Surface dismiss command from daemon.
-/// Wire type: `"ui_surface_dismiss"`
-public struct UiSurfaceDismissMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let surfaceId: String
-}
+/// Backed by generated `IPCUiSurfaceDismiss`.
+public typealias UiSurfaceDismissMessage = IPCUiSurfaceDismiss
 
 /// Confirms undo/regenerate removed messages.
 public typealias UndoCompleteMessage = IPCUndoComplete
 
 /// Confirms generation was cancelled.
-/// NOTE: Kept hand-maintained because the Swift type includes `sessionId`
-/// which the TS contract does not define for this message type.
+/// Kept hand-maintained — the Swift type includes `sessionId` for session
+/// filtering, which the TS contract does not define for this message type.
 public struct GenerationCancelledMessage: Decodable, Sendable {
     public let sessionId: String?
 
@@ -691,62 +594,27 @@ extension IPCErrorMessage {
 }
 
 /// Response from the daemon for a persistent app data request.
-/// Wire type: `"app_data_response"`
-public struct AppDataResponseMessage: Decodable, Sendable {
-    public let surfaceId: String
-    public let callId: String
-    public let success: Bool
-    public let result: AnyCodable?
-    public let error: String?
-}
+/// Backed by generated `IPCAppDataResponse`.
+public typealias AppDataResponseMessage = IPCAppDataResponse
 
 /// ClaWHub metadata for a skill.
-public struct ClawhubInfo: Codable, Sendable {
-    public let author: String
-    public let stars: Int
-    public let installs: Int
-    public let reports: Int
-    public let publishedAt: String
-}
+/// Backed by generated `IPCSkillsListResponseSkillClawhub`.
+public typealias ClawhubInfo = IPCSkillsListResponseSkillClawhub
 
 /// Missing requirements preventing a skill from full operation.
-public struct MissingRequirements: Codable, Sendable {
-    public let bins: [String]?
-    public let env: [String]?
-    public let permissions: [String]?
-}
+/// Backed by generated `IPCSkillsListResponseSkillMissingRequirements`.
+public typealias MissingRequirements = IPCSkillsListResponseSkillMissingRequirements
 
 /// Full skill info from the daemon's resolved skill list.
-public struct SkillInfo: Codable, Sendable, Identifiable {
-    public var id: String { name }
-    public let name: String
-    public let description: String
-    public let emoji: String?
-    public let homepage: String?
-    public let source: String  // "bundled" | "managed" | "workspace" | "clawhub" | "extra"
-    public let state: String   // "enabled" | "disabled" | "available"
-    public let degraded: Bool
-    public let missingRequirements: MissingRequirements?
-    public let installedVersion: String?
-    public let latestVersion: String?
-    public let updateAvailable: Bool
-    public let userInvocable: Bool
-    public let clawhub: ClawhubInfo?
+/// Backed by generated `IPCSkillsListResponseSkill`.
+public typealias SkillInfo = IPCSkillsListResponseSkill
 
-    public init(name: String, description: String, emoji: String?, homepage: String?, source: String, state: String, degraded: Bool, missingRequirements: MissingRequirements?, installedVersion: String?, latestVersion: String?, updateAvailable: Bool, userInvocable: Bool, clawhub: ClawhubInfo?) {
-        self.name = name
-        self.description = description
-        self.emoji = emoji
-        self.homepage = homepage
-        self.source = source
-        self.state = state
-        self.degraded = degraded
-        self.missingRequirements = missingRequirements
-        self.installedVersion = installedVersion
-        self.latestVersion = latestVersion
-        self.updateAvailable = updateAvailable
-        self.userInvocable = userInvocable
-        self.clawhub = clawhub
+extension IPCSkillsListResponseSkill: Identifiable {}
+
+extension IPCSkillsListResponseSkill {
+    /// Backward-compatible init that defaults `id` to `name`.
+    public init(name: String, description: String, emoji: String?, homepage: String?, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements?, installedVersion: String?, latestVersion: String?, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub?) {
+        self.init(id: name, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: state, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub)
     }
 }
 
@@ -754,26 +622,19 @@ public struct SkillInfo: Codable, Sendable, Identifiable {
 public typealias SkillSummaryItem = SkillInfo
 
 /// Response containing the list of available skills.
-/// Wire type: `"skills_list_response"`
-public struct SkillsListResponseMessage: Decodable, Sendable {
-    public let skills: [SkillInfo]
-}
+/// Backed by generated `IPCSkillsListResponse`.
+public typealias SkillsListResponseMessage = IPCSkillsListResponse
 
 /// Response containing the full body of a specific skill.
-/// Wire type: `"skill_detail_response"`
-public struct SkillDetailResponseMessage: Decodable, Sendable {
-    public let skillId: String
-    public let body: String
-    public let error: String?
-}
+/// Backed by generated `IPCSkillDetailResponse`.
+public typealias SkillDetailResponseMessage = IPCSkillDetailResponse
 
-/// Push event: skill state changed. Wire type: "skills_state_changed"
-public struct SkillStateChangedMessage: Decodable, Sendable {
-    public let name: String
-    public let state: String  // "enabled" | "disabled" | "installed" | "uninstalled"
-}
+/// Push event: skill state changed.
+/// Backed by generated `IPCSkillStateChanged`.
+public typealias SkillStateChangedMessage = IPCSkillStateChanged
 
 /// Push event: updates available. Wire type: "skills_updates_available"
+/// Kept hand-maintained — no generated equivalent in the TS contract.
 public struct SkillsUpdatesAvailableMessage: Decodable, Sendable {
     public struct UpdateInfo: Decodable, Sendable {
         public let name: String
@@ -784,6 +645,8 @@ public struct SkillsUpdatesAvailableMessage: Decodable, Sendable {
 }
 
 /// A ClaWHub skill returned from a search or explore query.
+/// Kept hand-maintained — this type is decoded from the `data` field of
+/// `skills_operation_response` (which is `AnyCodable` in the contract).
 public struct ClawhubSkillItem: Decodable, Sendable, Identifiable, Equatable {
     public var id: String { slug }
     public let name: String
@@ -818,7 +681,9 @@ public struct ClawhubSearchData: Decodable, Sendable {
     public let skills: [ClawhubSkillItem]
 }
 
-/// Generic operation response. Wire type: "skills_operation_response"
+/// Generic operation response.
+/// Kept hand-maintained — the `data` field is typed as `ClawhubSearchData?`
+/// for search results, while the generated type uses `AnyCodable?`.
 public struct SkillsOperationResponseMessage: Decodable, Sendable {
     public let operation: String
     public let success: Bool
@@ -827,71 +692,41 @@ public struct SkillsOperationResponseMessage: Decodable, Sendable {
 }
 
 /// Skill info from a ClaWHub inspect response.
-public struct ClawhubInspectSkill: Decodable, Sendable {
-    public let slug: String
-    public let displayName: String
-    public let summary: String
-}
+/// Backed by generated `IPCSkillsInspectResponseDataSkill`.
+public typealias ClawhubInspectSkill = IPCSkillsInspectResponseDataSkill
 
 /// Owner info from a ClaWHub inspect response.
-public struct ClawhubInspectOwner: Decodable, Sendable {
-    public let handle: String
-    public let displayName: String
-    public let image: String?
-}
+/// Backed by generated `IPCSkillsInspectResponseDataOwner`.
+public typealias ClawhubInspectOwner = IPCSkillsInspectResponseDataOwner
 
 /// Stats from a ClaWHub inspect response.
-public struct ClawhubInspectStats: Decodable, Sendable {
-    public let stars: Int
-    public let installs: Int
-    public let downloads: Int
-    public let versions: Int
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        stars = try container.decodeIfPresent(Int.self, forKey: .stars) ?? 0
-        installs = try container.decodeIfPresent(Int.self, forKey: .installs) ?? 0
-        downloads = try container.decodeIfPresent(Int.self, forKey: .downloads) ?? 0
-        versions = try container.decodeIfPresent(Int.self, forKey: .versions) ?? 0
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case stars, installs, downloads, versions
-    }
-}
+/// Backed by generated `IPCSkillsInspectResponseDataStats`.
+public typealias ClawhubInspectStats = IPCSkillsInspectResponseDataStats
 
 /// Version info from a ClaWHub inspect response.
-public struct ClawhubInspectVersion: Decodable, Sendable {
-    public let version: String
-    public let changelog: String?
-}
+/// Backed by generated `IPCSkillsInspectResponseDataLatestVersion`.
+public typealias ClawhubInspectVersion = IPCSkillsInspectResponseDataLatestVersion
 
 /// File entry from a ClaWHub inspect response.
-public struct ClawhubInspectFile: Decodable, Sendable {
-    public let path: String
-    public let size: Int
-    public let contentType: String?
-}
+/// Backed by generated `IPCSkillsInspectResponseDataFile`.
+public typealias ClawhubInspectFile = IPCSkillsInspectResponseDataFile
 
 /// Full inspect data for a ClaWHub skill.
-public struct ClawhubInspectData: Decodable, Sendable {
-    public let skill: ClawhubInspectSkill
-    public let owner: ClawhubInspectOwner?
-    public let stats: ClawhubInspectStats?
-    public let createdAt: Int?
-    public let updatedAt: Int?
-    public let latestVersion: ClawhubInspectVersion?
-    public let files: [ClawhubInspectFile]?
-    public let skillMdContent: String?
+/// Backed by generated `IPCSkillsInspectResponseData`.
+public typealias ClawhubInspectData = IPCSkillsInspectResponseData
+
+// The generated `IPCSkillsInspectResponseData` uses `AnyCodable?` for
+// `createdAt`, `updatedAt`, and `skillMdContent`. Provide typed accessors
+// for backward compatibility with call sites that expect concrete types.
+extension IPCSkillsInspectResponseData {
+    public var createdAtInt: Int? { createdAt?.value as? Int }
+    public var updatedAtInt: Int? { updatedAt?.value as? Int }
+    public var skillMdContentString: String? { skillMdContent?.value as? String }
 }
 
 /// Response from inspecting a ClaWHub skill.
-/// Wire type: "skills_inspect_response"
-public struct SkillsInspectResponseMessage: Decodable, Sendable {
-    public let slug: String
-    public let data: ClawhubInspectData?
-    public let error: String?
-}
+/// Backed by generated `IPCSkillsInspectResponse`.
+public typealias SkillsInspectResponseMessage = IPCSkillsInspectResponse
 
 /// Response containing the list of past sessions.
 /// Backed by generated `IPCSessionListResponse`.
@@ -919,57 +754,38 @@ extension IPCTrustRulesListResponseRule: Identifiable {}
 public typealias TrustRulesListResponseMessage = IPCTrustRulesListResponse
 
 /// A single app item returned from the daemon.
-public struct AppItem: Decodable, Sendable, Identifiable {
-    public let id: String
-    public let name: String
-    public let description: String?
-    public let icon: String?
-    public let createdAt: Int
-}
+/// Backed by generated `IPCAppsListResponseApp`.
+public typealias AppItem = IPCAppsListResponseApp
+
+extension IPCAppsListResponseApp: Identifiable {}
 
 /// Response containing the list of all apps.
-/// Wire type: `"apps_list_response"`
-public struct AppsListResponseMessage: Decodable, Sendable {
-    public let apps: [AppItem]
-}
+/// Backed by generated `IPCAppsListResponse`.
+public typealias AppsListResponseMessage = IPCAppsListResponse
 
 /// A single shared app item returned from the daemon.
-public struct SharedAppItem: Decodable, Sendable, Identifiable {
+/// Backed by generated `IPCSharedAppsListResponseApp`.
+public typealias SharedAppItem = IPCSharedAppsListResponseApp
+
+extension IPCSharedAppsListResponseApp: Identifiable {
     public var id: String { uuid }
-    public let uuid: String
-    public let name: String
-    public let description: String?
-    public let icon: String?
-    public let entry: String
-    public let trustTier: String
-    public let signerDisplayName: String?
-    public let bundleSizeBytes: Int
-    public let installedAt: String
 }
 
 /// Response containing the list of shared apps.
-/// Wire type: `"shared_apps_list_response"`
-public struct SharedAppsListResponseMessage: Decodable, Sendable {
-    public let apps: [SharedAppItem]
-}
+/// Backed by generated `IPCSharedAppsListResponse`.
+public typealias SharedAppsListResponseMessage = IPCSharedAppsListResponse
 
 /// Response from deleting a shared app.
-/// Wire type: `"shared_app_delete_response"`
-public struct SharedAppDeleteResponseMessage: Decodable, Sendable {
-    public let success: Bool
-}
+/// Backed by generated `IPCSharedAppDeleteResponse`.
+public typealias SharedAppDeleteResponseMessage = IPCSharedAppDeleteResponse
 
 /// Response from bundling an app.
-/// Wire type: `"bundle_app_response"`
-public struct BundleAppResponseMessage: Decodable, Sendable {
-    public let bundlePath: String
-}
+/// Backed by generated `IPCBundleAppResponse`.
+public typealias BundleAppResponseMessage = IPCBundleAppResponse
 
 /// Request from daemon to sign a bundle payload.
-/// Wire type: `"sign_bundle_payload"`
-public struct SignBundlePayloadMessage: Decodable, Sendable {
-    public let payload: String
-}
+/// Backed by generated `IPCSignBundlePayloadRequest`.
+public typealias SignBundlePayloadMessage = IPCSignBundlePayloadRequest
 
 /// Real-time execution trace event from the daemon.
 /// Wire type: `"trace_event"`
@@ -1016,13 +832,8 @@ public struct SessionErrorMessage: Decodable, Sendable {
 }
 
 /// Timer completed notification from daemon.
-/// Wire type: `"timer_completed"`
-public struct TimerCompletedMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let timerId: String
-    public let label: String
-    public let durationMinutes: Double
-}
+/// Backed by generated `IPCTimerCompleted`.
+public typealias TimerCompletedMessage = IPCTimerCompleted
 
 /// Tool execution started.
 /// Backed by generated `IPCToolUseStart`.
@@ -1080,15 +891,12 @@ extension IPCConfirmationRequestDiff: Equatable {
 
 
 /// Request a follow-up suggestion for the current session.
-/// Wire type: `"suggestion_request"`
-public struct SuggestionRequestMessage: Encodable, Sendable {
-    public let type: String = "suggestion_request"
-    public let sessionId: String
-    public let requestId: String
+/// Backed by generated `IPCSuggestionRequest`.
+public typealias SuggestionRequestMessage = IPCSuggestionRequest
 
+extension IPCSuggestionRequest {
     public init(sessionId: String, requestId: String) {
-        self.sessionId = sessionId
-        self.requestId = requestId
+        self.init(type: "suggestion_request", sessionId: sessionId, requestId: requestId)
     }
 }
 
@@ -1153,41 +961,24 @@ extension IPCUpdateTrustRule {
 }
 
 /// Response from opening and scanning a .vellumapp bundle.
-/// Wire type: `"open_bundle_response"`
-public struct OpenBundleResponseMessage: Decodable, Sendable {
-    public struct Manifest: Decodable, Sendable {
-        public let formatVersion: Int
-        public let name: String
-        public let description: String?
-        public let icon: String?
-        public let createdAt: String
-        public let createdBy: String
-        public let entry: String
-        public let capabilities: [String]
+/// Backed by generated `IPCOpenBundleResponse`.
+public typealias OpenBundleResponseMessage = IPCOpenBundleResponse
 
-        private enum CodingKeys: String, CodingKey {
-            case formatVersion = "format_version"
-            case name, description, icon
-            case createdAt = "created_at"
-            case createdBy = "created_by"
-            case entry, capabilities
-        }
-    }
-    public struct ScanResult: Decodable, Sendable {
-        public let passed: Bool
-        public let blocked: [String]
-        public let warnings: [String]
-    }
-    public struct SignatureResult: Decodable, Sendable {
-        public let trustTier: String
-        public let signerKeyId: String?
-        public let signerDisplayName: String?
-        public let signerAccount: String?
-    }
-    public let manifest: Manifest
-    public let scanResult: ScanResult
-    public let signatureResult: SignatureResult
-    public let bundleSizeBytes: Int
+// Backward-compatible nested type aliases so call sites like
+// `OpenBundleResponseMessage.Manifest` keep compiling.
+extension IPCOpenBundleResponse {
+    public typealias Manifest = IPCOpenBundleResponseManifest
+    public typealias ScanResult = IPCOpenBundleResponseScanResult
+    public typealias SignatureResult = IPCOpenBundleResponseSignatureResult
+}
+
+// camelCase computed properties on the generated Manifest type so existing
+// call sites (e.g. `manifest.formatVersion`, `manifest.createdAt`) keep working.
+// The generated struct uses snake_case property names that match the wire format.
+extension IPCOpenBundleResponseManifest {
+    public var formatVersion: Int { format_version }
+    public var createdAt: String { created_at }
+    public var createdBy: String { created_by }
 }
 
 

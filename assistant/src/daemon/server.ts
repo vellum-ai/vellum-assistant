@@ -20,6 +20,7 @@ import {
   type ClientMessage,
   type ServerMessage,
 } from './ipc-protocol.js';
+import { validateClientMessage } from './ipc-validate.js';
 import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 
@@ -383,7 +384,14 @@ export class DaemonServer {
         return;
       }
       for (const msg of messages) {
-        this.dispatchMessage(msg as ClientMessage, socket);
+        const result = validateClientMessage(msg);
+        if (!result.valid) {
+          log.warn({ reason: result.reason }, 'Invalid IPC message, dropping client');
+          socket.write(serialize({ type: 'error', message: `Invalid message: ${result.reason}` }));
+          socket.destroy();
+          return;
+        }
+        this.dispatchMessage(result.message, socket);
       }
     });
 

@@ -152,7 +152,7 @@ graph TB
 
     %% Main Window Chat flow
     CHAT_VM -->|"session_create +<br/>user_message +<br/>cancel"| IPC_SERVER
-    IPC_SERVER -->|"session_info +<br/>text deltas +<br/>message_complete +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff"| CHAT_VM
+    IPC_SERVER -->|"session_info +<br/>text deltas +<br/>message_complete +<br/>session_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
 
     %% Ambient flow
@@ -586,6 +586,53 @@ graph TB
 
 ---
 
+## IPC Contract — Source of Truth and Code Generation
+
+The TypeScript file `assistant/src/daemon/ipc-contract.ts` is the **single source of truth** for all IPC message types. Swift client models are auto-generated from it. See [assistant/docs/ipc-contract.md](./assistant/docs/ipc-contract.md) for the full developer guide.
+
+```mermaid
+graph LR
+    subgraph "Source of Truth"
+        CONTRACT["ipc-contract.ts<br/>───────────────<br/>All message interfaces<br/>ClientMessage union<br/>ServerMessage union"]
+    end
+
+    subgraph "Generation Pipeline"
+        TJS["typescript-json-schema<br/>───────────────<br/>TS → JSON Schema"]
+        GEN["generate-swift.ts<br/>───────────────<br/>JSON Schema → Swift<br/>Codable structs"]
+    end
+
+    subgraph "Generated Output"
+        SWIFT["IPCContractGenerated.swift<br/>───────────────<br/>clients/shared/IPC/Generated/<br/>IPC-prefixed Codable structs"]
+    end
+
+    subgraph "Hand-Written Swift"
+        ENUMS["IPCMessages.swift<br/>───────────────<br/>ClientMessage / ServerMessage<br/>discriminated union enums<br/>(custom Decodable init)"]
+    end
+
+    subgraph "Inventory Tracking"
+        INV_SRC["ipc-contract-inventory.ts<br/>───────────────<br/>AST parser for union members"]
+        INV_SNAP["ipc-contract-inventory.json<br/>───────────────<br/>Checked-in snapshot"]
+    end
+
+    subgraph "Enforcement"
+        CI["CI (GitHub Actions)<br/>bun run check:ipc-generated<br/>bun run ipc:inventory"]
+        HOOK["Pre-commit hook<br/>same checks on staged<br/>IPC files"]
+    end
+
+    CONTRACT --> TJS
+    TJS --> GEN
+    GEN --> SWIFT
+    SWIFT --> ENUMS
+
+    CONTRACT --> INV_SRC
+    INV_SRC --> INV_SNAP
+
+    CONTRACT --> CI
+    CONTRACT --> HOOK
+```
+
+---
+
 ## IPC Protocol — Message Types
 
 ```mermaid
@@ -624,6 +671,7 @@ graph LR
         S13["message_dequeued<br/>queue drained"]
         S14["generation_handoff<br/>sessionId, requestId?,<br/>queuedCount"]
         S15["trace_event<br/>eventId, sessionId, requestId?,<br/>timestampMs, sequence, kind,<br/>status?, summary, attributes?"]
+        S16["session_error<br/>sessionId, code,<br/>userMessage, retryable,<br/>debugDetails?"]
     end
 
     C0 --> SOCKET
@@ -653,7 +701,78 @@ graph LR
     SOCKET --> S13
     SOCKET --> S14
     SOCKET --> S15
+    SOCKET --> S16
 ```
+
+---
+
+## Session Errors vs Global Errors
+
+The daemon emits two distinct error message types over IPC:
+
+| Message type | Scope | Purpose | Payload |
+|---|---|---|---|
+| `session_error` | Session-scoped | Typed, actionable failures during chat/session runtime (e.g., provider network error, rate limit, API failure) | `sessionId`, `code` (typed enum), `userMessage`, `retryable`, `debugDetails?` |
+| `error` | Global | Generic, non-session failures (e.g., daemon startup errors, unknown message types) | `message` (string) |
+
+**Design rationale:** `session_error` carries structured metadata (error code, retryable flag, debug details) so the client can present actionable UI — a toast with retry/copy-debug/dismiss buttons — rather than a generic error banner. The older `error` type is retained for backward compatibility with non-session contexts.
+
+### Session Error Codes
+
+| Code | Meaning | Retryable |
+|---|---|---|
+| `PROVIDER_NETWORK` | Unable to reach the LLM provider (connection refused, timeout, DNS) | Yes |
+| `PROVIDER_RATE_LIMIT` | LLM provider rate-limited the request (HTTP 429) | Yes |
+| `PROVIDER_API` | Provider returned a server error (5xx) | Yes |
+| `QUEUE_FULL` | The message queue is full | Yes |
+| `SESSION_ABORTED` | Non-user abort interrupted the request | Yes |
+| `SESSION_PROCESSING_FAILED` | Catch-all for unexpected processing failures | No |
+| `REGENERATE_FAILED` | Failed to regenerate a previous response | Yes |
+| `UNKNOWN` | Unclassified error | No |
+
+### Error Classification
+
+The daemon classifies errors via `classifySessionError()` in `session-error.ts`. Before classification, `isUserCancellation()` checks whether the error is a user-initiated abort (active abort signal or `AbortError`); if so, the daemon emits `generation_cancelled` instead of `session_error`. Classification uses regex pattern matching against the error message to detect network failures, rate limits, and provider API errors, with phase-specific overrides for queue and regeneration contexts.
+
+### Error → Toast → Recovery Flow
+
+```mermaid
+sequenceDiagram
+    participant Daemon as Daemon (session-error.ts)
+    participant DC as DaemonClient (Swift)
+    participant VM as ChatViewModel
+    participant UI as ChatView (toast)
+
+    Note over Daemon: LLM call fails or<br/>processing error occurs
+    Daemon->>Daemon: classifySessionError(error, ctx)
+    Daemon->>DC: session_error {sessionId, code,<br/>userMessage, retryable, debugDetails?}
+    DC->>VM: onSessionError callback
+    VM->>VM: set sessionError property<br/>clear isThinking / isCancelling
+    VM-->>UI: @Published sessionError observed
+
+    UI->>UI: show sessionErrorToast<br/>[Retry] [Copy Debug] [Dismiss]
+
+    alt User taps Retry (retryable == true)
+        UI->>VM: retryAfterSessionError()
+        VM->>VM: dismissSessionError()<br/>+ regenerateLastMessage()
+        VM->>DC: regenerate {sessionId}
+        DC->>Daemon: IPC
+    else User taps Copy Debug
+        UI->>VM: copySessionErrorDebugDetails()
+        Note over VM: Copies error details<br/>to system clipboard
+    else User taps Dismiss
+        UI->>VM: dismissSessionError()
+        VM->>VM: clear sessionError + errorText
+    end
+```
+
+1. **Daemon** encounters a session-scoped failure, classifies it via `classifySessionError()`, and sends a `session_error` IPC message with the session ID, typed error code, user-facing message, retryable flag, and optional debug details.
+2. **ChatViewModel** receives the error via the `onSessionError` callback, sets the `sessionError` property, and transitions out of the streaming/loading state so the UI is interactive.
+3. **ChatView** observes the published `sessionError` and displays an actionable toast with a category-specific icon and accent color:
+   - **Retry** (shown when `retryable` is true): calls `retryAfterSessionError()`, which clears the error and sends a `regenerate` message to the daemon.
+   - **Copy Debug**: calls `copySessionErrorDebugDetails()` to copy error details to the clipboard.
+   - **Dismiss (X)**: calls `dismissSessionError()` to clear the error without retrying.
+4. If the error is not retryable, the Retry button is hidden and the user can only dismiss or copy debug info.
 
 ---
 
