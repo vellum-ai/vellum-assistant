@@ -14,7 +14,8 @@
     "generate:ipc": "bun run scripts/ipc/generate-swift.ts",
     "check:ipc-generated": "bun run scripts/ipc/generate-swift.ts --check",
     "lint": "eslint",
-    "test": "bash scripts/test.sh"
+    "test": "bash scripts/test.sh",
+    "test:filesystem-tools": "bash scripts/test-filesystem-tools.sh"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.42",
