@@ -17,7 +17,7 @@ export function resolveSkillStates(
   config: AssistantConfig,
 ): ResolvedSkill[] {
   const results: ResolvedSkill[] = [];
-  const { entries, allowBundled } = config.skills;
+  const { entries, allowBundled } = config.skills ?? { entries: {}, allowBundled: null };
 
   for (const skill of catalog) {
     // Filter bundled skills by allowlist
