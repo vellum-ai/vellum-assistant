@@ -585,6 +585,10 @@ export function cleanAssistantContent(
     const b = block as Record<string, unknown>;
     if (b.type !== 'text') return block;
     const text = b.text as string;
+    // Only run the directive parser when the text actually contains a
+    // potential tag. This avoids unintentional whitespace normalisation
+    // (parseDirectives trims and collapses blank lines) on plain messages.
+    if (!text.includes('<vellum-attachment')) return block;
     const result = parseDirectives(text);
     directives.push(...result.directiveRequests);
     warnings.push(...result.parseWarnings);
@@ -599,13 +603,17 @@ export function cleanAssistantContent(
 // ---------------------------------------------------------------------------
 
 /**
- * De-duplicate drafts by filename + content hash (first 64 chars of base64
- * as a cheap proxy for content identity).
+ * De-duplicate drafts by filename + full content hash.
+ *
+ * Uses a fast hash of the entire base64 payload so that files with shared
+ * prefixes (common for image formats, tool screenshots named identically)
+ * are not incorrectly treated as duplicates.
  */
 export function deduplicateDrafts(drafts: AssistantAttachmentDraft[]): AssistantAttachmentDraft[] {
   const seen = new Set<string>();
   return drafts.filter((d) => {
-    const key = `${d.filename}:${d.dataBase64.slice(0, 64)}`;
+    const hash = Bun.hash(d.dataBase64).toString(36);
+    const key = `${d.filename}:${hash}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

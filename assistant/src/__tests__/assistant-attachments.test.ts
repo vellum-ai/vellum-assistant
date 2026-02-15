@@ -216,6 +216,18 @@ describe('cleanAssistantContent', () => {
     expect(result.warnings[0]).toContain('invalid source');
   });
 
+  test('preserves whitespace in plain text blocks without directives', () => {
+    const content = [
+      { type: 'text', text: '  Hello\n\n\n\nWorld  ' },
+    ];
+    const result = cleanAssistantContent(content);
+
+    expect(result.directives).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0);
+    // Text should be returned exactly as-is — no trimming or blank-line collapsing
+    expect((result.cleanedContent[0] as { text: string }).text).toBe('  Hello\n\n\n\nWorld  ');
+  });
+
   test('handles content with no text blocks', () => {
     const content = [
       { type: 'thinking', thinking: 'hmm', signature: 'sig' },
@@ -315,7 +327,7 @@ describe('contentBlocksToDrafts', () => {
 // ---------------------------------------------------------------------------
 
 describe('deduplicateDrafts', () => {
-  test('removes duplicates by filename + content prefix', () => {
+  test('removes duplicates by filename + content hash', () => {
     const d = makeDraft({ filename: 'same.txt', dataBase64: 'AAAA'.repeat(20) });
     const result = deduplicateDrafts([d, { ...d }, makeDraft({ filename: 'other.txt' })]);
 
@@ -327,6 +339,17 @@ describe('deduplicateDrafts', () => {
   test('keeps drafts with same filename but different content', () => {
     const d1 = makeDraft({ filename: 'file.txt', dataBase64: 'AAAA'.repeat(20) });
     const d2 = makeDraft({ filename: 'file.txt', dataBase64: 'BBBB'.repeat(20) });
+    const result = deduplicateDrafts([d1, d2]);
+
+    expect(result).toHaveLength(2);
+  });
+
+  test('keeps drafts with same filename and same prefix but different content', () => {
+    // Shared 64-char prefix but different suffix — old prefix-based dedup
+    // would incorrectly drop the second draft.
+    const sharedPrefix = 'A'.repeat(64);
+    const d1 = makeDraft({ filename: 'tool-output.png', dataBase64: sharedPrefix + 'XXXX' });
+    const d2 = makeDraft({ filename: 'tool-output.png', dataBase64: sharedPrefix + 'YYYY' });
     const result = deduplicateDrafts([d1, d2]);
 
     expect(result).toHaveLength(2);

@@ -549,6 +549,11 @@ export class Session {
     const rlog = log.child({ conversationId: this.conversationId, requestId: reqId });
     let yieldedForHandoff = false;
 
+    // Reset attachment state so a failed exchange never retains stale data
+    // from a prior successful run.
+    this.lastAssistantAttachments = [];
+    this.lastAttachmentWarnings = [];
+
     try {
       const preMessageResult = await getHookManager().trigger('pre-message', {
         sessionId: this.conversationId,
@@ -929,7 +934,16 @@ export class Session {
       // synthetic tool_result blocks from pre-run repair don't leak into
       // this.messages.  Only the new messages appended by the agent loop
       // (beyond the repaired prefix) are carried forward.
-      const newMessages = updatedHistory.slice(preRunHistoryLength);
+      //
+      // Strip directive tags from assistant messages so in-memory history
+      // matches the cleaned content persisted to the DB. Without this,
+      // subsequent turns would send raw <vellum-attachment /> tags to the
+      // LLM, wasting tokens and encouraging hallucinated directives.
+      const newMessages = updatedHistory.slice(preRunHistoryLength).map((msg) => {
+        if (msg.role !== 'assistant') return msg;
+        const { cleanedContent } = cleanAssistantContent(msg.content);
+        return { ...msg, content: cleanedContent as ContentBlock[] };
+      });
       const restoredHistory = [...preRepairMessages, ...newMessages];
       this.messages = stripMemoryRecallMessages(restoredHistory, recall.injectedText, runtimeConfig.memory.retrieval.injectionStrategy);
 
