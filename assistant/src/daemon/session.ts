@@ -1051,8 +1051,7 @@ export class Session {
           status: 'error',
           attributes: { errorClass, message: message.slice(0, 500) },
         });
-        // Session-scoped failure: emit only session_error (not generic error)
-        // so the client routes it through the typed session-error channel.
+        onEvent({ type: 'error', message: `Failed to process message: ${message}` });
         const classified = classifySessionError(err, errorCtx);
         onEvent(buildSessionErrorMessage(this.conversationId, classified));
         void getHookManager().trigger('on-error', {
