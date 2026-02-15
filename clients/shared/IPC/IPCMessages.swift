@@ -903,6 +903,46 @@ extension IPCHistoryResponse {
     public typealias HistoryToolCallItem = IPCHistoryResponseToolCall
 }
 
+/// A single scheduled task item returned from the daemon.
+/// Backed by generated `IPCSchedulesListResponseSchedule`.
+public typealias ScheduleItem = IPCSchedulesListResponseSchedule
+
+extension IPCSchedulesListResponseSchedule: Identifiable {}
+
+/// Response containing all scheduled tasks.
+/// Backed by generated `IPCSchedulesListResponse`.
+public typealias SchedulesListResponseMessage = IPCSchedulesListResponse
+
+/// Request all schedules from the daemon.
+/// Backed by generated `IPCSchedulesList`.
+public typealias SchedulesListMessage = IPCSchedulesList
+
+extension IPCSchedulesList {
+    public init() {
+        self.init(type: "schedules_list")
+    }
+}
+
+/// Toggle a schedule's enabled state.
+/// Backed by generated `IPCScheduleToggle`.
+public typealias ScheduleToggleMessage = IPCScheduleToggle
+
+extension IPCScheduleToggle {
+    public init(id: String, enabled: Bool) {
+        self.init(type: "schedule_toggle", id: id, enabled: enabled)
+    }
+}
+
+/// Remove a schedule by ID.
+/// Backed by generated `IPCScheduleRemove`.
+public typealias ScheduleRemoveMessage = IPCScheduleRemove
+
+extension IPCScheduleRemove {
+    public init(id: String) {
+        self.init(type: "schedule_remove", id: id)
+    }
+}
+
 /// A single trust rule item returned from the daemon.
 /// Backed by generated `IPCTrustRulesListResponseRule`.
 public typealias TrustRuleItem = IPCTrustRulesListResponseRule
@@ -1245,6 +1285,7 @@ public enum ServerMessage: Decodable, Sendable {
     case watchCompleteRequest(WatchCompleteRequestMessage)
     case traceEvent(TraceEventMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
+    case schedulesListResponse(SchedulesListResponseMessage)
     case appsListResponse(AppsListResponseMessage)
     case sharedAppsListResponse(SharedAppsListResponseMessage)
     case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
@@ -1383,6 +1424,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "trust_rules_list_response":
             let message = try TrustRulesListResponseMessage(from: decoder)
             self = .trustRulesListResponse(message)
+        case "schedules_list_response":
+            let message = try SchedulesListResponseMessage(from: decoder)
+            self = .schedulesListResponse(message)
         case "apps_list_response":
             let message = try AppsListResponseMessage(from: decoder)
             self = .appsListResponse(message)

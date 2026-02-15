@@ -214,6 +214,18 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     decision: 'allow',
     priority: 50,
   },
+  schedules_list: {
+    type: 'schedules_list',
+  },
+  schedule_toggle: {
+    type: 'schedule_toggle',
+    id: 'sched-001',
+    enabled: false,
+  },
+  schedule_remove: {
+    type: 'schedule_remove',
+    id: 'sched-001',
+  },
   bundle_app: {
     type: 'bundle_app',
     appId: 'app-001',
@@ -653,6 +665,23 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         decision: 'allow',
         priority: 100,
         createdAt: 1700000000,
+      },
+    ],
+  },
+  schedules_list_response: {
+    type: 'schedules_list_response',
+    schedules: [
+      {
+        id: 'sched-001',
+        name: 'Daily standup reminder',
+        enabled: true,
+        cronExpression: '0 9 * * 1-5',
+        timezone: 'America/Los_Angeles',
+        message: 'Remind me about the standup',
+        nextRunAt: 1700100000000,
+        lastRunAt: 1700000000000,
+        lastStatus: 'ok',
+        description: 'Every weekday at 9:00 AM',
       },
     ],
   },

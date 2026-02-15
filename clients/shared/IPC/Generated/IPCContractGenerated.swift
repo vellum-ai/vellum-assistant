@@ -606,6 +606,39 @@ public struct IPCSandboxSetRequest: Codable, Sendable {
     public let enabled: Bool
 }
 
+public struct IPCScheduleRemove: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCSchedulesList: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCSchedulesListResponse: Codable, Sendable {
+    public let type: String
+    public let schedules: [IPCSchedulesListResponseSchedule]
+}
+
+public struct IPCSchedulesListResponseSchedule: Codable, Sendable {
+    public let id: String
+    public let name: String
+    public let enabled: Bool
+    public let cronExpression: String
+    public let timezone: String?
+    public let message: String
+    public let nextRunAt: Int
+    public let lastRunAt: Int?
+    public let lastStatus: String?
+    public let description: String
+}
+
+public struct IPCScheduleToggle: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let enabled: Bool
+}
+
 public struct IPCSecretDetected: Codable, Sendable {
     public let type: String
     public let toolName: String

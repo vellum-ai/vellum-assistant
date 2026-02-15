@@ -104,6 +104,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `trust_rules_list_response` message.
     public var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
 
+    /// Called when the daemon sends a `schedules_list_response` message.
+    public var onSchedulesListResponse: (([ScheduleItem]) -> Void)?
+
     /// Called when the daemon sends a `skills_state_changed` push event.
     public var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
 
@@ -526,6 +529,23 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         ))
     }
 
+    // MARK: - Schedules Management
+
+    /// Request the list of all scheduled tasks from the daemon.
+    public func sendListSchedules() throws {
+        try send(SchedulesListMessage())
+    }
+
+    /// Toggle a schedule's enabled state.
+    public func sendToggleSchedule(id: String, enabled: Bool) throws {
+        try send(ScheduleToggleMessage(id: id, enabled: enabled))
+    }
+
+    /// Remove a schedule by its ID.
+    public func sendRemoveSchedule(id: String) throws {
+        try send(ScheduleRemoveMessage(id: id))
+    }
+
     // MARK: - Skills Management
 
     /// Enable a skill by name.
@@ -825,6 +845,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onTimerCompleted?(msg)
         case .trustRulesListResponse(let msg):
             onTrustRulesListResponse?(msg.rules)
+        case .schedulesListResponse(let msg):
+            onSchedulesListResponse?(msg.schedules)
         case .skillStateChanged(let msg):
             onSkillStateChanged?(msg)
         case .skillsOperationResponse(let msg):

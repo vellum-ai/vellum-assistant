@@ -42,6 +42,8 @@ import type {
   AddTrustRule,
   RemoveTrustRule,
   UpdateTrustRule,
+  ScheduleToggle,
+  ScheduleRemove,
   BundleAppRequest,
   SharedAppDeleteRequest,
   ForkSharedAppRequest,
@@ -60,6 +62,7 @@ import { existsSync, mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { addRule, removeRule, updateRule, getAllRules } from '../permissions/trust-store.js';
+import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../schedule/schedule-store.js';
 import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
@@ -408,6 +411,9 @@ const handlers: DispatchMap = {
   trust_rules_list: (_msg, socket, ctx) => handleTrustRulesList(socket, ctx),
   remove_trust_rule: handleRemoveTrustRule,
   update_trust_rule: handleUpdateTrustRule,
+  schedules_list: (_msg, socket, ctx) => handleSchedulesList(socket, ctx),
+  schedule_toggle: handleScheduleToggle,
+  schedule_remove: handleScheduleRemove,
   share_app_cloud: handleShareAppCloud,
   bundle_app: handleBundleApp,
   open_bundle: handleOpenBundle,
@@ -1516,6 +1522,59 @@ function handleUpdateTrustRule(
   } catch (err) {
     log.error({ err }, 'Failed to update trust rule');
   }
+}
+
+// ─── Schedule handlers ──────────────────────────────────────────────────────
+
+function handleSchedulesList(socket: net.Socket, ctx: HandlerContext): void {
+  const jobs = listSchedules();
+  ctx.send(socket, {
+    type: 'schedules_list_response',
+    schedules: jobs.map((j) => ({
+      id: j.id,
+      name: j.name,
+      enabled: j.enabled,
+      cronExpression: j.cronExpression,
+      timezone: j.timezone,
+      message: j.message,
+      nextRunAt: j.nextRunAt,
+      lastRunAt: j.lastRunAt,
+      lastStatus: j.lastStatus,
+      description: describeCronExpression(j.cronExpression),
+    })),
+  });
+}
+
+function handleScheduleToggle(
+  msg: ScheduleToggle,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    updateSchedule(msg.id, { enabled: msg.enabled });
+    log.info({ id: msg.id, enabled: msg.enabled }, 'Schedule toggled via client');
+  } catch (err) {
+    log.error({ err }, 'Failed to toggle schedule');
+  }
+  handleSchedulesList(socket, ctx);
+}
+
+function handleScheduleRemove(
+  msg: ScheduleRemove,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const removed = deleteSchedule(msg.id);
+    if (!removed) {
+      log.warn({ id: msg.id }, 'Schedule not found for removal');
+    } else {
+      log.info({ id: msg.id }, 'Schedule removed via client');
+    }
+  } catch (err) {
+    log.error({ err }, 'Failed to remove schedule');
+  }
+  handleSchedulesList(socket, ctx);
 }
 
 // ─── Suggestion handler ─────────────────────────────────────────────────────

@@ -317,6 +317,27 @@ exports[`IPC message snapshots ClientMessage types update_trust_rule serializes 
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types schedules_list serializes to expected JSON 1`] = `
+{
+  "type": "schedules_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types schedule_toggle serializes to expected JSON 1`] = `
+{
+  "enabled": false,
+  "id": "sched-001",
+  "type": "schedule_toggle",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types schedule_remove serializes to expected JSON 1`] = `
+{
+  "id": "sched-001",
+  "type": "schedule_remove",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types bundle_app serializes to expected JSON 1`] = `
 {
   "appId": "app-001",
@@ -1051,6 +1072,26 @@ exports[`IPC message snapshots ServerMessage types trust_rules_list_response ser
     },
   ],
   "type": "trust_rules_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types schedules_list_response serializes to expected JSON 1`] = `
+{
+  "schedules": [
+    {
+      "cronExpression": "0 9 * * 1-5",
+      "description": "Every weekday at 9:00 AM",
+      "enabled": true,
+      "id": "sched-001",
+      "lastRunAt": 1700000000000,
+      "lastStatus": "ok",
+      "message": "Remind me about the standup",
+      "name": "Daily standup reminder",
+      "nextRunAt": 1700100000000,
+      "timezone": "America/Los_Angeles",
+    },
+  ],
+  "type": "schedules_list_response",
 }
 `;
 

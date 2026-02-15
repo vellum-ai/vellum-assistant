@@ -1,0 +1,173 @@
+import SwiftUI
+import VellumAssistantShared
+
+struct ScheduledTasksView: View {
+    let daemonClient: DaemonClient
+    @Environment(\.dismiss) var dismiss
+
+    @State private var schedules: [ScheduleItem] = []
+    @State private var isLoading = true
+    @State private var scheduleToDelete: ScheduleItem? = nil
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Scheduled Tasks")
+                    .font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding()
+
+            Divider()
+
+            if isLoading {
+                Spacer()
+                ProgressView()
+                Spacer()
+            } else if schedules.isEmpty {
+                Spacer()
+                VStack(spacing: 8) {
+                    Image(systemName: "clock.badge.questionmark")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                    Text("No scheduled tasks")
+                        .foregroundStyle(.secondary)
+                    Text("Ask the assistant to create a scheduled task")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+            } else {
+                List {
+                    ForEach(schedules) { schedule in
+                        ScheduleRow(
+                            schedule: schedule,
+                            onToggle: { enabled in toggleSchedule(id: schedule.id, enabled: enabled) },
+                            onDelete: { scheduleToDelete = schedule }
+                        )
+                    }
+                }
+            }
+        }
+        .frame(width: 550, height: 450)
+        .onAppear {
+            daemonClient.onSchedulesListResponse = { items in
+                schedules = items
+                isLoading = false
+            }
+            loadSchedules()
+        }
+        .onDisappear {
+            daemonClient.onSchedulesListResponse = nil
+        }
+        .alert("Delete Scheduled Task?", isPresented: Binding(
+            get: { scheduleToDelete != nil },
+            set: { if !$0 { scheduleToDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { scheduleToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let schedule = scheduleToDelete {
+                    deleteSchedule(id: schedule.id)
+                    scheduleToDelete = nil
+                }
+            }
+        } message: {
+            if let schedule = scheduleToDelete {
+                Text("Remove the scheduled task \"\(schedule.name)\"?")
+            }
+        }
+    }
+
+    @MainActor private func loadSchedules() {
+        isLoading = true
+        try? daemonClient.sendListSchedules()
+    }
+
+    @MainActor private func toggleSchedule(id: String, enabled: Bool) {
+        try? daemonClient.sendToggleSchedule(id: id, enabled: enabled)
+    }
+
+    @MainActor private func deleteSchedule(id: String) {
+        try? daemonClient.sendRemoveSchedule(id: id)
+    }
+}
+
+// MARK: - Schedule Row
+
+private struct ScheduleRow: View {
+    let schedule: ScheduleItem
+    let onToggle: (Bool) -> Void
+    let onDelete: () -> Void
+
+    private var nextRunText: String {
+        guard schedule.enabled else { return "Paused" }
+        let date = Date(timeIntervalSince1970: Double(schedule.nextRunAt) / 1000.0)
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private var statusColor: Color {
+        switch schedule.lastStatus {
+        case "ok": return .green
+        case "error": return .red
+        default: return .secondary
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(schedule.name)
+                        .fontWeight(.medium)
+                    if let status = schedule.lastStatus {
+                        Text(status)
+                            .font(.caption)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(statusColor.opacity(0.15))
+                            .foregroundStyle(statusColor)
+                            .clipShape(Capsule())
+                    }
+                }
+                Text(schedule.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    if schedule.enabled {
+                        Text("Next: \(nextRunText)")
+                    } else {
+                        Text("Disabled")
+                    }
+                    if let tz = schedule.timezone {
+                        Text("(\(tz))")
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+
+            Toggle("", isOn: Binding(
+                get: { schedule.enabled },
+                set: { onToggle($0) }
+            ))
+            .toggleStyle(.switch)
+            .labelsHidden()
+
+            Button {
+                onDelete()
+            } label: {
+                Image(systemName: "trash")
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.vertical, 2)
+    }
+}

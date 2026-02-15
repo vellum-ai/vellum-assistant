@@ -285,6 +285,21 @@ export interface UpdateTrustRule {
   priority?: number;
 }
 
+export interface SchedulesList {
+  type: 'schedules_list';
+}
+
+export interface ScheduleToggle {
+  type: 'schedule_toggle';
+  id: string;
+  enabled: boolean;
+}
+
+export interface ScheduleRemove {
+  type: 'schedule_remove';
+  id: string;
+}
+
 export interface AppsListRequest {
   type: 'apps_list';
 }
@@ -515,6 +530,9 @@ export type ClientMessage =
   | TrustRulesList
   | RemoveTrustRule
   | UpdateTrustRule
+  | SchedulesList
+  | ScheduleToggle
+  | ScheduleRemove
   | BundleAppRequest
   | AppsListRequest
   | AppOpenRequest
@@ -931,6 +949,22 @@ export interface TrustRulesListResponse {
   }>;
 }
 
+export interface SchedulesListResponse {
+  type: 'schedules_list_response';
+  schedules: Array<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    cronExpression: string;
+    timezone: string | null;
+    message: string;
+    nextRunAt: number;
+    lastRunAt: number | null;
+    lastStatus: string | null;
+    description: string;
+  }>;
+}
+
 export interface AppsListResponse {
   type: 'apps_list_response';
   apps: Array<{
@@ -1239,6 +1273,7 @@ export type ServerMessage =
   | WatchStarted
   | WatchCompleteRequest
   | TrustRulesListResponse
+  | SchedulesListResponse
   | BundleAppResponse
   | AppsListResponse
   | SharedAppsListResponse

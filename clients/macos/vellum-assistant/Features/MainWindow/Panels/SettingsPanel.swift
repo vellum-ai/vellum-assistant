@@ -11,6 +11,7 @@ struct SettingsPanel: View {
     @State private var apiKeyText: String = ""
     @State private var braveKeyText: String = ""
     @State private var showingTrustRules = false
+    @State private var showingScheduledTasks = false
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
 
     var body: some View {
@@ -240,6 +241,32 @@ struct SettingsPanel: View {
                 .padding(VSpacing.lg)
                 .vCard(background: Slate._900)
 
+                // SCHEDULED TASKS section
+                if daemonClient != nil {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("SCHEDULED TASKS")
+                            .font(VFont.sectionTitle)
+                            .foregroundColor(VColor.textPrimary)
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Manage Scheduled Tasks")
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.textSecondary)
+                                Text("View and manage recurring tasks created by the assistant")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            Spacer()
+                            VButton(label: "Manage...", style: .ghost) {
+                                showingScheduledTasks = true
+                            }
+                        }
+                    }
+                    .padding(VSpacing.lg)
+                    .vCard(background: Slate._900)
+                }
+
                 // TRUST RULES section
                 if daemonClient != nil {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -294,6 +321,11 @@ struct SettingsPanel: View {
         .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
+            }
+        }
+        .sheet(isPresented: $showingScheduledTasks) {
+            if let daemonClient {
+                ScheduledTasksView(daemonClient: daemonClient)
             }
         }
     }
