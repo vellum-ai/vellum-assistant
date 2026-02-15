@@ -121,6 +121,7 @@ export class Session {
   private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
   private onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
   public readonly traceEmitter: TraceEmitter;
+  private assistantId?: string;
 
   /** Resolved assistant attachment drafts from the most recent exchange. */
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
@@ -134,7 +135,9 @@ export class Session {
     maxTokens: number,
     sendToClient: (msg: ServerMessage) => void,
     workingDir: string,
+    assistantId?: string,
   ) {
+    this.assistantId = assistantId;
     this.conversationId = conversationId;
     this.provider = provider;
     this.workingDir = workingDir;
@@ -889,10 +892,10 @@ export class Session {
 
       // Persist resolved attachments and link to the last assistant message
       if (assistantAttachments.length > 0 && lastAssistantMessageId) {
-        // TODO: Get assistant ID from request context when available
-        // For now, skip persistence in IPC/desktop mode (no assistant context)
-        const assistantId = undefined as string | undefined;
-        if (assistantId) {
+        // Note: assistantId is only available in HTTP/gateway contexts
+        // In IPC/desktop mode, it remains undefined and attachments aren't persisted
+        if (this.assistantId) {
+          const assistantId = this.assistantId;
           for (let i = 0; i < assistantAttachments.length; i++) {
             const draft = assistantAttachments[i];
             const stored = uploadAttachment(
