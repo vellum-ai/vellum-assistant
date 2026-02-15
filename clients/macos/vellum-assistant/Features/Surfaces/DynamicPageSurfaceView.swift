@@ -358,11 +358,17 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 // First load — no scroll to preserve
                 webView.loadHTMLString(data.html, baseURL: URL(string: origin))
             } else {
-                // Subsequent update — save scroll, reload, restore scroll after load
+                // Subsequent update — save scroll, reload, restore scroll after load.
+                // Capture the HTML we intend to load so we can detect staleness.
+                let htmlToLoad = data.html
                 webView.evaluateJavaScript("JSON.stringify({x: window.scrollX, y: window.scrollY})") { result, _ in
+                    // If another update arrived while we were waiting for the scroll
+                    // position, currentHTML will have moved on. Skip this stale load
+                    // so we don't overwrite the newer render.
+                    guard htmlToLoad == context.coordinator.currentHTML else { return }
                     let scrollState = result as? String
                     context.coordinator.pendingScrollRestore = scrollState
-                    webView.loadHTMLString(data.html, baseURL: URL(string: origin))
+                    webView.loadHTMLString(htmlToLoad, baseURL: URL(string: origin))
                 }
             }
         }
@@ -624,10 +630,15 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             // Restore scroll position if this load was a refinement update.
             if let scrollJSON = pendingScrollRestore {
                 pendingScrollRestore = nil
+                let safeScrollJSON = scrollJSON
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "'", with: "\\'")
+                    .replacingOccurrences(of: "\n", with: "\\n")
+                    .replacingOccurrences(of: "\r", with: "\\r")
                 let js = """
                     (function() {
                         try {
-                            var s = JSON.parse('\(scrollJSON.replacingOccurrences(of: "'", with: "\\'"))');
+                            var s = JSON.parse('\(safeScrollJSON)');
                             window.scrollTo(s.x || 0, s.y || 0);
                         } catch(e) {}
                     })();
