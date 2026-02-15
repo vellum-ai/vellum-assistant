@@ -4,9 +4,10 @@ import SwiftUI
 
 /// Shared state for routing voice input into an active conversation panel.
 @MainActor
-final class ConversationInputState: ObservableObject {
-    @Published var inputText: String = ""
-    @Published var isRecording: Bool = false
+@Observable
+final class ConversationInputState {
+    var inputText: String = ""
+    var isRecording: Bool = false
 
     nonisolated init() {
         // Properties are initialized with defaults above

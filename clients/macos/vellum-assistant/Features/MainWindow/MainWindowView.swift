@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
-    @ObservedObject var zoomManager: ZoomManager
+    var zoomManager: ZoomManager
     @ObservedObject var traceStore: TraceStore
     @ObservedObject var windowState: MainWindowState
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
