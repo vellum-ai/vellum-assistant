@@ -79,12 +79,13 @@ Examples of feedback that would cause a regression:
 
 ## Actions
 
+- **Rate-limited Codex (overrides all other rules):** If Codex is rate-limited, re-trigger the review by commenting `@codex review` on the PR and keep the PR in UNREVIEWED_PRS.md regardless of age. Do NOT skip Codex and do NOT remove the PR. This takes priority over the 30-minute timeout and the "fully reviewed" removal rule below.
 - If either reviewer hasn't reviewed yet **and** the PR is less than 30 minutes old, keep the PR in UNREVIEWED_PRS.md for next time.
-- If the PR is 30+ minutes old and at least one reviewer has responded, treat any missing reviewer as skipped (implicit approval) and proceed as fully reviewed.
+- If the PR is 30+ minutes old and at least one reviewer has responded, treat any missing (non-rate-limited) reviewer as skipped (implicit approval) and proceed as fully reviewed.
 - If both have reviewed (or one reviewed + one skipped) and either **real** review requested changes with **valid feedback**, add `- Address the feedback on <link to PR>` to the **top** of .private/TODO.md (ordered by PR number, lowest first).
 - If all feedback on a PR was classified as nonsensical, treat that reviewer as having approved.
 - If any feedback is classified as **regression risk**, do NOT add it to TODO. Instead, flag it to the user (see output section) and **stop processing further PRs**. Wait for the user to decide what to do.
-- If fully reviewed (both reviewed, or one reviewed + one skipped), remove the PR from .private/UNREVIEWED_PRS.md.
+- If fully reviewed (both reviewed, or one reviewed + one skipped) **and** Codex is not rate-limited, remove the PR from .private/UNREVIEWED_PRS.md.
 
 ## Output
 
