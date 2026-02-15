@@ -61,6 +61,7 @@ import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, claw
 import { parseSlashCandidate } from '../skills/slash-commands.js';
 import { packageApp } from '../bundler/app-bundler.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
+import { estimateBase64Bytes } from './assistant-attachments.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
 import { getAttachmentsForMessageUnscoped } from '../memory/attachments-store.js';
 import type { UserMessageAttachment } from './ipc-contract.js';
@@ -160,12 +161,6 @@ function wireEscalationHandler(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
-}
-
-function estimateBase64Bytes(base64: string): number {
-  const sanitized = base64.trim();
-  const padding = sanitized.endsWith('==') ? 2 : (sanitized.endsWith('=') ? 1 : 0);
-  return Math.max(0, Math.floor((sanitized.length * 3) / 4) - padding);
 }
 
 function formatBytes(sizeBytes: number): string {
