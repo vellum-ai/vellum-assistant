@@ -1073,6 +1073,17 @@ function mergeCandidates(
   freshnessConfig?: { enabled: boolean; maxAgeDays: Record<string, number>; staleDecay: number; reinforcementShieldDays: number },
   relationScoreMultiplier?: number,
 ): Candidate[] {
+  // Build effective weight map that reflects the actual scoring weight for
+  // each source.  For entity_relation the static SOURCE_WEIGHTS entry is 1.0
+  // (a neutral placeholder) but the real multiplier comes from the config
+  // (relationScoreMultiplier).  Using the effective weight in the dedup
+  // upgrade comparison ensures item_direct (0.95) correctly outranks
+  // entity_relation (e.g. 0.7) when both sources return the same candidate.
+  const effectiveWeights: Record<string, number> = { ...SOURCE_WEIGHTS };
+  if (relationScoreMultiplier != null) {
+    effectiveWeights['entity_relation'] = relationScoreMultiplier;
+  }
+
   // Build merged candidate map (dedup by key, keep best metadata)
   const merged = new Map<string, Candidate>();
   for (const candidate of [...lexical, ...semantic, ...recency, ...entity]) {
@@ -1089,10 +1100,10 @@ function mergeCandidates(
     if (candidate.text.length > existing.text.length) {
       existing.text = candidate.text;
     }
-    // Upgrade source to whichever has the higher weight so scoring and caps
-    // reflect the strongest retrieval signal for this candidate.
-    const existingWeight = SOURCE_WEIGHTS[existing.source] ?? 1.0;
-    const candidateWeight = SOURCE_WEIGHTS[candidate.source] ?? 1.0;
+    // Upgrade source to whichever has the higher effective weight so scoring
+    // and caps reflect the strongest retrieval signal for this candidate.
+    const existingWeight = effectiveWeights[existing.source] ?? 1.0;
+    const candidateWeight = effectiveWeights[candidate.source] ?? 1.0;
     if (candidateWeight > existingWeight) {
       existing.source = candidate.source;
     }
@@ -1134,9 +1145,7 @@ function mergeCandidates(
     const lastUsedAt = meta?.lastUsedAt ?? null;
     const freshnessWeight = computeFreshnessWeight(row, accessCount, lastUsedAt, freshnessConfig);
 
-    const sourceWeight = row.source === 'entity_relation' && relationScoreMultiplier != null
-      ? relationScoreMultiplier
-      : (SOURCE_WEIGHTS[row.source] ?? 1.0);
+    const sourceWeight = effectiveWeights[row.source] ?? 1.0;
     row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight * freshnessWeight * sourceWeight;
   }
 
