@@ -431,7 +431,7 @@ export class DaemonServer {
             chunkReceivedAtMs,
             parsedAtMs,
             parseDurationMs,
-            payloadJsonBytes: Buffer.byteLength(JSON.stringify(msg), 'utf8'),
+            chunkBytes: Buffer.byteLength(data),
           }, 'IPC_METRIC cu_observation_parse');
         }
         const result = validateClientMessage(msg);
@@ -608,6 +608,7 @@ export class DaemonServer {
       socketToSession: this.socketToSession,
       cuSessions: this.cuSessions,
       socketToCuSession: this.socketToCuSession,
+      cuObservationParseSequence: this.cuObservationParseSequence,
       socketSandboxOverride: this.socketSandboxOverride,
       sharedRequestTimestamps: this.sharedRequestTimestamps,
       debounceTimers: this.debounceTimers,
