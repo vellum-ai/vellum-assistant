@@ -446,8 +446,23 @@ final class ComputerUseSession: ObservableObject {
         previousElements = elements
         previousFlatElements = flatElements
 
-        // Encode screenshot as base64
-        let screenshotBase64 = screenshot?.base64EncodedString()
+        // Transport screenshot via blob or inline base64
+        var screenshotBase64: String?
+        var screenshotBlobRef: IPCIpcBlobRef?
+
+        if let screenshotData = screenshot {
+            if daemonClient.isBlobTransportAvailable {
+                if let ref = IpcBlobStore.shared.writeBlob(data: screenshotData, kind: "screenshot_jpeg", encoding: "binary") {
+                    screenshotBlobRef = ref
+                    log.info("[\(stepNumber)] Screenshot written as blob (\(screenshotData.count) bytes, id=\(ref.id))")
+                } else {
+                    log.warning("[\(stepNumber)] Blob write failed for screenshot, falling back to inline base64")
+                    screenshotBase64 = screenshotData.base64EncodedString()
+                }
+            } else {
+                screenshotBase64 = screenshotData.base64EncodedString()
+            }
+        }
 
         let observation = CuObservationMessage(
             sessionId: id,
@@ -456,18 +471,20 @@ final class ComputerUseSession: ObservableObject {
             secondaryWindows: secondaryWindowsText,
             screenshot: screenshotBase64,
             executionResult: executionResult,
-            executionError: executionError
+            executionError: executionError,
+            screenshotBlob: screenshotBlobRef
         )
 
         let screenshotRawBytes = screenshot?.count ?? 0
         let screenshotBase64Bytes = screenshotBase64?.utf8.count ?? 0
+        let screenshotUsedBlob = screenshotBlobRef != nil
         let axTreeBytes = axTreeText?.utf8.count ?? 0
         let axDiffBytes = axDiffText?.utf8.count ?? 0
         let secondaryWindowsBytes = secondaryWindowsText?.utf8.count ?? 0
         let payloadJSONBytes = (try? JSONEncoder().encode(observation).count) ?? 0
         let buildTimestampMs = Int(Date().timeIntervalSince1970 * 1_000)
         log.info(
-            "[\(stepNumber)] IPC_METRIC cu_observation_build buildTsMs=\(buildTimestampMs) payloadJsonBytes=\(payloadJSONBytes) screenshotRawBytes=\(screenshotRawBytes) screenshotBase64Bytes=\(screenshotBase64Bytes) axTreeBytes=\(axTreeBytes) axDiffBytes=\(axDiffBytes) secondaryWindowsBytes=\(secondaryWindowsBytes)"
+            "[\(stepNumber)] IPC_METRIC cu_observation_build buildTsMs=\(buildTimestampMs) payloadJsonBytes=\(payloadJSONBytes) screenshotRawBytes=\(screenshotRawBytes) screenshotBase64Bytes=\(screenshotBase64Bytes) screenshotUsedBlob=\(screenshotUsedBlob) axTreeBytes=\(axTreeBytes) axDiffBytes=\(axDiffBytes) secondaryWindowsBytes=\(secondaryWindowsBytes)"
         )
 
         return observation

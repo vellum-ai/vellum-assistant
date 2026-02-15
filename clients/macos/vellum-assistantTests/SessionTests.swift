@@ -11,6 +11,7 @@ import VellumAssistantShared
 @MainActor
 final class MockDaemonClient: DaemonClientProtocol {
     var sentMessages: [Any] = []
+    var isBlobTransportAvailable: Bool = false
     private var testContinuation: AsyncStream<ServerMessage>.Continuation?
     private var _messages: AsyncStream<ServerMessage>
 
