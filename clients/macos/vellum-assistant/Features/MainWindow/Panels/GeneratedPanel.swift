@@ -153,8 +153,11 @@ struct GeneratedPanel: View {
     private var filteredItems: [DisplayAppItem] {
         guard !searchText.isEmpty else { return displayItems }
         return displayItems.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText) ||
-            ($0.description?.localizedCaseInsensitiveContains(searchText) ?? false)
+            // Always keep the row being shared so its ShareSheetButton stays
+            // in the view tree even if the search text changes mid-bundle.
+            if let sharingAppId, $0.id == sharingAppId { return true }
+            return $0.name.localizedCaseInsensitiveContains(searchText) ||
+                ($0.description?.localizedCaseInsensitiveContains(searchText) ?? false)
         }
     }
 
@@ -295,7 +298,10 @@ struct GeneratedPanel: View {
                     items: shareFileURL != nil && sharingAppId == item.id ? [shareFileURL!] : [],
                     isPresented: Binding(
                         get: { showShareSheet && sharingAppId == item.id },
-                        set: { showShareSheet = $0 }
+                        set: { newValue in
+                            showShareSheet = newValue
+                            if !newValue { sharingAppId = nil }
+                        }
                     )
                 )
                 .frame(width: 0, height: 0)
@@ -311,7 +317,10 @@ struct GeneratedPanel: View {
                     items: shareFileURL != nil && sharingAppId == item.id ? [shareFileURL!] : [],
                     isPresented: Binding(
                         get: { showShareSheet && sharingAppId == item.id },
-                        set: { showShareSheet = $0 }
+                        set: { newValue in
+                            showShareSheet = newValue
+                            if !newValue { sharingAppId = nil }
+                        }
                     )
                 )
                 .frame(width: 0, height: 0)
