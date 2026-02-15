@@ -10,6 +10,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
     public var showPanel: Bool = false
     @State private var dragStartWidth: Double?
     @State private var dragStartAvailableWidth: CGFloat?
+    @State private var isDragging: Bool = false
 
     public var body: some View {
         GeometryReader { geometry in
@@ -29,13 +30,14 @@ public struct VSplitView<Main: View, Panel: View>: View {
 
                     panel
                         .frame(width: panelWidth)
+                        .animation(nil, value: panelWidth)  // Disable animation on width changes
                         .background(VColor.backgroundSubtle)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                         .padding([.bottom, .trailing], VSpacing.sm)
                         .transition(.move(edge: .trailing))
                 }
             }
-            .animation(VAnimation.standard, value: showPanel)
+            .animation(isDragging ? nil : VAnimation.standard, value: showPanel)
         }
     }
 
@@ -60,6 +62,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                         if dragStartWidth == nil {
                             dragStartWidth = panelWidth
                             dragStartAvailableWidth = availableWidth
+                            isDragging = true
                         }
 
                         guard let initialWidth = dragStartWidth,
@@ -83,12 +86,14 @@ public struct VSplitView<Main: View, Panel: View>: View {
                     }
                     .onEnded { _ in
                         // Reset drag state
+                        isDragging = false
                         dragStartWidth = nil
                         dragStartAvailableWidth = nil
                     }
             )
             .onDisappear {
                 // Reset drag state if view is removed mid-drag (e.g., panel closed)
+                isDragging = false
                 dragStartWidth = nil
                 dragStartAvailableWidth = nil
             }
