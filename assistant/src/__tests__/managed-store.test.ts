@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
+import * as fs from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -395,12 +396,24 @@ describe('atomic write safety', () => {
 });
 
 describe('atomic write failure', () => {
-  test('read-only directory prevents skill creation and leaves no partial files', () => {
+  test('write error prevents skill creation and leaves no partial files', () => {
     const skillsDir = join(TEST_DIR, 'skills');
     const targetDir = join(skillsDir, 'fail-write');
     mkdirSync(targetDir, { recursive: true });
-    // Make the skill directory read-only so writeFileSync fails
-    chmodSync(targetDir, 0o555);
+
+    // Capture original before spyOn replaces it. This is deterministic
+    // regardless of user privileges (unlike chmod 0o555 which fails as root).
+    const originalWrite = fs.writeFileSync;
+    const spy = spyOn(fs, 'writeFileSync').mockImplementation(((
+      path: fs.PathOrFileDescriptor,
+      data: string | NodeJS.ArrayBufferView,
+      options?: fs.WriteFileOptions,
+    ) => {
+      if (typeof path === 'string' && path.startsWith(targetDir) && path.includes('.tmp-')) {
+        throw new Error('Simulated write failure');
+      }
+      return originalWrite(path, data, options);
+    }) as typeof fs.writeFileSync);
 
     try {
       expect(() => {
@@ -410,14 +423,13 @@ describe('atomic write failure', () => {
           description: 'This should not be written',
           bodyMarkdown: 'Unreachable.',
         });
-      }).toThrow();
+      }).toThrow('Simulated write failure');
 
       // Verify no SKILL.md or temp files were left behind
       const files = readdirSync(targetDir);
       expect(files.filter(f => f.endsWith('.md') || f.startsWith('.tmp-'))).toEqual([]);
     } finally {
-      // Restore permissions so afterEach cleanup can remove the directory
-      chmodSync(targetDir, 0o755);
+      spy.mockRestore();
     }
   });
 });
