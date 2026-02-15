@@ -42,7 +42,7 @@ struct ChatView: View {
 
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
-    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
+    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
 
     var body: some View {
         ZStack {
