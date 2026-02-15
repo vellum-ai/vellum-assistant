@@ -550,8 +550,8 @@ struct MainWindowView: View {
                 onCoordinatorReady: data.appId != nil ? { coordinator in
                     surfaceManager.surfaceCoordinators[surface.id] = coordinator
                 } : nil,
-                onPageChanged: { page in
-                    threadManager.activeViewModel?.currentPage = page
+                onPageChanged: { [weak viewModel = threadManager.activeViewModel] page in
+                    viewModel?.currentPage = page
                 },
                 onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
                     guard let appId = data.appId else { return }
