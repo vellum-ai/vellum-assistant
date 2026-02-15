@@ -794,12 +794,14 @@ async function handleRegenerate(
   }
 
   const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+  const requestId = uuid();
   session.traceEmitter.emit('request_received', 'Regenerate requested', {
+    requestId,
     status: 'info',
     attributes: { source: 'regenerate' },
   });
   try {
-    await session.regenerate(sendEvent);
+    await session.regenerate(sendEvent, requestId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, sessionId: msg.sessionId }, 'Error regenerating message');

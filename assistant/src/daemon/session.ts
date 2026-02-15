@@ -955,6 +955,10 @@ export class Session {
         this.messages.push(assistantMsg);
 
         next.onEvent({ type: 'assistant_text_delta', text: slashResult.message });
+        this.traceEmitter.emit('message_complete', 'Unknown slash command handled', {
+          requestId: next.requestId,
+          status: 'success',
+        });
         next.onEvent({ type: 'message_complete', sessionId: this.conversationId });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -1028,6 +1032,10 @@ export class Session {
       this.messages.push(assistantMsg);
 
       onEvent({ type: 'assistant_text_delta', text: slashResult.message });
+      this.traceEmitter.emit('message_complete', 'Unknown slash command handled', {
+        requestId,
+        status: 'success',
+      });
       onEvent({ type: 'message_complete', sessionId: this.conversationId });
       return persisted.id;
     }
@@ -1191,7 +1199,7 @@ export class Session {
    * (and any intermediate tool_result messages) from memory, DB, and
    * Qdrant, then re-run the agent loop with the same user message.
    */
-  async regenerate(onEvent: (msg: ServerMessage) => void): Promise<void> {
+  async regenerate(onEvent: (msg: ServerMessage) => void, requestId?: string): Promise<void> {
     if (this.processing) {
       onEvent({ type: 'error', message: 'Cannot regenerate while processing' });
       return;
@@ -1277,7 +1285,7 @@ export class Session {
     // in both this.messages and the DB.
     this.processing = true;
     this.abortController = new AbortController();
-    this.currentRequestId = uuid();
+    this.currentRequestId = requestId ?? uuid();
 
     await this.runAgentLoop(content, existingUserMessageId, onEvent, { skipPreMessageRollback: true });
   }
