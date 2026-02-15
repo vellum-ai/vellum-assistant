@@ -1939,16 +1939,17 @@ export class Session {
     const client = new Anthropic({ apiKey });
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 30,
+      max_tokens: 20,
       messages: [{
         role: 'user',
-        content: `Generate a short title (3-6 words, no quotes) for this conversation:\n\nUser: ${userMessage.slice(0, 200)}\nAssistant: ${assistantResponse.slice(0, 200)}`,
+        content: `Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes.\n\nUser: ${userMessage.slice(0, 200)}\nAssistant: ${assistantResponse.slice(0, 200)}`,
       }],
     });
 
     const textBlock = response.content.find((b) => b.type === 'text');
     if (textBlock && textBlock.type === 'text') {
-      const title = textBlock.text.trim().replace(/^["']|["']$/g, '');
+      let title = textBlock.text.trim().replace(/^["']|["']$/g, '');
+      if (title.length > 40) title = title.slice(0, 40).trimEnd();
       conversationStore.updateConversationTitle(this.conversationId, title);
       log.info({ conversationId: this.conversationId, title }, 'Auto-generated conversation title');
     }
