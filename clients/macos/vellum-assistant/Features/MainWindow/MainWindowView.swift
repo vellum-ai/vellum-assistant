@@ -12,6 +12,7 @@ struct MainWindowView: View {
     @State private var hasAPIKey = APIKeyManager.hasAnyKey()
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var selectedThreadId: UUID?
+    @State private var workspaceEditorContentHeight: CGFloat = 20
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
     let daemonClient: DaemonClient
@@ -442,7 +443,7 @@ struct MainWindowView: View {
                     onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
                     onPaste: { viewModel.addAttachmentFromPasteboard() },
                     onMicrophoneToggle: onMicrophoneToggle,
-                    editorContentHeight: .constant(20)
+                    editorContentHeight: $workspaceEditorContentHeight
                 )
             }
         }
