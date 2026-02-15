@@ -35,6 +35,8 @@ struct ChatView: View {
     let onCopyDebugInfo: () -> Void
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
+    let onOpenActivity: ([ToolCallData]) -> Void
+    let isActivityPanelOpen: Bool
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
@@ -291,7 +293,9 @@ struct ChatView: View {
                             ChatBubble(
                                 message: message,
                                 hideToolCalls: nextAssistantHasSurfaces(after: index),
-                                onSurfaceAction: onSurfaceAction
+                                onSurfaceAction: onSurfaceAction,
+                                onOpenActivity: onOpenActivity,
+                                isActivityPanelOpen: isActivityPanelOpen
                             )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -548,6 +552,8 @@ private struct ChatBubble: View {
     /// When true, tool call chips are suppressed because a nearby message has inline surfaces.
     let hideToolCalls: Bool
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
+    let onOpenActivity: ([ToolCallData]) -> Void
+    let isActivityPanelOpen: Bool
 
     private var isUser: Bool { message.role == .user }
 
@@ -655,15 +661,13 @@ private struct ChatBubble: View {
         }
     }
 
-    /// Tool call chips rendered outside the bubble.
+    /// Current step indicator rendered outside the bubble.
     /// Hidden for user messages, when there are no tool calls, or when inline surfaces are present.
     @ViewBuilder
     private func toolCallChips(_ calls: [ToolCallData]) -> some View {
         if !isUser && !calls.isEmpty && message.inlineSurfaces.isEmpty && !hideToolCalls {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                ForEach(calls) { toolCall in
-                    ToolCallChip(toolCall: toolCall)
-                }
+            CurrentStepIndicator(toolCalls: calls, isActivityPanelOpen: isActivityPanelOpen) {
+                onOpenActivity(calls)
             }
             .frame(maxWidth: 520, alignment: .leading)
         }
@@ -987,7 +991,9 @@ private struct ChatViewPreviewWrapper: View {
                 onDismissSessionError: {},
                 onCopyDebugInfo: {},
                 watchSession: nil,
-                onStopWatch: {}
+                onStopWatch: {},
+                onOpenActivity: { _ in },
+                isActivityPanelOpen: false
             )
         }
     }

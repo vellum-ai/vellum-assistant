@@ -11,9 +11,21 @@ final class MainWindowState: ObservableObject {
     @Published var activeDynamicParsedSurface: Surface?
     @Published var hasAPIKey: Bool
     @Published var workspaceComposerExpanded = false
+    @Published var activityToolCalls: [ToolCallData] = []
 
     init(hasAPIKey: Bool = APIKeyManager.hasAnyKey()) {
         self.hasAPIKey = hasAPIKey
+    }
+
+    func toggleActivityPanel(with toolCalls: [ToolCallData]) {
+        if activePanel == .activity {
+            // Close if already open
+            activePanel = nil
+        } else {
+            // Open with new tool calls
+            self.activityToolCalls = toolCalls
+            self.activePanel = .activity
+        }
     }
 
     func togglePanel(_ panel: SidePanelType) {
