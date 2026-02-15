@@ -344,7 +344,7 @@ describe('Session message queue', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  test('abort() clears the queue and sends errors for each queued message', async () => {
+  test('abort() clears the queue and sends generation_cancelled for each queued message', async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -366,17 +366,19 @@ describe('Session message queue', () => {
     // Queue should be empty
     expect(session.getQueueDepth()).toBe(0);
 
-    // Both queued messages should have received generic error events
+    // Both queued messages should receive session-scoped cancellation events.
+    const cancel2 = events2.find((e) => e.type === 'generation_cancelled');
+    expect(cancel2).toEqual({ type: 'generation_cancelled', sessionId: 'conv-1' });
+
+    const cancel3 = events3.find((e) => e.type === 'generation_cancelled');
+    expect(cancel3).toEqual({ type: 'generation_cancelled', sessionId: 'conv-1' });
+
+    // abort() must NOT emit session_error or generic error for queued discards.
     const err2 = events2.find((e) => e.type === 'error');
-    expect(err2).toBeDefined();
-    expect(err2!.type === 'error' && err2!.message).toContain('queued message discarded');
-
+    expect(err2).toBeUndefined();
     const err3 = events3.find((e) => e.type === 'error');
-    expect(err3).toBeDefined();
-    expect(err3!.type === 'error' && err3!.message).toContain('queued message discarded');
+    expect(err3).toBeUndefined();
 
-    // abort() must NOT emit session_error — cancel should only show
-    // generation_cancelled behavior, never a session-error toast.
     const sessionErr2 = events2.find((e) => e.type === 'session_error');
     expect(sessionErr2).toBeUndefined();
 

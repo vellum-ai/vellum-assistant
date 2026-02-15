@@ -697,9 +697,20 @@ public final class ChatViewModel: ObservableObject {
             guard belongsToSession(cancelled.sessionId) else { return }
             cancelTimeoutTask?.cancel()
             cancelTimeoutTask = nil
+            let wasCancelling = isCancelling
             isCancelling = false
             isThinking = false
-            if pendingQueuedCount == 0 {
+            if wasCancelling {
+                isSending = false
+                pendingQueuedCount = 0
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+                for i in messages.indices {
+                    if case .queued = messages[i].status, messages[i].role == .user {
+                        messages[i].status = .sent
+                    }
+                }
+            } else if pendingQueuedCount == 0 {
                 isSending = false
             }
             if let existingId = currentAssistantMessageId,
@@ -782,12 +793,10 @@ public final class ChatViewModel: ObservableObject {
                     messages[i].status = .sent
                 }
             }
-            // When cancelling, the daemon's abort() emits error events for
-            // queued messages but drops the queue without sending
-            // message_dequeued events, so pendingQueuedCount never drains
-            // on its own. Force-clear all queue state to prevent isSending
-            // from staying true permanently. Also reset queued message
-            // statuses since the daemon will not process them.
+            // When a cancellation-related generic error arrives while we are
+            // in cancel mode, force-clear queue bookkeeping because queued
+            // messages will not be processed and no message_dequeued events
+            // are expected for them.
             if wasCancelling {
                 isSending = false
                 pendingQueuedCount = 0

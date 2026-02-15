@@ -338,12 +338,10 @@ export class Session {
       unregisterTimerCompletionNotifier(this.conversationId);
       pruneSessionTimers(this.conversationId);
 
-      // Clear queued messages and notify each caller.
-      // Only emit a generic `error` — NOT `session_error` — so the client's
-      // cancel-path suppression (wasCancelling) handles cleanup without
-      // surfacing a session-error toast to the user.
+      // Clear queued messages and notify each caller with a session-scoped
+      // cancel event so other sessions do not receive cross-thread errors.
       for (const queued of this.messageQueue) {
-        queued.onEvent({ type: 'error', message: 'Session aborted — queued message discarded' });
+        queued.onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
       }
       this.messageQueue = [];
     }
@@ -924,7 +922,7 @@ export class Session {
           requestId: reqId,
           status: 'warning',
         });
-        onEvent({ type: 'generation_cancelled' });
+        onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
       } else {
         this.traceEmitter.emit('message_complete', 'Message processing complete', {
           requestId: reqId,
@@ -948,7 +946,7 @@ export class Session {
           requestId: reqId,
           status: 'warning',
         });
-        onEvent({ type: 'generation_cancelled' });
+        onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
       } else {
         const message = err instanceof Error ? err.message : String(err);
         const errorClass = err instanceof Error ? err.constructor.name : 'Error';
