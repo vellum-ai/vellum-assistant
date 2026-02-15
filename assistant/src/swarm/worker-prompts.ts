@@ -46,22 +46,26 @@ If you cannot produce valid JSON, just write a plain-text summary.`;
 
 /**
  * Parse the worker's raw output into a structured result shape.
- * Prefers a fenced JSON block; falls back to treating the entire output as a summary.
+ * Scans fenced JSON blocks from last to first, picking the last one that
+ * matches the worker-result contract (has a `summary` string field).
+ * Falls back to treating the entire output as a plain-text summary.
  */
 export function parseWorkerOutput(raw: string): Pick<SwarmTaskResult, 'summary' | 'artifacts' | 'issues' | 'nextSteps'> {
   const jsonBlocks = Array.from(raw.matchAll(/```json\s*\n([\s\S]*?)\n```/g));
-  const jsonMatch = jsonBlocks.length > 0 ? jsonBlocks[jsonBlocks.length - 1] : null;
-  if (jsonMatch) {
+
+  // Walk backwards to prefer the final valid contract block.
+  for (let i = jsonBlocks.length - 1; i >= 0; i--) {
     try {
-      const parsed = JSON.parse(jsonMatch[1]);
+      const parsed = JSON.parse(jsonBlocks[i][1]);
+      if (typeof parsed.summary !== 'string') continue;
       return {
-        summary: typeof parsed.summary === 'string' ? parsed.summary : raw.slice(0, 500),
+        summary: parsed.summary,
         artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
         issues: Array.isArray(parsed.issues) ? parsed.issues : [],
         nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [],
       };
     } catch {
-      // JSON parse failed — fall through to raw summary
+      // Malformed JSON — try the next block up.
     }
   }
 

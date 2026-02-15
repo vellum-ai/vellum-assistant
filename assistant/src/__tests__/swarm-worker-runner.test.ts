@@ -203,6 +203,37 @@ describe('parseWorkerOutput', () => {
     expect(result.issues).toEqual(['warn']);
     expect(result.nextSteps).toEqual(['ship']);
   });
+
+  test('skips trailing non-contract JSON and picks the last valid block', () => {
+    const raw = [
+      '```json',
+      '{"summary":"real result","artifacts":["out.ts"],"issues":[],"nextSteps":["deploy"]}',
+      '```',
+      '',
+      'Here is an example config:',
+      '```json',
+      '{"port":3000,"debug":true}',
+      '```',
+    ].join('\n');
+    const result = parseWorkerOutput(raw);
+    expect(result.summary).toBe('real result');
+    expect(result.artifacts).toEqual(['out.ts']);
+    expect(result.nextSteps).toEqual(['deploy']);
+  });
+
+  test('skips trailing malformed JSON and picks an earlier valid block', () => {
+    const raw = [
+      '```json',
+      '{"summary":"good","artifacts":[],"issues":[],"nextSteps":[]}',
+      '```',
+      '',
+      '```json',
+      '{this is not valid json}',
+      '```',
+    ].join('\n');
+    const result = parseWorkerOutput(raw);
+    expect(result.summary).toBe('good');
+  });
 });
 
 describe('buildWorkerPrompt', () => {
