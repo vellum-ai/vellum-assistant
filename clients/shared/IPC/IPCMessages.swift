@@ -145,8 +145,8 @@ extension IPCCuSessionCreate {
 public typealias CuObservationMessage = IPCCuObservation
 
 extension IPCCuObservation {
-    public init(sessionId: String, axTree: String?, axDiff: String?, secondaryWindows: String?, screenshot: String?, executionResult: String?, executionError: String?) {
-        self.init(type: "cu_observation", sessionId: sessionId, axTree: axTree, axDiff: axDiff, secondaryWindows: secondaryWindows, screenshot: screenshot, executionResult: executionResult, executionError: executionError)
+    public init(sessionId: String, axTree: String?, axDiff: String?, secondaryWindows: String?, screenshot: String?, executionResult: String?, executionError: String?, axTreeBlob: IPCIpcBlobRef? = nil, screenshotBlob: IPCIpcBlobRef? = nil) {
+        self.init(type: "cu_observation", sessionId: sessionId, axTree: axTree, axDiff: axDiff, secondaryWindows: secondaryWindows, screenshot: screenshot, executionResult: executionResult, executionError: executionError, axTreeBlob: axTreeBlob, screenshotBlob: screenshotBlob)
     }
 }
 
@@ -836,6 +836,10 @@ public typealias BundleAppResponseMessage = IPCBundleAppResponse
 /// Backed by generated `IPCSignBundlePayloadRequest`.
 public typealias SignBundlePayloadMessage = IPCSignBundlePayloadRequest
 
+/// Result from a blob probe verification.
+/// Backed by generated `IPCIpcBlobProbeResult`.
+public typealias IpcBlobProbeResultMessage = IPCIpcBlobProbeResult
+
 /// Real-time execution trace event from the daemon.
 /// Wire type: `"trace_event"`
 public struct TraceEventMessage: Decodable, Sendable {
@@ -1080,6 +1084,7 @@ public enum ServerMessage: Decodable, Sendable {
     case bundleAppResponse(BundleAppResponseMessage)
     case openBundleResponse(OpenBundleResponseMessage)
     case signBundlePayload(SignBundlePayloadMessage)
+    case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
     case getSigningIdentity
     case pong
@@ -1220,6 +1225,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "sign_bundle_payload":
             let message = try SignBundlePayloadMessage(from: decoder)
             self = .signBundlePayload(message)
+        case "ipc_blob_probe_result":
+            let message = try IpcBlobProbeResultMessage(from: decoder)
+            self = .ipcBlobProbeResult(message)
         case "get_signing_identity":
             self = .getSigningIdentity
         case "daemon_status":

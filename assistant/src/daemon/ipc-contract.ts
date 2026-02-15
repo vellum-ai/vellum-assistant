@@ -1,5 +1,13 @@
 // === Shared types ===
 
+export interface IpcBlobRef {
+  id: string;
+  kind: 'ax_tree' | 'screenshot_jpeg';
+  encoding: 'utf8' | 'binary';
+  byteLength: number;
+  sha256?: string;
+}
+
 export interface UsageStats {
   inputTokens: number;
   outputTokens: number;
@@ -121,6 +129,8 @@ export interface CuObservation {
   screenshot?: string;
   executionResult?: string;
   executionError?: string;
+  axTreeBlob?: IpcBlobRef;
+  screenshotBlob?: IpcBlobRef;
 }
 
 export interface TaskSubmit {
@@ -286,6 +296,12 @@ export interface GetSigningIdentityResponse {
   publicKey: string;
 }
 
+export interface IpcBlobProbe {
+  type: 'ipc_blob_probe';
+  probeId: string;
+  nonceSha256: string;
+}
+
 // === Surface types ===
 
 export type SurfaceType = 'card' | 'form' | 'list' | 'table' | 'confirmation' | 'dynamic_page' | 'file_upload';
@@ -446,6 +462,7 @@ export type ClientMessage =
   | OpenBundleRequest
   | SignBundlePayloadResponse
   | GetSigningIdentityResponse
+  | IpcBlobProbe
   | SessionsClearRequest;
 
 // === Server → Client messages ===
@@ -906,6 +923,14 @@ export interface GetSigningIdentityRequest {
   type: 'get_signing_identity';
 }
 
+export interface IpcBlobProbeResult {
+  type: 'ipc_blob_probe_result';
+  probeId: string;
+  ok: boolean;
+  observedNonceSha256?: string;
+  reason?: string;
+}
+
 export interface TimerCompleted {
   type: 'timer_completed';
   sessionId: string;
@@ -1065,6 +1090,7 @@ export type ServerMessage =
   | OpenBundleResponse
   | SignBundlePayloadRequest
   | GetSigningIdentityRequest
+  | IpcBlobProbeResult
   | TraceEvent;
 
 // === Contract schema ===

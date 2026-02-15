@@ -107,6 +107,16 @@ const HIGH_RISK_VALIDATORS: Record<string, PropertyValidator> = {
     return null;
   },
 
+  ipc_blob_probe: (obj) => {
+    if (typeof obj.probeId !== 'string' || obj.probeId === '') {
+      return 'ipc_blob_probe requires a non-empty string "probeId"';
+    }
+    if (typeof obj.nonceSha256 !== 'string' || obj.nonceSha256 === '') {
+      return 'ipc_blob_probe requires a non-empty string "nonceSha256"';
+    }
+    return null;
+  },
+
   ui_surface_action: (obj) => {
     if (typeof obj.sessionId !== 'string' || obj.sessionId === '') {
       return 'ui_surface_action requires a non-empty string "sessionId"';

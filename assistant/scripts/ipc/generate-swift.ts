@@ -163,6 +163,7 @@ const INT_PATTERNS = [
   /Messages$/,
   /Calls$/,
   /^sequence$/,
+  /[Ll]ength$/,
 ];
 
 function shouldBeInt(propName: string): boolean {

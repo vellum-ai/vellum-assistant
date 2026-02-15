@@ -223,6 +223,8 @@ public struct IPCCuObservation: Codable, Sendable {
     public let screenshot: String?
     public let executionResult: String?
     public let executionError: String?
+    public let axTreeBlob: IPCIpcBlobRef?
+    public let screenshotBlob: IPCIpcBlobRef?
 }
 
 public struct IPCCuSessionAbort: Codable, Sendable {
@@ -347,6 +349,28 @@ public struct IPCHistoryResponseToolCall: Codable, Sendable {
     public let isError: Bool?
     /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
     public let imageData: String?
+}
+
+public struct IPCIpcBlobProbe: Codable, Sendable {
+    public let type: String
+    public let probeId: String
+    public let nonceSha256: String
+}
+
+public struct IPCIpcBlobProbeResult: Codable, Sendable {
+    public let type: String
+    public let probeId: String
+    public let ok: Bool
+    public let observedNonceSha256: String?
+    public let reason: String?
+}
+
+public struct IPCIpcBlobRef: Codable, Sendable {
+    public let id: String
+    public let kind: String
+    public let encoding: String
+    public let byteLength: Int
+    public let sha256: String?
 }
 
 public struct IPCListItem: Codable, Sendable {
