@@ -1,11 +1,11 @@
 import type { GalleryManifest } from './gallery-manifest.js';
 
-const pomodoroTimerHtml = `<!DOCTYPE html>
+const focusTimerHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pomodoro Timer</title>
+<title>Focus Timer</title>
 <style>
   :root {
     --bg: #1a1a2e;
@@ -103,7 +103,7 @@ const pomodoroTimerHtml = `<!DOCTYPE html>
 </head>
 <body>
 <div class="container">
-  <h1>Pomodoro Timer</h1>
+  <h1>Focus Timer</h1>
   <div class="mode-label" id="modeLabel">Work Session</div>
   <div class="timer-display" id="timerDisplay">25:00</div>
   <div class="controls">
@@ -739,8 +739,8 @@ export const defaultGallery: GalleryManifest = {
   ],
   apps: [
     {
-      id: 'gallery-pomodoro-timer',
-      name: 'Pomodoro Timer',
+      id: 'gallery-focus-timer',
+      name: 'Focus Timer',
       description: 'A clean countdown timer with 25-minute work sessions and 5-minute breaks. Track your completed sessions and total focus time.',
       icon: '\u{1F345}',
       category: 'productivity',
@@ -751,7 +751,7 @@ export const defaultGallery: GalleryManifest = {
         properties: {},
         additionalProperties: false,
       }),
-      htmlDefinition: pomodoroTimerHtml,
+      htmlDefinition: focusTimerHtml,
     },
     {
       id: 'gallery-habit-tracker',
