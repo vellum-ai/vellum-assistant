@@ -7,6 +7,7 @@ struct ScheduledTasksView: View {
 
     @State private var schedules: [ScheduleItem] = []
     @State private var isLoading = true
+    @State private var errorMessage: String? = nil
     @State private var scheduleToDelete: ScheduleItem? = nil
 
     var body: some View {
@@ -26,6 +27,21 @@ struct ScheduledTasksView: View {
             if isLoading {
                 Spacer()
                 ProgressView()
+                Spacer()
+            } else if let errorMessage {
+                Spacer()
+                VStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                    Text("Failed to load schedules")
+                        .foregroundStyle(.secondary)
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Button("Retry") { loadSchedules() }
+                        .padding(.top, 4)
+                }
                 Spacer()
             } else if schedules.isEmpty {
                 Spacer()
@@ -83,7 +99,13 @@ struct ScheduledTasksView: View {
 
     @MainActor private func loadSchedules() {
         isLoading = true
-        try? daemonClient.sendListSchedules()
+        errorMessage = nil
+        do {
+            try daemonClient.sendListSchedules()
+        } catch {
+            isLoading = false
+            errorMessage = error.localizedDescription
+        }
     }
 
     @MainActor private func toggleSchedule(id: String, enabled: Bool) {
