@@ -1,5 +1,10 @@
 import { describe, test, expect } from 'bun:test';
 import type { Message } from '../providers/types.js';
+import {
+  injectWorkspaceTopLevelContext,
+  stripWorkspaceTopLevelContext,
+  applyRuntimeInjections,
+} from '../daemon/session-runtime-assembly.js';
 
 // ---------------------------------------------------------------------------
 // Fixture messages
@@ -13,55 +18,11 @@ function assistantMsg(text: string): Message {
   return { role: 'assistant', content: [{ type: 'text', text }] };
 }
 
-function userMsgWithToolResult(toolUseId: string, content: string): Message {
-  return {
-    role: 'user',
-    content: [{ type: 'tool_result', tool_use_id: toolUseId, content, is_error: false }],
-  };
-}
-
 // ---------------------------------------------------------------------------
-// Placeholder helpers — will be replaced by real implementations in PR 5
+// Tests
 // ---------------------------------------------------------------------------
 
-const WORKSPACE_TAG = '<workspace_top_level>';
-
-/**
- * Prepend a workspace context block to a user message.
- * Placeholder implementation matching the target API.
- */
-function injectWorkspaceTopLevelContext(message: Message, contextText: string): Message {
-  return {
-    ...message,
-    content: [
-      { type: 'text', text: contextText },
-      ...message.content,
-    ],
-  };
-}
-
-/**
- * Strip workspace context blocks from message history.
- * Placeholder implementation matching the target API.
- */
-function stripWorkspaceTopLevelContext(messages: Message[]): Message[] {
-  return messages.map((message) => {
-    if (message.role !== 'user') return message;
-    const nextContent = message.content.filter((block) => {
-      if (block.type !== 'text') return true;
-      return !block.text.startsWith(WORKSPACE_TAG);
-    });
-    if (nextContent.length === message.content.length) return message;
-    if (nextContent.length === 0) return null;
-    return { ...message, content: nextContent };
-  }).filter((m): m is NonNullable<typeof m> => m !== null);
-}
-
-// ---------------------------------------------------------------------------
-// Tests — capture target runtime behavior
-// ---------------------------------------------------------------------------
-
-const sampleContext = `${WORKSPACE_TAG}\nRoot: /sandbox\nDirectories: src, lib, tests\n</workspace_top_level>`;
+const sampleContext = '<workspace_top_level>\nRoot: /sandbox\nDirectories: src, lib, tests\n</workspace_top_level>';
 
 describe('Workspace top-level context — injection', () => {
   test('prepends workspace block to user message content', () => {
@@ -175,9 +136,48 @@ describe('Workspace top-level context — stripping', () => {
     ];
 
     const stripped = stripWorkspaceTopLevelContext(messages);
-    // Middle user message should be removed entirely
     expect(stripped).toHaveLength(2);
     expect(stripped[0].role).toBe('user');
     expect(stripped[1].role).toBe('assistant');
+  });
+});
+
+describe('applyRuntimeInjections — workspace top-level context', () => {
+  test('injects workspace context when provided', () => {
+    const messages: Message[] = [userMsg('Hello')];
+    const result = applyRuntimeInjections(messages, {
+      workspaceTopLevelContext: sampleContext,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toHaveLength(2);
+    expect((result[0].content[0] as { text: string }).text).toBe(sampleContext);
+    expect((result[0].content[1] as { text: string }).text).toBe('Hello');
+  });
+
+  test('does not inject when workspace context is null', () => {
+    const messages: Message[] = [userMsg('Hello')];
+    const result = applyRuntimeInjections(messages, {
+      workspaceTopLevelContext: null,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toHaveLength(1);
+  });
+
+  test('workspace context appears before active surface context in content', () => {
+    const messages: Message[] = [userMsg('Hello')];
+    const result = applyRuntimeInjections(messages, {
+      activeSurface: { surfaceId: 'sf_1', html: '<div>test</div>' },
+      workspaceTopLevelContext: sampleContext,
+    });
+
+    // Workspace is injected last (in applyRuntimeInjections order) so it
+    // prepends to whatever was already prepended by activeSurface.
+    // Result: [workspace, activeSurface, original]
+    expect(result[0].content).toHaveLength(3);
+    expect((result[0].content[0] as { text: string }).text).toBe(sampleContext);
+    expect((result[0].content[1] as { text: string }).text).toContain('<active_workspace>');
+    expect((result[0].content[2] as { text: string }).text).toBe('Hello');
   });
 });
