@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getRootDir } from '../util/platform.js';
@@ -54,17 +54,21 @@ export function certificatesExist(certPath: string, keyPath: string): boolean {
  * - No password on private key
  */
 export async function generateSelfSignedCert(certPath: string, keyPath: string): Promise<void> {
-  const certsDir = join(getRootDir(), 'certs');
-
   // Check if OpenSSL is available
   const hasOpenSSL = await checkOpenSSLAvailable();
   if (!hasOpenSSL) {
     throw new Error('OpenSSL is not installed or not available in PATH. Please install OpenSSL to use TCP/TLS mode.');
   }
 
-  // Ensure certs directory exists
-  if (!existsSync(certsDir)) {
-    mkdirSync(certsDir, { recursive: true, mode: 0o700 });
+  // Ensure parent directories exist for both cert and key paths
+  const certDir = dirname(certPath);
+  const keyDir = dirname(keyPath);
+
+  if (!existsSync(certDir)) {
+    mkdirSync(certDir, { recursive: true, mode: 0o700 });
+  }
+  if (certDir !== keyDir && !existsSync(keyDir)) {
+    mkdirSync(keyDir, { recursive: true, mode: 0o700 });
   }
 
   log.info({ certPath, keyPath }, 'Generating self-signed TLS certificate');
