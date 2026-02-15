@@ -59,29 +59,50 @@ final class ThreadManager: ObservableObject {
         // an orphaned request after the view model is removed.
         chatViewModels[id]?.stopGenerating()
 
-        // Mark as hidden instead of removing
-        threads[index].isHidden = true
+        // Check if drawer mode is enabled to determine behavior
+        let useThreadDrawer = UserDefaults.standard.bool(forKey: "useThreadDrawer")
 
-        // Save sessionId from ChatViewModel back to ThreadModel before cleanup
-        // This ensures chat history can be restored when the thread is unhidden
-        if let sessionId = chatViewModels[id]?.sessionId {
-            threads[index].sessionId = sessionId
+        if useThreadDrawer {
+            // Drawer mode: Hide thread (can be restored from HIDDEN section)
+            threads[index].isHidden = true
+
+            // Save sessionId from ChatViewModel back to ThreadModel before cleanup
+            // This ensures chat history can be restored when the thread is unhidden
+            if let sessionId = chatViewModels[id]?.sessionId {
+                threads[index].sessionId = sessionId
+            }
+
+            // Clean up the ChatViewModel to prevent memory leaks
+            // The view model will be recreated if the thread is restored via showThread()
+            chatViewModels.removeValue(forKey: id)
+
+            // If the closed thread was active, select an adjacent visible thread
+            if activeThreadId == id {
+                let remainingVisible = threads.filter { !$0.isHidden }
+                // Find the next visible thread after the current index, or fall back to last visible
+                let nextVisible = remainingVisible.first(where: { threads.firstIndex(of: $0) ?? 0 > index })
+                    ?? remainingVisible.last
+                activeThreadId = nextVisible?.id
+            }
+
+            log.info("Hidden thread \(id)")
+        } else {
+            // Tab mode: Permanently delete thread (original behavior)
+            threads.remove(at: index)
+            chatViewModels.removeValue(forKey: id)
+
+            // If the closed thread was active, select an adjacent thread
+            if activeThreadId == id {
+                // Prefer the thread at the same index (next), otherwise fall back to last
+                if index < threads.count {
+                    activeThreadId = threads[index].id
+                } else {
+                    activeThreadId = threads.last?.id
+                }
+            }
+
+            log.info("Deleted thread \(id)")
         }
-
-        // Clean up the ChatViewModel to prevent memory leaks
-        // The view model will be recreated if the thread is restored via showThread()
-        chatViewModels.removeValue(forKey: id)
-
-        // If the closed thread was active, select an adjacent visible thread
-        if activeThreadId == id {
-            let remainingVisible = threads.filter { !$0.isHidden }
-            // Find the next visible thread after the current index, or fall back to last visible
-            let nextVisible = remainingVisible.first(where: { threads.firstIndex(of: $0) ?? 0 > index })
-                ?? remainingVisible.last
-            activeThreadId = nextVisible?.id
-        }
-
-        log.info("Closed thread \(id)")
     }
 
     func showThread(id: UUID) {
