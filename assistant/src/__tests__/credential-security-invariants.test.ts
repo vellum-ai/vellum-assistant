@@ -126,6 +126,7 @@ describe('Invariant 1: secrets never enter LLM context', () => {
     }));
 
     // Re-import to pick up the mock
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { checkIngressForSecrets } = require('../security/secret-ingress.js');
 
     // Build a fake AWS key at runtime to avoid pre-commit hook
@@ -175,6 +176,7 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
     const srcDir = resolve(thisDir, '..');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { readdirSync, statSync } = require('node:fs');
 
     // Recursively collect all .ts files in src/ (excluding __tests__)
@@ -393,11 +395,13 @@ describe('One-time send override', () => {
   });
 
   test('allowOneTimeSend defaults to false in config', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { DEFAULT_CONFIG } = require('../config/defaults.js');
     expect(DEFAULT_CONFIG.secretDetection.allowOneTimeSend).toBe(false);
   });
 
   test('default secretDetection.action is block', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { DEFAULT_CONFIG } = require('../config/defaults.js');
     expect(DEFAULT_CONFIG.secretDetection.action).toBe('block');
   });

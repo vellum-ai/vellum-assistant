@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import type { ServerMessage, SecretRequest } from '../daemon/ipc-contract.js';
 
 // Capture all logger calls so we can verify secret values never appear
 const logCalls: Array<{ level: string; args: unknown[] }> = [];
@@ -45,7 +45,7 @@ describe('secret prompt log hygiene', () => {
   test('resolveSecret never logs the secret value', async () => {
     const secret = 'sv42';
     const promise = prompter.prompt('myservice', 'apikey', 'API Key');
-    const requestId = (sentMessages[0] as any).requestId;
+    const requestId = (sentMessages[0] as SecretRequest).requestId;
     prompter.resolveSecret(requestId, secret, 'store');
     const result = await promise;
 
@@ -67,7 +67,7 @@ describe('secret prompt log hygiene', () => {
 
   test('prompt timeout logs only metadata, not the secret value', async () => {
     const promise = prompter.prompt('svc', 'key', 'Label');
-    const requestId = (sentMessages[0] as any).requestId;
+    const requestId = (sentMessages[0] as SecretRequest).requestId;
 
     // Simulate a normal resolve (timeout would also log metadata only)
     prompter.resolveSecret(requestId, undefined);
@@ -83,7 +83,7 @@ describe('secret prompt log hygiene', () => {
 
   test('sent IPC message contains value=undefined (value flows through IPC, not logs)', async () => {
     const promise = prompter.prompt('svc', 'tok', 'Token');
-    const msg = sentMessages[0] as any;
+    const msg = sentMessages[0] as SecretRequest & { value?: unknown };
     // The IPC message should NOT contain a value field
     expect(msg.value).toBeUndefined();
     prompter.resolveSecret(msg.requestId, undefined);

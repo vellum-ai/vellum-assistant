@@ -385,14 +385,14 @@ export class Session {
       'Secure Credential Entry',
       'Your message contained a secret. Please enter it here instead — it will be stored securely and never sent to the AI.',
       undefined, this.conversationId,
-    ).then((result) => {
+    ).then(async (result) => {
       if (!result.value) return; // user cancelled or timed out
 
-      const { setSecureKey } = require('../security/secure-keys.js');
-      const { upsertCredentialMetadata } = require('../tools/credentials/metadata-store.js');
+      const { setSecureKey } = await import('../security/secure-keys.js');
+      const { upsertCredentialMetadata } = await import('../tools/credentials/metadata-store.js');
 
       if (result.delivery === 'transient_send') {
-        const { credentialBroker } = require('../tools/credentials/broker.js');
+        const { credentialBroker } = await import('../tools/credentials/broker.js');
         credentialBroker.injectTransient(service, field, result.value);
         try { upsertCredentialMetadata(service, field, {}); } catch {}
         log.info({ service, field, delivery: 'transient_send' }, 'Ingress redirect: transient credential injected');

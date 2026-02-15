@@ -62,7 +62,7 @@ import { postToSlackWebhook } from '../slack/slack-webhook.js';
 import { createHash } from 'node:crypto';
 import { computeContentId } from '../util/content-id.js';
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { addRule, removeRule, updateRule, getAllRules } from '../permissions/trust-store.js';

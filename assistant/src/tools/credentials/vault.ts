@@ -2,7 +2,6 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import {
-  getSecureKey,
   setSecureKey,
   deleteSecureKey,
   listSecureKeys,
@@ -16,14 +15,6 @@ import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('credential-vault');
-
-/**
- * Retrieve the actual secret value for a credential.
- * Internal to vault — callers must go through the CredentialBroker.
- */
-function getCredentialValue(service: string, field: string): string | undefined {
-  return getSecureKey(`credential:${service}:${field}`);
-}
 
 class CredentialStoreTool implements Tool {
   name = 'credential_store';
