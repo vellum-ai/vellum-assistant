@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-import type { PathResult } from './path-policy.js';
+import type { PathResult, PathFailureReason } from './path-policy.js';
 import { checkFileSizeOnDisk, checkContentSize } from './size-guard.js';
 import { applyEdit } from './edit-engine.js';
 import type {
@@ -28,6 +28,13 @@ export type PathPolicy = (
 // Service
 // ---------------------------------------------------------------------------
 
+function pathError(path: string, reason: PathFailureReason, detail: string): Err.FsError {
+  switch (reason) {
+    case 'not_absolute': return Err.pathNotAbsolute(path);
+    case 'out_of_bounds': return { code: 'PATH_OUT_OF_BOUNDS', message: detail, path };
+  }
+}
+
 export class FileSystemOps {
   private policy: PathPolicy;
   private sizeLimit: number | undefined;
@@ -44,7 +51,7 @@ export class FileSystemOps {
   readFileSafe(input: ReadInput): ReadResult {
     const pathCheck = this.policy(input.path, { mustExist: true });
     if (!pathCheck.ok) {
-      return { ok: false, error: Err.invalidPath(input.path, pathCheck.error) };
+      return { ok: false, error: pathError(input.path, pathCheck.reason, pathCheck.error) };
     }
     const filePath = pathCheck.resolved;
 
@@ -91,7 +98,7 @@ export class FileSystemOps {
   writeFileSafe(input: WriteInput): WriteResult {
     const pathCheck = this.policy(input.path, { mustExist: false });
     if (!pathCheck.ok) {
-      return { ok: false, error: Err.invalidPath(input.path, pathCheck.error) };
+      return { ok: false, error: pathError(input.path, pathCheck.reason, pathCheck.error) };
     }
     const filePath = pathCheck.resolved;
 
@@ -140,7 +147,7 @@ export class FileSystemOps {
   editFileSafe(input: EditInput): EditResult {
     const pathCheck = this.policy(input.path, { mustExist: true });
     if (!pathCheck.ok) {
-      return { ok: false, error: Err.invalidPath(input.path, pathCheck.error) };
+      return { ok: false, error: pathError(input.path, pathCheck.reason, pathCheck.error) };
     }
     const filePath = pathCheck.resolved;
 

@@ -87,14 +87,14 @@ describe('FileSystemOps.readFileSafe', () => {
     expect(result.error.code).toBe('SIZE_LIMIT_EXCEEDED');
   });
 
-  test('returns INVALID_PATH for path outside sandbox', () => {
+  test('returns PATH_OUT_OF_BOUNDS for path outside sandbox', () => {
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
     const result = ops.readFileSafe({ path: '../../../etc/passwd' });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error.code).toBe('INVALID_PATH');
+    expect(result.error.code).toBe('PATH_OUT_OF_BOUNDS');
   });
 
   test('respects offset and limit', () => {
@@ -154,14 +154,14 @@ describe('FileSystemOps.writeFileSafe', () => {
     expect(existsSync(join(dir, 'a/b/c/deep.txt'))).toBe(true);
   });
 
-  test('returns INVALID_PATH for path outside sandbox', () => {
+  test('returns PATH_OUT_OF_BOUNDS for path outside sandbox', () => {
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
     const result = ops.writeFileSafe({ path: '../../../tmp/evil.txt', content: 'bad' });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error.code).toBe('INVALID_PATH');
+    expect(result.error.code).toBe('PATH_OUT_OF_BOUNDS');
   });
 
   test('returns SIZE_LIMIT_EXCEEDED for oversized content', () => {
@@ -313,7 +313,7 @@ describe('FileSystemOps.editFileSafe', () => {
     expect(result.error.code).toBe('SIZE_LIMIT_EXCEEDED');
   });
 
-  test('returns INVALID_PATH for path outside sandbox', () => {
+  test('returns PATH_OUT_OF_BOUNDS for path outside sandbox', () => {
     const dir = makeTempDir();
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
 
@@ -325,6 +325,6 @@ describe('FileSystemOps.editFileSafe', () => {
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error.code).toBe('INVALID_PATH');
+    expect(result.error.code).toBe('PATH_OUT_OF_BOUNDS');
   });
 });

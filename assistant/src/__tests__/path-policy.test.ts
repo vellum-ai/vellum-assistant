@@ -28,6 +28,7 @@ describe('sandboxPolicy', () => {
     const result = sandboxPolicy('../../etc/passwd', boundary);
     expect(result.ok).toBe(false);
     if (!result.ok) {
+      expect(result.reason).toBe('out_of_bounds');
       expect(result.error).toContain('outside the working directory');
     }
   });
@@ -38,6 +39,7 @@ describe('sandboxPolicy', () => {
     const result = sandboxPolicy('a/b/../../../../etc/shadow', boundary);
     expect(result.ok).toBe(false);
     if (!result.ok) {
+      expect(result.reason).toBe('out_of_bounds');
       expect(result.error).toContain('outside the working directory');
     }
   });
@@ -52,6 +54,7 @@ describe('sandboxPolicy', () => {
     const result = sandboxPolicy('escape-link', boundary);
     expect(result.ok).toBe(false);
     if (!result.ok) {
+      expect(result.reason).toBe('out_of_bounds');
       expect(result.error).toContain('outside the working directory');
     }
   });
@@ -67,6 +70,7 @@ describe('sandboxPolicy', () => {
     const result = sandboxPolicy('link-dir/new-file.txt', boundary, { mustExist: false });
     expect(result.ok).toBe(false);
     if (!result.ok) {
+      expect(result.reason).toBe('out_of_bounds');
       expect(result.error).toContain('outside the working directory');
     }
   });
@@ -114,6 +118,7 @@ describe('hostPolicy', () => {
     const result = hostPolicy('relative/path.txt');
     expect(result.ok).toBe(false);
     if (!result.ok) {
+      expect(result.reason).toBe('not_absolute');
       expect(result.error).toContain('must be absolute');
       expect(result.error).toContain('relative/path.txt');
     }
@@ -123,6 +128,7 @@ describe('hostPolicy', () => {
     const result = hostPolicy('file.txt');
     expect(result.ok).toBe(false);
     if (!result.ok) {
+      expect(result.reason).toBe('not_absolute');
       expect(result.error).toContain('must be absolute');
     }
   });

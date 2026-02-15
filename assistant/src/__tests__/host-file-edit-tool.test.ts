@@ -30,7 +30,7 @@ describe('host_file_edit tool', () => {
       new_string: 'b',
     }, makeContext());
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('path must be absolute');
+    expect(result.content).toContain('must be absolute');
   });
 
   test('edits unique match', async () => {

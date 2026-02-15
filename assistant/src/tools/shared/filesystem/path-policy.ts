@@ -4,9 +4,11 @@ import { realpathSync } from 'node:fs';
 /**
  * Result type shared by both sandbox and host path policies.
  */
+export type PathFailureReason = 'not_absolute' | 'out_of_bounds';
+
 export type PathResult =
   | { ok: true; resolved: string }
-  | { ok: false; error: string };
+  | { ok: false; reason: PathFailureReason; error: string };
 
 // ---------------------------------------------------------------------------
 // Sandbox policy
@@ -68,6 +70,7 @@ export function sandboxPolicy(
   if (rel.startsWith('..') || resolve(realBoundary, rel) !== realResolved) {
     return {
       ok: false,
+      reason: 'out_of_bounds',
       error: `Path "${rawPath}" resolves to "${realResolved}" which is outside the working directory "${realBoundary}"`,
     };
   }
@@ -87,6 +90,7 @@ export function hostPolicy(rawPath: string): PathResult {
   if (!isAbsolute(rawPath)) {
     return {
       ok: false,
+      reason: 'not_absolute',
       error: `path must be absolute for host file access: ${rawPath}`,
     };
   }
