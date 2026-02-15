@@ -204,7 +204,10 @@ async function collectAndMergeCandidates(
     directItems = directItems.slice(0, directLimit);
   }
 
-  const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems], config.memory.retrieval.freshness);
+  const relationScoreMultiplier = config.memory.entity.enabled && config.memory.entity.relationRetrieval.enabled
+    ? config.memory.entity.relationRetrieval.neighborScoreMultiplier
+    : undefined;
+  const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems], config.memory.retrieval.freshness, relationScoreMultiplier);
 
   return {
     lexical,
@@ -811,7 +814,6 @@ function entitySearch(
   const directCandidates = getEntityLinkedItemCandidates(seedEntityIds, {
     scopeIds,
     excludedMessageIds,
-    confidenceMultiplier: 1,
     source: 'entity_direct',
   });
 
@@ -839,7 +841,6 @@ function entitySearch(
   const relationCandidates = getEntityLinkedItemCandidates(neighborEntityIds, {
     scopeIds,
     excludedMessageIds,
-    confidenceMultiplier: relationConfig.neighborScoreMultiplier,
     source: 'entity_relation',
     excludeItemIds: directItemIds,
   });
@@ -972,7 +973,6 @@ function getEntityLinkedItemCandidates(
   opts: {
     scopeIds?: string[];
     excludedMessageIds?: string[];
-    confidenceMultiplier: number;
     source: CandidateSource;
     excludeItemIds?: Set<string>;
   },
@@ -1032,8 +1032,6 @@ function getEntityLinkedItemCandidates(
   }
   if (items.length === 0) return [];
 
-  const confidenceMultiplier = Math.max(0, Math.min(1, opts.confidenceMultiplier));
-
   return items.map((item) => ({
     key: `item:${item.id}`,
     type: 'item' as CandidateType,
@@ -1041,7 +1039,7 @@ function getEntityLinkedItemCandidates(
     source: opts.source,
     text: `${item.subject}: ${item.statement}`,
     kind: item.kind,
-    confidence: item.confidence * confidenceMultiplier,
+    confidence: item.confidence,
     importance: item.importance ?? 0.5,
     createdAt: item.lastSeenAt,
     lexical: 0,
@@ -1073,6 +1071,7 @@ function mergeCandidates(
   recency: Candidate[],
   entity: Candidate[] = [],
   freshnessConfig?: { enabled: boolean; maxAgeDays: Record<string, number>; staleDecay: number; reinforcementShieldDays: number },
+  relationScoreMultiplier?: number,
 ): Candidate[] {
   // Build merged candidate map (dedup by key, keep best metadata)
   const merged = new Map<string, Candidate>();
@@ -1135,7 +1134,9 @@ function mergeCandidates(
     const lastUsedAt = meta?.lastUsedAt ?? null;
     const freshnessWeight = computeFreshnessWeight(row, accessCount, lastUsedAt, freshnessConfig);
 
-    const sourceWeight = SOURCE_WEIGHTS[row.source] ?? 1.0;
+    const sourceWeight = row.source === 'entity_relation' && relationScoreMultiplier != null
+      ? relationScoreMultiplier
+      : (SOURCE_WEIGHTS[row.source] ?? 1.0);
     row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight * freshnessWeight * sourceWeight;
   }
 
@@ -1263,7 +1264,7 @@ const SOURCE_WEIGHTS: Record<CandidateSource, number> = {
   recency: 1.0,
   entity_direct: 1.0,
   item_direct: 0.95,
-  entity_relation: 0.72,
+  entity_relation: 1.0,
 };
 
 const MS_PER_DAY = 86_400_000;
