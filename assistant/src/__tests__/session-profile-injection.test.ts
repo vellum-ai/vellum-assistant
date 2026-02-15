@@ -333,6 +333,30 @@ describe('Session dynamic profile injection', () => {
     expect(messageText(stripped[2])).not.toContain(profileMarker);
   });
 
+  test('strip finds injected message even when tool_result user messages follow it', () => {
+    const profile = 'timezone: US/Pacific';
+    const profileMarker = '[Dynamic profile context start]';
+    const injectedUser = injectDynamicProfileIntoUserMessage(
+      { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+      profile,
+    );
+    const assistantMsg: Message = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'calling tool' }],
+    };
+    // Simulate tool_result user message appended by agent loop
+    const toolResultUser: Message = {
+      role: 'user',
+      content: [{ type: 'tool_result' as 'text', tool_use_id: 'tu-1', content: 'result' } as any],
+    };
+    const msgs = [injectedUser, assistantMsg, toolResultUser];
+    const stripped = stripDynamicProfileMessages(msgs, profile);
+    // The injected profile should be stripped from the first user message
+    expect(messageText(stripped[0])).not.toContain(profileMarker);
+    // tool_result message should be untouched
+    expect(stripped[2]).toBe(toolResultUser);
+  });
+
   test('skips profile compilation/injection when memory.profile.enabled is false', async () => {
     profileEnabled = false;
     const session = makeSession();

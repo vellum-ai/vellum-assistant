@@ -28,10 +28,15 @@ export function stripDynamicProfileMessages(messages: Message[], profileText: st
   const trimmedProfile = profileText.trim();
   if (trimmedProfile.length === 0) return messages;
   const injectedBlock = `\n\n[Dynamic profile context start]\n${trimmedProfile}\n[Dynamic profile context end]`;
-  // Only strip from the last user message — that's the one we injected into.
+  // Find the last user message that actually contains the injected profile block.
+  // We can't just target the last user message by role — tool_result messages also
+  // have role 'user', so after tool use the last user message won't be the one
+  // we injected the profile into.
   let lastUserIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'user') { lastUserIdx = i; break; }
+    if (messages[i].role === 'user' && messages[i].content.some(
+      (b) => b.type === 'text' && b.text.includes(injectedBlock),
+    )) { lastUserIdx = i; break; }
   }
   if (lastUserIdx === -1) return messages;
   const message = messages[lastUserIdx];
