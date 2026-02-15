@@ -124,7 +124,9 @@ public final class ChatViewModel: ObservableObject {
     private var currentAssistantMessageId: UUID?
     /// When true, incoming deltas are suppressed until the daemon acknowledges
     /// the cancellation (via `generation_cancelled` or `message_complete`).
-    private var isCancelling: Bool = false
+    // Public (rather than private) so tests can simulate the
+    // daemon-acknowledged cancellation state directly.
+    public var isCancelling: Bool = false
     /// Maps daemon requestId to the user message UUID in the messages array.
     private var requestIdToMessageId: [String: UUID] = [:]
     /// FIFO queue of user message UUIDs awaiting requestId assignment from the daemon.
