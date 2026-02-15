@@ -336,6 +336,20 @@ struct TraceStoreTests {
         #expect(store.eventsBySession["s2"]?.count == 2)
     }
 
+    // MARK: - Handoff Terminal Event
+
+    @Test @MainActor
+    func handoffTerminalEvent() {
+        let store = TraceStore()
+
+        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_received"))
+        store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "llm_call_started"))
+        store.ingest(makeEvent(eventId: "e3", requestId: "r1", sequence: 3, kind: "generation_handoff", summary: "Handing off to next queued message"))
+
+        let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
+        #expect(status == .handedOff)
+    }
+
     // MARK: - Cancellation Terminal Event
 
     @Test @MainActor

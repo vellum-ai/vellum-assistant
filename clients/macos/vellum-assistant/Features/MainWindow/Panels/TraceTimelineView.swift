@@ -92,6 +92,10 @@ struct TraceTimelineView: View {
                     Text("Cancelled")
                         .font(VFont.small)
                         .foregroundColor(Amber._500)
+                } else if groupStatus == .handedOff {
+                    Text("Handed off")
+                        .font(VFont.small)
+                        .foregroundColor(Indigo._400)
                 } else if groupStatus == .error {
                     Text("Error")
                         .font(VFont.small)
@@ -114,6 +118,7 @@ struct TraceTimelineView: View {
         case .active: return "arrow.right.circle"
         case .completed: return "checkmark.circle.fill"
         case .cancelled: return "xmark.circle.fill"
+        case .handedOff: return "arrow.right.arrow.left.circle.fill"
         case .error: return "exclamationmark.triangle.fill"
         }
     }
@@ -123,6 +128,7 @@ struct TraceTimelineView: View {
         case .active: return Emerald._400
         case .completed: return Emerald._400
         case .cancelled: return Amber._500
+        case .handedOff: return Indigo._400
         case .error: return Rose._500
         }
     }
