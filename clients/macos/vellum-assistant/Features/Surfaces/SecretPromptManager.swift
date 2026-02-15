@@ -29,6 +29,9 @@ final class SecretPromptManager {
             label: message.label,
             description: message.description,
             placeholder: message.placeholder ?? "",
+            purpose: message.purpose,
+            allowedTools: message.allowedTools,
+            allowedDomains: message.allowedDomains,
             onSave: { [weak self] value in
                 self?.respond(requestId: message.requestId, value: value) ?? false
             },
@@ -40,7 +43,11 @@ final class SecretPromptManager {
         let hostingController = NSHostingController(rootView: view)
         hostingController.sizingOptions = .preferredContentSize
 
-        let panelHeight: CGFloat = message.description != nil ? 270 : 230
+        let hasContext = message.purpose != nil
+            || !(message.allowedTools ?? []).isEmpty
+            || !(message.allowedDomains ?? []).isEmpty
+        let baseHeight: CGFloat = message.description != nil ? 270 : 230
+        let panelHeight: CGFloat = hasContext ? baseHeight + 100 : baseHeight
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
             styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow],
@@ -69,6 +76,11 @@ final class SecretPromptManager {
         panel.orderFront(nil)
 
         log.info("Showing secret prompt: requestId=\(message.requestId), service=\(message.service), field=\(message.field)")
+    }
+
+    /// Test-only accessor for the panel backing a given request.
+    func panelForRequest(_ requestId: String) -> NSPanel? {
+        panels[requestId]
     }
 
     func dismissPrompt(requestId: String) {
@@ -105,11 +117,20 @@ struct SecretPromptView: View {
     let label: String
     let description: String?
     let placeholder: String
+    let purpose: String?
+    let allowedTools: [String]?
+    let allowedDomains: [String]?
     let onSave: (String) -> Bool
     let onCancel: () -> Void
 
     @State private var secretValue: String = ""
     @State private var saved = false
+
+    private var hasContext: Bool {
+        purpose != nil
+            || !(allowedTools ?? []).isEmpty
+            || !(allowedDomains ?? []).isEmpty
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -136,6 +157,11 @@ struct SecretPromptView: View {
                 Text(description)
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
+            }
+
+            // Usage context
+            if hasContext {
+                usageContextSection
             }
 
             // Secure input
@@ -183,6 +209,42 @@ struct SecretPromptView: View {
         .padding(VSpacing.xl)
         .frame(width: 400)
         .vPanelBackground()
+    }
+
+    @ViewBuilder
+    private var usageContextSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("Usage Scope")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+
+            if let purpose = purpose {
+                contextBullet(icon: "info.circle.fill", label: "Purpose", value: purpose)
+            }
+
+            if let tools = allowedTools, !tools.isEmpty {
+                contextBullet(icon: "wrench.fill", label: "Tools", value: tools.joined(separator: ", "))
+            }
+
+            if let domains = allowedDomains, !domains.isEmpty {
+                contextBullet(icon: "globe", label: "Domains", value: domains.joined(separator: ", "))
+            }
+        }
+        .padding(VSpacing.sm)
+        .background(VColor.surface.opacity(0.5))
+        .cornerRadius(6)
+    }
+
+    private func contextBullet(icon: String, label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+                .foregroundColor(VColor.accent)
+                .frame(width: 14, alignment: .center)
+            Text("\(label): \(value)")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+        }
     }
 
     private func safetyBullet(icon: String, text: String) -> some View {
