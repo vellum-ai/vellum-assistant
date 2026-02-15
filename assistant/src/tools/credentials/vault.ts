@@ -155,13 +155,14 @@ class CredentialStoreTool implements Tool {
         const description = input.description as string | undefined;
         const placeholder = input.placeholder as string | undefined;
 
-        const value = await context.requestSecret({ service, field, label, description, placeholder });
-        if (!value) {
+        const result = await context.requestSecret({ service, field, label, description, placeholder });
+        if (!result.value) {
           return { content: 'User cancelled the credential prompt.', isError: false };
         }
 
+        // transient_send delivery is not yet enabled — always store
         const key = `credential:${service}:${field}`;
-        const ok = setSecureKey(key, value);
+        const ok = setSecureKey(key, result.value);
         if (!ok) {
           return { content: 'Error: failed to store credential', isError: true };
         }

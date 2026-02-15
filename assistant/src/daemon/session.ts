@@ -466,8 +466,8 @@ export class Session {
     this.prompter.resolveConfirmation(requestId, decision, selectedPattern, selectedScope);
   }
 
-  handleSecretResponse(requestId: string, value?: string): void {
-    this.secretPrompter.resolveSecret(requestId, value);
+  handleSecretResponse(requestId: string, value?: string, delivery?: 'store' | 'transient_send'): void {
+    this.secretPrompter.resolveSecret(requestId, value, delivery);
   }
 
   /**

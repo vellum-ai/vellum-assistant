@@ -1,5 +1,6 @@
 import type { RiskLevel, AllowlistOption, ScopeOption } from '../permissions/types.js';
 import type { ToolDefinition, ContentBlock } from '../providers/types.js';
+import type { SecretPromptResult } from '../permissions/secret-prompter.js';
 
 export type ExecutionTarget = 'sandbox' | 'host';
 
@@ -107,7 +108,7 @@ export interface ToolContext {
     label: string;
     description?: string;
     placeholder?: string;
-  }) => Promise<string | null>;
+  }) => Promise<SecretPromptResult>;
 }
 
 export interface DiffInfo {

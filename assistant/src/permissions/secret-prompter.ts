@@ -6,8 +6,15 @@ import { AssistantError, ErrorCode } from '../util/errors.js';
 
 const log = getLogger('secret-prompter');
 
+export type SecretDelivery = 'store' | 'transient_send';
+
+export interface SecretPromptResult {
+  value: string | null;
+  delivery: SecretDelivery;
+}
+
 interface PendingSecretPrompt {
-  resolve: (value: string | null) => void;
+  resolve: (result: SecretPromptResult) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -31,7 +38,7 @@ export class SecretPrompter {
     description?: string,
     placeholder?: string,
     sessionId?: string,
-  ): Promise<string | null> {
+  ): Promise<SecretPromptResult> {
     const requestId = uuid();
 
     return new Promise((resolve, reject) => {
@@ -39,7 +46,7 @@ export class SecretPrompter {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         log.warn({ requestId, service, field }, 'Secret prompt timed out');
-        resolve(null);
+        resolve({ value: null, delivery: 'store' });
       }, timeoutMs);
 
       this.pending.set(requestId, { resolve, reject, timer });
@@ -57,7 +64,7 @@ export class SecretPrompter {
     });
   }
 
-  resolveSecret(requestId: string, value?: string): void {
+  resolveSecret(requestId: string, value?: string, delivery?: SecretDelivery): void {
     const pending = this.pending.get(requestId);
     if (!pending) {
       log.warn({ requestId }, 'No pending prompt for secret response');
@@ -65,7 +72,7 @@ export class SecretPrompter {
     }
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
-    pending.resolve(value ?? null);
+    pending.resolve({ value: value ?? null, delivery: delivery ?? 'store' });
   }
 
   dispose(): void {

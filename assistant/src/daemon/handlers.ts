@@ -570,7 +570,7 @@ function handleSecretResponse(
   if (sessionId) {
     const session = ctx.sessions.get(sessionId);
     if (session) {
-      session.handleSecretResponse(msg.requestId, msg.value);
+      session.handleSecretResponse(msg.requestId, msg.value, msg.delivery);
     }
   }
 }
