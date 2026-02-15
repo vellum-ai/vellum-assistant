@@ -96,6 +96,7 @@ When `sandbox.backend` is set to `"docker"`, the daemon wraps every sandbox `bas
   node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9
   ```
   Pull it with: `docker pull node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9`
+- The `ubuntu:22.04` image is also required. The preflight mount probe uses this image (regardless of `sandbox.docker.image`) to verify bind-mount support before running any commands. Pull it with: `docker pull ubuntu:22.04`
 
 **Docker configuration options** (all under `sandbox.docker`):
 
