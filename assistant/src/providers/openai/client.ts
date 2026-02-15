@@ -74,7 +74,7 @@ export class OpenAIProvider implements Provider {
       let contentText = '';
       const toolCallMap = new Map<number, { id: string; name: string; args: string }>();
       let finishReason = 'unknown';
-      let responseModel = this.model;
+      let responseModel = modelOverride ?? this.model;
       let promptTokens = 0;
       let completionTokens = 0;
 

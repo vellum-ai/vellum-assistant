@@ -68,7 +68,7 @@ export class GeminiProvider implements Provider {
       let finishReason = 'unknown';
       let promptTokens = 0;
       let outputTokens = 0;
-      let responseModel = this.model;
+      let responseModel = modelOverride ?? this.model;
 
       for await (const chunk of stream) {
         // Extract text delta
