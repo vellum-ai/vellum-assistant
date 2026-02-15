@@ -1033,3 +1033,80 @@ describe('Terminal trace events on rejection/failure', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: cancel semantics + session/global error channel split
+// ---------------------------------------------------------------------------
+
+describe('Regression: cancel semantics and error channel split', () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test('user cancellation emits generation_cancelled, never session_error', async () => {
+    const msgEvents: ServerMessage[] = [];
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // Start processing a message — collect events from the per-message callback
+    const p1 = session.processMessage('msg-1', [], (e) => msgEvents.push(e), 'req-1');
+    await waitForPendingRun(1);
+
+    // User cancels — sets the abort signal
+    session.abort();
+
+    // Resolve the pending run so the abort-check path fires
+    resolveRun(0);
+    await p1;
+
+    // generation_cancelled should be emitted via the per-message callback
+    const cancelEvent = msgEvents.find((e) => e.type === 'generation_cancelled');
+    expect(cancelEvent).toBeDefined();
+
+    // session_error must never appear on cancel
+    const sessionErr = msgEvents.find((e) => e.type === 'session_error');
+    expect(sessionErr).toBeUndefined();
+  });
+
+  test('provider failure during processing emits session_error only', async () => {
+    const allEvents: ServerMessage[] = [];
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const p1 = session.processMessage('msg-1', [], (e) => allEvents.push(e), 'req-1');
+    await waitForPendingRun(1);
+
+    // Simulate a provider failure
+    pendingRuns[0].reject(new Error('Connection refused'));
+    await p1;
+
+    // Should get session_error (structured)
+    const sessionErr = allEvents.find((e) => e.type === 'session_error');
+    expect(sessionErr).toBeDefined();
+
+    // Must not get generic error — session failures are session_error only
+    const genericErr = allEvents.find((e) => e.type === 'error');
+    expect(genericErr).toBeUndefined();
+  });
+
+  test('cancel after queued messages produces no session_error for any queued entry', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const eventsPerMsg: ServerMessage[][] = [[], [], []];
+
+    session.processMessage('msg-1', [], (e) => eventsPerMsg[0].push(e), 'req-1');
+    await waitForPendingRun(1);
+
+    session.enqueueMessage('msg-2', [], (e) => eventsPerMsg[1].push(e), 'req-2');
+    session.enqueueMessage('msg-3', [], (e) => eventsPerMsg[2].push(e), 'req-3');
+
+    session.abort();
+
+    // No queued message should have received session_error
+    for (const events of eventsPerMsg) {
+      const sessionErr = events.find((e) => e.type === 'session_error');
+      expect(sessionErr).toBeUndefined();
+    }
+  });
+});

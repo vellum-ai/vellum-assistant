@@ -731,7 +731,13 @@ The daemon emits two distinct error message types over IPC:
 
 ### Error Classification
 
-The daemon classifies errors via `classifySessionError()` in `session-error.ts`. Before classification, `isUserCancellation()` checks whether the error is a user-initiated abort (active abort signal or `AbortError`); if so, the daemon emits `generation_cancelled` instead of `session_error`. Classification uses regex pattern matching against the error message to detect network failures, rate limits, and provider API errors, with phase-specific overrides for queue and regeneration contexts.
+The daemon classifies errors via `classifySessionError()` in `session-error.ts`. Before classification, `isUserCancellation()` checks whether the error is a user-initiated abort (active abort signal or `AbortError`); if so, the daemon emits `generation_cancelled` instead of `session_error` — cancel never surfaces a session-error toast.
+
+Classification uses a two-tier strategy:
+1. **Structured provider errors**: If the error is a `ProviderError` with a `statusCode`, the status code determines the category deterministically — `429` maps to `PROVIDER_RATE_LIMIT` (retryable), `5xx` to `PROVIDER_API` (retryable), other `4xx` to `PROVIDER_API` (not retryable).
+2. **Regex fallback**: For non-provider errors or `ProviderError` without a status code, regex pattern matching against the error message detects network failures, rate limits, and API errors. Phase-specific overrides handle queue and regeneration contexts.
+
+Debug details are capped at 4,000 characters to prevent oversized IPC payloads.
 
 ### Error → Toast → Recovery Flow
 
@@ -745,11 +751,12 @@ sequenceDiagram
     Note over Daemon: LLM call fails or<br/>processing error occurs
     Daemon->>Daemon: classifySessionError(error, ctx)
     Daemon->>DC: session_error {sessionId, code,<br/>userMessage, retryable, debugDetails?}
-    DC->>VM: onSessionError callback
+    DC->>DC: broadcast to all subscribers
+    DC->>VM: subscribe() stream delivers message
     VM->>VM: set sessionError property<br/>clear isThinking / isCancelling
     VM-->>UI: @Published sessionError observed
 
-    UI->>UI: show sessionErrorToast<br/>[Retry] [Dismiss]
+    UI->>UI: show sessionErrorToast<br/>[Retry] [Dismiss] [Copy Debug Info?]
 
     alt User taps Retry (retryable == true)
         UI->>VM: retryAfterSessionError()
@@ -762,10 +769,11 @@ sequenceDiagram
     end
 ```
 
-1. **Daemon** encounters a session-scoped failure, classifies it via `classifySessionError()`, and sends a `session_error` IPC message with the session ID, typed error code, user-facing message, retryable flag, and optional debug details.
-2. **ChatViewModel** receives the error via the `onSessionError` callback, sets the `sessionError` property, and transitions out of the streaming/loading state so the UI is interactive.
+1. **Daemon** encounters a session-scoped failure, classifies it via `classifySessionError()`, and sends a `session_error` IPC message with the session ID, typed error code, user-facing message, retryable flag, and optional debug details. Session-scoped failures emit *only* `session_error` (never the generic `error` type) to prevent cross-session bleed.
+2. **ChatViewModel** receives the error via DaemonClient's `subscribe()` stream (each view model gets an independent stream), sets the `sessionError` property, and transitions out of the streaming/loading state so the UI is interactive. If the error arrives during an active cancel (`wasCancelling == true`), it is suppressed — cancel only shows `generation_cancelled` behavior.
 3. **ChatView** observes the published `sessionError` and displays an actionable toast with a category-specific icon and accent color:
    - **Retry** (shown when `retryable` is true): calls `retryAfterSessionError()`, which clears the error and sends a `regenerate` message to the daemon.
+   - **Copy Debug Info** (shown when `debugDetails` is non-nil): copies structured debug information to the clipboard for bug reports.
    - **Dismiss (X)**: calls `dismissSessionError()` to clear the error without retrying.
 4. If the error is not retryable, the Retry button is hidden and the user can only dismiss.
 

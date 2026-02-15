@@ -1457,4 +1457,65 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.sessionError?.debugDetails,
                       "debugDetails should be nil when not provided in IPC message")
     }
+
+    // MARK: - Regression: Cancel semantics and error channel split
+
+    func testCancelSuppressesAllSessionErrorFields() {
+        // Regression: cancel must suppress both errorText AND typed sessionError
+        viewModel.sessionId = "sess-1"
+        viewModel.isCancelling = true
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerApi,
+            userMessage: "Server error",
+            retryable: true,
+            debugDetails: "stack trace here"
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertNil(viewModel.sessionError,
+                      "Typed sessionError must be nil during cancel")
+        XCTAssertNil(viewModel.errorText,
+                      "errorText must be nil during cancel")
+    }
+
+    func testSessionErrorDeliveredViaStreamNotCallback() {
+        // Regression: session errors arrive through handleServerMessage (stream),
+        // not through a singleton callback on DaemonClient.
+        viewModel.sessionId = "sess-1"
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerRateLimit,
+            userMessage: "Rate limited",
+            retryable: true
+        )
+
+        // Deliver via the same path the subscribe() stream uses
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertNotNil(viewModel.sessionError,
+                         "sessionError should be set via handleServerMessage")
+        XCTAssertEqual(viewModel.sessionError?.category, .rateLimit)
+        XCTAssertEqual(viewModel.sessionError?.isRetryable, true)
+    }
+
+    func testGenerationCancelledClearsThinkingState() {
+        // Regression: generation_cancelled should clear thinking/sending state
+        viewModel.sessionId = "sess-1"
+        viewModel.isThinking = true
+        viewModel.isSending = true
+
+        viewModel.handleServerMessage(.generationCancelled(
+            GenerationCancelledMessage(sessionId: "sess-1")
+        ))
+
+        XCTAssertFalse(viewModel.isThinking,
+                        "generation_cancelled should clear isThinking")
+        XCTAssertFalse(viewModel.isSending,
+                        "generation_cancelled should clear isSending")
+        XCTAssertNil(viewModel.sessionError,
+                      "generation_cancelled should not set sessionError")
+    }
 }
