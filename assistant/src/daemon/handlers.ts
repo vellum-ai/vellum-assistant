@@ -1668,6 +1668,8 @@ function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
           id: a.id,
           name: a.name,
           description: a.description,
+          icon: a.icon,
+          preview: a.preview,
           createdAt: a.createdAt,
           version,
           contentId,
@@ -1701,6 +1703,7 @@ function handleSharedAppsList(socket: net.Socket, ctx: HandlerContext): void {
       name: string;
       description?: string;
       icon?: string;
+      preview?: string;
       entry: string;
       trustTier: string;
       signerDisplayName?: string;
@@ -1736,6 +1739,7 @@ function handleSharedAppsList(socket: net.Socket, ctx: HandlerContext): void {
           name: meta.name,
           description: meta.description,
           icon: meta.icon,
+          preview: meta.preview,
           entry: meta.entry,
           trustTier: meta.trustTier,
           signerDisplayName: meta.signerDisplayName,

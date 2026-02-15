@@ -7,6 +7,7 @@ export interface AppManifest {
   name: string;
   description?: string;
   icon?: string; // single emoji
+  preview?: string; // base64-encoded PNG thumbnail, max ~50KB
   created_at: string; // ISO 8601
   created_by: string; // "vellum-assistant/{version}"
   entry: string; // "index.html"

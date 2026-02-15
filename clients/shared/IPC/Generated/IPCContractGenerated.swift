@@ -73,6 +73,7 @@ public struct IPCAppsListResponseApp: Codable, Sendable {
     public let name: String
     public let description: String?
     public let icon: String?
+    public let preview: String?
     public let createdAt: Int
     public let version: String?
     public let contentId: String?
@@ -642,6 +643,7 @@ public struct IPCSharedAppsListResponseApp: Codable, Sendable {
     public let name: String
     public let description: String?
     public let icon: String?
+    public let preview: String?
     public let entry: String
     public let trustTier: String
     public let signerDisplayName: String?

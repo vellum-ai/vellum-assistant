@@ -61,6 +61,8 @@ export async function packageApp(
     format_version: 1,
     name: app.name,
     ...(app.description ? { description: app.description } : {}),
+    ...(app.icon ? { icon: app.icon } : {}),
+    ...(app.preview ? { preview: app.preview } : {}),
     created_at: new Date().toISOString(),
     created_by: createdBy,
     entry: 'index.html',

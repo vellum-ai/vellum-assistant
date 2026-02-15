@@ -901,6 +901,7 @@ export interface AppsListResponse {
     name: string;
     description?: string;
     icon?: string;
+    preview?: string;
     createdAt: number;
     version?: string;
     contentId?: string;
@@ -914,6 +915,7 @@ export interface SharedAppsListResponse {
     name: string;
     description?: string;
     icon?: string;
+    preview?: string;
     entry: string;
     trustTier: string;
     signerDisplayName?: string;

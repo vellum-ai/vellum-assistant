@@ -7,6 +7,7 @@ private struct DisplayAppItem: Identifiable {
     let name: String
     let description: String?
     let icon: String?
+    let preview: String?
     let dateLabel: String
     let isShared: Bool
     let trustTier: String?
@@ -170,10 +171,20 @@ struct GeneratedPanel: View {
         let isBundlingThis = sharingAppId == item.id && isBundling
 
         return HStack(spacing: VSpacing.md) {
-            // Icon
-            Text(item.icon ?? "\u{1F4F1}")
-                .font(.system(size: 20))
-                .frame(width: 28, height: 28)
+            // Icon / Preview thumbnail
+            if let preview = item.preview,
+               let data = Data(base64Encoded: preview),
+               let nsImage = NSImage(data: data) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            } else {
+                Text(item.icon ?? "\u{1F4F1}")
+                    .font(.system(size: 20))
+                    .frame(width: 28, height: 28)
+            }
 
             // Name + badges + description
             VStack(alignment: .leading, spacing: 2) {
@@ -446,6 +457,7 @@ struct GeneratedPanel: View {
                 name: app.name,
                 description: app.description,
                 icon: app.icon,
+                preview: app.preview,
                 dateLabel: formatDate(app.createdAt),
                 isShared: false,
                 trustTier: nil,
@@ -464,6 +476,7 @@ struct GeneratedPanel: View {
                 name: app.name,
                 description: app.description,
                 icon: app.icon,
+                preview: app.preview,
                 dateLabel: formatISO(app.installedAt),
                 isShared: true,
                 trustTier: app.trustTier,

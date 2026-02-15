@@ -26,6 +26,8 @@ export interface AppDefinition {
   id: string;
   name: string;
   description?: string;
+  icon?: string;
+  preview?: string;
   schemaJson: string;
   htmlDefinition: string;
   version?: string;
@@ -98,6 +100,8 @@ function loadPages(appId: string): Record<string, string> | undefined {
 export function createApp(params: {
   name: string;
   description?: string;
+  icon?: string;
+  preview?: string;
   schemaJson: string;
   htmlDefinition: string;
   version?: string;
@@ -109,6 +113,8 @@ export function createApp(params: {
     id: randomUUID(),
     name: params.name,
     description: params.description,
+    icon: params.icon,
+    preview: params.preview,
     schemaJson: params.schemaJson,
     htmlDefinition: params.htmlDefinition,
     version: params.version,
@@ -162,7 +168,7 @@ export function listApps(): AppDefinition[] {
 
 export function updateApp(
   id: string,
-  updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'schemaJson' | 'htmlDefinition' | 'version' | 'pages'>>,
+  updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'icon' | 'preview' | 'schemaJson' | 'htmlDefinition' | 'version' | 'pages'>>,
 ): AppDefinition {
   validateId(id);
   const existing = getApp(id);
