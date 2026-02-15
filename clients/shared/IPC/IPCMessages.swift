@@ -297,6 +297,16 @@ extension IPCAppDataRequest {
     }
 }
 
+/// Sent to request opening a URL in the user's browser.
+/// Backed by generated `IPCLinkOpenRequest`.
+public typealias LinkOpenRequestMessage = IPCLinkOpenRequest
+
+extension IPCLinkOpenRequest {
+    public init(url: String, metadata: [String: AnyCodable]?) {
+        self.init(type: "link_open_request", url: url, metadata: metadata)
+    }
+}
+
 /// Sent to request opening an app by ID.
 /// Backed by generated `IPCAppOpenRequest`.
 public typealias AppOpenRequestMessage = IPCAppOpenRequest
@@ -672,6 +682,10 @@ public typealias TaskRoutedMessage = IPCTaskRouted
 
 /// Result from ambient observation analysis.
 public typealias AmbientResultMessage = IPCAmbientResult
+
+/// Instructs the client to open a URL in the browser.
+/// Backed by generated `IPCOpenUrl`.
+public typealias OpenUrlMessage = IPCOpenUrl
 
 /// Daemon status sent on connect — includes runtime HTTP port when available.
 public typealias DaemonStatusMessage = IPCDaemonStatusMessage
@@ -1390,6 +1404,7 @@ public enum ServerMessage: Decodable, Sendable {
     case uiSurfaceUndoResult(UiSurfaceUndoResultMessage)
     case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
+    case openUrl(OpenUrlMessage)
     case getSigningIdentity
     case pong
     case unknown(String)
@@ -1562,6 +1577,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "ipc_blob_probe_result":
             let message = try IpcBlobProbeResultMessage(from: decoder)
             self = .ipcBlobProbeResult(message)
+        case "open_url":
+            let message = try OpenUrlMessage(from: decoder)
+            self = .openUrl(message)
         case "get_signing_identity":
             self = .getSigningIdentity
         case "daemon_status":

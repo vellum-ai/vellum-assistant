@@ -466,6 +466,12 @@ public struct IPCIpcBlobRef: Codable, Sendable {
     public let sha256: String?
 }
 
+public struct IPCLinkOpenRequest: Codable, Sendable {
+    public let type: String
+    public let url: String
+    public let metadata: [String: AnyCodable]?
+}
+
 public struct IPCListItem: Codable, Sendable {
     public let id: String
     public let title: String
@@ -594,6 +600,12 @@ public struct IPCOpenBundleResponseSignatureResult: Codable, Sendable {
     public let signerKeyId: String?
     public let signerDisplayName: String?
     public let signerAccount: String?
+}
+
+public struct IPCOpenUrl: Codable, Sendable {
+    public let type: String
+    public let url: String
+    public let title: String?
 }
 
 public struct IPCPingMessage: Codable, Sendable {
