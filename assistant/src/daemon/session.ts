@@ -1203,6 +1203,13 @@ export class Session {
   async regenerate(onEvent: (msg: ServerMessage) => void, requestId?: string): Promise<void> {
     if (this.processing) {
       onEvent({ type: 'error', message: 'Cannot regenerate while processing' });
+      if (requestId) {
+        this.traceEmitter.emit('request_error', 'Cannot regenerate while processing', {
+          requestId,
+          status: 'error',
+          attributes: { reason: 'already_processing' },
+        });
+      }
       return;
     }
 
@@ -1211,12 +1218,26 @@ export class Session {
     const lastUserIdx = findLastUndoableUserMessageIndex(this.messages);
     if (lastUserIdx === -1) {
       onEvent({ type: 'error', message: 'No messages to regenerate' });
+      if (requestId) {
+        this.traceEmitter.emit('request_error', 'No messages to regenerate', {
+          requestId,
+          status: 'error',
+          attributes: { reason: 'no_messages' },
+        });
+      }
       return;
     }
 
     // There must be at least one message after the user message (the assistant reply).
     if (lastUserIdx >= this.messages.length - 1) {
       onEvent({ type: 'error', message: 'No assistant response to regenerate' });
+      if (requestId) {
+        this.traceEmitter.emit('request_error', 'No assistant response to regenerate', {
+          requestId,
+          status: 'error',
+          attributes: { reason: 'no_assistant_response' },
+        });
+      }
       return;
     }
 
@@ -1243,6 +1264,13 @@ export class Session {
 
     if (dbUserMsgIdx === -1) {
       onEvent({ type: 'error', message: 'No user message found in DB' });
+      if (requestId) {
+        this.traceEmitter.emit('request_error', 'No user message found in DB', {
+          requestId,
+          status: 'error',
+          attributes: { reason: 'no_db_user_message' },
+        });
+      }
       return;
     }
 
