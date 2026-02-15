@@ -250,6 +250,7 @@ export class RuntimeHttpServer {
         text: rendered.text,
         timestamp: msg.createdAt,
         toolCalls: rendered.toolCalls,
+        toolCallsBeforeText: rendered.toolCallsBeforeText,
         id: msg.id,
       };
     });
