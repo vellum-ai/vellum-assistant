@@ -107,6 +107,23 @@ export function initializeDb(): void {
   `);
 
   database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_item_conflicts (
+      id TEXT PRIMARY KEY,
+      scope_id TEXT NOT NULL DEFAULT 'default',
+      existing_item_id TEXT NOT NULL REFERENCES memory_items(id) ON DELETE CASCADE,
+      candidate_item_id TEXT NOT NULL REFERENCES memory_items(id) ON DELETE CASCADE,
+      relationship TEXT NOT NULL,
+      status TEXT NOT NULL,
+      clarification_question TEXT,
+      resolution_note TEXT,
+      last_asked_at INTEGER,
+      resolved_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS memory_summaries (
       id TEXT PRIMARY KEY,
       scope TEXT NOT NULL,
@@ -389,6 +406,15 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_segments_message_segment ON memory_segments(message_id, segment_index)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_segments_conversation_created ON memory_segments(conversation_id, created_at DESC)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_sources_message_id ON memory_item_sources(message_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_conflicts_status_created ON memory_item_conflicts(status, created_at)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_conflicts_scope_status ON memory_item_conflicts(scope_id, status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_conflicts_existing_item_id ON memory_item_conflicts(existing_item_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_conflicts_candidate_item_id ON memory_item_conflicts(candidate_item_id)`);
+  database.run(/*sql*/ `
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_item_conflicts_pending_pair_unique
+    ON memory_item_conflicts(scope_id, existing_item_id, candidate_item_id)
+    WHERE status = 'pending_clarification'
+  `);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_kind_status ON memory_items(kind, status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_target ON memory_embeddings(target_type, target_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_provider_model ON memory_embeddings(provider, model)`);

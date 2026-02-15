@@ -67,6 +67,7 @@ graph TB
             CONV_STORE["ConversationStore<br/>Drizzle ORM CRUD"]
             INDEXER["Memory Indexer<br/>segment + extract"]
             RECALL["Memory Recall<br/>FTS5 + Qdrant + Entity Graph + RRF<br/>Trust + Freshness + Scope"]
+            CONFLICT_STORE["ConflictStore<br/>pending/resolved clarification state"]
             JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s"]
         end
 
@@ -78,6 +79,7 @@ graph TB
             DB_FTS["memory_segment_fts (FTS5)"]
             DB_ITEMS["memory_items"]
             DB_SRC["memory_item_sources"]
+            DB_CONFLICTS["memory_item_conflicts"]
             DB_ENT["memory_entities"]
             DB_REL["memory_entity_relations"]
             DB_ITEM_ENT["memory_item_entities"]
@@ -282,6 +284,7 @@ graph LR
         SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]
         FTS["memory_segment_fts<br/>───────────────<br/>FTS5 virtual table<br/>Auto-synced via triggers<br/>Powers lexical search"]
         ITEMS["memory_items<br/>───────────────<br/>Extracted facts/entities<br/>kind, subject, statement<br/>confidence, fingerprint (dedup)<br/>verification_state, scope_id<br/>first/last seen timestamps"]
+        CONFLICTS["memory_item_conflicts<br/>───────────────<br/>Pending/resolved contradiction pairs<br/>existing_item_id + candidate_item_id<br/>clarification question + resolution note<br/>partial unique pending pair index"]
         ENTITIES["memory_entities<br/>───────────────<br/>Canonical entities + aliases<br/>mention_count, first/last seen<br/>Resolved across messages"]
         RELS["memory_entity_relations<br/>───────────────<br/>Directional entity edges<br/>Unique by source/target/relation<br/>first/last seen + evidence"]
         ITEM_ENTS["memory_item_entities<br/>───────────────<br/>Join table linking extracted<br/>memory_items to entities"]
@@ -1349,6 +1352,7 @@ graph LR
 | Conversations & messages | `~/.vellum/data/db/assistant.db` | SQLite + WAL | Drizzle ORM (Bun) | Permanent |
 | Memory segments & FTS | `~/.vellum/data/db/assistant.db` | SQLite FTS5 | Drizzle ORM | Permanent |
 | Extracted facts | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, deduped |
+| Conflict lifecycle rows | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Pending until clarified, then retained as resolved history |
 | Entity graph (entities/relations/item links) | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, deduped by unique relation edge |
 | Embeddings | `~/.vellum/data/db/assistant.db` | JSON float arrays | Drizzle ORM | Permanent |
 | Async job queue | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Completed jobs persist |
