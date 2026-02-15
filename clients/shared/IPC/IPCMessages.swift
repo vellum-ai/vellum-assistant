@@ -811,6 +811,14 @@ public enum SessionErrorCode: String, CaseIterable, Codable, Sendable {
     case sessionProcessingFailed = "SESSION_PROCESSING_FAILED"
     case regenerateFailed = "REGENERATE_FAILED"
     case unknown = "UNKNOWN"
+
+    /// Fall back to `.unknown` for unrecognized codes so that version skew
+    /// between daemon and client never silently drops a session_error message.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        self = SessionErrorCode(rawValue: rawValue) ?? .unknown
+    }
 }
 
 /// Structured session-level error from the daemon.
