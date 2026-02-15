@@ -9,6 +9,8 @@ import {
   getBackendType,
 } from '../../security/secure-keys.js';
 import { upsertCredentialMetadata, deleteCredentialMetadata } from './metadata-store.js';
+import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
+import type { CredentialPolicyInput } from './policy-types.js';
 
 /**
  * Retrieve the actual secret value for a credential.
@@ -60,6 +62,20 @@ class CredentialStoreTool implements Tool {
             type: 'string',
             description: 'Placeholder text for the input field (only for prompt action), e.g. "ghp_xxxxxxxxxxxx"',
           },
+          allowed_tools: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Tools allowed to use this credential (for store/prompt actions), e.g. ["browser_fill_credential"]. Empty = deny all.',
+          },
+          allowed_domains: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Domains where this credential may be used (for store/prompt actions), e.g. ["github.com"]. Empty = deny all.',
+          },
+          usage_description: {
+            type: 'string',
+            description: 'Human-readable description of intended usage (for store/prompt actions), e.g. "GitHub login for pushing changes"',
+          },
         },
         required: ['action'],
       },
@@ -85,12 +101,27 @@ class CredentialStoreTool implements Tool {
           return { content: 'Error: value is required for store action', isError: true };
         }
 
+        const policyInput: CredentialPolicyInput = {
+          allowed_tools: input.allowed_tools as string[] | undefined,
+          allowed_domains: input.allowed_domains as string[] | undefined,
+          usage_description: input.usage_description as string | undefined,
+        };
+        const policyResult = validatePolicyInput(policyInput);
+        if (!policyResult.valid) {
+          return { content: `Error: ${policyResult.errors.join('; ')}`, isError: true };
+        }
+        const policy = toPolicyFromInput(policyInput);
+
         const key = `credential:${service}:${field}`;
         const ok = setSecureKey(key, value);
         if (!ok) {
           return { content: 'Error: failed to store credential', isError: true };
         }
-        upsertCredentialMetadata(service, field);
+        upsertCredentialMetadata(service, field, {
+          allowedTools: policy.allowedTools,
+          allowedDomains: policy.allowedDomains,
+          usageDescription: policy.usageDescription,
+        });
         return { content: `Stored credential for ${service}/${field}.`, isError: false };
       }
 
@@ -155,6 +186,17 @@ class CredentialStoreTool implements Tool {
         const description = input.description as string | undefined;
         const placeholder = input.placeholder as string | undefined;
 
+        const promptPolicyInput: CredentialPolicyInput = {
+          allowed_tools: input.allowed_tools as string[] | undefined,
+          allowed_domains: input.allowed_domains as string[] | undefined,
+          usage_description: input.usage_description as string | undefined,
+        };
+        const promptPolicyResult = validatePolicyInput(promptPolicyInput);
+        if (!promptPolicyResult.valid) {
+          return { content: `Error: ${promptPolicyResult.errors.join('; ')}`, isError: true };
+        }
+        const promptPolicy = toPolicyFromInput(promptPolicyInput);
+
         const result = await context.requestSecret({ service, field, label, description, placeholder });
         if (!result.value) {
           return { content: 'User cancelled the credential prompt.', isError: false };
@@ -166,7 +208,11 @@ class CredentialStoreTool implements Tool {
         if (!ok) {
           return { content: 'Error: failed to store credential', isError: true };
         }
-        upsertCredentialMetadata(service, field);
+        upsertCredentialMetadata(service, field, {
+          allowedTools: promptPolicy.allowedTools,
+          allowedDomains: promptPolicy.allowedDomains,
+          usageDescription: promptPolicy.usageDescription,
+        });
         return { content: `Credential stored for ${service}/${field}.`, isError: false };
       }
 

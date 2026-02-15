@@ -47,7 +47,6 @@ mock.module('../tools/registry.js', () => ({
 
 // getCredentialValue is no longer exported (sealed in PR 17) — use getSecureKey directly
 
-// We need to construct the tool directly for testing execute()
 import type { ToolContext } from '../tools/types.js';
 import {
   setSecureKey,
@@ -55,6 +54,8 @@ import {
   listSecureKeys,
   deleteSecureKey,
 } from '../security/secure-keys.js';
+import { getCredentialMetadata, _setMetadataPath } from '../tools/credentials/metadata-store.js';
+import { credentialStoreTool } from '../tools/credentials/vault.js';
 
 // Create a minimal context for tool execution
 const _ctx: ToolContext = {
@@ -157,9 +158,11 @@ describe('credential_store tool', () => {
     }
     mkdirSync(TEST_DIR, { recursive: true });
     _setStorePath(STORE_PATH);
+    _setMetadataPath(join(TEST_DIR, 'metadata.json'));
   });
 
   afterEach(() => {
+    _setMetadataPath(null);
     _setStorePath(null);
     _resetBackend();
   });
@@ -358,27 +361,48 @@ describe('credential_store tool', () => {
       expect('getCredentialValue' in vaultModule).toBe(false);
     });
 
-    test('credential_store input schema has no policy or domain fields', () => {
-      // The current tool accepts only: action, service, field, value,
-      // label, description, placeholder. There are no access-policy,
-      // allowed-domains, or expiry fields. Future PRs will add these.
-      const knownProperties = ['action', 'service', 'field', 'value', 'label', 'description', 'placeholder'];
-      // Verify the execute wrapper accepts arbitrary inputs without error
-      // (unknown keys are silently ignored, not validated against a policy schema)
-      const storeResult = executeVault({
+    test('store with policy fields persists metadata', async () => {
+      const result = await credentialStoreTool.execute({
         action: 'store',
-        service: 'test-svc',
+        service: 'github',
+        field: 'token',
+        value: 'ghp_secret',
+        allowed_tools: ['browser_fill_credential'],
+        allowed_domains: ['github.com'],
+        usage_description: 'GitHub login',
+      }, _ctx);
+      expect(result.isError).toBe(false);
+      const metadata = getCredentialMetadata('github', 'token');
+      expect(metadata).toBeDefined();
+      expect(metadata!.allowedTools).toEqual(['browser_fill_credential']);
+      expect(metadata!.allowedDomains).toEqual(['github.com']);
+      expect(metadata!.usageDescription).toBe('GitHub login');
+    });
+
+    test('store without policy fields defaults to empty arrays', async () => {
+      const result = await credentialStoreTool.execute({
+        action: 'store',
+        service: 'slack',
+        field: 'token',
+        value: 'xoxb-secret',
+      }, _ctx);
+      expect(result.isError).toBe(false);
+      const metadata = getCredentialMetadata('slack', 'token');
+      expect(metadata).toBeDefined();
+      expect(metadata!.allowedTools).toEqual([]);
+      expect(metadata!.allowedDomains).toEqual([]);
+    });
+
+    test('store rejects invalid policy input', async () => {
+      const result = await credentialStoreTool.execute({
+        action: 'store',
+        service: 'test',
         field: 'token',
         value: 'val',
-        allowedDomains: ['example.com'],   // not part of current schema
-        expiresAt: '2026-12-31',           // not part of current schema
-        accessPolicy: 'browser_fill_only', // not part of current schema
-      });
-      // Store succeeds — extra fields are silently ignored
-      return storeResult.then((r) => {
-        expect(r.isError).toBe(false);
-        expect(r.content).toBe('Stored credential for test-svc/token.');
-      });
+        allowed_tools: 'not-an-array',
+      }, _ctx);
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('allowed_tools must be an array');
     });
 
     test('list action entries contain only service and field (no policy metadata)', () => {
