@@ -213,6 +213,31 @@ describe('DockerBackend — fail-closed on escape', () => {
   });
 });
 
+describe('DockerBackend — unsafe path character rejection', () => {
+  test('rejects sandbox root containing a comma (mount argument injection)', () => {
+    const dirWithComma = `${sandboxRoot}/evil,dst=/etc,src=/`;
+    if (!existsSync(dirWithComma)) {
+      mkdirSync(dirWithComma, { recursive: true });
+    }
+    expect(() => new DockerBackend(dirWithComma, undefined, 1000, 1000)).toThrow(ToolError);
+    expect(() => new DockerBackend(dirWithComma, undefined, 1000, 1000)).toThrow(
+      'unsafe for Docker mount arguments',
+    );
+  });
+
+  test('rejects working directory containing a comma', () => {
+    const dirWithComma = `${sandboxRoot}/work,dir`;
+    if (!existsSync(dirWithComma)) {
+      mkdirSync(dirWithComma, { recursive: true });
+    }
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    expect(() => backend.wrap('ls', dirWithComma)).toThrow(ToolError);
+    expect(() => backend.wrap('ls', dirWithComma)).toThrow(
+      'unsafe for Docker mount arguments',
+    );
+  });
+});
+
 describe('DockerBackend — special characters in paths', () => {
   test('handles spaces in sandbox root path', () => {
     const dirWithSpaces = `${sandboxRoot}/docker sandbox test spaces`;
