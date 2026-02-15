@@ -339,6 +339,47 @@ describe('Session conflict soft gate', () => {
     expect(events.some((event) => event.type === 'message_complete')).toBe(true);
   });
 
+  test('recently asked conflicts still resolve directional clarification replies', async () => {
+    pendingConflicts = [{
+      id: 'conflict-followup',
+      scopeId: 'default',
+      existingItemId: 'existing-followup',
+      candidateItemId: 'candidate-followup',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Should I assume Postgres or MySQL?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use Postgres as the default database.',
+      candidateStatement: 'Use MySQL as the default database.',
+    }];
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // First turn asks the clarification and records it as asked.
+    await session.processMessage('Should I assume Postgres or MySQL?', [], () => {});
+    expect(resolverCallCount).toBe(1);
+    expect(markAskedCalls).toEqual(['conflict-followup']);
+
+    resolverResult = {
+      resolution: 'keep_candidate',
+      strategy: 'heuristic',
+      resolvedStatement: null,
+      explanation: 'Directional clarification received.',
+    };
+
+    // Follow-up reply does not overlap statement tokens but should still resolve.
+    await session.processMessage('Keep the new one.', [], () => {});
+
+    expect(resolverCallCount).toBe(2);
+    expect(markAskedCalls).toEqual(['conflict-followup']);
+    expect(runCalls).toHaveLength(1);
+  });
+
   test('cooldown prevents repeated asks on subsequent turns', async () => {
     pendingConflicts = [{
       id: 'conflict-cooldown',
