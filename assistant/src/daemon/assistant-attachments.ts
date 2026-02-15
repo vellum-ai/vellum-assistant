@@ -314,10 +314,17 @@ export function resolveSandboxDirective(
   let stat;
   try {
     stat = statSync(resolved);
-  } catch {
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return {
+        draft: null,
+        warning: `Skipped sandbox attachment "${directive.path}": file not found.`,
+      };
+    }
     return {
       draft: null,
-      warning: `Skipped sandbox attachment "${directive.path}": file not found.`,
+      warning: `Skipped sandbox attachment "${directive.path}": stat error: ${(err as Error).message}`,
     };
   }
 
@@ -413,10 +420,17 @@ export async function resolveHostDirective(
   let stat;
   try {
     stat = statSync(resolved);
-  } catch {
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return {
+        draft: null,
+        warning: `Skipped host attachment "${directive.path}": file not found.`,
+      };
+    }
     return {
       draft: null,
-      warning: `Skipped host attachment "${directive.path}": file not found.`,
+      warning: `Skipped host attachment "${directive.path}": stat error: ${(err as Error).message}`,
     };
   }
 
