@@ -33,6 +33,8 @@ struct ChatView: View {
     let onRetry: () -> Void
     let onDismissSessionError: () -> Void
     let onCopyDebugInfo: () -> Void
+    let watchSession: WatchSession?
+    let onStopWatch: () -> Void
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
@@ -108,6 +110,13 @@ struct ChatView: View {
 
     private var composerOverlay: some View {
         VStack(spacing: 0) {
+            if let watchSession, watchSession.state == .capturing {
+                WatchProgressView(session: watchSession, onStop: onStopWatch)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.sm)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             if let sessionError {
                 sessionErrorToast(sessionError)
             } else if let errorText {
@@ -976,7 +985,9 @@ private struct ChatViewPreviewWrapper: View {
                 sessionError: nil,
                 onRetry: {},
                 onDismissSessionError: {},
-                onCopyDebugInfo: {}
+                onCopyDebugInfo: {},
+                watchSession: nil,
+                onStopWatch: {}
             )
         }
     }

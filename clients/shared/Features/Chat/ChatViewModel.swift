@@ -165,6 +165,10 @@ public final class ChatViewModel: ObservableObject {
     /// Called when the daemon sends a `watch_complete_request` to stop the active watch session.
     public var onWatchCompleteRequest: ((WatchCompleteRequestMessage) -> Void)?
 
+    /// Called when the user taps the stop button on the watch progress UI.
+    /// The macOS layer should cancel the WatchSession and send a cancel to the daemon.
+    public var onStopWatch: (() -> Void)?
+
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false
 
@@ -1229,6 +1233,13 @@ public final class ChatViewModel: ObservableObject {
             isThinking = false
             errorText = "Failed to regenerate message."
         }
+    }
+
+    /// Stop the active watch session and notify the macOS layer.
+    public func stopWatchSession() {
+        guard isWatchSessionActive else { return }
+        isWatchSessionActive = false
+        onStopWatch?()
     }
 
     public func dismissError() {

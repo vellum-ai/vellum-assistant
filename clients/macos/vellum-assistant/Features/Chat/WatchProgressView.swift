@@ -1,0 +1,96 @@
+import SwiftUI
+import VellumAssistantShared
+
+struct WatchProgressView: View {
+    @ObservedObject var session: WatchSession
+    let onStop: () -> Void
+
+    @State private var isPulsing = false
+
+    private var progress: Double {
+        guard session.totalExpected > 0 else { return 0 }
+        return Double(session.captureCount) / Double(session.totalExpected)
+    }
+
+    private var elapsedFormatted: String {
+        let minutes = Int(session.elapsedSeconds) / 60
+        let seconds = Int(session.elapsedSeconds) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    private var totalFormatted: String {
+        let minutes = session.durationSeconds / 60
+        let seconds = session.durationSeconds % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    var body: some View {
+        VStack(spacing: VSpacing.md) {
+            // Pulsing eye icon + label
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "eye.fill")
+                    .foregroundColor(VColor.accent)
+                    .opacity(isPulsing ? 0.4 : 1.0)
+                    .animation(
+                        Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true),
+                        value: isPulsing
+                    )
+
+                Text("Watching your workflow...")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
+
+                // Stop button
+                Button(action: onStop) {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.error)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop watching")
+            }
+
+            // Progress bar with elapsed/total
+            VStack(spacing: VSpacing.xs) {
+                ProgressView(value: progress)
+                    .tint(VColor.accent)
+
+                HStack {
+                    Text("\(elapsedFormatted) / \(totalFormatted)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                    Text("\(session.captureCount)/\(session.totalExpected) captures")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            }
+
+            // Current app badge
+            if !session.currentApp.isEmpty {
+                HStack {
+                    Text(session.currentApp)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.xs)
+                                .fill(VColor.backgroundSubtle)
+                        )
+                    Spacer()
+                }
+            }
+        }
+        .padding(VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surface)
+        )
+        .onAppear {
+            isPulsing = true
+        }
+    }
+}

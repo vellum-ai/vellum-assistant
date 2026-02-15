@@ -125,6 +125,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         chatViewModels.removeValue(forKey: threadId)
     }
 
+    /// The ambient agent instance, set by the app layer so watch session callbacks
+    /// can create and manage WatchSession objects.
+    weak var ambientAgent: AmbientAgent?
+
     func makeViewModel() -> ChatViewModel {
         let viewModel = ChatViewModel(daemonClient: daemonClient)
         viewModel.onInlineConfirmationResponse = { [weak self] requestId in
@@ -133,6 +137,25 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         viewModel.shouldAcceptConfirmation = { [weak self, weak viewModel] in
             guard let self, let viewModel else { return false }
             return self.isLatestToolUseRecipient(viewModel)
+        }
+        viewModel.onWatchStarted = { [weak self] msg, client in
+            guard let self else { return }
+            let session = WatchSession(
+                watchId: msg.watchId,
+                sessionId: msg.sessionId,
+                durationSeconds: Int(msg.durationSeconds),
+                intervalSeconds: Int(msg.intervalSeconds)
+            )
+            self.ambientAgent?.activeWatchSession = session
+            session.start(daemonClient: client)
+        }
+        viewModel.onWatchCompleteRequest = { [weak self] _ in
+            self?.ambientAgent?.activeWatchSession?.stop()
+            self?.ambientAgent?.activeWatchSession = nil
+        }
+        viewModel.onStopWatch = { [weak self] in
+            self?.ambientAgent?.activeWatchSession?.stop()
+            self?.ambientAgent?.activeWatchSession = nil
         }
         return viewModel
     }

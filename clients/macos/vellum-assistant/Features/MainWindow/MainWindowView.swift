@@ -382,7 +382,9 @@ struct MainWindowView: View {
                         sessionError: viewModel.sessionError,
                         onRetry: { viewModel.retryAfterSessionError() },
                         onDismissSessionError: { viewModel.dismissSessionError() },
-                        onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() }
+                        onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
+                        watchSession: ambientAgent.activeWatchSession,
+                        onStopWatch: { viewModel.stopWatchSession() }
                     )
                 }
             }, panel: {
