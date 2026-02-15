@@ -16,6 +16,7 @@ import { ComputerUseSession } from './computer-use-session.js';
 import {
   serialize,
   createMessageParser,
+  rawByteLength,
   MAX_LINE_SIZE,
   type ClientMessage,
   type ServerMessage,
@@ -418,7 +419,8 @@ export class DaemonServer {
       }
       const parsedAtMs = Date.now();
       const parseDurationMs = Number(process.hrtime.bigint() - parseStartNs) / 1_000_000;
-      for (const { msg, rawByteLength } of parsed) {
+      for (const entry of parsed) {
+        const msg = entry.msg;
         if (typeof msg === 'object' && msg !== null && (msg as { type?: unknown }).type === 'cu_observation') {
           const maybeSessionId = (msg as { sessionId?: unknown }).sessionId;
           const sessionId = typeof maybeSessionId === 'string' ? maybeSessionId : 'unknown';
@@ -431,7 +433,7 @@ export class DaemonServer {
             chunkReceivedAtMs,
             parsedAtMs,
             parseDurationMs,
-            messageBytes: rawByteLength,
+            messageBytes: rawByteLength(entry),
           }, 'IPC_METRIC cu_observation_parse');
         }
         const result = validateClientMessage(msg);

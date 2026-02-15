@@ -20,7 +20,12 @@ export function serialize(msg: ClientMessage | ServerMessage): string {
 
 export interface ParsedMessage<T = ClientMessage | ServerMessage> {
   msg: T;
-  rawByteLength: number;
+  /** Raw trimmed line; use rawByteLength() to get UTF-8 byte count on demand. */
+  rawLine: string;
+}
+
+export function rawByteLength(pm: ParsedMessage): number {
+  return Buffer.byteLength(pm.rawLine, 'utf8');
 }
 
 export function createMessageParser(options?: { maxLineSize?: number }) {
@@ -38,7 +43,7 @@ export function createMessageParser(options?: { maxLineSize?: number }) {
         try {
           results.push({
             msg: JSON.parse(trimmed),
-            rawByteLength: Buffer.byteLength(trimmed, 'utf8'),
+            rawLine: trimmed,
           });
         } catch {
           // Skip malformed messages
