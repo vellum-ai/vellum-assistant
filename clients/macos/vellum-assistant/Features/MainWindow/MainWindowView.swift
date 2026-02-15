@@ -6,17 +6,10 @@ struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
     @ObservedObject var zoomManager: ZoomManager
     @ObservedObject var traceStore: TraceStore
-    @State private var activePanel: SidePanelType?
-    @State private var isDynamicExpanded = false
-    @State private var activeDynamicSurface: UiSurfaceShowMessage?
-    /// Parsed surface for the active workspace dynamic page, kept in sync with
-    /// SurfaceManager via notifications so updates from the daemon are reflected.
-    @State private var activeDynamicParsedSurface: Surface?
-    @State private var hasAPIKey = APIKeyManager.hasAnyKey()
+    @ObservedObject var windowState: MainWindowState
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var selectedThreadId: UUID?
     @State private var workspaceEditorContentHeight: CGFloat = 20
-    @State private var workspaceComposerExpanded = false
     @State private var showSharePicker = false
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
@@ -26,7 +19,7 @@ struct MainWindowView: View {
     let settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
 
-    init(threadManager: ThreadManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, onMicrophoneToggle: @escaping () -> Void = {}) {
+    init(threadManager: ThreadManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, onMicrophoneToggle: @escaping () -> Void = {}) {
         self.threadManager = threadManager
         self.zoomManager = zoomManager
         self.traceStore = traceStore
@@ -34,6 +27,7 @@ struct MainWindowView: View {
         self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
         self.settingsStore = settingsStore
+        self.windowState = windowState
         self.onMicrophoneToggle = onMicrophoneToggle
     }
 
@@ -70,23 +64,23 @@ struct MainWindowView: View {
 
                                 // Panel toggle buttons
                                 HStack(spacing: VSpacing.sm) {
-                                    VIconButton(label: "Dynamic", icon: "wand.and.stars", isActive: activePanel == .generated, iconOnly: true) {
-                                        togglePanel(.generated)
+                                    VIconButton(label: "Dynamic", icon: "wand.and.stars", isActive: windowState.activePanel == .generated, iconOnly: true) {
+                                        windowState.togglePanel(.generated)
                                     }
-                                    VIconButton(label: "Skills", icon: "exclamationmark.triangle", isActive: activePanel == .agent, iconOnly: true) {
-                                        togglePanel(.agent)
+                                    VIconButton(label: "Skills", icon: "exclamationmark.triangle", isActive: windowState.activePanel == .agent, iconOnly: true) {
+                                        windowState.togglePanel(.agent)
                                     }
-                                    VIconButton(label: "Settings", icon: "gearshape", isActive: activePanel == .settings, iconOnly: true) {
-                                        togglePanel(.settings)
+                                    VIconButton(label: "Settings", icon: "gearshape", isActive: windowState.activePanel == .settings, iconOnly: true) {
+                                        windowState.togglePanel(.settings)
                                     }
-                                    VIconButton(label: "Directory", icon: "doc.text", isActive: activePanel == .directory, iconOnly: true) {
-                                        togglePanel(.directory)
+                                    VIconButton(label: "Directory", icon: "doc.text", isActive: windowState.activePanel == .directory, iconOnly: true) {
+                                        windowState.togglePanel(.directory)
                                     }
-                                    VIconButton(label: "Debug", icon: "ant", isActive: activePanel == .debug, iconOnly: true) {
-                                        togglePanel(.debug)
+                                    VIconButton(label: "Debug", icon: "ant", isActive: windowState.activePanel == .debug, iconOnly: true) {
+                                        windowState.togglePanel(.debug)
                                     }
-                                    VIconButton(label: "Doctor", icon: "stethoscope", isActive: activePanel == .doctor, iconOnly: true) {
-                                        togglePanel(.doctor)
+                                    VIconButton(label: "Doctor", icon: "stethoscope", isActive: windowState.activePanel == .doctor, iconOnly: true) {
+                                        windowState.togglePanel(.doctor)
                                     }
                                 }
                             }
@@ -119,7 +113,7 @@ struct MainWindowView: View {
                             onSelect: { threadManager.selectThread(id: $0) },
                             onClose: { threadManager.closeThread(id: $0) },
                             onCreate: { threadManager.createThread() },
-                            activePanel: $activePanel
+                            activePanel: $windowState.activePanel
                         )
 
                         // Row 2 — chat content with optional side panel
@@ -145,23 +139,23 @@ struct MainWindowView: View {
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
         .onAppear {
-            refreshAPIKeyState()
+            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             selectedThreadId = threadManager.activeThreadId
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
-            refreshAPIKeyState()
+            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
         }
         .onReceive(daemonClient.$isConnected) { _ in
-            refreshAPIKeyState()
+            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
         }
-        .onChange(of: activePanel) { _, newPanel in
+        .onChange(of: windowState.activePanel) { _, newPanel in
             // Reset expanded state and active surface when navigating away from the
             // Dynamic panel via toolbar or tab bar buttons, which only modify activePanel.
             if newPanel != .generated {
                 showSharePicker = false
-                isDynamicExpanded = false
-                activeDynamicSurface = nil
-                activeDynamicParsedSurface = nil
+                windowState.isDynamicExpanded = false
+                windowState.activeDynamicSurface = nil
+                windowState.activeDynamicParsedSurface = nil
             }
         }
         .onChange(of: selectedThreadId) { _, newId in
@@ -176,50 +170,50 @@ struct MainWindowView: View {
             if let oldId {
                 threadManager.clearActiveSurface(threadId: oldId)
             }
-            threadManager.activeViewModel?.activeSurfaceId = isDynamicExpanded ? activeDynamicSurface?.surfaceId : nil
+            threadManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
             if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
-                activeDynamicSurface = msg
-                activeDynamicParsedSurface = Surface.from(msg)
-                activePanel = .generated
-                isDynamicExpanded = true
+                windowState.activeDynamicSurface = msg
+                windowState.activeDynamicParsedSurface = Surface.from(msg)
+                windowState.activePanel = .generated
+                windowState.isDynamicExpanded = true
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
             if let updated = notification.userInfo?["surface"] as? Surface,
-               updated.id == activeDynamicSurface?.surfaceId {
-                activeDynamicParsedSurface = updated
+               updated.id == windowState.activeDynamicSurface?.surfaceId {
+                windowState.activeDynamicParsedSurface = updated
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .dismissDynamicWorkspace)) { notification in
             // If a specific surfaceId was dismissed, only clear if it matches.
             if let surfaceId = notification.userInfo?["surfaceId"] as? String {
-                if activeDynamicSurface?.surfaceId == surfaceId {
+                if windowState.activeDynamicSurface?.surfaceId == surfaceId {
                     showSharePicker = false
-                    if activePanel == .generated {
-                        activePanel = nil
+                    if windowState.activePanel == .generated {
+                        windowState.activePanel = nil
                     }
-                    isDynamicExpanded = false
-                    activeDynamicSurface = nil
-                    activeDynamicParsedSurface = nil
+                    windowState.isDynamicExpanded = false
+                    windowState.activeDynamicSurface = nil
+                    windowState.activeDynamicParsedSurface = nil
                 }
             } else {
                 // Bulk dismiss (dismissAll)
                 showSharePicker = false
-                if activePanel == .generated {
-                    activePanel = nil
+                if windowState.activePanel == .generated {
+                    windowState.activePanel = nil
                 }
-                isDynamicExpanded = false
-                activeDynamicSurface = nil
-                activeDynamicParsedSurface = nil
+                windowState.isDynamicExpanded = false
+                windowState.activeDynamicSurface = nil
+                windowState.activeDynamicParsedSurface = nil
             }
         }
-        .onChange(of: isDynamicExpanded) { _, expanded in
-            threadManager.activeViewModel?.activeSurfaceId = expanded ? activeDynamicSurface?.surfaceId : nil
+        .onChange(of: windowState.isDynamicExpanded) { _, expanded in
+            threadManager.activeViewModel?.activeSurfaceId = expanded ? windowState.activeDynamicSurface?.surfaceId : nil
         }
-        .onChange(of: activeDynamicSurface?.surfaceId) { _, surfaceId in
-            if isDynamicExpanded {
+        .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
+            if windowState.isDynamicExpanded {
                 threadManager.activeViewModel?.activeSurfaceId = surfaceId
             }
         }
@@ -321,25 +315,25 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func chatContentView(geometry: GeometryProxy) -> some View {
-        if isDynamicExpanded && activePanel == .generated {
-            if let surface = activeDynamicParsedSurface,
+        if windowState.isDynamicExpanded && windowState.activePanel == .generated {
+            if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
                 // Workspace mode: full-window dynamic page
                 dynamicWorkspaceView(surface: surface, data: dpData)
             } else {
                 // Gallery mode: existing behavior, with workspace routing
                 GeneratedPanel(
-                    onClose: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil },
-                    isExpanded: $isDynamicExpanded,
+                    onClose: { showSharePicker = false; windowState.closeDynamicPanel() },
+                    isExpanded: $windowState.isDynamicExpanded,
                     daemonClient: daemonClient,
                     onOpenApp: { surfaceMsg in
-                        activeDynamicSurface = surfaceMsg
-                        activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                        windowState.activeDynamicSurface = surfaceMsg
+                        windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
                     }
                 )
             }
         } else {
-            VSplitView(panelWidth: $sidePanelWidth, showPanel: activePanel != nil, main: {
+            VSplitView(panelWidth: $sidePanelWidth, showPanel: windowState.activePanel != nil, main: {
                 if let viewModel = threadManager.activeViewModel {
                     ChatView(
                         messages: viewModel.messages,
@@ -347,7 +341,7 @@ struct MainWindowView: View {
                             get: { viewModel.inputText },
                             set: { viewModel.inputText = $0 }
                         ),
-                        hasAPIKey: hasAPIKey,
+                        hasAPIKey: windowState.hasAPIKey,
                         isThinking: viewModel.isThinking,
                         isSending: viewModel.isSending,
                         errorText: viewModel.errorText,
@@ -357,7 +351,7 @@ struct MainWindowView: View {
                         isRecording: viewModel.isRecording,
                         onOpenSettings: {
                             // Always provide an immediate, visible fallback.
-                            activePanel = .settings
+                            windowState.activePanel = .settings
                             Self.openSettings()
                         },
                         onSend: viewModel.sendMessage,
@@ -428,25 +422,13 @@ struct MainWindowView: View {
         }
     }
 
-    private func refreshAPIKeyState() {
-        hasAPIKey = APIKeyManager.hasAnyKey() || daemonClient.isConnected
-    }
-
-    private func togglePanel(_ panel: SidePanelType) {
-        if activePanel == panel {
-            activePanel = nil
-        } else {
-            activePanel = panel
-        }
-    }
-
     // MARK: - Dynamic Workspace
 
     /// Height reserved at the bottom so HTML content scrolls past the floating composer.
     private var workspaceComposerReservedHeight: CGFloat {
         let editorClamped = min(max(workspaceEditorContentHeight, 14), 200)
         let contentHeight = max(editorClamped, 28)
-        let expanded = workspaceComposerExpanded
+        let expanded = windowState.workspaceComposerExpanded
         let topPad: CGFloat = expanded ? VSpacing.lg : VSpacing.sm
         let buttonRow: CGFloat = expanded ? 28 + VSpacing.xs : 0
         return VSpacing.md + 18 + topPad + VSpacing.sm + contentHeight + buttonRow
@@ -480,10 +462,7 @@ struct MainWindowView: View {
                     // "< Chat" pill button — single exit action
                     Button(action: {
                         showSharePicker = false
-                        activePanel = nil
-                        isDynamicExpanded = false
-                        activeDynamicSurface = nil
-                        activeDynamicParsedSurface = nil
+                        windowState.closeDynamicPanel()
                     }) {
                         HStack(spacing: VSpacing.xs) {
                             Image(systemName: "chevron.left")
@@ -554,7 +533,7 @@ struct MainWindowView: View {
                             get: { viewModel.inputText },
                             set: { viewModel.inputText = $0 }
                         ),
-                        hasAPIKey: hasAPIKey,
+                        hasAPIKey: windowState.hasAPIKey,
                         isSending: viewModel.isSending,
                         isRecording: viewModel.isRecording,
                         suggestion: viewModel.suggestion,
@@ -567,7 +546,7 @@ struct MainWindowView: View {
                         onPaste: { viewModel.addAttachmentFromPasteboard() },
                         onMicrophoneToggle: onMicrophoneToggle,
                         editorContentHeight: $workspaceEditorContentHeight,
-                        isComposerExpanded: $workspaceComposerExpanded
+                        isComposerExpanded: $windowState.workspaceComposerExpanded
                     )
                 }
             }
@@ -576,12 +555,12 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private var panelContent: some View {
-        if let panel = activePanel {
+        if let panel = windowState.activePanel {
             switch panel {
             case .generated:
-                GeneratedPanel(onClose: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil }, isExpanded: $isDynamicExpanded, daemonClient: daemonClient)
+                GeneratedPanel(onClose: { showSharePicker = false; windowState.closeDynamicPanel() }, isExpanded: $windowState.isDynamicExpanded, daemonClient: daemonClient)
             case .agent:
-                AgentPanel(onClose: { activePanel = nil }, onInvokeSkill: { skill in
+                AgentPanel(onClose: { windowState.activePanel = nil }, onInvokeSkill: { skill in
                     if threadManager.activeViewModel == nil {
                         threadManager.createThread()
                     }
@@ -598,17 +577,17 @@ struct MainWindowView: View {
                     }
                 }, daemonClient: daemonClient)
             case .settings:
-                SettingsPanel(onClose: { activePanel = nil }, store: settingsStore, daemonClient: daemonClient)
+                SettingsPanel(onClose: { windowState.activePanel = nil }, store: settingsStore, daemonClient: daemonClient)
             case .directory:
-                DirectoryPanel(onClose: { activePanel = nil })
+                DirectoryPanel(onClose: { windowState.activePanel = nil })
             case .debug:
                 DebugPanel(
                     traceStore: traceStore,
                     activeSessionId: threadManager.activeViewModel?.sessionId,
-                    onClose: { activePanel = nil }
+                    onClose: { windowState.activePanel = nil }
                 )
             case .doctor:
-                DoctorPanel(onClose: { activePanel = nil })
+                DoctorPanel(onClose: { windowState.activePanel = nil })
             }
         }
     }
@@ -635,7 +614,7 @@ private struct ZoomIndicatorView: View {
 #Preview {
     let dc = DaemonClient()
     let agent = AmbientAgent()
-    MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: agent, settingsStore: SettingsStore(ambientAgent: agent, daemonClient: dc))
+    MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: agent, settingsStore: SettingsStore(ambientAgent: agent, daemonClient: dc), windowState: MainWindowState())
         .frame(width: 900, height: 600)
         .padding(.top, 36)
 }
