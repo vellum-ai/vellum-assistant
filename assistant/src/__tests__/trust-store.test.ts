@@ -598,12 +598,10 @@ describe('Trust Store', () => {
         .sort();
       expect(defaultTools).toEqual([
         'cu_click',
-        'cu_done',
         'cu_double_click',
         'cu_drag',
         'cu_key',
         'cu_open_app',
-        'cu_respond',
         'cu_right_click',
         'cu_run_applescript',
         'cu_scroll',
