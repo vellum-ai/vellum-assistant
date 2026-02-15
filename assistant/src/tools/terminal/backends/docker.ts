@@ -159,8 +159,17 @@ export class DockerBackend implements SandboxBackend {
     this.sandboxRoot = realpathSync(resolved);
     validatePathSafety(this.sandboxRoot, 'Sandbox root');
     this.config = { ...DEFAULTS, ...config };
-    this.uid = uid ?? process.getuid!();
-    this.gid = gid ?? process.getgid!();
+    if (uid != null) {
+      this.uid = uid;
+    } else if (process.getuid) {
+      this.uid = process.getuid();
+    } else {
+      throw new ToolError(
+        'Docker sandbox requires POSIX UID/GID APIs (process.getuid/getgid) which are not available on this platform.',
+        'bash',
+      );
+    }
+    this.gid = gid ?? (process.getgid ? process.getgid() : this.uid);
   }
 
   /**
