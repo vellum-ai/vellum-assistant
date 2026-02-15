@@ -42,11 +42,13 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
             // Pinned content (not scrollable)
             pinnedContent()
 
-            // Scrollable content
+            // Scrollable content — lower priority so pinnedContent's
+            // own ScrollView (e.g. TraceTimelineView) isn't starved.
             ScrollView {
                 content()
                     .padding(VSpacing.xl)
             }
+            .layoutPriority(-1)
         }
         .background(VColor.backgroundSubtle)
     }
