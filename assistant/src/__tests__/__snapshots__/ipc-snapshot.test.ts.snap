@@ -1030,13 +1030,12 @@ exports[`IPC message snapshots ServerMessage types message_dequeued serializes t
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types timer_completed serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types reminder_fired serializes to expected JSON 1`] = `
 {
-  "durationMinutes": 25,
-  "label": "Focus time",
-  "sessionId": "sess-001",
-  "timerId": "tmr-001",
-  "type": "timer_completed",
+  "label": "Call Sidd",
+  "message": "Remember to call Sidd about the project",
+  "reminderId": "rem-001",
+  "type": "reminder_fired",
 }
 `;
 
@@ -1300,14 +1299,5 @@ exports[`IPC message snapshots ServerMessage types slack_webhook_config_response
   "success": true,
   "type": "slack_webhook_config_response",
   "webhookUrl": "https://hooks.slack.com/services/T00/B00/xxx",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types reminder_fired serializes to expected JSON 1`] = `
-{
-  "label": "Call Sidd",
-  "message": "Remember to call Sidd about the project",
-  "reminderId": "rem-001",
-  "type": "reminder_fired",
 }
 `;

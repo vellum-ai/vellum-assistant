@@ -1105,14 +1105,6 @@ export interface SlackWebhookConfigResponse {
   error?: string;
 }
 
-export interface TimerCompleted {
-  type: 'timer_completed';
-  sessionId: string;
-  timerId: string;
-  label: string;
-  durationMinutes: number;
-}
-
 export interface ReminderFired {
   type: 'reminder_fired';
   reminderId: string;
@@ -1276,7 +1268,6 @@ export type ServerMessage =
   | SuggestionResponse
   | MessageQueued
   | MessageDequeued
-  | TimerCompleted
   | ReminderFired
   | WatchStarted
   | WatchCompleteRequest

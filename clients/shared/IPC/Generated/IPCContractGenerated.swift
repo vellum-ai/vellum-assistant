@@ -1034,14 +1034,6 @@ public struct IPCTaskSubmit: Codable, Sendable {
     public let source: String?
 }
 
-public struct IPCTimerCompleted: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let timerId: String
-    public let label: String
-    public let durationMinutes: Double
-}
-
 public struct IPCToolOutputChunk: Codable, Sendable {
     public let type: String
     public let chunk: String

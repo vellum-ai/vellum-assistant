@@ -29,7 +29,6 @@ import { TraceEmitter } from './trace-emitter.js';
 import { classifySessionError, isUserCancellation, buildSessionErrorMessage } from './session-error.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
-import { registerTimerCompletionNotifier, unregisterTimerCompletionNotifier, pruneSessionTimers } from '../tools/timer/pomodoro.js';
 import {
   registerWatchStartNotifier,
   unregisterWatchStartNotifier,
@@ -148,16 +147,6 @@ export class Session {
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.secretPrompter = new SecretPrompter(sendToClient);
-
-    registerTimerCompletionNotifier(conversationId, (timer) => {
-      this.sendToClient({
-        type: 'timer_completed',
-        sessionId: conversationId,
-        timerId: timer.id,
-        label: timer.label,
-        durationMinutes: timer.durationMinutes,
-      });
-    });
 
     registerWatchStartNotifier(conversationId, (session: WatchSession) => {
       this.sendToClient({
@@ -387,8 +376,6 @@ export class Session {
       this.secretPrompter.dispose();
       this.pendingSurfaceActions.clear();
       this.surfaceState.clear();
-      unregisterTimerCompletionNotifier(this.conversationId);
-      pruneSessionTimers(this.conversationId);
       unregisterWatchStartNotifier(this.conversationId);
       unregisterWatchCommentaryNotifier(this.conversationId);
       unregisterWatchCompletionNotifier(this.conversationId);
@@ -1232,9 +1219,6 @@ export class Session {
       this.processing = false;
       this.currentRequestId = undefined;
       this.currentActiveSurfaceId = undefined;
-
-      // Clean up completed/cancelled timers to prevent unbounded map growth
-      pruneSessionTimers(this.conversationId);
 
       // Drain the next queued message, if any
       this.drainQueue(yieldedForHandoff ? 'checkpoint_handoff' : 'loop_complete');
