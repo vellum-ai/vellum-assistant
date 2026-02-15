@@ -108,6 +108,18 @@ curl -i -X POST http://localhost:7830/webhooks/telegram
 - The `host` header is not forwarded to upstream.
 - Upstream connection failures return `502 Bad Gateway`.
 
+## Outbound Attachments (Telegram)
+
+When the assistant includes attachments in a reply, the gateway downloads each attachment from the runtime API and delivers it to the Telegram chat:
+
+- **Images** (`image/*` MIME types) are sent via `sendPhoto` (multipart form upload).
+- **Other files** are sent via `sendDocument` (multipart form upload).
+- **Oversized** attachments (exceeding `GATEWAY_MAX_ATTACHMENT_BYTES`, default 20 MB) are silently skipped.
+- **Partial failures** are handled gracefully: each attachment is attempted independently. If any fail, a single summary notice is sent to the chat listing the undelivered filenames.
+- **Concurrency** is controlled by `GATEWAY_MAX_ATTACHMENT_CONCURRENCY` (default 3).
+
+Text and attachments are sent separately — the text reply goes first via `sendMessage`, then each attachment follows.
+
 ## Health & Readiness Probes
 
 | Endpoint | Method | Behavior |

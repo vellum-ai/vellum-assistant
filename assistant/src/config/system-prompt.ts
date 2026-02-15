@@ -58,8 +58,28 @@ export function buildSystemPrompt(): string {
   if (soul) parts.push(soul);
   if (user) parts.push(user);
   parts.push(buildConfigSection(baseDir));
+  parts.push(buildAttachmentSection());
 
   return appendSkillsCatalog(parts.join('\n\n'));
+}
+
+function buildAttachmentSection(): string {
+  return [
+    '## Sending Files and Images',
+    '',
+    'To attach a file or image to your reply, include a self-closing XML tag in your response text:',
+    '',
+    '```',
+    '<vellum-attachment source="sandbox" path="output/chart.png" />',
+    '```',
+    '',
+    '- `source`: `sandbox` (default, files inside the sandbox working directory) or `host` (absolute paths on the host filesystem — requires user approval).',
+    '- `path`: Required. Relative path for sandbox, absolute path for host.',
+    '- `filename`: Optional override for the delivered filename (defaults to the basename of the path).',
+    '- `mime_type`: Optional MIME type override (inferred from the file extension if omitted).',
+    '',
+    'Limits: up to 5 attachments per turn, 20 MB each. Tool outputs that produce image or file content blocks are also automatically converted into attachments.',
+  ].join('\n');
 }
 
 function buildConfigSection(configDir: string): string {
