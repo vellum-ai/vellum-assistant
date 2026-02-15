@@ -49,6 +49,7 @@ public struct InlineDynamicPagePreview: View {
                 }
             }
 
+            #if os(macOS)
             HStack {
                 Spacer()
                 Button {
@@ -71,6 +72,7 @@ public struct InlineDynamicPagePreview: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("View Output")
             }
+            #endif
         }
         .frame(maxWidth: 350)
     }
