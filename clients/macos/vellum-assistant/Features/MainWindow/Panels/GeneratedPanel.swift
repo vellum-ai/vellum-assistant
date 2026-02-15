@@ -22,6 +22,8 @@ struct GeneratedPanel: View {
     var onClose: () -> Void
     @Binding var isExpanded: Bool
     let daemonClient: DaemonClient
+    /// When set, app opens route to the workspace instead of a floating NSPanel.
+    var onOpenApp: ((UiSurfaceShowMessage) -> Void)?
 
     @State private var displayItems: [DisplayAppItem] = []
     @State private var isLoading = false
@@ -35,10 +37,11 @@ struct GeneratedPanel: View {
     // Track how many list responses we're waiting for
     @State private var pendingResponses = 0
 
-    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient) {
+    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil) {
         self.onClose = onClose
         self._isExpanded = isExpanded
         self.daemonClient = daemonClient
+        self.onOpenApp = onOpenApp
     }
 
     var body: some View {
@@ -389,7 +392,9 @@ struct GeneratedPanel: View {
 
     private func openApp(_ item: DisplayAppItem) {
         if let localId = item.localAppId {
-            // Local apps: ask the daemon to open via ui_surface_show
+            // Local apps: ask the daemon to open via ui_surface_show.
+            // When onOpenApp is set, the daemon's response will be intercepted
+            // by SurfaceManager and routed to the workspace (see PR 5).
             try? daemonClient.sendAppOpen(appId: localId)
         } else if let uuid = item.sharedUUID {
             // Shared apps: construct surface from unpacked files on disk
@@ -415,7 +420,11 @@ struct GeneratedPanel: View {
                 actions: nil,
                 display: "panel"
             )
-            daemonClient.onSurfaceShow?(surfaceMsg)
+            if let onOpenApp {
+                onOpenApp(surfaceMsg)
+            } else {
+                daemonClient.onSurfaceShow?(surfaceMsg)
+            }
         }
     }
 
