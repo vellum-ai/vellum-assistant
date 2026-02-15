@@ -427,73 +427,20 @@ struct MainWindowView: View {
 
     // MARK: - Dynamic Workspace
 
+    /// Height reserved at the bottom so HTML content scrolls past the floating composer.
+    private var workspaceComposerReservedHeight: CGFloat {
+        let editorClamped = min(max(workspaceEditorContentHeight, 14), 200)
+        let contentHeight = max(editorClamped, 28)
+        let expanded = workspaceComposerExpanded
+        let topPad: CGFloat = expanded ? VSpacing.lg : VSpacing.sm
+        let buttonRow: CGFloat = expanded ? 28 + VSpacing.xs : 0
+        return VSpacing.md + 18 + topPad + VSpacing.sm + contentHeight + buttonRow
+    }
+
     @ViewBuilder
     private func dynamicWorkspaceView(surface: Surface, data: DynamicPageSurfaceData) -> some View {
-        VStack(spacing: 0) {
-            // Toolbar
-            HStack {
-                Button(action: { showSharePicker = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Back to gallery")
-
-                Text(surface.title ?? "App")
-                    .font(VFont.headline)
-                    .foregroundColor(VColor.textPrimary)
-
-                Spacer()
-
-                // Share button — only shown when the runtime page server is active
-                if let appId = data.appId, let shareURL = pageURL(for: appId) {
-                    Menu {
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
-                        } label: {
-                            Label("Copy Link", systemImage: "doc.on.doc")
-                        }
-                        Button {
-                            showSharePicker = true
-                        } label: {
-                            Label("Share\u{2026}", systemImage: "square.and.arrow.up")
-                        }
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.textMuted)
-                            .frame(width: 28, height: 28)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .frame(width: 28)
-                    .accessibilityLabel("Share")
-                    .background(
-                        ShareSheetButton(
-                            items: [shareURL],
-                            isPresented: $showSharePicker
-                        )
-                        .frame(width: 1, height: 1)
-                    )
-                }
-
-                Button(action: { showSharePicker = false; activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close workspace")
-            }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.vertical, VSpacing.lg)
-
-            Divider().background(VColor.surfaceBorder)
-
-            // Dynamic page WebView fills remaining space
+        ZStack {
+            // Full-bleed WebView with CSS content insets
             DynamicPageSurfaceView(
                 data: data,
                 onAction: { actionId, actionData in
@@ -506,34 +453,110 @@ struct MainWindowView: View {
                 } : nil,
                 onCoordinatorReady: data.appId != nil ? { coordinator in
                     surfaceManager.surfaceCoordinators[surface.id] = coordinator
-                } : nil
+                } : nil,
+                topContentInset: 56,
+                bottomContentInset: workspaceComposerReservedHeight
             )
 
-            // Chatbar pinned at bottom
-            if let viewModel = threadManager.activeViewModel {
-                ComposerView(
-                    inputText: Binding(
-                        get: { viewModel.inputText },
-                        set: { viewModel.inputText = $0 }
-                    ),
-                    hasAPIKey: hasAPIKey,
-                    isSending: viewModel.isSending,
-                    isRecording: viewModel.isRecording,
-                    suggestion: viewModel.suggestion,
-                    pendingAttachments: viewModel.pendingAttachments,
-                    onSend: viewModel.sendMessage,
-                    onStop: viewModel.stopGenerating,
-                    onAcceptSuggestion: viewModel.acceptSuggestion,
-                    onAttach: { Self.openFilePicker(viewModel: viewModel) },
-                    onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                    onPaste: { viewModel.addAttachmentFromPasteboard() },
-                    onMicrophoneToggle: onMicrophoneToggle,
-                    editorContentHeight: $workspaceEditorContentHeight,
-                    isComposerExpanded: $workspaceComposerExpanded
-                )
+            // Floating overlays
+            VStack(spacing: 0) {
+                // Top bar: back button + share button
+                HStack {
+                    // "< Chat" pill button — single exit action
+                    Button(action: {
+                        showSharePicker = false
+                        activePanel = nil
+                        isDynamicExpanded = false
+                        activeDynamicSurface = nil
+                        activeDynamicParsedSurface = nil
+                    }) {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Chat")
+                                .font(VFont.bodyMedium)
+                        }
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .background(
+                            Capsule()
+                                .fill(VColor.surface.opacity(0.85))
+                                .overlay(Capsule().stroke(VColor.surfaceBorder, lineWidth: 1))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Back to chat")
+
+                    Spacer()
+
+                    // Share button — floating circle, only when appId + page URL exist
+                    if let appId = data.appId, let shareURL = pageURL(for: appId) {
+                        Menu {
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
+                            } label: {
+                                Label("Copy Link", systemImage: "doc.on.doc")
+                            }
+                            Button {
+                                showSharePicker = true
+                            } label: {
+                                Label("Share\u{2026}", systemImage: "square.and.arrow.up")
+                            }
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(VColor.textPrimary)
+                                .frame(width: 32, height: 32)
+                                .background(
+                                    Circle()
+                                        .fill(VColor.surface.opacity(0.85))
+                                        .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                                )
+                        }
+                        .menuStyle(.borderlessButton)
+                        .frame(width: 32)
+                        .accessibilityLabel("Share")
+                        .background(
+                            ShareSheetButton(
+                                items: [shareURL],
+                                isPresented: $showSharePicker
+                            )
+                            .frame(width: 1, height: 1)
+                        )
+                    }
+                }
+                .padding(.horizontal, VSpacing.xl)
+                .padding(.top, VSpacing.md)
+
+                Spacer()
+
+                // Floating composer — fade is handled inside the WebView via CSS
+                if let viewModel = threadManager.activeViewModel {
+                    ComposerView(
+                        inputText: Binding(
+                            get: { viewModel.inputText },
+                            set: { viewModel.inputText = $0 }
+                        ),
+                        hasAPIKey: hasAPIKey,
+                        isSending: viewModel.isSending,
+                        isRecording: viewModel.isRecording,
+                        suggestion: viewModel.suggestion,
+                        pendingAttachments: viewModel.pendingAttachments,
+                        onSend: viewModel.sendMessage,
+                        onStop: viewModel.stopGenerating,
+                        onAcceptSuggestion: viewModel.acceptSuggestion,
+                        onAttach: { Self.openFilePicker(viewModel: viewModel) },
+                        onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                        onPaste: { viewModel.addAttachmentFromPasteboard() },
+                        onMicrophoneToggle: onMicrophoneToggle,
+                        editorContentHeight: $workspaceEditorContentHeight,
+                        isComposerExpanded: $workspaceComposerExpanded
+                    )
+                }
             }
         }
-        .background(VColor.backgroundSubtle)
     }
 
     @ViewBuilder
