@@ -464,14 +464,33 @@ final class ComputerUseSession: ObservableObject {
             }
         }
 
+        // Transport AX tree via blob when large (>8KB) and blob transport available
+        var axTreeInline = axTreeText
+        var axTreeBlobRef: IPCIpcBlobRef?
+        let axTreeBlobThreshold = 8 * 1024 // 8KB
+
+        if let tree = axTreeText, daemonClient.isBlobTransportAvailable {
+            let treeData = Data(tree.utf8)
+            if treeData.count > axTreeBlobThreshold {
+                if let ref = IpcBlobStore.shared.writeBlob(data: treeData, kind: "ax_tree", encoding: "utf8") {
+                    axTreeBlobRef = ref
+                    axTreeInline = nil
+                    log.info("[\(stepNumber)] AX tree written as blob (\(treeData.count) bytes, id=\(ref.id))")
+                } else {
+                    log.warning("[\(stepNumber)] Blob write failed for AX tree, keeping inline")
+                }
+            }
+        }
+
         let observation = CuObservationMessage(
             sessionId: id,
-            axTree: axTreeText,
+            axTree: axTreeInline,
             axDiff: axDiffText,
             secondaryWindows: secondaryWindowsText,
             screenshot: screenshotBase64,
             executionResult: executionResult,
             executionError: executionError,
+            axTreeBlob: axTreeBlobRef,
             screenshotBlob: screenshotBlobRef
         )
 
@@ -479,12 +498,13 @@ final class ComputerUseSession: ObservableObject {
         let screenshotBase64Bytes = screenshotBase64?.utf8.count ?? 0
         let screenshotUsedBlob = screenshotBlobRef != nil
         let axTreeBytes = axTreeText?.utf8.count ?? 0
+        let axTreeUsedBlob = axTreeBlobRef != nil
         let axDiffBytes = axDiffText?.utf8.count ?? 0
         let secondaryWindowsBytes = secondaryWindowsText?.utf8.count ?? 0
         let payloadJSONBytes = (try? JSONEncoder().encode(observation).count) ?? 0
         let buildTimestampMs = Int(Date().timeIntervalSince1970 * 1_000)
         log.info(
-            "[\(stepNumber)] IPC_METRIC cu_observation_build buildTsMs=\(buildTimestampMs) payloadJsonBytes=\(payloadJSONBytes) screenshotRawBytes=\(screenshotRawBytes) screenshotBase64Bytes=\(screenshotBase64Bytes) screenshotUsedBlob=\(screenshotUsedBlob) axTreeBytes=\(axTreeBytes) axDiffBytes=\(axDiffBytes) secondaryWindowsBytes=\(secondaryWindowsBytes)"
+            "[\(stepNumber)] IPC_METRIC cu_observation_build buildTsMs=\(buildTimestampMs) payloadJsonBytes=\(payloadJSONBytes) screenshotRawBytes=\(screenshotRawBytes) screenshotBase64Bytes=\(screenshotBase64Bytes) screenshotUsedBlob=\(screenshotUsedBlob) axTreeBytes=\(axTreeBytes) axTreeUsedBlob=\(axTreeUsedBlob) axDiffBytes=\(axDiffBytes) secondaryWindowsBytes=\(secondaryWindowsBytes)"
         )
 
         return observation
