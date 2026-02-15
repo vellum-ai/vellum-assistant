@@ -354,7 +354,7 @@ function collectUserTurnStartIndexes(messages: Message[]): number[] {
     const message = messages[i];
     if (message.role !== 'user') continue;
     if (getSummaryFromContextMessage(message) !== null) continue;
-    if (message.content.some((block) => block.type === 'tool_result')) continue;
+    if (isToolResultOnly(message)) continue;
     starts.push(i);
   }
   return starts;
@@ -364,8 +364,14 @@ function countPersistedMessages(messages: Message[]): number {
   return messages.filter((message) => {
     if (message.role === 'assistant') return true;
     if (getSummaryFromContextMessage(message) !== null) return false;
-    return !message.content.some((block) => block.type === 'tool_result');
+    return !isToolResultOnly(message);
   }).length;
+}
+
+/** A user message that contains ONLY tool_result blocks (no text or other content). */
+function isToolResultOnly(message: Message): boolean {
+  return message.content.length > 0
+    && message.content.every((block) => block.type === 'tool_result');
 }
 
 export function getSummaryFromContextMessage(message: Message | undefined): string | null {
