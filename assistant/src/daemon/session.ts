@@ -51,6 +51,7 @@ import {
 import { buildMemoryQuery } from '../memory/query-builder.js';
 import { computeRecallBudget } from '../memory/retrieval-budget.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
+import { getApp } from '../memory/app-store.js';
 import {
   applyConflictResolution,
   listPendingConflictDetails,
