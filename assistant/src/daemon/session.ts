@@ -11,6 +11,7 @@ import type { Provider } from '../providers/types.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { uploadAttachment, linkAttachmentToMessage } from '../memory/attachments-store.js';
+import { getApp } from '../memory/app-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
@@ -128,7 +129,6 @@ export class Session {
   private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
   private onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
   public readonly traceEmitter: TraceEmitter;
-  private assistantId?: string;
 
   /** Resolved assistant attachment drafts from the most recent exchange. */
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
@@ -144,7 +144,7 @@ export class Session {
     workingDir: string,
     assistantId?: string,
   ) {
-    this.assistantId = assistantId;
+    this.assistantId = assistantId ?? null;
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
