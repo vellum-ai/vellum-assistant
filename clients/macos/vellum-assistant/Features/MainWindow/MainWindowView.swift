@@ -34,7 +34,7 @@ struct MainWindowView: View {
                         // Sidebar: Thread list with header
                         List(selection: $selectedThreadId) {
                             Section {
-                                ForEach(threadManager.threads.filter { !$0.isHidden }) { thread in
+                                ForEach(threadManager.threads) { thread in
                                     HStack(spacing: VSpacing.sm) {
                                         Text(thread.title)
                                             .font(VFont.body)
@@ -65,50 +65,6 @@ struct MainWindowView: View {
                                     }
                                 }
                                 .padding(.bottom, VSpacing.xs)
-                            }
-
-                            // Hidden threads section
-                            let hiddenThreads = threadManager.threads.filter { $0.isHidden }
-                            if !hiddenThreads.isEmpty {
-                                Section {
-                                    ForEach(hiddenThreads) { thread in
-                                        HStack(spacing: VSpacing.sm) {
-                                            Image(systemName: "eye.slash")
-                                                .font(.system(size: 12))
-                                                .foregroundColor(VColor.textMuted)
-                                            Text(thread.title)
-                                                .font(VFont.body)
-                                                .foregroundColor(VColor.textMuted)
-                                            Spacer()
-
-                                            Button(action: { threadManager.showThread(id: thread.id) }) {
-                                                Image(systemName: "arrow.uturn.backward")
-                                                    .font(.system(size: 10, weight: .bold))
-                                                    .foregroundColor(VColor.textMuted)
-                                                    .frame(width: 16, height: 16)
-                                                    .contentShape(Rectangle())
-                                            }
-                                            .buttonStyle(.plain)
-                                            .accessibilityLabel("Restore \(thread.title)")
-
-                                            Button(action: { threadManager.deleteThread(id: thread.id) }) {
-                                                Image(systemName: "trash")
-                                                    .font(.system(size: 10, weight: .bold))
-                                                    .foregroundColor(VColor.textMuted)
-                                                    .frame(width: 16, height: 16)
-                                                    .contentShape(Rectangle())
-                                            }
-                                            .buttonStyle(.plain)
-                                            .accessibilityLabel("Delete \(thread.title)")
-                                        }
-                                        .padding(.vertical, VSpacing.xxs)
-                                    }
-                                } header: {
-                                    Text("HIDDEN")
-                                        .font(VFont.sectionTitle)
-                                        .foregroundColor(VColor.textMuted)
-                                }
-                                .collapsible(true)
                             }
                         }
                         .listStyle(.sidebar)
@@ -152,7 +108,7 @@ struct MainWindowView: View {
                     VStack(spacing: 0) {
                         // Row 1 — thread tab bar
                         ThreadTabBar(
-                            threads: threadManager.threads.filter { !$0.isHidden },
+                            threads: threadManager.threads,
                             activeThreadId: threadManager.activeThreadId,
                             onSelect: { threadManager.selectThread(id: $0) },
                             onClose: { threadManager.closeThread(id: $0) },
@@ -205,12 +161,7 @@ struct MainWindowView: View {
         }
         .onChange(of: selectedThreadId) { _, newId in
             if let newId = newId {
-                // Use showThread for hidden threads (unhides them), selectThread for visible threads
-                if let thread = threadManager.threads.first(where: { $0.id == newId }), thread.isHidden {
-                    threadManager.showThread(id: newId)
-                } else {
-                    threadManager.selectThread(id: newId)
-                }
+                threadManager.selectThread(id: newId)
             }
         }
         .onChange(of: threadManager.activeThreadId) { _, newId in

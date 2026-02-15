@@ -6,6 +6,8 @@
     <string>Vellum Assistant</string>
     <key>CFBundleIdentifier</key>
     <string>com.vellum.vellum-assistant-ios</string>
+    <key>CFBundleExecutable</key>
+    <string>vellum-assistant-ios</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>
