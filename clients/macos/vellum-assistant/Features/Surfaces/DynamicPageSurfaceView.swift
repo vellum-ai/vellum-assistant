@@ -41,6 +41,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     let appId: String?
     let onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
     let onCoordinatorReady: ((Coordinator) -> Void)?
+    /// Called when the user navigates to a different page in a multi-page app.
+    let onPageChanged: ((String) -> Void)?
     /// Called with a base64-encoded PNG screenshot after the page finishes loading.
     let onSnapshotCaptured: ((String) -> Void)?
     /// When true, blocks all network requests to external origins and restricts navigation.
@@ -54,6 +56,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         appId: String? = nil,
         onDataRequest: ((String, String, String?, [String: Any]?) -> Void)? = nil,
         onCoordinatorReady: ((Coordinator) -> Void)? = nil,
+        onPageChanged: ((String) -> Void)? = nil,
         onSnapshotCaptured: ((String) -> Void)? = nil,
         sandboxMode: Bool = false,
         topContentInset: CGFloat = 0,
@@ -64,6 +67,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         self.appId = appId
         self.onDataRequest = onDataRequest
         self.onCoordinatorReady = onCoordinatorReady
+        self.onPageChanged = onPageChanged
         self.onSnapshotCaptured = onSnapshotCaptured
         self.sandboxMode = sandboxMode
         self.topContentInset = topContentInset
@@ -71,7 +75,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onAction: onAction, onDataRequest: onDataRequest, onSnapshotCaptured: onSnapshotCaptured, currentHTML: data.html, sandboxMode: sandboxMode)
+        Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, currentHTML: data.html, sandboxMode: sandboxMode)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -394,8 +398,11 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var onAction: (String, Any?) -> Void
         var onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
+        var onPageChanged: ((String) -> Void)?
         var onSnapshotCaptured: ((String) -> Void)?
         var currentHTML: String
+        /// The page currently displayed in a multi-page app (e.g. "settings.html").
+        var currentPage: String = "index.html"
         let sandboxMode: Bool
         weak var webView: WKWebView?
         var lastTopInset: Int = 0
@@ -409,12 +416,14 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         init(
             onAction: @escaping (String, Any?) -> Void,
             onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?,
+            onPageChanged: ((String) -> Void)?,
             onSnapshotCaptured: ((String) -> Void)?,
             currentHTML: String,
             sandboxMode: Bool = false
         ) {
             self.onAction = onAction
             self.onDataRequest = onDataRequest
+            self.onPageChanged = onPageChanged
             self.onSnapshotCaptured = onSnapshotCaptured
             self.currentHTML = currentHTML
             self.sandboxMode = sandboxMode
@@ -501,6 +510,16 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     if let error {
                         log.error("confirm: JS eval error: \(error.localizedDescription, privacy: .public)")
                     }
+                }
+                return
+            }
+
+            // Handle page_changed messages from navigation tracking.
+            if let type = body["type"] as? String, type == "page_changed" {
+                if let page = body["page"] as? String, page != currentPage {
+                    currentPage = page
+                    log.info("[WebView] Page changed to: \(page, privacy: .public)")
+                    onPageChanged?(page)
                 }
                 return
             }
@@ -639,6 +658,23 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     })();
                     """
                 webView.evaluateJavaScript(js, completionHandler: nil)
+            }
+
+            // Detect page changes from URL-based navigation (e.g. <a href="settings.html">).
+            if let url = webView.url {
+                let path = url.path
+                let pageName: String
+                if path == "/" || path.isEmpty {
+                    pageName = "index.html"
+                } else {
+                    // Extract filename from path (e.g. "/settings.html" → "settings.html")
+                    pageName = String(path.dropFirst()) // remove leading "/"
+                }
+                if !pageName.isEmpty && pageName != currentPage {
+                    currentPage = pageName
+                    log.info("[WebView] Page detected from URL: \(pageName, privacy: .public)")
+                    onPageChanged?(pageName)
+                }
             }
 
             // Capture a preview screenshot after the page has rendered (once per load).

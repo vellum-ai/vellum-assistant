@@ -120,6 +120,7 @@ export class Session {
   private hasNoClient = false;
   private readonly queue = new MessageQueue();
   private currentActiveSurfaceId?: string;
+  private currentPage?: string;
   private pendingSurfaceActions = new Map<string, {
     surfaceType: SurfaceType;
   }>();
@@ -440,12 +441,13 @@ export class Session {
     onEvent: (msg: ServerMessage) => void,
     requestId: string,
     activeSurfaceId?: string,
+    currentPage?: string,
   ): { queued: boolean; rejected?: boolean; requestId: string } {
     if (!this.processing) {
       return { queued: false, requestId };
     }
 
-    const pushed = this.queue.push({ content, attachments, requestId, onEvent, activeSurfaceId });
+    const pushed = this.queue.push({ content, attachments, requestId, onEvent, activeSurfaceId, currentPage });
     if (!pushed) {
       return { queued: false, rejected: true, requestId };
     }
@@ -825,6 +827,7 @@ export class Session {
           activeSurface = {
             surfaceId: this.currentActiveSurfaceId,
             html: data.html,
+            currentPage: this.currentPage,
           };
           // Enrich with app context when the surface is backed by a persisted app
           if (data.appId) {
@@ -1362,6 +1365,7 @@ export class Session {
 
     // Set the active surface for the dequeued message so runAgentLoop can inject context
     this.currentActiveSurfaceId = next.activeSurfaceId;
+    this.currentPage = next.currentPage;
 
     // Fire-and-forget: persistUserMessage set this.processing = true
     // so subsequent messages will still be enqueued. runAgentLoop's
@@ -1383,8 +1387,10 @@ export class Session {
     onEvent: (msg: ServerMessage) => void,
     requestId?: string,
     activeSurfaceId?: string,
+    currentPage?: string,
   ): Promise<string> {
     this.currentActiveSurfaceId = activeSurfaceId;
+    this.currentPage = currentPage;
 
     // Resolve slash commands before persistence
     const slashResult = this.resolveSlash(content);
