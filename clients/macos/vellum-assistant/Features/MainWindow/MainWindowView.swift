@@ -14,7 +14,9 @@ struct MainWindowView: View {
     @State private var isHoveredThread: UUID?
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
+    @AppStorage("threadDrawerWidth") private var threadDrawerWidth: Double = 240
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
+    @GestureState private var drawerDragStartWidth: Double? = nil
     let daemonClient: DaemonClient
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
@@ -98,6 +100,8 @@ struct MainWindowView: View {
                             if columnVisibility != .detailOnly {
                                 threadDrawerView
                                     .transition(.move(edge: .leading))
+
+                                drawerDragDivider(availableWidth: geometry.size.width)
                             }
 
                             // Center: Chat + right panel
@@ -286,11 +290,40 @@ struct MainWindowView: View {
                 onSwitchToTabs: { useThreadDrawer = false }
             )
         }
-        .frame(width: 240)
+        .frame(width: threadDrawerWidth)
         .background(VColor.backgroundSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .padding(.bottom, VSpacing.sm)
         .padding(.leading, VSpacing.sm)
+    }
+
+    private func drawerDragDivider(availableWidth: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: VSpacing.sm)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeLeftRight.set()
+                } else {
+                    NSCursor.arrow.set()
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($drawerDragStartWidth) { _, state, _ in
+                        if state == nil {
+                            state = threadDrawerWidth
+                        }
+                    }
+                    .onChanged { value in
+                        let initialWidth = drawerDragStartWidth ?? threadDrawerWidth
+                        let newWidth = initialWidth + value.translation.width
+                        let minMainContent: CGFloat = 300
+                        let maxAllowed = availableWidth - minMainContent - VSpacing.sm - (VSpacing.sm * 2)
+                        threadDrawerWidth = min(max(newWidth, 180), maxAllowed)
+                    }
+            )
     }
 
     @ViewBuilder
