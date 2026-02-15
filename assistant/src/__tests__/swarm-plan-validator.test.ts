@@ -188,6 +188,29 @@ describe('validateAndNormalizePlan', () => {
     expect(result.tasks[4].id).toBe('t4');
   });
 
+  test('strips dependencies that point to tasks removed by truncation', () => {
+    const plan = makePlan({
+      tasks: [
+        { id: 't0', role: 'coder', objective: 'Task 0', dependencies: [] },
+        { id: 't1', role: 'coder', objective: 'Task 1', dependencies: ['t4'] },
+        { id: 't2', role: 'reviewer', objective: 'Task 2', dependencies: ['t0'] },
+        { id: 't3', role: 'coder', objective: 'Task 3', dependencies: [] },
+        { id: 't4', role: 'coder', objective: 'Task 4', dependencies: [] },
+      ],
+    });
+    const limits = resolveSwarmLimits({
+      maxWorkers: 3,
+      maxTasks: 3,
+      maxRetriesPerTask: 1,
+      workerTimeoutSec: 900,
+    });
+
+    const result = validateAndNormalizePlan(plan, limits);
+    expect(result.tasks).toHaveLength(3);
+    const t1 = result.tasks.find((task) => task.id === 't1');
+    expect(t1?.dependencies).toEqual([]);
+  });
+
   test('rejects empty objective', () => {
     const plan = makePlan({ objective: '' });
     try {

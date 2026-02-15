@@ -36,6 +36,7 @@ export function validateAndNormalizePlan(
     ...t,
     dependencies: Array.isArray(t.dependencies) ? t.dependencies : [],
   }));
+  const originalIds = new Set(tasks.map((task) => task.id));
 
   // --- Task count limit (silent truncation) ---
   if (tasks.length > limits.maxTasks) {
@@ -69,7 +70,9 @@ export function validateAndNormalizePlan(
     const valid: string[] = [];
     for (const dep of task.dependencies) {
       if (!ids.has(dep)) {
-        issues.push(`Task "${task.id}" depends on unknown task "${dep}".`);
+        if (!originalIds.has(dep)) {
+          issues.push(`Task "${task.id}" depends on unknown task "${dep}".`);
+        }
       } else {
         valid.push(dep);
       }
