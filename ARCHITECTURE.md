@@ -291,7 +291,7 @@ graph LR
         ITEM_ENTS["memory_item_entities<br/>───────────────<br/>Join table linking extracted<br/>memory_items to entities"]
         SUM["memory_summaries<br/>───────────────<br/>scope: conversation | weekly<br/>Compressed history for context<br/>window management"]
         EMB["memory_embeddings<br/>───────────────<br/>target: segment | item | summary<br/>provider + model metadata<br/>vector_json (float array)<br/>Powers semantic search"]
-        JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill<br/>Status: pending → running →<br/>completed | failed"]
+        JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill,<br/>conflict resolution<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
     end
 
@@ -500,6 +500,7 @@ graph TB
         INDEX["Memory Indexer"]
         SEGMENT["Split into segments<br/>→ memory_segments"]
         EXTRACT_JOB["Enqueue extract_items job<br/>→ memory_jobs"]
+        CONFLICT_RESOLVE_JOB["Enqueue resolve_pending_conflicts_for_message<br/>(dedupe by type+message+scope)<br/>→ memory_jobs"]
         SUMMARY_JOB["Enqueue build_conversation_summary<br/>→ memory_jobs"]
     end
 
@@ -510,6 +511,7 @@ graph TB
         EMBED_SUM["embed_summary<br/>→ memory_embeddings"]
         EXTRACT["extract_items<br/>→ memory_items +<br/>memory_item_sources"]
         CHECK_CONTRA["check_contradictions<br/>→ contradiction/update merge OR<br/>pending_clarification + memory_item_conflicts"]
+        RESOLVE_PENDING["resolve_pending_conflicts_for_message<br/>message-scoped clarification resolution<br/>→ resolved conflict + item status updates"]
         EXTRACT_ENTITIES["extract_entities<br/>→ memory_entities +<br/>memory_item_entities +<br/>memory_entity_relations"]
         BACKFILL_REL["backfill_entity_relations<br/>checkpointed message scan<br/>→ enqueue extract_entities"]
         BUILD_SUM["build_conversation_summary<br/>→ memory_summaries"]
@@ -553,6 +555,7 @@ graph TB
     STORE --> INDEX
     INDEX --> SEGMENT
     INDEX --> EXTRACT_JOB
+    INDEX --> CONFLICT_RESOLVE_JOB
     INDEX --> SUMMARY_JOB
 
     WORKER --> EMBED_SEG
@@ -560,6 +563,7 @@ graph TB
     WORKER --> EMBED_SUM
     WORKER --> EXTRACT
     WORKER --> CHECK_CONTRA
+    WORKER --> RESOLVE_PENDING
     WORKER --> EXTRACT_ENTITIES
     WORKER --> BACKFILL_REL
     WORKER --> BUILD_SUM

@@ -47,12 +47,18 @@ mock.module('../config/loader.js', () => ({
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { requestMemoryBackfill } from '../memory/admin.js';
 import { getMemoryCheckpoint } from '../memory/checkpoints.js';
+import { createOrUpdatePendingConflict, getConflictById } from '../memory/conflict-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { selectEmbeddingBackend } from '../memory/embedding-backend.js';
 import { upsertEntity, upsertEntityRelation } from '../memory/entity-extractor.js';
 import { getRecentSegmentsForConversation, indexMessageNow } from '../memory/indexer.js';
 import { extractAndUpsertMemoryItemsForMessage } from '../memory/items-extractor.js';
-import { claimMemoryJobs, enqueueBackfillEntityRelationsJob, enqueueMemoryJob } from '../memory/jobs-store.js';
+import {
+  claimMemoryJobs,
+  enqueueBackfillEntityRelationsJob,
+  enqueueMemoryJob,
+  enqueueResolvePendingConflictsForMessageJob,
+} from '../memory/jobs-store.js';
 import { currentWeekWindow, resetStaleSweepThrottle, runMemoryJobsOnce, sweepStaleItems } from '../memory/jobs-worker.js';
 import {
   buildMemoryRecall,
@@ -1120,6 +1126,120 @@ describe('Memory V2 regressions', () => {
       .get();
     expect(row).not.toBeUndefined();
     expect(JSON.parse(row?.payload ?? '{}')).toMatchObject({ force: true });
+  });
+
+  test('pending conflict resolver enqueue is deduped by message and scope', () => {
+    const db = getDb();
+
+    const firstId = enqueueResolvePendingConflictsForMessageJob('msg-conflict-1', 'scope-a');
+    const secondId = enqueueResolvePendingConflictsForMessageJob('msg-conflict-1', 'scope-a');
+    const thirdId = enqueueResolvePendingConflictsForMessageJob('msg-conflict-1', 'scope-b');
+
+    expect(secondId).toBe(firstId);
+    expect(thirdId).not.toBe(firstId);
+
+    const queued = db
+      .select()
+      .from(memoryJobs)
+      .where(and(
+        eq(memoryJobs.type, 'resolve_pending_conflicts_for_message'),
+        eq(memoryJobs.status, 'pending'),
+      ))
+      .all();
+    expect(queued).toHaveLength(2);
+  });
+
+  test('background conflict resolver job applies user clarification to pending conflicts', async () => {
+    const db = getDb();
+    const now = 1_700_001_200_000;
+    const originalConflictsEnabled = TEST_CONFIG.memory.conflicts.enabled;
+    TEST_CONFIG.memory.conflicts.enabled = true;
+
+    try {
+      db.insert(conversations).values({
+        id: 'conv-conflicts-bg',
+        title: null,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      }).run();
+
+      db.insert(messages).values({
+        id: 'msg-conflicts-bg',
+        conversationId: 'conv-conflicts-bg',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'Keep the new one instead.' }]),
+        createdAt: now + 1,
+      }).run();
+
+      db.insert(memoryItems).values([
+        {
+          id: 'item-conflict-existing',
+          kind: 'preference',
+          subject: 'database',
+          statement: 'Use Postgres by default.',
+          status: 'active',
+          confidence: 0.8,
+          fingerprint: 'fp-conflict-existing',
+          verificationState: 'assistant_inferred',
+          scopeId: 'scope-conflicts',
+          firstSeenAt: now - 10_000,
+          lastSeenAt: now - 5_000,
+          validFrom: now - 10_000,
+          invalidAt: null,
+        },
+        {
+          id: 'item-conflict-candidate',
+          kind: 'preference',
+          subject: 'database',
+          statement: 'Use MySQL by default.',
+          status: 'pending_clarification',
+          confidence: 0.8,
+          fingerprint: 'fp-conflict-candidate',
+          verificationState: 'assistant_inferred',
+          scopeId: 'scope-conflicts',
+          firstSeenAt: now - 9_000,
+          lastSeenAt: now - 4_000,
+          validFrom: now - 9_000,
+          invalidAt: null,
+        },
+      ]).run();
+
+      const conflict = createOrUpdatePendingConflict({
+        scopeId: 'scope-conflicts',
+        existingItemId: 'item-conflict-existing',
+        candidateItemId: 'item-conflict-candidate',
+        relationship: 'ambiguous_contradiction',
+      });
+
+      enqueueResolvePendingConflictsForMessageJob('msg-conflicts-bg', 'scope-conflicts');
+      const processed = await runMemoryJobsOnce();
+      expect(processed).toBe(1);
+
+      const existing = db
+        .select()
+        .from(memoryItems)
+        .where(eq(memoryItems.id, 'item-conflict-existing'))
+        .get();
+      const candidate = db
+        .select()
+        .from(memoryItems)
+        .where(eq(memoryItems.id, 'item-conflict-candidate'))
+        .get();
+      const updatedConflict = getConflictById(conflict.id);
+
+      expect(existing?.invalidAt).not.toBeNull();
+      expect(candidate?.status).toBe('active');
+      expect(updatedConflict?.status).toBe('resolved_keep_candidate');
+      expect(updatedConflict?.resolutionNote).toContain('Background message resolver');
+    } finally {
+      TEST_CONFIG.memory.conflicts.enabled = originalConflictsEnabled;
+    }
   });
 
   test('relation backfill advances checkpoints in deterministic batches', async () => {

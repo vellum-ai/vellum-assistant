@@ -9,6 +9,7 @@ export type MemoryJobType =
   | 'embed_summary'
   | 'extract_items'
   | 'extract_entities'
+  | 'resolve_pending_conflicts_for_message'
   | 'backfill_entity_relations'
   | 'check_contradictions'
   | 'refresh_weekly_summary'
@@ -91,6 +92,35 @@ export function enqueueBackfillEntityRelationsJob(force = false): string {
   }
 
   return enqueueMemoryJob('backfill_entity_relations', { force });
+}
+
+export function enqueueResolvePendingConflictsForMessageJob(
+  messageId: string,
+  scopeId = 'default',
+): string {
+  const normalizedMessageId = messageId.trim();
+  if (!normalizedMessageId) {
+    throw new Error('enqueueResolvePendingConflictsForMessageJob requires a non-empty messageId');
+  }
+  const normalizedScopeId = scopeId.trim() || 'default';
+  const db = getDb();
+  const raw = (db as unknown as { $client: { query: (q: string) => { get: (...params: unknown[]) => unknown } } }).$client;
+  const existing = raw.query(`
+    SELECT id
+    FROM memory_jobs
+    WHERE type = 'resolve_pending_conflicts_for_message'
+      AND status IN ('pending', 'running')
+      AND json_extract(payload, '$.messageId') = ?
+      AND COALESCE(json_extract(payload, '$.scopeId'), 'default') = ?
+    ORDER BY created_at ASC
+    LIMIT 1
+  `).get(normalizedMessageId, normalizedScopeId) as { id: string } | null;
+  if (existing?.id) return existing.id;
+
+  return enqueueMemoryJob('resolve_pending_conflicts_for_message', {
+    messageId: normalizedMessageId,
+    scopeId: normalizedScopeId,
+  });
 }
 
 export function claimMemoryJobs(limit: number): MemoryJob[] {

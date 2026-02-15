@@ -3,7 +3,7 @@ import type { MemoryConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { getMemoryCheckpoint, setMemoryCheckpoint } from './checkpoints.js';
 import { getDb } from './db.js';
-import { enqueueMemoryJob } from './jobs-store.js';
+import { enqueueMemoryJob, enqueueResolvePendingConflictsForMessageJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
 import { segmentText } from './segmenter.js';
 import { memorySegments } from './schema.js';
@@ -76,10 +76,14 @@ export function indexMessageNow(
   if (shouldExtract) {
     enqueueMemoryJob('extract_items', { messageId: input.messageId });
   }
+  const shouldResolveConflicts = input.role === 'user' && config.conflicts.enabled;
+  if (shouldResolveConflicts) {
+    enqueueResolvePendingConflictsForMessageJob(input.messageId, input.scopeId ?? 'default');
+  }
   enqueueMemoryJob('build_conversation_summary', { conversationId: input.conversationId });
   enqueueSummaryRollupJobsIfDue();
 
-  const enqueuedJobs = segments.length + (shouldExtract ? 2 : 1);
+  const enqueuedJobs = segments.length + (shouldExtract ? 2 : 1) + (shouldResolveConflicts ? 1 : 0);
   return {
     indexedSegments: segments.length,
     enqueuedJobs,

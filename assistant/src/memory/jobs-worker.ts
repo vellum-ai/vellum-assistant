@@ -33,6 +33,8 @@ import {
 } from './entity-extractor.js';
 import { indexMessageNow } from './indexer.js';
 import { checkContradictions } from './contradiction-checker.js';
+import { resolveConflictClarification } from './clarification-resolver.js';
+import { applyConflictResolution, listPendingConflictDetails } from './conflict-store.js';
 import { extractAndUpsertMemoryItemsForMessage } from './items-extractor.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
 import { getQdrantClient } from './qdrant-client.js';
@@ -180,6 +182,9 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
       return;
     case 'extract_entities':
       await extractEntitiesJob(job, config);
+      return;
+    case 'resolve_pending_conflicts_for_message':
+      await resolvePendingConflictsForMessageJob(job, config);
       return;
     case 'check_contradictions':
       await checkContradictionsJob(job);
@@ -366,6 +371,57 @@ async function checkContradictionsJob(job: MemoryJob): Promise<void> {
   const itemId = asString(job.payload.itemId);
   if (!itemId) return;
   await checkContradictions(itemId);
+}
+
+async function resolvePendingConflictsForMessageJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
+  if (!config.memory.conflicts.enabled) return;
+  const messageId = asString(job.payload.messageId);
+  if (!messageId) return;
+  const scopeId = asString(job.payload.scopeId) ?? 'default';
+  const db = getDb();
+  const message = db
+    .select({
+      id: messages.id,
+      role: messages.role,
+      content: messages.content,
+    })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  if (!message || message.role !== 'user') return;
+
+  const userMessage = extractTextFromStoredMessageContent(message.content).trim();
+  if (userMessage.length === 0) return;
+
+  const pending = listPendingConflictDetails(scopeId, 25);
+  if (pending.length === 0) return;
+
+  let resolvedCount = 0;
+  for (const conflict of pending) {
+    const resolution = await resolveConflictClarification(
+      {
+        existingStatement: conflict.existingStatement,
+        candidateStatement: conflict.candidateStatement,
+        userMessage,
+      },
+      { timeoutMs: config.memory.conflicts.resolverLlmTimeoutMs },
+    );
+    if (resolution.resolution === 'still_unclear') continue;
+    const resolved = applyConflictResolution({
+      conflictId: conflict.id,
+      resolution: resolution.resolution,
+      mergedStatement: resolution.resolution === 'merge' ? resolution.resolvedStatement : null,
+      resolutionNote: `Background message resolver (${resolution.strategy}): ${resolution.explanation}`,
+    });
+    if (resolved) resolvedCount += 1;
+  }
+
+  log.debug({
+    messageId,
+    scopeId,
+    pendingConflicts: pending.length,
+    resolvedConflicts: resolvedCount,
+  }, 'Processed pending conflict resolution job');
 }
 
 async function buildConversationSummaryJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
