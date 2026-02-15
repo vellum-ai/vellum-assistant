@@ -17,4 +17,10 @@ public final class AppServices {
         ambientAgent: ambientAgent,
         daemonClient: daemonClient
     )
+
+    /// Activity notification service for sending push notifications on task completion.
+    /// Lazy because it needs `settingsStore` which is set above.
+    public lazy var activityNotificationService: ActivityNotificationService = ActivityNotificationService(
+        settingsStore: settingsStore
+    )
 }

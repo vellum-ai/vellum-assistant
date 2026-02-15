@@ -148,7 +148,7 @@ Run `vellum doctor` for a full diagnostic check including sandbox backend status
 
 The assistant can store and use credentials (API keys, tokens, passwords) without exposing secret values to the LLM or logs.
 
-- **Storage**: Secret values are stored in the macOS Keychain via `secure-keys.ts`. Metadata (service, field, label, usage policy) is stored in SQLite.
+- **Storage**: Secret values are stored in the macOS Keychain via `secure-keys.ts`. Metadata (service, field, label, usage policy) is stored in a JSON file at `~/.vellum/data/credentials/metadata.json`.
 - **Secret prompt**: When a credential is needed, a floating `SecretPromptView` panel appears. The user enters the value in a `SecureField` — the LLM never sees it.
 - **Ingress blocking**: Inbound user messages are scanned for secrets (regex + entropy). If `secretDetection.action` is `block` (the default), messages containing secrets are rejected with a notice to use the secure prompt instead.
 - **Usage policy**: Each credential can specify `allowedTools` and `allowedDomains`. The `CredentialBroker` enforces these policies at use time.
@@ -290,6 +290,7 @@ This repo includes Claude Code slash commands (in `.claude/commands/`) for agent
 | `/safe-blitz <feature>` | End-to-end feature delivery on a feature branch — plans, creates issues, swarm-executes in parallel, sweeps for review feedback. All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Supports `--auto`, `--workers N`, `--skip-plan`, `--branch NAME`. |
 | `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merges the feature branch PR into main, sets the project issue to Done, closes the issue, and deletes the local branch. Auto-detects the PR from current branch, open `feature/*` PRs, or project board "In Review" items. |
 | `/execute-plan <file>` | Sequential multi-PR rollout — reads a plan file from `.private/plans/`, executes each PR in order, mainlining each before moving to the next. |
+| `/check-reviews-and-swarm` | Combined review sweep + execution pass — runs review checks, then swarms on actionable feedback items. |
 
 ### Human-in-the-loop plan execution
 
@@ -314,6 +315,8 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 
 | Command | Purpose |
 |---------|---------|
+| `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
+| `/release [version]` | Cut a release: pull main, determine/create version tag, generate release notes, publish GitHub Release, and verify CI trigger. |
 | `/scrub` | Kill the running Vellum app (non-fatal if not running), wipe all persistent data, and relaunch the daemon and macOS app for a clean first-run experience. |
 
 ### Review

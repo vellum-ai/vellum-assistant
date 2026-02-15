@@ -61,7 +61,7 @@ import {
 import { buildMemoryQuery } from '../memory/query-builder.js';
 import { computeRecallBudget } from '../memory/retrieval-budget.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
-import { getApp } from '../memory/app-store.js';
+import { getApp, updateApp } from '../memory/app-store.js';
 import { compileDynamicProfile } from '../memory/profile-compiler.js';
 import { getMemoryConflictAndCleanupStats } from '../memory/admin.js';
 import { ConflictGate } from './session-conflict-gate.js';
@@ -120,10 +120,14 @@ export class Session {
   private hasNoClient = false;
   private readonly queue = new MessageQueue();
   private currentActiveSurfaceId?: string;
+  private currentPage?: string;
   private pendingSurfaceActions = new Map<string, {
     surfaceType: SurfaceType;
   }>();
   private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
+  /** Per-surface undo stack: stores previous HTML strings for workspace refinement undo. */
+  private surfaceUndoStacks = new Map<string, string[]>();
+  private static readonly MAX_UNDO_DEPTH = 10;
   private onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
   public readonly traceEmitter: TraceEmitter;
 
@@ -225,6 +229,7 @@ export class Session {
             params.service, params.field, params.label,
             params.description, params.placeholder,
             this.conversationId,
+            params.purpose, params.allowedTools, params.allowedDomains,
           );
         },
         requestConfirmation: async (req) => {
@@ -367,6 +372,39 @@ export class Session {
     return this.onEscalateToComputerUse !== undefined;
   }
 
+  /**
+   * Redirect the user to the secure credential prompt after an ingress block.
+   * If the user enters a value, it is stored in the vault (or injected as
+   * transient) so the credential is available for later tool use.
+   */
+  redirectToSecurePrompt(detectedTypes: string[]): void {
+    const service = 'detected';
+    const field = detectedTypes.join(',');
+    this.secretPrompter.prompt(
+      service, field,
+      'Secure Credential Entry',
+      'Your message contained a secret. Please enter it here instead — it will be stored securely and never sent to the AI.',
+      undefined, this.conversationId,
+    ).then(async (result) => {
+      if (!result.value) return; // user cancelled or timed out
+
+      const { setSecureKey } = await import('../security/secure-keys.js');
+      const { upsertCredentialMetadata } = await import('../tools/credentials/metadata-store.js');
+
+      if (result.delivery === 'transient_send') {
+        const { credentialBroker } = await import('../tools/credentials/broker.js');
+        credentialBroker.injectTransient(service, field, result.value);
+        try { upsertCredentialMetadata(service, field, {}); } catch {}
+        log.info({ service, field, delivery: 'transient_send' }, 'Ingress redirect: transient credential injected');
+      } else {
+        const key = `credential:${service}:${field}`;
+        setSecureKey(key, result.value);
+        try { upsertCredentialMetadata(service, field, {}); } catch {}
+        log.info({ service, field }, 'Ingress redirect: credential stored');
+      }
+    }).catch(() => { /* prompt timeout or cancel is fine */ });
+  }
+
   isProcessing(): boolean {
     return this.processing;
   }
@@ -423,12 +461,13 @@ export class Session {
     onEvent: (msg: ServerMessage) => void,
     requestId: string,
     activeSurfaceId?: string,
+    currentPage?: string,
   ): { queued: boolean; rejected?: boolean; requestId: string } {
     if (!this.processing) {
       return { queued: false, requestId };
     }
 
-    const pushed = this.queue.push({ content, attachments, requestId, onEvent, activeSurfaceId });
+    const pushed = this.queue.push({ content, attachments, requestId, onEvent, activeSurfaceId, currentPage });
     if (!pushed) {
       return { queued: false, rejected: true, requestId };
     }
@@ -808,6 +847,7 @@ export class Session {
           activeSurface = {
             surfaceId: this.currentActiveSurfaceId,
             html: data.html,
+            currentPage: this.currentPage,
           };
           // Enrich with app context when the surface is backed by a persisted app
           if (data.appId) {
@@ -1345,6 +1385,7 @@ export class Session {
 
     // Set the active surface for the dequeued message so runAgentLoop can inject context
     this.currentActiveSurfaceId = next.activeSurfaceId;
+    this.currentPage = next.currentPage;
 
     // Fire-and-forget: persistUserMessage set this.processing = true
     // so subsequent messages will still be enqueued. runAgentLoop's
@@ -1366,8 +1407,10 @@ export class Session {
     onEvent: (msg: ServerMessage) => void,
     requestId?: string,
     activeSurfaceId?: string,
+    currentPage?: string,
   ): Promise<string> {
     this.currentActiveSurfaceId = activeSurfaceId;
+    this.currentPage = currentPage;
 
     // Resolve slash commands before persistence
     const slashResult = this.resolveSlash(content);
@@ -1725,6 +1768,9 @@ export class Session {
       const data = stored.data as DynamicPageSurfaceData;
       if (data.appId !== appId) continue;
 
+      // Push current HTML onto the undo stack before overwriting
+      this.pushUndoState(surfaceId, data.html);
+
       // Update in-memory surface state so the next refinement gets fresh HTML
       const updatedData: DynamicPageSurfaceData = { ...data, html: app.htmlDefinition };
       stored.data = updatedData;
@@ -1739,6 +1785,108 @@ export class Session {
 
       log.info({ conversationId: this.conversationId, surfaceId, appId }, 'Auto-refreshed surface after app_update');
     }
+  }
+
+  private pushUndoState(surfaceId: string, html: string): void {
+    let stack = this.surfaceUndoStacks.get(surfaceId);
+    if (!stack) {
+      stack = [];
+      this.surfaceUndoStacks.set(surfaceId, stack);
+    }
+    stack.push(html);
+    if (stack.length > Session.MAX_UNDO_DEPTH) {
+      stack.shift();
+    }
+  }
+
+  handleSurfaceUndo(surfaceId: string): void {
+    const stack = this.surfaceUndoStacks.get(surfaceId);
+    if (!stack || stack.length === 0) {
+      this.sendToClient({
+        type: 'ui_surface_undo_result',
+        sessionId: this.conversationId,
+        surfaceId,
+        success: false,
+        remainingUndos: 0,
+      });
+      return;
+    }
+
+    const previousHtml = stack.pop()!;
+    const stored = this.surfaceState.get(surfaceId);
+    if (!stored || stored.surfaceType !== 'dynamic_page') {
+      this.sendToClient({
+        type: 'ui_surface_undo_result',
+        sessionId: this.conversationId,
+        surfaceId,
+        success: false,
+        remainingUndos: stack.length,
+      });
+      return;
+    }
+
+    const data = stored.data as DynamicPageSurfaceData;
+
+    // If app-backed, also revert the persisted app and refresh all surfaces for this app
+    if (data.appId) {
+      try {
+        updateApp(data.appId, { htmlDefinition: previousHtml });
+      } catch (err) {
+        log.error({ appId: data.appId, err }, 'Failed to revert app during undo');
+      }
+
+      // Update ALL surfaces that share this appId (not just the requesting one)
+      for (const [sid, s] of this.surfaceState.entries()) {
+        if (s.surfaceType !== 'dynamic_page') continue;
+        const sData = s.data as DynamicPageSurfaceData;
+        if (sData.appId !== data.appId) continue;
+        const revertedData: DynamicPageSurfaceData = { ...sData, html: previousHtml };
+        s.data = revertedData;
+        this.sendToClient({
+          type: 'ui_surface_update',
+          sessionId: this.conversationId,
+          surfaceId: sid,
+          data: revertedData,
+        });
+      }
+
+      // Sync sibling undo stacks: pop the top entry if it matches the HTML we
+      // just reverted to, preventing phantom no-op undo steps on siblings.
+      for (const [sid, s] of this.surfaceState.entries()) {
+        if (sid === surfaceId) continue;
+        if (s.surfaceType !== 'dynamic_page') continue;
+        const sData = s.data as DynamicPageSurfaceData;
+        if (sData.appId !== data.appId) continue;
+
+        const siblingStack = this.surfaceUndoStacks.get(sid);
+        if (siblingStack && siblingStack.length > 0) {
+          const top = siblingStack[siblingStack.length - 1];
+          if (top === previousHtml) {
+            siblingStack.pop();
+          }
+        }
+      }
+    } else {
+      // Ephemeral surface — update only the requesting surface
+      const revertedData: DynamicPageSurfaceData = { ...data, html: previousHtml };
+      stored.data = revertedData;
+      this.sendToClient({
+        type: 'ui_surface_update',
+        sessionId: this.conversationId,
+        surfaceId,
+        data: revertedData,
+      });
+    }
+
+    this.sendToClient({
+      type: 'ui_surface_undo_result',
+      sessionId: this.conversationId,
+      surfaceId,
+      success: true,
+      remainingUndos: stack.length,
+    });
+
+    log.info({ conversationId: this.conversationId, surfaceId, remaining: stack.length }, 'Surface undo applied');
   }
 
   private async surfaceProxyResolver(
@@ -1836,6 +1984,11 @@ export class Session {
       const stored = this.surfaceState.get(surfaceId);
       let mergedData: SurfaceData;
       if (stored) {
+        // Push current HTML to undo stack for dynamic pages
+        if (stored.surfaceType === 'dynamic_page') {
+          const currentHtml = (stored.data as DynamicPageSurfaceData).html;
+          this.pushUndoState(surfaceId, currentHtml);
+        }
         mergedData = { ...stored.data, ...patch } as SurfaceData;
         stored.data = mergedData;
       } else {
@@ -1860,6 +2013,7 @@ export class Session {
       });
       this.pendingSurfaceActions.delete(surfaceId);
       this.surfaceState.delete(surfaceId);
+      this.surfaceUndoStacks.delete(surfaceId);
       return { content: 'Surface dismissed', isError: false };
     }
 

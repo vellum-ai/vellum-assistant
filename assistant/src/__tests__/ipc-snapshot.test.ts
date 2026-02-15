@@ -289,7 +289,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   gallery_install: {
     type: 'gallery_install',
-    galleryAppId: 'gallery-pomodoro-timer',
+    galleryAppId: 'gallery-focus-timer',
+  },
+  app_update_preview: {
+    type: 'app_update_preview',
+    appId: 'app-001',
+    preview: 'base64-png-data',
   },
   share_app_cloud: {
     type: 'share_app_cloud',
@@ -306,6 +311,19 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   link_open_request: {
     type: 'link_open_request',
     url: 'https://example.com',
+  },
+  ui_surface_undo: {
+    type: 'ui_surface_undo',
+    sessionId: 'sess-001',
+    surfaceId: 'surface-001',
+  },
+  publish_page: {
+    type: 'publish_page',
+    html: '<html><body>Hello</body></html>',
+  },
+  unpublish_page: {
+    type: 'unpublish_page',
+    deploymentId: 'dpl-001',
   },
 };
 
@@ -840,7 +858,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'gallery_install_response',
     success: true,
     appId: 'app-new-001',
-    name: 'Pomodoro Timer',
+    name: 'Focus Timer',
   },
   share_app_cloud_response: {
     type: 'share_app_cloud_response',
@@ -861,6 +879,28 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'open_url',
     url: 'https://example.com',
     title: 'Example',
+  },
+  app_update_preview_response: {
+    type: 'app_update_preview_response',
+    success: true,
+    appId: 'app-001',
+  },
+  ui_surface_undo_result: {
+    type: 'ui_surface_undo_result',
+    sessionId: 'sess-001',
+    surfaceId: 'surface-001',
+    success: true,
+    remainingUndos: 3,
+  },
+  publish_page_response: {
+    type: 'publish_page_response',
+    success: true,
+    publicUrl: 'https://example.vercel.app',
+    deploymentId: 'dpl-001',
+  },
+  unpublish_page_response: {
+    type: 'unpublish_page_response',
+    success: true,
   },
 };
 

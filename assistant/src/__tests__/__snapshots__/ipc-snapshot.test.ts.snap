@@ -338,6 +338,19 @@ exports[`IPC message snapshots ClientMessage types schedule_remove serializes to
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types reminders_list serializes to expected JSON 1`] = `
+{
+  "type": "reminders_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types reminder_cancel serializes to expected JSON 1`] = `
+{
+  "id": "rem-001",
+  "type": "reminder_cancel",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types bundle_app serializes to expected JSON 1`] = `
 {
   "appId": "app-001",
@@ -433,8 +446,16 @@ exports[`IPC message snapshots ClientMessage types gallery_list serializes to ex
 
 exports[`IPC message snapshots ClientMessage types gallery_install serializes to expected JSON 1`] = `
 {
-  "galleryAppId": "gallery-pomodoro-timer",
+  "galleryAppId": "gallery-focus-timer",
   "type": "gallery_install",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types app_update_preview serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "preview": "base64-png-data",
+  "type": "app_update_preview",
 }
 `;
 
@@ -456,6 +477,14 @@ exports[`IPC message snapshots ClientMessage types slack_webhook_config serializ
 {
   "action": "get",
   "type": "slack_webhook_config",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types ui_surface_undo serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "surfaceId": "surface-001",
+  "type": "ui_surface_undo",
 }
 `;
 
@@ -1094,6 +1123,24 @@ exports[`IPC message snapshots ServerMessage types schedules_list_response seria
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types reminders_list_response serializes to expected JSON 1`] = `
+{
+  "reminders": [
+    {
+      "createdAt": 1700000000000,
+      "fireAt": 1700100000000,
+      "firedAt": null,
+      "id": "rem-001",
+      "label": "Call Sidd",
+      "message": "Remember to call Sidd about the project",
+      "mode": "notify",
+      "status": "pending",
+    },
+  ],
+  "type": "reminders_list_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types bundle_app_response serializes to expected JSON 1`] = `
 {
   "bundlePath": "/tmp/My_App-abc12345.vellumapp",
@@ -1272,7 +1319,7 @@ exports[`IPC message snapshots ServerMessage types gallery_list_response seriali
 exports[`IPC message snapshots ServerMessage types gallery_install_response serializes to expected JSON 1`] = `
 {
   "appId": "app-new-001",
-  "name": "Pomodoro Timer",
+  "name": "Focus Timer",
   "success": true,
   "type": "gallery_install_response",
 }
@@ -1302,33 +1349,20 @@ exports[`IPC message snapshots ServerMessage types slack_webhook_config_response
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types reminders_list serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types app_update_preview_response serializes to expected JSON 1`] = `
 {
-  "type": "reminders_list",
+  "appId": "app-001",
+  "success": true,
+  "type": "app_update_preview_response",
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types reminder_cancel serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types ui_surface_undo_result serializes to expected JSON 1`] = `
 {
-  "id": "rem-001",
-  "type": "reminder_cancel",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types reminders_list_response serializes to expected JSON 1`] = `
-{
-  "reminders": [
-    {
-      "createdAt": 1700000000000,
-      "fireAt": 1700100000000,
-      "firedAt": null,
-      "id": "rem-001",
-      "label": "Call Sidd",
-      "message": "Remember to call Sidd about the project",
-      "mode": "notify",
-      "status": "pending",
-    },
-  ],
-  "type": "reminders_list_response",
+  "remainingUndos": 3,
+  "sessionId": "sess-001",
+  "success": true,
+  "surfaceId": "surface-001",
+  "type": "ui_surface_undo_result",
 }
 `;

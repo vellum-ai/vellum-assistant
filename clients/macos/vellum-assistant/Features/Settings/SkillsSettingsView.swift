@@ -316,7 +316,7 @@ struct SkillsSettingsView: View {
             }
         } message: {
             if let skill = skillToDelete {
-                Text("Are you sure you want to delete \"\(skill.name)\"? This will remove it from ~/.vellum/skills/.")
+                Text("Are you sure you want to delete \"\(skill.name)\"? This will remove it from ~/.vellum/workspace/skills/.")
             }
         }
         .sheet(item: $inspectingSkill) { skill in

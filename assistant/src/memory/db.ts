@@ -199,6 +199,22 @@ export function initializeDb(): void {
   `);
 
   database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS message_surfaces (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      surface_id TEXT NOT NULL,
+      surface_type TEXT NOT NULL,
+      title TEXT,
+      data TEXT NOT NULL,
+      actions TEXT,
+      surface_message TEXT,
+      display TEXT,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS channel_inbound_events (
       id TEXT PRIMARY KEY,
       assistant_id TEXT NOT NULL,
@@ -291,6 +307,18 @@ export function initializeDb(): void {
       metadata_json TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS published_pages (
+      id TEXT PRIMARY KEY,
+      deployment_id TEXT NOT NULL UNIQUE,
+      public_url TEXT NOT NULL,
+      page_title TEXT,
+      html_hash TEXT NOT NULL,
+      published_at INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active'
     )
   `);
 
@@ -487,6 +515,9 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_actor ON llm_usage_events(actor)`);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_shared_app_links_share_token ON shared_app_links(share_token)`);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_published_pages_html_hash ON published_pages(html_hash)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_published_pages_status ON published_pages(status)`);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entities_name ON memory_entities(name)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entities_type ON memory_entities(type)`);

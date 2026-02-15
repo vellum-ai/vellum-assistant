@@ -24,6 +24,8 @@ export interface UserMessage {
   content?: string;
   attachments?: UserMessageAttachment[];
   activeSurfaceId?: string;
+  /** The page currently displayed in the WebView (e.g. "settings.html"). */
+  currentPage?: string;
 }
 
 export interface UserMessageAttachment {
@@ -337,6 +339,19 @@ export interface BundleAppRequest {
   appId: string;
 }
 
+export interface AppUpdatePreviewRequest {
+  type: 'app_update_preview';
+  appId: string;
+  /** Base64-encoded PNG screenshot thumbnail. */
+  preview: string;
+}
+
+export interface AppUpdatePreviewResponse {
+  type: 'app_update_preview_response';
+  success: boolean;
+  appId: string;
+}
+
 export interface OpenBundleRequest {
   type: 'open_bundle';
   filePath: string;
@@ -505,6 +520,37 @@ export interface UiSurfaceAction {
   data?: Record<string, unknown>;
 }
 
+export interface UiSurfaceUndoRequest {
+  type: 'ui_surface_undo';
+  sessionId: string;
+  surfaceId: string;
+}
+
+export interface PublishPageRequest {
+  type: 'publish_page';
+  html: string;
+  title?: string;
+}
+
+export interface PublishPageResponse {
+  type: 'publish_page_response';
+  success: boolean;
+  publicUrl?: string;
+  deploymentId?: string;
+  error?: string;
+}
+
+export interface UnpublishPageRequest {
+  type: 'unpublish_page';
+  deploymentId: string;
+}
+
+export interface UnpublishPageResponse {
+  type: 'unpublish_page_response';
+  success: boolean;
+  error?: string;
+}
+
 export type ClientMessage =
   | UserMessage
   | ConfirmationResponse
@@ -528,6 +574,7 @@ export type ClientMessage =
   | WatchObservation
   | TaskSubmit
   | UiSurfaceAction
+  | UiSurfaceUndoRequest
   | AppDataRequest
   | SkillsListRequest
   | SkillDetailRequest
@@ -566,7 +613,10 @@ export type ClientMessage =
   | SlackWebhookConfigRequest
   | SessionsClearRequest
   | GalleryListRequest
-  | GalleryInstallRequest;
+  | GalleryInstallRequest
+  | AppUpdatePreviewRequest
+  | PublishPageRequest
+  | UnpublishPageRequest;
 
 // === Server → Client messages ===
 
@@ -1262,6 +1312,15 @@ export interface UiSurfaceDismiss {
   surfaceId: string;
 }
 
+export interface UiSurfaceUndoResult {
+  type: 'ui_surface_undo_result';
+  sessionId: string;
+  surfaceId: string;
+  success: boolean;
+  /** Number of remaining undo entries after this undo. */
+  remainingUndos: number;
+}
+
 export type ServerMessage =
   | AssistantTextDelta
   | AssistantThinkingDelta
@@ -1297,6 +1356,7 @@ export type ServerMessage =
   | UiSurfaceShow
   | UiSurfaceUpdate
   | UiSurfaceDismiss
+  | UiSurfaceUndoResult
   | AppDataResponse
   | SkillsListResponse
   | SkillDetailResponse
@@ -1327,7 +1387,10 @@ export type ServerMessage =
   | GalleryInstallResponse
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
-  | OpenUrl;
+  | OpenUrl
+  | AppUpdatePreviewResponse
+  | PublishPageResponse
+  | UnpublishPageResponse;
 
 // === Contract schema ===
 

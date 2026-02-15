@@ -119,6 +119,8 @@ public final class ChatViewModel: ObservableObject {
     /// after a refinement that produced no surface update.
     @Published public var refinementFailureText: String?
     private var refinementFailureDismissTask: Task<Void, Never>?
+    /// Number of undo steps available for the active workspace surface.
+    @Published public var surfaceUndoCount: Int = 0
     @Published public var pendingSkillInvocation: SkillInvocationData?
     @Published public var isWatchSessionActive: Bool = false
 
@@ -130,6 +132,8 @@ public final class ChatViewModel: ObservableObject {
     private let daemonClient: DaemonClient
     public var sessionId: String?
     private var pendingUserMessage: String?
+    /// Optional callback for sending notifications when tool-use messages complete
+    public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
     private var pendingUserAttachments: [IPCAttachment]?
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
@@ -194,10 +198,22 @@ public final class ChatViewModel: ObservableObject {
 
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
-    public var activeSurfaceId: String?
+    public var activeSurfaceId: String? {
+        didSet {
+            if oldValue != activeSurfaceId {
+                surfaceUndoCount = 0
+                currentPage = nil
+            }
+        }
+    }
 
-    public init(daemonClient: DaemonClient) {
+    /// The page currently displayed in the workspace WebView (e.g. "settings.html").
+    /// Set via the onPageChanged callback when the user navigates within a multi-page app.
+    public var currentPage: String?
+
+    public init(daemonClient: DaemonClient, onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
         self.daemonClient = daemonClient
+        self.onToolCallsComplete = onToolCallsComplete
     }
 
     // MARK: - Attachments
@@ -553,7 +569,8 @@ public final class ChatViewModel: ObservableObject {
                 sessionId: sessionId,
                 content: text,
                 attachments: attachments,
-                activeSurfaceId: activeSurfaceId
+                activeSurfaceId: activeSurfaceId,
+                currentPage: activeSurfaceId != nil ? currentPage : nil
             ))
         } catch {
             log.error("Failed to send user_message: \(error.localizedDescription)")
@@ -676,7 +693,8 @@ public final class ChatViewModel: ObservableObject {
                             sessionId: info.sessionId,
                             content: pending,
                             attachments: attachments,
-                            activeSurfaceId: activeSurfaceId
+                            activeSurfaceId: activeSurfaceId,
+                            currentPage: activeSurfaceId != nil ? currentPage : nil
                         ))
                     } catch {
                         log.error("Failed to send queued user_message: \(error.localizedDescription)")
@@ -751,9 +769,15 @@ public final class ChatViewModel: ObservableObject {
             if !wasRefinement {
                 ingestAssistantAttachments(complete.attachments)
             }
+            var completedToolCalls: [ToolCallData]?
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
+                // Check if this message has completed tool calls
+                let toolCalls = messages[index].toolCalls
+                if !toolCalls.isEmpty && toolCalls.allSatisfy({ $0.isComplete }) {
+                    completedToolCalls = toolCalls
+                }
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
@@ -766,6 +790,10 @@ public final class ChatViewModel: ObservableObject {
             // Skip follow-up suggestions for workspace refinements
             if !isSending && !wasRefinement {
                 fetchSuggestion()
+            }
+            // Notify about completed tool calls
+            if let toolCalls = completedToolCalls, let callback = onToolCallsComplete {
+                callback(toolCalls)
             }
 
         case .undoComplete(let undoMsg):
@@ -1032,10 +1060,17 @@ public final class ChatViewModel: ObservableObject {
                 messages.append(newMsg)
             }
 
+        case .uiSurfaceUndoResult(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            surfaceUndoCount = msg.remainingUndos
+
         case .uiSurfaceUpdate(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             if isWorkspaceRefinementInFlight {
                 refinementReceivedSurfaceUpdate = true
+            }
+            if msg.surfaceId == activeSurfaceId {
+                surfaceUndoCount += 1
             }
             // Find the inline surface across all messages and update its data
             for msgIndex in messages.indices {
@@ -1299,6 +1334,17 @@ public final class ChatViewModel: ObservableObject {
             isSending = false
             isThinking = false
             errorText = "Failed to regenerate message."
+        }
+    }
+
+    /// Revert the last refinement on the active workspace surface.
+    public func undoSurfaceRefinement() {
+        guard let sessionId, let surfaceId = activeSurfaceId else { return }
+        guard surfaceUndoCount > 0 else { return }
+        do {
+            try daemonClient.sendSurfaceUndo(sessionId: sessionId, surfaceId: surfaceId)
+        } catch {
+            log.error("Failed to send surface undo: \(error.localizedDescription)")
         }
     }
 

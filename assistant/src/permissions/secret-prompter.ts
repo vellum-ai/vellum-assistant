@@ -47,6 +47,9 @@ export class SecretPrompter {
     description?: string,
     placeholder?: string,
     sessionId?: string,
+    purpose?: string,
+    allowedTools?: string[],
+    allowedDomains?: string[],
   ): Promise<SecretPromptResult> {
     const requestId = uuid();
 
@@ -70,6 +73,9 @@ export class SecretPrompter {
         description,
         placeholder,
         sessionId,
+        purpose,
+        allowedTools,
+        allowedDomains,
         allowOneTimeSend: config.secretDetection.allowOneTimeSend,
       };
       this.sendToClient(msg);

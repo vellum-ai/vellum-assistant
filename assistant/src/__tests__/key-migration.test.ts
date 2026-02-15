@@ -9,6 +9,8 @@ import { randomBytes } from 'node:crypto';
 // ---------------------------------------------------------------------------
 
 const TEST_DIR = join(tmpdir(), `vellum-migration-test-${randomBytes(4).toString('hex')}`);
+const WORKSPACE_DIR = join(TEST_DIR, 'workspace');
+const CONFIG_PATH = join(WORKSPACE_DIR, 'config.json');
 const STORE_PATH = join(TEST_DIR, 'keys.enc');
 
 mock.module('../util/logger.js', () => ({
@@ -19,10 +21,13 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../util/platform.js', () => ({
   getRootDir: () => TEST_DIR,
+  getWorkspaceDir: () => WORKSPACE_DIR,
+  getWorkspaceConfigPath: () => CONFIG_PATH,
   getDataDir: () => join(TEST_DIR, 'data'),
   getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
   ensureDataDir: () => {
     if (!existsSync(TEST_DIR)) mkdirSync(TEST_DIR, { recursive: true });
+    if (!existsSync(WORKSPACE_DIR)) mkdirSync(WORKSPACE_DIR, { recursive: true });
     const logsDir = join(TEST_DIR, 'logs');
     if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true });
   },
@@ -46,6 +51,7 @@ describe('key migration', () => {
       rmSync(TEST_DIR, { recursive: true, force: true });
     }
     mkdirSync(TEST_DIR, { recursive: true });
+    mkdirSync(WORKSPACE_DIR, { recursive: true });
     mkdirSync(join(TEST_DIR, 'logs'), { recursive: true });
     _setStorePath(STORE_PATH);
     _setBackend('encrypted');
@@ -59,7 +65,7 @@ describe('key migration', () => {
   });
 
   test('[experimental] migrates plaintext apiKeys from config.json to secure storage', () => {
-    const configPath = join(TEST_DIR, 'config.json');
+    const configPath = CONFIG_PATH;
     writeFileSync(configPath, JSON.stringify({
       provider: 'anthropic',
       apiKeys: {
@@ -86,7 +92,7 @@ describe('key migration', () => {
   });
 
   test('does not migrate when no apiKeys in config.json', () => {
-    const configPath = join(TEST_DIR, 'config.json');
+    const configPath = CONFIG_PATH;
     writeFileSync(configPath, JSON.stringify({
       provider: 'anthropic',
       model: 'claude-sonnet-4-5-20250929',
@@ -102,7 +108,7 @@ describe('key migration', () => {
   });
 
   test('does not migrate empty apiKeys object', () => {
-    const configPath = join(TEST_DIR, 'config.json');
+    const configPath = CONFIG_PATH;
     writeFileSync(configPath, JSON.stringify({
       provider: 'anthropic',
       apiKeys: {},
@@ -116,7 +122,7 @@ describe('key migration', () => {
   });
 
   test('preserves other config fields during migration', () => {
-    const configPath = join(TEST_DIR, 'config.json');
+    const configPath = CONFIG_PATH;
     writeFileSync(configPath, JSON.stringify({
       provider: 'openai',
       model: 'gpt-4',
@@ -136,7 +142,7 @@ describe('key migration', () => {
   });
 
   test('[experimental] migration only happens once (idempotent)', () => {
-    const configPath = join(TEST_DIR, 'config.json');
+    const configPath = CONFIG_PATH;
     writeFileSync(configPath, JSON.stringify({
       provider: 'anthropic',
       apiKeys: { anthropic: 'sk-ant-test-key' },
@@ -157,7 +163,7 @@ describe('key migration', () => {
   });
 
   test('skips non-string values in apiKeys during migration', () => {
-    const configPath = join(TEST_DIR, 'config.json');
+    const configPath = CONFIG_PATH;
     writeFileSync(configPath, JSON.stringify({
       provider: 'anthropic',
       apiKeys: {

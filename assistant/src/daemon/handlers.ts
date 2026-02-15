@@ -54,12 +54,15 @@ import type {
   GalleryInstallRequest,
   ShareToSlackRequest,
   SlackWebhookConfigRequest,
+  AppUpdatePreviewRequest,
+  PublishPageRequest,
+  UnpublishPageRequest,
 } from './ipc-protocol.js';
 import { postToSlackWebhook } from '../slack/slack-webhook.js';
 import { createHash } from 'node:crypto';
 import { computeContentId } from '../util/content-id.js';
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { addRule, removeRule, updateRule, getAllRules } from '../permissions/trust-store.js';
@@ -70,9 +73,9 @@ import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { handleWatchObservation } from './watch-handler.js';
 import { classifyInteraction } from './classifier.js';
-import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp, createApp } from '../memory/app-store.js';
+import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp, createApp, updateApp } from '../memory/app-store.js';
 import { defaultGallery } from '../gallery/default-gallery.js';
-import { getRootDir } from '../util/platform.js';
+import { getWorkspaceSkillsDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
 import { parseSlashCandidate } from '../skills/slash-commands.js';
 import { removeSkillsIndexEntry, deleteManagedSkill, validateManagedSkillId } from '../skills/managed-store.js';
@@ -80,6 +83,9 @@ import { packageApp } from '../bundler/app-bundler.js';
 import { createSharedAppLink } from '../memory/shared-app-links-store.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
+import { deployHtmlToVercel, deleteVercelDeployment } from '../services/vercel-deploy.js';
+import { createPublishedPage, getPublishedPageByHash, markDeleted, getPublishedPageByDeploymentId } from '../memory/published-pages-store.js';
+import { getSecureKey } from '../security/secure-keys.js';
 import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId, validateBlobKindEncoding } from './ipc-blob-store.js';
 import { estimateBase64Bytes } from './assistant-attachments.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
@@ -423,6 +429,7 @@ const handlers: DispatchMap = {
   bundle_app: handleBundleApp,
   open_bundle: handleOpenBundle,
   app_open_request: (msg, socket, ctx) => handleAppOpenRequest(msg, socket, ctx),
+  app_update_preview: handleAppUpdatePreview,
   apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
   shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
   shared_app_delete: handleSharedAppDelete,
@@ -441,6 +448,8 @@ const handlers: DispatchMap = {
   gallery_install: handleGalleryInstall,
   share_to_slack: handleShareToSlack,
   slack_webhook_config: handleSlackWebhookConfig,
+  publish_page: handlePublishPage,
+  unpublish_page: handleUnpublishPage,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   link_open_request: (_msg, _socket, _ctx) => {
     // Handled in M2
@@ -458,6 +467,14 @@ const handlers: DispatchMap = {
       return;
     }
     log.warn({ sessionId: msg.sessionId, surfaceId: msg.surfaceId }, 'No session found for surface action');
+  },
+  ui_surface_undo: (msg, _socket, ctx) => {
+    const session = ctx.sessions.get(msg.sessionId);
+    if (session) {
+      session.handleSurfaceUndo(msg.surfaceId);
+      return;
+    }
+    log.warn({ sessionId: msg.sessionId, surfaceId: msg.surfaceId }, 'No session found for surface undo');
   },
 };
 
@@ -497,7 +514,7 @@ async function handleUserMessage(
 
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
 
-    // Block inbound messages that contain secrets before they enter model context
+    // Block inbound messages that contain secrets and redirect to secure prompt
     const ingressCheck = checkIngressForSecrets(msg.content ?? '');
     if (ingressCheck.blocked) {
       rlog.warn({ detectedTypes: ingressCheck.detectedTypes }, 'Blocked user message containing secrets');
@@ -505,6 +522,8 @@ async function handleUserMessage(
         type: 'error',
         message: ingressCheck.userNotice!,
       });
+      // Redirect: trigger a secure prompt so the user can enter the secret safely
+      session.redirectToSecurePrompt(ingressCheck.detectedTypes);
       return;
     }
 
@@ -514,7 +533,7 @@ async function handleUserMessage(
       attributes: { source: 'user_message' },
     });
 
-    const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId, msg.activeSurfaceId);
+    const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId, msg.activeSurfaceId, msg.currentPage);
     if (result.rejected) {
       rlog.warn('Message rejected — queue is full');
       session.traceEmitter.emit('request_error', 'Message rejected — queue is full', {
@@ -551,7 +570,7 @@ async function handleUserMessage(
     // Fire-and-forget: don't block the IPC handler so the connection can
     // continue receiving messages (e.g. cancel, confirmations, or
     // additional user_message that will be queued by the session).
-    session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId, msg.activeSurfaceId).catch((err) => {
+    session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId, msg.activeSurfaceId, msg.currentPage).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       rlog.error({ err }, 'Error processing user message (session or provider failure)');
       ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
@@ -1171,7 +1190,7 @@ async function handleSkillsUninstall(
       }
     } else {
       // Namespaced slug (org/name) — direct filesystem removal
-      const skillDir = join(getRootDir(), 'skills', msg.name);
+      const skillDir = join(getWorkspaceSkillsDir(), msg.name);
       if (!existsSync(skillDir)) {
         ctx.send(socket, {
           type: 'skills_operation_response',
@@ -1428,7 +1447,7 @@ async function handleTaskSubmit(
   const rlog = log.child({ requestId });
 
   try {
-    // Block inbound tasks that contain secrets before they enter model context
+    // Block inbound tasks that contain secrets and redirect to secure prompt
     const taskIngressCheck = checkIngressForSecrets(msg.task);
     if (taskIngressCheck.blocked) {
       rlog.warn({ detectedTypes: taskIngressCheck.detectedTypes }, 'Blocked task_submit containing secrets');
@@ -1436,6 +1455,11 @@ async function handleTaskSubmit(
         type: 'error',
         message: taskIngressCheck.userNotice!,
       });
+      // Create a session so the secret_response lifecycle works end-to-end
+      const conversation = conversationStore.createConversation('(blocked — secret detected)');
+      ctx.socketToSession.set(socket, conversation.id);
+      const session = await ctx.getOrCreateSession(conversation.id, socket, true);
+      session.redirectToSecurePrompt(taskIngressCheck.detectedTypes);
       return;
     }
 
@@ -1444,7 +1468,7 @@ async function handleTaskSubmit(
     const interactionType = slashCandidate.kind === 'candidate'
       ? 'text_qa' as const
       : await classifyInteraction(msg.task, msg.source);
-    rlog.info({ interactionType, slashBypass: slashCandidate.kind === 'candidate', task: msg.task }, 'Task classified');
+    rlog.info({ interactionType, slashBypass: slashCandidate.kind === 'candidate', taskLength: msg.task.length }, 'Task classified');
 
     if (interactionType === 'computer_use') {
       // Create CU session (reuse handleCuSessionCreate logic)
@@ -1784,6 +1808,19 @@ function handleAppOpenRequest(msg: { appId: string }, socket: net.Socket, ctx: H
   } as UiSurfaceShow);
 }
 
+// ─── App update preview handler ─────────────────────────────────────────────
+
+function handleAppUpdatePreview(msg: AppUpdatePreviewRequest, socket: net.Socket, ctx: HandlerContext): void {
+  try {
+    updateApp(msg.appId, { preview: msg.preview });
+    ctx.send(socket, { type: 'app_update_preview_response', success: true, appId: msg.appId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to update app preview');
+    ctx.send(socket, { type: 'error', message: `Failed to update app preview: ${message}` });
+  }
+}
+
 // ─── Apps list handler ──────────────────────────────────────────────────────
 
 function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
@@ -2059,6 +2096,109 @@ async function handleShareAppCloud(
   }
 }
 
+// ─── Publish page handlers ──────────────────────────────────────────────────
+
+async function handlePublishPage(
+  msg: PublishPageRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const token = getSecureKey('credential:vercel:api_token');
+    if (!token) {
+      ctx.send(socket, {
+        type: 'publish_page_response',
+        success: false,
+        error: 'No Vercel API token configured. Use the credential store to add one (service: vercel, field: api_token).',
+      });
+      return;
+    }
+
+    // Hash the HTML for dedup
+    const htmlHash = createHash('sha256').update(msg.html).digest('hex');
+
+    // Check if already published
+    const existing = getPublishedPageByHash(htmlHash);
+    if (existing) {
+      ctx.send(socket, {
+        type: 'publish_page_response',
+        success: true,
+        publicUrl: existing.publicUrl,
+        deploymentId: existing.deploymentId,
+      });
+      return;
+    }
+
+    const name = msg.title
+      ? msg.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50)
+      : `vellum-page-${Date.now()}`;
+
+    const result = await deployHtmlToVercel({ html: msg.html, name, token });
+
+    const id = uuid();
+    createPublishedPage({
+      id,
+      deploymentId: result.deploymentId,
+      publicUrl: result.url,
+      pageTitle: msg.title,
+      htmlHash,
+    });
+
+    ctx.send(socket, {
+      type: 'publish_page_response',
+      success: true,
+      publicUrl: result.url,
+      deploymentId: result.deploymentId,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to publish page');
+    ctx.send(socket, {
+      type: 'publish_page_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
+async function handleUnpublishPage(
+  msg: UnpublishPageRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const token = getSecureKey('credential:vercel:api_token');
+    if (!token) {
+      ctx.send(socket, {
+        type: 'unpublish_page_response',
+        success: false,
+        error: 'No Vercel API token configured.',
+      });
+      return;
+    }
+
+    await deleteVercelDeployment(msg.deploymentId, token);
+
+    const record = getPublishedPageByDeploymentId(msg.deploymentId);
+    if (record) {
+      markDeleted(record.id);
+    }
+
+    ctx.send(socket, {
+      type: 'unpublish_page_response',
+      success: true,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, deploymentId: msg.deploymentId }, 'Failed to unpublish page');
+    ctx.send(socket, {
+      type: 'unpublish_page_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
 // ─── Bundle app handler ─────────────────────────────────────────────────────
 
 async function handleBundleApp(
@@ -2195,34 +2335,13 @@ function handleGalleryInstall(
 
 // ─── Slack handlers ─────────────────────────────────────────────────────────
 
-function getVellumConfigPath(): string {
-  return join(homedir(), '.vellum', 'config.json');
-}
-
-function readVellumConfig(): Record<string, unknown> {
-  const configPath = getVellumConfigPath();
-  if (!existsSync(configPath)) return {};
-  try {
-    return JSON.parse(readFileSync(configPath, 'utf-8'));
-  } catch {
-    return {};
-  }
-}
-
-function writeVellumConfig(config: Record<string, unknown>): void {
-  const configPath = getVellumConfigPath();
-  const dir = join(configPath, '..');
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2));
-}
-
 async function handleShareToSlack(
   msg: ShareToSlackRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   try {
-    const config = readVellumConfig();
+    const config = loadRawConfig();
     const webhookUrl = config.slackWebhookUrl as string | undefined;
     if (!webhookUrl) {
       ctx.send(socket, {
@@ -2268,7 +2387,7 @@ function handleSlackWebhookConfig(
   ctx: HandlerContext,
 ): void {
   try {
-    const config = readVellumConfig();
+    const config = loadRawConfig();
     if (msg.action === 'get') {
       ctx.send(socket, {
         type: 'slack_webhook_config_response',
@@ -2277,7 +2396,7 @@ function handleSlackWebhookConfig(
       });
     } else {
       config.slackWebhookUrl = msg.webhookUrl ?? '';
-      writeVellumConfig(config);
+      saveRawConfig(config);
       ctx.send(socket, {
         type: 'slack_webhook_config_response',
         success: true,
@@ -2368,7 +2487,7 @@ function handleCuSessionCreate(
   }
   sessionIds.add(msg.sessionId);
 
-  log.info({ sessionId: msg.sessionId, task: msg.task }, 'Computer-use session created');
+  log.info({ sessionId: msg.sessionId, taskLength: msg.task.length }, 'Computer-use session created');
 }
 
 function handleCuSessionAbort(

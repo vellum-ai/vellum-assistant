@@ -2,7 +2,6 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import {
-  getSecureKey,
   setSecureKey,
   deleteSecureKey,
   listSecureKeys,
@@ -11,18 +10,11 @@ import {
 import { upsertCredentialMetadata, deleteCredentialMetadata } from './metadata-store.js';
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
 import type { CredentialPolicyInput } from './policy-types.js';
+import { credentialBroker } from './broker.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('credential-vault');
-
-/**
- * Retrieve the actual secret value for a credential.
- * Internal to vault — callers must go through the CredentialBroker.
- */
-function getCredentialValue(service: string, field: string): string | undefined {
-  return getSecureKey(`credential:${service}:${field}`);
-}
 
 class CredentialStoreTool implements Tool {
   name = 'credential_store';
@@ -209,7 +201,12 @@ class CredentialStoreTool implements Tool {
         }
         const promptPolicy = toPolicyFromInput(promptPolicyInput);
 
-        const result = await context.requestSecret({ service, field, label, description, placeholder });
+        const result = await context.requestSecret({
+          service, field, label, description, placeholder,
+          purpose: promptPolicy.usageDescription,
+          allowedTools: promptPolicy.allowedTools.length > 0 ? promptPolicy.allowedTools : undefined,
+          allowedDomains: promptPolicy.allowedDomains.length > 0 ? promptPolicy.allowedDomains : undefined,
+        });
         if (!result.value) {
           return { content: 'User cancelled the credential prompt.', isError: false };
         }
@@ -224,10 +221,21 @@ class CredentialStoreTool implements Tool {
               isError: true,
             };
           }
-          // SECURITY: value is used for the immediate action only, never stored or logged
+          // Inject into broker for one-time use by the next tool call, then discard
+          credentialBroker.injectTransient(service, field, result.value);
+          // Also upsert metadata so broker policy checks can find the credential
+          try {
+            upsertCredentialMetadata(service, field, {
+              allowedTools: promptPolicy.allowedTools,
+              allowedDomains: promptPolicy.allowedDomains,
+              usageDescription: promptPolicy.usageDescription,
+            });
+          } catch (err) {
+            log.warn({ service, field, err }, 'metadata write failed for transient credential');
+          }
           log.info({ service, field, delivery: 'transient_send' }, 'One-time secret delivery used');
           return {
-            content: `One-time credential provided for ${service}/${field}. The value was NOT saved to the vault.`,
+            content: `One-time credential provided for ${service}/${field}. The value was NOT saved to the vault and will be consumed by the next operation.`,
             isError: false,
           };
         }

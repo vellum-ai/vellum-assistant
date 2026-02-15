@@ -13,6 +13,8 @@ struct MainWindowView: View {
     @State private var showSharePicker = false
     @State private var isBundling = false
     @State private var shareFileURL: URL?
+    @State private var isPublishing = false
+    @State private var publishedUrl: String?
     @State private var isHoveredThread: UUID?
     @State private var threadMenuOpenId: UUID?
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
@@ -56,6 +58,28 @@ struct MainWindowView: View {
         return URL(string: "http://localhost:\(port)/pages/\(appId)")
     }
 
+    private func publishPage(html: String, title: String?) {
+        guard !isPublishing else { return }
+        isPublishing = true
+
+        Task { @MainActor in
+            daemonClient.onPublishPageResponse = { response in
+                isPublishing = false
+                if response.success, let url = response.publicUrl {
+                    publishedUrl = url
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url, forType: .string)
+                }
+            }
+
+            do {
+                try daemonClient.sendPublishPage(html: html, title: title)
+            } catch {
+                isPublishing = false
+            }
+        }
+    }
+
     private func bundleAndShare(appId: String) {
         guard !isBundling else { return }
         isBundling = true
@@ -93,25 +117,6 @@ struct MainWindowView: View {
                                 }
 
                                 Spacer()
-
-                                // Panel toggle buttons
-                                HStack(spacing: VSpacing.sm) {
-                                    VIconButton(label: "Skills", icon: "exclamationmark.triangle", isActive: windowState.activePanel == .agent, iconOnly: true) {
-                                        windowState.togglePanel(.agent)
-                                    }
-                                    VIconButton(label: "Settings", icon: "gearshape", isActive: windowState.activePanel == .settings, iconOnly: true) {
-                                        windowState.togglePanel(.settings)
-                                    }
-                                    VIconButton(label: "Directory", icon: "doc.text", isActive: windowState.activePanel == .directory, iconOnly: true) {
-                                        windowState.togglePanel(.directory)
-                                    }
-                                    VIconButton(label: "Debug", icon: "ant", isActive: windowState.activePanel == .debug, iconOnly: true) {
-                                        windowState.togglePanel(.debug)
-                                    }
-                                    VIconButton(label: "Doctor", icon: "stethoscope", isActive: windowState.activePanel == .doctor, iconOnly: true) {
-                                        windowState.togglePanel(.doctor)
-                                    }
-                                }
                             }
                             .padding(.leading, trafficLightPadding)
                             .padding(.trailing, VSpacing.lg)
@@ -260,6 +265,9 @@ struct MainWindowView: View {
             Button(action: {
                 threadMenuOpenId = nil
                 threadManager.selectThread(id: thread.id)
+                if windowState.activePanel == .directory {
+                    windowState.activePanel = nil
+                }
             }) {
                 Text(thread.title)
                     .font(.system(size: 13))
@@ -311,7 +319,7 @@ struct MainWindowView: View {
     @ViewBuilder
     private var threadDrawerView: some View {
         VStack(spacing: 0) {
-            NewConversationButton(action: { threadMenuOpenId = nil; threadManager.createThread() })
+            NewConversationButton(action: { threadMenuOpenId = nil; windowState.activePanel = nil; threadManager.createThread() })
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.xl)
@@ -340,6 +348,7 @@ struct MainWindowView: View {
             ParentalControlsMenuButton(
                 onSettings: { windowState.togglePanel(.settings) },
                 onSkills: { windowState.togglePanel(.agent) },
+                onDirectory: { windowState.togglePanel(.directory) },
                 onDebug: { windowState.togglePanel(.debug) },
                 onDoctor: { windowState.togglePanel(.doctor) }
             )
@@ -408,7 +417,18 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func chatContentView(geometry: GeometryProxy) -> some View {
-        if windowState.isDynamicExpanded && windowState.activePanel == .generated {
+        if windowState.activePanel == .directory {
+            AppDirectoryView(
+                daemonClient: daemonClient,
+                onBack: { windowState.activePanel = nil },
+                onOpenApp: { surfaceMsg in
+                    windowState.activeDynamicSurface = surfaceMsg
+                    windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                    windowState.activePanel = .generated
+                    windowState.isDynamicExpanded = true
+                }
+            )
+        } else if windowState.isDynamicExpanded && windowState.activePanel == .generated {
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
                 // Workspace mode: full-window dynamic page
@@ -554,6 +574,13 @@ struct MainWindowView: View {
                 onCoordinatorReady: data.appId != nil ? { coordinator in
                     surfaceManager.surfaceCoordinators[surface.id] = coordinator
                 } : nil,
+                onPageChanged: { [weak viewModel = threadManager.activeViewModel] page in
+                    viewModel?.currentPage = page
+                },
+                onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
+                    guard let appId = data.appId else { return }
+                    try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)
+                } : nil,
                 topContentInset: 56,
                 bottomContentInset: workspaceComposerReservedHeight
             )
@@ -586,6 +613,28 @@ struct MainWindowView: View {
                     .accessibilityLabel("Back to chat")
 
                     Spacer()
+
+                    // Undo button — revert the last refinement on this surface
+                    if let viewModel = threadManager.activeViewModel,
+                       viewModel.surfaceUndoCount > 0 {
+                        Button(action: {
+                            viewModel.undoSurfaceRefinement()
+                        }) {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(VColor.textPrimary)
+                                .frame(width: 32, height: 32)
+                                .background(
+                                    Circle()
+                                        .fill(VColor.surface.opacity(0.85))
+                                        .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Undo")
+                        .transition(.opacity)
+                        .animation(VAnimation.standard, value: viewModel.surfaceUndoCount)
+                    }
 
                     // Share button — bundle app and share via system share sheet
                     if let appId = data.appId {
@@ -626,6 +675,63 @@ struct MainWindowView: View {
                             )
                             .frame(width: 1, height: 1)
                         )
+                    } else {
+                        // Publish button for static pages
+                        Button(action: {
+                            publishPage(html: data.html, title: data.preview?.title)
+                        }) {
+                            Group {
+                                if isPublishing {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .scaleEffect(0.7)
+                                } else if publishedUrl != nil {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 12, weight: .medium))
+                                } else {
+                                    Image(systemName: "globe")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                            }
+                            .foregroundColor(publishedUrl != nil ? VColor.success : VColor.textPrimary)
+                            .frame(width: 32, height: 32)
+                            .background(
+                                Circle()
+                                    .fill(VColor.surface.opacity(0.85))
+                                    .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isPublishing)
+                        .accessibilityLabel(publishedUrl != nil ? "Published" : "Publish")
+
+                        // Show URL pill after publishing
+                        if let url = publishedUrl {
+                            Button(action: {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(url, forType: .string)
+                            }) {
+                                HStack(spacing: VSpacing.xs) {
+                                    Image(systemName: "doc.on.doc")
+                                        .font(.system(size: 10, weight: .medium))
+                                    Text(url)
+                                        .font(VFont.caption)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                .foregroundColor(VColor.textSecondary)
+                                .padding(.horizontal, VSpacing.sm)
+                                .padding(.vertical, VSpacing.xs)
+                                .background(
+                                    Capsule()
+                                        .fill(VColor.surface.opacity(0.85))
+                                        .overlay(Capsule().stroke(VColor.surfaceBorder, lineWidth: 1))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Copy published URL")
+                            .frame(maxWidth: 200)
+                        }
                     }
                 }
                 .padding(.horizontal, VSpacing.xl)
@@ -692,6 +798,9 @@ struct MainWindowView: View {
 
                 // Floating composer — fade is handled inside the WebView via CSS
                 if let viewModel = threadManager.activeViewModel {
+                    let placeholder = data.appId != nil
+                        ? "Describe changes to \(surface.title ?? "this app")..."
+                        : "Describe changes to this page..."
                     ComposerView(
                         inputText: Binding(
                             get: { viewModel.inputText },
@@ -709,6 +818,7 @@ struct MainWindowView: View {
                         onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
                         onPaste: { viewModel.addAttachmentFromPasteboard() },
                         onMicrophoneToggle: onMicrophoneToggle,
+                        placeholderText: placeholder,
                         editorContentHeight: $workspaceEditorContentHeight,
                         isComposerExpanded: $windowState.workspaceComposerExpanded
                     )
@@ -744,7 +854,8 @@ struct MainWindowView: View {
             case .settings:
                 SettingsPanel(onClose: { windowState.activePanel = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
             case .directory:
-                DirectoryPanel(onClose: { windowState.activePanel = nil })
+                Color.clear.frame(width: 0, height: 0)
+                    .onAppear { /* handled full-screen in chatContentView */ }
             case .debug:
                 DebugPanel(
                     traceStore: traceStore,
@@ -825,6 +936,7 @@ private struct NewConversationButton: View {
 private struct ParentalControlsMenuButton: View {
     let onSettings: () -> Void
     let onSkills: () -> Void
+    let onDirectory: () -> Void
     let onDebug: () -> Void
     let onDoctor: () -> Void
     @State private var isHovered = false
@@ -869,6 +981,7 @@ private struct ParentalControlsMenuButton: View {
                 DrawerMenuView(
                     onSettings: { showDrawer = false; onSettings() },
                     onSkills: { showDrawer = false; onSkills() },
+                    onDirectory: { showDrawer = false; onDirectory() },
                     onDebug: { showDrawer = false; onDebug() },
                     onDoctor: { showDrawer = false; onDoctor() }
                 )
@@ -882,6 +995,7 @@ private struct ParentalControlsMenuButton: View {
 private struct DrawerMenuView: View {
     let onSettings: () -> Void
     let onSkills: () -> Void
+    let onDirectory: () -> Void
     let onDebug: () -> Void
     let onDoctor: () -> Void
 
@@ -889,6 +1003,7 @@ private struct DrawerMenuView: View {
         VStack(alignment: .leading, spacing: 0) {
             DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
             DrawerMenuItem(icon: "wand.and.stars", label: "Skills", action: onSkills)
+            DrawerMenuItem(icon: "doc.text", label: "Directory", action: onDirectory)
 
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)

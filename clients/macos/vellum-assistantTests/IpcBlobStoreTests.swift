@@ -111,29 +111,30 @@ final class IpcBlobStoreTests: XCTestCase {
     }
 
     // MARK: - resolveBlobDir
+    // Blob dir resolves under ~/.vellum/workspace/data/ipc-blobs (workspace-backed).
 
     func testResolveBlobDirDefaultsToHomeDotVellum() {
         let resolved = resolveBlobDir(environment: [:])
         let home = NSHomeDirectory()
-        XCTAssertEqual(resolved, home + "/.vellum/data/ipc-blobs")
+        XCTAssertEqual(resolved, home + "/.vellum/workspace/data/ipc-blobs")
     }
 
     func testResolveBlobDirHonorsBaseDataDir() {
         let resolved = resolveBlobDir(environment: ["BASE_DATA_DIR": "/tmp/custom-root"])
-        XCTAssertEqual(resolved, "/tmp/custom-root/.vellum/data/ipc-blobs")
+        XCTAssertEqual(resolved, "/tmp/custom-root/.vellum/workspace/data/ipc-blobs")
     }
 
     func testResolveBlobDirIgnoresEmptyBaseDataDir() {
         let resolved = resolveBlobDir(environment: ["BASE_DATA_DIR": "  "])
         let home = NSHomeDirectory()
-        XCTAssertEqual(resolved, home + "/.vellum/data/ipc-blobs")
+        XCTAssertEqual(resolved, home + "/.vellum/workspace/data/ipc-blobs")
     }
 
     func testResolveBlobDirDoesNotExpandTildeInBaseDataDir() {
         // The daemon's getRootDir() keeps BASE_DATA_DIR literal via path.join(),
         // so the Swift client must NOT expand "~/" either.
         let resolved = resolveBlobDir(environment: ["BASE_DATA_DIR": "~/custom"])
-        XCTAssertEqual(resolved, "~/custom/.vellum/data/ipc-blobs")
+        XCTAssertEqual(resolved, "~/custom/.vellum/workspace/data/ipc-blobs")
         XCTAssertFalse(resolved.contains(NSHomeDirectory()), "home dir should NOT appear in path")
     }
 

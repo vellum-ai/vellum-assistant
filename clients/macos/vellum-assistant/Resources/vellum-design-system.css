@@ -1524,7 +1524,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 
 /* Page — centered content container for landing pages */
 .v-page {
-  max-width: 860px;
+  max-width: 900px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -1774,5 +1774,68 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .v-animate-in:nth-child(4) { animation-delay: 0.3s; }
 .v-animate-in:nth-child(5) { animation-delay: 0.4s; }
 .v-animate-in:nth-child(6) { animation-delay: 0.5s; }
+
+/* ── Pill Toggles — time range / filter toggle group ────────── */
+.v-pill-toggles {
+  display: inline-flex;
+  gap: var(--v-spacing-xxs);
+  background: var(--v-surface);
+  border: 1px solid var(--v-surface-border);
+  border-radius: var(--v-radius-pill);
+  padding: var(--v-spacing-xxs);
+}
+.v-pill-toggle {
+  padding: var(--v-spacing-xs) var(--v-spacing-md);
+  border-radius: var(--v-radius-pill);
+  border: none;
+  background: none;
+  font-size: var(--v-font-size-sm);
+  font-weight: 500;
+  color: var(--v-text-secondary);
+  cursor: pointer;
+  transition: all var(--v-duration-fast) ease-out;
+}
+.v-pill-toggle:hover {
+  color: var(--v-text);
+}
+.v-pill-toggle.active {
+  background: var(--v-accent);
+  color: white;
+  font-weight: 600;
+  box-shadow: var(--v-shadow-sm);
+}
+
+/* ── Chip Group — suggestion / filter chip row ─────────────── */
+.v-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--v-spacing-xs);
+}
+.v-chip {
+  padding: var(--v-spacing-xs) var(--v-spacing-md);
+  border-radius: var(--v-radius-pill);
+  border: 1px solid var(--v-surface-border);
+  background: var(--v-surface);
+  font-size: var(--v-font-size-sm);
+  color: var(--v-text-secondary);
+  cursor: pointer;
+  transition: all var(--v-duration-fast) ease-out;
+}
+.v-chip:hover {
+  border-color: var(--v-accent);
+  color: var(--v-text);
+}
+.v-chip.active {
+  background: color-mix(in srgb, var(--v-accent) 12%, transparent);
+  border-color: var(--v-accent);
+  color: var(--v-accent);
+  font-weight: 600;
+}
+
+/* ── Metric Icon — emoji icon for metric cards ─────────────── */
+.v-metric-card .v-metric-icon {
+  font-size: 28px;
+  line-height: 1;
+}
 
 } /* end @layer vellum-design-system */

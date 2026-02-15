@@ -31,6 +31,10 @@ final class ComputerUseSession: ObservableObject {
     private let maxSteps: Int
     private let interactionType: InteractionType
     private let skipSessionCreate: Bool
+    private let notificationService: ActivityNotificationServiceProtocol?
+
+    /// Weak reference to the chat view model for extracting tool calls for notifications.
+    weak var relatedViewModel: ChatViewModel?
 
     private var isCancelled = false
     private var isPaused = false
@@ -68,7 +72,8 @@ final class ComputerUseSession: ObservableObject {
         initialDelayMs: UInt64 = 300,
         adaptiveDelay: Bool = true,
         sessionId: String? = nil,
-        skipSessionCreate: Bool = false
+        skipSessionCreate: Bool = false,
+        notificationService: ActivityNotificationServiceProtocol? = nil
     ) {
         self.id = sessionId ?? UUID().uuidString
         self.task = task
@@ -82,6 +87,7 @@ final class ComputerUseSession: ObservableObject {
         self.initialDelayMs = initialDelayMs
         self.adaptiveDelayEnabled = adaptiveDelay
         self.skipSessionCreate = skipSessionCreate
+        self.notificationService = notificationService
         self.verifier = ActionVerifier(maxSteps: maxSteps)
         self.logger = SessionLogger(task: task, attachments: attachments)
     }
@@ -172,6 +178,24 @@ final class ComputerUseSession: ObservableObject {
                         self.state = .completed(summary: complete.summary, steps: complete.stepCount)
                     }
                     self.logger.finishSession(result: "completed: \(complete.summary)")
+                    log.info("Session completed, notificationService present: \(self.notificationService != nil)")
+
+                    // Send notification if service is available
+                    if let notificationService = self.notificationService {
+                        log.info("Calling notificationService.notifySessionComplete")
+                        let toolCalls = self.extractToolCalls()
+                        Task {
+                            await notificationService.notifySessionComplete(
+                                summary: complete.summary,
+                                steps: complete.stepCount,
+                                toolCalls: toolCalls,
+                                sessionId: self.id
+                            )
+                        }
+                    } else {
+                        log.warning("notificationService is nil, cannot send notification")
+                    }
+
                     return
 
                 case .cuError(let error) where error.sessionId == self.id:
@@ -825,6 +849,18 @@ final class ComputerUseSession: ObservableObject {
         if interactiveCount < 3 { return true }
         if consecutiveUnchangedSteps >= 2 { return true }
         return false
+    }
+
+    // MARK: - Helper Methods
+
+    /// Extracts all tool calls from the related ChatViewModel for notification purposes.
+    private func extractToolCalls() -> [ToolCallData] {
+        guard let viewModel = relatedViewModel else { return [] }
+
+        // Collect tool calls from all assistant messages
+        return viewModel.messages
+            .filter { $0.role == .assistant }
+            .flatMap { $0.toolCalls }
     }
 
     // MARK: - Control

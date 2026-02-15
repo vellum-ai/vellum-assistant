@@ -2,6 +2,8 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
+// Baseline: socket path STAYS ROOT at ~/.vellum/vellum.sock after workspace migration.
+// The socket is a runtime artifact, not workspace state.
 describe('getSocketPath', () => {
   let originalEnv: string | undefined;
 

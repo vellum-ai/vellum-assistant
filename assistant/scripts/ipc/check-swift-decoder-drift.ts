@@ -41,6 +41,9 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   'gallery_install_response',
   'gallery_list_response',
   'share_app_cloud_response',
+  // Page publishing — not yet consumed by the macOS client
+  'publish_page_response',
+  'unpublish_page_response',
 ]);
 
 /**

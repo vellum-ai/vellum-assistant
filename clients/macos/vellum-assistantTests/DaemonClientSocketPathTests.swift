@@ -2,6 +2,8 @@ import XCTest
 @testable import VellumAssistantLib
 import VellumAssistantShared
 
+// Baseline: socket path STAYS ROOT at ~/.vellum/vellum.sock after workspace migration.
+// The socket is a runtime artifact, not workspace state.
 @MainActor
 final class DaemonClientSocketPathTests: XCTestCase {
 

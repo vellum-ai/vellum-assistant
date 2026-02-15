@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { getRootDir } from '../util/platform.js';
+import { getWorkspaceSkillsDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('managed-store');
@@ -24,7 +24,7 @@ export function validateManagedSkillId(id: string): string | null {
 // ─── Path helpers ────────────────────────────────────────────────────────────
 
 export function getManagedSkillsDir(): string {
-  return join(getRootDir(), 'skills');
+  return getWorkspaceSkillsDir();
 }
 
 export function getManagedSkillDir(id: string): string {

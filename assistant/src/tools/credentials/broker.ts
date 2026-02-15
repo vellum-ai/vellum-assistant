@@ -27,6 +27,18 @@ const log = getLogger('credential-broker');
  */
 export class CredentialBroker {
   private tokens = new Map<string, UsageToken>();
+  /** Transient values for one-time send: consumed on first read, never persisted. */
+  private transientValues = new Map<string, string>();
+
+  /**
+   * Inject a value for one-time use. The value is consumed on the next
+   * browserFill or consume call for this service/field pair, then discarded.
+   */
+  injectTransient(service: string, field: string, value: string): void {
+    const key = `credential:${service}:${field}`;
+    this.transientValues.set(key, value);
+    log.info({ service, field }, 'Transient credential injected for one-time use');
+  }
 
   /**
    * Authorize the use of a credential for a specific tool and optional domain.
@@ -85,7 +97,14 @@ export class CredentialBroker {
 
     token.consumed = true;
     const storageKey = `credential:${token.service}:${token.field}`;
-    log.info({ tokenId, storageKey }, 'Usage token consumed');
+    // Check for transient value first (one-time send) — consume and discard
+    const transient = this.transientValues.get(storageKey);
+    if (transient !== undefined) {
+      this.transientValues.delete(storageKey);
+      log.info({ tokenId, storageKey, transient: true }, 'Usage token consumed (transient)');
+    } else {
+      log.info({ tokenId, storageKey }, 'Usage token consumed');
+    }
 
     return { success: true, storageKey };
   }
@@ -157,7 +176,13 @@ export class CredentialBroker {
       }
     }
 
-    const value = getSecureKey(`credential:${request.service}:${request.field}`);
+    const storageKey = `credential:${request.service}:${request.field}`;
+    // Check transient values first (one-time send), then fall back to keychain
+    const transient = this.transientValues.get(storageKey);
+    const value = transient ?? getSecureKey(storageKey);
+    if (transient !== undefined) {
+      this.transientValues.delete(storageKey);
+    }
     if (!value) {
       return {
         success: false,
@@ -193,3 +218,6 @@ export class CredentialBroker {
     return count;
   }
 }
+
+/** Shared singleton broker instance used by vault and browser tools. */
+export const credentialBroker = new CredentialBroker();

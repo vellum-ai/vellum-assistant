@@ -24,6 +24,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private let daemonClient: DaemonClient
     private var viewModelCancellable: AnyCancellable?
     private let sessionRestorer: ThreadSessionRestorer
+    private let activityNotificationService: ActivityNotificationService?
 
     /// Called when an inline confirmation response should dismiss the floating panel.
     var confirmationDismissHandler: ((String) -> Void)?
@@ -38,12 +39,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     var activeViewModel: ChatViewModel? {
-        guard let activeThreadId else { return nil }
+        guard let activeThreadId else { return nil}
         return chatViewModels[activeThreadId]
     }
 
-    init(daemonClient: DaemonClient) {
+    init(daemonClient: DaemonClient, activityNotificationService: ActivityNotificationService? = nil) {
         self.daemonClient = daemonClient
+        self.activityNotificationService = activityNotificationService
         self.sessionRestorer = ThreadSessionRestorer(daemonClient: daemonClient)
         // Create one default thread so the window is never empty
         createThread()
@@ -230,7 +232,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func makeViewModel() -> ChatViewModel {
-        let viewModel = ChatViewModel(daemonClient: daemonClient)
+        let viewModel = ChatViewModel(daemonClient: daemonClient, onToolCallsComplete: { [weak self] toolCalls in
+            guard let self, let service = self.activityNotificationService else { return }
+            // Send notification when tool calls complete
+            Task { @MainActor in
+                await service.notifySessionComplete(
+                    summary: "Tool execution completed",
+                    steps: toolCalls.count,
+                    toolCalls: toolCalls,
+                    sessionId: "" // Session ID not needed for chat-based notifications
+                )
+            }
+        })
         viewModel.onInlineConfirmationResponse = { [weak self] requestId in
             self?.confirmationDismissHandler?(requestId)
         }

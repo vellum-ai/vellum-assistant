@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 import { existsSync, chmodSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
-import { getSocketPath, getRootDir, getSandboxWorkingDir, removeSocketFile } from '../util/platform.js';
+import { getSocketPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
@@ -159,16 +159,17 @@ export class DaemonServer {
 
   private startFileWatchers(): void {
     const rootDir = getRootDir();
+    const workspaceDir = getWorkspaceDir();
     const protectedDir = join(rootDir, 'protected');
 
-    // Watch root directory for config + prompt files
-    const rootHandlers: Record<string, () => void> = {
+    // Watch workspace directory for config + prompt files
+    const workspaceHandlers: Record<string, () => void> = {
       'config.json': () => {
         if (this.suppressConfigReload) return;
         try {
           this.refreshConfigFromSources();
         } catch (err) {
-          log.error({ err, configPath: join(rootDir, 'config.json') }, 'Failed to reload config after file change. Previous config remains active.');
+          log.error({ err, configPath: join(workspaceDir, 'config.json') }, 'Failed to reload config after file change. Previous config remains active.');
           return;
         }
       },
@@ -209,7 +210,7 @@ export class DaemonServer {
       }
     };
 
-    watchDir(rootDir, rootHandlers, 'root directory for config/prompt changes');
+    watchDir(workspaceDir, workspaceHandlers, 'workspace directory for config/prompt changes');
     if (existsSync(protectedDir)) {
       watchDir(protectedDir, protectedHandlers, 'protected directory for trust/allowlist changes');
     }
@@ -302,7 +303,7 @@ export class DaemonServer {
   }
 
   private startSkillsWatchers(evictSessions: () => void): void {
-    const skillsDir = join(getRootDir(), 'skills');
+    const skillsDir = getWorkspaceSkillsDir();
     if (!existsSync(skillsDir)) return;
 
     const scheduleSkillsReload = (file: string): void => {

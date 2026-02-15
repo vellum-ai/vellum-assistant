@@ -14,10 +14,9 @@ import { browserManager } from './browser-manager.js';
 import type { RouteHandler } from './browser-manager.js';
 import { detectCaptcha } from './captcha-detector.js';
 import { detectAuthChallenge, formatAuthChallenge } from './auth-detector.js';
-import { CredentialBroker } from '../credentials/broker.js';
+import { credentialBroker } from '../credentials/broker.js';
 
 const log = getLogger('headless-browser');
-const credentialBroker = new CredentialBroker();
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
 

@@ -9,10 +9,10 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
-/// Writes `~/.vellum/IDENTITY.md` with the assistant's chosen name so the
+/// Writes `~/.vellum/workspace/IDENTITY.md` with the assistant's chosen name so the
 /// daemon's system prompt includes the correct identity.
 func writeVellumIdentityFile(name: String) {
-    let vellumDir = NSHomeDirectory() + "/.vellum"
+    let vellumDir = NSHomeDirectory() + "/.vellum/workspace"
     let identityPath = vellumDir + "/IDENTITY.md"
     let content = """
     # IDENTITY
@@ -210,7 +210,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             daemonClient: self.daemonClient,
             maxSteps: maxSteps,
             sessionId: routed.sessionId,
-            skipSessionCreate: true
+            skipSessionCreate: true,
+            notificationService: self.services.activityNotificationService
         )
         self.currentSession = session
 
@@ -839,7 +840,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingWindow = onboarding
     }
 
-    /// Writes (or updates) `~/.vellum/IDENTITY.md` with the user-chosen assistant name.
+    /// Writes (or updates) `~/.vellum/workspace/IDENTITY.md` with the user-chosen assistant name.
     ///
     /// If the file already exists, only the `- **Name:** …` line is replaced so that
     /// user customizations (extra persona instructions, changed role/tone, etc.) are preserved.
@@ -848,7 +849,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
 
-        let vellumDir = NSHomeDirectory() + "/.vellum"
+        let vellumDir = NSHomeDirectory() + "/.vellum/workspace"
         let identityPath = vellumDir + "/IDENTITY.md"
 
         do {
@@ -1062,7 +1063,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     maxSteps: maxSteps,
                     attachments: submission.attachments,
                     sessionId: routed.sessionId,
-                    skipSessionCreate: true
+                    skipSessionCreate: true,
+                    notificationService: self.services.activityNotificationService
                 )
                 self.currentSession = session
                 let overlay = SessionOverlayWindow(session: session)
@@ -1146,7 +1148,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             actions: [approveAction, dismissAction],
             intentIdentifiers: []
         )
-        center.setNotificationCategories([automationCategory])
+
+        let viewAction = UNNotificationAction(
+            identifier: "VIEW_ACTIVITY",
+            title: "View Results",
+            options: .foreground
+        )
+        let activityCategory = UNNotificationCategory(
+            identifier: "ACTIVITY_COMPLETE",
+            actions: [viewAction],
+            intentIdentifiers: [],
+            options: []
+        )
+
+        center.setNotificationCategories([automationCategory, activityCategory])
     }
 
     private func registerBundledFonts() {
@@ -1351,7 +1366,24 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse
     ) async {
         let userInfo = response.notification.request.content.userInfo
-        guard response.notification.request.content.categoryIdentifier == "AUTOMATION_INSIGHT",
+        let categoryId = response.notification.request.content.categoryIdentifier
+
+        // Handle activity completion notifications
+        if categoryId == "ACTIVITY_COMPLETE" {
+            await MainActor.run {
+                // Show main window
+                self.showMainWindow()
+
+                // Optional: Navigate to the completed session/thread
+                // if let sessionId = userInfo["sessionId"] as? String {
+                //     // Navigate to thread containing this session
+                // }
+            }
+            return
+        }
+
+        // Handle automation insight notifications
+        guard categoryId == "AUTOMATION_INSIGHT",
               let insightId = userInfo["insightId"] as? String,
               let insightTitle = userInfo["insightTitle"] as? String,
               let description = userInfo["insightDescription"] as? String else {

@@ -17,6 +17,8 @@ export interface ActiveSurfaceContext {
   appSchemaJson?: string;
   /** Additional pages keyed by filename (e.g. "settings.html" → HTML content). */
   appPages?: Record<string, string>;
+  /** The page currently displayed in the WebView (e.g. "settings.html"). */
+  currentPage?: string;
 }
 
 /**
@@ -70,41 +72,72 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
     // App structure metadata
     lines.push('', 'App structure:');
     const pageNames = ctx.appPages ? Object.keys(ctx.appPages) : [];
-    lines.push(`- Main page (index.html): shown below`);
+    const viewingPage = ctx.currentPage && ctx.currentPage !== 'index.html' ? ctx.currentPage : null;
+
+    if (viewingPage) {
+      lines.push(`- Currently viewing: ${viewingPage}`);
+    }
+    lines.push(`- Main page (index.html)${viewingPage ? '' : ': shown below'}`);
     if (pageNames.length > 0) {
       lines.push(`- Additional pages: ${pageNames.join(', ')}`);
       lines.push('  To modify additional pages, include the `pages` parameter in `app_update`.');
-      lines.push('  To add a new page, include it in `pages` with its HTML content.');
+      lines.push('  IMPORTANT: The `pages` parameter is a full replacement — always include ALL');
+      lines.push('  existing pages (with their current content) alongside any modified or new pages.');
     } else {
       lines.push('- Additional pages: none');
     }
     const schema = ctx.appSchemaJson;
+    const MAX_SCHEMA_LENGTH = 10_000;
     if (schema && schema !== '"{}"' && schema !== '{}') {
-      lines.push(`- Data schema: ${schema}`);
+      const truncatedSchema = schema.length > MAX_SCHEMA_LENGTH
+        ? schema.slice(0, MAX_SCHEMA_LENGTH) + '… (truncated)'
+        : schema;
+      lines.push(`- Data schema: ${truncatedSchema}`);
     } else {
       lines.push('- Data schema: none (display-only)');
     }
 
-    // Main page HTML — reserve budget for additional pages
-    let mainBudget = MAX_CONTEXT_LENGTH;
+    // Determine which HTML to show as primary based on the currently viewed page
+    let primaryLabel = 'index.html';
+    let primaryHtml = ctx.html;
+    if (viewingPage && ctx.appPages?.[viewingPage]) {
+      primaryLabel = viewingPage;
+      primaryHtml = ctx.appPages[viewingPage];
+    }
+
+    // Primary page HTML — reserve budget for additional pages (and schema)
+    const schemaSize = schema ? Math.min(schema.length, MAX_SCHEMA_LENGTH) : 0;
+    let mainBudget = MAX_CONTEXT_LENGTH - schemaSize;
     const additionalPageBlocks: string[] = [];
 
-    if (ctx.appPages && pageNames.length > 0) {
-      // Try to include additional page content if total fits
-      let additionalSize = 0;
+    // Build additional page content (all pages except the primary one)
+    const otherPages: Record<string, string> = {};
+    if (viewingPage && primaryLabel !== 'index.html') {
+      // Show index.html as additional context
+      otherPages['index.html'] = ctx.html;
+    }
+    if (ctx.appPages) {
       for (const [filename, content] of Object.entries(ctx.appPages)) {
-        additionalSize += filename.length + content.length + 30; // overhead for delimiters
-        additionalPageBlocks.push(`--- ${filename} ---`, content);
-      }
-      if (additionalSize + ctx.html.length > MAX_CONTEXT_LENGTH) {
-        // Too large — omit page content, just list names (already done above)
-        additionalPageBlocks.length = 0;
-      } else {
-        mainBudget = MAX_CONTEXT_LENGTH - additionalSize;
+        if (filename !== primaryLabel) {
+          otherPages[filename] = content;
+        }
       }
     }
 
-    lines.push('', 'Current HTML (index.html):', truncateHtml(ctx.html, mainBudget));
+    if (Object.keys(otherPages).length > 0) {
+      let additionalSize = 0;
+      for (const [filename, content] of Object.entries(otherPages)) {
+        additionalSize += filename.length + content.length + 30;
+        additionalPageBlocks.push(`--- ${filename} ---`, content);
+      }
+      if (additionalSize + primaryHtml.length > MAX_CONTEXT_LENGTH - schemaSize) {
+        additionalPageBlocks.length = 0;
+      } else {
+        mainBudget = MAX_CONTEXT_LENGTH - schemaSize - additionalSize;
+      }
+    }
+
+    lines.push('', `Current HTML (${primaryLabel}):`, truncateHtml(primaryHtml, mainBudget));
 
     if (additionalPageBlocks.length > 0) {
       lines.push('', 'Additional page content:', ...additionalPageBlocks);

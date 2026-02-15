@@ -45,11 +45,11 @@ export function getRootDir(): string {
 }
 
 /**
- * Returns the internal data directory (~/.vellum/data). Runtime databases,
- * logs, memory indices, and other internal state live here.
+ * Returns the internal data directory (~/.vellum/workspace/data). Runtime
+ * databases, logs, memory indices, and other internal state live here.
  */
 export function getDataDir(): string {
-  return join(getRootDir(), 'data');
+  return join(getWorkspaceDir(), 'data');
 }
 
 /**
@@ -69,11 +69,12 @@ export function getSandboxRootDir(): string {
 }
 
 /**
- * Returns the default sandbox working directory (~/.vellum/data/sandbox/fs).
- * Tool working directories should use this path unless explicitly overridden.
+ * Returns the default sandbox working directory (~/.vellum/workspace).
+ * This is the workspace root — tool working directories should use this
+ * path unless explicitly overridden.
  */
 export function getSandboxWorkingDir(): string {
-  return join(getSandboxRootDir(), 'fs');
+  return getWorkspaceDir();
 }
 
 export function getInterfacesDir(): string {
@@ -127,27 +128,129 @@ export function getHistoryPath(): string {
 }
 
 export function getHooksDir(): string {
-  return join(getRootDir(), 'hooks');
+  return getWorkspaceHooksDir();
+}
+
+// --- Workspace path primitives ---
+// These will become the canonical paths after workspace migration.
+// Currently not used by call-sites; wired in later PRs.
+
+/** Returns ~/.vellum/workspace — the workspace root for user-facing state. */
+export function getWorkspaceDir(): string {
+  return join(getRootDir(), 'workspace');
+}
+
+/** Returns ~/.vellum/workspace/config.json */
+export function getWorkspaceConfigPath(): string {
+  return join(getWorkspaceDir(), 'config.json');
+}
+
+/** Returns ~/.vellum/workspace/skills */
+export function getWorkspaceSkillsDir(): string {
+  return join(getWorkspaceDir(), 'skills');
+}
+
+/** Returns ~/.vellum/workspace/hooks */
+export function getWorkspaceHooksDir(): string {
+  return join(getWorkspaceDir(), 'hooks');
+}
+
+/** Returns the workspace path for a prompt file (e.g. IDENTITY.md, SOUL.md, USER.md). */
+export function getWorkspacePromptPath(file: string): string {
+  return join(getWorkspaceDir(), file);
+}
+
+/**
+ * Idempotent move: relocates source to destination for migration.
+ * - No-op if source is missing (already migrated or never existed).
+ * - No-op if destination already exists (avoids clobbering).
+ * - Creates destination parent directories as needed.
+ * - Logs warning on failure instead of throwing.
+ *
+ * Exported for testing; not intended for general use outside migrations.
+ */
+export function migratePath(source: string, destination: string): void {
+  if (!existsSync(source)) return;
+  if (existsSync(destination)) {
+    log.warn(
+      { source, destination },
+      'Migration skipped: destination already exists',
+    );
+    return;
+  }
+  const destDir = dirname(destination);
+  if (!existsSync(destDir)) {
+    mkdirSync(destDir, { recursive: true });
+  }
+  try {
+    renameSync(source, destination);
+    log.info({ from: source, to: destination }, 'Migrated path');
+  } catch (err) {
+    log.warn({ err, from: source, to: destination }, 'Failed to migrate path');
+  }
+}
+
+/**
+ * Migrate from the flat ~/.vellum layout to the workspace-based layout.
+ *
+ * Step (a) is special: if the workspace dir doesn't exist yet but the old
+ * sandbox working dir (data/sandbox/fs) does, its contents are "extracted"
+ * to become the new workspace root via rename. All subsequent moves then
+ * land inside that workspace directory.
+ *
+ * Idempotent: safe to call on every startup — already-migrated items are
+ * skipped, and a second run is a no-op.
+ */
+export function migrateToWorkspaceLayout(): void {
+  const root = getRootDir();
+  if (!existsSync(root)) return;
+
+  const ws = getWorkspaceDir();
+
+  // (a) Extract data/sandbox/fs -> workspace (only when workspace doesn't exist yet)
+  if (!existsSync(ws)) {
+    const sandboxFs = join(root, 'data', 'sandbox', 'fs');
+    if (existsSync(sandboxFs)) {
+      try {
+        renameSync(sandboxFs, ws);
+        log.info({ from: sandboxFs, to: ws }, 'Extracted sandbox/fs as workspace root');
+      } catch (err) {
+        log.warn({ err, from: sandboxFs, to: ws }, 'Failed to extract sandbox/fs');
+      }
+    }
+  }
+
+  // (b)-(h) Move legacy root-level items into workspace
+  migratePath(join(root, 'config.json'), join(ws, 'config.json'));
+  migratePath(join(root, 'data'), join(ws, 'data'));
+  migratePath(join(root, 'hooks'), join(ws, 'hooks'));
+  migratePath(join(root, 'IDENTITY.md'), join(ws, 'IDENTITY.md'));
+  migratePath(join(root, 'skills'), join(ws, 'skills'));
+  migratePath(join(root, 'SOUL.md'), join(ws, 'SOUL.md'));
+  migratePath(join(root, 'USER.md'), join(ws, 'USER.md'));
 }
 
 export function ensureDataDir(): void {
   const root = getRootDir();
-  const data = getDataDir();
+  const workspace = getWorkspaceDir();
+  const wsData = join(workspace, 'data');
   const dirs = [
+    // Root-level dirs (runtime / protected)
     root,
-    join(root, 'skills'),
-    join(root, 'hooks'),
     join(root, 'protected'),
-    data,
-    join(data, 'db'),
-    join(data, 'qdrant'),
-    join(data, 'logs'),
-    join(data, 'memory'),
-    join(data, 'memory', 'knowledge'),
-    join(data, 'apps'),
-    join(data, 'sandbox'),
-    join(data, 'sandbox', 'fs'),
-    join(data, 'interfaces'),
+    // Workspace dirs
+    workspace,
+    join(workspace, 'hooks'),
+    join(workspace, 'skills'),
+    // Data sub-dirs under workspace
+    wsData,
+    join(wsData, 'db'),
+    join(wsData, 'qdrant'),
+    join(wsData, 'logs'),
+    join(wsData, 'memory'),
+    join(wsData, 'memory', 'knowledge'),
+    join(wsData, 'apps'),
+    join(wsData, 'interfaces'),
   ];
   for (const dir of dirs) {
     if (!existsSync(dir)) {

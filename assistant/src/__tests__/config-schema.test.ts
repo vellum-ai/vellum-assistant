@@ -9,11 +9,13 @@ import { randomBytes } from 'node:crypto';
 // ---------------------------------------------------------------------------
 
 const TEST_DIR = join(tmpdir(), `vellum-schema-test-${randomBytes(4).toString('hex')}`);
-const CONFIG_PATH = join(TEST_DIR, 'config.json');
+const WORKSPACE_DIR = join(TEST_DIR, 'workspace');
+const CONFIG_PATH = join(WORKSPACE_DIR, 'config.json');
 
 function ensureTestDir(): void {
   const dirs = [
     TEST_DIR,
+    WORKSPACE_DIR,
     join(TEST_DIR, 'data'),
     join(TEST_DIR, 'memory'),
     join(TEST_DIR, 'memory', 'knowledge'),
@@ -32,6 +34,8 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../util/platform.js', () => ({
   getRootDir: () => TEST_DIR,
+  getWorkspaceDir: () => WORKSPACE_DIR,
+  getWorkspaceConfigPath: () => CONFIG_PATH,
   getDataDir: () => join(TEST_DIR, 'data'),
   getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
   ensureDataDir: () => ensureTestDir(),
@@ -470,7 +474,7 @@ describe('loadConfig with schema validation', () => {
     // Keep TEST_DIR and logs in place to avoid racing async logger stream init.
     ensureTestDir();
     const resetPaths = [
-      join(TEST_DIR, 'config.json'),
+      CONFIG_PATH,
       join(TEST_DIR, 'keys.enc'),
       join(TEST_DIR, 'data'),
       join(TEST_DIR, 'memory'),

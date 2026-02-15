@@ -152,6 +152,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `slack_webhook_config_response` message.
     public var onSlackWebhookConfigResponse: ((SlackWebhookConfigResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `publish_page_response` message.
+    public var onPublishPageResponse: ((PublishPageResponseMessage) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -460,6 +463,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(message)
     }
 
+    // MARK: - Surface Undo
+
+    /// Send a surface undo request to revert the last refinement on a workspace surface.
+    public func sendSurfaceUndo(sessionId: String, surfaceId: String) throws {
+        let message = UiSurfaceUndoMessage(sessionId: sessionId, surfaceId: surfaceId)
+        try send(message)
+    }
+
     // MARK: - Confirmation Response
 
     /// Send a confirmation response for a tool permission request.
@@ -634,6 +645,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(AppOpenRequestMessage(appId: appId))
     }
 
+    /// Send a preview screenshot for an app.
+    public func sendAppUpdatePreview(appId: String, preview: String) throws {
+        try send(AppUpdatePreviewRequestMessage(appId: appId, preview: preview))
+    }
+
     /// Request the list of all apps from the daemon.
     public func sendAppsList() throws {
         try send(AppsListRequestMessage())
@@ -672,6 +688,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Get or set the Slack webhook URL configuration.
     public func sendSlackWebhookConfig(action: String, webhookUrl: String? = nil) throws {
         try send(SlackWebhookConfigRequestMessage(action: action, webhookUrl: webhookUrl))
+    }
+
+    /// Publish a static page to Vercel.
+    public func sendPublishPage(html: String, title: String? = nil) throws {
+        try send(PublishPageRequestMessage(html: html, title: title))
+    }
+
+    /// Unpublish a page and delete its Vercel deployment.
+    public func sendUnpublishPage(deploymentId: String) throws {
+        try send(UnpublishPageRequestMessage(deploymentId: deploymentId))
     }
 
     // MARK: - Signing Identity (macOS only)
@@ -873,6 +899,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSkillsInspectResponse?(msg)
         case .appsListResponse(let msg):
             onAppsListResponse?(msg)
+        case .appUpdatePreviewResponse:
+            break // Fire-and-forget; no callback needed
         case .sharedAppsListResponse(let msg):
             onSharedAppsListResponse?(msg)
         case .sharedAppDeleteResponse(let msg):
@@ -891,6 +919,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onShareToSlackResponse?(msg)
         case .slackWebhookConfigResponse(let msg):
             onSlackWebhookConfigResponse?(msg)
+        case .publishPageResponse(let msg):
+            onPublishPageResponse?(msg)
+        case .unpublishPageResponse:
+            break // Handled via specific callback if needed
         case .memoryStatus(let msg):
             latestMemoryStatus = msg
         case .traceEvent(let msg):

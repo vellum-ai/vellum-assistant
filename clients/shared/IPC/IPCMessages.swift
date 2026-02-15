@@ -218,8 +218,8 @@ extension IPCSessionCreateRequest {
 public typealias UserMessageMessage = IPCUserMessage
 
 extension IPCUserMessage {
-    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil) {
-        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId)
+    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil) {
+        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage)
     }
 }
 
@@ -273,6 +273,20 @@ extension IPCUiSurfaceAction {
     }
 }
 
+/// Sent when user requests undo on a workspace surface.
+/// Backed by generated `IPCUiSurfaceUndoRequest`.
+public typealias UiSurfaceUndoMessage = IPCUiSurfaceUndoRequest
+
+extension IPCUiSurfaceUndoRequest {
+    public init(sessionId: String, surfaceId: String) {
+        self.init(type: "ui_surface_undo", sessionId: sessionId, surfaceId: surfaceId)
+    }
+}
+
+/// Result of a surface undo operation.
+/// Backed by generated `IPCUiSurfaceUndoResult`.
+public typealias UiSurfaceUndoResultMessage = IPCUiSurfaceUndoResult
+
 /// Sent when a persistent app's JS makes a data request via the RPC bridge.
 /// Backed by generated `IPCAppDataRequest`.
 public typealias AppDataRequestMessage = IPCAppDataRequest
@@ -292,6 +306,20 @@ extension IPCAppOpenRequest {
         self.init(type: "app_open_request", appId: appId)
     }
 }
+
+/// Sent to update an app's preview screenshot.
+/// Backed by generated `IPCAppUpdatePreviewRequest`.
+public typealias AppUpdatePreviewRequestMessage = IPCAppUpdatePreviewRequest
+
+extension IPCAppUpdatePreviewRequest {
+    public init(appId: String, preview: String) {
+        self.init(type: "app_update_preview", appId: appId, preview: preview)
+    }
+}
+
+/// Response from updating an app's preview screenshot.
+/// Backed by generated `IPCAppUpdatePreviewResponse`.
+public typealias AppUpdatePreviewResponseMessage = IPCAppUpdatePreviewResponse
 
 /// Sent to request the list of all apps.
 /// Backed by generated `IPCAppsListRequest`.
@@ -1238,6 +1266,36 @@ extension IPCOpenBundleResponseManifest {
 }
 
 
+// MARK: - Publish / Unpublish Page Messages
+
+/// Sent to publish a static page via Vercel.
+/// Backed by generated `IPCPublishPageRequest`.
+public typealias PublishPageRequestMessage = IPCPublishPageRequest
+
+extension IPCPublishPageRequest {
+    public init(html: String, title: String? = nil) {
+        self.init(type: "publish_page", html: html, title: title)
+    }
+}
+
+/// Response from publishing a static page.
+/// Backed by generated `IPCPublishPageResponse`.
+public typealias PublishPageResponseMessage = IPCPublishPageResponse
+
+/// Sent to unpublish a page and delete its Vercel deployment.
+/// Backed by generated `IPCUnpublishPageRequest`.
+public typealias UnpublishPageRequestMessage = IPCUnpublishPageRequest
+
+extension IPCUnpublishPageRequest {
+    public init(deploymentId: String) {
+        self.init(type: "unpublish_page", deploymentId: deploymentId)
+    }
+}
+
+/// Response from unpublishing a page.
+/// Backed by generated `IPCUnpublishPageResponse`.
+public typealias UnpublishPageResponseMessage = IPCUnpublishPageResponse
+
 // MARK: - Slack Webhook Messages (Manual)
 
 public struct ShareToSlackRequestMessage: Encodable, Sendable {
@@ -1318,6 +1376,7 @@ public enum ServerMessage: Decodable, Sendable {
     case remindersListResponse(RemindersListResponseMessage)
     case schedulesListResponse(SchedulesListResponseMessage)
     case appsListResponse(AppsListResponseMessage)
+    case appUpdatePreviewResponse(AppUpdatePreviewResponseMessage)
     case sharedAppsListResponse(SharedAppsListResponseMessage)
     case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
     case forkSharedAppResponse(ForkSharedAppResponseMessage)
@@ -1326,6 +1385,9 @@ public enum ServerMessage: Decodable, Sendable {
     case signBundlePayload(SignBundlePayloadMessage)
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
+    case publishPageResponse(PublishPageResponseMessage)
+    case unpublishPageResponse(UnpublishPageResponseMessage)
+    case uiSurfaceUndoResult(UiSurfaceUndoResultMessage)
     case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
     case getSigningIdentity
@@ -1464,6 +1526,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "apps_list_response":
             let message = try AppsListResponseMessage(from: decoder)
             self = .appsListResponse(message)
+        case "app_update_preview_response":
+            let message = try AppUpdatePreviewResponseMessage(from: decoder)
+            self = .appUpdatePreviewResponse(message)
         case "shared_apps_list_response":
             let message = try SharedAppsListResponseMessage(from: decoder)
             self = .sharedAppsListResponse(message)
@@ -1491,6 +1556,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "sign_bundle_payload":
             let message = try SignBundlePayloadMessage(from: decoder)
             self = .signBundlePayload(message)
+        case "ui_surface_undo_result":
+            let message = try UiSurfaceUndoResultMessage(from: decoder)
+            self = .uiSurfaceUndoResult(message)
         case "ipc_blob_probe_result":
             let message = try IpcBlobProbeResultMessage(from: decoder)
             self = .ipcBlobProbeResult(message)
@@ -1499,6 +1567,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "daemon_status":
             let message = try DaemonStatusMessage(from: decoder)
             self = .daemonStatus(message)
+        case "publish_page_response":
+            let message = try PublishPageResponseMessage(from: decoder)
+            self = .publishPageResponse(message)
+        case "unpublish_page_response":
+            let message = try UnpublishPageResponseMessage(from: decoder)
+            self = .unpublishPageResponse(message)
         case "pong":
             self = .pong
         default:

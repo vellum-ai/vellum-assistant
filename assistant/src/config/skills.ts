@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFil
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { getConfig } from './loader.js';
-import { getRootDir } from '../util/platform.js';
+import { getWorkspaceSkillsDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { stripCommentLines } from './system-prompt.js';
 
@@ -148,7 +148,7 @@ export function checkSkillRequirements(
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export function getSkillsDir(): string {
-  return join(getRootDir(), 'skills');
+  return getWorkspaceSkillsDir();
 }
 
 export function getBundledSkillsDir(): string {

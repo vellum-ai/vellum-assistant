@@ -319,6 +319,16 @@ export const sharedAppLinks = sqliteTable('shared_app_links', {
   expiresAt: integer('expires_at'),
 });
 
+export const publishedPages = sqliteTable('published_pages', {
+  id: text('id').primaryKey(),
+  deploymentId: text('deployment_id').notNull().unique(),
+  publicUrl: text('public_url').notNull(),
+  pageTitle: text('page_title'),
+  htmlHash: text('html_hash').notNull(),
+  publishedAt: integer('published_at').notNull(),
+  status: text('status').notNull().default('active'),
+});
+
 export const llmUsageEvents = sqliteTable('llm_usage_events', {
   id: text('id').primaryKey(),
   createdAt: integer('created_at').notNull(),

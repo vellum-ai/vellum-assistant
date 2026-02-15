@@ -142,7 +142,10 @@ describe('CredentialBroker.browserFill', () => {
 
     expect(result.success).toBe(false);
     expect(result.reason).toContain('Fill operation failed');
-    expect(result.reason).toContain('Element not found');
+    // The broker intentionally returns a generic error — the original error
+    // message is NOT included because it could embed the credential value,
+    // leaking plaintext outside the broker's trust boundary.
+    expect(result.reason).not.toContain('Element not found');
   });
 
   test('handles multiple fills with different credentials', async () => {

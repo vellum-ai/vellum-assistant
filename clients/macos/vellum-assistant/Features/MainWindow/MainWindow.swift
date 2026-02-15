@@ -37,7 +37,10 @@ final class MainWindow {
 
     init(services: AppServices) {
         self.services = services
-        self.threadManager = ThreadManager(daemonClient: services.daemonClient)
+        self.threadManager = ThreadManager(
+            daemonClient: services.daemonClient,
+            activityNotificationService: services.activityNotificationService
+        )
         self.threadManager.ambientAgent = services.ambientAgent
         services.daemonClient.onTraceEvent = { [weak self] msg in
             Task { @MainActor in

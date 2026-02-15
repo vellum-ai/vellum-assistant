@@ -39,7 +39,7 @@ The `CredentialBroker` enforces these policies at use time. Requests outside the
 | Component | Location | Contents |
 |-----------|----------|----------|
 | Secret values | macOS Keychain | Encrypted values keyed as `credential:{service}:{field}` |
-| Credential metadata | SQLite (`~/.vellum/data/db/assistant.db`) | Service, field, label, usage policy, timestamps |
+| Credential metadata | JSON file (`~/.vellum/data/credentials/metadata.json`) | Service, field, label, usage policy, timestamps |
 | Config | `~/.vellum/config.*` | `secretDetection` settings |
 
 This split means the daemon process can enumerate credentials and check policies without ever loading plaintext secrets into memory. Secrets are fetched from the Keychain only at the point of use, by the broker.
@@ -51,7 +51,7 @@ This split means the daemon process can enumerate credentials and check policies
 3. The macOS client shows a floating `SecretPromptView` panel with a `SecureField`.
 4. The user enters the value and clicks "Save" (or "Send Once" if enabled).
 5. The client sends `secret_response` back via IPC.
-6. The vault tool stores the value in the Keychain (for "store" delivery) or forwards it for immediate use (for "transient_send" delivery).
+6. The vault tool stores the value in the Keychain (for "store" delivery) or injects it into the `CredentialBroker` for immediate one-time use (for "transient_send" delivery). The broker holds the value in memory and discards it after the next `consume` or `browserFill` call.
 7. The tool returns a metadata-only confirmation to the model.
 
 ### Secret ingress blocking
@@ -102,7 +102,11 @@ All credential security settings live under `secretDetection` in the assistant c
 |------|------|
 | `assistant/src/tools/credentials/vault.ts` | `credential_store` tool implementation |
 | `assistant/src/security/secure-keys.ts` | Keychain read/write wrapper |
-| `assistant/src/tools/credentials/metadata-store.ts` | SQLite metadata CRUD |
+| `assistant/src/tools/credentials/metadata-store.ts` | JSON file metadata CRUD |
+| `assistant/src/tools/credentials/broker.ts` | Brokered credential access with policy enforcement |
+| `assistant/src/tools/credentials/tool-policy.ts` | Tool allowlist matching |
+| `assistant/src/tools/credentials/domain-policy.ts` | Registrable-domain matching |
+| `assistant/src/security/redaction.ts` | Recursive field-level redaction for sensitive keys |
 | `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation |
 | `assistant/src/tools/credentials/policy-types.ts` | Policy type definitions |
 | `assistant/src/permissions/secret-prompter.ts` | IPC secret request/response flow |

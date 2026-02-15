@@ -224,7 +224,7 @@ function buildWeatherPageHtml(d: WeatherPageInput): string {
   const btnBase = 'border:none;cursor:pointer;padding:5px 12px;font-size:13px;line-height:1;transition:background 0.15s,color 0.15s,font-weight 0.15s';
 
   return [
-    `<div data-unit="${d.unit}" style="max-width:520px;margin:0 auto;padding:24px">`,
+    `<div data-unit="${d.unit}" style="max-width:900px;margin:0 auto;padding:24px">`,
     // Hero
     `<div style="text-align:center;margin-bottom:24px">`,
     `<div style="font-size:13px;text-transform:uppercase;letter-spacing:2px;color:var(--v-text-secondary);font-weight:600;margin-bottom:16px">${escapeHtml(d.location)}</div>`,
