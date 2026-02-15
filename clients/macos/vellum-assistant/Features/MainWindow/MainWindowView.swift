@@ -449,7 +449,9 @@ struct MainWindowView: View {
         let expanded = workspaceComposerExpanded
         let topPad: CGFloat = expanded ? VSpacing.lg : VSpacing.sm
         let buttonRow: CGFloat = expanded ? 28 + VSpacing.xs : 0
-        return VSpacing.md + 18 + topPad + VSpacing.sm + contentHeight + buttonRow
+        let hasAttachments = !(threadManager.activeViewModel?.pendingAttachments.isEmpty ?? true)
+        let attachmentStrip: CGFloat = hasAttachments ? VSpacing.sm + 36 + VSpacing.xs : 0
+        return VSpacing.md + 18 + topPad + VSpacing.sm + contentHeight + buttonRow + attachmentStrip
     }
 
     @ViewBuilder
