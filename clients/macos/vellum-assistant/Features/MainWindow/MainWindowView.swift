@@ -239,7 +239,7 @@ struct MainWindowView: View {
                 threadManager.selectThread(id: thread.id)
             }) {
                 Text(thread.title)
-                    .font(.custom("Inter", size: 13))
+                    .font(.system(size: 13))
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -294,7 +294,7 @@ struct MainWindowView: View {
                 .padding(.bottom, VSpacing.xl)
 
             Text("Recents")
-                .font(.custom("Inter", size: 11))
+                .font(.system(size: 11))
                 .foregroundColor(VColor.textMuted)
                 .padding(.bottom, VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -731,7 +731,7 @@ private struct NewConversationButton: View {
                             .stroke(isHovered ? VColor.textMuted : VColor.textMuted.opacity(0.5), lineWidth: 1)
                     )
                 Text("New conversation")
-                    .font(.custom("Inter-Medium", size: 13))
+                    .font(.system(size: 13, weight: .medium))
             }
             .foregroundColor(VColor.textPrimary)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -771,14 +771,14 @@ private struct ParentalControlsMenuButton: View {
         } label: {
             HStack(spacing: VSpacing.md) {
                 Text("P")
-                    .font(.custom("Inter-SemiBold", size: 13))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white)
                     .frame(width: 32, height: 32)
                     .background(VColor.textMuted)
                     .clipShape(Circle())
 
                 Text("Parental Controls")
-                    .font(.custom("Inter-Medium", size: 13))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundColor(VColor.textPrimary)
 
                 Spacer()
