@@ -1,3 +1,5 @@
+import type { GalleryManifest } from '../gallery/gallery-manifest.js';
+
 // === Shared types ===
 
 export interface IpcBlobRef {
@@ -314,6 +316,15 @@ export interface GetSigningIdentityResponse {
   publicKey: string;
 }
 
+export interface GalleryListRequest {
+  type: 'gallery_list';
+}
+
+export interface GalleryInstallRequest {
+  type: 'gallery_install';
+  galleryAppId: string;
+}
+
 export interface IpcBlobProbe {
   type: 'ipc_blob_probe';
   probeId: string;
@@ -482,7 +493,9 @@ export type ClientMessage =
   | SignBundlePayloadResponse
   | GetSigningIdentityResponse
   | IpcBlobProbe
-  | SessionsClearRequest;
+  | SessionsClearRequest
+  | GalleryListRequest
+  | GalleryInstallRequest;
 
 // === Server → Client messages ===
 
@@ -972,6 +985,19 @@ export interface IpcBlobProbeResult {
   reason?: string;
 }
 
+export interface GalleryListResponse {
+  type: 'gallery_list_response';
+  gallery: GalleryManifest;
+}
+
+export interface GalleryInstallResponse {
+  type: 'gallery_install_response';
+  success: boolean;
+  appId?: string;
+  name?: string;
+  error?: string;
+}
+
 export interface TimerCompleted {
   type: 'timer_completed';
   sessionId: string;
@@ -1133,7 +1159,9 @@ export type ServerMessage =
   | SignBundlePayloadRequest
   | GetSigningIdentityRequest
   | IpcBlobProbeResult
-  | TraceEvent;
+  | TraceEvent
+  | GalleryListResponse
+  | GalleryInstallResponse;
 
 // === Contract schema ===
 

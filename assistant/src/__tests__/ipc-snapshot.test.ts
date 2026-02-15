@@ -252,6 +252,13 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     probeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
     nonceSha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
   },
+  gallery_list: {
+    type: 'gallery_list',
+  },
+  gallery_install: {
+    type: 'gallery_install',
+    galleryAppId: 'gallery-pomodoro-timer',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -714,6 +721,21 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     probeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
     ok: true,
     observedNonceSha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+  },
+  gallery_list_response: {
+    type: 'gallery_list_response',
+    gallery: {
+      version: 1,
+      updatedAt: '2026-02-15T00:00:00Z',
+      categories: [{ id: 'productivity', name: 'Productivity', icon: '\u{1F4CB}' }],
+      apps: [],
+    },
+  },
+  gallery_install_response: {
+    type: 'gallery_install_response',
+    success: true,
+    appId: 'app-new-001',
+    name: 'Pomodoro Timer',
   },
 };
 

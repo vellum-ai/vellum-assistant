@@ -47,6 +47,8 @@ import type {
   ForkSharedAppRequest,
   UiSurfaceShow,
   IpcBlobProbe,
+  GalleryListRequest,
+  GalleryInstallRequest,
 } from './ipc-protocol.js';
 import { createHash } from 'node:crypto';
 import { execSync } from 'node:child_process';
@@ -59,6 +61,7 @@ import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp, createApp } from '../memory/app-store.js';
+import { defaultGallery } from '../gallery/default-gallery.js';
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
 import { parseSlashCandidate } from '../skills/slash-commands.js';
@@ -415,6 +418,8 @@ const handlers: DispatchMap = {
     // IPC signing orchestration is wired up. Currently a no-op placeholder to
     // satisfy the exhaustive dispatch map; signing is invoked via SigningCallback.
   },
+  gallery_list: (_msg, socket, ctx) => handleGalleryList(socket, ctx),
+  gallery_install: handleGalleryInstall,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ipc_blob_probe: handleIpcBlobProbe,
   ui_surface_action: (msg, _socket, ctx) => {
@@ -1894,6 +1899,52 @@ function handleIpcBlobProbe(
     ok: true,
     observedNonceSha256: observedHash,
   });
+}
+
+// ─── Gallery handlers ────────────────────────────────────────────────────────
+
+function handleGalleryList(socket: net.Socket, ctx: HandlerContext): void {
+  ctx.send(socket, { type: 'gallery_list_response', gallery: defaultGallery });
+}
+
+function handleGalleryInstall(
+  msg: GalleryInstallRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const galleryApp = defaultGallery.apps.find((a) => a.id === msg.galleryAppId);
+    if (!galleryApp) {
+      ctx.send(socket, {
+        type: 'gallery_install_response',
+        success: false,
+        error: `Gallery app not found: ${msg.galleryAppId}`,
+      });
+      return;
+    }
+
+    const app = createApp({
+      name: galleryApp.name,
+      description: galleryApp.description,
+      schemaJson: galleryApp.schemaJson,
+      htmlDefinition: galleryApp.htmlDefinition,
+    });
+
+    ctx.send(socket, {
+      type: 'gallery_install_response',
+      success: true,
+      appId: app.id,
+      name: app.name,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, galleryAppId: msg.galleryAppId }, 'Failed to install gallery app');
+    ctx.send(socket, {
+      type: 'gallery_install_response',
+      success: false,
+      error: message,
+    });
+  }
 }
 
 // ─── Computer-use handlers ──────────────────────────────────────────────────
