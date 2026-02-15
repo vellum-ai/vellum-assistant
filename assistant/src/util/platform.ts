@@ -53,6 +53,14 @@ export function getDataDir(): string {
 }
 
 /**
+ * Returns the IPC blob directory (~/.vellum/data/ipc-blobs).
+ * Temporary blob files for zero-copy IPC payloads live here.
+ */
+export function getIpcBlobDir(): string {
+  return join(getDataDir(), 'ipc-blobs');
+}
+
+/**
  * Returns the sandbox root directory (~/.vellum/data/sandbox).
  * Global sandbox state lives under this directory.
  */
