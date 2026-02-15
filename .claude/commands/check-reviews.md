@@ -83,8 +83,18 @@ Display a table with these columns:
 | --- | --- | ----- | ----- | ------- | ------------- | ----------------------- |
 
 - **Age**: How long ago the PR was created (e.g., "2h 15m", "45m").
-- **Codex/Devin columns**: Show "Approved", "Changes requested", "Pending", "Nonsensical" (feedback didn't apply), or "Rate-limited 🔄" (Codex only — re-triggered via `@codex review` comment).
-- **Verdict**: The overall assessment — "Approved", "Valid feedback", "Regression risk ⚠️", or "Pending".
+- **Codex/Devin columns**: Use emoji prefixes for quick scanning:
+  - ✅ Approved
+  - ❌ Changes requested
+  - ⏳ Pending
+  - 🤷 Nonsensical (feedback didn't apply)
+  - 🔄 Rate-limited (Codex only — re-triggered via `@codex review` comment)
+- **Verdict**: Use emoji prefixes:
+  - ✅ Approved
+  - 📝 Valid feedback
+  - ⚠️ Regression risk
+  - ⏳ Pending
+- **Added to TODO / Removed from Unreviewed**: Use ✅ for yes, — for no.
 
 ### Regression risk flagging
 
