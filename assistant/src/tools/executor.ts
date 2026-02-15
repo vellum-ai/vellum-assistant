@@ -13,6 +13,7 @@ import { applyEdit } from './shared/filesystem/edit-engine.js';
 import { wrapCommand } from './terminal/sandbox.js';
 import { getConfig } from '../config/loader.js';
 import { scanText, redactSecrets } from '../security/secret-scanner.js';
+import { redactSensitiveFields } from '../security/redaction.js';
 import { getHookManager } from '../hooks/manager.js';
 
 const log = getLogger('tool-executor');
@@ -418,16 +419,11 @@ function resolveExecutionTarget(toolName: string): ExecutionTarget {
 }
 
 /**
- * Sanitize tool inputs before they are emitted in lifecycle events.
- * This prevents plaintext secrets (e.g. credential_store `value`) from
- * being persisted in audit logs.
+ * Sanitize tool inputs before they are emitted in lifecycle events and hooks.
+ * Applies recursive field-level redaction for known-sensitive keys.
  */
-function sanitizeToolInput(toolName: string, input: Record<string, unknown>): Record<string, unknown> {
-  if (toolName === 'credential_store' && 'value' in input) {
-    const { value: _redacted, ...rest } = input;
-    return { ...rest, value: '<redacted />' };
-  }
-  return input;
+function sanitizeToolInput(_toolName: string, input: Record<string, unknown>): Record<string, unknown> {
+  return redactSensitiveFields(input);
 }
 
 function emitLifecycleEvent(context: ToolContext, event: ToolLifecycleEvent): void {
