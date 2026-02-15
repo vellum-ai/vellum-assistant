@@ -125,6 +125,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `shared_app_delete_response` message.
     public var onSharedAppDeleteResponse: ((SharedAppDeleteResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `fork_shared_app_response` message.
+    public var onForkSharedAppResponse: ((ForkSharedAppResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `bundle_app_response` message.
     public var onBundleAppResponse: ((BundleAppResponseMessage) -> Void)?
 
@@ -615,6 +618,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(SharedAppDeleteRequestMessage(uuid: uuid))
     }
 
+    /// Fork a shared app into a local editable copy.
+    public func sendForkSharedApp(uuid: String) throws {
+        try send(ForkSharedAppRequestMessage(uuid: uuid))
+    }
+
     // MARK: - Signing Identity (macOS only)
 
     #if os(macOS)
@@ -813,6 +821,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSharedAppsListResponse?(msg)
         case .sharedAppDeleteResponse(let msg):
             onSharedAppDeleteResponse?(msg)
+        case .forkSharedAppResponse(let msg):
+            onForkSharedAppResponse?(msg)
         case .bundleAppResponse(let msg):
             onBundleAppResponse?(msg)
         case .openBundleResponse(let msg):

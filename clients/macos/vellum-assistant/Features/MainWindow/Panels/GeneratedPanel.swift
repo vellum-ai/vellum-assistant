@@ -223,6 +223,7 @@ struct GeneratedPanel: View {
                         shareButton(for: item)
 
                         if item.isShared {
+                            forkButton(for: item)
                             deleteButton(for: item)
                         }
                     }
@@ -330,6 +331,12 @@ struct GeneratedPanel: View {
                     reshareApp(uuid: uuid, itemId: item.id)
                 }
             }
+        }
+    }
+
+    private func forkButton(for item: DisplayAppItem) -> some View {
+        VIconButton(label: "Fork", icon: "arrow.triangle.branch", iconOnly: true) {
+            forkSharedApp(item)
         }
     }
 
@@ -529,6 +536,26 @@ struct GeneratedPanel: View {
 
             do {
                 try daemonClient.sendSharedAppDelete(uuid: uuid)
+            } catch {
+                // Silently fail
+            }
+        }
+    }
+
+    // MARK: - Fork Shared App
+
+    private func forkSharedApp(_ item: DisplayAppItem) {
+        guard let uuid = item.sharedUUID else { return }
+
+        Task { @MainActor in
+            daemonClient.onForkSharedAppResponse = { response in
+                if response.success {
+                    self.fetchApps()
+                }
+            }
+
+            do {
+                try daemonClient.sendForkSharedApp(uuid: uuid)
             } catch {
                 // Silently fail
             }

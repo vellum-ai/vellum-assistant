@@ -313,6 +313,20 @@ extension IPCSharedAppDeleteRequest {
     }
 }
 
+/// Sent to fork (create a local copy of) a shared app by UUID.
+public struct ForkSharedAppRequestMessage: Encodable, Sendable {
+    public let type: String = "fork_shared_app"
+    public let uuid: String
+}
+
+/// Response from forking a shared app.
+public struct ForkSharedAppResponseMessage: Decodable, Sendable {
+    public let success: Bool
+    public let appId: String?
+    public let name: String?
+    public let error: String?
+}
+
 /// Sent to request bundling an app for sharing.
 /// Backed by generated `IPCBundleAppRequest`.
 public typealias BundleAppRequestMessage = IPCBundleAppRequest
@@ -1179,6 +1193,7 @@ public enum ServerMessage: Decodable, Sendable {
     case appsListResponse(AppsListResponseMessage)
     case sharedAppsListResponse(SharedAppsListResponseMessage)
     case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
+    case forkSharedAppResponse(ForkSharedAppResponseMessage)
     case bundleAppResponse(BundleAppResponseMessage)
     case openBundleResponse(OpenBundleResponseMessage)
     case signBundlePayload(SignBundlePayloadMessage)
@@ -1314,6 +1329,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "shared_app_delete_response":
             let message = try SharedAppDeleteResponseMessage(from: decoder)
             self = .sharedAppDeleteResponse(message)
+        case "fork_shared_app_response":
+            let message = try ForkSharedAppResponseMessage(from: decoder)
+            self = .forkSharedAppResponse(message)
         case "bundle_app_response":
             let message = try BundleAppResponseMessage(from: decoder)
             self = .bundleAppResponse(message)

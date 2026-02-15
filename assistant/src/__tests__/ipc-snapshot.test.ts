@@ -220,6 +220,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'shared_app_delete',
     uuid: 'abc-123-def',
   },
+  fork_shared_app: {
+    type: 'fork_shared_app',
+    uuid: 'abc-123-def',
+  },
   open_bundle: {
     type: 'open_bundle',
     filePath: '/tmp/My_App.vellumapp',
@@ -647,6 +651,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   shared_app_delete_response: {
     type: 'shared_app_delete_response',
     success: true,
+  },
+  fork_shared_app_response: {
+    type: 'fork_shared_app_response',
+    success: true,
+    appId: 'new-app-id',
+    name: 'My App (Fork)',
   },
   open_bundle_response: {
     type: 'open_bundle_response',

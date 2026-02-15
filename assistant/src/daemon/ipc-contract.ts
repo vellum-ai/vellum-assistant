@@ -286,6 +286,11 @@ export interface SharedAppDeleteRequest {
   uuid: string;
 }
 
+export interface ForkSharedAppRequest {
+  type: 'fork_shared_app';
+  uuid: string;
+}
+
 export interface BundleAppRequest {
   type: 'bundle_app';
   appId: string;
@@ -472,6 +477,7 @@ export type ClientMessage =
   | AppOpenRequest
   | SharedAppsListRequest
   | SharedAppDeleteRequest
+  | ForkSharedAppRequest
   | OpenBundleRequest
   | SignBundlePayloadResponse
   | GetSigningIdentityResponse
@@ -900,6 +906,14 @@ export interface SharedAppDeleteResponse {
   success: boolean;
 }
 
+export interface ForkSharedAppResponse {
+  type: 'fork_shared_app_response';
+  success: boolean;
+  appId?: string;
+  name?: string;
+  error?: string;
+}
+
 export interface BundleAppResponse {
   type: 'bundle_app_response';
   bundlePath: string;
@@ -1114,6 +1128,7 @@ export type ServerMessage =
   | AppsListResponse
   | SharedAppsListResponse
   | SharedAppDeleteResponse
+  | ForkSharedAppResponse
   | OpenBundleResponse
   | SignBundlePayloadRequest
   | GetSigningIdentityRequest

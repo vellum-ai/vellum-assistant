@@ -44,6 +44,7 @@ import type {
   UpdateTrustRule,
   BundleAppRequest,
   SharedAppDeleteRequest,
+  ForkSharedAppRequest,
   UiSurfaceShow,
   IpcBlobProbe,
 } from './ipc-protocol.js';
@@ -57,7 +58,7 @@ import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../confi
 import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
-import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp } from '../memory/app-store.js';
+import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp, createApp } from '../memory/app-store.js';
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
 import { parseSlashCandidate } from '../skills/slash-commands.js';
@@ -403,6 +404,7 @@ const handlers: DispatchMap = {
   apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
   shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
   shared_app_delete: handleSharedAppDelete,
+  fork_shared_app: handleForkSharedApp,
   sign_bundle_payload_response: (_msg, _socket, _ctx) => {
     // TODO(signing): Route to pending promise resolution once the daemon-driven
     // IPC signing orchestration is wired up. Currently a no-op placeholder to
@@ -1745,6 +1747,64 @@ function handleSharedAppDelete(
   } catch (err) {
     log.error({ err }, 'Failed to delete shared app');
     ctx.send(socket, { type: 'shared_app_delete_response', success: false });
+  }
+}
+
+function handleForkSharedApp(
+  msg: ForkSharedAppRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const appUuid = msg.uuid;
+    // Validate UUID to prevent path traversal
+    if (appUuid.includes('/') || appUuid.includes('\\') || appUuid.includes('..') || /\s/.test(appUuid)) {
+      ctx.send(socket, { type: 'fork_shared_app_response', success: false, error: 'Invalid UUID' });
+      return;
+    }
+
+    const dir = getSharedAppsDir();
+    const metaFile = join(dir, `${appUuid}-meta.json`);
+
+    if (!existsSync(metaFile)) {
+      ctx.send(socket, { type: 'fork_shared_app_response', success: false, error: 'Shared app not found' });
+      return;
+    }
+
+    const metaRaw = readFileSync(metaFile, 'utf-8');
+    const meta = JSON.parse(metaRaw);
+    const appName = meta.name ?? 'Untitled';
+    const appDescription = meta.description;
+
+    // Read the HTML from the shared app's entry file
+    const entry = meta.entry ?? 'index.html';
+    const htmlPath = join(dir, appUuid, entry);
+
+    if (!existsSync(htmlPath)) {
+      ctx.send(socket, { type: 'fork_shared_app_response', success: false, error: 'Shared app HTML not found' });
+      return;
+    }
+
+    const htmlContent = readFileSync(htmlPath, 'utf-8');
+
+    // Create a new local app via the app store
+    const newApp = createApp({
+      name: `${appName} (Fork)`,
+      description: appDescription,
+      schemaJson: JSON.stringify({ type: 'object', properties: {} }),
+      htmlDefinition: htmlContent,
+    });
+
+    ctx.send(socket, {
+      type: 'fork_shared_app_response',
+      success: true,
+      appId: newApp.id,
+      name: newApp.name,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to fork shared app');
+    ctx.send(socket, { type: 'fork_shared_app_response', success: false, error: message });
   }
 }
 
