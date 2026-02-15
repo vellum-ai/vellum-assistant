@@ -55,7 +55,6 @@ public struct InlineDynamicPagePreview: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .frame(maxWidth: 350)
         .onHover { hovering in
             #if os(macOS)
             if hovering { NSCursor.pointingHand.set() }
