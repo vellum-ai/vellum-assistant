@@ -131,6 +131,30 @@ describe('entity extractor helpers', () => {
     expect(relationRows[0].evidence).toBe('Atlas still depends on Qdrant');
   });
 
+  test('resolveEntityName prefers exact canonical name over alias match', () => {
+    // Entity A has "React" as an alias
+    const aliasEntityId = upsertEntity({
+      name: 'React Native',
+      type: 'tool',
+      aliases: ['React', 'RN'],
+    });
+
+    // Entity B has "React" as its canonical name
+    const canonicalEntityId = upsertEntity({
+      name: 'React',
+      type: 'tool',
+      aliases: ['ReactJS'],
+    });
+
+    // resolveEntityName("React") should return the entity whose canonical
+    // name is "React", not the one that merely lists it as an alias.
+    expect(resolveEntityName('React')).toBe(canonicalEntityId);
+    expect(resolveEntityName('react')).toBe(canonicalEntityId);
+    // Alias-only lookups still work
+    expect(resolveEntityName('RN')).toBe(aliasEntityId);
+    expect(resolveEntityName('ReactJS')).toBe(canonicalEntityId);
+  });
+
   test('upsertEntityRelation drops self-edges', () => {
     const db = getDb();
     const entityId = upsertEntity({

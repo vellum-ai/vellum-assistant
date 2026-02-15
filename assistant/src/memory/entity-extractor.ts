@@ -195,10 +195,15 @@ export function resolveEntity(entity: ExtractedEntity): string | null {
 
 /**
  * Resolve an entity by canonical name or alias.
+ * Prefers exact canonical name matches over alias-only matches so that
+ * relations are attached to the correct node.
  */
 export function resolveEntityName(entityName: string): string | null {
   const candidates = findEntityCandidates(entityName);
-  return candidates.length > 0 ? candidates[0].id : null;
+  if (candidates.length === 0) return null;
+  const nameLower = entityName.trim().toLowerCase();
+  const exactNameMatch = candidates.find((c) => c.name.toLowerCase() === nameLower);
+  return exactNameMatch?.id ?? candidates[0].id;
 }
 
 /**
