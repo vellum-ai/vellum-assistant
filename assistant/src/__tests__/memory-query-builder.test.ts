@@ -12,9 +12,8 @@ describe('memory query builder', () => {
     const messages = [userMessage('hello')];
     const query = buildMemoryQuery('Need a memory recall query.', messages);
 
-    expect(query).toContain('## User Request');
-    expect(query).toContain('Need a memory recall query.');
-    expect(query).not.toContain('## Session Context Summary');
+    expect(query).toBe('Need a memory recall query.');
+    expect(query).not.toContain('Context summary:');
   });
 
   test('includes session summary section when summary context message exists', () => {
@@ -24,9 +23,11 @@ describe('memory query builder', () => {
     ];
     const query = buildMemoryQuery('Summarize decisions.', messages);
 
-    expect(query).toContain('## User Request');
-    expect(query).toContain('## Session Context Summary');
+    expect(query).toContain('Summarize decisions.');
+    expect(query).toContain('Context summary:');
     expect(query).toContain('Keep tests deterministic');
+    expect(query).not.toContain('## User Request');
+    expect(query).not.toContain('## Session Context Summary');
   });
 
   test('truncates oversized sections with deterministic marker', () => {
@@ -40,8 +41,9 @@ describe('memory query builder', () => {
     });
 
     expect(query).toContain('<truncated />');
-    expect(query).toContain('## User Request');
-    expect(query).toContain('## Session Context Summary');
+    expect(query).toContain('Context summary:');
+    expect(query).not.toContain('## User Request');
+    expect(query).not.toContain('## Session Context Summary');
   });
 
   test('returns stable output for identical inputs', () => {
