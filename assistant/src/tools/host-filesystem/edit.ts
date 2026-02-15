@@ -91,7 +91,7 @@ class HostFileEditTool implements Tool {
       }
     }
 
-    const { filePath, matchCount, oldContent, newContent, matchMethod } = result.value;
+    const { filePath, matchCount, oldContent, newContent, matchMethod, similarity } = result.value;
 
     if (replaceAll) {
       return {
@@ -105,7 +105,7 @@ class HostFileEditTool implements Tool {
       ? ''
       : matchMethod === 'whitespace'
         ? ' (matched with whitespace normalization)'
-        : ' (fuzzy matched)';
+        : ` (fuzzy matched, ${Math.round(similarity * 100)}% similar)`;
 
     return {
       content: `Successfully edited ${filePath}${methodNote}`,

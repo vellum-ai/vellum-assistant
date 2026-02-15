@@ -15,6 +15,7 @@ describe('edit engine', () => {
     expect(result.updatedContent).toBe('updated\n');
     expect(result.matchCount).toBe(1);
     expect(result.matchMethod).toBe('exact');
+    expect(result.similarity).toBe(1);
   });
 
   test('exact replacement in multi-line content', () => {
@@ -42,6 +43,7 @@ describe('edit engine', () => {
     if (!result.ok) return;
     expect(result.matchMethod).toBe('whitespace');
     expect(result.matchCount).toBe(1);
+    expect(result.similarity).toBe(1);
     // The indentation should be adjusted
     expect(result.updatedContent).toContain('function bar()');
   });
@@ -57,6 +59,8 @@ describe('edit engine', () => {
     if (!result.ok) return;
     expect(result.matchMethod).toBe('fuzzy');
     expect(result.matchCount).toBe(1);
+    expect(result.similarity).toBeGreaterThan(0.8);
+    expect(result.similarity).toBeLessThan(1);
   });
 
   // -----------------------------------------------------------------------
@@ -111,6 +115,7 @@ describe('edit engine', () => {
     expect(result.updatedContent).toBe('replaced\ny\nreplaced\nz\nreplaced\n');
     expect(result.matchCount).toBe(3);
     expect(result.matchMethod).toBe('exact');
+    expect(result.similarity).toBe(1);
   });
 
   test('replace_all: single occurrence reports count of 1', () => {

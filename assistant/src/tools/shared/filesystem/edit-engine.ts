@@ -6,7 +6,7 @@ import type { MatchMethod } from '../../filesystem/fuzzy-match.js';
 // ---------------------------------------------------------------------------
 
 export type EditEngineResult =
-  | { ok: true; updatedContent: string; matchCount: number; matchMethod: MatchMethod }
+  | { ok: true; updatedContent: string; matchCount: number; matchMethod: MatchMethod; similarity: number }
   | { ok: false; reason: 'not_found' }
   | { ok: false; reason: 'ambiguous'; matchCount: number };
 
@@ -34,7 +34,7 @@ export function applyEdit(
     }
     const count = content.split(oldString).length - 1;
     const updatedContent = content.split(oldString).join(newString);
-    return { ok: true, updatedContent, matchCount: count, matchMethod: 'exact' };
+    return { ok: true, updatedContent, matchCount: count, matchMethod: 'exact', similarity: 1 };
   }
 
   // Single-match path: cascading exact -> whitespace -> fuzzy
@@ -52,5 +52,5 @@ export function applyEdit(
     : newString;
 
   const updatedContent = content.slice(0, match.start) + adjustedNewString + content.slice(match.end);
-  return { ok: true, updatedContent, matchCount: 1, matchMethod: match.method };
+  return { ok: true, updatedContent, matchCount: 1, matchMethod: match.method, similarity: match.similarity };
 }

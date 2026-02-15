@@ -79,6 +79,21 @@ describe('file_edit tool (sandbox)', () => {
     expect(result.content).toContain('appears multiple times');
   });
 
+  test('fuzzy match includes similarity percentage in message', async () => {
+    const dir = makeTempDir();
+    const filePath = join(dir, 'sample.txt');
+    writeFileSync(filePath, 'function fooo() {\n  return 1;\n}\n');
+
+    const result = await fileEditTool.execute(
+      { path: 'sample.txt', old_string: 'function foo() {\n  return 1;\n}', new_string: 'function bar() {\n  return 2;\n}' },
+      makeContext(dir),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('fuzzy matched');
+    expect(result.content).toMatch(/\d+% similar/);
+  });
+
   test('returns error when old_string is not found', async () => {
     const dir = makeTempDir();
     const filePath = join(dir, 'sample.txt');

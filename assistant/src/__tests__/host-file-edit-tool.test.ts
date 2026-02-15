@@ -68,6 +68,24 @@ describe('host_file_edit tool', () => {
     expect(result.content).toContain('Successfully replaced 2 occurrences');
   });
 
+  test('fuzzy match includes similarity percentage in message', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-file-edit-test-'));
+    testDirs.push(dir);
+    const filePath = join(dir, 'sample.txt');
+    // Content has a typo-level difference from oldString
+    writeFileSync(filePath, 'function fooo() {\n  return 1;\n}\n');
+
+    const result = await hostFileEditTool.execute({
+      path: filePath,
+      old_string: 'function foo() {\n  return 1;\n}',
+      new_string: 'function bar() {\n  return 2;\n}',
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('fuzzy matched');
+    expect(result.content).toMatch(/\d+% similar/);
+  });
+
   test('returns ambiguity error when old_string appears multiple times', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'host-file-edit-test-'));
     testDirs.push(dir);

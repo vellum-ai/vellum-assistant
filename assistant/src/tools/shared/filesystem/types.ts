@@ -67,6 +67,8 @@ export interface EditOutput {
   newContent: string;
   /** How the match was found (exact, whitespace-normalized, or fuzzy). */
   matchMethod: 'exact' | 'whitespace' | 'fuzzy';
+  /** Match similarity score (0–1). Always 1 for exact/whitespace, <1 for fuzzy. */
+  similarity: number;
 }
 
 export type EditResult =

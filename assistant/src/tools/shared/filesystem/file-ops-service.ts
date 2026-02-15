@@ -199,6 +199,7 @@ export class FileSystemOps {
         oldContent: content,
         newContent: result.updatedContent,
         matchMethod: result.matchMethod,
+        similarity: result.similarity,
       },
     };
   }
