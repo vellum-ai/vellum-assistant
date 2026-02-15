@@ -92,6 +92,7 @@ struct SettingsView: View {
 struct PermissionRowView: View {
     let permission: PermissionManager.Permission
     @State private var status: PermissionStatus = .notDetermined
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         HStack {
@@ -115,6 +116,12 @@ struct PermissionRowView: View {
         }
         .onAppear {
             status = PermissionManager.shared.status(for: permission)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Refresh status when returning from iOS Settings
+            if newPhase == .active {
+                status = PermissionManager.shared.status(for: permission)
+            }
         }
     }
 
