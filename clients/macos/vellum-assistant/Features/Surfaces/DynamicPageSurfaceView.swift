@@ -311,20 +311,21 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         context.coordinator.onAction = onAction
         context.coordinator.onDataRequest = onDataRequest
 
+        // Keep the coordinator's desired insets up-to-date so webView(_:didFinish:)
+        // can re-inject the correct values after a page reload.
+        let newTop = Int(topContentInset)
+        let newBottom = Int(bottomContentInset)
+        context.coordinator.desiredTopInset = newTop
+        context.coordinator.desiredBottomInset = newBottom
+
         // Reload if the HTML content has changed.
         if data.html != context.coordinator.currentHTML {
             context.coordinator.currentHTML = data.html
             let origin = appId.map { "https://\($0).vellum.local/" } ?? "https://surface.vellum.local/"
             webView.loadHTMLString(data.html, baseURL: URL(string: origin))
-            // Reset cached insets so the check below re-injects the correct values
-            // after the page reloads (the WKUserScript from makeNSView has stale values).
-            context.coordinator.lastTopInset = 0
-            context.coordinator.lastBottomInset = 0
         }
 
         // Re-apply content insets and fade overlay when they change (e.g. composer expands).
-        let newTop = Int(topContentInset)
-        let newBottom = Int(bottomContentInset)
         if newTop != context.coordinator.lastTopInset || newBottom != context.coordinator.lastBottomInset {
             context.coordinator.lastTopInset = newTop
             context.coordinator.lastBottomInset = newBottom
@@ -360,6 +361,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         weak var webView: WKWebView?
         var lastTopInset: Int = 0
         var lastBottomInset: Int = 0
+        var desiredTopInset: Int = 0
+        var desiredBottomInset: Int = 0
 
         init(
             onAction: @escaping (String, Any?) -> Void,
@@ -511,8 +514,29 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // No auto-resize — the panel opens at a fixed default size and the user can
-            // resize manually. Content scrolls if it overflows.
+            // Re-inject content insets after page load completes. The WKUserScript from
+            // makeNSView has creation-time values baked in, which may be stale if insets
+            // changed since then (e.g. composer expanded). Apply the current desired values.
+            let top = desiredTopInset
+            let bottom = desiredBottomInset
+            guard top > 0 || bottom > 0 else { return }
+            lastTopInset = top
+            lastBottomInset = bottom
+            let fadeHeight = bottom + 32
+            let js = """
+                (function() {
+                    var el = document.getElementById('vellum-content-insets');
+                    if (!el) { el = document.createElement('style'); el.id = 'vellum-content-insets'; (document.head || document.documentElement).appendChild(el); }
+                    el.textContent = 'body { padding-top: \(top)px; padding-bottom: \(bottom)px; }';
+                    var fade = document.getElementById('vellum-bottom-fade');
+                    if (fade) {
+                        fade.style.height = '\(fadeHeight)px';
+                        var bg = getComputedStyle(document.body).backgroundColor || 'rgba(0,0,0,0)';
+                        fade.style.background = 'linear-gradient(to bottom, transparent 0%, ' + bg + ' 100%)';
+                    }
+                })();
+                """
+            webView.evaluateJavaScript(js, completionHandler: nil)
         }
 
         func webView(
