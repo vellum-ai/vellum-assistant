@@ -15,7 +15,7 @@ import {
 import { existsSync, statSync, readFileSync } from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
 import { startCli } from './cli.js';
-import { getSocketPath, getRootDir, getDataDir, getDbPath, getLogPath } from './util/platform.js';
+import { getSocketPath, getRootDir, getDataDir, getDbPath, getLogPath, getWorkspaceDir, getWorkspaceSkillsDir, getWorkspaceHooksDir } from './util/platform.js';
 import {
   serialize,
   createMessageParser,
@@ -763,10 +763,11 @@ program
       fail('Database exists and readable', `not found at ${dbPath}`);
     }
 
-    // 5. ~/.vellum/ directory structure
+    // 5. ~/.vellum/ directory structure (workspace layout)
     const rootDir = getRootDir();
     const dataDir = getDataDir();
-    const requiredDirs = [rootDir, dataDir, `${dataDir}/db`, `${dataDir}/logs`, `${rootDir}/skills`, `${rootDir}/protected`];
+    const workspaceDir = getWorkspaceDir();
+    const requiredDirs = [rootDir, workspaceDir, dataDir, `${dataDir}/db`, `${dataDir}/logs`, getWorkspaceSkillsDir(), getWorkspaceHooksDir(), `${rootDir}/protected`];
     const missing = requiredDirs.filter((d) => !existsSync(d));
     if (missing.length === 0) {
       pass('Directory structure exists');
