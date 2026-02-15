@@ -471,14 +471,17 @@ final class ComputerUseSession: ObservableObject {
 
         let screenSizePt = screenshotData != nil ? screenCapture.screenSize() : nil
 
-        // Transport AX tree via blob when large (>8KB) and blob transport available
+        // Transport AX tree via blob when large (>8KB) and blob transport available.
+        // Cap at 2MB to match the daemon's MAX_AX_BLOB_SIZE — trees above that limit
+        // would be rejected on hydration, losing the data entirely since inline was cleared.
         var axTreeInline = axTreeText
         var axTreeBlobRef: IPCIpcBlobRef?
         let axTreeBlobThreshold = 8 * 1024 // 8KB
+        let axTreeBlobMaxSize = 2 * 1024 * 1024 // 2MB — must match daemon's MAX_AX_BLOB_SIZE
 
         if let tree = axTreeText, daemonClient.isBlobTransportAvailable {
             let treeData = Data(tree.utf8)
-            if treeData.count > axTreeBlobThreshold {
+            if treeData.count > axTreeBlobThreshold && treeData.count <= axTreeBlobMaxSize {
                 if let ref = IpcBlobStore.shared.writeBlob(data: treeData, kind: "ax_tree", encoding: "utf8") {
                     axTreeBlobRef = ref
                     axTreeInline = nil
@@ -486,6 +489,8 @@ final class ComputerUseSession: ObservableObject {
                 } else {
                     log.warning("[\(stepNumber)] Blob write failed for AX tree, keeping inline")
                 }
+            } else if treeData.count > axTreeBlobMaxSize {
+                log.info("[\(stepNumber)] AX tree exceeds blob max size (\(treeData.count) bytes > \(axTreeBlobMaxSize)), keeping inline")
             }
         }
 
