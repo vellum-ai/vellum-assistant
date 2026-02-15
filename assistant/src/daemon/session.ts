@@ -939,6 +939,13 @@ export class Session {
             const imageBlock = event.contentBlocks?.find((b): b is ImageContent => b.type === 'image');
             onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status, sessionId: this.conversationId, imageData: imageBlock?.source.data });
             pendingToolResults.set(event.toolUseId, { content: event.content, isError: event.isError, contentBlocks: event.contentBlocks });
+            // Mark workspace context dirty on successful file mutation tools
+            if (!event.isError) {
+              const toolName = toolUseIdToName.get(event.toolUseId);
+              if (toolName === 'file_write' || toolName === 'file_edit') {
+                this.markWorkspaceTopLevelDirty();
+              }
+            }
             // Collect image/file content blocks for assistant attachment conversion
             if (event.contentBlocks) {
               for (const cb of event.contentBlocks) {
