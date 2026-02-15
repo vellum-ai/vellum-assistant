@@ -94,7 +94,7 @@ export const SecretDetectionConfigSchema = z.object({
     .enum(VALID_SECRET_ACTIONS, {
       error: `secretDetection.action must be one of: ${VALID_SECRET_ACTIONS.join(', ')}`,
     })
-    .default('warn'),
+    .default('block'),
   entropyThreshold: z
     .number({ error: 'secretDetection.entropyThreshold must be a number' })
     .finite('secretDetection.entropyThreshold must be finite')
@@ -818,7 +818,7 @@ export const AssistantConfigSchema = z.object({
   }),
   secretDetection: SecretDetectionConfigSchema.default({
     enabled: true,
-    action: 'warn',
+    action: 'block',
     entropyThreshold: 4.0,
   }),
   auditLog: AuditLogConfigSchema.default({

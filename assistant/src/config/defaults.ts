@@ -141,7 +141,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   },
   secretDetection: {
     enabled: true,
-    action: 'warn',
+    action: 'block',
     entropyThreshold: 4.0,
   },
   auditLog: {
