@@ -38,9 +38,11 @@ export function registerToolTraceListener(
       case 'tool.execution.finished':
         traceEmitter.emit('tool_finished', `Tool ${event.payload.toolName} finished in ${event.payload.durationMs}ms`, {
           requestId: event.payload.requestId,
+          status: event.payload.isError ? 'error' : undefined,
           attributes: {
             toolName: event.payload.toolName,
             durationMs: event.payload.durationMs,
+            isError: event.payload.isError,
           },
         });
         return;
