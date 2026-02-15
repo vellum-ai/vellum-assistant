@@ -20,6 +20,7 @@ struct ComposerView: View {
     @Binding var editorContentHeight: CGFloat
 
     @State private var composerScrollOffset: CGFloat = 0
+    @State private var expandedLatch = false
     @FocusState private var isComposerFocused: Bool
 
     /// The portion of the suggestion that extends beyond the current input.
@@ -112,8 +113,12 @@ struct ComposerView: View {
         }
     }
 
+    /// Sticky: once the text wraps past a single line, stay expanded until
+    /// the text is cleared. This prevents a layout oscillation where the
+    /// wider expanded TextField causes text to unwrap, which triggers compact
+    /// mode, which causes text to wrap again, ad infinitum.
     private var isComposerExpanded: Bool {
-        editorContentHeight > 28
+        expandedLatch
     }
 
     private var isScrolledToBottom: Bool {
@@ -182,11 +187,13 @@ struct ComposerView: View {
             if editorContentHeight > 200 {
                 proxy.scrollTo("composer-bottom", anchor: .bottom)
             }
+            if inputText.isEmpty { expandedLatch = false }
         }
         .onChange(of: editorContentHeight) {
             if editorContentHeight > 200 {
                 proxy.scrollTo("composer-bottom", anchor: .bottom)
             }
+            if editorContentHeight > 28 { expandedLatch = true }
         }
         .onKeyPress(.tab, phases: .down) { keyPress in
             if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
