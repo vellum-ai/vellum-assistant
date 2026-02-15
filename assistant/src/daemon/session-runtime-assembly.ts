@@ -112,7 +112,7 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
 
     // Build additional page content (all pages except the primary one)
     const otherPages: Record<string, string> = {};
-    if (viewingPage) {
+    if (viewingPage && primaryLabel !== 'index.html') {
       // Show index.html as additional context
       otherPages['index.html'] = ctx.html;
     }
