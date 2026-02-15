@@ -1078,3 +1078,20 @@ exports[`IPC message snapshots ServerMessage types trace_event serializes to exp
   "type": "trace_event",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types ipc_blob_probe serializes to expected JSON 1`] = `
+{
+  "nonceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "probeId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "type": "ipc_blob_probe",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types ipc_blob_probe_result serializes to expected JSON 1`] = `
+{
+  "observedNonceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "ok": true,
+  "probeId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "type": "ipc_blob_probe_result",
+}
+`;

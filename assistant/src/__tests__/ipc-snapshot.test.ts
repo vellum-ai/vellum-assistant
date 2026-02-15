@@ -237,6 +237,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   sessions_clear: {
     type: 'sessions_clear',
   },
+  ipc_blob_probe: {
+    type: 'ipc_blob_probe',
+    probeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    nonceSha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -680,6 +685,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     status: 'info',
     summary: 'Running bash: ls -la',
     attributes: { toolName: 'bash', command: 'ls -la', riskLevel: 'low', sandboxed: true },
+  },
+  ipc_blob_probe_result: {
+    type: 'ipc_blob_probe_result',
+    probeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    ok: true,
+    observedNonceSha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
   },
 };
 

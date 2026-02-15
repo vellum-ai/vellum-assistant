@@ -5,8 +5,10 @@ import {
   mkdirSync,
   existsSync,
   unlinkSync,
+  lstatSync,
+  realpathSync,
 } from 'node:fs';
-import { readFile, readdir, stat, unlink } from 'node:fs/promises';
+import { readFile, readdir, lstat, realpath, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 
@@ -52,11 +54,76 @@ export function resolveBlobPath(id: string): string {
 }
 
 /**
+ * Verify that a blob file at the given path is a regular file (not a symlink)
+ * and that its realpath stays within the blob directory.
+ * Throws if the file is a symlink or escapes the blob directory.
+ */
+async function assertRegularFileInBlobDir(filePath: string): Promise<void> {
+  const fileLstat = await lstat(filePath);
+  if (fileLstat.isSymbolicLink()) {
+    throw new Error(`Blob file is a symlink: ${filePath}`);
+  }
+  const real = await realpath(filePath);
+  // Realpath both the file and the blob dir so macOS /var → /private/var is handled
+  const realBlobDir = await realpath(getIpcBlobDir());
+  if (!real.startsWith(realBlobDir + '/')) {
+    throw new Error(`Blob realpath escapes blob directory: ${real}`);
+  }
+}
+
+/**
+ * Synchronous variant for use in deleteBlob.
+ */
+function assertRegularFileInBlobDirSync(filePath: string): void {
+  const fileLstat = lstatSync(filePath);
+  if (fileLstat.isSymbolicLink()) {
+    throw new Error(`Blob file is a symlink: ${filePath}`);
+  }
+  const real = realpathSync(filePath);
+  const realBlobDir = realpathSync(getIpcBlobDir());
+  if (!real.startsWith(realBlobDir + '/')) {
+    throw new Error(`Blob realpath escapes blob directory: ${real}`);
+  }
+}
+
+/** Expected kind and encoding for each blob field. */
+export const EXPECTED_BLOB_FIELD_METADATA = {
+  axTreeBlob: { kind: 'ax_tree' as const, encoding: 'utf8' as const },
+  screenshotBlob: { kind: 'screenshot_jpeg' as const, encoding: 'binary' as const },
+};
+
+/**
+ * Validate that a blob ref's kind and encoding match expectations for a given field.
+ * Throws with a descriptive message if they don't match.
+ */
+export function validateBlobKindEncoding(
+  ref: IpcBlobRef,
+  field: keyof typeof EXPECTED_BLOB_FIELD_METADATA,
+): void {
+  const expected = EXPECTED_BLOB_FIELD_METADATA[field];
+  if (ref.kind !== expected.kind) {
+    throw new Error(
+      `Blob kind mismatch for ${field}: expected "${expected.kind}", got "${ref.kind}"`,
+    );
+  }
+  if (ref.encoding !== expected.encoding) {
+    throw new Error(
+      `Blob encoding mismatch for ${field}: expected "${expected.encoding}", got "${ref.encoding}"`,
+    );
+  }
+}
+
+/**
  * Read a blob file and validate it against the ref metadata.
+ * Verifies the file is a regular file (not a symlink) and its realpath
+ * stays within the blob directory before reading.
  * Returns the raw bytes.
  */
 export async function readBlob(ref: IpcBlobRef): Promise<Buffer> {
   const filePath = resolveBlobPath(ref.id);
+
+  // Symlink-safe: verify the file is a regular file with realpath inside blob dir
+  await assertRegularFileInBlobDir(filePath);
 
   const buf = await readFile(filePath);
 
@@ -92,6 +159,8 @@ export async function readBlob(ref: IpcBlobRef): Promise<Buffer> {
 export function deleteBlob(id: string): void {
   try {
     const filePath = resolveBlobPath(id);
+    // Symlink-safe: verify the file is a regular file before deleting
+    assertRegularFileInBlobDirSync(filePath);
     unlinkSync(filePath);
   } catch (err) {
     // ENOENT is expected when the blob was already cleaned up
@@ -124,8 +193,13 @@ export async function sweepStaleBlobs(maxAgeMs: number): Promise<number> {
 
     const filePath = join(blobDir, entry);
     try {
-      const fileStat = await stat(filePath);
-      const ageMs = now - fileStat.mtimeMs;
+      // Use lstat (not stat) to detect symlinks without following them
+      const fileLstat = await lstat(filePath);
+      if (fileLstat.isSymbolicLink()) {
+        log.warn({ filePath }, 'Skipping symlink during blob sweep');
+        continue;
+      }
+      const ageMs = now - fileLstat.mtimeMs;
       if (ageMs > maxAgeMs) {
         await unlink(filePath);
         deleted++;

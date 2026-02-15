@@ -158,32 +158,10 @@ describe('handleCuObservation blob hydration', () => {
     expect(existsSync(join(blobDir, `${blobRef.id}.blob`))).toBe(false);
   });
 
-  test('both blob + inline: blob succeeds, inline ignored', async () => {
+  test('blob-first: blob succeeds, inline value is overwritten', async () => {
     const sessionId = randomUUID();
     const blobAxTree = 'Blob AX tree content';
-    const blobRef = writeBlobFile(Buffer.from(blobAxTree, 'utf8'), 'ax_tree', 'utf8');
-
-    const msg: CuObservation = {
-      type: 'cu_observation',
-      sessionId,
-      axTreeBlob: blobRef,
-      // No inline axTree — blob should be used
-    };
-
-    const { ctx, observations } = createTestContext(sessionId);
-    const fakeSocket = {} as net.Socket;
-
-    handleMessage(msg, fakeSocket, ctx);
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(observations).toHaveLength(1);
-    expect(observations[0].axTree).toBe(blobAxTree);
-  });
-
-  test('inline takes precedence when present (blob skipped)', async () => {
-    const sessionId = randomUUID();
-    const inlineAxTree = 'Inline AX tree';
-    const blobAxTree = 'Blob AX tree';
+    const inlineAxTree = 'Inline AX tree content';
     const blobRef = writeBlobFile(Buffer.from(blobAxTree, 'utf8'), 'ax_tree', 'utf8');
 
     const msg: CuObservation = {
@@ -200,11 +178,40 @@ describe('handleCuObservation blob hydration', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(observations).toHaveLength(1);
-    // Inline value should be preserved because the hydration skips when inline exists
+    // Blob takes precedence when both are present and blob succeeds
+    expect(observations[0].axTree).toBe(blobAxTree);
+  });
+
+  test('blob fails with inline fallback: uses inline value', async () => {
+    const sessionId = randomUUID();
+    const inlineAxTree = 'Inline AX tree';
+    // Create a blob ref that points to a non-existent file
+    const blobRef: IpcBlobRef = {
+      id: randomUUID(),
+      kind: 'ax_tree',
+      encoding: 'utf8',
+      byteLength: 100,
+    };
+
+    const msg: CuObservation = {
+      type: 'cu_observation',
+      sessionId,
+      axTree: inlineAxTree,
+      axTreeBlob: blobRef,
+    };
+
+    const { ctx, observations } = createTestContext(sessionId);
+    const fakeSocket = {} as net.Socket;
+
+    handleMessage(msg, fakeSocket, ctx);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(observations).toHaveLength(1);
+    // Inline value should be preserved as fallback when blob fails
     expect(observations[0].axTree).toBe(inlineAxTree);
   });
 
-  test('blob failure: continues without value when no inline fallback', async () => {
+  test('blob failure with no inline fallback: emits cu_error', async () => {
     const sessionId = randomUUID();
     // Create a blob ref that points to a non-existent file
     const blobRef: IpcBlobRef = {
@@ -220,6 +227,34 @@ describe('handleCuObservation blob hydration', () => {
       axTreeBlob: blobRef,
     };
 
+    const { ctx, sent, observations } = createTestContext(sessionId);
+    const fakeSocket = {} as net.Socket;
+
+    handleMessage(msg, fakeSocket, ctx);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should NOT forward to session
+    expect(observations).toHaveLength(0);
+    // Should send cu_error
+    expect(sent).toHaveLength(1);
+    expect(sent[0].type).toBe('cu_error');
+    expect((sent[0] as any).message).toContain('Failed to hydrate axTreeBlob');
+    expect((sent[0] as any).message).toContain('no inline fallback');
+  });
+
+  test('wrong blob kind: fails validation and falls back to inline', async () => {
+    const sessionId = randomUUID();
+    const inlineScreenshot = 'base64screenshotdata';
+    // Create a blob with wrong kind for screenshotBlob field
+    const blobRef = writeBlobFile(Buffer.from([0xFF, 0xD8]), 'ax_tree', 'utf8');
+
+    const msg: CuObservation = {
+      type: 'cu_observation',
+      sessionId,
+      screenshot: inlineScreenshot,
+      screenshotBlob: blobRef,
+    };
+
     const { ctx, observations } = createTestContext(sessionId);
     const fakeSocket = {} as net.Socket;
 
@@ -227,8 +262,33 @@ describe('handleCuObservation blob hydration', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(observations).toHaveLength(1);
-    // axTree should remain undefined since blob failed and no inline fallback
-    expect(observations[0].axTree).toBeUndefined();
+    // Should fall back to inline because kind validation failed
+    expect(observations[0].screenshot).toBe(inlineScreenshot);
+  });
+
+  test('wrong blob kind with no inline fallback: emits cu_error', async () => {
+    const sessionId = randomUUID();
+    // Create a blob with wrong kind for screenshotBlob field, no inline fallback
+    const blobRef = writeBlobFile(Buffer.from([0xFF, 0xD8]), 'ax_tree', 'utf8');
+
+    const msg: CuObservation = {
+      type: 'cu_observation',
+      sessionId,
+      screenshotBlob: blobRef,
+    };
+
+    const { ctx, sent, observations } = createTestContext(sessionId);
+    const fakeSocket = {} as net.Socket;
+
+    handleMessage(msg, fakeSocket, ctx);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should NOT forward to session
+    expect(observations).toHaveLength(0);
+    // Should send cu_error
+    expect(sent).toHaveLength(1);
+    expect(sent[0].type).toBe('cu_error');
+    expect((sent[0] as any).message).toContain('Failed to hydrate screenshotBlob');
   });
 
   test('inline-only unchanged: no blob refs, observation passes through', async () => {

@@ -64,7 +64,7 @@ import { parseSlashCandidate } from '../skills/slash-commands.js';
 import { removeSkillsIndexEntry } from '../skills/managed-store.js';
 import { packageApp } from '../bundler/app-bundler.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
-import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId } from './ipc-blob-store.js';
+import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId, validateBlobKindEncoding } from './ipc-blob-store.js';
 import { estimateBase64Bytes } from './assistant-attachments.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
 import { getAttachmentsForMessageUnscoped } from '../memory/attachments-store.js';
@@ -1904,24 +1904,42 @@ async function handleCuObservation(
   ctx: HandlerContext,
 ): Promise<void> {
   // Hydrate blob refs to inline values before any other processing.
-  // Inline fields take precedence only as a fallback when blob hydration fails.
-  if (msg.axTreeBlob && !msg.axTree) {
+  // Strategy: blob-first, inline-fallback, cu_error if neither available.
+  if (msg.axTreeBlob) {
     try {
+      validateBlobKindEncoding(msg.axTreeBlob, 'axTreeBlob');
       const buf = await readBlob(msg.axTreeBlob);
       msg.axTree = buf.toString('utf8');
       deleteBlob(msg.axTreeBlob.id);
     } catch (err) {
-      log.warn({ err, blobId: msg.axTreeBlob.id }, 'Failed to hydrate axTreeBlob');
+      log.warn({ err, blobId: msg.axTreeBlob.id }, 'Failed to hydrate axTreeBlob, checking inline fallback');
+      if (!msg.axTree) {
+        ctx.send(socket, {
+          type: 'cu_error',
+          sessionId: msg.sessionId,
+          message: `Failed to hydrate axTreeBlob (id=${msg.axTreeBlob.id}) and no inline fallback available`,
+        });
+        return;
+      }
     }
   }
 
-  if (msg.screenshotBlob && !msg.screenshot) {
+  if (msg.screenshotBlob) {
     try {
+      validateBlobKindEncoding(msg.screenshotBlob, 'screenshotBlob');
       const buf = await readBlob(msg.screenshotBlob);
       msg.screenshot = buf.toString('base64');
       deleteBlob(msg.screenshotBlob.id);
     } catch (err) {
-      log.warn({ err, blobId: msg.screenshotBlob.id }, 'Failed to hydrate screenshotBlob');
+      log.warn({ err, blobId: msg.screenshotBlob.id }, 'Failed to hydrate screenshotBlob, checking inline fallback');
+      if (!msg.screenshot) {
+        ctx.send(socket, {
+          type: 'cu_error',
+          sessionId: msg.sessionId,
+          message: `Failed to hydrate screenshotBlob (id=${msg.screenshotBlob.id}) and no inline fallback available`,
+        });
+        return;
+      }
     }
   }
 
