@@ -617,8 +617,8 @@ graph LR
     end
 
     subgraph "Enforcement"
-        CI["CI (GitHub Actions)<br/>bun run check:ipc-generated<br/>bun run ipc:inventory"]
-        HOOK["Pre-commit hook<br/>same checks on staged<br/>IPC files"]
+        CI["CI (GitHub Actions)<br/>bun run check:ipc-generated<br/>bun run ipc:inventory<br/>bun run ipc:check-swift-drift"]
+        HOOK["Pre-commit hook<br/>same 3 checks on staged<br/>IPC files"]
     end
 
     CONTRACT --> TJS
