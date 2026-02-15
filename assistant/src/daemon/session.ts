@@ -1659,13 +1659,14 @@ export class Session {
     const threshold = conflictConfig.relevanceThreshold;
     const cooldownTurns = Math.max(1, conflictConfig.reaskCooldownTurns);
     const pendingBeforeResolve = listPendingConflictDetails('default', 50);
-    const relevantBeforeResolve = pendingBeforeResolve.filter(
-      (conflict) => computeConflictRelevance(userMessage, conflict) >= threshold,
-    );
+    const candidatesBeforeResolve = pendingBeforeResolve.filter((conflict) => {
+      const relevance = computeConflictRelevance(userMessage, conflict);
+      return relevance >= threshold || this.wasConflictRecentlyAsked(conflict.id, cooldownTurns);
+    });
     await this.resolvePendingConflictsFromUserTurn(
       userMessage,
       conflictConfig.resolverLlmTimeoutMs,
-      relevantBeforeResolve,
+      candidatesBeforeResolve,
     );
 
     const pending = listPendingConflictDetails('default', 50);
@@ -1719,6 +1720,12 @@ export class Session {
     const lastAskedTurn = this.conflictLastAskedTurn.get(conflictId);
     if (lastAskedTurn === undefined) return true;
     return this.conflictTurnCounter - lastAskedTurn >= cooldownTurns;
+  }
+
+  private wasConflictRecentlyAsked(conflictId: string, cooldownTurns: number): boolean {
+    const lastAskedTurn = this.conflictLastAskedTurn.get(conflictId);
+    if (lastAskedTurn === undefined) return false;
+    return this.conflictTurnCounter - lastAskedTurn <= cooldownTurns;
   }
 
   private async surfaceProxyResolver(
